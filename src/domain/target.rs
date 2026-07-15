@@ -105,6 +105,41 @@ pub fn ssh_identity_validation_message() -> String {
         .to_owned()
 }
 
+/// Validate a user-supplied OpenSSH `-o` value.
+///
+/// Options must be one shell-free `name=value` argument. Only options that do
+/// not alter Jefe-owned destination, authentication, host-key, forwarding,
+/// connection-sharing, command, timeout, or terminal policies are accepted.
+fn validate_ssh_option(option: &str) -> Result<(), String> {
+    const ALLOWED_OPTIONS: &[&str] = &[
+        "compression",
+        "ipqos",
+        "loglevel",
+        "logverbose",
+        "rekeylimit",
+        "tcpkeepalive",
+    ];
+
+    let Some((name, value)) = option.split_once('=') else {
+        return Err("SSH options must use name=value syntax".to_owned());
+    };
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        || !ALLOWED_OPTIONS.contains(&name.to_ascii_lowercase().as_str())
+    {
+        return Err(format!("SSH option {name:?} is not permitted"));
+    }
+    if value.is_empty() {
+        return Err(format!("SSH option {name:?} requires a value"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!("SSH option {name:?} contains control characters"));
+    }
+    Ok(())
+}
+
 /// Validate remote settings for form submission.
 ///
 /// Returns `Ok(())` when the settings are either disabled or a complete remote
@@ -128,6 +163,12 @@ pub fn validate_remote(remote: &RemoteRepositorySettings) -> Result<(), String> 
     if !remote.run_as_user.trim().is_empty() && !is_valid_ssh_identity(&remote.run_as_user) {
         return Err(ssh_identity_validation_message());
     }
+    if remote.port == Some(0) {
+        return Err("SSH port must be between 1 and 65535".to_owned());
+    }
+    for option in &remote.options {
+        validate_ssh_option(option)?;
+    }
     Ok(())
 }
 
@@ -142,7 +183,22 @@ mod tests {
             host: host.to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         }
+    }
+
+    #[test]
+    fn validate_remote_rejects_zero_port_and_transport_owned_options() {
+        let mut settings = remote(true, "ubuntu", "host");
+        settings.port = Some(0);
+        assert!(validate_remote(&settings).is_err());
+
+        settings.port = Some(22);
+        settings.options = vec!["Port=2200".to_owned()];
+        assert!(validate_remote(&settings).is_err());
+
+        settings.options = vec!["Compression=yes".to_owned()];
+        assert_eq!(validate_remote(&settings), Ok(()));
     }
 
     #[test]
@@ -352,6 +408,44 @@ mod tests {
         let mut good = remote(true, "ubuntu", "build.example.com");
         good.run_as_user = "deploy".to_owned();
         assert!(validate_remote(&good).is_ok());
+    }
+    #[test]
+    fn validate_remote_rejects_proxyjump_option() {
+        let mut bad = remote(true, "ubuntu", "build.example.com");
+        bad.options = vec!["ProxyJump=gateway.example.com".to_owned()];
+        assert!(validate_remote(&bad).is_err());
+    }
+
+    #[test]
+    fn validate_remote_allows_only_non_policy_ssh_options() {
+        let mut good = remote(true, "ubuntu", "build.example.com");
+        good.options = vec!["Compression=yes".to_owned(), "LogLevel=ERROR".to_owned()];
+        assert!(validate_remote(&good).is_ok());
+
+        for option in [
+            "UserKnownHostsFile=NUL",
+            "ForwardAgent=yes",
+            "CertificateFile=client-cert.pub",
+            "PasswordAuthentication=yes",
+            "ControlMaster=auto",
+            "RequestTTY=force",
+        ] {
+            let mut bad = good.clone();
+            bad.options = vec![option.to_owned()];
+            assert!(validate_remote(&bad).is_err(), "accepted {option}");
+        }
+    }
+
+    #[test]
+    fn ssh_option_validation_distinguishes_value_errors() {
+        assert_eq!(
+            validate_ssh_option("Compression="),
+            Err("SSH option \"Compression\" requires a value".to_owned())
+        );
+        assert_eq!(
+            validate_ssh_option("Compression=yes\n"),
+            Err("SSH option \"Compression\" contains control characters".to_owned())
+        );
     }
 
     #[test]

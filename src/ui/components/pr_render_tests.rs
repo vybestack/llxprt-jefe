@@ -62,6 +62,7 @@ fn make_test_pr(number: u64) -> PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -88,6 +89,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-02T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -98,9 +100,14 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -149,13 +156,13 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
             url: None,
         },
     ];
-    detail.comments = vec![IssueComment {
+    detail.comments.replace_items(vec![IssueComment {
         comment_id: 1,
         author_login: "carol".to_string(),
         created_at: "2024-01-05".to_string(),
         edited_at: None,
         body: "Nice work!".to_string(),
-    }];
+    }]);
     detail
 }
 
@@ -262,7 +269,7 @@ fn detail_rich_for_scroll_divergence(number: u64) -> PullRequestDetail {
     detail.checks_status = PrCheckStatus::Success;
     detail.reviews = rich_reviews();
     detail.checks = rich_checks();
-    detail.comments = rich_comments();
+    detail.comments.replace_items(rich_comments());
     detail
 }
 
@@ -639,7 +646,7 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
     detail.body = String::new(); // empty body -> "(no description)"
     detail.reviews = vec![];
     detail.checks = vec![];
-    detail.comments = vec![];
+    detail.comments.replace_items(vec![]);
 
     let real_lines = build_pr_detail_content(
         &detail,

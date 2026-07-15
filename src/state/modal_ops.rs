@@ -20,6 +20,7 @@ struct NewAgentRepositoryDefaults {
     base_dir: String,
     profile: String,
     code_puppy_model: String,
+    llxprt_version: String,
     agent_kind: AgentKind,
     remote_enabled: bool,
 }
@@ -35,6 +36,10 @@ fn new_agent_repository_defaults(
             base_dir: repository.base_dir.to_string_lossy().into_owned(),
             profile: repository.default_profile.clone(),
             code_puppy_model: repository.default_code_puppy_model.clone(),
+            llxprt_version: repository.default_llxprt_version.as_ref().map_or_else(
+                String::new,
+                |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
+            ),
             agent_kind: repository.default_agent_kind,
             remote_enabled: repository.remote.enabled,
         })
@@ -116,12 +121,22 @@ impl AppState {
                 default_profile: r.default_profile.clone(),
                 default_code_puppy_model: r.default_code_puppy_model.clone(),
                 default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
+                default_llxprt_version: r.default_llxprt_version.as_ref().map_or_else(
+                    String::new,
+                    |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
+                ),
                 default_agent_kind: r.default_agent_kind.label().to_owned(),
                 github_repo: r.github_repo.clone(),
                 github_issue_pr_repo: r.github_issue_pr_repo.clone(),
                 remote_enabled: r.remote.enabled,
                 login_user: r.remote.login_user.clone(),
                 host: r.remote.host.clone(),
+                ssh_port: r
+                    .remote
+                    .port
+                    .map_or_else(String::new, |port| port.to_string()),
+                identity_file: r.remote.identity_file.to_string_lossy().into_owned(),
+                ssh_options: r.remote.options.join(" "),
                 run_as_user: r.remote.run_as_user.clone(),
                 setup_env_default: r.remote.setup_env_default,
                 transient_agent_dir: r.transient_agent_dir.to_string_lossy().into_owned(),
@@ -135,10 +150,14 @@ impl AppState {
                 base_dir: fields.base_dir.chars().count(),
                 default_profile: fields.default_profile.chars().count(),
                 default_code_puppy_model: fields.default_code_puppy_model.chars().count(),
+                default_llxprt_version: fields.default_llxprt_version.chars().count(),
                 github_repo: fields.github_repo.chars().count(),
                 github_issue_pr_repo: fields.github_issue_pr_repo.chars().count(),
                 login_user: fields.login_user.chars().count(),
                 host: fields.host.chars().count(),
+                ssh_port: fields.ssh_port.chars().count(),
+                identity_file: fields.identity_file.chars().count(),
+                ssh_options: fields.ssh_options.chars().count(),
                 run_as_user: fields.run_as_user.chars().count(),
                 transient_agent_dir: fields.transient_agent_dir.chars().count(),
                 transient_max_concurrent: fields.transient_max_concurrent.chars().count(),
@@ -153,6 +172,7 @@ impl AppState {
             base_dir,
             profile: default_profile,
             code_puppy_model: default_code_puppy_model,
+            llxprt_version: default_llxprt_version,
             agent_kind: repo_default_kind,
             remote_enabled,
         } = new_agent_repository_defaults(&self.repositories, &repository_id);
@@ -172,6 +192,7 @@ impl AppState {
         let work_dir_len = base_dir.chars().count();
         let profile_len = default_profile.chars().count();
         let code_puppy_model_len = default_code_puppy_model.chars().count();
+        let llxprt_version_len = default_llxprt_version.chars().count();
 
         let default_mode = if agent_kind == crate::domain::AgentKind::Llxprt {
             "--yolo"
@@ -191,6 +212,7 @@ impl AppState {
                 code_puppy_yolo: false,
                 code_puppy_quick_resume: crate::domain::QuickResume::default(),
                 agent_kind: agent_kind.label().to_owned(),
+                llxprt_version: default_llxprt_version,
                 mode: default_mode.to_owned(),
                 llxprt_debug: String::new(),
                 pass_continue: true,
@@ -203,6 +225,7 @@ impl AppState {
                 profile: profile_len,
                 code_puppy_model: code_puppy_model_len,
                 mode: default_mode.chars().count(),
+                llxprt_version: llxprt_version_len,
                 sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
                 ..AgentFormCursor::default()
             },
@@ -226,6 +249,10 @@ impl AppState {
                 code_puppy_yolo: a.code_puppy_yolo.unwrap_or(false),
                 code_puppy_quick_resume: a.code_puppy_quick_resume.into(),
                 agent_kind: a.agent_kind.label().to_owned(),
+                llxprt_version: a.llxprt_version.as_ref().map_or_else(
+                    String::new,
+                    |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
+                ),
                 mode: a.mode_flags.join(" "),
                 llxprt_debug: a.llxprt_debug.clone(),
                 pass_continue: a.pass_continue,
@@ -243,6 +270,7 @@ impl AppState {
                 profile: fields.profile.chars().count(),
                 code_puppy_model: fields.code_puppy_model.chars().count(),
                 mode: fields.mode.chars().count(),
+                llxprt_version: fields.llxprt_version.chars().count(),
                 llxprt_debug: fields.llxprt_debug.chars().count(),
                 sandbox_flags: fields.sandbox_flags.chars().count(),
             },

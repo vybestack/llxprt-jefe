@@ -32,6 +32,34 @@ fn effective_render_size_windowed_subtraction() {
 }
 
 #[test]
+fn fullscreen_and_windowed_terminals_can_project_the_same_render_size() {
+    assert_eq!(
+        effective_render_size_inner(100, 25, true),
+        effective_render_size_inner(102, 27, false)
+    );
+}
+
+#[test]
+fn split_layout_matches_the_rendered_filter_and_padding_bands() {
+    let layout = split_layout_for_render_size(100, 25);
+
+    assert_eq!(layout.sidebar_origin_col, 1);
+    assert_eq!(layout.sidebar_origin_row, 5);
+    assert_eq!(layout.sidebar_cols, 98);
+    assert_eq!(layout.sidebar_rows, 18);
+    assert_eq!(layout.sidebar_content_cols, 94);
+}
+
+#[test]
+fn split_layout_saturates_at_tiny_render_sizes() {
+    let layout = split_layout_for_render_size(2, 6);
+
+    assert_eq!(layout.sidebar_cols, 0);
+    assert_eq!(layout.sidebar_rows, 0);
+    assert_eq!(layout.sidebar_content_cols, 0);
+}
+
+#[test]
 fn compute_pty_layout_pane_origin() {
     let layout = compute_pty_layout_inner(120, 40, true);
     assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);
@@ -97,17 +125,9 @@ fn compute_pty_layout_pane_row0_positive() {
 }
 
 #[test]
-fn detail_viewport_never_drops_below_minimum() {
-    assert_eq!(
-        detail_viewport_rows(0),
-        DETAIL_MIN_VIEWPORT_ROWS,
-        "zero-height terminal should still reserve the minimum viewport"
-    );
-    assert_eq!(
-        detail_viewport_rows(1),
-        DETAIL_MIN_VIEWPORT_ROWS,
-        "one-row terminal should still reserve the minimum viewport"
-    );
+fn detail_viewport_saturates_to_physical_capacity() {
+    assert_eq!(detail_viewport_rows(0), 0);
+    assert_eq!(detail_viewport_rows(1), 0);
 }
 
 #[test]
@@ -118,7 +138,7 @@ fn detail_viewport_grows_with_terminal_height() {
         large > small,
         "larger terminal should yield more viewport rows ({large} > {small})"
     );
-    assert!(large > DETAIL_MIN_VIEWPORT_ROWS);
+    assert!(large > small);
 }
 
 #[test]
@@ -635,123 +655,6 @@ fn golden_pty_layout_representative_sizes() {
             "golden mismatch for ({cols}x{rows}, fullscreen={fullscreen})"
         );
     }
-}
-
-// -------------------------------------------------------------------------
-// Shared list-viewport / selection-follow helper tests (REQ-PR-006, #54/#55)
-//
-// @plan PLAN-20260624-PR-MODE.P04
-// @requirement REQ-PR-006
-// @pseudocode component-001 lines 182-196
-//
-// RED pure-logic tests against the P03 wrong-but-total stubs
-// (list_first_visible_index returns 0; list_visible_window returns empty).
-// -------------------------------------------------------------------------
-
-/// The first visible index must ADVANCE to keep `selected` on screen once
-/// `selected >= viewport_rows` (selection-follow, #55).
-///
-/// @plan PLAN-20260624-PR-MODE.P04
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 182-189
-#[test]
-fn test_list_first_visible_index_follows_selection_past_viewport() {
-    // selected=12, len=30, viewport_rows=10 → first_visible must be 3
-    // (so rows 3..13 are visible and row 12 is on screen).
-    let first = list_first_visible_index(12, 30, 10);
-    assert_eq!(
-        first, 3,
-        "selected=12 with viewport_rows=10 should yield first_visible=3 (got {first})"
-    );
-
-    // selected=20, len=30, viewport_rows=10 → first_visible=11.
-    let first = list_first_visible_index(20, 30, 10);
-    assert_eq!(
-        first, 11,
-        "selected=20 with viewport_rows=10 should yield first_visible=11 (got {first})"
-    );
-}
-
-/// first_visible must be 0 when `selected < viewport_rows` (top of list) or
-/// when `len <= viewport_rows` (short list), and must never exceed
-/// `len.saturating_sub(viewport_rows)`.
-///
-/// @plan PLAN-20260624-PR-MODE.P04
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 182-189
-#[test]
-fn test_list_first_visible_index_clamps_at_top_and_short_lists() {
-    // selected within first viewport → offset 0.
-    assert_eq!(
-        list_first_visible_index(3, 30, 10),
-        0,
-        "selected < viewport_rows should yield first_visible=0"
-    );
-
-    // Short list (len <= viewport_rows) → offset 0.
-    assert_eq!(
-        list_first_visible_index(2, 5, 10),
-        0,
-        "short list (len <= viewport_rows) should yield first_visible=0"
-    );
-
-    // Never scroll past the last full page.
-    let max_first = 30usize.saturating_sub(10);
-    for sel in 0..30 {
-        let first = list_first_visible_index(sel, 30, 10);
-        assert!(
-            first <= max_first,
-            "first_visible ({first}) must not exceed len-viewport_rows ({max_first}) for selected={sel}"
-        );
-    }
-
-    // Selecting the LAST row must scroll to keep it visible (not offset 0).
-    let first = list_first_visible_index(29, 30, 10);
-    assert_eq!(
-        first, 20,
-        "selecting the last row (29) should yield first_visible=20 (got {first})"
-    );
-}
-
-/// The visible window must contain exactly `min(viewport_rows, rows.len())`
-/// rows, start at `list_first_visible_index(...)`, and include `rows[selected]`.
-///
-/// @plan PLAN-20260624-PR-MODE.P04
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 190-196
-#[test]
-fn test_list_visible_window_returns_exact_n_rows_and_bounds() {
-    let rows: Vec<u32> = (0..30).collect();
-
-    // selected=15, viewport_rows=10 → window of 10 rows including row 15.
-    let window = list_visible_window(&rows, 15, 10);
-    assert_eq!(
-        window.len(),
-        10,
-        "window must contain exactly min(viewport_rows, len) = 10 rows (got {})",
-        window.len()
-    );
-    // Window starts at first_visible_index.
-    let first = list_first_visible_index(15, 30, 10);
-    assert!(
-        window.first().is_some_and(|&v| v as usize == first),
-        "window must start at first_visible_index ({first}): got {window:?}"
-    );
-    // Window includes the selected row.
-    assert!(
-        window.contains(&15),
-        "window must include rows[selected] (15): got {window:?}"
-    );
-
-    // Short list: viewport_rows > len → window = all rows.
-    let short: Vec<u32> = (0..3).collect();
-    let window = list_visible_window(&short, 1, 10);
-    assert_eq!(
-        window.len(),
-        3,
-        "short list (len < viewport_rows) must render exactly len rows (got {})",
-        window.len()
-    );
 }
 
 // ── reveal_range_scroll_offset (#151) ───────────────────────────────────────

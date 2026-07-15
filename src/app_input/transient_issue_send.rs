@@ -125,9 +125,10 @@ fn transient_issue_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::local_kind_available_or_error(
+    if !super::availability::launch_available_or_error(
         app_state,
         prep.launch_sig.agent_kind,
+        prep.launch_sig.llxprt_version.as_ref(),
         &prep.launch_sig.remote,
     ) {
         fail_transient_agent(app_state, ctx, &prep.agent_id);
@@ -144,8 +145,7 @@ fn transient_issue_availability_and_target(
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
-        &prep.work_dir,
-        prep.launch_sig.agent_kind,
+        &prep.launch_sig,
     ) {
         fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
@@ -341,8 +341,9 @@ fn launch_transient_issue_agent(
     assignment: IssueAssignment,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
-    let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched);
-    if launched {
+    let launched_ok = launched.is_ok();
+    let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched_ok);
+    if launched_ok {
         let mut state = app_state.write();
         persist_issue_agent_launch_success(
             &mut state,
@@ -367,7 +368,7 @@ fn launch_transient_issue_agent(
     apply_assignment_action(
         app_state,
         ctx,
-        super::issue_self_assignment::direct_assignment_action(launched, assignment),
+        super::issue_self_assignment::direct_assignment_action(launched_ok, assignment),
     );
 }
 

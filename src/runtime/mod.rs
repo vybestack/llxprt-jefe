@@ -12,6 +12,7 @@ mod agent_launcher;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
+mod command_capture;
 mod commands;
 mod errors;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
@@ -20,6 +21,7 @@ mod identity;
 mod liveness;
 mod manager;
 mod multiplexer;
+mod package_probe;
 mod pane_capture;
 mod preflight;
 mod process;
@@ -28,8 +30,8 @@ mod socket;
 mod stub_manager;
 
 pub use agent_executable::{
-    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
-    ResolvedAgentExecutable,
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
+    AgentWrapperKind, CanonicalNpmLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 #[cfg(feature = "psmux-smoke")]
@@ -39,19 +41,22 @@ pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
     validate_code_puppy_launch,
 };
+pub use commands::build_remote_attach_plan;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
-    alive_session_set, batch_liveness_check, check_remote_session_alive, check_session_alive,
-    parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    SessionLiveness, alive_session_set, batch_liveness_check, check_remote_session_alive,
+    check_session_alive, parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    session_liveness,
 };
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe,
 };
+pub use package_probe::{NpmPackageAvailabilityError, require_npm_package_available};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -106,6 +111,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -138,6 +144,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -175,6 +182,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -203,6 +211,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {

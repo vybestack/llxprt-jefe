@@ -1,6 +1,8 @@
 //! Tests for transient agent state-layer behavior (issue #213).
 
-use crate::domain::{Agent, AgentId, AgentKind, AgentStatus, Repository, RepositoryId};
+use crate::domain::{
+    Agent, AgentChooserEntry, AgentId, AgentKind, AgentStatus, Repository, RepositoryId,
+};
 use crate::state::{AgentChooserState, AppEvent, AppState};
 
 use std::path::PathBuf;
@@ -152,8 +154,8 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
     let chooser = AgentChooserState {
         selected_index: 0,
         agents: vec![
-            (AgentId("a1".to_owned()), "Agent 1".to_owned()),
-            (AgentId("a2".to_owned()), "Agent 2".to_owned()),
+            AgentChooserEntry::simple("a1", "Agent 1"),
+            AgentChooserEntry::simple("a2", "Agent 2"),
         ],
         transient_available: true,
     };
@@ -202,8 +204,8 @@ fn agent_chooser_navigation_bounds_without_transient_slot() {
     let chooser = AgentChooserState {
         selected_index: 0,
         agents: vec![
-            (AgentId("a1".to_owned()), "Agent 1".to_owned()),
-            (AgentId("a2".to_owned()), "Agent 2".to_owned()),
+            AgentChooserEntry::simple("a1", "Agent 1"),
+            AgentChooserEntry::simple("a2", "Agent 2"),
         ],
         transient_available: false,
     };
@@ -239,8 +241,8 @@ fn agent_chooser_navigation_up_from_transient_slot() {
         // Start at the transient slot (index = agents.len()).
         selected_index: 2,
         agents: vec![
-            (AgentId("a1".to_owned()), "Agent 1".to_owned()),
-            (AgentId("a2".to_owned()), "Agent 2".to_owned()),
+            AgentChooserEntry::simple("a1", "Agent 1"),
+            AgentChooserEntry::simple("a2", "Agent 2"),
         ],
         transient_available: true,
     };

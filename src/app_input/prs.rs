@@ -23,6 +23,7 @@ use jefe::state::{
     AppEvent, AppState, InlineState, PrDetailSubfocus, PrFocus, PrPropertyKind, ReadOnlyHintKind,
 };
 
+use super::list_navigation::prs_page_item_count;
 use super::{AppStateHandle, SharedContext};
 
 /// Pure key-routing logic for PR Mode.
@@ -34,7 +35,28 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-PR-002
 /// @requirement REQ-PR-004
 /// @pseudocode component-003 lines 10-48
+#[cfg(test)]
 pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    resolve_prs_key_event_for_size(state, key_event, 120, 40)
+}
+
+#[cfg(test)]
+fn resolve_prs_key_event_for_rows(
+    state: &AppState,
+    key_event: &KeyEvent,
+    terminal_rows: u16,
+) -> Option<AppEvent> {
+    resolve_prs_key_event_for_size(state, key_event, 120, terminal_rows)
+}
+
+#[must_use]
+fn resolve_prs_key_event_for_size(
+    state: &AppState,
+    key_event: &KeyEvent,
+    terminal_cols: u16,
+    terminal_rows: u16,
+) -> Option<AppEvent> {
+    let page_item_count = prs_page_item_count(state, terminal_cols, terminal_rows);
     // P1: inline composer (direct enum sentinel, NOT Option)
     if state.prs_state.inline_state != InlineState::None {
         return handle_pr_inline_key(state, key_event);
@@ -68,7 +90,7 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
     // `Handled`, so the `None` is a terminal consume that never leaks to the
     // dashboard. No explicit suppression tier is required.
     resolve_pr_global_key(state, key_event)
-        .or_else(|| resolve_pr_focus_key(state, key_event))
+        .or_else(|| resolve_pr_focus_key(state, key_event, page_item_count))
         .or_else(|| resolve_pr_pane_cycle_key(key_event))
 }
 
@@ -84,7 +106,8 @@ pub fn handle_prs_mode_key(
     key_event: &KeyEvent,
 ) -> Option<AppEvent> {
     let state_ro = app_state.read();
-    let result = resolve_prs_key_event(&state_ro, key_event);
+    let (terminal_cols, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let result = resolve_prs_key_event_for_size(&state_ro, key_event, terminal_cols, terminal_rows);
     drop(state_ro);
     result
 }
@@ -106,12 +129,58 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         KeyCode::Char('f') => Some(AppEvent::PrOpenFilterControls),
+        // Cross-mode: jump to Actions mode pre-filtered to the current PR
+        // (issue #205).
+        KeyCode::Char('g' | 'G') => Some(pr_to_actions_event(state)),
         // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
         KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
         // F12 defocuses the terminal or returns to the PR list (issue #164).
         KeyCode::F(12) => f12_event_for_prs(state),
         _ => None,
     }
+}
+
+/// Resolve the `g`/`G` cross-mode action: jump to Actions mode pre-filtered
+/// to the currently focused PR (issue #205). When a PR detail is loaded, the
+/// detail's SHA is used; when a PR is selected in the list (but no detail),
+/// the list item's SHA is used; when neither, Actions mode is entered without
+/// a PR filter.
+///
+/// Prefer the list selection when it exists and differs from `pr_detail`:
+/// list navigation keeps the previous detail around while only clearing
+/// pending/loading state, so `pr_detail` can be stale after the cursor moves.
+fn pr_to_actions_event(state: &AppState) -> AppEvent {
+    let selected_pr = state
+        .prs_state
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx));
+
+    if let Some(pr) = selected_pr {
+        // Use pr_detail only when it matches the selected list PR (the detail
+        // may carry a fresher SHA from the full detail fetch). When the
+        // selection has moved away, the list item is authoritative.
+        let head_sha = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .filter(|d| d.number == pr.number)
+            .map_or_else(|| pr.head_sha.clone(), |d| d.head_sha.clone());
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: pr.number,
+            head_sha,
+        };
+    }
+
+    // No list selection — use pr_detail if available (edge case: detail
+    // loaded but list not yet populated or selection cleared).
+    if let Some(detail) = &state.prs_state.pr_detail {
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: detail.number,
+            head_sha: detail.head_sha.clone(),
+        };
+    }
+
+    AppEvent::EnterActionsMode
 }
 
 /// F12 semantics in PR mode (issue #164): defocus the terminal if it is
@@ -132,10 +201,14 @@ fn f12_event_for_prs(state: &AppState) -> Option<AppEvent> {
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 31-36
-fn resolve_pr_focus_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+fn resolve_pr_focus_key(
+    state: &AppState,
+    key_event: &KeyEvent,
+    page_item_count: jefe::list_viewport::PageItemCount,
+) -> Option<AppEvent> {
     match state.prs_state.pr_focus {
         PrFocus::RepoList => handle_pr_repo_key(state, key_event),
-        PrFocus::PrList => handle_pr_list_key(state, key_event),
+        PrFocus::PrList => handle_pr_list_key(state, key_event, page_item_count),
         PrFocus::PrDetail => handle_pr_detail_key(state, key_event),
     }
 }
@@ -193,14 +266,18 @@ fn handle_pr_repo_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEven
 /// @requirement REQ-PR-003
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 57-70
-fn handle_pr_list_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+fn handle_pr_list_key(
+    state: &AppState,
+    key_event: &KeyEvent,
+    page_item_count: jefe::list_viewport::PageItemCount,
+) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::PrNavigateUp),
         KeyCode::Down => Some(AppEvent::PrNavigateDown),
         KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
         KeyCode::Right => Some(AppEvent::PrCycleFocus),
-        KeyCode::PageUp => Some(AppEvent::PrNavigatePageUp),
-        KeyCode::PageDown => Some(AppEvent::PrNavigatePageDown),
+        KeyCode::PageUp => Some(AppEvent::PrNavigatePageUp(page_item_count)),
+        KeyCode::PageDown => Some(AppEvent::PrNavigatePageDown(page_item_count)),
         KeyCode::Home => Some(AppEvent::PrNavigateHome),
         KeyCode::End => Some(AppEvent::PrNavigateEnd),
         KeyCode::Enter => Some(AppEvent::PrListEnter),
@@ -243,7 +320,9 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
             ReadOnlyHintKind::ReadOnlyNotEditable,
         )),
-        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
+        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser {
+            metadata: super::build_chooser_metadata(state),
+        }),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
         _ => resolve_pr_property_open_key(state, key_event),

@@ -6,7 +6,9 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::domain::{Agent, AgentId, RepositoryId};
+use jefe::domain::{
+    Agent, AgentChooserEntry, AgentId, AgentKind, ChooserRuntimeConfig, RepositoryId,
+};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
@@ -73,7 +75,12 @@ fn issues_state_with_chooser() -> AppState {
             issue_focus: IssueFocus::IssueList,
             agent_chooser: Some(AgentChooserState {
                 selected_index: 0,
-                agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+                agents: vec![AgentChooserEntry::new(
+                    AgentId(String::from("a1")),
+                    String::from("Agent 1"),
+                    AgentKind::Llxprt,
+                    ChooserRuntimeConfig::default(),
+                )],
                 transient_available: false,
             }),
             ..IssuesState::default()
@@ -217,17 +224,15 @@ fn test_up_in_issue_list_dispatches_navigate() {
     assert!(matches!(event, Some(AppEvent::IssuesNavigateUp)));
 }
 
-/// PageUp in IssueList focus dispatches IssuesNavigatePageUp.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P10
-/// @plan PLAN-20260329-ISSUES-MODE.P11
-/// @requirement REQ-ISS-003
 /// @pseudocode component-003 lines 39-50
 #[test]
 fn test_page_up_in_issue_list_dispatches_navigate() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
-    let event = resolve_issues_key_event(&state, &key(KeyCode::PageUp));
-    assert!(matches!(event, Some(AppEvent::IssuesNavigatePageUp)));
+    let event = resolve_issues_key_event_for_rows(&state, &key(KeyCode::PageUp), 22);
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuesNavigatePageUp(page)) if page.get() == 3
+    ));
 }
 
 /// PageDown in IssueList focus dispatches IssuesNavigatePageDown.
@@ -239,8 +244,11 @@ fn test_page_up_in_issue_list_dispatches_navigate() {
 #[test]
 fn test_page_down_in_issue_list_dispatches_navigate() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
-    let event = resolve_issues_key_event(&state, &key(KeyCode::PageDown));
-    assert!(matches!(event, Some(AppEvent::IssuesNavigatePageDown)));
+    let event = resolve_issues_key_event_for_rows(&state, &key(KeyCode::PageDown), 36);
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuesNavigatePageDown(page)) if page.get() == 7
+    ));
 }
 
 #[test]
@@ -627,7 +635,10 @@ fn test_s_opens_agent_chooser() {
     let mut state = issues_state_with_focus(IssueFocus::IssueDetail);
     add_agent(&mut state);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(matches!(event, Some(AppEvent::OpenAgentChooser)));
+    assert!(
+        matches!(event, Some(AppEvent::OpenAgentChooser { .. })),
+        "Shift+S must dispatch OpenAgentChooser, got {event:?}"
+    );
 }
 
 /// `S` with inline active is consumed by inline handler, NOT agent chooser.

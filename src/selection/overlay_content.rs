@@ -34,13 +34,14 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
         lines.push("No agents available. Create an agent in Agents Mode.".to_string());
         lines.push(String::new());
     } else {
-        for (i, (_id, name)) in chooser.agents.iter().enumerate() {
+        for (i, entry) in chooser.agents.iter().enumerate() {
             let marker = if i == chooser.selected_index {
                 "(x)"
             } else {
                 "( )"
             };
-            lines.push(format!("{marker} {name}"));
+            let label = crate::domain::agent_chooser_label(entry);
+            lines.push(format!("{marker} {label}"));
         }
         if chooser.transient_available {
             let transient_idx = chooser.agents.len();
@@ -479,6 +480,7 @@ mod tests {
             sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
         let state = AppState {
             modal: ModalState::PreflightPrompt {
@@ -520,6 +522,7 @@ mod tests {
             sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
         let payload = SendPayload {
             repository: "o/r".to_string(),
@@ -560,6 +563,7 @@ mod tests {
             sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
         let payload = SendPayload {
             repository: "o/r".to_string(),
@@ -593,46 +597,30 @@ mod tests {
 
     #[test]
     fn agent_chooser_empty_has_two_line_empty_state() {
+        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,
-                    agents: vec![],
                     transient_available: false,
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let content = agent_chooser_lines(&state);
-        // Empty state box has height 2 (text + blank), so the "No agents"
-        // message is followed by a blank line before the separator.
-        let Some(no_agents_idx) = content
-            .lines
-            .iter()
-            .position(|l| l.contains("No agents available"))
-        else {
-            panic!("must have no-agents message");
-        };
-        let next_idx = no_agents_idx + 1;
-        assert!(
-            next_idx < content.lines.len() && content.lines[next_idx].is_empty(),
-            "empty-state blank row must follow the no-agents message"
-        );
-    }
-
-    #[test]
-    fn agent_chooser_with_agents_exact_lines() {
-        let state = AppState {
-            screen_mode: crate::state::ScreenMode::DashboardIssues,
-            issues_state: crate::state::IssuesState {
-                agent_chooser: Some(crate::state::AgentChooserState {
-                    selected_index: 0,
                     agents: vec![
-                        (AgentId("a1".to_string()), "alpha".to_string()),
-                        (AgentId("a2".to_string()), "beta".to_string()),
+                        AgentChooserEntry {
+                            agent_id: AgentId("a1".to_string()),
+                            name: "alpha".to_string(),
+                            kind: AgentKind::Llxprt,
+                            runtime_config: ChooserRuntimeConfig::new("ops"),
+                            branch: None,
+                            dirty: DirtyStatus::unknown(),
+                        },
+                        AgentChooserEntry {
+                            agent_id: AgentId("a2".to_string()),
+                            name: "beta".to_string(),
+                            kind: AgentKind::CodePuppy,
+                            runtime_config: ChooserRuntimeConfig::new("minimax-m3"),
+                            branch: Some("feature".to_string()),
+                            dirty: DirtyStatus::dirty(),
+                        },
                     ],
-                    transient_available: false,
                 }),
                 ..Default::default()
             },
@@ -642,10 +630,62 @@ mod tests {
         // Verify exact structure: header, separator, entries, separator, hints.
         assert_eq!(content.lines[0], "Send to Agent");
         assert!(content.lines[1].starts_with('─'));
-        assert!(content.lines[2].contains("(x) alpha"));
-        assert!(content.lines[3].contains("( ) beta"));
-        // Two agents → lines 2-3 are entries, line 4 is separator, line 5+ hints.
+        // Entry 0: LLxprt with a named profile, unknown dirty (no marker).
+        assert_eq!(
+            content.lines[2], "(x) alpha [LLxprt] profile: ops",
+            "selected entry must show kind label, configured profile, no dirty marker"
+        );
+        // Entry 1: Code Puppy with a named model, dirty branch-adjacent marker.
+        assert_eq!(
+            content.lines[3], "( ) beta [Code Puppy] model: minimax-m3  @ feature *",
+            "unselected entry must show kind label, configured model, branch with dirty marker"
+        );
         assert!(content.lines[4].starts_with('─'));
+    }
+
+    #[test]
+    fn agent_chooser_default_and_clean_render() {
+        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
+        let state = AppState {
+            screen_mode: crate::state::ScreenMode::DashboardIssues,
+            issues_state: crate::state::IssuesState {
+                agent_chooser: Some(crate::state::AgentChooserState {
+                    selected_index: 0,
+                    transient_available: false,
+                    agents: vec![
+                        AgentChooserEntry {
+                            agent_id: AgentId("d1".to_string()),
+                            name: "delta".to_string(),
+                            kind: AgentKind::Llxprt,
+                            runtime_config: ChooserRuntimeConfig::default(),
+                            branch: None,
+                            dirty: DirtyStatus::clean(),
+                        },
+                        AgentChooserEntry {
+                            agent_id: AgentId("d2".to_string()),
+                            name: "epsilon".to_string(),
+                            kind: AgentKind::CodePuppy,
+                            runtime_config: ChooserRuntimeConfig::default(),
+                            branch: None,
+                            dirty: DirtyStatus::clean(),
+                        },
+                    ],
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let content = agent_chooser_lines(&state);
+        // Empty config must show the explicit (default) label; clean tree
+        // must NOT show the dirty marker.
+        assert_eq!(
+            content.lines[2], "(x) delta [LLxprt] profile: (default)",
+            "empty profile must show (default) and clean tree must not show dirty marker"
+        );
+        assert_eq!(
+            content.lines[3], "( ) epsilon [Code Puppy] model: (default)",
+            "empty model must show (default) and clean tree must not show dirty marker"
+        );
     }
 
     /// Every confirm modal variant must render — i.e.
@@ -667,31 +707,29 @@ mod tests {
         }
     }
 
-    /// Build one sample of every confirm modal variant for overlay rendering
-    /// tests (mirrors `all_confirm_modal_samples` in `confirm_focus_tests.rs`).
+    fn confirm_signature() -> crate::domain::LaunchSignature {
+        crate::domain::LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: String::new(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
+        }
+    }
+
     fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::github::SendPayload;
         use crate::runtime::PreflightIssue;
         use crate::state::{ConfirmFocus, ModalState};
-
-        fn sig() -> LaunchSignature {
-            LaunchSignature {
-                work_dir: std::path::PathBuf::from("/tmp"),
-                profile: String::new(),
-                code_puppy_model: String::new(),
-                code_puppy_yolo: Some(false),
-                code_puppy_quick_resume: false,
-                mode_flags: Vec::new(),
-                llxprt_debug: String::new(),
-                pass_continue: false,
-                sandbox_enabled: false,
-                sandbox_engine: SandboxEngine::Podman,
-                sandbox_flags: String::new(),
-                remote: crate::domain::RemoteRepositorySettings::default(),
-                agent_kind: crate::domain::AgentKind::Llxprt,
-            }
-        }
 
         vec![
             ModalState::ConfirmDeleteAgent {
@@ -709,7 +747,7 @@ mod tests {
             },
             ModalState::PreflightPrompt {
                 agent_id: AgentId("a".to_string()),
-                signature: sig(),
+                signature: confirm_signature(),
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
                 issue_self_assignment: None,
@@ -718,14 +756,14 @@ mod tests {
             ModalState::ConfirmIssueDirtyCopy {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: sig(),
+                signature: confirm_signature(),
                 payload: SendPayload::default(),
                 confirm_focus: ConfirmFocus::Cancel,
             },
             ModalState::ConfirmIssueOriginMismatch {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: sig(),
+                signature: confirm_signature(),
                 payload: SendPayload::default(),
                 actual: String::new(),
                 expected: String::new(),
@@ -753,9 +791,7 @@ mod tests {
             milestone: None,
             body: String::new(),
             external_url: String::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::default(),
             issue_type_name: None,
         });
         state.issues_state.property_editor = Some(IssuePropertyEditorState {
@@ -861,6 +897,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             labels: Vec::new(),
             assignees: Vec::new(),
@@ -871,9 +908,7 @@ mod tests {
             checks_status: PrCheckStatus::None,
             reviews: Vec::new(),
             checks: Vec::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::default(),
             mergeable: None,
             merge_state_status: None,
         }

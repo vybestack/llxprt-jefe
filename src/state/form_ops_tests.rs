@@ -4,23 +4,12 @@ use crate::state::events::AppEvent;
 use crate::state::types::{ModalState, ScreenMode};
 
 fn seed_repository() -> Repository {
-    Repository {
-        id: RepositoryId("repo-1".to_owned()),
-        name: "Repo 1".to_owned(),
-        slug: "repo-1".to_owned(),
-        base_dir: std::path::PathBuf::from("/tmp/repo-1"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: String::new(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: std::path::PathBuf::new(),
-        default_code_puppy_yolo: None,
-        transient_max_concurrent: 0,
-        agent_ids: Vec::new(),
-    }
+    Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
+        std::path::PathBuf::from("/tmp/repo-1"),
+    )
 }
 
 #[test]
@@ -195,8 +184,10 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
 
 #[test]
 fn new_agent_work_dir_slug_excludes_slashes_from_name() {
+    let repository = seed_repository();
+    let expected = repository.base_dir.join("api--worker");
     let mut state = AppState {
-        repositories: vec![seed_repository()],
+        repositories: vec![repository],
         ..AppState::default()
     };
 
@@ -211,7 +202,35 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     let ModalState::NewAgent { fields, .. } = &state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
-    assert_eq!(fields.work_dir, "/tmp/repo-1/api--worker");
+    assert_eq!(std::path::Path::new(&fields.work_dir), expected);
+}
+
+#[cfg(windows)]
+#[test]
+fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
+    let mut repository = seed_repository();
+    repository.base_dir = std::path::PathBuf::from(r"C:\Users\Acoli Ω\somedir");
+    let mut state = AppState {
+        repositories: vec![repository],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected new-agent modal");
+    };
+    fields.name = "branch-1".to_owned();
+
+    state.update_agent_work_dir_from_name();
+
+    let ModalState::NewAgent { fields, .. } = &state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(
+        std::path::Path::new(&fields.work_dir),
+        std::path::Path::new(r"C:\Users\Acoli Ω\somedir\branch-1")
+    );
+    assert_eq!(fields.work_dir.matches("somedir").count(), 1);
 }
 
 #[test]
@@ -221,7 +240,6 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         base_dir: "~/remote/worktrees".to_owned(),
         default_profile: "ship".to_owned(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
@@ -230,8 +248,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         host: "170.9.234.179".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: true,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
 
     let Some(repository) = AppState::create_repository_from_fields(&fields) else {
@@ -256,7 +273,6 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
@@ -265,8 +281,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
 
     assert!(AppState::create_repository_from_fields(&fields).is_none());
@@ -291,6 +306,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
 
     assert!(AppState::create_agent_from_fields(&repository, &fields, 1).is_none());
@@ -321,6 +337,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
         origin: crate::domain::AgentOrigin::Persistent,
+        llxprt_version: None,
     };
 
     let fields = AgentFormFields {
@@ -339,6 +356,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
 
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
@@ -373,6 +391,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
         origin: crate::domain::AgentOrigin::Persistent,
+        llxprt_version: None,
     };
     let fields = AgentFormFields {
         shortcut_slot: None,
@@ -390,6 +409,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
     assert!(
@@ -408,8 +428,12 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind
-    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
+    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → TransientAgentDir
+    state = state.apply(AppEvent::FormNextField); // TransientAgentDir → DefaultCodePuppyYolo
+    state = state.apply(AppEvent::FormNextField); // DefaultCodePuppyYolo → TransientMaxConcurrent
+    state = state.apply(AppEvent::FormNextField); // TransientMaxConcurrent → GitHubRepo
     state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
     state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
@@ -419,7 +443,10 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // LoginUser → Host
     state = state.apply(AppEvent::FormChar('1'));
     state = state.apply(AppEvent::FormChar('.'));
-    state = state.apply(AppEvent::FormNextField); // Host → RunAsUser
+    state = state.apply(AppEvent::FormNextField); // Host → SshPort
+    state = state.apply(AppEvent::FormNextField); // SshPort → IdentityFile
+    state = state.apply(AppEvent::FormNextField); // IdentityFile → SshOptions
+    state = state.apply(AppEvent::FormNextField); // SshOptions → RunAsUser
     state = state.apply(AppEvent::FormChar('a'));
     state = state.apply(AppEvent::FormNextField); // RunAsUser → SetupEnvDefault
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle setup_env_default
@@ -450,7 +477,6 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "foo".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -459,8 +485,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -472,7 +497,6 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo/extra".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -481,8 +505,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -494,7 +517,6 @@ fn create_repository_rejects_github_repo_missing_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "/repo".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -503,8 +525,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -516,7 +537,6 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -525,8 +545,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -538,7 +557,6 @@ fn create_repository_accepts_empty_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
@@ -547,8 +565,7 @@ fn create_repository_accepts_empty_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_some());
 }
@@ -560,7 +577,6 @@ fn create_repository_accepts_well_formed_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -569,8 +585,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo");
@@ -584,7 +599,6 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "own er/repo".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -593,8 +607,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -607,7 +620,6 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             base_dir: String::new(),
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
-            default_code_puppy_yolo: false,
             default_agent_kind: "LLxprt".to_owned(),
             github_repo: value.to_owned(),
             github_issue_pr_repo: String::new(),
@@ -616,8 +628,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             host: String::new(),
             run_as_user: String::new(),
             setup_env_default: false,
-            transient_agent_dir: String::new(),
-            transient_max_concurrent: String::new(),
+            ..RepositoryFormFields::default()
         };
         assert!(
             AppState::create_repository_from_fields(&fields).is_none(),
@@ -634,7 +645,6 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "acme@org/widgets".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -643,8 +653,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -656,7 +665,6 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "  owner/repo  ".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -665,8 +673,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo with surrounding whitespace");
@@ -683,7 +690,6 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -692,8 +698,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(!AppState::update_repository_from_fields(&mut repo, &fields));
     // Existing value preserved because update was rejected.
@@ -709,7 +714,6 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         github_issue_pr_repo: String::new(),
@@ -718,8 +722,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     };
     assert!(!AppState::update_repository_from_fields(
         &mut repo, &invalid
@@ -822,20 +825,75 @@ fn issue266_valid_fields() -> RepositoryFormFields {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_code_puppy_yolo: false,
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
+
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
-        transient_agent_dir: String::new(),
-        transient_max_concurrent: String::new(),
+        ..RepositoryFormFields::default()
     }
 }
 
+#[test]
+fn remote_repository_form_preserves_validated_ssh_transport_fields() {
+    let fields = RepositoryFormFields {
+        name: "Remote SSH".to_owned(),
+        remote_enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        ssh_port: "2222".to_owned(),
+        identity_file: r"C:\Keys Ω\agent key".to_owned(),
+        ssh_options: "Compression=yes LogLevel=ERROR".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    let Some(repository) = AppState::create_repository_from_fields(&fields) else {
+        panic!("valid SSH fields should create a repository");
+    };
+    assert_eq!(repository.remote.port, Some(2222));
+    assert_eq!(
+        repository.remote.identity_file,
+        std::path::PathBuf::from(r"C:\Keys Ω\agent key")
+    );
+    assert_eq!(
+        repository.remote.options,
+        vec!["Compression=yes", "LogLevel=ERROR"]
+    );
+}
+
+#[test]
+fn remote_repository_form_rejects_invalid_port_and_unsafe_option() {
+    let mut fields = RepositoryFormFields {
+        name: "Remote SSH".to_owned(),
+        remote_enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        ssh_port: "not-a-port".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+
+    fields.ssh_port = "22".to_owned();
+    fields.ssh_options = "ProxyCommand=credential-helper".to_owned();
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn local_repository_ignores_stale_invalid_ssh_port() {
+    let fields = RepositoryFormFields {
+        name: "Local Repository".to_owned(),
+        remote_enabled: false,
+        ssh_port: "not-a-port".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    let Some(repository) = AppState::create_repository_from_fields(&fields) else {
+        panic!("disabled remote settings must not block a local repository");
+    };
+    assert_eq!(repository.remote.port, None);
+}
 /// A blank `github_issue_pr_repo` is accepted (preserves existing behavior).
 #[test]
 fn create_repository_accepts_blank_issue_pr_repo() {

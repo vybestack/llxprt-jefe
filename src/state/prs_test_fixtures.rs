@@ -9,10 +9,26 @@
 //! @requirement REQ-PR-010
 
 use crate::domain::{
-    PrCheckStatus, PrFilter, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
+    CommentDetailIdentity, PageToken, PaginatedList, PrCheckStatus, PrFilter, PrState, PullRequest,
+    PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::types::{InlineState, PrFocus, PrListIdentity, ScreenMode};
+
+/// Build an empty comment list bound to the detail's repo and number (test helper).
+fn empty_comments(
+    scope_repo_id: RepositoryId,
+    number: u64,
+) -> PaginatedList<crate::domain::IssueComment, CommentDetailIdentity> {
+    PaginatedList::from_loaded(
+        CommentDetailIdentity {
+            scope_repo_id,
+            number,
+        },
+        Vec::new(),
+        PageToken::from_cursor(None, false),
+    )
+}
 
 /// PR-mode state with a single selected PR and a loaded detail (non-empty body).
 ///
@@ -40,6 +56,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -59,6 +76,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-02T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -69,9 +87,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: empty_comments(RepositoryId(repo_id.to_string()), pr_number),
         mergeable: None,
         merge_state_status: None,
     });

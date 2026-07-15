@@ -35,6 +35,7 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -217,6 +218,27 @@ fn test_pr_show_notice_round_trips_and_sets_draft_notice() {
     assert!(state.prs_state.draft_notice.is_some());
 }
 
+#[test]
+fn test_comments_dispatch_failure_round_trips_and_has_canonical_name() {
+    let event = AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 7,
+        error: "repository unavailable".to_string(),
+    };
+
+    let message: AppMessage = event.into();
+    assert_eq!(message.name(), "PrCommentsPageDispatchFailed");
+    let round_trip: AppEvent = message.into();
+    assert!(matches!(
+        round_trip,
+        AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: RepositoryId(ref id),
+            pr_number: 7,
+            ref error,
+        } if id == "repo-1" && error == "repository unavailable"
+    ));
+}
+
 /// PrOpenInBrowser / PrOpenedInBrowser / PrOpenInBrowserFailed ↔ the matching
 /// PullRequestsMessage variants round-trip.
 ///
@@ -301,7 +323,11 @@ fn test_appevent_pullrequestsmessage_round_trip() {
         AppEvent::PrScrollDetailDown,
         AppEvent::PrDetailSubfocusNext,
         AppEvent::PrDetailSubfocusPrev,
-        AppEvent::PrOpenAgentChooser,
+        AppEvent::PrOpenAgentChooser {
+            metadata: vec![crate::domain::AgentChooserGitMetadata::for_agent(
+                crate::domain::AgentId("agent-1".to_string()),
+            )],
+        },
         AppEvent::PrAgentChooserNavigateUp,
         AppEvent::PrAgentChooserNavigateDown,
         AppEvent::PrAgentChooserConfirm,

@@ -14,20 +14,14 @@ impl AppState {
     fn adjacent_repository_focus(
         fields: &RepositoryFormFields,
         focus: RepositoryFormFocus,
-        step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
+        forward: bool,
     ) -> RepositoryFormFocus {
-        let is_code_puppy =
-            AgentKind::from_form_value(&fields.default_agent_kind) == Some(AgentKind::CodePuppy);
-        let mut candidate = step(focus);
-        // Skip CodePuppy-only fields (model + yolo) when the agent kind is
-        // not CodePuppy (issue #213).
-        while !is_code_puppy
-            && (candidate == RepositoryFormFocus::DefaultCodePuppyModel
-                || candidate == RepositoryFormFocus::DefaultCodePuppyYolo)
-        {
-            candidate = step(candidate);
+        let kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+        if forward {
+            crate::state::next_visible_repository_focus(focus, kind)
+        } else {
+            crate::state::prev_visible_repository_focus(focus, kind)
         }
-        candidate
     }
 
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
@@ -75,6 +69,11 @@ impl AppState {
             }
             AgentFormFocus::Mode => {
                 cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
+                false
+            }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    insert_char_at(&mut fields.llxprt_version, cursor.llxprt_version, c);
                 false
             }
             AgentFormFocus::LlxprtDebug => {
@@ -243,6 +242,16 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                cursor.default_llxprt_version = delete_char_before(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
+                );
+            }
+            RepositoryFormFocus::TransientAgentDir
+            | RepositoryFormFocus::TransientMaxConcurrent => {
+                super::form_delete_helpers::delete_transient_field_before(fields, cursor, focus);
+            }
             RepositoryFormFocus::GitHubRepo => {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
@@ -253,29 +262,17 @@ impl AppState {
                     cursor.github_issue_pr_repo,
                 );
             }
-            RepositoryFormFocus::LoginUser => {
-                cursor.login_user = delete_char_before(&mut fields.login_user, cursor.login_user);
-            }
-            RepositoryFormFocus::Host => {
-                cursor.host = delete_char_before(&mut fields.host, cursor.host);
-            }
-            RepositoryFormFocus::RunAsUser => {
-                cursor.run_as_user =
-                    delete_char_before(&mut fields.run_as_user, cursor.run_as_user);
-            }
-            RepositoryFormFocus::TransientAgentDir => {
-                cursor.transient_agent_dir =
-                    delete_char_before(&mut fields.transient_agent_dir, cursor.transient_agent_dir);
-            }
-            RepositoryFormFocus::TransientMaxConcurrent => {
-                cursor.transient_max_concurrent = delete_char_before(
-                    &mut fields.transient_max_concurrent,
-                    cursor.transient_max_concurrent,
-                );
+            RepositoryFormFocus::LoginUser
+            | RepositoryFormFocus::Host
+            | RepositoryFormFocus::SshPort
+            | RepositoryFormFocus::IdentityFile
+            | RepositoryFormFocus::SshOptions
+            | RepositoryFormFocus::RunAsUser => {
+                super::form_delete_helpers::delete_remote_field_before(fields, cursor, focus);
             }
             RepositoryFormFocus::DefaultAgentKind
-            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::RemoteEnabled
+            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::SetupEnvDefault => {}
         }
     }
@@ -301,36 +298,34 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                delete_char_at(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
+                );
+            }
+            RepositoryFormFocus::TransientAgentDir
+            | RepositoryFormFocus::TransientMaxConcurrent => {
+                super::form_delete_helpers::delete_transient_field_at(fields, cursor, focus);
+            }
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
             }
-            RepositoryFormFocus::IssuePrRepo => {
-                delete_char_at(
-                    &mut fields.github_issue_pr_repo,
-                    cursor.github_issue_pr_repo,
-                );
-            }
-            RepositoryFormFocus::LoginUser => {
-                delete_char_at(&mut fields.login_user, cursor.login_user);
-            }
-            RepositoryFormFocus::Host => {
-                delete_char_at(&mut fields.host, cursor.host);
-            }
-            RepositoryFormFocus::RunAsUser => {
-                delete_char_at(&mut fields.run_as_user, cursor.run_as_user);
-            }
-            RepositoryFormFocus::TransientAgentDir => {
-                delete_char_at(&mut fields.transient_agent_dir, cursor.transient_agent_dir);
-            }
-            RepositoryFormFocus::TransientMaxConcurrent => {
-                delete_char_at(
-                    &mut fields.transient_max_concurrent,
-                    cursor.transient_max_concurrent,
-                );
+            RepositoryFormFocus::IssuePrRepo => delete_char_at(
+                &mut fields.github_issue_pr_repo,
+                cursor.github_issue_pr_repo,
+            ),
+            RepositoryFormFocus::LoginUser
+            | RepositoryFormFocus::Host
+            | RepositoryFormFocus::SshPort
+            | RepositoryFormFocus::IdentityFile
+            | RepositoryFormFocus::SshOptions
+            | RepositoryFormFocus::RunAsUser => {
+                super::form_delete_helpers::delete_remote_field_at(fields, cursor, focus);
             }
             RepositoryFormFocus::DefaultAgentKind
-            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::RemoteEnabled
+            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::SetupEnvDefault => {}
         }
     }
@@ -363,6 +358,10 @@ impl AppState {
             }
             AgentFormFocus::Mode => {
                 cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
+            }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    delete_char_before(&mut fields.llxprt_version, cursor.llxprt_version);
             }
             AgentFormFocus::LlxprtDebug => {
                 cursor.llxprt_debug =
@@ -412,6 +411,9 @@ impl AppState {
             AgentFormFocus::Mode => {
                 delete_char_at(&mut fields.mode, cursor.mode);
             }
+            AgentFormFocus::LlxprtVersion => {
+                delete_char_at(&mut fields.llxprt_version, cursor.llxprt_version);
+            }
             AgentFormFocus::LlxprtDebug => {
                 delete_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug);
             }
@@ -422,8 +424,6 @@ impl AppState {
     }
 
     pub(super) fn handle_form_backspace(&mut self) {
-        let mut refresh_work_dir = false;
-
         match &mut self.modal {
             ModalState::Search { query } => {
                 query.pop();
@@ -446,16 +446,11 @@ impl AppState {
                 fields,
                 focus,
                 cursor,
-                work_dir_manual,
                 ..
             } => {
-                let focused = *focus;
-                Self::delete_agent_field_before_cursor(fields, cursor, focused);
-                if focused == AgentFormFocus::WorkDir {
-                    *work_dir_manual = true;
-                } else if focused == AgentFormFocus::Name && !*work_dir_manual {
-                    refresh_work_dir = true;
-                }
+                let f = *focus;
+                Self::delete_agent_field_before_cursor(fields, cursor, f);
+                self.after_agent_delete(f);
             }
             ModalState::EditAgent {
                 fields,
@@ -477,18 +472,9 @@ impl AppState {
             }
             _ => {}
         }
-
-        if refresh_work_dir {
-            self.update_agent_work_dir_from_name();
-            if let ModalState::NewAgent { fields, cursor, .. } = &mut self.modal {
-                cursor.work_dir = fields.work_dir.chars().count();
-            }
-        }
     }
 
     pub(super) fn handle_form_delete(&mut self) {
-        let mut refresh_work_dir = false;
-
         match &mut self.modal {
             ModalState::NewRepository {
                 fields,
@@ -508,16 +494,11 @@ impl AppState {
                 fields,
                 focus,
                 cursor,
-                work_dir_manual,
                 ..
             } => {
-                let focused = *focus;
-                Self::delete_agent_field_at_cursor(fields, cursor, focused);
-                if focused == AgentFormFocus::WorkDir {
-                    *work_dir_manual = true;
-                } else if focused == AgentFormFocus::Name && !*work_dir_manual {
-                    refresh_work_dir = true;
-                }
+                let f = *focus;
+                Self::delete_agent_field_at_cursor(fields, cursor, f);
+                self.after_agent_delete(f);
             }
             ModalState::EditAgent {
                 fields,
@@ -539,8 +520,19 @@ impl AppState {
             }
             _ => {}
         }
+    }
 
-        if refresh_work_dir {
+    fn after_agent_delete(&mut self, focused: AgentFormFocus) {
+        let need_refresh = matches!(&self.modal, ModalState::NewAgent { work_dir_manual, .. } if !*work_dir_manual)
+            && focused == AgentFormFocus::Name;
+        if let ModalState::NewAgent {
+            work_dir_manual, ..
+        } = &mut self.modal
+            && focused == AgentFormFocus::WorkDir
+        {
+            *work_dir_manual = true;
+        }
+        if need_refresh {
             self.update_agent_work_dir_from_name();
             if let ModalState::NewAgent { fields, cursor, .. } = &mut self.modal {
                 cursor.work_dir = fields.work_dir.chars().count();
@@ -609,7 +601,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::next);
+                *focus = Self::adjacent_repository_focus(fields, *focus, true);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -629,7 +621,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::prev);
+                *focus = Self::adjacent_repository_focus(fields, *focus, false);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -658,10 +650,10 @@ impl AppState {
                     next.label().clone_into(&mut fields.default_agent_kind);
                 }
             }
+            RepositoryFormFocus::RemoteEnabled => fields.remote_enabled = !fields.remote_enabled,
             RepositoryFormFocus::DefaultCodePuppyYolo => {
                 fields.default_code_puppy_yolo = !fields.default_code_puppy_yolo;
             }
-            RepositoryFormFocus::RemoteEnabled => fields.remote_enabled = !fields.remote_enabled,
             RepositoryFormFocus::SetupEnvDefault => {
                 fields.setup_env_default = !fields.setup_env_default;
             }
@@ -735,16 +727,31 @@ impl AppState {
             if *work_dir_manual {
                 return;
             }
-            let base_dir = self
+            fields.work_dir = self
                 .repositories
                 .iter()
                 .find(|r| r.id == *repository_id)
                 .map_or_else(
-                    || "/tmp".to_owned(),
-                    |r| r.base_dir.to_string_lossy().into_owned(),
+                    || {
+                        super::form_runtime::derive_local_work_dir_from_name(
+                            &fields.name,
+                            std::path::Path::new("/tmp"),
+                        )
+                    },
+                    |repository| {
+                        if repository.remote.enabled {
+                            super::form_runtime::derive_remote_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir.to_string_lossy(),
+                            )
+                        } else {
+                            super::form_runtime::derive_local_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir,
+                            )
+                        }
+                    },
                 );
-            fields.work_dir =
-                super::form_runtime::derive_work_dir_from_name(&fields.name, &base_dir);
         }
     }
 
@@ -852,6 +859,10 @@ impl AppState {
         crate::state::form_workflow_dispatch::parse_inputs(inputs)
     }
 }
+
+#[cfg(test)]
+#[path = "form_ops_remote_work_dir_tests.rs"]
+mod remote_work_dir_tests;
 
 #[cfg(test)]
 #[path = "form_ops_tests.rs"]

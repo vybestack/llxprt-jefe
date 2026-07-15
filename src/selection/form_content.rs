@@ -13,7 +13,7 @@ use crate::domain::PlatformCapabilities;
 use crate::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
     RepositoryFormFields, RepositoryFormFocus, agent_form_visibility, effective_agent_kinds,
-    effective_kinds_hint, is_field_visible, kind_from_form_value,
+    effective_kinds_hint, is_field_visible, is_repository_field_visible, kind_from_form_value,
 };
 use crate::ui::util::text_with_caret;
 
@@ -75,13 +75,25 @@ fn agent_pre_kind_field_specs(
 fn agent_post_kind_field_specs(
     fields: &AgentFormFields,
     cursor: &AgentFormCursor,
-) -> [(&'static str, String, AgentFormFocus, usize); 2] {
-    [
+) -> Vec<(&'static str, String, AgentFormFocus, usize)> {
+    vec![
+        (
+            "Model",
+            fields.code_puppy_model.clone(),
+            AgentFormFocus::CodePuppyModel,
+            cursor.code_puppy_model,
+        ),
         (
             "Mode Flags",
             fields.mode.clone(),
             AgentFormFocus::Mode,
             cursor.mode,
+        ),
+        (
+            "Version",
+            fields.llxprt_version.clone(),
+            AgentFormFocus::LlxprtVersion,
+            cursor.llxprt_version,
         ),
         (
             "LLXPRT_DEBUG",
@@ -140,6 +152,17 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
             fields.sandbox_flags.clone()
         };
         lines.push(render_field("Sandbox Flags", &flags_value));
+    } else {
+        lines.push(render_checkbox(
+            "YOLO",
+            fields.code_puppy_yolo,
+            "space toggles",
+        ));
+        lines.push(render_checkbox(
+            "Quick resume",
+            fields.code_puppy_quick_resume.enabled(),
+            "space toggles",
+        ));
     }
 
     lines.push(String::new());
@@ -244,6 +267,47 @@ fn repo_remote_field_specs(
     ]
 }
 
+fn append_repository_runtime_fields(
+    state: &AppState,
+    fields: &RepositoryFormFields,
+    focus: RepositoryFormFocus,
+    cursor: &RepositoryFormCursor,
+    lines: &mut Vec<String>,
+) {
+    let default_kind = kind_from_form_value(&fields.default_agent_kind);
+    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyModel, default_kind) {
+        let value = focused_value(
+            &fields.default_code_puppy_model,
+            cursor.default_code_puppy_model,
+            focus == RepositoryFormFocus::DefaultCodePuppyModel,
+        );
+        lines.push(render_field("Default Model", &value));
+    }
+    let kinds = effective_agent_kinds(&state.installed_agent_kinds, fields.remote_enabled);
+    lines.push(format!(
+        "  {:<16} [{}]  ({})",
+        "Default Agent",
+        fields.default_agent_kind,
+        effective_kinds_hint(&kinds)
+    ));
+    if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtVersion, default_kind) {
+        let value = focused_value(
+            &fields.default_llxprt_version,
+            cursor.default_llxprt_version,
+            focus == RepositoryFormFocus::DefaultLlxprtVersion,
+        );
+        lines.push(render_field("Default Version", &value));
+    }
+}
+
+fn focused_value(value: &str, cursor: usize, focused: bool) -> String {
+    if focused {
+        text_with_caret(value, cursor)
+    } else {
+        value.to_owned()
+    }
+}
+
 /// Build the copyable content lines for the repository-definition form.
 #[must_use]
 pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
@@ -253,13 +317,7 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     let text_specs = repo_text_field_specs(fields, cursor);
     repo_text_field_lines(&text_specs, focus, &mut lines);
 
-    let effective_kinds =
-        effective_agent_kinds(&state.installed_agent_kinds, fields.remote_enabled);
-    let kind_hint = effective_kinds_hint(&effective_kinds);
-    lines.push(format!(
-        "  {:<16} [{}]  ({kind_hint})",
-        "Default Agent", fields.default_agent_kind
-    ));
+    append_repository_runtime_fields(state, fields, focus, cursor, &mut lines);
 
     let github_value = if focus == RepositoryFormFocus::GitHubRepo {
         text_with_caret(&fields.github_repo, cursor.github_repo)

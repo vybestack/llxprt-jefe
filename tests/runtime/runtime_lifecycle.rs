@@ -37,6 +37,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: agent.agent_kind,
+        llxprt_version: None,
     }
 }
 

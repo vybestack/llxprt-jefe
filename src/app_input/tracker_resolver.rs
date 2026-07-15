@@ -139,6 +139,7 @@ mod tests {
             default_code_puppy_yolo: None,
             transient_max_concurrent: 0,
             agent_ids: Vec::new(),
+            default_llxprt_version: None,
         }
     }
 

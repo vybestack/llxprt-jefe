@@ -48,6 +48,7 @@ fn remote_settings() -> RemoteRepositorySettings {
         host: "build.example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..RemoteRepositorySettings::default()
     }
 }
 
@@ -80,6 +81,7 @@ fn local_target_when_enabled_but_host_missing() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RemoteRepositorySettings::default()
     };
     assert_eq!(WorkTarget::from_remote(&remote), WorkTarget::Local);
 }

@@ -456,6 +456,59 @@ fn psmux_named_namespaces_are_isolated_and_cleanup_is_scoped() {
     }
 }
 
+#[test]
+fn psmux_four_recording_agents_remain_independent_and_scoped() {
+    let Some((executable, version_text)) = qualified_psmux() else {
+        return;
+    };
+    let mut namespace = namespace_or_panic(executable, "four-agents", &version_text);
+    let repo_one = tempfile::Builder::new()
+        .prefix("jefe repo Ω one ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create first repository fixture: {error}"));
+    let repo_two = tempfile::Builder::new()
+        .prefix("jefe repo two ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create second repository fixture: {error}"));
+    let agents = [
+        ("llxprt-one", repo_one.path(), "A", "PSMUX_BYTE_41"),
+        ("puppy-two", repo_one.path(), "B", "PSMUX_BYTE_42"),
+        ("llxprt-three", repo_two.path(), "C", "PSMUX_BYTE_43"),
+        ("puppy-four", repo_two.path(), "D", "PSMUX_BYTE_44"),
+    ];
+    for (session, work_dir, input, expected) in agents {
+        namespace
+            .run_os(&[
+                OsString::from("new-session"),
+                OsString::from("-d"),
+                OsString::from("-s"),
+                OsString::from(session),
+                OsString::from("-c"),
+                work_dir.as_os_str().to_owned(),
+                OsString::from(FIXTURE),
+            ])
+            .unwrap_or_else(|error| panic!("create {session}: {error}"));
+        namespace
+            .wait_for_capture(session, "PSMUX_SMOKE_READY")
+            .unwrap_or_else(|error| panic!("wait for {session}: {error}"));
+        namespace
+            .run(&["send-keys", "-l", "-t", session, "--", input])
+            .unwrap_or_else(|error| panic!("interact with {session}: {error}"));
+        namespace
+            .wait_for_capture(session, expected)
+            .unwrap_or_else(|error| panic!("verify {session}: {error}"));
+    }
+    namespace
+        .run(&["kill-session", "-t", "puppy-two"])
+        .unwrap_or_else(|error| panic!("kill selected agent: {error}"));
+    assert!(namespace.run(&["has-session", "-t", "puppy-two"]).is_err());
+    for survivor in ["llxprt-one", "llxprt-three", "puppy-four"] {
+        namespace
+            .run(&["has-session", "-t", survivor])
+            .unwrap_or_else(|error| panic!("selected kill affected {survivor}: {error}"));
+    }
+}
+
 fn exercise_command_surface(namespace: &mut PsmuxNamespace) -> Result<(), SmokeFailure> {
     let session = "jefe-smoke";
     let work_dir = tempfile::Builder::new()

@@ -6,16 +6,20 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod actions_job_ops;
 mod actions_load_ops;
 #[cfg(test)]
 mod actions_load_tests;
 mod actions_ops;
 #[cfg(test)]
 mod actions_tests;
+#[cfg(test)]
+mod comment_pagination_tests;
 mod dashboard_grab_ops;
 mod events;
 mod form_build;
 mod form_cursor;
+mod form_delete_helpers;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
@@ -27,6 +31,7 @@ mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod issues_property_ops;
+mod list_navigation_ops;
 mod modal_ops;
 /// Generic deterministic pagination state container (`PaginatedList<T, I>`).
 pub mod pagination;
@@ -51,6 +56,8 @@ mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;
+pub use selectors::ChooserAgentInfo;
+pub(crate) use selectors::build_chooser_entries_from_state;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;
@@ -69,12 +76,14 @@ pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
-    is_field_visible, kind_from_form_value, next_visible_focus, prev_visible_focus,
+    is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
+    next_visible_repository_focus, prev_visible_focus, prev_visible_repository_focus,
 };
 
 use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::list_viewport::ListMove;
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
@@ -93,7 +102,8 @@ impl AppState {
         self.terminal_total_lines = 0;
     }
 
-    fn selected_repository_id(&self) -> Option<&RepositoryId> {
+    #[must_use]
+    pub fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
@@ -389,30 +399,40 @@ impl AppState {
         );
     }
 
-    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
-        // Clear sticky-dead agent visibility on selection-changing navigation.
-        // Once the user moves away, the normal active-only filter applies and
-        // dead agents drop out of the visible set (issue #116).
-        //
-        // Display-only toggles (filter, focus, mode switches) do NOT clear
-        // sticky visibility — only actual selection changes do.
-        match message {
+    fn prepare_ui_navigation(&mut self, message: &UiNavigationMessage) {
+        let changes_selection = matches!(
+            message,
             UiNavigationMessage::NavigateUp
-            | UiNavigationMessage::NavigateDown
-            | UiNavigationMessage::NavigateLeft
-            | UiNavigationMessage::NavigateRight
-            | UiNavigationMessage::SelectRepository(_)
-            | UiNavigationMessage::SelectAgent(_)
-            | UiNavigationMessage::JumpToAgentByShortcut(_) => {
-                self.sticky_dead_agent_ids.clear();
-                self.dashboard_grab = None;
-            }
-            _ => {}
+                | UiNavigationMessage::NavigateDown
+                | UiNavigationMessage::NavigatePageUp(_)
+                | UiNavigationMessage::NavigatePageDown(_)
+                | UiNavigationMessage::NavigateHome
+                | UiNavigationMessage::NavigateEnd
+                | UiNavigationMessage::NavigateLeft
+                | UiNavigationMessage::NavigateRight
+                | UiNavigationMessage::SelectRepository(_)
+                | UiNavigationMessage::SelectAgent(_)
+                | UiNavigationMessage::JumpToAgentByShortcut(_)
+        );
+        if changes_selection {
+            self.sticky_dead_agent_ids.clear();
+            self.dashboard_grab = None;
         }
+    }
 
+    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
+        self.prepare_ui_navigation(&message);
         match message {
             UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
             UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
+            UiNavigationMessage::NavigatePageUp(page) => {
+                self.handle_navigate_page(ListMove::PageUp(page));
+            }
+            UiNavigationMessage::NavigatePageDown(page) => {
+                self.handle_navigate_page(ListMove::PageDown(page));
+            }
+            UiNavigationMessage::NavigateHome => self.handle_navigate_page(ListMove::Home),
+            UiNavigationMessage::NavigateEnd => self.handle_navigate_page(ListMove::End),
             UiNavigationMessage::NavigateLeft => self.move_pane_focus_left(),
             UiNavigationMessage::NavigateRight => self.move_pane_focus_right(),
             UiNavigationMessage::SelectRepository(idx) => self.select_repository_by_index(idx),
@@ -429,6 +449,7 @@ impl AppState {
             }
             UiNavigationMessage::EnterSplitMode => {
                 self.screen_mode = ScreenMode::Split;
+                self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
             UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),
@@ -895,6 +916,9 @@ mod issues_tests_detail_flow;
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
 #[cfg(test)]
+#[path = "issues_tests_mutations.rs"]
+mod issues_tests_mutations;
+#[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 #[cfg(test)]
@@ -929,7 +953,6 @@ mod prs_tests_filter;
 #[path = "prs_tests_merge.rs"]
 mod prs_tests_merge;
 
-// Per-repository user-preference persistence tests (issue #163).
 #[cfg(test)]
 #[path = "preferences_tests.rs"]
 mod preferences_tests;
@@ -941,17 +964,16 @@ mod prs_tests_repo_nav;
 #[cfg(test)]
 #[path = "issues_test_fixtures.rs"]
 mod issues_test_fixtures;
-/// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
 #[cfg(test)]
 #[path = "prs_test_fixtures.rs"]
 mod prs_test_fixtures;
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "prs_tests_chooser_security.rs"]
+mod prs_tests_chooser_security;
 
 /// @plan PLAN-20260624-PR-MODE.P14 @requirement REQ-PR-010
 #[cfg(test)]
@@ -965,7 +987,6 @@ mod prs_tests_detail_flow;
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
 
-/// Silent background refresh state-transition tests (issue #128).
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
 mod prs_tests_silent_refresh;
@@ -982,11 +1003,6 @@ mod prs_tests_bodyless_review_nav;
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
 
-/// PR list pagination / lazy-load integration tests (extracted from
-/// `prs_integration_tests.rs` to keep that file under the source-size limit).
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-007
 #[cfg(test)]
 #[path = "prs_tests_pagination.rs"]
 mod prs_tests_pagination;

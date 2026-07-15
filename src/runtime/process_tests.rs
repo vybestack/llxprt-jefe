@@ -43,6 +43,20 @@ fn classification_distinguishes_every_required_state() {
 }
 
 #[test]
+fn platform_identity_without_persisted_creation_time_is_malformed() {
+    let legacy = ProcessIdentity {
+        pid: 41,
+        started_at: None,
+    };
+    let observed = ProcessIdentity::new(41, 900);
+
+    assert_eq!(
+        classify_process_observation(Some(legacy), ProcessObservation::Running(observed)),
+        ProcessLiveness::MalformedIdentity
+    );
+}
+
+#[test]
 fn production_probe_observes_running_and_normal_exit() {
     let mut child = spawn_sleeping_fixture(Duration::from_millis(120));
     let identity = capture_process_identity(child.id())

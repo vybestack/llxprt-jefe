@@ -1,6 +1,6 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository,
-    RepositoryId,
+    Agent, AgentChooserEntry, AgentChooserGitMetadata, AgentId, Issue, IssueComment, IssueDetail,
+    IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
@@ -68,9 +68,14 @@ fn p15_detail(number: u64) -> IssueDetail {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: format!("https://github.com/owner/repo/issues/{number}"),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     }
 }
@@ -132,12 +137,17 @@ fn send_payload_detail() -> IssueDetail {
         milestone: None,
         body: "Crash on startup".to_string(),
         external_url: "https://github.com/owner/repo/issues/7".to_string(),
-        comments: vec![
-            p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
-            p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
-        ],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 7,
+            },
+            vec![
+                p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
+                p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
+            ],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     }
 }
@@ -589,14 +599,17 @@ fn test_send_to_agent_payload_complete() {
         DetailSubfocus::Comment(1)
     );
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
+        "agent-1".to_string(),
+    ))];
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
     let chooser = state
         .issues_state
         .agent_chooser
         .as_ref()
         .unwrap_or_else(|| panic!("chooser should be open"));
     assert_eq!(chooser.agents.len(), 1);
-    assert_eq!(chooser.agents[0].1, "My Agent");
+    assert_eq!(chooser.agents[0].name, "My Agent");
 
     let detail = state
         .issues_state
@@ -627,7 +640,7 @@ fn test_send_to_agent_no_agents() {
     let state = issues_mode_state_with_repo("repo-1");
     assert!(state.agents.is_empty());
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
 
     assert!(state.issues_state.agent_chooser.is_none());
     assert_eq!(
@@ -698,8 +711,8 @@ fn test_esc_chain_all_six_levels_integrated() {
     let mut state = state;
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
-        agents: vec![(AgentId("a1".to_string()), "Agent 1".to_string())],
         transient_available: false,
+        agents: vec![AgentChooserEntry::simple("a1", "Agent 1")],
     });
     let state = state.apply(AppEvent::AgentChooserCancel);
     assert!(state.issues_state.agent_chooser.is_none());
@@ -850,18 +863,28 @@ fn test_detail_load_failure_with_pending_token_surfaces_error() {
 fn test_comment_page_failure_with_pending_token_surfaces_error() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = p15_state_with_loaded_detail(&repo_id, 42);
-    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+    let Some(request_id) =
+        state.begin_issue_comment_page_for_test(repo_id.clone(), 42, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
 
     let state = state.apply(AppEvent::IssueCommentsPageFailed {
         scope_repo_id: repo_id,
         issue_number: 42,
-        request_id: 0,
+        request_id,
         request_cursor: Some("cursor-1".to_string()),
         error: "No GitHub repository configured".to_string(),
     });
 
     assert!(!state.issues_state.loading.comments);
-    assert!(state.issues_state.comments_page_pending.is_none());
+    assert!(
+        !state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
     assert_eq!(
         state.issues_state.error.as_deref(),
         Some("No GitHub repository configured")
@@ -923,7 +946,12 @@ fn test_detail_scroll_limit_uses_stored_viewport_rows() {
 fn test_matching_mutation_response_does_not_clear_newer_inline_draft() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut detail = p15_detail(42);
-    detail.comments = vec![p15_comment(1, "alice", "2024-01-01T00:00:00Z", "original")];
+    detail.comments.replace_items(vec![p15_comment(
+        1,
+        "alice",
+        "2024-01-01T00:00:00Z",
+        "original",
+    )]);
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), 42);
     let mut state = state.apply(AppEvent::IssueDetailLoaded {

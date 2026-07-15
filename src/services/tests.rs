@@ -17,6 +17,7 @@ fn local_repository() -> Repository {
         transient_agent_dir: std::path::PathBuf::new(),
         default_code_puppy_yolo: None,
         transient_max_concurrent: 0,
+        default_llxprt_version: None,
         agent_ids: Vec::new(),
     }
 }
@@ -29,6 +30,7 @@ fn remote_repository() -> Repository {
             host: "example.com".to_owned(),
             run_as_user: "acoliver".to_owned(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         },
         ..local_repository()
     }
@@ -51,6 +53,7 @@ fn params<'a>(
         agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",
+        llxprt_version: "",
         pass_continue: true,
         sandbox_enabled: false,
         sandbox_engine: "podman",

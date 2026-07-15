@@ -6,14 +6,16 @@
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output};
+use std::time::Duration;
 
 use tracing::debug;
 
-use crate::domain::{AgentKind, LaunchSignature};
+pub(super) use super::command_capture::run_command_capture_with_timeout;
 
-use super::agent_executable::AgentExecutableResolver;
+use crate::domain::{AgentKind, LaunchSignature, LaunchSource, llxprt_launch_source};
+
+use super::agent_executable::{AgentExecutableResolver, AgentExecutableTarget};
 use super::errors::RuntimeError;
 use super::multiplexer::{MultiplexerCapability, MultiplexerPlan};
 use super::preflight::sandbox_ssh_agent_warning;
@@ -290,96 +292,6 @@ pub(super) fn run_command_capture(
     run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
 }
 
-/// [`run_command_capture`] with an injectable deadline so tests can drive the
-/// timeout branch with a sub-second value instead of the 20s production
-/// default (#173).
-fn run_command_capture_with_timeout(
-    mut cmd: Command,
-    timeout: Duration,
-    error_context: &str,
-) -> Result<Output, RuntimeError> {
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}")))?;
-
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                return child.wait_with_output().map_err(|e| {
-                    RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}"))
-                });
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(RuntimeError::RemoteExecutionFailed(format!(
-                        "{error_context}: timed out after {}s",
-                        timeout.as_secs_f64()
-                    )));
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(RuntimeError::RemoteExecutionFailed(format!(
-                    "{error_context}: {e}"
-                )));
-            }
-        }
-    }
-}
-
-fn remote_ssh_args(
-    remote: &crate::domain::RemoteRepositorySettings,
-    remote_command: &str,
-) -> Vec<String> {
-    // Runtime defense-in-depth: validate SSH identity fields before
-    // constructing the destination. The authoritative validation happens at
-    // form/persistence boundaries via domain::target::validate_remote, but
-    // every SSH command site re-checks at runtime (not just debug builds) so
-    // a stale or unvalidated RemoteRepositorySettings can never reach the
-    // shell. The `--` separator below is the final structural guard: it ends
-    // option parsing so a destination starting with '-' cannot be parsed as
-    // an ssh option even if validation were bypassed.
-    let user = remote.login_user.trim();
-    let host = remote.host.trim();
-    assert!(
-        crate::domain::target::is_valid_ssh_identity(user)
-            && crate::domain::target::is_valid_ssh_identity(host),
-        "SSH identity fields must be validated before reaching remote_ssh_args"
-    );
-    vec![
-        "-o".to_owned(),
-        "BatchMode=yes".to_owned(),
-        "-o".to_owned(),
-        "ConnectTimeout=10".to_owned(),
-        // Auto-accept the host key on first connect (TOFU) and verify it on
-        // subsequent connections so SSH never hangs waiting for interactive
-        // acceptance in the non-PTY runtime path.
-        "-o".to_owned(),
-        "StrictHostKeyChecking=accept-new".to_owned(),
-        // Post-connect keepalive so a hung remote command is detected within
-        // ~15s instead of blocking indefinitely.
-        "-o".to_owned(),
-        "ServerAliveInterval=5".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveCountMax=3".to_owned(),
-        "-tt".to_owned(),
-        // `--` ends option parsing so a destination starting with '-' cannot
-        // be misinterpreted as an ssh option (defense in depth; validation
-        // is the primary guard).
-        "--".to_owned(),
-        format!("{user}@{host}"),
-        remote_command.to_owned(),
-    ]
-}
-
 pub fn remote_tmux_command(
     remote: &crate::domain::RemoteRepositorySettings,
     inner_command: &str,
@@ -416,10 +328,10 @@ fn remote_kill_session_command(
     )
 }
 
-pub fn build_remote_attach_command(
+pub fn build_remote_attach_plan(
     remote: &crate::domain::RemoteRepositorySettings,
     session_name: &str,
-) -> String {
+) -> Result<crate::ssh::SshPlan, RuntimeError> {
     let remote_command = remote_tmux_command(
         remote,
         &format!(
@@ -427,21 +339,18 @@ pub fn build_remote_attach_command(
             shell_escape_single(session_name)
         ),
     );
-    let ssh_args = remote_ssh_args(remote, &remote_command);
-    format!("exec ssh {}", shell_join(&ssh_args))
+    crate::ssh::SshPlan::new(remote, &remote_command, crate::ssh::SshMode::Terminal)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))
 }
 
 pub fn run_remote_ssh(
     remote: &crate::domain::RemoteRepositorySettings,
     remote_command: &str,
 ) -> Result<Output, RuntimeError> {
-    let ssh_args = remote_ssh_args(remote, remote_command);
-    let mut cmd = Command::new("ssh");
-    cmd.args(&ssh_args);
-    run_command_capture(
-        cmd,
-        &format!("ssh {}@{}", remote.login_user.trim(), remote.host.trim()),
-    )
+    let plan = crate::ssh::SshPlan::new(remote, remote_command, crate::ssh::SshMode::Terminal)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))?;
+    plan.execute(None, crate::ssh::SSH_OPERATION_TIMEOUT, None)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))
 }
 
 fn ensure_remote_success(
@@ -452,22 +361,12 @@ fn ensure_remote_success(
     if output.status.success() {
         Ok(output)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            format!(
-                "remote command failed on {}@{} with status {}",
-                remote.login_user.trim(),
-                remote.host.trim(),
-                output.status
-            )
-        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let failure = crate::ssh::classify_failure(output.status.code(), &stderr);
         Err(RuntimeError::RemoteExecutionFailed(format!(
-            "{action}: {detail}"
+            "{action} on {}@{}: {failure}",
+            remote.login_user.trim(),
+            remote.host.trim()
         )))
     }
 }
@@ -559,6 +458,27 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
     match signature.agent_kind {
         AgentKind::CodePuppy => code_puppy_launch_args(signature),
         AgentKind::Llxprt => llxprt_launch_args(signature),
+    }
+}
+
+fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
+    let llxprt_args = launch_args(signature);
+    match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
+        LaunchSource::Direct => (
+            AgentExecutableTarget::Agent(signature.agent_kind),
+            llxprt_args,
+        ),
+        LaunchSource::NpmBacked(selector) => {
+            let mut args = vec![
+                "exec".to_owned(),
+                "--yes".to_owned(),
+                format!("--package={}", selector.package_spec()),
+                "--".to_owned(),
+                AgentKind::Llxprt.binary_name().to_owned(),
+            ];
+            args.extend(llxprt_args);
+            (AgentExecutableTarget::Npm, args)
+        }
     }
 }
 
@@ -656,6 +576,25 @@ fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
     }
 }
 
+struct RemoteLaunchArgv {
+    executable: String,
+    args: Vec<String>,
+}
+
+fn remote_launch_argv(
+    signature: &LaunchSignature,
+    direct_command: Option<String>,
+) -> Result<RemoteLaunchArgv, RuntimeError> {
+    let (target, args) = launch_target_and_args(signature);
+    let executable = match target {
+        AgentExecutableTarget::Npm => "npm".to_owned(),
+        AgentExecutableTarget::Agent(_) => direct_command.ok_or_else(|| {
+            RuntimeError::SpawnFailed("direct agent executable was not resolved".to_owned())
+        })?,
+    };
+    Ok(RemoteLaunchArgv { executable, args })
+}
+
 fn build_remote_launch_command(
     session_name: &str,
     work_dir: &Path,
@@ -664,14 +603,18 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let agent_command = resolve_remote_agent_command(
-        remote,
-        work_dir,
-        remote.setup_env_default,
-        signature.agent_kind,
-    )?;
-    let args = launch_args(signature);
-    let cli_command = remote_cli_command(&agent_command, &args);
+    let direct_command =
+        match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
+            LaunchSource::Direct => Some(resolve_remote_agent_command(
+                remote,
+                work_dir,
+                remote.setup_env_default,
+                signature.agent_kind,
+            )?),
+            LaunchSource::NpmBacked(_) => None,
+        };
+    let launch = remote_launch_argv(signature, direct_command)?;
+    let cli_command = remote_cli_command(&launch.executable, &launch.args);
     // Scrub jefe's tmux client vars from the remote agent pane for the same
     // reason as the local path (#171): a bare `tmux` inside the agent must not
     // reach the (remote) tmux server hosting the agent session.
@@ -715,7 +658,7 @@ fn build_remote_tmux_script(
 }
 
 struct LocalLaunchPlan {
-    agent_kind: AgentKind,
+    executable: AgentExecutableTarget,
     args: Vec<String>,
     env: Vec<(String, String)>,
     warning: Option<String>,
@@ -743,9 +686,10 @@ fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
         env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
     }
+    let (executable, args) = launch_target_and_args(signature);
     LocalLaunchPlan {
-        agent_kind: signature.agent_kind,
-        args: launch_args(signature),
+        executable,
+        args,
         env,
         warning,
     }
@@ -766,7 +710,7 @@ fn local_launch_command(
         .arg(work_dir);
 
     let executable = AgentExecutableResolver::current()
-        .resolve(launch.agent_kind)
+        .resolve_target(launch.executable)
         .map_err(RuntimeError::AgentExecutable)?;
     let pane_args = launch.args.iter().map(OsString::from).collect::<Vec<_>>();
     let environment = launch
@@ -792,7 +736,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     for (key, value) in &plan.env {
         args.push(format!("{key}={value}"));
     }
-    args.push(plan.agent_kind.binary_name().to_owned());
+    args.push(plan.executable.binary_name().to_owned());
     args.extend(plan.args.iter().cloned());
     args
 }
@@ -936,11 +880,16 @@ pub fn remote_session_exists(
 ) -> Result<bool, RuntimeError> {
     let command = remote_has_session_command(remote, session_name);
     let output = run_remote_ssh(remote, &command)?;
-    Ok(output.status.success())
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(RuntimeError::CapabilityProbeFailed(format!(
+            "remote tmux session probe failed: {}",
+            output.status
+        ))),
+    }
 }
-
 /// Kill a tmux session.
-///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
     let output = tmux_command()?
@@ -990,6 +939,9 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[path = "commands_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "npm_launch_tests.rs"]
+mod npm_launch_tests;
 #[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

@@ -519,9 +519,10 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Enforce local installed-kind availability before any launch attempt.
     // Remote repositories skip this because remote PATH resolution is
     // authoritative.
-    if !super::availability::local_kind_available_or_error(
+    if !super::availability::launch_available_or_error(
         app_state,
         signature.agent_kind,
+        signature.llxprt_version.as_ref(),
         &signature.remote,
     ) {
         return;
@@ -546,14 +547,10 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
     let selection = match &state.modal {
         ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
-            let remote = RemoteRepositorySettings {
-                enabled: fields.remote_enabled,
-                login_user: fields.login_user.clone(),
-                host: fields.host.clone(),
-                run_as_user: fields.run_as_user.clone(),
-                setup_env_default: fields.setup_env_default,
-            };
-            (kind, remote)
+            let selector =
+                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
+            jefe::state::AppState::remote_settings_from_fields(fields)
+                .map(|remote| (kind, selector, remote))
         }
         ModalState::NewAgent {
             repository_id,
@@ -566,7 +563,11 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            Ok((
+                kind,
+                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
+                remote,
+            ))
         }
         ModalState::EditAgent { id, fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
@@ -575,14 +576,24 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            Ok((
+                kind,
+                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
+                remote,
+            ))
         }
         _ => return true,
     };
     drop(state);
-    let (kind, remote) = selection;
+    let (kind, selector, remote) = match selection {
+        Ok(selection) => selection,
+        Err(error) => {
+            app_state.write().error_message = Some(error);
+            return false;
+        }
+    };
 
-    super::availability::local_kind_available_or_error(app_state, kind, &remote)
+    super::availability::launch_available_or_error(app_state, kind, selector.as_ref(), &remote)
 }
 
 /// Extract workflow dispatch form data if the modal is a WorkflowDispatch
@@ -686,8 +697,22 @@ fn submit_form_and_snapshot_launch(
     ctx: &SharedContext,
     is_new_agent: bool,
 ) -> Option<(AgentId, std::path::PathBuf, LaunchSignature)> {
+    let package_probe_plan = {
+        let state = app_state.read();
+        super::new_agent_submit::new_agent_package_probe_plan(&state)
+    };
+    let package_probe_result = super::new_agent_submit::execute_new_agent_package_probe(
+        &package_probe_plan,
+        jefe::runtime::require_npm_package_available,
+    );
+
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::SubmitForm);
+    if !super::new_agent_submit::apply_form_submit_after_package_probe(
+        &mut state,
+        package_probe_result,
+    ) {
+        return None;
+    }
 
     let launch_after_submit = if is_new_agent && state.modal == ModalState::None {
         state.selected_agent().cloned().and_then(|agent| {

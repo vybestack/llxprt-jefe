@@ -5,7 +5,40 @@ use super::*;
 use crate::domain::SandboxEngine;
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 #[cfg(unix)]
+use std::process::Stdio;
+#[cfg(unix)]
 use std::time::Duration;
+#[test]
+fn remote_attach_plan_uses_direct_ssh_and_excludes_local_psmux_namespace() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        port: Some(2222),
+        identity_file: std::path::PathBuf::from(r"C:\Keys Ω\agent key"),
+        options: vec!["Compression=yes".to_owned()],
+        ..crate::domain::RemoteRepositorySettings::default()
+    };
+    let plan = crate::ssh::SshPlan::with_executable(
+        std::path::PathBuf::from(r"C:\Program Files\OpenSSH\ssh.exe"),
+        &remote,
+        &remote_tmux_command(&remote, "tmux attach-session -t 'remote-agent'"),
+        crate::ssh::SshMode::Terminal,
+    )
+    .unwrap_or_else(|error| panic!("plan remote attach: {error}"));
+    assert_eq!(
+        plan.executable(),
+        std::path::Path::new(r"C:\Program Files\OpenSSH\ssh.exe")
+    );
+    assert!(plan.args().contains(&std::ffi::OsString::from("-tt")));
+    let remote_command = plan.args().last().map_or_else(
+        || panic!("remote attach plan should contain a command"),
+        |argument| argument.to_string_lossy(),
+    );
+    assert!(remote_command.contains("tmux attach-session"));
+    assert!(!remote_command.contains("psmux"));
+    assert!(!remote_command.contains("JEFE_PSMUX"));
+}
 
 fn base_signature() -> LaunchSignature {
     LaunchSignature {
@@ -22,6 +55,7 @@ fn base_signature() -> LaunchSignature {
         sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
         agent_kind: crate::domain::AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 
@@ -169,6 +203,7 @@ fn remote_tmux_command_wraps_run_as_user_once() {
         host: "example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_tmux_command(&remote, "tmux has-session -t 'demo'");
@@ -209,6 +244,68 @@ fn remote_execution_timeout_returns_clear_error() {
     assert!(
         message.contains("after 1s"),
         "message should report the injected deadline as fractional seconds: {message}"
+    );
+    command_capture_drains_stdout_and_stderr_beyond_pipe_capacity();
+    command_capture_timeout_terminates_descendant_process_group();
+}
+
+#[cfg(unix)]
+fn command_capture_drains_stdout_and_stderr_beyond_pipe_capacity() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        "head -c 1048576 /dev/zero; head -c 1048576 /dev/zero >&2",
+    ]);
+
+    let output =
+        run_command_capture_with_timeout(command, Duration::from_secs(5), "large output probe")
+            .unwrap_or_else(|error| panic!("large output should not deadlock: {error}"));
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout.len(), 1_048_576);
+    assert_eq!(output.stderr.len(), 1_048_576);
+}
+
+#[cfg(unix)]
+fn command_capture_timeout_terminates_descendant_process_group() {
+    let directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("temporary directory should be created: {error}"));
+    let pid_file = directory.path().join("descendant.pid");
+    let script = format!(
+        "sleep 30 & printf '%s' $! > {}; wait",
+        shell_escape_single(&pid_file.to_string_lossy())
+    );
+    let mut command = Command::new("sh");
+    command.args(["-c", &script]);
+
+    let result = run_command_capture_with_timeout(
+        command,
+        Duration::from_millis(100),
+        "descendant cleanup probe",
+    );
+    assert!(matches!(
+        result,
+        Err(RuntimeError::RemoteExecutionFailed(message)) if message.contains("timed out")
+    ));
+
+    let pid = std::fs::read_to_string(&pid_file)
+        .unwrap_or_else(|error| panic!("descendant pid should be captured: {error}"));
+    let mut alive = true;
+    for _ in 0..20 {
+        alive = Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !alive {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !alive,
+        "timed-out descendant process {pid} must be terminated"
     );
 }
 
@@ -307,6 +404,7 @@ fn remote_disable_prefix_command_targets_session_with_both_options() {
         host: "example.com".to_owned(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_disable_prefix_command(&remote, "jefe-agent-prefix");
@@ -343,6 +441,7 @@ fn remote_disable_prefix_command_wraps_through_run_as_user() {
         host: "example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_disable_prefix_command(&remote, "s");
@@ -411,7 +510,7 @@ fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
 #[test]
 fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     let plan_no_env = LocalLaunchPlan {
-        agent_kind: AgentKind::Llxprt,
+        executable: super::super::agent_executable::AgentExecutableTarget::Agent(AgentKind::Llxprt),
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
@@ -430,7 +529,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
 
     // With an env assignment, the K=V must sit between the scrub and llxprt.
     let plan_with_env = LocalLaunchPlan {
-        agent_kind: AgentKind::Llxprt,
+        executable: super::super::agent_executable::AgentExecutableTarget::Agent(AgentKind::Llxprt),
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,

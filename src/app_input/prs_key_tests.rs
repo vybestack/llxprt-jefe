@@ -13,7 +13,9 @@
 //! @requirement REQ-PR-013
 
 use super::*;
-use jefe::domain::{AgentId, ChecksFilter, ReviewDecisionFilter};
+use jefe::domain::{
+    AgentChooserEntry, AgentId, AgentKind, ChecksFilter, ChooserRuntimeConfig, ReviewDecisionFilter,
+};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenMode,
@@ -57,7 +59,12 @@ fn prs_state_with_chooser() -> AppState {
     let mut state = prs_base_state();
     state.prs_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
-        agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+        agents: vec![AgentChooserEntry::new(
+            AgentId(String::from("a1")),
+            String::from("Agent 1"),
+            AgentKind::Llxprt,
+            ChooserRuntimeConfig::default(),
+        )],
         transient_available: false,
     });
     state
@@ -343,6 +350,22 @@ fn test_arrow_pane_cycle_matrix_per_pane() {
     assert!(matches!(
         resolve_prs_key_event(&detail, &key(KeyCode::Right)),
         Some(AppEvent::PrCycleFocus)
+    ));
+}
+
+#[test]
+fn page_keys_carry_actual_pr_list_capacity() {
+    let state = prs_state_with_focus(PrFocus::PrList);
+    let up = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageUp), 22);
+    assert!(matches!(
+        up,
+        Some(AppEvent::PrNavigatePageUp(page)) if page.get() == 3
+    ));
+
+    let down = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageDown), 36);
+    assert!(matches!(
+        down,
+        Some(AppEvent::PrNavigatePageDown(page)) if page.get() == 7
     ));
 }
 
@@ -784,7 +807,10 @@ fn test_e_on_pr_detail_emits_show_notice_not_none() {
 fn test_capital_s_opens_agent_chooser_from_detail() {
     let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
     let event = resolve_prs_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(matches!(event, Some(AppEvent::PrOpenAgentChooser)));
+    assert!(
+        matches!(event, Some(AppEvent::PrOpenAgentChooser { .. })),
+        "Shift+S must dispatch PrOpenAgentChooser, got {event:?}"
+    );
 }
 
 /// `o` on a loaded/selected PR emits PrOpenInBrowser (from list and detail).
@@ -872,6 +898,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
         author_login: String::from("author"),
         updated_at: String::new(),
         head_ref: String::new(),
+        head_sha: String::new(),
         base_ref: String::new(),
         is_draft: false,
         review_decision: None,
@@ -895,6 +922,7 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         created_at: String::new(),
         updated_at: String::new(),
         head_ref: String::new(),
+        head_sha: String::new(),
         base_ref: String::new(),
         labels: Vec::new(),
         assignees: Vec::new(),
@@ -905,9 +933,14 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         checks_status: PrCheckStatus::Success,
         reviews: Vec::new(),
         checks: Vec::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 1,
+            },
+            Vec::new(),
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

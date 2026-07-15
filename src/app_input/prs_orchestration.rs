@@ -11,7 +11,7 @@
 
 use jefe::domain::{AgentId, LaunchSignature, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
-use jefe::runtime::RuntimeManager;
+use jefe::runtime::RuntimeError;
 use jefe::state::{AppEvent, AppState, PrPropertyKind};
 use tracing::warn;
 
@@ -422,6 +422,9 @@ fn refresh_repo_scope_if_changed_prs(
 fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
     state.prs_state.list.clear();
+    if let Some(detail) = &mut state.prs_state.pr_detail {
+        detail.comments.cancel_pending();
+    }
     state.prs_state.pr_detail = None;
     state.prs_state.error = None;
     // M7: clear property editor and pending mutation on scope reset.
@@ -435,7 +438,6 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.loading.detail = false;
     state.prs_state.loading.comments = false;
     state.prs_state.detail_pending = None;
-    state.prs_state.comments_page_pending = None;
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;
@@ -465,10 +467,11 @@ fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Op
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 156-159
 fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
-    let (term_rows, _term_cols) = crossterm::terminal::size().map_or((40, 120), |(c, r)| (r, c));
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-        term_rows as usize,
+        usize::from(render_rows),
         state.prs_state.error.is_some(),
         state.prs_state.filter_ui.controls_open,
     );
@@ -509,9 +512,13 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         PR_PROMPT_RELATIVE_PATH,
     );
 
-    if !super::availability::local_kind_available_or_error(
+    // Availability + target validation BEFORE any prompt side effect: a
+    // missing agent runtime or an invalid/incomplete remote config must not
+    // trigger a local or remote prompt write.
+    if !super::availability::launch_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        launch_sig.llxprt_version.as_ref(),
         &launch_sig.remote,
     ) {
         return;
@@ -527,8 +534,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
-        &send_info.work_dir,
-        launch_sig.agent_kind,
+        &launch_sig,
     ) {
         return;
     }
@@ -633,7 +639,8 @@ fn pr_send_info(app_state: &AppStateHandle) -> Option<PrSendInfo> {
 pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
     let chooser = state.prs_state.agent_chooser.as_ref()?;
     let detail = state.prs_state.pr_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let entry = chooser.agents.get(chooser.selected_index)?;
+    let agent_id = entry.agent_id.clone();
     let agent = state
         .agents
         .iter()
@@ -688,15 +695,27 @@ pub(super) fn launch_pr_agent(
     work_dir: std::path::PathBuf,
     launch_sig: LaunchSignature,
 ) {
-    let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
+    let launch_result = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
+    let launched = launch_result.is_ok();
+    // Resolve the worker PID before taking the app-state write lock
+    // (lock-ordering constraint). Skipped on the failure path.
     let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
-    if launched {
-        persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig, pid, process_identity);
-    } else {
-        *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed {
-            error: "Failed to launch agent".to_string(),
-        });
+    match launch_result {
+        Ok(()) => {
+            persist_pr_agent_launch_success(
+                &mut state,
+                &agent_id,
+                launch_sig,
+                pid,
+                process_identity,
+            );
+        }
+        Err(error) => {
+            *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed {
+                error: error.to_string(),
+            });
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -709,33 +728,29 @@ fn spawn_and_attach_fresh_for_pr(
     agent_id: &AgentId,
     work_dir: &std::path::Path,
     launch_sig: &LaunchSignature,
-) -> bool {
+) -> Result<(), RuntimeError> {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context unavailable".to_owned(),
+        ));
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context lock unavailable".to_owned(),
+        ));
     };
-    match ctx_guard
-        .runtime
-        .spawn_session_fresh(agent_id, work_dir, launch_sig)
-    {
-        Ok(()) => {
-            std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-            match ctx_guard.runtime.attach(agent_id) {
-                Ok(()) => true,
-                Err(error) => {
-                    warn!(agent_id = %agent_id.0, error = %error, "could not attach agent after PR send");
-                    let _ = ctx_guard.runtime.mark_session_dead(agent_id);
-                    false
-                }
-            }
-        }
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not spawn agent for PR send");
-            false
-        }
+    let result = super::send_runtime::spawn_and_attach_fresh(
+        &mut ctx_guard.runtime,
+        agent_id,
+        work_dir,
+        launch_sig,
+        REMOTE_ATTACH_SETTLE_DELAY,
+    );
+    if let Err(error) = &result {
+        warn!(agent_id = %agent_id.0, error = %error, "could not launch agent for PR send");
+        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
     }
+    result
 }
 
 /// Persist the PR agent launch success: set runtime binding, clear attachments,

@@ -58,15 +58,53 @@ impl AppState {
         resolve_agent_work_dir(repository, value)
     }
 
-    pub(super) fn remote_settings_from_fields(
+    /// Parse and validate SSH settings from repository form fields.
+    pub fn remote_settings_from_fields(
         fields: &RepositoryFormFields,
-    ) -> RemoteRepositorySettings {
-        RemoteRepositorySettings {
+    ) -> Result<RemoteRepositorySettings, String> {
+        let port = if fields.remote_enabled {
+            match fields.ssh_port.trim() {
+                "" => None,
+                value => {
+                    let port = value
+                        .parse::<u16>()
+                        .map_err(|_| "SSH port must be between 1 and 65535".to_owned())?;
+                    if port == 0 {
+                        return Err("SSH port must be between 1 and 65535".to_owned());
+                    }
+                    Some(port)
+                }
+            }
+        } else {
+            None
+        };
+        let settings = RemoteRepositorySettings {
             enabled: fields.remote_enabled,
             login_user: fields.login_user.trim().to_owned(),
             host: fields.host.trim().to_owned(),
+            port,
+            identity_file: std::path::PathBuf::from(fields.identity_file.trim()),
+            options: fields
+                .ssh_options
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect(),
             run_as_user: fields.run_as_user.trim().to_owned(),
             setup_env_default: fields.setup_env_default,
+        };
+        crate::domain::target::validate_remote(&settings)?;
+        Ok(settings)
+    }
+
+    fn validated_remote_settings(
+        fields: &RepositoryFormFields,
+    ) -> Option<RemoteRepositorySettings> {
+        match Self::remote_settings_from_fields(fields) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                warn!(error = %error, "rejecting repository create: invalid remote config");
+                None
+            }
         }
     }
 
@@ -104,11 +142,7 @@ impl AppState {
             return None;
         }
 
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository: incomplete remote config");
-            return None;
-        }
+        let remote_settings = Self::validated_remote_settings(fields)?;
 
         Some((trimmed_name.to_owned(), slug, remote_settings))
     }
@@ -155,6 +189,9 @@ impl AppState {
             transient_max_concurrent: parse_transient_max_concurrent(
                 &fields.transient_max_concurrent,
             ),
+            default_llxprt_version: crate::domain::LlxprtNpmPackageSelector::normalize(
+                &fields.default_llxprt_version,
+            ),
             agent_ids: Vec::new(),
         })
     }
@@ -188,6 +225,8 @@ impl AppState {
         repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
+        repo.default_llxprt_version =
+            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
         fields
             .github_issue_pr_repo
@@ -225,6 +264,7 @@ impl AppState {
             agent_kind: &fields.agent_kind,
             mode: &fields.mode,
             llxprt_debug: &fields.llxprt_debug,
+            llxprt_version: &fields.llxprt_version,
             pass_continue: fields.pass_continue,
             sandbox_enabled: fields.sandbox_enabled,
             sandbox_engine: &fields.sandbox_engine,
@@ -286,6 +326,8 @@ impl AppState {
         agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
         agent.agent_kind =
             AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
+        agent.llxprt_version =
+            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version);
         // The mode field is the single source of truth for mode flags. An
         // empty mode yields no flags so yolo can be turned off on update; the
         // new-agent form pre-fills --yolo as the create default instead.

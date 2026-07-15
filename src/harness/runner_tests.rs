@@ -474,6 +474,72 @@ fn guarded_real_jefe_runner_scenario_starts_and_quits() {
     assert_eq!(summary.steps_run, 3);
 }
 
+#[test]
+fn guarded_real_dashboard_lists_window_fixture_rows() {
+    let Some(jefe_binary) = guarded_jefe_binary("dashboard list window test") else {
+        return;
+    };
+    let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
+    seed_dashboard_list_state(config_dir.path());
+    let scenario = parse_scenario(include_str!(
+        "../../dev-docs/tmux-scenarios/dashboard-list-windowing.json"
+    ))
+    .value_or_panic("dashboard list scenario should parse");
+    let request = TmuxStartRequest::jefe(
+        unique_session("dashboard-lists"),
+        jefe_binary,
+        config_dir.path(),
+        std::env::current_dir().value_or_panic("current dir"),
+        TmuxPaneSize::new(100, 25, 2_000),
+    )
+    .value_or_panic("jefe request");
+
+    let summary = run_tmux_scenario(&scenario, &request, None)
+        .value_or_panic("dashboard list window scenario");
+
+    assert_eq!(summary.steps_run, 9);
+}
+
+fn seed_dashboard_list_state(config_dir: &std::path::Path) {
+    use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+
+    let repositories: Vec<Repository> = (0..25)
+        .map(|index| {
+            Repository::new(
+                RepositoryId(format!("repo-{index}")),
+                format!("Repository {index}"),
+                format!("owner/repo-{index}"),
+                std::path::PathBuf::from("/tmp"),
+            )
+        })
+        .collect();
+    let agents: Vec<Agent> = (0..25)
+        .map(|index| {
+            Agent::new(
+                AgentId(format!("agent-{index}")),
+                RepositoryId(String::from("repo-24")),
+                format!("Agent {index}"),
+                std::path::PathBuf::from("/tmp"),
+            )
+        })
+        .collect();
+    let persisted_state = State {
+        schema_version: crate::persistence::STATE_SCHEMA_VERSION,
+        repositories,
+        agents,
+        selected_repository_index: Some(24),
+        selected_agent_index: Some(24),
+        ..State::default()
+    };
+    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
+        settings_path: config_dir.join("settings.toml"),
+        state_path: config_dir.join("state.json"),
+    });
+    persistence
+        .save_state(&persisted_state)
+        .unwrap_or_else(|error| panic!("save dashboard fixture state: {error:?}"));
+}
 /// Rapid triple-`q` (`qqq`) quits the app — behavioral proof of the quit
 /// sequence fallback (issue #129). Three bare `q`s sent back-to-back land
 /// within the 1s window, so the app exits.
@@ -486,9 +552,8 @@ fn guarded_real_jefe_qqq_quits() {
     let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
-            { "key": "q" },
-            { "key": "q" },
-            { "key": "q" },
+            { "wait": 500 },
+            { "line": "qqq" },
             { "waitForExit": 3000 }
         ]"#,
         30_000,
@@ -505,7 +570,7 @@ fn guarded_real_jefe_qqq_quits() {
 
     let summary = run_tmux_scenario(&scenario, &request, None).value_or_panic("qqq quit scenario");
 
-    assert_eq!(summary.steps_run, 5);
+    assert_eq!(summary.steps_run, 4);
 }
 
 fn jefe_binary_path() -> Option<PathBuf> {
@@ -545,7 +610,8 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let unique = unique_session("stickyagent");
-    let agent_session = format!("jefe-stickyagent-{unique}");
+    let agent_id = crate::domain::AgentId(unique);
+    let agent_session = crate::runtime::RuntimeSession::session_name_for(&agent_id);
 
     // Pre-create a tmux session running sleep on jefe's dedicated socket so
     // jefe's session-exists check (which now targets the private socket) finds
@@ -566,7 +632,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    seed_sticky_agent_state(config_dir.path(), &agent_session);
+    seed_sticky_agent_state(config_dir.path(), &agent_id, &agent_session);
 
     let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
     assert_eq!(summary.steps_run, 13);
@@ -575,15 +641,23 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
 #[cfg(unix)]
-fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
+type StickyAgentId = crate::domain::AgentId;
+#[cfg(unix)]
+type StickyConfigPath = std::path::Path;
+
+#[cfg(unix)]
+fn seed_sticky_agent_state(
+    config_dir: &StickyConfigPath,
+    agent_id: &StickyAgentId,
+    agent_session: &str,
+) {
     use crate::domain::{
-        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+        Agent, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
+        Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
     let mut agent = Agent::new(
-        AgentId("stickyagent".into()),
+        agent_id.clone(),
         RepositoryId("testrepo".into()),
         "StickyAgent".into(),
         std::path::PathBuf::from("/tmp"),
@@ -596,7 +670,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
-            code_puppy_yolo: Some(false),
+            code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
@@ -606,13 +680,13 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,
         process_identity: None,
         pid: None,
     });
-
     let persisted_state = State {
         schema_version: crate::persistence::STATE_SCHEMA_VERSION,
         repositories: vec![Repository::new(
@@ -630,14 +704,13 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    let paths = PersistencePaths {
+    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
-    };
-    let persistence = FilePersistenceManager::with_paths(paths);
+    });
     persistence
         .save_state(&persisted_state)
-        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+        .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
 /// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
@@ -831,10 +904,6 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
     use crate::persistence::State;
-    // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
-    // exactly. This keeps the pre-created (sleep) session name coherent with
-    // the name jefe computes for the agent, so restart targets the SAME session
-    // the scenario seeded.
     let agent_id_value = agent_session.strip_prefix("jefe-").unwrap_or(agent_session);
     let mut agent = Agent::new(
         AgentId(agent_id_value.to_owned()),
@@ -860,6 +929,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,

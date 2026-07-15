@@ -9,6 +9,7 @@ use crate::domain::{
     AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, MergeMethod, PrFilter,
     PullRequest, PullRequestDetail, RepositoryId,
 };
+use crate::list_viewport::PageItemCount;
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
@@ -58,6 +59,10 @@ pub struct MessageRoute {
 pub enum UiNavigationMessage {
     NavigateUp,
     NavigateDown,
+    NavigatePageUp(PageItemCount),
+    NavigatePageDown(PageItemCount),
+    NavigateHome,
+    NavigateEnd,
     NavigateLeft,
     NavigateRight,
     SelectRepository(usize),
@@ -168,8 +173,8 @@ pub enum IssuesMessage {
     RefocusList,
     NavigateUp,
     NavigateDown,
-    NavigatePageUp,
-    NavigatePageDown,
+    NavigatePageUp(PageItemCount),
+    NavigatePageDown(PageItemCount),
     NavigateHome,
     NavigateEnd,
     Enter,
@@ -368,7 +373,9 @@ pub enum IssuesMessage {
         issue_number: u64,
         mutation_id: u64,
     },
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -527,6 +534,11 @@ pub enum PullRequestsMessage {
         request_id: u64,
         error: String,
     },
+    CommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
     OpenFilterControls,
     CloseFilterControls,
     ApplyFilter,
@@ -571,7 +583,9 @@ pub enum PullRequestsMessage {
         error: String,
     },
     ShowNotice(ReadOnlyHintKind),
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigate(NavDir),
     AgentChooserConfirm,
     AgentChooserCancel,
@@ -693,8 +707,8 @@ pub enum PullRequestsMessage {
 pub enum NavDir {
     Up,
     Down,
-    PageUp,
-    PageDown,
+    PageUp(PageItemCount),
+    PageDown(PageItemCount),
     Home,
     End,
     /// Forward navigation for filter/chooser field stepping (Next/Prev semantics).

@@ -246,6 +246,9 @@ scan_allows() {
   local status=0
   while IFS= read -r file; do
     [ -n "$file" ] || continue
+    # Index entries deleted in the working tree are not part of the source
+    # being verified and cannot contain an active suppression.
+    [ -f "$file" ] || continue
     scan_file "$file" || status=1
   done <<<"$file_list"
   return "$status"

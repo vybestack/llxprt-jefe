@@ -11,24 +11,30 @@ impl ActionsMessage {
     pub(super) fn from_app_event(event: AppEvent) -> Self {
         match event {
             AppEvent::EnterActionsMode => Self::EnterMode,
+            AppEvent::EnterActionsModeWithPrFilter { .. } => Self::from_enter_with_pr_filter(event),
             AppEvent::ExitActionsMode => Self::ExitMode,
             AppEvent::RefocusActionsList => Self::RefocusList,
             AppEvent::ActionsReload => Self::Reload,
             AppEvent::ActionsNavigateUp => Self::Navigate(NavDir::Up),
             AppEvent::ActionsNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::ActionsNavigatePageUp => Self::Navigate(NavDir::PageUp),
-            AppEvent::ActionsNavigatePageDown => Self::Navigate(NavDir::PageDown),
+            AppEvent::ActionsNavigatePageUp(page) => Self::Navigate(NavDir::PageUp(page)),
+            AppEvent::ActionsNavigatePageDown(page) => Self::Navigate(NavDir::PageDown(page)),
             AppEvent::ActionsNavigateHome => Self::Navigate(NavDir::Home),
             AppEvent::ActionsNavigateEnd => Self::Navigate(NavDir::End),
             AppEvent::ActionsEnter => Self::Enter,
             AppEvent::ActionsCycleFocus => Self::CycleFocus,
             AppEvent::ActionsCycleFocusReverse => Self::CycleFocusReverse,
+            event @ AppEvent::ActionsSetDetailGeometry { .. } => Self::from_detail_geometry(event),
             AppEvent::ActionsScrollDetailUp => Self::ScrollDetail(ScrollDir::Up),
             AppEvent::ActionsScrollDetailDown => Self::ScrollDetail(ScrollDir::Down),
-            AppEvent::ActionsToggleJobExpand => Self::ToggleJobExpand,
+            AppEvent::ActionsExpandJob => Self::ExpandJob,
             AppEvent::ActionsCollapseJob => Self::CollapseJob,
+            AppEvent::ActionsDetailEscape => Self::DetailEscape,
             AppEvent::ActionsNavigateJobUp => Self::NavigateJob(NavDir::Up),
             AppEvent::ActionsNavigateJobDown => Self::NavigateJob(NavDir::Down),
+            event @ AppEvent::ActionsBeginDetailReload { .. } => {
+                Self::from_begin_detail_reload(event)
+            }
             AppEvent::ActionsRunsLoaded { .. } => Self::from_runs_loaded(event),
             AppEvent::ActionsRunsLoadFailed { .. } => Self::from_runs_failed(event),
             AppEvent::ActionsRunsPageLoaded { .. } => Self::from_runs_page_loaded(event),
@@ -56,13 +62,7 @@ impl ActionsMessage {
             AppEvent::OpenWorkflowDispatch(workflow) => Self::OpenWorkflowDispatch(workflow),
             AppEvent::CloseWorkflowDispatch => Self::CloseWorkflowDispatch,
             AppEvent::WorkflowDispatchSubmitted { .. } => Self::from_dispatch_submitted(event),
-            AppEvent::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            } => Self::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            },
+            event @ AppEvent::WorkflowDispatchSuccess { .. } => Self::from_dispatch_success(event),
             AppEvent::WorkflowDispatchFailed { .. } => Self::from_dispatch_failed(event),
             _ => unreachable!("unhandled event for ActionsMessage: {:?}", event),
         }
@@ -72,6 +72,7 @@ impl ActionsMessage {
     pub fn into_app_event(self) -> AppEvent {
         match self {
             Self::EnterMode => AppEvent::EnterActionsMode,
+            Self::EnterModeWithPrFilter { .. } => Self::into_enter_with_pr_filter(self),
             Self::ExitMode => AppEvent::ExitActionsMode,
             Self::RefocusList => AppEvent::RefocusActionsList,
             Self::Reload => AppEvent::ActionsReload,
@@ -79,9 +80,11 @@ impl ActionsMessage {
             Self::Enter => AppEvent::ActionsEnter,
             Self::CycleFocus => AppEvent::ActionsCycleFocus,
             Self::CycleFocusReverse => AppEvent::ActionsCycleFocusReverse,
+            message @ Self::SetDetailGeometry { .. } => message.into_detail_geometry(),
             Self::ScrollDetail(dir) => Self::map_detail_scroll(dir),
-            Self::ToggleJobExpand => AppEvent::ActionsToggleJobExpand,
+            Self::ExpandJob => AppEvent::ActionsExpandJob,
             Self::CollapseJob => AppEvent::ActionsCollapseJob,
+            Self::DetailEscape => AppEvent::ActionsDetailEscape,
             Self::NavigateJob(dir) => match dir {
                 NavDir::Up => AppEvent::ActionsNavigateJobUp,
                 // Job navigation is vertical only; treat any non-Up direction
@@ -89,6 +92,7 @@ impl ActionsMessage {
                 // total without duplicating the Up arm body.
                 _ => AppEvent::ActionsNavigateJobDown,
             },
+            message @ Self::BeginDetailReload { .. } => message.into_begin_detail_reload(),
             Self::RunsLoaded { .. } => Self::into_runs_loaded(self),
             Self::RunsLoadFailed { .. } => Self::into_runs_failed(self),
             Self::RunsPageLoaded { .. } => Self::into_runs_page_loaded(self),
@@ -116,14 +120,34 @@ impl ActionsMessage {
             Self::OpenWorkflowDispatch(workflow) => AppEvent::OpenWorkflowDispatch(workflow),
             Self::CloseWorkflowDispatch => AppEvent::CloseWorkflowDispatch,
             Self::WorkflowDispatchSubmitted { .. } => Self::into_dispatch_submitted(self),
-            Self::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            } => AppEvent::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            },
+            message @ Self::WorkflowDispatchSuccess { .. } => message.into_dispatch_success(),
             Self::WorkflowDispatchFailed { .. } => Self::into_dispatch_failed(self),
+        }
+    }
+
+    fn into_enter_with_pr_filter(self) -> AppEvent {
+        match self {
+            Self::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => AppEvent::EnterActionsModeWithPrFilter {
+                pr_number,
+                head_sha,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_enter_with_pr_filter(event: AppEvent) -> Self {
+        match event {
+            AppEvent::EnterActionsModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => Self::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            },
+            _ => unreachable!(),
         }
     }
 
@@ -131,8 +155,14 @@ impl ActionsMessage {
         match dir {
             NavDir::Up => AppEvent::ActionsNavigateUp,
             NavDir::Down => AppEvent::ActionsNavigateDown,
-            NavDir::PageUp | NavDir::Prev => AppEvent::ActionsNavigatePageUp,
-            NavDir::PageDown | NavDir::Next => AppEvent::ActionsNavigatePageDown,
+            NavDir::PageUp(page) => AppEvent::ActionsNavigatePageUp(page),
+            NavDir::PageDown(page) => AppEvent::ActionsNavigatePageDown(page),
+            NavDir::Prev => {
+                AppEvent::ActionsNavigatePageUp(crate::list_viewport::PageItemCount::new(1))
+            }
+            NavDir::Next => {
+                AppEvent::ActionsNavigatePageDown(crate::list_viewport::PageItemCount::new(1))
+            }
             NavDir::Home => AppEvent::ActionsNavigateHome,
             NavDir::End => AppEvent::ActionsNavigateEnd,
         }
@@ -142,6 +172,88 @@ impl ActionsMessage {
         match dir {
             ScrollDir::Up | ScrollDir::PageUp => AppEvent::ActionsScrollDetailUp,
             ScrollDir::Down | ScrollDir::PageDown => AppEvent::ActionsScrollDetailDown,
+        }
+    }
+
+    fn from_detail_geometry(event: AppEvent) -> Self {
+        match event {
+            AppEvent::ActionsSetDetailGeometry {
+                viewport_rows,
+                content_width,
+            } => Self::SetDetailGeometry {
+                viewport_rows,
+                content_width,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_begin_detail_reload(event: AppEvent) -> Self {
+        match event {
+            AppEvent::ActionsBeginDetailReload {
+                scope_repo_id,
+                run_id,
+                request_id,
+            } => Self::BeginDetailReload {
+                scope_repo_id,
+                run_id,
+                request_id,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_detail_geometry(self) -> AppEvent {
+        match self {
+            Self::SetDetailGeometry {
+                viewport_rows,
+                content_width,
+            } => AppEvent::ActionsSetDetailGeometry {
+                viewport_rows,
+                content_width,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_begin_detail_reload(self) -> AppEvent {
+        match self {
+            Self::BeginDetailReload {
+                scope_repo_id,
+                run_id,
+                request_id,
+            } => AppEvent::ActionsBeginDetailReload {
+                scope_repo_id,
+                run_id,
+                request_id,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_dispatch_success(event: AppEvent) -> Self {
+        match event {
+            AppEvent::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            } => Self::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_dispatch_success(self) -> AppEvent {
+        match self {
+            Self::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            } => AppEvent::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            },
+            _ => unreachable!(),
         }
     }
 

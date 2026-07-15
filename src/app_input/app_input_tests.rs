@@ -51,6 +51,7 @@ pub(super) fn sample_signature() -> LaunchSignature {
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: jefe::domain::AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 
@@ -63,6 +64,41 @@ pub(super) fn sample_agent(agent_id: &AgentId) -> Agent {
     )
 }
 
+fn app_input_signature_constructor_retains_selector_and_binding() {
+    let agent_id = AgentId("selector-agent".to_owned());
+    let mut agent = sample_agent(&agent_id);
+    agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
+    let repository = jefe::domain::Repository::new(
+        agent.repository_id.clone(),
+        "repo".to_owned(),
+        "repo".to_owned(),
+        PathBuf::from("/tmp"),
+    );
+    let signature = launch_signature_for_agent(&agent, &repository);
+    assert_eq!(signature.llxprt_version, agent.llxprt_version);
+
+    let mut state = AppState {
+        agents: vec![agent],
+        ..AppState::default()
+    };
+    set_agent_runtime_binding(
+        &mut state,
+        &agent_id,
+        "jefe-selector".to_owned(),
+        signature,
+        None,
+        None,
+    );
+    assert_eq!(
+        state.agents[0]
+            .runtime_binding
+            .as_ref()
+            .and_then(|binding| binding.launch_signature.llxprt_version.as_ref())
+            .map(jefe::domain::LlxprtNpmPackageSelector::as_str),
+        Some("nightly")
+    );
+}
+
 #[test]
 fn filter_and_search_messages_are_fresh_issue_list_reloads() {
     use super::issues_list_dispatch::is_fresh_issue_list_reload;
@@ -73,7 +109,7 @@ fn filter_and_search_messages_are_fresh_issue_list_reloads() {
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ClearFilter));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplySearch));
     assert!(!is_fresh_issue_list_reload(
-        &IssuesMessage::NavigatePageDown
+        &IssuesMessage::NavigatePageDown(jefe::list_viewport::PageItemCount::new(3))
     ));
 }
 
@@ -133,6 +169,8 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         assert!(!binding.attached);
         assert!(binding.pid.is_none());
     }
+
+    app_input_signature_constructor_retains_selector_and_binding();
 }
 
 #[test]
@@ -301,6 +339,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -324,6 +363,7 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-02T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -334,9 +374,14 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -560,7 +605,12 @@ fn state_for_pr_agent_chooser_confirm(
         pr_detail: Some(test_pr_detail(42)),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("PR Agent"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("PR Agent"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
             transient_available: false,
         }),
         ..jefe::state::PullRequestsState::default()
@@ -758,9 +808,14 @@ fn state_for_issue_agent_chooser_send(
         milestone: None,
         body: "Send to agent".to_owned(),
         external_url: "https://github.com/owner/repo/issues/166".to_owned(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 166,
+            },
+            vec![],
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     };
 
@@ -769,7 +824,12 @@ fn state_for_issue_agent_chooser_send(
         issue_detail: Some(detail),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("Agent One"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("Agent One"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
             transient_available: false,
         }),
         ..jefe::state::IssuesState::default()

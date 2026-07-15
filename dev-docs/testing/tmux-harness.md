@@ -186,10 +186,13 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
 - [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
-- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): launches the app,
-  enters Actions mode (`g`), verifies the runs-list pane renders, navigates
-  down, then exits and quits. Intentionally not a CI gate — it requires a
-  configured repository and may vary by developer machine.
+- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): uses the fail-closed
+  `scripts/issue194-gh-shim.sh` fixture to load a real run, enters job detail,
+  verifies jobs are collapsed by default, expands success and failure steps
+  with their status glyphs, collapses with `Esc`, navigates job focus, and backs
+  out to the run list. Run it end to end with
+  `scripts/issue194-run-scenario.sh`; the runner seeds isolated state and audits
+  that production performs only the expected read-only `gh` operations.
 - [`code-puppy-chord-passthrough.json`](../tmux-scenarios/code-puppy-chord-passthrough.json):
   manual scenario that focuses an agent terminal and sends the Code Puppy
   shell-control chords (`Ctrl-X Ctrl-B`, `Ctrl-X Ctrl-X`, `Ctrl-C`) through

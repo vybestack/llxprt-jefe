@@ -349,6 +349,7 @@ fn bodyless_review_detail() -> PullRequestDetail {
         created_at: "2026-06-20".to_string(),
         updated_at: "2026-06-24".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -371,9 +372,14 @@ fn bodyless_review_detail() -> PullRequestDetail {
             )],
         }],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 233,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

@@ -389,6 +389,9 @@ pub struct AppState {
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
 
+    /// Git display data bound to an active dashboard selection gesture.
+    pub selection_dashboard_git_info: Option<crate::dashboard_git_info::DashboardGitInfoSnapshot>,
+
     /// The terminal snapshot bound to the active selection (issue #197).
     ///
     /// Captured when a terminal selection gesture begins and reused for BOTH
@@ -514,13 +517,17 @@ pub enum EditorTarget {
 /// @requirement REQ-ISS-011
 /// State for send-to-agent chooser overlay.
 ///
+/// The `agents` vector carries typed [`AgentChooserEntry`] snapshots built at
+/// the `app_input` boundary (where git probing is permitted). Reducers only
+/// validate non-emptiness and open/close/navigate — they never execute git.
+///
 /// When `transient_available` is true, an additional "Transient Agent" entry
 /// appears after all regular agents at index `agents.len()` (issue #213).
 /// Navigation bounds become `agents.len() + transient_available as usize`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentChooserState {
     pub selected_index: usize,
-    pub agents: Vec<(crate::domain::AgentId, String)>,
+    pub agents: Vec<crate::domain::AgentChooserEntry>,
     /// Whether the transient-agent slot is available (issue #213).
     pub transient_available: bool,
 }
@@ -583,6 +590,7 @@ pub enum ActionsFocus {
 pub enum ActionsFilterField {
     Workflow,
     Status,
+    Pr,
 }
 
 /// Identity for the Actions runs list — a result is stale unless both the
@@ -617,7 +625,7 @@ pub struct ActionsDispatchPending {
 pub struct ActionsUiState {
     pub filter_ui_open: bool,
     pub search_input_focused: bool,
-    /// Active field index in the filter bar (0 = workflow, 1 = status).
+    /// Active field index in the filter bar (0 = workflow, 1 = status, 2 = pr).
     /// Mirrors `issues_state.filter_ui.field_index` so the Actions filter bar
     /// renders field-active highlighting through the generic `FilterBar`.
     pub filter_field_index: usize,
@@ -638,7 +646,10 @@ pub struct ActionsState {
     pub error: Option<String>,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,
+    /// Last synchronized wrapped display-row viewport height.
     pub detail_viewport_rows: usize,
+    /// Last synchronized content width used by the Actions wrap projection.
+    pub detail_content_width: usize,
     /// Job ids that are expanded (showing their steps). Jobs not in this set
     /// are collapsed (JobRow only). Defaults to empty (all collapsed).
     pub expanded_jobs: std::collections::HashSet<u64>,
@@ -674,6 +685,13 @@ impl ActionsState {
     #[must_use]
     pub fn selected_run_index(&self) -> Option<usize> {
         self.list.selected_index()
+    }
+
+    /// The selected run when the stored index still names a loaded item.
+    #[must_use]
+    pub fn selected_run(&self) -> Option<&crate::domain::WorkflowRun> {
+        self.selected_run_index()
+            .and_then(|index| self.runs().get(index))
     }
 
     /// Whether the list is visibly loading (reload-visible or page pending).

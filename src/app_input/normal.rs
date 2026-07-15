@@ -7,6 +7,7 @@ use tracing::{debug, warn};
 
 use jefe::domain::{AgentId, RepositoryId};
 use jefe::input::{InputMode, QuitOutcome, input_mode_for_state, observe_quit_sequence};
+use jefe::list_viewport::PageItemCount;
 use jefe::runtime::RuntimeManager;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 use jefe::theme::ThemeManager;
@@ -128,7 +129,8 @@ pub fn handle_normal_key_event(
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return event;
     }
-    if let KeyHandling::Handled(event) = resolve_navigation_key(key_event) {
+    let page_items = dashboard_page_items(app_state, screen_mode);
+    if let KeyHandling::Handled(event) = resolve_navigation_key(key_event, page_items) {
         return event;
     }
     if let KeyHandling::Handled(event) = resolve_new_key(app_state, ctx, key_event, &snapshot) {
@@ -301,12 +303,10 @@ fn handle_dashboard_actions_key(
         return KeyHandling::Unhandled;
     }
 
-    let _ = ctx;
     // Quit is resolved centrally by `resolve_quit` before this handler runs;
     // every remaining key is delegated to Actions mode (and consumed).
-    KeyHandling::Handled(super::actions::resolve_actions_key_event(
-        &app_state.read(),
-        key_event,
+    KeyHandling::Handled(super::actions::handle_actions_mode_key(
+        app_state, ctx, key_event,
     ))
 }
 
@@ -345,10 +345,24 @@ fn resolve_dashboard_grab_key(app_state: &AppStateHandle, key_event: &KeyEvent) 
     }
 }
 
-fn resolve_navigation_key(key_event: &KeyEvent) -> KeyHandling {
+fn dashboard_page_items(app_state: &AppStateHandle, screen_mode: ScreenMode) -> PageItemCount {
+    let (terminal_cols, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    super::list_navigation::dashboard_page_item_count(
+        &app_state.read(),
+        screen_mode,
+        terminal_cols,
+        terminal_rows,
+    )
+}
+
+fn resolve_navigation_key(key_event: &KeyEvent, page_items: PageItemCount) -> KeyHandling {
     match key_event.code {
         KeyCode::Up => KeyHandling::Handled(Some(AppEvent::NavigateUp)),
         KeyCode::Down => KeyHandling::Handled(Some(AppEvent::NavigateDown)),
+        KeyCode::PageUp => KeyHandling::Handled(Some(AppEvent::NavigatePageUp(page_items))),
+        KeyCode::PageDown => KeyHandling::Handled(Some(AppEvent::NavigatePageDown(page_items))),
+        KeyCode::Home => KeyHandling::Handled(Some(AppEvent::NavigateHome)),
+        KeyCode::End => KeyHandling::Handled(Some(AppEvent::NavigateEnd)),
         KeyCode::Left => KeyHandling::Handled(Some(AppEvent::NavigateLeft)),
         KeyCode::Right => KeyHandling::Handled(Some(AppEvent::NavigateRight)),
         KeyCode::Tab => KeyHandling::Handled(Some(AppEvent::CyclePaneFocus)),
@@ -742,7 +756,12 @@ mod tests {
         let mut state = issues_base_state();
         state.issues_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                AgentId(String::from("a1")),
+                String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
             transient_available: false,
         });
         assert!(matches!(
@@ -821,7 +840,12 @@ mod tests {
         let mut state = prs_base_state();
         state.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                AgentId(String::from("a1")),
+                String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
             transient_available: false,
         });
         assert!(matches!(

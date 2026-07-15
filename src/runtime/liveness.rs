@@ -66,51 +66,74 @@ fn pid_alive_on_platform(pid: u32) -> bool {
     true
 }
 
+/// Result of probing one persistent multiplexer session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLiveness {
+    /// The session exists and contains a non-dead pane.
+    Alive,
+    /// The session is absent or all of its panes have exited.
+    Missing,
+    /// The multiplexer command could not be started or queried.
+    Unavailable,
+}
+
+/// Probe whether a local session exists and contains a non-dead pane.
+#[must_use]
+pub fn session_liveness(session_name: &str) -> SessionLiveness {
+    let Ok(mut command) = tmux_command() else {
+        return SessionLiveness::Unavailable;
+    };
+    let Ok(output) = command.args(["has-session", "-t", session_name]).output() else {
+        return SessionLiveness::Unavailable;
+    };
+    if !output.status.success() {
+        return SessionLiveness::Missing;
+    }
+
+    let Ok(mut command) = tmux_command() else {
+        return SessionLiveness::Unavailable;
+    };
+    let Ok(output) = command
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
+        .output()
+    else {
+        return SessionLiveness::Unavailable;
+    };
+    if !output.status.success() {
+        return SessionLiveness::Missing;
+    }
+    parse_dead_pane_flags(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_dead_pane_flags(output: &str) -> SessionLiveness {
+    let mut saw_dead = false;
+    for flag in output
+        .lines()
+        .map(str::trim)
+        .filter(|flag| !flag.is_empty())
+    {
+        if flag == "0" || flag.eq_ignore_ascii_case("false") {
+            return SessionLiveness::Alive;
+        }
+        if flag == "1" || flag.eq_ignore_ascii_case("true") {
+            saw_dead = true;
+        } else {
+            return SessionLiveness::Unavailable;
+        }
+    }
+    if saw_dead {
+        SessionLiveness::Missing
+    } else {
+        SessionLiveness::Unavailable
+    }
+}
+
 /// Check if a tmux session exists and has at least one non-dead pane.
 ///
 /// @pseudocode component-002 lines 33-35
 #[must_use]
 pub fn check_session_alive(session_name: &str) -> bool {
-    let Ok(mut command) = tmux_command() else {
-        return false;
-    };
-    let has_session = command.args(["has-session", "-t", session_name]).output();
-
-    let Ok(out) = has_session else {
-        return false;
-    };
-    if !out.status.success() {
-        return false;
-    }
-
-    let Ok(mut command) = tmux_command() else {
-        return false;
-    };
-    let panes = command
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
-        .output();
-
-    let Ok(out) = panes else {
-        return false;
-    };
-    if !out.status.success() {
-        return false;
-    }
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-
-    for line in stdout.lines() {
-        let dead_flag = line.trim();
-        if dead_flag.is_empty() {
-            continue;
-        }
-
-        if dead_flag == "0" || dead_flag.eq_ignore_ascii_case("false") {
-            return true;
-        }
-    }
-
-    false
+    session_liveness(session_name) == SessionLiveness::Alive
 }
 
 /// Check if a remote tmux session exists and has at least one non-dead pane.
@@ -468,10 +491,7 @@ jefe-agent3
 
     #[test]
     fn parse_alive_sessions_trims_whitespace() {
-        let raw = "  jefe-a  
- jefe-b 
-
-";
+        let raw = "  jefe-a  \n jefe-b \n\n";
         let set = parse_alive_sessions(raw);
         assert_eq!(set.len(), 2);
         assert!(set.contains("jefe-a"));
@@ -493,6 +513,17 @@ jefe-b
 ";
         let set = parse_alive_sessions(raw);
         assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn dead_pane_parser_preserves_tri_state() {
+        assert_eq!(parse_dead_pane_flags("0\n1\n"), SessionLiveness::Alive);
+        assert_eq!(parse_dead_pane_flags("1\ntrue\n"), SessionLiveness::Missing);
+        assert_eq!(parse_dead_pane_flags(""), SessionLiveness::Unavailable);
+        assert_eq!(
+            parse_dead_pane_flags("unexpected\n"),
+            SessionLiveness::Unavailable
+        );
     }
 
     // --- parse_pane_alive (pure) ---

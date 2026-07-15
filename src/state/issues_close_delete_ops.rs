@@ -274,6 +274,7 @@ impl AppState {
             .issues()
             .iter()
             .position(|issue| issue.number == issue_number);
+        let selected_index = self.issues_state.selected_issue_index();
         let mut issues = self.issues_state.list.items().to_vec();
         issues.retain(|issue| issue.number != issue_number);
         self.issues_state.list.replace_items(issues);
@@ -283,10 +284,14 @@ impl AppState {
             .as_ref()
             .is_some_and(|detail| detail.number == issue_number)
         {
+            if let Some(detail) = &mut self.issues_state.issue_detail {
+                detail.comments.cancel_pending();
+            }
             self.issues_state.issue_detail = None;
+            self.issues_state.loading.comments = false;
             self.issues_state.issue_focus = super::IssueFocus::IssueList;
         }
-        self.fix_issue_selection_after_delete(deleted_index);
+        self.fix_issue_selection_after_delete(deleted_index, selected_index);
         self.issues_state.draft_notice = Some(format!("Deleted issue #{issue_number}"));
         true
     }
@@ -299,21 +304,24 @@ impl AppState {
     ///   which now points at the next issue (standard list-delete semantics);
     ///   if it was the final row, the clamp below moves it to the new last row.
     /// - List empty: clear the selection.
-    fn fix_issue_selection_after_delete(&mut self, deleted_index: Option<usize>) {
+    fn fix_issue_selection_after_delete(
+        &mut self,
+        deleted_index: Option<usize>,
+        selected_index: Option<usize>,
+    ) {
         if self.issues_state.issues().is_empty() {
             self.issues_state.list.set_selected_index(None);
             return;
         }
         let max_idx = self.issues_state.issues().len() - 1;
-        let current = self.issues_state.selected_issue_index();
-        match (deleted_index, current) {
+        match (deleted_index, selected_index) {
             (Some(deleted), Some(sel)) if deleted < sel => {
                 // An earlier row was removed: shift the selection down to track
                 // the same issue.
                 self.issues_state.list.set_selected_index(Some(sel - 1));
             }
             _ => {
-                if let Some(idx) = current
+                if let Some(idx) = selected_index
                     && idx > max_idx
                 {
                     self.issues_state.list.set_selected_index(Some(max_idx));

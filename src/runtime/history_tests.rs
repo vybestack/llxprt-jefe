@@ -100,6 +100,7 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
                 sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
                 remote: crate::domain::RemoteRepositorySettings::default(),
                 agent_kind: crate::domain::AgentKind::Llxprt,
+                llxprt_version: None,
             },
         );
     }

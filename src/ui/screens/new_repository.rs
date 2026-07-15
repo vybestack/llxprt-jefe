@@ -126,9 +126,11 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         ));
     }
 
-    if crate::state::kind_from_form_value(&fields.default_agent_kind)
-        == crate::domain::AgentKind::CodePuppy
-    {
+    let default_kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+    if crate::state::is_repository_field_visible(
+        RepositoryFormFocus::DefaultCodePuppyModel,
+        default_kind,
+    ) {
         let model_focused = focus == RepositoryFormFocus::DefaultCodePuppyModel;
         let model_value = if model_focused {
             text_with_caret(
@@ -201,6 +203,34 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         sel,
     ));
 
+    if crate::state::is_repository_field_visible(
+        RepositoryFormFocus::DefaultLlxprtVersion,
+        default_kind,
+    ) {
+        let version_focused = focus == RepositoryFormFocus::DefaultLlxprtVersion;
+        let version_value = if version_focused {
+            text_with_caret(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            )
+        } else {
+            fields.default_llxprt_version.clone()
+        };
+        let version_line = format!("  {:<16} [{version_value}]", "Default Version");
+        all_lines.push(selectable_line(
+            &version_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if version_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
     let github_focused = focus == RepositoryFormFocus::GitHubRepo;
     let github_value = if github_focused {
         text_with_caret(&fields.github_repo, cursor.github_repo)
@@ -271,14 +301,38 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     ));
 
     // Content lines 7-9: remote fields.
-    let remote_labels = ["Login User", "Host / IP", "Run As User"];
-    let remote_values = [&fields.login_user, &fields.host, &fields.run_as_user];
+    let remote_labels = [
+        "Login User",
+        "Host / IP",
+        "SSH Port",
+        "Identity File",
+        "SSH Options (space-separated)",
+        "Run As User",
+    ];
+    let remote_values = [
+        &fields.login_user,
+        &fields.host,
+        &fields.ssh_port,
+        &fields.identity_file,
+        &fields.ssh_options,
+        &fields.run_as_user,
+    ];
     let remote_focuses = [
         RepositoryFormFocus::LoginUser,
         RepositoryFormFocus::Host,
+        RepositoryFormFocus::SshPort,
+        RepositoryFormFocus::IdentityFile,
+        RepositoryFormFocus::SshOptions,
         RepositoryFormFocus::RunAsUser,
     ];
-    let remote_cursors = [cursor.login_user, cursor.host, cursor.run_as_user];
+    let remote_cursors = [
+        cursor.login_user,
+        cursor.host,
+        cursor.ssh_port,
+        cursor.identity_file,
+        cursor.ssh_options,
+        cursor.run_as_user,
+    ];
     for (((label, value), field_focus), field_cursor) in remote_labels
         .iter()
         .zip(remote_values.iter())

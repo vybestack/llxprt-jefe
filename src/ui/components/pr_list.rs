@@ -13,6 +13,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{PrCheckStatus, PrReviewState, PrState, PullRequest};
+use crate::list_viewport::{ListGeometry, ListViewport, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
@@ -48,6 +49,8 @@ impl PrListLayout {
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12
 pub struct PrListRowView {
+    /// Absolute pull-request index represented by this visible row.
+    pub source_index: usize,
     /// Title line (prefix + "#number " + truncated title). The PR number is
     /// embedded here as "#N "; tests assert identity via this rendered string.
     pub title_line: String,
@@ -107,36 +110,60 @@ fn build_meta_line(pr: &PullRequest) -> String {
     format!("     {}", meta_parts.join("  "))
 }
 
-/// Pure projection of the visible PR rows exactly as the component renders
-/// them. Consumes the `crate::layout` selection-follow window helpers so the
-/// rows returned here are the SAME rows the `#[component]` renders (#54/#55).
+/// Project the visible full-layout PR rows.
+///
+/// Uses [`ListViewport`] for selection-follow windowing so the rows returned
+/// here are the SAME rows the full-layout component renders (#54/#55).
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12
+#[must_use]
 pub fn pr_list_visible_rows(
     pull_requests: &[PullRequest],
     selected_index: Option<usize>,
     list_pane_rows: u16,
     available_width: Option<u16>,
 ) -> Vec<PrListRowView> {
-    let viewport = list_pane_rows as usize;
-    let window =
-        crate::layout::list_visible_window(pull_requests, selected_index.unwrap_or(0), viewport);
-    let first_visible = crate::layout::list_first_visible_index(
-        selected_index.unwrap_or(0),
+    pr_list_visible_rows_for_layout(
+        pull_requests,
+        selected_index,
+        list_pane_rows,
+        PrListLayout::Full,
+        available_width,
+    )
+}
+
+fn pr_list_visible_rows_for_layout(
+    pull_requests: &[PullRequest],
+    selected_index: Option<usize>,
+    list_pane_rows: u16,
+    layout: PrListLayout,
+    available_width: Option<u16>,
+) -> Vec<PrListRowView> {
+    let rows_per_item = RowsPerItem::new(if layout.is_compact() { 1 } else { 2 });
+    let geometry = ListGeometry::bordered(rows_per_item);
+    let viewport = ListViewport::uniform(
         pull_requests.len(),
-        viewport,
+        selected_index,
+        geometry.content_rows(PaneRows::new(usize::from(list_pane_rows))),
+        rows_per_item,
     );
-    window
+    let first_visible = viewport.first_visible_item();
+    pull_requests[viewport.visible_range()]
         .iter()
         .enumerate()
         .map(|(window_i, pr)| {
             let is_selected = selected_index == Some(first_visible + window_i);
             let prefix = if is_selected { "> " } else { "  " };
             PrListRowView {
+                source_index: first_visible + window_i,
                 title_line: build_title_line(pr, prefix, available_width),
-                meta_line: build_meta_line(pr),
+                meta_line: if layout.is_compact() {
+                    String::new()
+                } else {
+                    build_meta_line(pr)
+                },
                 is_selected,
             }
         })
@@ -152,6 +179,7 @@ fn to_selectable_rows(views: Vec<PrListRowView>, compact: bool) -> Vec<Selectabl
     views
         .into_iter()
         .map(|v| SelectableRow {
+            source_index: v.source_index,
             spans: vec![SelectableSpan {
                 text: v.title_line,
                 color: SpanColor::Themed,
@@ -185,8 +213,8 @@ pub struct PrListWindow {
 
 /// Build [`SelectableListProps`] for the PR list pane.
 ///
-/// Calls the unchanged [`pr_list_visible_rows`] projection and maps each
-/// [`PrListRowView`] into a [`SelectableRow`]. The empty/loading message is
+/// Calls [`pr_list_visible_rows_for_layout`] and maps each [`PrListRowView`]
+/// into a [`SelectableRow`]. The empty/loading message is
 /// computed by the caller via [`pr_list_status_message`] and passed in as
 /// `empty_message`.
 ///
@@ -201,10 +229,11 @@ pub fn pr_list_props(
     colors: ThemeColors,
     selection: Option<TextSelection>,
 ) -> SelectableListProps {
-    let rows = pr_list_visible_rows(
+    let rows = pr_list_visible_rows_for_layout(
         pull_requests,
         window.selected_index,
         window.list_pane_rows,
+        window.layout,
         window.available_width,
     );
     SelectableListProps {
@@ -218,6 +247,9 @@ pub fn pr_list_props(
         border: ListBorder::DoubleOnFocus,
         content_padding: false,
         selection_style: SelectionStyle::BoldSelected,
+        content_width: window
+            .available_width
+            .map_or_else(|| usize::from(u16::MAX), usize::from),
     }
 }
 
@@ -360,6 +392,7 @@ mod tests {
             author_login: "octocat".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             head_ref: "feature".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             is_draft: false,
             review_decision: None,
@@ -415,6 +448,63 @@ mod tests {
             review_glyph(Some(PrReviewState::None)),
             "-review",
             "None review must map to the neutral glyph"
+        );
+    }
+
+    /// The PR list viewport must subtract chrome rows (border + title + border
+    /// = 3 rows) from `list_pane_rows` before computing the item-level
+    /// viewport. Without this subtraction the selection goes off-screen by ~3
+    /// rows before the scroll window catches up.
+    ///
+    /// This test creates 30 PRs with a 10-row pane. With the chrome subtraction
+    /// (10 - 3 = 7 visible items), selecting index 9 should scroll so that
+    /// the window starts at index 3 (items 3-9 visible). Without the fix,
+    /// viewport = 10 and no scrolling happens at all (items 0-9 all "fit"),
+    /// leaving the selected item off the visible area.
+    #[test]
+    fn test_pr_list_viewport_subtracts_chrome_rows() {
+        use super::{PrListLayout, pr_list_visible_rows_for_layout};
+        use crate::domain::{PrCheckStatus, PrState, PullRequest};
+
+        let prs: Vec<PullRequest> = (0..30)
+            .map(|i| PullRequest {
+                number: i + 1,
+                title: format!("PR {i}"),
+                state: PrState::Open,
+                author_login: "octocat".to_string(),
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                head_ref: "feature".to_string(),
+                head_sha: String::new(),
+                base_ref: "main".to_string(),
+                is_draft: false,
+                review_decision: None,
+                checks_status: PrCheckStatus::None,
+                assignee_summary: String::new(),
+                labels_summary: String::new(),
+                comment_count: 0,
+            })
+            .collect();
+
+        let pane_rows: u16 = 10;
+        let rows =
+            pr_list_visible_rows_for_layout(&prs, Some(9), pane_rows, PrListLayout::Compact, None);
+        let visible_count = rows.len();
+        // 10 pane rows - 3 chrome (border+title+border) = 7 visible items.
+        assert_eq!(
+            visible_count, 7,
+            "with 10-row pane and 3 chrome rows, exactly 7 items must be visible"
+        );
+        // The last visible item must be the selected index 9.
+        let Some(last) = rows.last() else {
+            panic!("should have rows for 30 PRs in a 10-row pane");
+        };
+        assert!(
+            last.is_selected,
+            "last visible row must be the selected row (index 9)"
+        );
+        assert!(
+            last.title_line.contains("#10"),
+            "last visible row must be PR #10 (index 9)"
         );
     }
 }

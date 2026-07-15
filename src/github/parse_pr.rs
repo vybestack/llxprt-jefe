@@ -15,6 +15,7 @@ use crate::domain::{
 };
 use serde_json::Value;
 
+use super::comment_pages::exhausted_comments;
 use super::parse::parse_page_info;
 use super::{GhError, PrListResponse};
 
@@ -83,12 +84,12 @@ pub fn build_pr_search_args(
 
 /// GraphQL search query WITH the `$after` cursor variable (PR fields inlined).
 fn pr_search_query_with_after() -> &'static str {
-    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// GraphQL search query WITHOUT the `$after` cursor variable (first page).
 fn pr_search_query_first_page() -> &'static str {
-    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// Build the GitHub search-qualifier string (incl. `is:pr`) for the PR query.
@@ -211,6 +212,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
     let author_login = login_field(node, "author");
     let updated_at = str_field(node, "updatedAt");
     let head_ref = str_field(node, "headRefName");
+    let head_sha = str_field(node, "headRefOid");
     let base_ref = str_field(node, "baseRefName");
     let is_draft = node
         .get("isDraft")
@@ -225,6 +227,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         author_login,
         updated_at,
         head_ref,
+        head_sha,
         base_ref,
         is_draft,
         review_decision,
@@ -302,9 +305,8 @@ fn join_pr_nodes_field(item: &Value, field: &str, key: &str) -> String {
 /// Parse JSON output from `gh pr view --json` into a [`PullRequestDetail`].
 ///
 /// Reads the SINGLE-object `gh pr view` shape (NOT a search node). Comments
-/// are left EMPTY (`comments: []`, `has_more_comments: false`,
-/// `comments_cursor: None`) — comments are sourced separately by
-/// `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
+/// are initialized as an exhausted empty paginated list; they are sourced
+/// separately by `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
 /// @requirement REQ-PR-009
@@ -344,6 +346,7 @@ pub fn parse_pull_request_detail_json(
         created_at: str_field(&value, "createdAt"),
         updated_at: str_field(&value, "updatedAt"),
         head_ref: str_field(&value, "headRefName"),
+        head_sha: str_field(&value, "headRefOid"),
         base_ref: str_field(&value, "baseRefName"),
         labels: pr_string_array(&value, "labels", "name"),
         assignees: pr_string_array(&value, "assignees", "login"),
@@ -364,9 +367,7 @@ pub fn parse_pull_request_detail_json(
         checks_status: parse_checks_rollup(&rollup),
         reviews,
         checks,
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: exhausted_comments(Vec::new()),
         mergeable: value.get("mergeable").and_then(Value::as_bool),
         merge_state_status: value
             .get("mergeStateStatus")

@@ -111,20 +111,21 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     // Compute the actual rows/columns available to PR panes so child
     // components do not have to infer from raw terminal size.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
     let (list_pane_rows, detail_pane_height) = crate::layout::prs_pane_rows(
-        usize::from(term_rows),
+        usize::from(render_rows),
         error_message.is_some(),
         filter_controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
     let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
-    let list_width = crate::layout::pr_list_content_width(term_cols);
+    let list_width = crate::layout::pr_list_content_width(render_cols);
     // Compute the detail content width from the SAME terminal size read the
     // screen already performs — single source of truth for wrapping so the
     // renderer and the reducer scroll clamp agree.
-    let detail_content_width = crate::layout::prs_detail_content_width(term_cols) as usize;
+    let detail_content_width = crate::layout::prs_detail_content_width(render_cols) as usize;
 
-    let sidebar_width = u32::from(crate::layout::prs_main_columns(term_cols).sidebar_width);
+    let sidebar_width = u32::from(crate::layout::prs_main_columns(render_cols).sidebar_width);
 
     // Agent chooser overlay
     let agent_chooser = state.and_then(|s| s.prs_state.agent_chooser.clone());
@@ -222,6 +223,9 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                         agent_counts: agent_counts,
                         selected: selected_repo_idx,
                         focused: sidebar_focused,
+                        grabbed: None,
+                        pane_rows: render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT),
+                        content_width: crate::list_viewport::bordered_padded_content_width(crate::layout::PRS_SIDEBAR_WIDTH),
                         colors: colors.clone(),
                         selection: selection,
                     )
@@ -384,6 +388,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
                 terminal_focused: false,
+                actions_focus: None,
                 colors: colors.clone(),
             )
         }

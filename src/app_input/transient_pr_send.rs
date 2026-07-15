@@ -120,9 +120,10 @@ fn transient_pr_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::local_kind_available_or_error(
+    if !super::availability::launch_available_or_error(
         app_state,
         prep.launch_sig.agent_kind,
+        prep.launch_sig.llxprt_version.as_ref(),
         &prep.launch_sig.remote,
     ) {
         super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);
@@ -139,8 +140,7 @@ fn transient_pr_availability_and_target(
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
-        &prep.work_dir,
-        prep.launch_sig.agent_kind,
+        &prep.launch_sig,
     ) {
         super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;

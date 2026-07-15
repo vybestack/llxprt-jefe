@@ -1,40 +1,20 @@
-//! Mouse event routing: selection start/update/finalize and PTY forwarding.
-//!
-//! Extracted from [`crate::app_shell`] to keep that file under the 1000-line
-//! size limit. All functions here operate on the iocraft hook state and the
-//! shared [`crate::app_shell::CtxArc`], translating fullscreen mouse events
-//! into either PTY input (when the terminal pane is focused) or text-selection
-//! state transitions.
-//!
-//! # Issue #197 design
-//!
-//! Terminal mouse routing uses a pure gesture-ownership state machine
-//! ([`jefe::selection::GestureState`]) to decide, at gesture START, whether
-//! Jefe or the PTY owns a left-button down→drag→up cycle. This fixes the core
-//! bug: reporting children get their clicks, but drags still produce Jefe
-//! selections. Shift-modified non-left-button events (wheel, right, middle)
-//! pass through to the host (Finding H). Non-dashboard modes never route to
-//! the terminal (Finding F). Blocking modals intercept mouse input (Finding G).
-//! The reporting flag is read once per event (Finding E). Copy uses the
-//! snapshot captured at gesture start, not a fresh recapture (Finding B).
+use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 
 #[path = "mouse_routing_detail.rs"]
 mod mouse_routing_detail;
-
-use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 use crate::pty_encoding::mouse_event_to_bytes;
 use jefe::clipboard;
 use jefe::layout::compute_pty_layout;
+use jefe::pane_content_projection::projected_pane_content;
 use jefe::runtime::RuntimeManager;
 use jefe::selection::{
     GestureAction, GestureEvent, GestureEventKind, GestureState, PtyReplay, ScreenLayout,
-    SelectablePane, SelectionPoint, TextSelection, pane_at, pane_content_lines,
-    point_to_content_coords, selection_text, terminal_selection_text,
+    SelectablePane, SelectionPoint, TextSelection, pane_at, point_to_content_coords,
+    selection_text, terminal_selection_text,
 };
 use jefe::state::{AppState, PaneFocus, ScreenMode};
 use mouse_routing_detail::refresh_detail_viewport_rows;
 
-/// Type alias for the clipboard writer function, injected for testability.
 pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
 
 /// Terminal size fallback for the default 120x40 geometry.
@@ -127,6 +107,7 @@ pub fn clear_selection(app_state: &mut HookState<AppState>) {
     let mut state = app_state.write();
     state.selection = None;
     state.selection_snapshot = None;
+    state.selection_dashboard_git_info = None;
     state.terminal_gesture_state = GestureState::default();
 }
 
@@ -556,15 +537,21 @@ fn begin_app_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) 
         resolve_app_selection_point(&state, col, row, cols, rows)
     };
     if let Some(p) = point {
+        let git_info = {
+            let state = app_state.read();
+            matches!(p.pane, SelectablePane::AgentList | SelectablePane::Preview)
+                .then(|| jefe::dashboard_git_info::resolve_dashboard_git_info(&state))
+                .flatten()
+        };
         let mut state = app_state.write();
         state.selection = Some(TextSelection::collapsed(p));
-        // Clear any stale terminal selection snapshot when starting a
-        // non-terminal selection.
         state.selection_snapshot = None;
+        state.selection_dashboard_git_info = git_info;
     } else {
         let mut state = app_state.write();
         state.selection = None;
         state.selection_snapshot = None;
+        state.selection_dashboard_git_info = None;
     }
 }
 
@@ -595,6 +582,7 @@ fn update_app_selection(app_state: &mut HookState<AppState>, col: u16, row: u16)
             &state,
             pane,
             cols,
+            rows,
             &crate::detail_wrap_map::ScreenCoord {
                 col,
                 row,
@@ -646,14 +634,14 @@ fn finalize_terminal_selection(
                 .unwrap_or_default();
             let state = app_state.read();
             let content =
-                pane_content_lines(selection.pane(), &state, None, &history_lines, cols, rows);
+                projected_pane_content(selection.pane(), &state, None, &history_lines, cols, rows);
             drop(state);
             selection_text(&selection, &content.lines)
         }
     } else {
         let (cols, rows) = terminal_size();
         let state = app_state.read();
-        let content = pane_content_lines(selection.pane(), &state, None, &[], cols, rows);
+        let content = projected_pane_content(selection.pane(), &state, None, &[], cols, rows);
         drop(state);
         selection_text(&selection, &content.lines)
     };
@@ -705,7 +693,7 @@ fn finalize_and_copy_selection(
             })
             .unwrap_or_default();
         let (cols, rows) = terminal_size();
-        let content = pane_content_lines(
+        let content = projected_pane_content(
             selection.pane(),
             &state,
             snapshot.as_ref(),
@@ -739,6 +727,7 @@ fn resolve_app_selection_point(
         app_state,
         pane,
         cols,
+        rows,
         &crate::detail_wrap_map::ScreenCoord {
             col,
             row,
@@ -751,7 +740,7 @@ fn resolve_app_selection_point(
 
 /// Build the screen-layout descriptor from the current app state + terminal size.
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let (error_visible, filter_open) = match state.screen_mode {
+    let (mode_error, filter_open) = match state.screen_mode {
         ScreenMode::DashboardIssues => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
@@ -769,6 +758,7 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
         ),
         ScreenMode::Dashboard | ScreenMode::Split => (false, false),
     };
+    let error_visible = state.error_message.is_some() || mode_error;
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
         .with_overlay(active_overlay_for(state))
 }
@@ -958,7 +948,7 @@ fn scroll_detail_pane(
     }
     {
         let mut state = app_state.write();
-        refresh_detail_viewport_rows(&mut state, pane, rows);
+        refresh_detail_viewport_rows(&mut state, pane, cols, rows);
     }
     let (current, max) = {
         let state = app_state.read();

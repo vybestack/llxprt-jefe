@@ -124,19 +124,57 @@ fn validate_local_path_for_platform(
     Ok(())
 }
 
-/// Expand a leading `~` or `~/` to the user's home directory.
+/// Expand a leading `~` or `~/` to the current host's user-home directory.
 pub fn expand_tilde(path: &str) -> String {
-    if (path == "~" || path.starts_with("~/"))
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        let home = home.to_string_lossy();
-        return if path == "~" {
-            home.into_owned()
-        } else {
-            format!("{home}{}", &path[1..])
-        };
+    expand_tilde_for_platform(
+        path,
+        LocalPathPlatform::current(),
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("USERPROFILE").as_deref(),
+    )
+}
+
+fn expand_tilde_for_platform(
+    path: &str,
+    platform: LocalPathPlatform,
+    home: Option<&std::ffi::OsStr>,
+    user_profile: Option<&std::ffi::OsStr>,
+) -> String {
+    let windows_suffix = if platform == LocalPathPlatform::Windows {
+        path.strip_prefix(r"~\")
+    } else {
+        None
+    };
+    let suffix = path.strip_prefix("~/").or(windows_suffix);
+    if path != "~" && suffix.is_none() {
+        return path.to_owned();
     }
-    path.to_owned()
+    let home = match platform {
+        LocalPathPlatform::Windows => user_profile.or(home),
+        LocalPathPlatform::Unix => home,
+    };
+    let Some(home) = home else {
+        return path.to_owned();
+    };
+    let home = home.to_string_lossy();
+    match platform {
+        LocalPathPlatform::Windows if home.starts_with('/') => path.to_owned(),
+        LocalPathPlatform::Windows => {
+            let home = home.replace('/', "\\");
+            let home = home.trim_end_matches('\\');
+            suffix.map_or_else(
+                || home.to_owned(),
+                |suffix| {
+                    let suffix = suffix.replace('/', "\\");
+                    format!(r"{home}\{suffix}")
+                },
+            )
+        }
+        LocalPathPlatform::Unix => match suffix {
+            Some(suffix) => format!("{home}/{suffix}"),
+            None => home.into_owned(),
+        },
+    }
 }
 
 /// Normalize a profile value, treating blank input and the literal `"[]"` as
@@ -348,6 +386,66 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_tilde_uses_user_profile_when_home_is_absent() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                None,
+                Some(std::ffi::OsStr::new(r"C:\Users\Acoli Ω")),
+            ),
+            r"C:\Users\Acoli Ω\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_prefers_user_profile_when_home_conflicts() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                Some(std::ffi::OsStr::new(r"C:\CustomHome")),
+                Some(std::ffi::OsStr::new(r"C:\Users\Default")),
+            ),
+            r"C:\Users\Default\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_normalizes_user_profile_separators() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                None,
+                Some(std::ffi::OsStr::new("C:/Users/Acoli Ω")),
+            ),
+            r"C:\Users\Acoli Ω\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_does_not_convert_posix_home_fallback() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                Some(std::ffi::OsStr::new("/c/Users/alice")),
+                None,
+            ),
+            "~/somedir"
+        );
+    }
+
+    #[test]
+    fn remote_style_tilde_can_remain_verbatim_without_local_expansion() {
+        assert_eq!(
+            expand_tilde_for_platform("~/remote/worktrees", LocalPathPlatform::Unix, None, None),
+            "~/remote/worktrees"
+        );
+    }
+
+    #[test]
     fn normalize_sandbox_flags_converts_gib_to_mib() {
         assert_eq!(
             normalize_sandbox_flags("--cpus=2 --memory=12g --pids-limit=256"),
@@ -385,6 +483,14 @@ mod tests {
             normalize_sandbox_flags("--cpus=2 --memory=500000b --pids-limit=256"),
             "--cpus=2 --memory=500000b --pids-limit=256"
         );
+    }
+
+    #[test]
+    fn unix_tilde_expansion_preserves_existing_home_and_suffix_semantics() {
+        let home = std::ffi::OsStr::new("/home/alice/");
+        let expanded =
+            expand_tilde_for_platform(r"~/work\branch", LocalPathPlatform::Unix, Some(home), None);
+        assert_eq!(expanded, r"/home/alice//work\branch");
     }
 
     #[test]

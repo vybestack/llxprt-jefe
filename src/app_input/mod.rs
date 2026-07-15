@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod agent_chooser_entries;
 mod filter_controls;
 mod issues;
 mod issues_dispatch;
@@ -10,13 +11,18 @@ mod issues_mutation;
 mod issues_navigation;
 mod issues_property_edit;
 mod issues_subfocus_dispatch;
+mod list_navigation;
 mod modal_handlers;
+mod new_agent_submit;
 mod normal;
 mod persist_focus;
 mod preflight;
 mod pty_passthrough;
+mod relaunch;
+mod send_runtime;
 mod settled_refresh;
 
+use relaunch::dispatch_relaunch_agent;
 use settled_refresh::SettledRefresh;
 
 // Re-export so sibling modules importing `super::preflight_or_prompt` keep
@@ -75,7 +81,12 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
+
+// Re-export the chooser metadata builder so key handlers in `issues`/`prs`
+// can resolve git display metadata at the app_input boundary (issue #230).
+pub use agent_chooser_entries::build_chooser_metadata;
 
 // Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
 // terminal without owning the encoding/forwarding logic (issue #200, #286).
@@ -254,6 +265,7 @@ fn launch_signature_for_agent(
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
+        llxprt_version: agent.llxprt_version.clone(),
     }
 }
 
@@ -275,6 +287,7 @@ pub fn launch_signature_for_transient(
         sandbox_flags: String::new(),
         remote: repository.remote.clone(),
         agent_kind: repository.default_agent_kind,
+        llxprt_version: repository.default_llxprt_version.clone(),
     }
 }
 
@@ -710,7 +723,8 @@ fn dispatch_issues_lifecycle(
 }
 
 fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
-    let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     // Issue #265: use the shared banner projection so a notice-only banner
     // reserves the same viewport row as an error banner.
@@ -719,7 +733,7 @@ fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
         state.issues_state.draft_notice.as_deref(),
     );
     state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
-        term_rows,
+        usize::from(render_rows),
         issues_banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
@@ -735,7 +749,7 @@ fn log_dispatch(message: &AppMessage) {
 }
 
 mod agent_lifecycle_ops;
-use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_relaunch_agent, dispatch_restart_agent};
+use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_restart_agent};
 
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
@@ -748,11 +762,20 @@ mod issue_send_modal_tests;
 #[path = "modal_handlers_tests.rs"]
 mod modal_handlers_tests;
 #[cfg(test)]
+#[path = "new_agent_submit_tests.rs"]
+mod new_agent_submit_tests;
+#[cfg(test)]
 #[path = "preflight_gating_tests.rs"]
 mod preflight_gating_tests;
+#[cfg(test)]
+#[path = "relaunch_tests.rs"]
+mod relaunch_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
+#[cfg(test)]
+#[path = "prs_integration_test_fixtures.rs"]
+mod prs_integration_test_fixtures;
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;

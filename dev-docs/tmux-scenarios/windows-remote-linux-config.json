@@ -1,0 +1,29 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Space" },
+    { "expect": "SSH Port" },
+    { "expect": "Identity File" },
+    { "expect": "SSH Options" },
+    { "capture": "windows-remote-linux-config" },
+    { "key": "Escape" },
+    { "line": "qqq" },
+    { "waitForExit": 3000 }
+  ]
+}

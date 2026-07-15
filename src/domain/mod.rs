@@ -18,6 +18,7 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+/// Pagination contracts shared across list state and boundary messages.
 // Sandbox engine + platform capability types extracted to keep this file
 // under the source-file-size limit.
 mod sandbox;
@@ -28,6 +29,13 @@ pub use sandbox::*;
 mod pagination;
 pub use pagination::*;
 
+/// Generic deterministic pagination state container.
+mod paginated_list;
+pub use paginated_list::{
+    AcceptOutcome, BeginOutcome, LoadCorrelation, PageResult, PaginatedList, ReloadResult,
+    ReloadVisibility, RequestIdExhausted,
+};
+
 // Issues Mode domain entities extracted to keep this file under the
 // source-file-size limit.
 mod issues;
@@ -36,6 +44,20 @@ pub use issues::*;
 // Validated GitHub repo reference for issue/PR tracker routing (issue #266).
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
+
+// Normalized LLxprt npm package selector.
+mod llxprt_version;
+pub use llxprt_version::{
+    LLXPRT_NPM_PACKAGE, LaunchSource, LlxprtNpmPackageSelector, deserialize_optional_selector,
+    llxprt_launch_source,
+};
+
+// Typed send-to-agent chooser entry and pure label projection (issue #230).
+mod agent_chooser;
+pub use agent_chooser::{
+    AgentChooserEntry, AgentChooserGitMetadata, ChooserRuntimeConfig, DirtyStatus,
+    agent_chooser_label,
+};
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,6 +91,18 @@ impl AgentKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::CodePuppy => "code_puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
+    /// Product display name for user-facing UI labels (e.g. the agent chooser).
+    ///
+    /// Unlike [`label`](Self::label) (which returns the internal form
+    /// identifier), this returns the human-readable product name.
+    #[must_use]
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "Code Puppy",
             Self::Llxprt => "LLxprt",
         }
     }
@@ -111,6 +145,12 @@ pub struct RemoteRepositorySettings {
     pub login_user: String,
     #[serde(default)]
     pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub identity_file: PathBuf,
+    #[serde(default)]
+    pub options: Vec<String>,
     #[serde(default)]
     pub run_as_user: String,
     #[serde(default)]
@@ -156,6 +196,11 @@ pub struct Repository {
     /// Max concurrent transient agents. 0 = no limit (no queueing).
     #[serde(default)]
     pub transient_max_concurrent: u32,
+    /// Default LLxprt npm package version for newly created LLxprt agents.
+    /// `None` means direct llxprt launch. Copy-on-create only:
+    /// never looked up dynamically at launch, never mutates existing agents.
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub default_llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub agent_ids: Vec<AgentId>,
 }
 
@@ -271,6 +316,7 @@ pub struct PullRequest {
     pub author_login: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub is_draft: bool,
     pub review_decision: Option<PrReviewState>,
@@ -353,6 +399,7 @@ pub struct PullRequestDetail {
     pub created_at: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub labels: Vec<String>,
     pub assignees: Vec<String>,
@@ -363,9 +410,7 @@ pub struct PullRequestDetail {
     pub checks_status: PrCheckStatus,
     pub reviews: Vec<PrReview>,
     pub checks: Vec<PrCheck>,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
+    pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
     /// Whether the PR can be merged right now (GitHub `mergeable`).
     /// `None` when not yet fetched (e.g. preview-from-list).
     pub mergeable: Option<bool>,
@@ -620,6 +665,11 @@ pub struct Agent {
     pub sandbox_flags: String,
     #[serde(default)]
     pub agent_kind: AgentKind,
+    /// LLxprt npm package version selector. `None` means direct
+    /// llxprt launch. Dormant when `agent_kind` is Code Puppy (retained so
+    /// switching back to LLxprt restores it).
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
     /// Whether this agent is persistent or transient (created on-the-fly,
@@ -707,6 +757,12 @@ pub struct LaunchSignature {
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
     pub agent_kind: AgentKind,
+    /// LLxprt npm package version selector carried through the launch
+    /// signature. `None` means direct llxprt launch. Propagated
+    /// through all runtime bindings/signatures so restart, reattach, relaunch,
+    /// issue send, PR send, and fresh prompts retain the exact selection.
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
 }
 
 impl Agent {
@@ -740,6 +796,7 @@ impl Agent {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             agent_kind: AgentKind::default(),
+            llxprt_version: None,
             status: AgentStatus::default(),
             runtime_binding: None,
             origin: AgentOrigin::default(),
@@ -815,6 +872,7 @@ impl Agent {
             status: AgentStatus::Queued,
             runtime_binding: None,
             origin: AgentOrigin::Transient,
+            llxprt_version: repo.default_llxprt_version.clone(),
         }
     }
 }
@@ -838,6 +896,7 @@ impl Repository {
             transient_agent_dir: PathBuf::new(),
             default_code_puppy_yolo: None,
             transient_max_concurrent: 0,
+            default_llxprt_version: None,
             agent_ids: Vec::new(),
         }
     }

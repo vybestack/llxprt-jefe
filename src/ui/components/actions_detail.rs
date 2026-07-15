@@ -6,8 +6,9 @@
 //! (windowing, line building) lives in [`crate::actions_view`]; this module
 //! handles the header-rows + content-string + viewport-math glue.
 
-use crate::actions_view::{DetailLine, project_detail_view};
+use crate::actions_detail_view::project_actions_detail;
 use crate::domain::WorkflowRunDetail;
+use crate::layout::ActionsDetailGeometry;
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 
@@ -31,101 +32,23 @@ pub struct ActionsDetailProjectionInputs<'a> {
     pub detail: Option<&'a WorkflowRunDetail>,
     /// Scroll offset for the content viewport.
     pub scroll_offset: usize,
-    /// Detail pane height in rows, supplied by the screen.
-    pub viewport_rows: Option<u16>,
+    /// Exact detail display geometry supplied by the shared layout helper.
+    pub geometry: ActionsDetailGeometry,
     /// Whether this pane is focused.
     pub focused: bool,
-    /// Content width (terminal cols) for text wrapping.
-    pub content_width: usize,
     /// Theme colors.
     pub colors: ThemeColors,
     /// Active text selection, if any.
     pub selection: Option<TextSelection>,
+    /// Focused job index within the loaded detail.
+    pub focused_job_index: Option<usize>,
     /// Set of expanded job ids (collapsed = not in set).
     pub expanded_jobs: &'a std::collections::HashSet<u64>,
 }
 
-/// Map a job/step status+conclusion to a leading glyph.
-///
-/// Uses non-pictographic, width-stable symbols (NOT emoji):
-/// - `\u{2713}` (check mark) success
-/// - `\u{2717}` (ballot X) failure
-/// - `\u{2298}` (circled division) cancelled / skipped
-/// - `~` in-progress
-/// - `.` queued / pending
-/// - `?` unknown
-fn status_glyph(
-    status: crate::domain::WorkflowRunStatus,
-    conclusion: Option<crate::domain::WorkflowRunConclusion>,
-) -> &'static str {
-    match status {
-        crate::domain::WorkflowRunStatus::Completed => match conclusion {
-            Some(crate::domain::WorkflowRunConclusion::Success) => "\u{2713}",
-            Some(crate::domain::WorkflowRunConclusion::Failure) => "\u{2717}",
-            Some(
-                crate::domain::WorkflowRunConclusion::Cancelled
-                | crate::domain::WorkflowRunConclusion::Skipped,
-            ) => "\u{2298}",
-            _ => "?",
-        },
-        crate::domain::WorkflowRunStatus::InProgress => "~",
-        crate::domain::WorkflowRunStatus::Queued
-        | crate::domain::WorkflowRunStatus::Requested
-        | crate::domain::WorkflowRunStatus::Waiting
-        | crate::domain::WorkflowRunStatus::Pending => ".",
-        crate::domain::WorkflowRunStatus::Unknown => "?",
-    }
-}
-
-/// Render a [`DetailLine`] to its plain-text representation for the content
-/// string. Each line becomes one row in the scrollable viewport. Job and step
-/// lines use a leading status glyph instead of trailing text.
-fn line_text(line: &DetailLine) -> String {
-    match line {
-        DetailLine::Header {
-            workflow_name,
-            event,
-            head_branch,
-            head_sha,
-            created_at,
-            updated_at,
-        } => {
-            let _ = (
-                workflow_name,
-                event,
-                head_branch,
-                head_sha,
-                created_at,
-                updated_at,
-            );
-            String::new()
-        }
-        DetailLine::SectionTitle { title } => title.clone(),
-        DetailLine::JobRow {
-            name,
-            status,
-            conclusion,
-            expanded,
-            ..
-        } => {
-            let glyph = status_glyph(*status, *conclusion);
-            let indicator = if *expanded { "\u{25BE}" } else { "\u{25B8}" };
-            format!("{indicator} {glyph} {name}")
-        }
-        DetailLine::StepRow {
-            number,
-            name,
-            status,
-            conclusion,
-        } => {
-            let glyph = status_glyph(*status, *conclusion);
-            format!("  {glyph} [{number}] {name}")
-        }
-    }
-}
-
 /// Build the five fixed header rows for a loaded run detail.
-fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
+#[must_use]
+pub fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
     let run = &detail.run;
     vec![
         DetailHeaderRow {
@@ -156,46 +79,25 @@ fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
     ]
 }
 
-/// Compute the scrollable viewport rows from the supplied pane height.
-///
-/// Mirrors the PR detail viewport math: subtract header rows + 2 (border +
-/// separator). Falls back to a default terminal height when none is supplied.
-fn detail_viewport_rows(available_height: Option<u16>) -> usize {
-    const DEFAULT_TERM_ROWS: usize = 40;
-    if let Some(height) = available_height {
-        (usize::from(height)).saturating_sub(ACTIONS_DETAIL_HEADER_ROWS + 2)
-    } else {
-        crate::layout::prs_detail_viewport_rows(DEFAULT_TERM_ROWS, false, false)
-    }
-}
-
 /// Pure projection of the Actions detail pane into a [`DetailPaneProps`].
 ///
-/// Builds header rows from the run metadata, flattens jobs/steps into a plain
-/// content string (newline-joined), and computes the scroll viewport rows.
-/// When no detail is loaded, a placeholder is shown.
+/// The shared Actions projection supplies already-wrapped display rows, so the
+/// generic renderer consumes the same row coordinates used by reducer bounds.
 #[must_use]
 pub fn actions_detail_props(inputs: ActionsDetailProjectionInputs<'_>) -> DetailPaneProps {
-    let scroll_rows = detail_viewport_rows(inputs.viewport_rows);
-
     let (header_rows, content) = if let Some(detail) = inputs.detail {
-        let rows = build_header_rows(detail);
-        let view = project_detail_view(
+        let projection = project_actions_detail(
             detail,
-            inputs.scroll_offset,
-            scroll_rows,
             inputs.expanded_jobs,
+            inputs.focused_job_index,
+            inputs.geometry,
         );
-        let text = view
-            .visible_lines
-            .iter()
-            .map(line_text)
-            .collect::<Vec<_>>()
-            .join("\n");
-        (rows, text)
+        (build_header_rows(detail), projection.content())
     } else {
-        let rows = build_placeholder_header_rows();
-        (rows, "Select a workflow run to view details.".to_string())
+        (
+            build_placeholder_header_rows(),
+            "Select a workflow run to view details.".to_string(),
+        )
     };
 
     DetailPaneProps {
@@ -203,9 +105,9 @@ pub fn actions_detail_props(inputs: ActionsDetailProjectionInputs<'_>) -> Detail
         content,
         content_cursor: None,
         scroll_offset: inputs.scroll_offset,
-        viewport_rows: scroll_rows,
+        viewport_rows: inputs.geometry.viewport_rows,
         content_line_offset: ACTIONS_DETAIL_HEADER_ROWS,
-        max_line_width: inputs.content_width,
+        max_line_width: inputs.geometry.content_width,
         focused: inputs.focused,
         pane: SelectablePane::ActionsDetail,
         colors: inputs.colors,
@@ -279,11 +181,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: true,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -301,11 +206,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: None,
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_none(),
         };
         let props = actions_detail_props(inputs);
@@ -319,11 +227,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -338,11 +249,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -363,11 +277,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -389,11 +306,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -404,31 +324,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn status_glyph_maps_all_conclusions() {
-        use crate::domain::WorkflowRunStatus as S;
-        assert_eq!(
-            status_glyph(S::Completed, Some(WorkflowRunConclusion::Success)),
-            "\u{2713}"
-        );
-        assert_eq!(
-            status_glyph(S::Completed, Some(WorkflowRunConclusion::Failure)),
-            "\u{2717}"
-        );
-        assert_eq!(
-            status_glyph(S::Completed, Some(WorkflowRunConclusion::Cancelled)),
-            "\u{2298}"
-        );
-        assert_eq!(
-            status_glyph(S::Completed, Some(WorkflowRunConclusion::Skipped)),
-            "\u{2298}"
-        );
-        assert_eq!(status_glyph(S::InProgress, None), "~");
-        assert_eq!(status_glyph(S::Queued, None), ".");
-        assert_eq!(status_glyph(S::Pending, None), ".");
-        assert_eq!(status_glyph(S::Unknown, None), "?");
-    }
-
     // ---- BUG 5: expand/collapse indicator ----
 
     #[test]
@@ -437,11 +332,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_none(),
         };
         let props = actions_detail_props(inputs);
@@ -462,11 +360,14 @@ mod tests {
         let inputs = ActionsDetailProjectionInputs {
             detail: Some(&detail),
             scroll_offset: 0,
-            viewport_rows: Some(20),
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
             focused: false,
-            content_width: 80,
             colors: ThemeColors::default(),
             selection: None,
+            focused_job_index: Some(0),
             expanded_jobs: &expanded_all(),
         };
         let props = actions_detail_props(inputs);
@@ -479,5 +380,29 @@ mod tests {
             props.content.contains("checkout"),
             "expanded job must show steps"
         );
+    }
+
+    #[test]
+    fn focused_job_renders_stable_marker_and_steps_keep_status_glyphs() {
+        let mut detail = make_detail();
+        detail.jobs[0].steps[0].conclusion = Some(WorkflowRunConclusion::Failure);
+        let inputs = ActionsDetailProjectionInputs {
+            detail: Some(&detail),
+            scroll_offset: 0,
+            geometry: ActionsDetailGeometry {
+                viewport_rows: 13,
+                content_width: 80,
+            },
+            focused: true,
+            colors: ThemeColors::default(),
+            selection: None,
+            focused_job_index: Some(0),
+            expanded_jobs: &expanded_all(),
+        };
+
+        let props = actions_detail_props(inputs);
+
+        assert!(props.content.contains("> \u{25BE} \u{2713} build"));
+        assert!(props.content.contains("  \u{2717} [1] checkout"));
     }
 }

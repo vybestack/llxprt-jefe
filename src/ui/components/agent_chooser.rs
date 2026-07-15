@@ -5,7 +5,7 @@
 
 use iocraft::prelude::*;
 
-use crate::domain::AgentId;
+use crate::domain::{AgentChooserEntry, agent_chooser_label};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
 use crate::ui::components::selectable_line;
@@ -15,8 +15,8 @@ use crate::ui::components::selectable_line;
 pub struct AgentChooserProps {
     /// Whether the overlay is visible.
     pub visible: bool,
-    /// (agent_id, display_name) pairs for available agents.
-    pub agents: Vec<(AgentId, String)>,
+    /// Typed entries for available agents.
+    pub agents: Vec<AgentChooserEntry>,
     /// Whether the transient-agent slot is available (issue #213).
     pub transient_available: bool,
     /// Currently highlighted agent index.
@@ -99,13 +99,14 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
             sel,
         ));
     } else {
-        for (i, (_id, name)) in props.agents.iter().enumerate() {
+        for (i, entry) in props.agents.iter().enumerate() {
             let selected = i == props.selected_index;
             let marker = if selected { "(x)" } else { "( )" };
-            let label = format!("{marker} {name}");
+            let label = agent_chooser_label(entry);
+            let display = format!("{marker} {label}");
             let color = if selected { rc.bright } else { rc.fg };
             lines.push(selectable_line(
-                &label,
+                &display,
                 {
                     let li = line_idx;
                     line_idx += 1;

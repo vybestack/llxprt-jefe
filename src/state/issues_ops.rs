@@ -51,10 +51,12 @@ impl AppState {
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
         self.issues_state.loading.comments = false;
-        self.issues_state.comments_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.inline_state = InlineState::None;
         self.issues_state.agent_chooser = None;
@@ -248,12 +250,14 @@ impl AppState {
         self.issues_state.property_editor = None;
         self.issues_state.property_mutation_pending = None;
         self.issues_state.list.clear();
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
-        self.issues_state.comments_page_pending = None;
         self.issues_state.delete_confirm = None;
         self.issues_state.close_mutation_pending = None;
         self.issues_state.delete_mutation_pending = None;
@@ -280,24 +284,22 @@ impl AppState {
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
-    fn navigate_issue_list_page_up(&mut self) {
-        let previous = self.issues_state.selected_issue_index();
-        if let Some(idx) = previous {
-            self.issues_state
-                .list
-                .set_selected_index(Some(idx.saturating_sub(super::VIEWPORT_PAGE_JUMP)));
-        }
-        self.invalidate_detail_requests_if_issue_selection_changed(previous);
+    fn navigate_issue_list_page_up(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_issue_list(crate::list_viewport::ListMove::PageUp(page));
     }
 
-    fn navigate_issue_list_page_down(&mut self) {
+    fn navigate_issue_list_page_down(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_issue_list(crate::list_viewport::ListMove::PageDown(page));
+    }
+
+    fn navigate_issue_list(&mut self, movement: crate::list_viewport::ListMove) {
         let previous = self.issues_state.selected_issue_index();
-        if let Some(idx) = previous {
-            let max = self.issues_state.issues().len().saturating_sub(1);
-            self.issues_state
-                .list
-                .set_selected_index(Some((idx + super::VIEWPORT_PAGE_JUMP).min(max)));
-        }
+        let selected = crate::list_viewport::move_selection(
+            previous,
+            self.issues_state.issues().len(),
+            movement,
+        );
+        self.issues_state.list.set_selected_index(selected);
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
@@ -325,7 +327,9 @@ impl AppState {
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
-        self.issues_state.comments_page_pending = None;
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.detail_scroll_offset = 0;
     }
 
@@ -358,8 +362,8 @@ impl AppState {
                 IssueFocus::RepoList => self.navigate_repo_down_in_issues_mode(),
                 IssueFocus::IssueDetail => {}
             },
-            AppEvent::IssuesNavigatePageUp => self.navigate_issue_list_page_up(),
-            AppEvent::IssuesNavigatePageDown => self.navigate_issue_list_page_down(),
+            AppEvent::IssuesNavigatePageUp(page) => self.navigate_issue_list_page_up(page),
+            AppEvent::IssuesNavigatePageDown(page) => self.navigate_issue_list_page_down(page),
             AppEvent::IssuesNavigateHome => self.navigate_issue_list_home(),
             AppEvent::IssuesNavigateEnd => self.navigate_issue_list_end(),
             AppEvent::IssuesEnter
@@ -408,12 +412,14 @@ impl AppState {
                     self.issues_state.search_query.trim().to_string();
                 self.issues_state.search_input_focused = false;
                 self.issues_state.list.clear();
+                if let Some(detail) = &mut self.issues_state.issue_detail {
+                    detail.comments.cancel_pending();
+                }
                 self.issues_state.issue_detail = None;
                 self.issues_state.error = None;
                 self.issues_state.loading.detail = false;
                 self.issues_state.loading.comments = false;
                 self.issues_state.detail_pending = None;
-                self.issues_state.comments_page_pending = None;
                 self.issues_state.mutation_pending = None;
                 self.issues_state.inline_state = InlineState::None;
                 self.remember_issue_preferences();
@@ -453,11 +459,13 @@ impl AppState {
 
     fn reload_issue_list_for_filter_change(&mut self) {
         self.issues_state.list.clear();
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.issue_detail = None;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
-        self.issues_state.comments_page_pending = None;
         // A filter change reloads the list; dismiss the transient delete-confirm
         // overlay (it targets a specific list row that may no longer be present).
         // In-flight close/delete mutations are intentionally KEPT — their result
@@ -543,7 +551,7 @@ impl AppState {
 
     fn apply_agent_chooser_event(&mut self, event: AppEvent) -> bool {
         match event {
-            AppEvent::OpenAgentChooser => self.open_agent_chooser(),
+            AppEvent::OpenAgentChooser { metadata } => self.open_agent_chooser(metadata),
             AppEvent::AgentChooserNavigateUp => {
                 if let Some(chooser) = &mut self.issues_state.agent_chooser
                     && chooser.selected_index > 0
@@ -567,18 +575,27 @@ impl AppState {
         true
     }
 
-    fn open_agent_chooser(&mut self) {
+    /// Open the agent chooser using Git metadata joined with agents recomputed
+    /// from current state.
+    ///
+    /// The reducer is the authoritative source of eligibility: it calls
+    /// [`build_chooser_entries_from_state`], which internally invokes
+    /// [`AppState::chooser_agents_for_repository`] to get currently eligible
+    /// agents (non-running, correct repo, available kind), then joins only the
+    /// Git metadata whose [`AgentId`] matches. Stale or injected metadata from
+    /// a removed/running/cross-repo agent is silently dropped.
+    fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let repo_id = self.selected_repository_id().cloned();
-        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
+        let entries = super::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
         let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
-        if agents.is_empty() && !transient_available {
+        if entries.is_empty() && !transient_available {
             self.issues_state.agent_chooser = None;
             self.issues_state.draft_notice = Some("No agents available".to_string());
         } else {
             self.issues_state.draft_notice = None;
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
-                agents,
+                agents: entries,
                 transient_available,
             });
         }
@@ -597,8 +614,8 @@ impl AppState {
             }
             AppEvent::IssuesNavigateUp
             | AppEvent::IssuesNavigateDown
-            | AppEvent::IssuesNavigatePageUp
-            | AppEvent::IssuesNavigatePageDown
+            | AppEvent::IssuesNavigatePageUp(_)
+            | AppEvent::IssuesNavigatePageDown(_)
             | AppEvent::IssuesNavigateHome
             | AppEvent::IssuesNavigateEnd
             | AppEvent::IssuesEnter

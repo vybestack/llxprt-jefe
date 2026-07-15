@@ -67,9 +67,14 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
         milestone: None,
         body: "Body".to_string(),
         external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            Vec::new(),
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     }
 }
@@ -395,6 +400,7 @@ fn close_issue_blocked_when_composer_active() {
 fn issue_deleted_removes_from_list_and_clears_detail() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    state.issues_state.loading.comments = true;
     state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 1,
@@ -416,6 +422,7 @@ fn issue_deleted_removes_from_list_and_clears_detail() {
         state.issues_state.issue_detail.is_none(),
         "detail should be cleared when deleted"
     );
+    assert!(!state.issues_state.loading.comments);
     assert_eq!(
         state.issues_state.issue_focus,
         IssueFocus::IssueList,

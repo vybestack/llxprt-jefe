@@ -32,6 +32,7 @@ use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
 // std::boxed::Box). The private fns pr_send_info_from_state and write_pr_prompt
 // are visible to child modules via super::.
+use super::prs_integration_test_fixtures::make_test_pr_detail;
 use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
 use super::{
     AppStateHandle, SharedContext, normal, prs, prs_comments_dispatch, prs_dispatch,
@@ -57,6 +58,7 @@ pub(super) fn make_test_pr(number: u64) -> PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -407,40 +409,6 @@ fn it_search_commit_reloads_with_query() {
 // Checkpoint 8: send-to-agent writes prompt and launches (REQ-PR-011)
 // ═════════════════════════════════════════════════════════════════════════
 
-/// Build a PR detail fixture for send-to-agent tests.
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 164-175
-pub(super) fn make_test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
-    use jefe::domain::{PrCheckStatus, PrState};
-    jefe::domain::PullRequestDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number,
-        title: format!("PR #{number}"),
-        state: PrState::Open,
-        is_draft: false,
-        author_login: "octocat".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-02T00:00:00Z".to_string(),
-        head_ref: "feature".to_string(),
-        base_ref: "main".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: "PR body".to_string(),
-        external_url: format!("https://github.com/owner/repo/pull/{number}"),
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        reviews: vec![],
-        checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-        mergeable: None,
-        merge_state_status: None,
-    }
-}
-
 /// Build a launch signature fixture (mirrors `app_input_tests::sample_signature`).
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-011
@@ -460,6 +428,7 @@ fn sample_signature() -> LaunchSignature {
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: jefe::domain::AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 
@@ -541,7 +510,7 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
     // Drive the REAL `S` key handler → PrOpenAgentChooser.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('S')));
     assert!(
-        matches!(event, Some(AppEvent::PrOpenAgentChooser)),
+        matches!(event, Some(AppEvent::PrOpenAgentChooser { .. })),
         "'S' must emit PrOpenAgentChooser (got {event:?})"
     );
     state.apply_in_place(event.unwrap_or_else(|| panic!("S must emit an event")));

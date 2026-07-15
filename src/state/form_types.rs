@@ -15,6 +15,8 @@ pub struct AgentFormFields {
     pub code_puppy_yolo: bool,
     pub code_puppy_quick_resume: crate::domain::QuickResume,
     pub agent_kind: String,
+    /// LLxprt npm package version selector (form draft).
+    pub llxprt_version: String,
     pub mode: String,
     pub llxprt_debug: String,
     pub pass_continue: bool,
@@ -32,6 +34,7 @@ pub struct AgentFormCursor {
     pub profile: usize,
     pub code_puppy_model: usize,
     pub mode: usize,
+    pub llxprt_version: usize,
     pub llxprt_debug: usize,
     pub sandbox_flags: usize,
 }
@@ -50,6 +53,7 @@ pub enum AgentFormFocus {
     CodePuppyQuickResume,
     AgentKind,
     Mode,
+    LlxprtVersion,
     LlxprtDebug,
     PassContinue,
     Sandbox,
@@ -71,7 +75,8 @@ impl AgentFormFocus {
             Self::CodePuppyModel => Self::CodePuppyYolo,
             Self::CodePuppyYolo => Self::CodePuppyQuickResume,
             Self::CodePuppyQuickResume => Self::Mode,
-            Self::Mode => Self::LlxprtDebug,
+            Self::Mode => Self::LlxprtVersion,
+            Self::LlxprtVersion => Self::LlxprtDebug,
             Self::LlxprtDebug => Self::PassContinue,
             Self::PassContinue => Self::Sandbox,
             Self::Sandbox => Self::SandboxEngine,
@@ -94,7 +99,8 @@ impl AgentFormFocus {
             Self::CodePuppyYolo => Self::CodePuppyModel,
             Self::CodePuppyQuickResume => Self::CodePuppyYolo,
             Self::Mode => Self::CodePuppyQuickResume,
-            Self::LlxprtDebug => Self::Mode,
+            Self::LlxprtDebug => Self::LlxprtVersion,
+            Self::LlxprtVersion => Self::Mode,
             Self::PassContinue => Self::LlxprtDebug,
             Self::Sandbox => Self::PassContinue,
             Self::SandboxEngine => Self::Sandbox,
@@ -110,9 +116,15 @@ pub struct RepositoryFormFields {
     pub base_dir: String,
     pub default_profile: String,
     pub default_code_puppy_model: String,
+    /// Default LLxprt npm package version (form draft).
+    pub default_llxprt_version: String,
+    pub default_agent_kind: String,
+    /// Directory for transient agent work copies (issue #213).
+    pub transient_agent_dir: String,
     /// Default Code Puppy YOLO for transient agents (issue #213).
     pub default_code_puppy_yolo: bool,
-    pub default_agent_kind: String,
+    /// Max concurrent transient agents (issue #213).
+    pub transient_max_concurrent: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
     /// Optional override for the GitHub repository that sources issues/PRs
@@ -123,13 +135,11 @@ pub struct RepositoryFormFields {
     pub remote_enabled: bool,
     pub login_user: String,
     pub host: String,
+    pub ssh_port: String,
+    pub identity_file: String,
+    pub ssh_options: String,
     pub run_as_user: String,
     pub setup_env_default: bool,
-    /// Directory for transient agent work directories (issue #213).
-    /// Empty string means "use /tmp".
-    pub transient_agent_dir: String,
-    /// Max concurrent transient agents. Empty or "0" means no limit (issue #213).
-    pub transient_max_concurrent: String,
 }
 
 /// Cursor positions for repository form text fields.
@@ -139,13 +149,17 @@ pub struct RepositoryFormCursor {
     pub base_dir: usize,
     pub default_profile: usize,
     pub default_code_puppy_model: usize,
+    pub default_llxprt_version: usize,
+    pub transient_agent_dir: usize,
+    pub transient_max_concurrent: usize,
     pub github_repo: usize,
     pub github_issue_pr_repo: usize,
     pub login_user: usize,
     pub host: usize,
+    pub ssh_port: usize,
+    pub identity_file: usize,
+    pub ssh_options: usize,
     pub run_as_user: usize,
-    pub transient_agent_dir: usize,
-    pub transient_max_concurrent: usize,
 }
 
 /// Which field is focused in the repository form.
@@ -156,20 +170,21 @@ pub enum RepositoryFormFocus {
     BaseDir,
     DefaultProfile,
     DefaultCodePuppyModel,
-    /// Default Code Puppy YOLO for transient agents (issue #213).
-    DefaultCodePuppyYolo,
+    DefaultLlxprtVersion,
     DefaultAgentKind,
+    TransientAgentDir,
+    DefaultCodePuppyYolo,
+    TransientMaxConcurrent,
     GitHubRepo,
     IssuePrRepo,
     RemoteEnabled,
     LoginUser,
     Host,
+    SshPort,
+    IdentityFile,
+    SshOptions,
     RunAsUser,
     SetupEnvDefault,
-    /// Transient agent directory (issue #213).
-    TransientAgentDir,
-    /// Max concurrent transient agents (issue #213).
-    TransientMaxConcurrent,
 }
 
 impl RepositoryFormFocus {
@@ -180,18 +195,22 @@ impl RepositoryFormFocus {
             Self::Name => Self::BaseDir,
             Self::BaseDir => Self::DefaultProfile,
             Self::DefaultProfile => Self::DefaultCodePuppyModel,
-            Self::DefaultCodePuppyModel => Self::DefaultCodePuppyYolo,
-            Self::DefaultCodePuppyYolo => Self::DefaultAgentKind,
-            Self::DefaultAgentKind => Self::GitHubRepo,
+            Self::DefaultCodePuppyModel => Self::DefaultAgentKind,
+            Self::DefaultAgentKind => Self::DefaultLlxprtVersion,
+            Self::DefaultLlxprtVersion => Self::TransientAgentDir,
+            Self::TransientAgentDir => Self::DefaultCodePuppyYolo,
+            Self::DefaultCodePuppyYolo => Self::TransientMaxConcurrent,
+            Self::TransientMaxConcurrent => Self::GitHubRepo,
             Self::GitHubRepo => Self::IssuePrRepo,
             Self::IssuePrRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
             Self::LoginUser => Self::Host,
-            Self::Host => Self::RunAsUser,
+            Self::Host => Self::SshPort,
+            Self::SshPort => Self::IdentityFile,
+            Self::IdentityFile => Self::SshOptions,
+            Self::SshOptions => Self::RunAsUser,
             Self::RunAsUser => Self::SetupEnvDefault,
-            Self::SetupEnvDefault => Self::TransientAgentDir,
-            Self::TransientAgentDir => Self::TransientMaxConcurrent,
-            Self::TransientMaxConcurrent => Self::Name,
+            Self::SetupEnvDefault => Self::Name,
         }
     }
 
@@ -199,21 +218,25 @@ impl RepositoryFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::TransientMaxConcurrent,
+            Self::Name => Self::SetupEnvDefault,
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
-            Self::DefaultCodePuppyYolo => Self::DefaultCodePuppyModel,
-            Self::DefaultAgentKind => Self::DefaultCodePuppyYolo,
-            Self::GitHubRepo => Self::DefaultAgentKind,
+            Self::DefaultAgentKind => Self::DefaultCodePuppyModel,
+            Self::DefaultLlxprtVersion => Self::DefaultAgentKind,
+            Self::TransientAgentDir => Self::DefaultLlxprtVersion,
+            Self::DefaultCodePuppyYolo => Self::TransientAgentDir,
+            Self::TransientMaxConcurrent => Self::DefaultCodePuppyYolo,
+            Self::GitHubRepo => Self::TransientMaxConcurrent,
             Self::IssuePrRepo => Self::GitHubRepo,
             Self::RemoteEnabled => Self::IssuePrRepo,
             Self::LoginUser => Self::RemoteEnabled,
             Self::Host => Self::LoginUser,
-            Self::RunAsUser => Self::Host,
+            Self::SshPort => Self::Host,
+            Self::IdentityFile => Self::SshPort,
+            Self::SshOptions => Self::IdentityFile,
+            Self::RunAsUser => Self::SshOptions,
             Self::SetupEnvDefault => Self::RunAsUser,
-            Self::TransientAgentDir => Self::SetupEnvDefault,
-            Self::TransientMaxConcurrent => Self::TransientAgentDir,
         }
     }
 }

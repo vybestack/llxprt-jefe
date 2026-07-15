@@ -1,4 +1,5 @@
 use crate::domain::RepositoryId;
+use crate::list_viewport::PageItemCount;
 
 use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
@@ -7,6 +8,10 @@ pub enum AppEvent {
     // Navigation
     NavigateUp,
     NavigateDown,
+    NavigatePageUp(PageItemCount),
+    NavigatePageDown(PageItemCount),
+    NavigateHome,
+    NavigateEnd,
     NavigateLeft,
     NavigateRight,
     SelectRepository(usize),
@@ -141,8 +146,8 @@ pub enum AppEvent {
     RefocusIssueList,
     IssuesNavigateUp,
     IssuesNavigateDown,
-    IssuesNavigatePageUp,
-    IssuesNavigatePageDown,
+    IssuesNavigatePageUp(PageItemCount),
+    IssuesNavigatePageDown(PageItemCount),
     IssuesNavigateHome,
     IssuesNavigateEnd,
     IssuesEnter,
@@ -364,7 +369,9 @@ pub enum AppEvent {
     /// Esc: close the chooser without closing the issue.
     CloseReasonCancel,
 
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -388,8 +395,8 @@ pub enum AppEvent {
     RefocusPrList,
     PrNavigateUp,
     PrNavigateDown,
-    PrNavigatePageUp,
-    PrNavigatePageDown,
+    PrNavigatePageUp(PageItemCount),
+    PrNavigatePageDown(PageItemCount),
     PrNavigateHome,
     PrNavigateEnd,
     PrListEnter,
@@ -468,6 +475,11 @@ pub enum AppEvent {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         request_id: u64,
+        error: String,
+    },
+    PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
         error: String,
     },
     PrOpenFilterControls,
@@ -560,7 +572,9 @@ pub enum AppEvent {
         pr_number: u64,
         error: String,
     },
-    PrOpenAgentChooser,
+    PrOpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,
     PrAgentChooserConfirm,
@@ -580,24 +594,39 @@ pub enum AppEvent {
 
     // Actions Mode events
     EnterActionsMode,
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
+    EnterActionsModeWithPrFilter {
+        pr_number: u64,
+        head_sha: String,
+    },
     ExitActionsMode,
     RefocusActionsList,
     ActionsReload,
     ActionsNavigateUp,
     ActionsNavigateDown,
-    ActionsNavigatePageUp,
-    ActionsNavigatePageDown,
+    ActionsNavigatePageUp(PageItemCount),
+    ActionsNavigatePageDown(PageItemCount),
     ActionsNavigateHome,
     ActionsNavigateEnd,
     ActionsEnter,
     ActionsCycleFocus,
     ActionsCycleFocusReverse,
+    ActionsSetDetailGeometry {
+        viewport_rows: usize,
+        content_width: usize,
+    },
     ActionsScrollDetailUp,
     ActionsScrollDetailDown,
-    ActionsToggleJobExpand,
+    ActionsExpandJob,
     ActionsCollapseJob,
+    ActionsDetailEscape,
     ActionsNavigateJobUp,
     ActionsNavigateJobDown,
+    ActionsBeginDetailReload {
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    },
     ActionsRunsLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,

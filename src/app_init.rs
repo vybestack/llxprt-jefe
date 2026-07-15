@@ -35,6 +35,7 @@ fn launch_signature_for_agent(
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
+        llxprt_version: agent.llxprt_version.clone(),
     }
 }
 
@@ -75,6 +76,111 @@ fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
         ),
     );
     true
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionEvidence {
+    Alive,
+    Missing,
+    Unavailable,
+}
+
+impl From<jefe::runtime::SessionLiveness> for SessionEvidence {
+    fn from(value: jefe::runtime::SessionLiveness) -> Self {
+        match value {
+            jefe::runtime::SessionLiveness::Alive => Self::Alive,
+            jefe::runtime::SessionLiveness::Missing => Self::Missing,
+            jefe::runtime::SessionLiveness::Unavailable => Self::Unavailable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindingEvidence {
+    Coherent,
+    Legacy,
+    Inconsistent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupClassification {
+    Running,
+    Stopped,
+    Stale,
+    Recoverable,
+    Inconsistent,
+}
+
+#[must_use]
+fn binding_evidence(
+    binding: Option<&jefe::domain::RuntimeBinding>,
+    agent_id: &AgentId,
+    signature: &LaunchSignature,
+) -> BindingEvidence {
+    let Some(binding) = binding else {
+        return BindingEvidence::Legacy;
+    };
+    if binding.session_name != RuntimeSession::session_name_for(agent_id)
+        || binding.launch_signature != *signature
+    {
+        return BindingEvidence::Inconsistent;
+    }
+    match (binding.pid, binding.process_identity) {
+        (Some(pid), Some(identity)) if pid != identity.pid => BindingEvidence::Inconsistent,
+        (Some(_) | None, None) => BindingEvidence::Legacy,
+        (None, Some(_)) => BindingEvidence::Inconsistent,
+        (Some(_), Some(_)) => BindingEvidence::Coherent,
+    }
+}
+
+#[must_use]
+fn classify_startup(
+    session: SessionEvidence,
+    binding: BindingEvidence,
+    remote: bool,
+    process: ProcessLiveness,
+) -> StartupClassification {
+    if binding == BindingEvidence::Inconsistent {
+        return StartupClassification::Inconsistent;
+    }
+    if !remote && process == ProcessLiveness::ReusedPid {
+        return StartupClassification::Stale;
+    }
+    match session {
+        SessionEvidence::Alive => StartupClassification::Running,
+        SessionEvidence::Unavailable => StartupClassification::Recoverable,
+        SessionEvidence::Missing if remote => StartupClassification::Stopped,
+        SessionEvidence::Missing => match process {
+            ProcessLiveness::Alive => StartupClassification::Recoverable,
+            ProcessLiveness::Dead => StartupClassification::Stopped,
+            ProcessLiveness::ReusedPid => StartupClassification::Stale,
+            ProcessLiveness::MalformedIdentity => StartupClassification::Inconsistent,
+            ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure => {
+                StartupClassification::Recoverable
+            }
+        },
+    }
+}
+
+fn classify_agent_startup(
+    agent: &Agent,
+    signature: &LaunchSignature,
+    runtime: &TmuxRuntimeManager,
+) -> StartupClassification {
+    let session = runtime
+        .session_liveness_for_signature(&agent.id, signature)
+        .into();
+    let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id, signature);
+    let process = if signature.remote.enabled {
+        ProcessLiveness::MalformedIdentity
+    } else {
+        process_liveness(
+            agent
+                .runtime_binding
+                .as_ref()
+                .and_then(|value| value.process_identity),
+        )
+    };
+    classify_startup(session, binding, signature.remote.enabled, process)
 }
 
 /// Load persisted state and settings into `app_state` exactly once.
@@ -163,6 +269,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
 ///
 /// Factored out of [`reconcile_running_agents`] so the decision logic is
 /// unit-testable without spawning real tmux.
+#[cfg(test)]
 #[must_use]
 fn is_agent_dead(
     session_exists: bool,
@@ -189,7 +296,6 @@ fn is_agent_dead(
 ///
 /// Returns the collected dead agent IDs; does not mutate `state`.
 fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> Vec<AgentId> {
-    let mut running_agents: Vec<(AgentId, LaunchSignature, Option<ProcessIdentity>)> = Vec::new();
     let mut dead_ids = Vec::new();
     for agent in state
         .agents
@@ -200,20 +306,14 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
             dead_ids.push(agent.id.clone());
             continue;
         };
-
-        running_agents.push((
-            agent.id.clone(),
-            launch_signature_for_agent(agent, repository),
-            agent
-                .runtime_binding
-                .as_ref()
-                .and_then(|binding| binding.process_identity),
-        ));
-    }
-    for (agent_id, signature, process_identity) in running_agents {
-        let session_exists = runtime.session_exists_for_signature(&agent_id, &signature);
-        if is_agent_dead(session_exists, signature.remote.enabled, process_identity) {
-            dead_ids.push(agent_id);
+        let signature = launch_signature_for_agent(agent, repository);
+        if matches!(
+            classify_agent_startup(agent, &signature, runtime),
+            StartupClassification::Stopped
+                | StartupClassification::Stale
+                | StartupClassification::Inconsistent
+        ) {
+            dead_ids.push(agent.id.clone());
         }
     }
     dead_ids
@@ -246,6 +346,7 @@ fn apply_dead_reconciliations(
 /// Factored out of [`restore_runtime_sessions`] so the three-way restore
 /// decision is unit-testable without spawning real tmux. Mirrors
 /// [`is_agent_dead`] as the single source of truth for the dead-decision.
+#[cfg(test)]
 #[must_use]
 fn restore_dead_decision(
     session_exists: bool,
@@ -268,6 +369,7 @@ fn restore_dead_decision(
 }
 
 /// Decision outcome for restoring one Running agent's session.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 enum RestoreDecision {
     /// Tmux session still exists → reattach/revive.
@@ -315,24 +417,15 @@ fn restore_one_agent(
     let binding = agent.runtime_binding.as_ref();
     let pid = binding.and_then(|value| value.pid);
     let process_identity = binding.and_then(|value| value.process_identity);
-    let session_exists = runtime.session_exists_for_signature(&agent.id, &signature);
 
-    match restore_dead_decision(session_exists, signature.remote.enabled, process_identity) {
-        RestoreDecision::Dead => RestoreOneOutcome::Dead,
-        // SkipOrphan agents remain Running in AppState but have NO entry in
-        // the TmuxRuntimeManager in-memory session map (by design — the
-        // persisted `runtime_binding.pid` is the liveness source of truth for
-        // orphans; active orphan reclaim/re-adoption is the deferred follow-up,
-        // issue #121 item 4).
-        RestoreDecision::SkipOrphan => RestoreOneOutcome::Skip,
-        RestoreDecision::Revive => {
+    match classify_agent_startup(agent, &signature, runtime) {
+        StartupClassification::Stopped
+        | StartupClassification::Stale
+        | StartupClassification::Inconsistent => RestoreOneOutcome::Dead,
+        StartupClassification::Recoverable => RestoreOneOutcome::Skip,
+        StartupClassification::Running => {
             match revive_agent_session(agent, &signature, runtime, runtime_warning) {
                 ReviveOutcome::Revived => {
-                    // A reattach does not respawn the worker, so fall back to
-                    // the previously-persisted PID if worker_pid transiently
-                    // returns None (e.g. a tmux list-panes hiccup right after
-                    // create). Without this, the revived agent's binding could
-                    // be persisted with pid: None, stripping the fallback.
                     let resolved_pid = runtime.worker_pid(&agent.id).or(pid);
                     let process_identity = runtime
                         .worker_process_identity(&agent.id)
@@ -632,6 +725,191 @@ mod tests {
         assert_eq!(
             restore_dead_decision(true, false, Some(me)),
             RestoreDecision::Revive
+        );
+    }
+
+    #[test]
+    fn startup_classification_covers_required_lifecycle_states() {
+        let coherent = BindingEvidence::Coherent;
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Alive,
+                coherent,
+                false,
+                ProcessLiveness::Dead
+            ),
+            StartupClassification::Running
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                coherent,
+                false,
+                ProcessLiveness::Dead
+            ),
+            StartupClassification::Stopped
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                coherent,
+                false,
+                ProcessLiveness::ReusedPid
+            ),
+            StartupClassification::Stale
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Alive,
+                coherent,
+                false,
+                ProcessLiveness::ReusedPid
+            ),
+            StartupClassification::Stale
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                coherent,
+                false,
+                ProcessLiveness::Alive
+            ),
+            StartupClassification::Recoverable
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                BindingEvidence::Inconsistent,
+                false,
+                ProcessLiveness::Alive
+            ),
+            StartupClassification::Inconsistent
+        );
+    }
+
+    #[test]
+    fn unavailable_runtime_probe_is_recoverable_not_phantom_dead() {
+        for liveness in [ProcessLiveness::Dead, ProcessLiveness::ProbeFailure] {
+            assert_eq!(
+                classify_startup(
+                    SessionEvidence::Unavailable,
+                    BindingEvidence::Coherent,
+                    false,
+                    liveness
+                ),
+                StartupClassification::Recoverable
+            );
+        }
+    }
+
+    #[test]
+    fn missing_remote_session_is_stopped_without_local_pid_fallback() {
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                BindingEvidence::Coherent,
+                true,
+                ProcessLiveness::Alive
+            ),
+            StartupClassification::Stopped
+        );
+    }
+
+    #[test]
+    fn malformed_or_inaccessible_process_identity_is_classified_conservatively() {
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                BindingEvidence::Coherent,
+                false,
+                ProcessLiveness::MalformedIdentity
+            ),
+            StartupClassification::Inconsistent
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                BindingEvidence::Coherent,
+                false,
+                ProcessLiveness::Inaccessible
+            ),
+            StartupClassification::Recoverable
+        );
+    }
+
+    #[test]
+    fn live_session_with_mismatched_binding_is_never_reattached() {
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Alive,
+                BindingEvidence::Inconsistent,
+                false,
+                ProcessLiveness::Alive
+            ),
+            StartupClassification::Inconsistent
+        );
+    }
+
+    #[test]
+    fn binding_evidence_rejects_wrong_session_signature_and_pid() {
+        let (agent, repository) = code_puppy_agent_and_repository();
+        let signature = launch_signature_for_agent(&agent, &repository);
+        let mut binding = jefe::domain::RuntimeBinding {
+            session_name: RuntimeSession::session_name_for(&agent.id),
+            launch_signature: signature.clone(),
+            attached: false,
+            last_seen: None,
+            pid: Some(41),
+            process_identity: Some(ProcessIdentity::new(41, 900)),
+        };
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Coherent
+        );
+        binding.session_name = "jefe-wrong-agent".to_owned();
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
+        );
+        binding.session_name = RuntimeSession::session_name_for(&agent.id);
+        binding.launch_signature.profile = "wrong-profile".to_owned();
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
+        );
+        binding.launch_signature = signature.clone();
+        binding.pid = Some(42);
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
+        );
+        assert_eq!(
+            binding_evidence(None, &agent.id, &signature),
+            BindingEvidence::Legacy
+        );
+        binding_evidence_rejects_different_llxprt_selector();
+    }
+
+    fn binding_evidence_rejects_different_llxprt_selector() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.agent_kind = jefe::domain::AgentKind::Llxprt;
+        agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
+        let signature = launch_signature_for_agent(&agent, &repository);
+        assert_eq!(signature.llxprt_version, agent.llxprt_version);
+        let mut bound_signature = signature.clone();
+        bound_signature.llxprt_version =
+            jefe::domain::LlxprtNpmPackageSelector::normalize("latest");
+        let binding = jefe::domain::RuntimeBinding {
+            session_name: RuntimeSession::session_name_for(&agent.id),
+            launch_signature: bound_signature,
+            attached: false,
+            last_seen: None,
+            pid: Some(41),
+            process_identity: Some(ProcessIdentity::new(41, 900)),
+        };
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
         );
     }
 }

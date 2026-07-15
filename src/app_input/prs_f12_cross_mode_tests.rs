@@ -130,3 +130,194 @@ fn i_in_inline_composer_types_char() {
         "'i' with inline composer must yield PrInlineChar('i'), got {event:?}"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Cross-mode `g`/`G`: jump to Actions mode pre-filtered to current PR (#205)
+// ═══════════════════════════════════════════════════════════════════════
+
+use jefe::domain::{PrCheckStatus, PrState, PullRequest, PullRequestDetail};
+
+/// Build a PR-mode state with a loaded PR detail (no list items).
+fn prs_state_with_pr_detail(number: u64, head_sha: &str) -> AppState {
+    let mut state = prs_state_with_focus(PrFocus::PrDetail);
+    state.prs_state.pr_detail = Some(PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number,
+        title: format!("PR #{number}"),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-02T00:00:00Z".to_string(),
+        head_ref: "feature".to_string(),
+        head_sha: head_sha.to_string(),
+        base_ref: "main".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: "PR body".to_string(),
+        external_url: format!("https://github.com/owner/repo/pull/{number}"),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: jefe::domain::PaginatedList::default(),
+        mergeable: None,
+        merge_state_status: None,
+    });
+    state
+}
+
+/// `g` from PR detail enters Actions mode with the PR's number and head SHA.
+#[test]
+fn g_from_pr_detail_enters_actions_with_pr_filter() {
+    let state = prs_state_with_pr_detail(42, "sha123");
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(
+            event,
+            Some(AppEvent::EnterActionsModeWithPrFilter { pr_number: 42, ref head_sha }) if head_sha == "sha123"
+        ),
+        "'g' from PR detail must yield EnterActionsModeWithPrFilter with PR 42 and sha123, got {event:?}"
+    );
+}
+
+/// `G` (uppercase) also triggers the cross-mode action.
+#[test]
+fn uppercase_g_from_pr_detail_enters_actions_with_pr_filter() {
+    let state = prs_state_with_pr_detail(7, "sha7");
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('G')));
+    assert!(
+        matches!(
+            event,
+            Some(AppEvent::EnterActionsModeWithPrFilter { pr_number: 7, .. })
+        ),
+        "'G' from PR detail must yield EnterActionsModeWithPrFilter, got {event:?}"
+    );
+}
+
+/// `g` from the PR list (no detail loaded) uses the selected PR's SHA.
+#[test]
+fn g_from_pr_list_uses_selected_pr() {
+    let mut state = prs_base_state();
+    state.prs_state.list.replace_items(vec![PullRequest {
+        number: 99,
+        title: "PR #99".to_string(),
+        state: PrState::Open,
+        author_login: "user".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        head_ref: "feature".to_string(),
+        head_sha: "listsha".to_string(),
+        base_ref: "main".to_string(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }]);
+    state.prs_state.list.set_selected_index(Some(0));
+
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(
+            event,
+            Some(AppEvent::EnterActionsModeWithPrFilter { pr_number: 99, ref head_sha }) if head_sha == "listsha"
+        ),
+        "'g' from PR list must yield EnterActionsModeWithPrFilter with the selected PR's SHA, got {event:?}"
+    );
+}
+
+/// `g` with no PR selected and no detail enters Actions mode without a filter.
+#[test]
+fn g_with_no_pr_enters_actions_without_filter() {
+    let state = prs_base_state();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(event, Some(AppEvent::EnterActionsMode)),
+        "'g' with no PR selected must yield plain EnterActionsMode, got {event:?}"
+    );
+}
+
+/// `g` does not fire when the inline composer is open (overlay owns the key).
+#[test]
+fn g_does_not_fire_when_inline_composer_open() {
+    let state = prs_state_with_inline(InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    });
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(event, Some(AppEvent::PrInlineChar('g'))),
+        "'g' with inline composer must yield PrInlineChar('g'), got {event:?}"
+    );
+}
+
+/// Build a `PullRequest` with the given number and head SHA (all other
+/// fields are defaulted for test purposes).
+fn make_list_pr(number: u64, head_sha: &str) -> PullRequest {
+    PullRequest {
+        number,
+        title: format!("PR #{number}"),
+        state: PrState::Open,
+        author_login: "user".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        head_ref: format!("feature{number}"),
+        head_sha: head_sha.to_string(),
+        base_ref: "main".to_string(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }
+}
+
+/// `g` uses the selected list PR when `pr_detail` is stale (CodeRabbit
+/// finding): list navigation keeps the previous detail around, so the
+/// selection may point to a different PR than `pr_detail`.
+#[test]
+fn g_prefers_selected_pr_over_stale_detail() {
+    let mut state = prs_base_state();
+    state.prs_state.pr_detail = Some(PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 1,
+        title: "PR #1".to_string(),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-02T00:00:00Z".to_string(),
+        head_ref: "feature1".to_string(),
+        head_sha: "detail_sha_1".to_string(),
+        base_ref: "main".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: String::new(),
+        external_url: "https://github.com/owner/repo/pull/1".to_string(),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: jefe::domain::PaginatedList::default(),
+        mergeable: None,
+        merge_state_status: None,
+    });
+    state.prs_state.list.replace_items(vec![
+        make_list_pr(1, "list_sha_1"),
+        make_list_pr(2, "list_sha_2"),
+    ]);
+    state.prs_state.list.set_selected_index(Some(1));
+
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(
+            event,
+            Some(AppEvent::EnterActionsModeWithPrFilter { pr_number: 2, ref head_sha }) if head_sha == "list_sha_2"
+        ),
+        "'g' must use the selected list PR (#2) when pr_detail is stale (#1), got {event:?}"
+    );
+}

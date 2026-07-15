@@ -70,6 +70,19 @@ fn app_events_route_to_domain_channels() {
 }
 
 #[test]
+fn actions_job_inspection_intents_route_to_actions_channel() {
+    for (event, name) in [
+        (AppEvent::ActionsExpandJob, "ActionsExpandJob"),
+        (AppEvent::ActionsCollapseJob, "ActionsCollapseJob"),
+        (AppEvent::ActionsDetailEscape, "ActionsDetailEscape"),
+    ] {
+        let route = AppMessage::from(event).route();
+        assert_eq!(route.domain, MessageDomain::Actions);
+        assert_eq!(route.name, name);
+    }
+}
+
+#[test]
 fn actions_page_results_route_to_actions_channel() {
     let loaded = AppEvent::ActionsRunsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".into()),
@@ -182,6 +195,7 @@ fn typed_kill_agent_clears_runtime_binding() {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_string(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: jefe::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: true,
         last_seen: None,

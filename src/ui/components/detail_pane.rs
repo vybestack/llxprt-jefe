@@ -140,14 +140,14 @@ pub fn header_row(
     if header_highlight(line, selection, pane) {
         element! {
             Box(height: 1u32, background_color: rc.sel_bg) {
-                Text(content: content, color: rc.sel_fg)
+                Text(content: content, color: rc.sel_fg, wrap: TextWrap::NoWrap)
             }
         }
         .into_any()
     } else {
         element! {
             Box(height: 1u32) {
-                Text(content: content, color: default_fg)
+                Text(content: content, color: default_fg, wrap: TextWrap::NoWrap)
             }
         }
         .into_any()

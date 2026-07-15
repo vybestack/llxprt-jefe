@@ -15,6 +15,7 @@
 
 use iocraft::prelude::*;
 
+use crate::list_viewport::fit_text_to_width;
 use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -60,6 +61,8 @@ pub struct SelectableSpan {
 /// A single row in a selectable list, projected by the domain layer.
 #[derive(Clone, Debug)]
 pub struct SelectableRow {
+    /// Absolute logical-list index represented by this visible row.
+    pub source_index: usize,
     /// First line, as ordered colored spans.
     pub spans: Vec<SelectableSpan>,
     /// Optional second line (issue/pr meta line). Painted `dim`, or `sel_fg`
@@ -118,6 +121,8 @@ pub struct SelectableListProps {
     pub content_padding: bool,
     /// Selection/row-color policy.
     pub selection_style: SelectionStyle,
+    /// Fixed terminal-cell width of every physical content row.
+    pub content_width: usize,
 }
 
 /// Resolve `(border_style, border_color)` for the outer box per [`ListBorder`].
@@ -210,11 +215,123 @@ fn title_span(row: &SelectableRow) -> (&str, SpanColor) {
     }
 }
 
+/// Fit every span in one logical row as a single display-width budget while
+/// preserving each retained span's color policy.
+fn fit_row(row: &SelectableRow, content_width: usize) -> SelectableRow {
+    SelectableRow {
+        source_index: row.source_index,
+        spans: fit_spans_to_width(&row.spans, content_width),
+        meta_line: row
+            .meta_line
+            .as_deref()
+            .map(|line| fit_text_to_width(line, content_width)),
+        is_selected: row.is_selected,
+    }
+}
+
+fn fit_spans_to_width(spans: &[SelectableSpan], width: usize) -> Vec<SelectableSpan> {
+    let full_width: usize = spans
+        .iter()
+        .map(|span| unicode_width::UnicodeWidthStr::width(span.text.as_str()))
+        .sum();
+    if full_width <= width {
+        return spans.to_vec();
+    }
+    if width == 0 {
+        return Vec::new();
+    }
+
+    let content_width = width - 1;
+    let mut used: usize = 0;
+    let mut fitted: Vec<SelectableSpan> = Vec::new();
+    let mut ellipsis_color = SpanColor::Themed;
+    'spans: for span in spans {
+        for character in span.text.chars() {
+            let character_width = unicode_width::UnicodeWidthChar::width(character).unwrap_or(0);
+            if used.saturating_add(character_width) > content_width {
+                ellipsis_color = span.color;
+                break 'spans;
+            }
+            push_styled_character(&mut fitted, character, span.color);
+            used = used.saturating_add(character_width);
+        }
+    }
+    push_styled_character(&mut fitted, '…', ellipsis_color);
+    fitted
+}
+
+fn push_styled_character(spans: &mut Vec<SelectableSpan>, character: char, color: SpanColor) {
+    if let Some(last) = spans.last_mut()
+        && last.color == color
+    {
+        last.text.push(character);
+        return;
+    }
+    spans.push(SelectableSpan {
+        text: character.to_string(),
+        color,
+    });
+}
+
+/// One fitted copyable line and the logical list item that produced it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectedContentLine {
+    pub source_index: usize,
+    pub text: String,
+}
+
+/// Fit the exact visible row projection consumed by rendering into copy lines.
+#[must_use]
+pub fn projected_content_lines(props: &SelectableListProps) -> Vec<ProjectedContentLine> {
+    if let Some(message) = &props.empty_message {
+        return vec![ProjectedContentLine {
+            source_index: 0,
+            text: fit_text_to_width(message, props.content_width),
+        }];
+    }
+    props
+        .rows
+        .iter()
+        .flat_map(|row| {
+            let fitted = fit_row(row, props.content_width);
+            let title = ProjectedContentLine {
+                source_index: fitted.source_index,
+                text: fitted.spans.into_iter().map(|span| span.text).collect(),
+            };
+            let meta = fitted
+                .meta_line
+                .filter(|line| !line.is_empty())
+                .map(|text| ProjectedContentLine {
+                    source_index: fitted.source_index,
+                    text,
+                });
+            std::iter::once(title).chain(meta)
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+struct RowPresentation {
+    themed: Color,
+    weight: Weight,
+    background: Color,
+    colors: ResolvedColors,
+}
+
 /// Render the empty/loading status message box (matches IssueList/PrList).
-fn render_empty_message(msg: &str, dim: Color) -> AnyElement<'static> {
+fn render_empty_message(
+    msg: &str,
+    highlighted: bool,
+    rc: ResolvedColors,
+    content_width: usize,
+) -> AnyElement<'static> {
+    let width = u32::try_from(content_width).unwrap_or(u32::MAX);
+    let fitted = fit_text_to_width(msg, content_width);
+    let foreground = if highlighted { rc.sel_fg } else { rc.dim };
+    let background = if highlighted { rc.sel_bg } else { rc.bg };
     element! {
-        Box(padding_left: 1u32, height: 1u32) {
-            Text(content: msg, color: dim)
+        Box(height: 1u32, width: width, background_color: background) {
+            Text(content: fitted, color: foreground, wrap: TextWrap::NoWrap)
         }
     }
     .into_any()
@@ -228,11 +345,18 @@ fn render_compact_row(
     weight: Weight,
     row_bg: Color,
     rc: ResolvedColors,
+    content_width: usize,
 ) -> AnyElement<'static> {
     let (text, color) = title_span(row);
+    let width = u32::try_from(content_width).unwrap_or(u32::MAX);
     element! {
-        Box(height: 1u32, background_color: row_bg) {
-            Text(content: text, color: span_color(color, themed, rc), weight: weight)
+        Box(height: 1u32, width: width, background_color: row_bg) {
+            Text(
+                content: text,
+                color: span_color(color, themed, rc),
+                weight: weight,
+                wrap: TextWrap::NoWrap,
+            )
         }
     }
     .into_any()
@@ -242,23 +366,41 @@ fn render_compact_row(
 /// `Box(flex_direction Column) { title Box ; meta Box }`.
 fn render_two_line_row(
     row: &SelectableRow,
-    themed: Color,
-    weight: Weight,
-    row_bg: Color,
-    highlighted: bool,
-    rc: ResolvedColors,
+    presentation: RowPresentation,
+    title_highlighted: bool,
+    meta_highlighted: bool,
+    content_width: usize,
 ) -> AnyElement<'static> {
     let (title_text, title_color_policy) = title_span(row);
-    let title_color = span_color(title_color_policy, themed, rc);
+    let title_color = if title_highlighted {
+        presentation.colors.sel_fg
+    } else {
+        span_color(title_color_policy, presentation.themed, presentation.colors)
+    };
     let meta = row.meta_line.as_deref().unwrap_or("");
-    let meta_color = if highlighted { rc.sel_fg } else { rc.dim };
+    let meta_color = if meta_highlighted {
+        presentation.colors.sel_fg
+    } else {
+        presentation.colors.dim
+    };
+    let title_background = if title_highlighted {
+        presentation.colors.sel_bg
+    } else {
+        presentation.background
+    };
+    let meta_background = if meta_highlighted {
+        presentation.colors.sel_bg
+    } else {
+        presentation.background
+    };
+    let width = u32::try_from(content_width).unwrap_or(u32::MAX);
     element! {
-        Box(flex_direction: FlexDirection::Column) {
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_text, color: title_color, weight: weight)
+        Box(flex_direction: FlexDirection::Column, width: width) {
+            Box(height: 1u32, width: width, background_color: title_background) {
+                Text(content: title_text, color: title_color, weight: presentation.weight, wrap: TextWrap::NoWrap)
             }
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: meta, color: meta_color)
+            Box(height: 1u32, width: width, background_color: meta_background) {
+                Text(content: meta, color: meta_color, wrap: TextWrap::NoWrap)
             }
         }
     }
@@ -273,6 +415,7 @@ fn render_agent_row(
     weight: Weight,
     row_bg: Color,
     rc: ResolvedColors,
+    content_width: usize,
 ) -> AnyElement<'static> {
     let texts: Vec<AnyElement<'static>> = row
         .spans
@@ -283,13 +426,15 @@ fn render_agent_row(
                     content: s.text.as_str(),
                     color: span_color(s.color, themed, rc),
                     weight: weight,
+                    wrap: TextWrap::NoWrap,
                 )
             }
             .into_any()
         })
         .collect();
+    let width = u32::try_from(content_width).unwrap_or(u32::MAX);
     element! {
-        Box(flex_direction: FlexDirection::Row, background_color: row_bg) {
+        Box(flex_direction: FlexDirection::Row, width: width, background_color: row_bg) {
             #(texts)
         }
     }
@@ -301,35 +446,68 @@ fn render_agent_row(
 fn render_row(
     row: &SelectableRow,
     style: SelectionStyle,
-    highlighted: bool,
+    highlights: &[bool],
     rc: ResolvedColors,
+    content_width: usize,
 ) -> AnyElement<'static> {
+    let fitted = fit_row(row, content_width);
+    let highlighted = highlights.iter().copied().any(std::convert::identity);
     let row_bg = if highlighted { rc.sel_bg } else { rc.bg };
-    let (themed, weight) = themed_color_and_weight(style, row.is_selected, highlighted, rc);
-    match &row.meta_line {
-        // Compact issue/pr: empty meta string → single-line title box.
-        Some(m) if m.is_empty() => render_compact_row(row, themed, weight, row_bg, rc),
-        // Full issue/pr: non-empty meta → two-line column box.
-        Some(_) => render_two_line_row(row, themed, weight, row_bg, highlighted, rc),
-        // Agent: no meta → single-line row box with one Text per span.
-        None => render_agent_row(row, themed, weight, row_bg, rc),
+    let (themed, weight) = themed_color_and_weight(style, fitted.is_selected, highlighted, rc);
+    match &fitted.meta_line {
+        Some(m) if m.is_empty() => {
+            render_compact_row(&fitted, themed, weight, row_bg, rc, content_width)
+        }
+        Some(_) => {
+            let (base_themed, base_weight) =
+                themed_color_and_weight(style, fitted.is_selected, false, rc);
+            render_two_line_row(
+                &fitted,
+                RowPresentation {
+                    themed: base_themed,
+                    weight: base_weight,
+                    background: rc.bg,
+                    colors: rc,
+                },
+                highlights.first().copied().unwrap_or(false),
+                highlights.get(1).copied().unwrap_or(false),
+                content_width,
+            )
+        }
+        None => render_agent_row(&fitted, themed, weight, row_bg, rc, content_width),
     }
 }
 
 /// Build the content children: an empty message, or one element per row.
 fn content_children(props: &SelectableListProps, rc: ResolvedColors) -> Vec<AnyElement<'static>> {
-    match &props.empty_message {
-        Some(msg) => vec![render_empty_message(msg, rc.dim)],
-        None => props
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(idx, row)| {
-                let highlighted = row_is_highlighted(props.selection.as_ref(), props.pane, idx);
-                render_row(row, props.selection_style, highlighted, rc)
-            })
-            .collect(),
+    if let Some(message) = &props.empty_message {
+        return vec![render_empty_message(
+            message,
+            row_is_highlighted(props.selection.as_ref(), props.pane, 0),
+            rc,
+            props.content_width,
+        )];
     }
+    let mut physical_line = 0;
+    props
+        .rows
+        .iter()
+        .map(|row| {
+            let line_count =
+                usize::from(row.meta_line.as_ref().is_some_and(|line| !line.is_empty())) + 1;
+            let highlights = (physical_line..physical_line + line_count)
+                .map(|line| row_is_highlighted(props.selection.as_ref(), props.pane, line))
+                .collect::<Vec<_>>();
+            physical_line += line_count;
+            render_row(
+                row,
+                props.selection_style,
+                &highlights,
+                rc,
+                props.content_width,
+            )
+        })
+        .collect()
 }
 
 /// Build the content box element, applying `padding: 1` only when the
@@ -374,6 +552,8 @@ pub fn SelectableList(props: &SelectableListProps) -> impl Into<AnyElement<'stat
     let rc = ResolvedColors::from_theme(Some(&props.colors));
     let (border_style, border_color) = resolve_border(props.border, props.focused, rc);
     let content = content_box(props, rc);
+    let content_width = u32::try_from(props.content_width).unwrap_or(u32::MAX);
+    let title = fit_text_to_width(&props.title, props.content_width.saturating_sub(1));
 
     element! {
         Box(
@@ -384,8 +564,13 @@ pub fn SelectableList(props: &SelectableListProps) -> impl Into<AnyElement<'stat
             border_color: border_color,
             background_color: rc.bg,
         ) {
-            Box(height: 1u32, padding_left: 1u32) {
-                Text(content: props.title.as_str(), weight: Weight::Bold, color: rc.fg)
+            Box(height: 1u32, width: content_width, padding_left: 1u32) {
+                Text(
+                    content: title,
+                    weight: Weight::Bold,
+                    color: rc.fg,
+                    wrap: TextWrap::NoWrap,
+                )
             }
             #(
                 // The content box is built separately (it conditionally sets
@@ -417,485 +602,15 @@ pub fn selectable_list_element(props: SelectableListProps) -> AnyElement<'static
             border: props.border,
             content_padding: props.content_padding,
             selection_style: props.selection_style,
+            content_width: props.content_width,
         )
     }
     .into_any()
 }
 
 #[cfg(test)]
-mod tests {
-    //! Tests for [`SelectableList`] and the domain projection wrappers.
-    //!
-    //! These lock two layers of the refactoring contract:
-    //! 1. The projection wrappers (`issue_list_props`, `pr_list_props`,
-    //!    `agent_list_props`) produce rows whose span text/colors exactly
-    //!    match the pre-refactor projections (parity with the unchanged pure
-    //!    `*_visible_rows` functions).
-    //! 2. The rendered ANSI output preserves the per-domain border/weight/color
-    //!    behavior (bold-on-select for Issue/PR, fixed status-glyph color +
-    //!    bright-on-select for Agent, double-vs-round border policy, empty
-    //!    message rendering).
-
-    use super::*;
-    use crate::domain::{
-        Agent, AgentId, AgentStatus, Issue, IssueState, PrCheckStatus, PrState, PullRequest,
-        RepositoryId,
-    };
-    use crate::git_info::GitRepoInfo;
-    use crate::theme::ThemeColors;
-    use crate::ui::components::agent_list::{AgentListSelection, agent_list_props};
-    use crate::ui::components::issue_list::{IssueListLayout, IssueListWindow, issue_list_props};
-    use crate::ui::components::pr_list::{PrListLayout, PrListWindow, pr_list_props};
-
-    /// Render a `SelectableList` element into an ANSI string at a fixed size.
-    fn render_ansi(props: SelectableListProps, cols: u16, rows: u16) -> String {
-        let mut elem = element! {
-            Box(width: u32::from(cols), height: u32::from(rows)) {
-                #(vec![selectable_list_element(props)])
-            }
-        };
-        let canvas = elem.render(Some(usize::from(cols)));
-        let mut buf = Vec::new();
-        canvas
-            .write_ansi(&mut buf)
-            .unwrap_or_else(|e| panic!("write_ansi failed: {e}"));
-        String::from_utf8_lossy(&buf).into_owned()
-    }
-
-    fn issue(n: u64) -> Issue {
-        Issue {
-            number: n,
-            node_id: String::new(),
-            title: format!("Issue {n}"),
-            state: IssueState::Open,
-            author_login: "octocat".to_string(),
-            updated_at: "2026-06-30".to_string(),
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            assignees: Vec::new(),
-            labels: Vec::new(),
-            issue_type: String::new(),
-            milestone: String::new(),
-            module: String::new(),
-            comment_count: 0,
-            body: String::new(),
-        }
-    }
-
-    fn pr(n: u64) -> PullRequest {
-        PullRequest {
-            number: n,
-            title: format!("PR {n}"),
-            state: PrState::Open,
-            author_login: "octocat".to_string(),
-            updated_at: "2026-01-01".to_string(),
-            head_ref: "feature".to_string(),
-            base_ref: "main".to_string(),
-            is_draft: false,
-            review_decision: None,
-            checks_status: PrCheckStatus::None,
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            comment_count: 0,
-        }
-    }
-
-    fn agent(name: &str, status: AgentStatus) -> Agent {
-        let mut a = Agent::new(
-            AgentId(name.to_string()),
-            RepositoryId("r".to_string()),
-            name.to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
-        a.status = status;
-        a
-    }
-
-    // ── Projection parity ───────────────────────────────────────────────────
-
-    /// `issue_list_props` rows' first span text must equal the unchanged
-    /// `issue_list_visible_rows` `title_line` (parity with the pure projection).
-    #[test]
-    fn issue_list_props_first_span_matches_visible_rows_title_line() {
-        let issues: Vec<Issue> = (1..=3).map(issue).collect();
-        let window = IssueListWindow {
-            selected_index: Some(1),
-            list_pane_rows: 10,
-            layout: IssueListLayout::Compact,
-            available_width: Some(40),
-        };
-        let props = issue_list_props(&issues, window, true, None, ThemeColors::default(), None);
-        let visible = crate::ui::components::issue_list::issue_list_visible_rows(
-            &issues,
-            Some(1),
-            10,
-            IssueListLayout::Compact,
-            Some(40),
-        );
-        assert_eq!(props.rows.len(), visible.len());
-        for (got, want) in props.rows.iter().zip(visible.iter()) {
-            assert_eq!(got.spans.len(), 1);
-            assert_eq!(got.spans[0].text, want.title_line);
-            assert!(got.meta_line.as_deref() == Some("") || got.meta_line.is_some());
-            assert_eq!(got.is_selected, want.is_selected);
-        }
-    }
-
-    /// `pr_list_props` rows' first span text must equal the unchanged
-    /// `pr_list_visible_rows` `title_line`, and compact rows carry an empty
-    /// meta line (signaling single-line rendering).
-    #[test]
-    fn pr_list_props_first_span_matches_visible_rows_title_line() {
-        let prs: Vec<PullRequest> = (1..=3).map(pr).collect();
-        let window = PrListWindow {
-            selected_index: Some(0),
-            list_pane_rows: 10,
-            available_width: Some(40),
-            layout: PrListLayout::Compact,
-        };
-        let props = pr_list_props(&prs, window, true, None, ThemeColors::default(), None);
-        let visible =
-            crate::ui::components::pr_list::pr_list_visible_rows(&prs, Some(0), 10, Some(40));
-        assert_eq!(props.rows.len(), visible.len());
-        for (got, want) in props.rows.iter().zip(visible.iter()) {
-            assert_eq!(got.spans.len(), 1);
-            assert_eq!(got.spans[0].text, want.title_line);
-            // Compact → empty meta string (single-line row).
-            assert_eq!(got.meta_line.as_deref(), Some(""));
-            assert_eq!(got.is_selected, want.is_selected);
-        }
-    }
-
-    /// A Running selected agent projects to three spans: prefix "> ", a
-    /// fixed-color status glyph, and " {name}". The first span is themed.
-    #[test]
-    fn agent_list_props_running_selected_spans() {
-        let agents = vec![agent("alpha", AgentStatus::Running)];
-        let props = agent_list_props(
-            &agents,
-            &[],
-            AgentListSelection::default(),
-            false,
-            ThemeColors::default(),
-            None,
-        );
-        assert_eq!(props.rows.len(), 1);
-        let row = &props.rows[0];
-        assert_eq!(row.spans.len(), 3);
-        assert_eq!(row.spans[0].text, "> ");
-        assert!(matches!(row.spans[0].color, SpanColor::Themed));
-        assert_eq!(row.spans[1].text, "*");
-        // Running → bright fixed role (resolved by the component).
-        assert!(matches!(
-            row.spans[1].color,
-            SpanColor::Role(SpanRole::Bright)
-        ));
-        assert_eq!(row.spans[2].text, " alpha");
-        assert!(matches!(row.spans[2].color, SpanColor::Themed));
-        assert!(row.meta_line.is_none());
-        assert!(row.is_selected);
-    }
-
-    /// A grabbed agent's prefix span text is "↕ " regardless of selection.
-    #[test]
-    fn agent_list_props_grabbed_prefix() {
-        let agents = vec![
-            agent("alpha", AgentStatus::Running),
-            agent("beta", AgentStatus::Completed),
-        ];
-        let props = agent_list_props(
-            &agents,
-            &[],
-            AgentListSelection {
-                selected: 0,
-                grabbed: Some(1),
-            },
-            false,
-            ThemeColors::default(),
-            None,
-        );
-        // Row 1 is grabbed (index 1).
-        assert_eq!(props.rows[1].spans[0].text, "\u{2195} ");
-        // Row 0 is selected but NOT grabbed → "> ".
-        assert_eq!(props.rows[0].spans[0].text, "> ");
-    }
-
-    /// The agent status-glyph fixed color maps each `AgentStatus` exactly as the
-    /// pre-refactor component did.
-    #[test]
-    fn agent_list_props_status_glyph_color_per_status() {
-        let cases: [(AgentStatus, SpanRole); 7] = [
-            (AgentStatus::Running, SpanRole::Bright),
-            (AgentStatus::Completed, SpanRole::Bright),
-            (AgentStatus::Dead, SpanRole::Red),
-            (AgentStatus::Errored, SpanRole::Red),
-            (AgentStatus::Waiting, SpanRole::Yellow),
-            (AgentStatus::Paused, SpanRole::Blue),
-            (AgentStatus::Queued, SpanRole::Dim),
-        ];
-        for (status, expected) in cases {
-            let agents = vec![agent("a", status)];
-            let props = agent_list_props(
-                &agents,
-                &[],
-                AgentListSelection::default(),
-                false,
-                ThemeColors::default(),
-                None,
-            );
-            let row = &props.rows[0];
-            assert_eq!(
-                row.spans.len(),
-                3,
-                "status {status:?} should project 3 spans"
-            );
-            match row.spans[1].color {
-                SpanColor::Role(r) => {
-                    assert_eq!(r, expected, "status {status:?} glyph role mismatch");
-                }
-                SpanColor::Themed => panic!("status {status:?} glyph must be Role, got Themed"),
-            }
-        }
-    }
-
-    // ── Render-canvas (ANSI) identity ───────────────────────────────────────
-
-    /// BoldSelected + compact issue row: the selected row's title renders bold
-    /// (`\e[1m`), and the title text appears in the output.
-    #[test]
-    fn bold_selected_compact_issue_row_renders_bold_when_selected() {
-        let issues: Vec<Issue> = (1..=2).map(issue).collect();
-        let window = IssueListWindow {
-            selected_index: Some(0),
-            list_pane_rows: 8,
-            layout: IssueListLayout::Compact,
-            available_width: Some(40),
-        };
-        let props = issue_list_props(&issues, window, true, None, ThemeColors::default(), None);
-        let ansi = render_ansi(props, 40, 8);
-        assert!(ansi.contains("Issue 1"), "title text must appear: {ansi}");
-        assert!(
-            ansi.contains("\u{1b}[1m"),
-            "selected row must render bold (SGR 1): {ansi}"
-        );
-    }
-
-    /// BrightSelected agent row: the status glyph keeps its fixed color (Red for
-    /// Dead) even when selected, and the agent name uses the bright color —
-    /// matching the pre-refactor AgentList which always used `Weight::Normal`
-    /// for rows and a fixed status-glyph color. (The title row is always bold
-    /// in every list, so we assert on the glyph color + name color, not on the
-    /// absence of any bold SGR.)
-    #[test]
-    fn bright_selected_agent_row_keeps_fixed_glyph_color() {
-        let agents = vec![agent("dead-agent", AgentStatus::Dead)];
-        let props = agent_list_props(
-            &agents,
-            &[],
-            AgentListSelection::default(),
-            true,
-            ThemeColors::default(),
-            None,
-        );
-        let ansi = render_ansi(props, 30, 8);
-        // `Color::Red` is emitted by iocraft as the 256-color code 38;5;9. The
-        // key byte-identity guarantee is that the status glyph keeps its fixed
-        // color (immune to the BrightSelected themed-color policy).
-        assert!(
-            ansi.contains("\u{1b}[38;5;9m"),
-            "Dead status glyph must keep its fixed Red (38;5;9) color: {ansi}"
-        );
-        // The selected agent's themed name span uses bright (#00ff00).
-        assert!(
-            ansi.contains("dead-agent"),
-            "agent name text must appear: {ansi}"
-        );
-    }
-
-    // ── Agent list with git info (issue #170) ───────────────────────────────
-
-    /// When `git_infos` carries an origin shortform + branch, the agent row
-    /// gets a 4th dim-colored span with `  {origin} @ {branch}` text.
-    #[test]
-    fn agent_list_props_with_git_info_adds_suffix_span() {
-        let agents = vec![agent("fix-login", AgentStatus::Running)];
-        let git_infos = vec![GitRepoInfo {
-            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
-            branch: Some("main".to_owned()),
-        }];
-        let props = agent_list_props(
-            &agents,
-            &git_infos,
-            AgentListSelection::default(),
-            false,
-            ThemeColors::default(),
-            None,
-        );
-        let row = &props.rows[0];
-        assert_eq!(
-            row.spans.len(),
-            4,
-            "should have prefix + glyph + name + git suffix"
-        );
-        assert_eq!(row.spans[3].text, "  vybestack/llxprt-jefe @ main");
-        assert!(matches!(row.spans[3].color, SpanColor::Role(SpanRole::Dim)));
-    }
-
-    /// When `git_infos` entry has no data (both None), no suffix span is added
-    /// — the row stays at 3 spans.
-    #[test]
-    fn agent_list_props_with_empty_git_info_no_suffix() {
-        let agents = vec![agent("fix-login", AgentStatus::Running)];
-        let git_infos = vec![GitRepoInfo::default()];
-        let props = agent_list_props(
-            &agents,
-            &git_infos,
-            AgentListSelection::default(),
-            false,
-            ThemeColors::default(),
-            None,
-        );
-        let row = &props.rows[0];
-        assert_eq!(
-            row.spans.len(),
-            3,
-            "empty git info should not add a suffix span"
-        );
-    }
-
-    /// When `git_infos` is shorter than `agents` (missing entry), the agent at
-    /// the missing index just renders without a suffix (graceful degradation).
-    #[test]
-    fn agent_list_props_git_infos_shorter_than_agents() {
-        let agents = vec![
-            agent("alpha", AgentStatus::Running),
-            agent("beta", AgentStatus::Completed),
-        ];
-        // Only provide git info for index 0.
-        let git_infos = vec![GitRepoInfo {
-            origin_shortform: Some("acme/widgets".to_owned()),
-            branch: Some("dev".to_owned()),
-        }];
-        let props = agent_list_props(
-            &agents,
-            &git_infos,
-            AgentListSelection::default(),
-            false,
-            ThemeColors::default(),
-            None,
-        );
-        assert_eq!(props.rows[0].spans.len(), 4, "row 0 has git suffix");
-        assert_eq!(props.rows[1].spans.len(), 3, "row 1 has no git suffix");
-    }
-
-    /// Agent list git-info suffix renders in the rendered output.
-    #[test]
-    fn agent_list_git_info_suffix_renders() {
-        let agents = vec![agent("fix-login", AgentStatus::Running)];
-        let git_infos = vec![GitRepoInfo {
-            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
-            branch: Some("main".to_owned()),
-        }];
-        let props = agent_list_props(
-            &agents,
-            &git_infos,
-            AgentListSelection::default(),
-            true,
-            ThemeColors::default(),
-            None,
-        );
-        let ansi = render_ansi(props, 60, 8);
-        assert!(
-            ansi.contains("vybestack/llxprt-jefe @ main"),
-            "git suffix text must appear in rendered output: {ansi}"
-        );
-    }
-
-    /// An empty-message list renders the message text in the dim color and no
-    /// row text appears.
-    #[test]
-    fn empty_message_renders_in_dim() {
-        let props = SelectableListProps {
-            title: "Issues".to_string(),
-            rows: Vec::new(),
-            focused: false,
-            empty_message: Some("No issues found".to_string()),
-            colors: ThemeColors::default(),
-            selection: None,
-            pane: SelectablePane::IssueList,
-            border: ListBorder::DoubleOnFocus,
-            content_padding: false,
-            selection_style: SelectionStyle::BoldSelected,
-        };
-        let ansi = render_ansi(props, 40, 8);
-        assert!(
-            ansi.contains("No issues found"),
-            "empty message must render"
-        );
-        // Green-screen dim = #6a9955 → RGB 106,153,85 (accent_secondary).
-        assert!(
-            ansi.contains("\u{1b}[38;2;106;153;85m"),
-            "empty message must render in dim color: {ansi}"
-        );
-    }
-
-    /// DoubleOnFocus border: a focused list renders a double border (`╔`), an
-    /// unfocused one renders a round border (`╭`).
-    #[test]
-    fn double_on_focus_border_switches_on_focus() {
-        let base = || SelectableListProps {
-            title: "Issues".to_string(),
-            rows: Vec::new(),
-            focused: false,
-            empty_message: Some("x".to_string()),
-            colors: ThemeColors::default(),
-            selection: None,
-            pane: SelectablePane::IssueList,
-            border: ListBorder::DoubleOnFocus,
-            content_padding: false,
-            selection_style: SelectionStyle::BoldSelected,
-        };
-        let unfocused = render_ansi(base(), 20, 6);
-        let mut focused = base();
-        focused.focused = true;
-        let focused = render_ansi(focused, 20, 6);
-        assert!(
-            unfocused.contains('╭'),
-            "unfocused DoubleOnFocus must use round border: {unfocused}"
-        );
-        assert!(
-            focused.contains('╔'),
-            "focused DoubleOnFocus must use double border: {focused}"
-        );
-    }
-
-    /// RoundFocusedColor border (Agent): always round (`╭`), focused or not.
-    #[test]
-    fn round_focused_color_border_always_round() {
-        let base = || SelectableListProps {
-            title: "Agents".to_string(),
-            rows: Vec::new(),
-            focused: false,
-            empty_message: Some("x".to_string()),
-            colors: ThemeColors::default(),
-            selection: None,
-            pane: SelectablePane::AgentList,
-            border: ListBorder::RoundFocusedColor,
-            content_padding: true,
-            selection_style: SelectionStyle::BrightSelected,
-        };
-        let unfocused = render_ansi(base(), 20, 6);
-        let mut focused = base();
-        focused.focused = true;
-        let focused = render_ansi(focused, 20, 6);
-        assert!(
-            unfocused.contains('╭') && focused.contains('╭'),
-            "RoundFocusedColor must always use round border"
-        );
-        // Focused border color brightens to border_focused (#00ff00 → 0;255;0).
-        assert!(
-            focused.contains("\u{1b}[38;2;0;255;0m"),
-            "focused RoundFocusedColor border must use border_focused color: {focused}"
-        );
-    }
-}
+#[path = "selectable_list_main_tests.rs"]
+mod main_tests;
+#[cfg(test)]
+#[path = "selectable_list_tests.rs"]
+mod tests;

@@ -310,6 +310,7 @@ fn test_issue_base_prompt_state_round_trip() {
         default_code_puppy_yolo: None,
         transient_max_concurrent: 0,
         agent_ids: vec![],
+        default_llxprt_version: None,
     };
 
     let state = State {

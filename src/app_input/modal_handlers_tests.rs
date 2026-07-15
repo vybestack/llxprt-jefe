@@ -28,13 +28,14 @@ fn sample_signature() -> LaunchSignature {
         sandbox_flags: String::new(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 
 /// Build all six confirm-modal variants parameterized by `focus`, so that
 /// adding a new variant only requires updating one place (issue #228).
-fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
-    [
+fn sample_confirm_modals(focus: ConfirmFocus) -> Vec<ModalState> {
+    vec![
         ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
