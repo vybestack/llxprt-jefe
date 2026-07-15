@@ -77,11 +77,46 @@ fn fixture_marker(
     args: &mut impl Iterator<Item = String>,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
     match args.next().as_deref() {
-        Some("--marker") => Ok(Some(args.next().ok_or("marker mode requires a value")?)),
+        Some("--marker") => {
+            let marker = args.next().ok_or("marker mode requires a value")?;
+            if !valid_marker(&marker) {
+                return Err("marker must contain only ASCII letters, digits, '-' or '_'".into());
+            }
+            Ok(Some(marker))
+        }
         Some("--record") => Ok(Some("--record".to_owned())),
         _ => Ok(None),
     }
 }
+
+fn valid_marker(marker: &str) -> bool {
+    !marker.is_empty()
+        && marker
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixture_marker;
+
+    #[test]
+    fn marker_accepts_protocol_safe_value() {
+        let mut args = ["--marker".to_owned(), "agent_A-2".to_owned()].into_iter();
+        let result = fixture_marker(&mut args);
+
+        assert!(matches!(&result, Ok(Some(marker)) if marker == "agent_A-2"));
+    }
+
+    #[test]
+    fn marker_rejects_control_characters() {
+        let mut args = ["--marker".to_owned(), "agent\nB".to_owned()].into_iter();
+        let result = fixture_marker(&mut args);
+
+        assert!(result.is_err());
+    }
+}
+
 fn record(path: &Path, args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let observation = LaunchObservation {
         args,
