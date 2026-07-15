@@ -297,6 +297,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         work_dir: "   \t ".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
@@ -325,6 +326,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         work_dir: std::path::PathBuf::from("/tmp/agent-one"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec!["--yolo".to_owned()],
@@ -347,6 +349,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         work_dir: "   ".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
@@ -365,9 +368,6 @@ fn update_agent_ignores_whitespace_only_work_dir() {
 
 #[test]
 fn update_agent_empty_llxprt_mode_stays_empty() {
-    // Clearing the mode field for Llxprt must persist as empty flags, letting
-    // the agent run non-yolo. The agent config is the source of truth for
-    // whether --yolo is passed (#210).
     let repository = seed_repository();
     let mut agent = Agent {
         id: crate::domain::AgentId("agent-yolo".to_owned()),
@@ -379,6 +379,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         work_dir: std::path::PathBuf::from("/tmp/agent-two"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec!["--fast".to_owned()],
@@ -400,6 +401,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         work_dir: "/tmp/agent-two".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),

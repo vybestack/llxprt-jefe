@@ -18,6 +18,7 @@ fn write_candidate(directory: &TempDir, name: &str) -> PathBuf {
 }
 
 #[test]
+
 fn windows_resolution_follows_pathext_directory_and_extension_order() {
     let first = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
     let second = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
@@ -39,6 +40,7 @@ fn windows_resolution_follows_pathext_directory_and_extension_order() {
 }
 
 #[test]
+
 fn windows_resolution_classifies_all_supported_wrapper_forms() {
     for (name, expected) in [
         ("code-puppy.exe", AgentWrapperKind::Direct),
@@ -67,6 +69,7 @@ fn windows_resolution_classifies_all_supported_wrapper_forms() {
 }
 
 #[test]
+
 fn windows_resolution_ignores_unsupported_files_and_reports_safe_remediation() {
     let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
     write_candidate(&directory, "llxprt.js");
@@ -157,6 +160,63 @@ fn missing_npm_diagnostic_names_npm_remediation() {
 }
 
 #[test]
+fn uvx_resolves_with_supported_unix_and_windows_wrapper_policies() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+        let expected = write_candidate(&directory, "uvx");
+        std::fs::set_permissions(&expected, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod uvx: {error}"));
+        let policy = AgentExecutableResolver::for_platform(
+            AgentExecutablePlatform::Unix,
+            vec![directory.path().to_path_buf()],
+            None,
+        );
+        let executable = policy
+            .resolve_target(AgentExecutableTarget::Uvx)
+            .unwrap_or_else(|error| panic!("resolve uvx: {error}"));
+        assert_eq!(executable.path(), expected);
+        assert_eq!(executable.wrapper_kind(), AgentWrapperKind::Direct);
+    }
+
+    for (name, wrapper) in [
+        ("uvx.exe", AgentWrapperKind::Direct),
+        ("uvx.cmd", AgentWrapperKind::CommandScript),
+        ("uvx.bat", AgentWrapperKind::CommandScript),
+        ("uvx.ps1", AgentWrapperKind::PowerShellScript),
+    ] {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+        let expected = write_candidate(&directory, name);
+        let policy = AgentExecutableResolver::for_platform(
+            AgentExecutablePlatform::Windows,
+            vec![directory.path().to_path_buf()],
+            Some(OsString::from(".EXE;.CMD;.BAT")),
+        );
+        let executable = policy
+            .resolve_target(AgentExecutableTarget::Uvx)
+            .unwrap_or_else(|error| panic!("resolve {name}: {error}"));
+        assert_eq!(executable.path(), expected);
+        assert_eq!(executable.wrapper_kind(), wrapper);
+    }
+}
+
+#[test]
+fn missing_uvx_diagnostic_is_actionable() {
+    let resolver =
+        AgentExecutableResolver::for_platform(AgentExecutablePlatform::Unix, Vec::new(), None);
+    let error = resolver
+        .resolve_target(AgentExecutableTarget::Uvx)
+        .err()
+        .unwrap_or_else(|| panic!("missing uvx should fail"));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("uvx"));
+    assert!(diagnostic.contains("uv"));
+    assert!(diagnostic.contains("PATH"));
+}
+
+#[test]
+
 fn windows_npm_resolution_rejects_noncanonical_command_wrapper() {
     let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
     write_candidate(&directory, "npm.cmd");

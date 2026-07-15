@@ -37,6 +37,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/send-runtime"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),

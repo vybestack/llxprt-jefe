@@ -47,6 +47,7 @@ fn relaunch_preflight_passed(
         app_state,
         signature.agent_kind,
         signature.llxprt_version.as_ref(),
+        &signature.code_puppy_version,
         &signature.remote,
     ) {
         return false;

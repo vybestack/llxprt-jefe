@@ -136,6 +136,7 @@ fn sidebar_lines_include_selection_prefix() {
         base_dir: std::path::PathBuf::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_code_puppy_version: String::new(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
         remote: crate::domain::RemoteRepositorySettings::default(),

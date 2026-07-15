@@ -126,39 +126,65 @@ fn successful_package_probe_uses_prospective_signature_and_submit_proceeds() {
 }
 
 #[test]
+fn pinned_code_puppy_new_agent_plans_exact_selected_package_probe() {
+    let temp = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("temporary directory should be created: {error}"));
+    let (mut state, _) = new_agent_state(temp.path());
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("new-agent modal should be open");
+    };
+    fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.llxprt_version.clear();
+    fields.code_puppy_version = "  0.0.361  ".to_owned();
+
+    let plan = new_agent_package_probe_plan(&state);
+    let called = Cell::new(false);
+    let result = execute_new_agent_package_probe(&plan, |signature| {
+        called.set(true);
+        assert_eq!(signature.agent_kind, AgentKind::CodePuppy);
+        assert_eq!(signature.code_puppy_version, "0.0.361");
+        Ok::<(), &'static str>(())
+    });
+    assert!(result.is_ok());
+    assert!(
+        called.get(),
+        "pinned Code Puppy must execute a package probe"
+    );
+}
+
+#[test]
 fn repository_and_edit_agent_forms_do_not_execute_package_probe() {
     let probe_calls = Cell::new(0);
-    let mut states = vec![
-        AppState {
-            modal: ModalState::NewRepository {
-                fields: RepositoryFormFields::default(),
-                focus: RepositoryFormFocus::Name,
-                cursor: RepositoryFormCursor::default(),
-            },
-            ..AppState::default()
+    let mut states = Vec::new();
+    states.push(AppState {
+        modal: ModalState::NewRepository {
+            fields: RepositoryFormFields::default(),
+            focus: RepositoryFormFocus::Name,
+            cursor: RepositoryFormCursor::default(),
         },
-        AppState {
-            modal: ModalState::EditRepository {
-                id: RepositoryId("repo-edit".to_owned()),
-                fields: RepositoryFormFields::default(),
-                focus: RepositoryFormFocus::Name,
-                cursor: RepositoryFormCursor::default(),
-            },
-            ..AppState::default()
+        ..AppState::default()
+    });
+    states.push(AppState {
+        modal: ModalState::EditRepository {
+            id: RepositoryId("repo-edit".to_owned()),
+            fields: RepositoryFormFields::default(),
+            focus: RepositoryFormFocus::Name,
+            cursor: RepositoryFormCursor::default(),
         },
-        AppState {
-            modal: ModalState::EditAgent {
-                id: AgentId("agent-edit".to_owned()),
-                fields: AgentFormFields {
-                    llxprt_version: "nightly".to_owned(),
-                    ..AgentFormFields::default()
-                },
-                focus: AgentFormFocus::LlxprtVersion,
-                cursor: AgentFormCursor::default(),
+        ..AppState::default()
+    });
+    states.push(AppState {
+        modal: ModalState::EditAgent {
+            id: AgentId("agent-edit".to_owned()),
+            fields: AgentFormFields {
+                llxprt_version: "nightly".to_owned(),
+                ..AgentFormFields::default()
             },
-            ..AppState::default()
+            focus: AgentFormFocus::LlxprtVersion,
+            cursor: AgentFormCursor::default(),
         },
-    ];
+        ..AppState::default()
+    });
 
     for state in &mut states {
         let plan = new_agent_package_probe_plan(state);

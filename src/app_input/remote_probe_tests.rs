@@ -264,6 +264,20 @@ fn probe_plan_targets_login_user_at_host() {
 }
 
 #[test]
+fn pinned_code_puppy_probe_requires_uvx_not_global_code_puppy() {
+    let argv =
+        plan_remote_code_puppy_probe(&valid_remote(), Path::new("/home/ubuntu/work"), "0.0.361");
+    let Some(command) = argv.iter().find(|argument| argument.contains("command -v")) else {
+        panic!("must have command -v: {argv:?}");
+    };
+    assert!(command.contains("command -v uvx"), "probe: {command}");
+    assert!(
+        !command.contains("command -v code-puppy"),
+        "probe: {command}"
+    );
+}
+
+#[test]
 fn probe_plan_probes_exact_code_puppy_binary() {
     let argv = plan_remote_probe(
         &valid_remote(),

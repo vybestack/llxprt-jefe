@@ -257,6 +257,7 @@ fn launch_signature_for_agent(
         } else {
             agent.code_puppy_model.trim().to_owned()
         },
+        code_puppy_version: agent.code_puppy_version.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
@@ -279,6 +280,11 @@ pub fn launch_signature_for_transient(
         work_dir: work_dir.to_path_buf(),
         profile: repository.default_profile.clone(),
         code_puppy_model: repository.default_code_puppy_model.trim().to_owned(),
+        code_puppy_version: if repository.default_agent_kind == jefe::domain::AgentKind::CodePuppy {
+            repository.default_code_puppy_version.trim().to_owned()
+        } else {
+            String::new()
+        },
         code_puppy_yolo: repository.default_code_puppy_yolo,
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),

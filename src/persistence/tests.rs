@@ -301,6 +301,7 @@ fn test_issue_base_prompt_state_round_trip() {
         base_dir: PathBuf::from("/tmp/issues-repo"),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_code_puppy_version: String::new(),
         github_repo: "fork-owner/issues-repo".to_string(),
         github_issue_pr_repo: "upstream-owner/issues-repo".to_string(),
         remote: RemoteRepositorySettings::default(),

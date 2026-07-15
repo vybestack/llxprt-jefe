@@ -124,7 +124,7 @@ pub fn is_field_visible(
         | F::Sandbox
         | F::SandboxEngine
         | F::SandboxFlags => visibility.shows_llxprt_fields(),
-        F::CodePuppyModel | F::CodePuppyYolo | F::CodePuppyQuickResume => {
+        F::CodePuppyModel | F::CodePuppyVersion | F::CodePuppyYolo | F::CodePuppyQuickResume => {
             matches!(visibility, AgentFormFieldVisibility::CodePuppy)
         }
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
@@ -180,7 +180,7 @@ pub fn is_repository_field_visible(
 ) -> bool {
     use crate::state::RepositoryFormFocus as F;
     match focus {
-        F::DefaultCodePuppyModel => kind == AgentKind::CodePuppy,
+        F::DefaultCodePuppyModel | F::DefaultCodePuppyVersion => kind == AgentKind::CodePuppy,
         F::DefaultLlxprtVersion => kind == AgentKind::Llxprt,
         _ => true,
     }
@@ -387,10 +387,10 @@ mod tests {
             prev_visible_repository_focus(R::Name, AgentKind::Llxprt),
             R::SetupEnvDefault
         );
-        repository_code_puppy_focus_order_skips_version_in_both_directions();
+        repository_code_puppy_focus_order_includes_its_version();
     }
 
-    fn repository_code_puppy_focus_order_skips_version_in_both_directions() {
+    fn repository_code_puppy_focus_order_includes_its_version() {
         use crate::state::RepositoryFormFocus as R;
 
         assert_eq!(
@@ -403,6 +403,10 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
+            R::DefaultCodePuppyVersion
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultCodePuppyVersion, AgentKind::CodePuppy),
             R::TransientAgentDir
         );
         assert_eq!(
@@ -412,6 +416,10 @@ mod tests {
         assert_eq!(
             prev_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
             R::DefaultCodePuppyModel
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::DefaultCodePuppyVersion, AgentKind::CodePuppy),
+            R::DefaultAgentKind
         );
     }
     #[test]

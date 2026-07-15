@@ -19,6 +19,11 @@ fn bound_runtime_agent(repository_id: &RepositoryId, index: u32, kind: AgentKind
     agent.status = AgentStatus::Running;
     agent.profile = format!("profile-{index}");
     agent.code_puppy_model = "model/Ω".to_owned();
+    agent.code_puppy_version = if kind == AgentKind::CodePuppy {
+        "0.0.361-rc1".to_owned()
+    } else {
+        String::new()
+    };
     agent.code_puppy_quick_resume = kind == AgentKind::CodePuppy;
     agent.pass_continue = kind == AgentKind::Llxprt;
     if kind == AgentKind::Llxprt {
@@ -40,6 +45,7 @@ fn runtime_binding(
         work_dir,
         profile: agent.profile.clone(),
         code_puppy_model: agent.code_puppy_model.clone(),
+        code_puppy_version: agent.code_puppy_version.clone(),
         code_puppy_yolo: Some(true),
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: vec!["--flag Ω".to_owned()],
@@ -98,6 +104,14 @@ fn restart_roundtrip_preserves_unicode_multi_runtime_bindings() {
     assert_eq!(loaded.agents[1].agent_kind, AgentKind::CodePuppy);
     assert!(loaded.agents[0].pass_continue);
     assert!(loaded.agents[1].code_puppy_quick_resume);
+    assert_eq!(loaded.agents[1].code_puppy_version, "0.0.361-rc1");
+    assert_eq!(
+        loaded.agents[1]
+            .runtime_binding
+            .as_ref()
+            .map(|binding| binding.launch_signature.code_puppy_version.as_str()),
+        Some("0.0.361-rc1")
+    );
     assert_eq!(
         loaded.agents[0]
             .runtime_binding

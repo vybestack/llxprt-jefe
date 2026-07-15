@@ -25,6 +25,7 @@ fn launch_signature_for_agent(
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
         code_puppy_model: agent.code_puppy_model.trim().to_owned(),
+        code_puppy_version: agent.code_puppy_version.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
@@ -932,6 +933,29 @@ mod tests {
             BindingEvidence::Legacy
         );
         binding_evidence_rejects_different_llxprt_selector();
+        binding_evidence_rejects_different_code_puppy_version();
+    }
+
+    fn binding_evidence_rejects_different_code_puppy_version() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.code_puppy_version = "0.0.361".to_owned();
+        let signature = launch_signature_for_agent(&agent, &repository);
+        assert_eq!(signature.code_puppy_version, "0.0.361");
+        let mut bound_signature = signature.clone();
+        bound_signature.code_puppy_version = "0.0.360".to_owned();
+        let binding = jefe::domain::RuntimeBinding {
+            session_name: RuntimeSession::session_name_for(&agent.id),
+            launch_signature: bound_signature,
+            attached: false,
+            last_seen: None,
+            pid: Some(41),
+            process_identity: Some(ProcessIdentity::new(41, 900)),
+            lifecycle_generation: 0,
+        };
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
+        );
     }
 
     fn binding_evidence_rejects_different_llxprt_selector() {

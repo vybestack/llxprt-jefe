@@ -130,6 +130,7 @@ mod tests {
             base_dir: std::path::PathBuf::from("/tmp/test"),
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_code_puppy_version: String::new(),
             github_repo: github_repo.to_owned(),
             github_issue_pr_repo: github_issue_pr_repo.to_owned(),
             remote: RemoteRepositorySettings::default(),

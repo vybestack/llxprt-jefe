@@ -20,6 +20,7 @@ struct NewAgentRepositoryDefaults {
     base_dir: String,
     profile: String,
     code_puppy_model: String,
+    code_puppy_version: String,
     llxprt_version: String,
     agent_kind: AgentKind,
     remote_enabled: bool,
@@ -36,6 +37,7 @@ fn new_agent_repository_defaults(
             base_dir: repository.base_dir.to_string_lossy().into_owned(),
             profile: repository.default_profile.clone(),
             code_puppy_model: repository.default_code_puppy_model.clone(),
+            code_puppy_version: repository.default_code_puppy_version.trim().to_owned(),
             llxprt_version: repository.default_llxprt_version.as_ref().map_or_else(
                 String::new,
                 |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
@@ -44,6 +46,45 @@ fn new_agent_repository_defaults(
             remote_enabled: repository.remote.enabled,
         })
         .unwrap_or_default()
+}
+
+fn new_agent_form(
+    defaults: NewAgentRepositoryDefaults,
+    agent_kind: AgentKind,
+    shortcut_slot: Option<u8>,
+) -> (AgentFormFields, AgentFormCursor) {
+    let default_mode = if agent_kind == AgentKind::Llxprt {
+        "--yolo"
+    } else {
+        ""
+    };
+    let fields = AgentFormFields {
+        shortcut_slot,
+        work_dir: defaults.base_dir,
+        profile: defaults.profile,
+        code_puppy_model: defaults.code_puppy_model,
+        code_puppy_version: defaults.code_puppy_version,
+        code_puppy_yolo: false,
+        code_puppy_quick_resume: crate::domain::QuickResume::default(),
+        agent_kind: agent_kind.label().to_owned(),
+        llxprt_version: defaults.llxprt_version,
+        mode: default_mode.to_owned(),
+        pass_continue: true,
+        sandbox_engine: SandboxEngine::Podman.label().to_owned(),
+        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+        ..AgentFormFields::default()
+    };
+    let cursor = AgentFormCursor {
+        work_dir: fields.work_dir.chars().count(),
+        profile: fields.profile.chars().count(),
+        code_puppy_model: fields.code_puppy_model.chars().count(),
+        code_puppy_version: fields.code_puppy_version.chars().count(),
+        mode: fields.mode.chars().count(),
+        llxprt_version: fields.llxprt_version.chars().count(),
+        sandbox_flags: fields.sandbox_flags.chars().count(),
+        ..AgentFormCursor::default()
+    };
+    (fields, cursor)
 }
 
 impl AppState {
@@ -120,6 +161,7 @@ impl AppState {
                 base_dir: r.base_dir.to_string_lossy().into_owned(),
                 default_profile: r.default_profile.clone(),
                 default_code_puppy_model: r.default_code_puppy_model.clone(),
+                default_code_puppy_version: r.default_code_puppy_version.clone(),
                 default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
                 default_llxprt_version: r.default_llxprt_version.as_ref().map_or_else(
                     String::new,
@@ -150,6 +192,7 @@ impl AppState {
                 base_dir: fields.base_dir.chars().count(),
                 default_profile: fields.default_profile.chars().count(),
                 default_code_puppy_model: fields.default_code_puppy_model.chars().count(),
+                default_code_puppy_version: fields.default_code_puppy_version.chars().count(),
                 default_llxprt_version: fields.default_llxprt_version.chars().count(),
                 github_repo: fields.github_repo.chars().count(),
                 github_issue_pr_repo: fields.github_issue_pr_repo.chars().count(),
@@ -168,67 +211,25 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let NewAgentRepositoryDefaults {
-            base_dir,
-            profile: default_profile,
-            code_puppy_model: default_code_puppy_model,
-            llxprt_version: default_llxprt_version,
-            agent_kind: repo_default_kind,
-            remote_enabled,
-        } = new_agent_repository_defaults(&self.repositories, &repository_id);
-
+        let defaults = new_agent_repository_defaults(&self.repositories, &repository_id);
         // Remote repositories trust their configured runtime; local ones must
         // fall back when that runtime is not installed.
-        let agent_kind =
-            if remote_enabled || self.installed_agent_kinds.contains(&repo_default_kind) {
-                repo_default_kind
-            } else {
-                self.installed_agent_kinds
-                    .first()
-                    .copied()
-                    .unwrap_or_default()
-            };
-
-        let work_dir_len = base_dir.chars().count();
-        let profile_len = default_profile.chars().count();
-        let code_puppy_model_len = default_code_puppy_model.chars().count();
-        let llxprt_version_len = default_llxprt_version.chars().count();
-
-        let default_mode = if agent_kind == crate::domain::AgentKind::Llxprt {
-            "--yolo"
+        let agent_kind = if defaults.remote_enabled
+            || self.installed_agent_kinds.contains(&defaults.agent_kind)
+        {
+            defaults.agent_kind
         } else {
-            ""
+            self.installed_agent_kinds
+                .first()
+                .copied()
+                .unwrap_or_default()
         };
-
+        let (fields, cursor) =
+            new_agent_form(defaults, agent_kind, self.first_unused_shortcut_slot(None));
         self.modal = ModalState::NewAgent {
             repository_id,
-            fields: AgentFormFields {
-                shortcut_slot: self.first_unused_shortcut_slot(None),
-                name: String::new(),
-                description: String::new(),
-                work_dir: base_dir,
-                profile: default_profile,
-                code_puppy_model: default_code_puppy_model,
-                code_puppy_yolo: false,
-                code_puppy_quick_resume: crate::domain::QuickResume::default(),
-                agent_kind: agent_kind.label().to_owned(),
-                llxprt_version: default_llxprt_version,
-                mode: default_mode.to_owned(),
-                llxprt_debug: String::new(),
-                pass_continue: true,
-                sandbox_enabled: false,
-                sandbox_engine: SandboxEngine::Podman.label().to_owned(),
-                sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            },
-            cursor: AgentFormCursor {
-                work_dir: work_dir_len,
-                profile: profile_len,
-                code_puppy_model: code_puppy_model_len,
-                mode: default_mode.chars().count(),
-                llxprt_version: llxprt_version_len,
-                sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
-                ..AgentFormCursor::default()
-            },
+            fields,
+            cursor,
             focus: AgentFormFocus::default(),
             work_dir_manual: false,
         };
@@ -246,6 +247,7 @@ impl AppState {
                 work_dir: a.work_dir.to_string_lossy().into_owned(),
                 profile: a.profile.clone(),
                 code_puppy_model: a.code_puppy_model.clone(),
+                code_puppy_version: a.code_puppy_version.clone(),
                 code_puppy_yolo: a.code_puppy_yolo.unwrap_or(false),
                 code_puppy_quick_resume: a.code_puppy_quick_resume.into(),
                 agent_kind: a.agent_kind.label().to_owned(),
@@ -269,6 +271,7 @@ impl AppState {
                 work_dir: fields.work_dir.chars().count(),
                 profile: fields.profile.chars().count(),
                 code_puppy_model: fields.code_puppy_model.chars().count(),
+                code_puppy_version: fields.code_puppy_version.chars().count(),
                 mode: fields.mode.chars().count(),
                 llxprt_version: fields.llxprt_version.chars().count(),
                 llxprt_debug: fields.llxprt_debug.chars().count(),

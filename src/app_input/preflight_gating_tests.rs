@@ -17,6 +17,7 @@ fn sample_signature() -> LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec![],

@@ -80,11 +80,12 @@ pub(super) fn dispatch_restart_agent(
             app_state,
             signature.agent_kind,
             signature.llxprt_version.as_ref(),
+            &signature.code_puppy_version,
             &signature.remote,
         ) {
             return;
         }
-        if let Err(error) = jefe::runtime::require_npm_package_available(signature) {
+        if let Err(error) = jefe::runtime::require_launch_package_available(signature) {
             persist_error_message(app_state, ctx, error.to_string());
             return;
         }

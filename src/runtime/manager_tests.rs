@@ -25,6 +25,7 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
                 work_dir: std::path::PathBuf::from("/tmp"),
                 profile: "default".into(),
                 code_puppy_model: String::new(),
+                code_puppy_version: String::new(),
                 code_puppy_yolo: None,
                 code_puppy_quick_resume: false,
                 mode_flags: vec![],
@@ -63,6 +64,7 @@ fn dead_signature_retains_selector_for_relaunch() {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: None,
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
@@ -97,6 +99,7 @@ fn failed_relaunch_retains_exact_selector_for_successful_retry() {
         work_dir: std::path::PathBuf::from("/tmp/retry-selector"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: None,
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
@@ -126,6 +129,7 @@ fn failed_relaunch_retains_exact_selector_for_successful_retry() {
 }
 
 #[test]
+
 fn clipboard_passthrough_tracking_memoizes_per_session() {
     let mut mgr = TmuxRuntimeManager::new(40, 120);
 
@@ -149,6 +153,7 @@ fn clipboard_passthrough_tracking_memoizes_per_session() {
 }
 
 #[test]
+
 fn prefix_passthrough_tracking_memoizes_per_session() {
     let mut mgr = TmuxRuntimeManager::new(40, 120);
 
@@ -173,6 +178,7 @@ fn prefix_passthrough_tracking_memoizes_per_session() {
 }
 
 #[test]
+
 fn stub_take_dirty_always_returns_false() {
     let mgr = StubRuntimeManager::default();
     // The stub has no real PTY, so the dirty flag is always false.
@@ -183,6 +189,7 @@ fn stub_take_dirty_always_returns_false() {
 }
 
 #[test]
+
 fn tmux_take_dirty_returns_false_without_viewer() {
     let mgr = TmuxRuntimeManager::new(40, 120);
     // No viewer attached → take_dirty must return false (not panic).

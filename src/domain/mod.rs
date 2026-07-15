@@ -172,6 +172,9 @@ pub struct Repository {
     /// Default Code Puppy model. Empty preserves Code Puppy's own default.
     #[serde(default)]
     pub default_code_puppy_model: String,
+    /// Default Code Puppy package version copied into newly created Code Puppy agents.
+    #[serde(default)]
+    pub default_code_puppy_version: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -651,6 +654,9 @@ pub struct Agent {
     /// Optional Code Puppy model override. Empty inherits the repository default.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Code Puppy package version. Blank keeps the direct executable launch.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -748,6 +754,9 @@ pub struct LaunchSignature {
     /// Effective Code Puppy model for this launch.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Trimmed Code Puppy package version. Blank launches the direct executable.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -795,6 +804,7 @@ impl Agent {
 
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -868,6 +878,11 @@ impl Agent {
             work_dir,
             profile: repo.default_profile.clone(),
             code_puppy_model: repo.default_code_puppy_model.clone(),
+            code_puppy_version: if repo.default_agent_kind == AgentKind::CodePuppy {
+                repo.default_code_puppy_version.trim().to_owned()
+            } else {
+                String::new()
+            },
             code_puppy_yolo: repo.default_code_puppy_yolo,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -896,6 +911,7 @@ impl Repository {
             base_dir,
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_code_puppy_version: String::new(),
             github_repo: String::new(),
             github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),

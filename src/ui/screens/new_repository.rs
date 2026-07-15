@@ -204,6 +204,34 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     ));
 
     if crate::state::is_repository_field_visible(
+        RepositoryFormFocus::DefaultCodePuppyVersion,
+        default_kind,
+    ) {
+        let version_focused = focus == RepositoryFormFocus::DefaultCodePuppyVersion;
+        let version_value = if version_focused {
+            text_with_caret(
+                &fields.default_code_puppy_version,
+                cursor.default_code_puppy_version,
+            )
+        } else {
+            fields.default_code_puppy_version.clone()
+        };
+        let version_line = format!("  {:<16} [{version_value}]", "Default Version");
+        all_lines.push(selectable_line(
+            &version_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if version_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
+    if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultLlxprtVersion,
         default_kind,
     ) {
