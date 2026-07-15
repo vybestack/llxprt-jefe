@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+reviews:
+  review_status: true
+  review_details: true
+  review_progress: true
+  auto_review:
+    enabled: false
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 2
+    ignore_title_keywords:
+      - "[WIP]"
+      - "DO NOT MERGE"
+      - "[skip review]"
+    labels:
+      - "review-ready"
+      - "!wip"
+      - "!do-not-review"
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: |
+        Apply Jefe's Rust standards. Prefer explicit domain types; use Option for
+        absence and Result with typed errors for fallible operations. Require no
+        unwrap or expect in production paths and no unsafe code. Check Unix,
+        macOS, and native Windows behavior where process, path, terminal, or
+        runtime boundaries are changed.
+    - path: "src/**/*.rs"
+      instructions: |
+        Preserve the documented ownership boundaries and unidirectional data
+        flow. Keep state transitions deterministic and side effects at runtime,
+        persistence, GitHub, or other boundary modules. Check cancellation,
+        stale-result, cleanup, and durability behavior for external work.
+    - path: "tests/**/*.rs"
+      instructions: |
+        Review changed tests and behavioral coverage as first-class code. Tests
+        should prove observable success and failure behavior without relying on
+        arbitrary sleeps, mock call counts, host load, or panic-driven setup.
+    - path: ".github/workflows/**/*.yml"
+      instructions: |
+        Treat untrusted pull request code and configuration as hostile when
+        secrets or elevated permissions are available. Require least-privilege
+        permissions, commit-pinned actions, explicit exact-head validation, and
+        no weakening of format, lint, coverage, build, test, or review gates.
+    - path: ".github/workflows/**/*.yaml"
+      instructions: |
+        Treat untrusted pull request code and configuration as hostile when
+        secrets or elevated permissions are available. Require least-privilege
+        permissions, commit-pinned actions, explicit exact-head validation, and
+        no weakening of format, lint, coverage, build, test, or review gates.
