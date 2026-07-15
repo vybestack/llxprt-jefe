@@ -100,7 +100,7 @@ fn native_psmux_attachment_preserves_terminal_contract_and_session() {
 
 #[test]
 fn native_psmux_switching_displays_target_session() {
-    let Some((plan, cleanup)) = psmux_test_context() else {
+    let Some((plan, _cleanup)) = psmux_test_context() else {
         return;
     };
     let first = "jefe-switch-first";
@@ -109,7 +109,6 @@ fn native_psmux_switching_displays_target_session() {
     if let Err(error) = exercise_viewer_switch(&plan, first, second) {
         panic!("{error}");
     }
-    drop(cleanup);
 }
 
 fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> Result<(), String> {

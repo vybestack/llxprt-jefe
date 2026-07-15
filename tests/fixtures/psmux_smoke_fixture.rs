@@ -82,6 +82,9 @@ fn fixture_marker(
             if !valid_marker(&marker) {
                 return Err("marker must contain only ASCII letters, digits, '-' or '_'".into());
             }
+            if args.next().is_some() {
+                return Err("marker mode does not accept additional arguments".into());
+            }
             Ok(Some(marker))
         }
         Some("--record") => Ok(Some("--record".to_owned())),
@@ -111,6 +114,20 @@ mod tests {
     #[test]
     fn marker_rejects_control_characters() {
         let mut args = ["--marker".to_owned(), "agent\nB".to_owned()].into_iter();
+        let result = fixture_marker(&mut args);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn marker_rejects_additional_mode_flags() {
+        let mut args = [
+            "--marker".to_owned(),
+            "A".to_owned(),
+            "--record".to_owned(),
+            "output.json".to_owned(),
+        ]
+        .into_iter();
         let result = fixture_marker(&mut args);
 
         assert!(result.is_err());
