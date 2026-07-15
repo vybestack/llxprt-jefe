@@ -14,7 +14,8 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("--record") {
+    let marker = fixture_marker(&mut args)?;
+    if marker.as_deref() == Some("--record") {
         let output = args.next().ok_or("record mode requires an output path")?;
         return record(Path::new(&output), args.collect());
     }
@@ -47,6 +48,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
     output.write_all(b"\x1b]52;c;bmF0aXZlIGNsaXBib2FyZA==\x07")?;
     output.write_all(b"PSMUX_SMOKE_READY\r\n")?;
+    if let Some(marker) = marker {
+        writeln!(output, "PSMUX_MARKER_{marker}")?;
+    }
     output.flush()?;
 
     let mut byte = [0_u8; 1];
@@ -69,6 +73,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn fixture_marker(
+    args: &mut impl Iterator<Item = String>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    match args.next().as_deref() {
+        Some("--marker") => Ok(Some(args.next().ok_or("marker mode requires a value")?)),
+        Some("--record") => Ok(Some("--record".to_owned())),
+        _ => Ok(None),
+    }
+}
 fn record(path: &Path, args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let observation = LaunchObservation {
         args,

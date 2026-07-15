@@ -120,13 +120,13 @@ fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> 
 
     let first_viewer = AttachedViewer::spawn_with_plan(first, 32, 100, plan)
         .map_err(|error| format!("attach first viewer: {error}"))?;
-    wait_for_snapshot(&first_viewer, "PSMUX_BYTE_41")?;
+    wait_for_snapshot(&first_viewer, "PSMUX_MARKER_A")?;
 
     let teardown = thread::spawn(move || drop(first_viewer));
     let second_result = AttachedViewer::spawn_with_plan(second, 32, 100, plan)
         .map_err(|error| format!("attach second viewer: {error}"))
         .and_then(|second_viewer| {
-            let result = wait_for_snapshot(&second_viewer, "PSMUX_BYTE_42").map(|_| ());
+            let result = wait_for_snapshot(&second_viewer, "PSMUX_MARKER_B").map(|_| ());
             drop(second_viewer);
             result
         });
@@ -149,6 +149,8 @@ fn create_marked_fixture_session(
             OsString::from("-s"),
             OsString::from(session),
             OsString::from(FIXTURE),
+            OsString::from("--marker"),
+            OsString::from(marker),
         ])
         .status()
         .map_err(|error| format!("create fixture session {session}: {error}"))?;
@@ -157,43 +159,7 @@ fn create_marked_fixture_session(
             "fixture session {session} creation failed: {status}"
         ));
     }
-    let exact_target = format!("={session}");
-    wait_for_session_capture(plan, &exact_target, "PSMUX_SMOKE_READY")?;
-    let mut send = plan.command();
-    let status = send
-        .args(["send-keys", "-l", "-t", &exact_target, "--", marker])
-        .status()
-        .map_err(|error| format!("mark fixture session {session}: {error}"))?;
-    if !status.success() {
-        return Err(format!("mark fixture session {session} failed: {status}"));
-    }
     Ok(())
-}
-
-fn wait_for_session_capture(
-    plan: &MultiplexerPlan,
-    target: &str,
-    needle: &str,
-) -> Result<(), String> {
-    let deadline = Instant::now() + TIMEOUT;
-    let mut latest = String::new();
-    while Instant::now() < deadline {
-        let mut capture = plan.command();
-        let output = capture
-            .args(["capture-pane", "-p", "-t", target])
-            .output()
-            .map_err(|error| format!("capture fixture session {target}: {error}"))?;
-        if output.status.success() {
-            latest = String::from_utf8_lossy(&output.stdout).into_owned();
-            if latest.contains(needle) {
-                return Ok(());
-            }
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-    Err(format!(
-        "fixture session {target} did not contain {needle:?}:\n{latest}"
-    ))
 }
 fn exercise_attachment(plan: &MultiplexerPlan, session: &str) -> Result<(), String> {
     let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, plan)
