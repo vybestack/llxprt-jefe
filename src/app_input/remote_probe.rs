@@ -338,30 +338,65 @@ pub(super) fn execute_remote_probe(
 /// local check stays consistent with the form-submit and launch guards. For
 /// **remote** targets, it probes the exact binary on the remote host as the
 /// effective user.
-pub(super) fn require_runtime_available(
+fn require_signature_available(
     target: &WorkTarget,
-    work_dir: &Path,
-    kind: AgentKind,
+    signature: &jefe::domain::LaunchSignature,
     available: &[AgentKind],
 ) -> Result<(), String> {
+    if jefe::domain::llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref())
+        .requires_npm()
+    {
+        return jefe::runtime::require_npm_package_available(signature)
+            .map_err(|error| error.to_string());
+    }
     match target {
-        WorkTarget::Local => {
-            super::availability::require_local_kind_available_for_target(kind, available)
-        }
+        WorkTarget::Local => super::availability::require_local_kind_available_for_target(
+            signature.agent_kind,
+            available,
+        ),
         WorkTarget::Remote(remote) => {
-            let result = execute_remote_probe(remote, work_dir, kind);
+            let result = execute_remote_probe(remote, &signature.work_dir, signature.agent_kind);
             match result {
                 RemoteProbeResult::Available => Ok(()),
                 RemoteProbeResult::NotAvailable => Err(format!(
                     "{} is not installed on the remote host for user '{}'. \
                      Install it or select a different agent kind.",
-                    kind.binary_name(),
+                    signature.agent_kind.binary_name(),
                     effective_user(remote)
                 )),
                 RemoteProbeResult::Error(error) => Err(error),
             }
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn require_runtime_available(
+    target: &WorkTarget,
+    work_dir: &Path,
+    kind: AgentKind,
+    available: &[AgentKind],
+) -> Result<(), String> {
+    let signature = jefe::domain::LaunchSignature {
+        work_dir: work_dir.to_path_buf(),
+        profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: Vec::new(),
+        llxprt_debug: String::new(),
+        pass_continue: false,
+        sandbox_enabled: false,
+        sandbox_engine: jefe::domain::SandboxEngine::Podman,
+        sandbox_flags: String::new(),
+        remote: match target {
+            WorkTarget::Local => RemoteRepositorySettings::default(),
+            WorkTarget::Remote(remote) => remote.clone(),
+        },
+        agent_kind: kind,
+        llxprt_version: None,
+    };
+    require_signature_available(target, &signature, available)
 }
 
 /// Pre-side-effect availability guard for issue/PR send paths.
@@ -387,14 +422,13 @@ pub(super) fn require_runtime_available(
 pub(super) fn pre_side_effect_runtime_available_or_error(
     app_state: &mut super::AppStateHandle,
     target: &WorkTarget,
-    work_dir: &Path,
-    kind: AgentKind,
+    signature: &jefe::domain::LaunchSignature,
 ) -> bool {
     let available = {
         let state = app_state.read();
         state.installed_agent_kinds.clone()
     };
-    match require_runtime_available(target, work_dir, kind, &available) {
+    match require_signature_available(target, signature, &available) {
         Ok(()) => true,
         Err(message) => {
             let mut state = app_state.write();

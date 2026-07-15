@@ -1,7 +1,10 @@
 //! Tests for the markdown renderer (issue #155).
+use jefe::markdown_render::render_markdown_lines;
+use unicode_width::UnicodeWidthStr;
 
-use super::*;
-
+const CODE_FENCE_TOP: &str = "┌";
+const CODE_FENCE_BOTTOM: &str = "└";
+const CODE_FENCE_SIDE: &str = "│";
 fn render(md: &str) -> String {
     render_markdown_lines(md).join("\n")
 }

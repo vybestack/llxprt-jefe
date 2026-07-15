@@ -14,6 +14,7 @@ mod attach;
 mod attach_scheduler;
 mod capabilities;
 mod capture_ops;
+mod command_capture;
 mod commands;
 mod errors;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
@@ -22,6 +23,7 @@ mod identity;
 mod liveness;
 mod manager;
 mod multiplexer;
+mod package_probe;
 mod pane_capture;
 mod preflight;
 mod process;
@@ -30,8 +32,8 @@ mod socket;
 mod stub_manager;
 
 pub use agent_executable::{
-    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
-    ResolvedAgentExecutable,
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
+    AgentWrapperKind, CanonicalNpmLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach::AttachedViewer;
@@ -59,6 +61,7 @@ pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe,
 };
+pub use package_probe::{NpmPackageAvailabilityError, require_npm_package_available};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -118,6 +121,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -150,6 +154,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -187,6 +192,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -215,6 +221,7 @@ mod tests {
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         };
 
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {

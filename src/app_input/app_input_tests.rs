@@ -51,6 +51,7 @@ pub(super) fn sample_signature() -> LaunchSignature {
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: jefe::domain::AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 
@@ -61,6 +62,41 @@ pub(super) fn sample_agent(agent_id: &AgentId) -> Agent {
         String::from("Agent One"),
         PathBuf::from("/tmp/agent"),
     )
+}
+
+fn app_input_signature_constructor_retains_selector_and_binding() {
+    let agent_id = AgentId("selector-agent".to_owned());
+    let mut agent = sample_agent(&agent_id);
+    agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
+    let repository = jefe::domain::Repository::new(
+        agent.repository_id.clone(),
+        "repo".to_owned(),
+        "repo".to_owned(),
+        PathBuf::from("/tmp"),
+    );
+    let signature = launch_signature_for_agent(&agent, &repository);
+    assert_eq!(signature.llxprt_version, agent.llxprt_version);
+
+    let mut state = AppState {
+        agents: vec![agent],
+        ..AppState::default()
+    };
+    set_agent_runtime_binding(
+        &mut state,
+        &agent_id,
+        "jefe-selector".to_owned(),
+        signature,
+        None,
+        None,
+    );
+    assert_eq!(
+        state.agents[0]
+            .runtime_binding
+            .as_ref()
+            .and_then(|binding| binding.launch_signature.llxprt_version.as_ref())
+            .map(jefe::domain::LlxprtNpmPackageSelector::as_str),
+        Some("nightly")
+    );
 }
 
 #[test]
@@ -133,6 +169,8 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         assert!(!binding.attached);
         assert!(binding.pid.is_none());
     }
+
+    app_input_signature_constructor_retains_selector_and_binding();
 }
 
 #[test]

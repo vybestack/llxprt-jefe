@@ -118,6 +118,7 @@ pub fn is_field_visible(
     match focus {
         F::Profile
         | F::Mode
+        | F::LlxprtVersion
         | F::LlxprtDebug
         | F::PassContinue
         | F::Sandbox
@@ -164,6 +165,54 @@ pub fn prev_visible_focus(
     let mut current = focus.prev();
     while current != start {
         if is_field_visible(current, visibility) {
+            return current;
+        }
+        current = current.prev();
+    }
+    start
+}
+
+/// Whether a repository form field is visible for the selected default runtime.
+#[must_use]
+pub fn is_repository_field_visible(
+    focus: crate::state::RepositoryFormFocus,
+    kind: AgentKind,
+) -> bool {
+    use crate::state::RepositoryFormFocus as F;
+    match focus {
+        F::DefaultCodePuppyModel => kind == AgentKind::CodePuppy,
+        F::DefaultLlxprtVersion => kind == AgentKind::Llxprt,
+        _ => true,
+    }
+}
+
+/// Advance to the next visible repository field.
+#[must_use]
+pub fn next_visible_repository_focus(
+    focus: crate::state::RepositoryFormFocus,
+    kind: AgentKind,
+) -> crate::state::RepositoryFormFocus {
+    let start = focus;
+    let mut current = focus.next();
+    while current != start {
+        if is_repository_field_visible(current, kind) {
+            return current;
+        }
+        current = current.next();
+    }
+    start
+}
+
+/// Advance to the previous visible repository field.
+#[must_use]
+pub fn prev_visible_repository_focus(
+    focus: crate::state::RepositoryFormFocus,
+    kind: AgentKind,
+) -> crate::state::RepositoryFormFocus {
+    let start = focus;
+    let mut current = focus.prev();
+    while current != start {
+        if is_repository_field_visible(current, kind) {
             return current;
         }
         current = current.prev();
@@ -264,8 +313,107 @@ mod tests {
         // Even with zero local installs, remote offers both kinds.
         let kinds = effective_agent_kinds(&[], true);
         assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
+        repository_llxprt_focus_order_is_forward_reverse_and_wrapped();
     }
 
+    fn new_agent_copies_repository_version_and_appends_at_end() {
+        use crate::domain::{LlxprtNpmPackageSelector, Repository, RepositoryId};
+        use crate::state::{AgentFormFocus, AppEvent, AppState, ModalState};
+
+        let mut repository = Repository::new(
+            RepositoryId("repo-version".to_owned()),
+            "repo".to_owned(),
+            "repo".to_owned(),
+            "/tmp/repo".into(),
+        );
+        repository.default_llxprt_version = LlxprtNpmPackageSelector::normalize("0.9.0");
+        let mut state = AppState {
+            repositories: vec![repository],
+            ..AppState::default()
+        };
+        state = state.apply(AppEvent::OpenNewAgent(RepositoryId(
+            "repo-version".to_owned(),
+        )));
+        let ModalState::NewAgent { focus, .. } = &mut state.modal else {
+            panic!("expected new-agent modal");
+        };
+        *focus = AgentFormFocus::LlxprtVersion;
+        state = state.apply(AppEvent::FormChar('-'));
+        state = state.apply(AppEvent::FormChar('x'));
+        let ModalState::NewAgent { fields, cursor, .. } = &state.modal else {
+            panic!("expected new-agent modal");
+        };
+        assert_eq!(fields.llxprt_version, "0.9.0-x");
+        assert_eq!(cursor.llxprt_version, 7);
+        assert_eq!(
+            state.repositories[0]
+                .default_llxprt_version
+                .as_ref()
+                .map(LlxprtNpmPackageSelector::as_str),
+            Some("0.9.0")
+        );
+    }
+
+    fn repository_llxprt_focus_order_is_forward_reverse_and_wrapped() {
+        use crate::state::RepositoryFormFocus as R;
+
+        new_agent_copies_repository_version_and_appends_at_end();
+
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultProfile, AgentKind::Llxprt),
+            R::DefaultAgentKind
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultAgentKind, AgentKind::Llxprt),
+            R::DefaultLlxprtVersion
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
+            R::GitHubRepo
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::GitHubRepo, AgentKind::Llxprt),
+            R::DefaultLlxprtVersion
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
+            R::DefaultAgentKind
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::SetupEnvDefault, AgentKind::Llxprt),
+            R::Name
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::Name, AgentKind::Llxprt),
+            R::SetupEnvDefault
+        );
+        repository_code_puppy_focus_order_skips_version_in_both_directions();
+    }
+
+    fn repository_code_puppy_focus_order_skips_version_in_both_directions() {
+        use crate::state::RepositoryFormFocus as R;
+
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultProfile, AgentKind::CodePuppy),
+            R::DefaultCodePuppyModel
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultCodePuppyModel, AgentKind::CodePuppy),
+            R::DefaultAgentKind
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
+            R::GitHubRepo
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::GitHubRepo, AgentKind::CodePuppy),
+            R::DefaultAgentKind
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
+            R::DefaultCodePuppyModel
+        );
+    }
     #[test]
     fn local_restricts_to_installed_kinds() {
         let installed = vec![AgentKind::Llxprt];

@@ -29,6 +29,7 @@ fn sample_signature() -> LaunchSignature {
         sandbox_flags: String::new(),
         remote: crate::domain::RemoteRepositorySettings::default(),
         agent_kind: crate::domain::AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 

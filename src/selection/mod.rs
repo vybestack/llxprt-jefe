@@ -46,7 +46,3 @@ pub use text::{
     HighlightRange, SelectablePane, SelectionPoint, TextSelection, normalize_selection,
     point_to_content_coords, row_highlight_range, selection_text,
 };
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

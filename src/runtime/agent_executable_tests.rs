@@ -5,7 +5,9 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 
-use super::agent_executable::{AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind};
+use super::agent_executable::{
+    AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget, AgentWrapperKind,
+};
 use crate::domain::AgentKind;
 
 fn write_candidate(directory: &TempDir, name: &str) -> PathBuf {
@@ -59,6 +61,9 @@ fn windows_resolution_classifies_all_supported_wrapper_forms() {
         assert_eq!(executable.path(), expected_path);
         assert_eq!(executable.wrapper_kind(), expected, "candidate {name}");
     }
+
+    windows_npm_resolution_reuses_command_wrapper_policy();
+    missing_npm_diagnostic_names_npm_remediation();
 }
 
 #[test]
@@ -102,4 +107,71 @@ fn unix_resolution_keeps_extensionless_executable_contract() {
         .unwrap_or_else(|error| panic!("Unix executable should resolve: {error}"));
     assert_eq!(agent_executable.path(), executable);
     assert_eq!(agent_executable.wrapper_kind(), AgentWrapperKind::Direct);
+}
+
+fn windows_npm_resolution_reuses_command_wrapper_policy() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
+    let expected = write_candidate(&directory, "npm.cmd");
+    let node = write_candidate(&directory, "node.exe");
+    let cli = directory.path().join("node_modules/npm/bin/npm-cli.js");
+    std::fs::create_dir_all(cli.parent().unwrap_or_else(|| directory.path()))
+        .unwrap_or_else(|error| panic!("create npm fixture: {error}"));
+    std::fs::write(&cli, b"fixture").unwrap_or_else(|error| panic!("write npm cli: {error}"));
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".EXE;.CMD")),
+    );
+
+    let executable = resolver
+        .resolve_target(AgentExecutableTarget::Npm)
+        .unwrap_or_else(|error| panic!("npm.cmd should resolve: {error}"));
+    let Some(plan) = executable.npm_launch_plan() else {
+        panic!("npm.cmd must retain a canonical direct Node.js plan");
+    };
+
+    assert_eq!(executable.path(), expected);
+    assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
+    assert_eq!(executable.target(), AgentExecutableTarget::Npm);
+    assert_eq!(
+        plan.node(),
+        std::fs::canonicalize(node).unwrap_or_else(|error| panic!("node: {error}"))
+    );
+    assert_eq!(
+        plan.cli(),
+        std::fs::canonicalize(cli).unwrap_or_else(|error| panic!("cli: {error}"))
+    );
+}
+
+fn missing_npm_diagnostic_names_npm_remediation() {
+    let resolver =
+        AgentExecutableResolver::for_platform(AgentExecutablePlatform::Unix, Vec::new(), None);
+
+    let error = resolver
+        .resolve_target(AgentExecutableTarget::Npm)
+        .err()
+        .unwrap_or_else(|| panic!("missing npm should fail"));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("npm"), "diagnostic: {diagnostic}");
+    assert!(diagnostic.contains("Node.js"), "diagnostic: {diagnostic}");
+}
+
+#[test]
+fn windows_npm_resolution_rejects_noncanonical_command_wrapper() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("create temp dir: {error}"));
+    write_candidate(&directory, "npm.cmd");
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    );
+
+    let error = resolver
+        .resolve_target(AgentExecutableTarget::Npm)
+        .err()
+        .unwrap_or_else(|| panic!("noncanonical npm.cmd must be rejected"));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("official Node.js layout"));
+    assert!(diagnostic.contains("node.exe"));
+    assert!(diagnostic.contains("npm-cli.js"));
 }

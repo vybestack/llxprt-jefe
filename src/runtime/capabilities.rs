@@ -139,6 +139,7 @@ mod tests {
             sandbox_flags: String::new(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: kind,
+            llxprt_version: None,
         }
     }
 

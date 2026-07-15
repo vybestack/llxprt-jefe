@@ -172,6 +172,9 @@ impl AppState {
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
                 .unwrap_or_default(),
+            default_llxprt_version: crate::domain::LlxprtNpmPackageSelector::normalize(
+                &fields.default_llxprt_version,
+            ),
             agent_ids: Vec::new(),
         })
     }
@@ -230,6 +233,8 @@ impl AppState {
             .clone_into(&mut repo.default_code_puppy_model);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
+        repo.default_llxprt_version =
+            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
         fields
             .github_issue_pr_repo
@@ -264,6 +269,7 @@ impl AppState {
             agent_kind: &fields.agent_kind,
             mode: &fields.mode,
             llxprt_debug: &fields.llxprt_debug,
+            llxprt_version: &fields.llxprt_version,
             pass_continue: fields.pass_continue,
             sandbox_enabled: fields.sandbox_enabled,
             sandbox_engine: &fields.sandbox_engine,
@@ -325,6 +331,8 @@ impl AppState {
         agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
         agent.agent_kind =
             AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
+        agent.llxprt_version =
+            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version);
         // The mode field is the single source of truth for mode flags. An
         // empty mode yields no flags so yolo can be turned off on update; the
         // new-agent form pre-fills --yolo as the create default instead.

@@ -19,6 +19,28 @@ use crate::domain::{AgentId, LaunchSignature};
 pub struct StubRuntimeManager {
     sessions: Vec<RuntimeSession>,
     attached_index: Option<usize>,
+    spawn_failure: Option<RuntimeError>,
+    attach_failure: Option<RuntimeError>,
+}
+
+impl StubRuntimeManager {
+    /// Construct a deterministic manager whose spawn boundary returns `error`.
+    #[must_use]
+    pub fn with_spawn_failure(error: RuntimeError) -> Self {
+        Self {
+            spawn_failure: Some(error),
+            ..Self::default()
+        }
+    }
+
+    /// Construct a deterministic manager whose attach boundary returns `error`.
+    #[must_use]
+    pub fn with_attach_failure(error: RuntimeError) -> Self {
+        Self {
+            attach_failure: Some(error),
+            ..Self::default()
+        }
+    }
 }
 
 impl RuntimeManager for StubRuntimeManager {
@@ -28,6 +50,9 @@ impl RuntimeManager for StubRuntimeManager {
         _work_dir: &Path,
         signature: &LaunchSignature,
     ) -> Result<(), RuntimeError> {
+        if let Some(error) = &self.spawn_failure {
+            return Err(error.clone());
+        }
         // Check for duplicate
         if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
@@ -43,6 +68,9 @@ impl RuntimeManager for StubRuntimeManager {
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        if let Some(error) = &self.attach_failure {
+            return Err(error.clone());
+        }
         if let Some(idx) = self.sessions.iter().position(|s| &s.agent_id == agent_id) {
             // Detach from current if any
             if let Some(prev_idx) = self.attached_index {

@@ -4,20 +4,12 @@ use crate::state::events::AppEvent;
 use crate::state::types::{ModalState, ScreenMode};
 
 fn seed_repository() -> Repository {
-    Repository {
-        id: RepositoryId("repo-1".to_owned()),
-        name: "Repo 1".to_owned(),
-        slug: "repo-1".to_owned(),
-        base_dir: std::path::PathBuf::from("/tmp/repo-1"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: String::new(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        agent_ids: Vec::new(),
-    }
+    Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
+        std::path::PathBuf::from("/tmp/repo-1"),
+    )
 }
 
 #[test]
@@ -314,6 +306,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
 
     assert!(AppState::create_agent_from_fields(&repository, &fields, 1).is_none());
@@ -343,6 +336,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        llxprt_version: None,
     };
 
     let fields = AgentFormFields {
@@ -361,6 +355,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
 
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
@@ -394,6 +389,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        llxprt_version: None,
     };
     let fields = AgentFormFields {
         shortcut_slot: None,
@@ -411,6 +407,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         sandbox_enabled: false,
         sandbox_engine: "podman".to_owned(),
         sandbox_flags: String::new(),
+        llxprt_version: String::new(),
     };
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
     assert!(
@@ -429,7 +426,8 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → DefaultAgentKind
     state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
     state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
     state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled

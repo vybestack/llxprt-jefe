@@ -1,4 +1,4 @@
-//! Platform-owned resolution of launchable local agent executables.
+//! Platform-owned resolution of launchable local executables used by agent sessions.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -9,6 +9,8 @@ const WINDOWS_DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
 const WINDOWS_REMEDIATION: &str =
     "install a launchable .exe, .com, .cmd, .bat, or .ps1 wrapper and restart Jefe";
 const UNIX_REMEDIATION: &str = "install an executable runtime on PATH and restart Jefe";
+const NPM_REMEDIATION: &str = "install Node.js with npm on PATH and restart Jefe";
+const NPM_LAYOUT_REMEDIATION: &str = "install the official Node.js npm layout (npm.cmd/npm.bat beside node.exe and node_modules/npm/bin/npm-cli.js) or put npm.exe on PATH, then restart Jefe";
 
 /// Operating-system executable-resolution policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +33,39 @@ impl AgentExecutablePlatform {
     }
 }
 
+/// Executable required by an agent launch plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentExecutableTarget {
+    /// A directly launched agent runtime.
+    Agent(AgentKind),
+    /// npm used for a selector-backed LLxprt launch or package probe.
+    Npm,
+}
+
+impl AgentExecutableTarget {
+    /// Executable basename resolved on PATH.
+    #[must_use]
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::Agent(kind) => kind.binary_name(),
+            Self::Npm => "npm",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Agent(kind) => kind.label(),
+            Self::Npm => "npm",
+        }
+    }
+}
+
+impl From<AgentKind> for AgentExecutableTarget {
+    fn from(value: AgentKind) -> Self {
+        Self::Agent(value)
+    }
+}
+
 /// Process strategy required by a resolved executable form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentWrapperKind {
@@ -42,19 +77,50 @@ pub enum AgentWrapperKind {
     PowerShellScript,
 }
 
-/// A runtime executable proven launchable under the selected platform policy.
+/// Direct Node.js invocation retained for an official Windows npm wrapper layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalNpmLaunchPlan {
+    node: PathBuf,
+    cli: PathBuf,
+}
+
+impl CanonicalNpmLaunchPlan {
+    /// Canonical path to the Node.js executable.
+    #[must_use]
+    pub fn node(&self) -> &Path {
+        &self.node
+    }
+
+    /// Canonical path to npm's JavaScript CLI entry point.
+    #[must_use]
+    pub fn cli(&self) -> &Path {
+        &self.cli
+    }
+}
+
+/// An executable proven launchable under the selected platform policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedAgentExecutable {
-    runtime: AgentKind,
+    target: AgentExecutableTarget,
     path: PathBuf,
     wrapper_kind: AgentWrapperKind,
+    npm_launch_plan: Option<CanonicalNpmLaunchPlan>,
 }
 
 impl ResolvedAgentExecutable {
-    /// Runtime represented by this executable.
+    /// Executable role represented by this resolution.
     #[must_use]
-    pub const fn runtime(&self) -> AgentKind {
-        self.runtime
+    pub const fn target(&self) -> AgentExecutableTarget {
+        self.target
+    }
+
+    /// Agent runtime represented by this executable, when it is a direct runtime.
+    #[must_use]
+    pub const fn runtime(&self) -> Option<AgentKind> {
+        match self.target {
+            AgentExecutableTarget::Agent(kind) => Some(kind),
+            AgentExecutableTarget::Npm => None,
+        }
     }
 
     /// Fully resolved candidate path.
@@ -67,6 +133,12 @@ impl ResolvedAgentExecutable {
     #[must_use]
     pub const fn wrapper_kind(&self) -> AgentWrapperKind {
         self.wrapper_kind
+    }
+
+    /// Validated direct Node.js launch plan for an official Windows npm script.
+    #[must_use]
+    pub fn npm_launch_plan(&self) -> Option<&CanonicalNpmLaunchPlan> {
+        self.npm_launch_plan.as_ref()
     }
 }
 
@@ -106,52 +178,79 @@ impl AgentExecutableResolver {
         }
     }
 
-    /// Resolve a runtime to a supported executable and wrapper strategy.
+    /// Resolve an agent runtime to a supported executable and wrapper strategy.
     pub fn resolve(
         &self,
         runtime: AgentKind,
     ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
+        self.resolve_target(runtime.into())
+    }
+
+    /// Resolve any executable role used by the agent launch path.
+    pub fn resolve_target(
+        &self,
+        target: AgentExecutableTarget,
+    ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
         match self.platform {
-            AgentExecutablePlatform::Unix => self.resolve_unix(runtime),
-            AgentExecutablePlatform::Windows => self.resolve_windows(runtime),
+            AgentExecutablePlatform::Unix => self.resolve_unix(target),
+            AgentExecutablePlatform::Windows => self.resolve_windows(target),
         }
     }
 
     fn resolve_unix(
         &self,
-        runtime: AgentKind,
+        target: AgentExecutableTarget,
     ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
         for directory in &self.directories {
-            let path = directory.join(runtime.binary_name());
+            let path = directory.join(target.binary_name());
             if unix_launchable(&path) {
-                return Ok(resolved(runtime, path, AgentWrapperKind::Direct));
+                return Ok(resolved(target, path, AgentWrapperKind::Direct));
             }
         }
-        Err(self.missing(runtime))
+        Err(self.missing(target))
     }
 
     fn resolve_windows(
         &self,
-        runtime: AgentKind,
+        target: AgentExecutableTarget,
     ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
         let extensions = windows_extensions(self.pathext.as_deref());
+        let mut rejected_npm_script = false;
         for directory in &self.directories {
             for (extension, wrapper_kind) in &extensions {
-                let path = directory.join(format!("{}{}", runtime.binary_name(), extension));
+                let path = directory.join(format!("{}{extension}", target.binary_name()));
                 if path.is_file() {
-                    return Ok(resolved(runtime, path, *wrapper_kind));
+                    if target == AgentExecutableTarget::Npm
+                        && *wrapper_kind == AgentWrapperKind::CommandScript
+                    {
+                        if let Some(plan) = canonical_npm_launch_plan(directory) {
+                            return Ok(resolved_npm_script(path, plan));
+                        }
+                        rejected_npm_script = true;
+                        continue;
+                    }
+                    return Ok(resolved(target, path, *wrapper_kind));
                 }
             }
         }
-        Err(self.missing(runtime))
+        if rejected_npm_script {
+            return Err(AgentExecutableError::NonCanonicalNpmWrapper {
+                remediation: NPM_LAYOUT_REMEDIATION,
+            });
+        }
+        Err(self.missing(target))
     }
 
-    fn missing(&self, runtime: AgentKind) -> AgentExecutableError {
+    fn missing(&self, target: AgentExecutableTarget) -> AgentExecutableError {
         AgentExecutableError::NotFound {
-            runtime,
-            remediation: match self.platform {
-                AgentExecutablePlatform::Unix => UNIX_REMEDIATION,
-                AgentExecutablePlatform::Windows => WINDOWS_REMEDIATION,
+            target,
+            remediation: if target == AgentExecutableTarget::Npm {
+                NPM_REMEDIATION
+            } else {
+                match self.platform {
+                    AgentExecutablePlatform::Unix => UNIX_REMEDIATION,
+                    AgentExecutablePlatform::Windows => WINDOWS_REMEDIATION,
+                }
             },
         }
     }
@@ -162,7 +261,14 @@ impl AgentExecutableResolver {
 pub enum AgentExecutableError {
     /// No supported launchable candidate exists on PATH.
     NotFound {
-        runtime: AgentKind,
+        /// Required executable role.
+        target: AgentExecutableTarget,
+        /// Action the user can take to resolve the failure.
+        remediation: &'static str,
+    },
+    /// npm.cmd/npm.bat exists but cannot be launched without command-shell interpolation.
+    NonCanonicalNpmWrapper {
+        /// Action the user can take to install a structurally safe npm layout.
         remediation: &'static str,
     },
 }
@@ -171,12 +277,16 @@ impl std::fmt::Display for AgentExecutableError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound {
-                runtime,
+                target,
                 remediation,
             } => write!(
                 formatter,
-                "{} runtime executable was not found on PATH; {remediation}",
-                runtime.label()
+                "{} executable was not found on PATH; {remediation}",
+                target.label()
+            ),
+            Self::NonCanonicalNpmWrapper { remediation } => write!(
+                formatter,
+                "npm wrapper is not in a supported official Node.js layout; {remediation}"
             ),
         }
     }
@@ -185,15 +295,37 @@ impl std::fmt::Display for AgentExecutableError {
 impl std::error::Error for AgentExecutableError {}
 
 fn resolved(
-    runtime: AgentKind,
+    target: AgentExecutableTarget,
     path: PathBuf,
     wrapper_kind: AgentWrapperKind,
 ) -> ResolvedAgentExecutable {
     ResolvedAgentExecutable {
-        runtime,
+        target,
         path,
         wrapper_kind,
+        npm_launch_plan: None,
     }
+}
+
+fn resolved_npm_script(
+    path: PathBuf,
+    npm_launch_plan: CanonicalNpmLaunchPlan,
+) -> ResolvedAgentExecutable {
+    ResolvedAgentExecutable {
+        target: AgentExecutableTarget::Npm,
+        path,
+        wrapper_kind: AgentWrapperKind::CommandScript,
+        npm_launch_plan: Some(npm_launch_plan),
+    }
+}
+
+fn canonical_npm_launch_plan(directory: &Path) -> Option<CanonicalNpmLaunchPlan> {
+    let node = std::fs::canonicalize(directory.join("node.exe")).ok()?;
+    let cli = std::fs::canonicalize(directory.join("node_modules/npm/bin/npm-cli.js")).ok()?;
+    if !node.is_file() || !cli.is_file() {
+        return None;
+    }
+    Some(CanonicalNpmLaunchPlan { node, cli })
 }
 
 fn windows_extensions(pathext: Option<&OsStr>) -> Vec<(String, AgentWrapperKind)> {

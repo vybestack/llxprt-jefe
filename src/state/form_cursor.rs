@@ -5,6 +5,10 @@ use super::types::{
 };
 use super::util::{insert_char_at, move_cursor_left, move_cursor_right};
 
+fn insert_repository_char(value: &mut String, cursor: &mut usize, c: char) {
+    *cursor = insert_char_at(value, *cursor, c);
+}
+
 pub(super) fn handle_repository_field_char(
     fields: &mut RepositoryFormFields,
     cursor: &mut RepositoryFormCursor,
@@ -22,13 +26,16 @@ pub(super) fn handle_repository_field_char(
             cursor.default_profile =
                 insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
         }
-        RepositoryFormFocus::DefaultCodePuppyModel => {
-            cursor.default_code_puppy_model = insert_char_at(
-                &mut fields.default_code_puppy_model,
-                cursor.default_code_puppy_model,
-                c,
-            );
-        }
+        RepositoryFormFocus::DefaultCodePuppyModel => insert_repository_char(
+            &mut fields.default_code_puppy_model,
+            &mut cursor.default_code_puppy_model,
+            c,
+        ),
+        RepositoryFormFocus::DefaultLlxprtVersion => insert_repository_char(
+            &mut fields.default_llxprt_version,
+            &mut cursor.default_llxprt_version,
+            c,
+        ),
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
         }
@@ -90,6 +97,12 @@ pub(super) fn move_repository_field_cursor_right(
                 cursor.default_code_puppy_model,
             );
         }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_right(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            );
+        }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
         }
@@ -144,6 +157,10 @@ pub(super) fn move_agent_field_cursor_right(
                 move_cursor_right(&fields.code_puppy_model, cursor.code_puppy_model);
         }
         AgentFormFocus::Mode => cursor.mode = move_cursor_right(&fields.mode, cursor.mode),
+        AgentFormFocus::LlxprtVersion => {
+            cursor.llxprt_version =
+                move_cursor_right(&fields.llxprt_version, cursor.llxprt_version);
+        }
         AgentFormFocus::LlxprtDebug => {
             cursor.llxprt_debug = move_cursor_right(&fields.llxprt_debug, cursor.llxprt_debug);
         }
@@ -185,6 +202,9 @@ pub(super) fn move_repository_field_cursor_left(
         RepositoryFormFocus::DefaultCodePuppyModel => {
             cursor.default_code_puppy_model = move_cursor_left(cursor.default_code_puppy_model);
         }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_left(cursor.default_llxprt_version);
+        }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_left(cursor.github_repo);
         }
@@ -221,6 +241,9 @@ pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: 
             cursor.code_puppy_model = move_cursor_left(cursor.code_puppy_model);
         }
         AgentFormFocus::Mode => cursor.mode = move_cursor_left(cursor.mode),
+        AgentFormFocus::LlxprtVersion => {
+            cursor.llxprt_version = move_cursor_left(cursor.llxprt_version);
+        }
         AgentFormFocus::LlxprtDebug => cursor.llxprt_debug = move_cursor_left(cursor.llxprt_debug),
         AgentFormFocus::SandboxFlags => {
             cursor.sandbox_flags = move_cursor_left(cursor.sandbox_flags);

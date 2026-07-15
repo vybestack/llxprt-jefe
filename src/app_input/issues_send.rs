@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use jefe::domain::{AgentId, LaunchSignature};
-use jefe::runtime::RuntimeManager;
+use jefe::runtime::RuntimeError;
 use jefe::state::{AppEvent, AppState, ModalState};
 
 use tracing::warn;
@@ -52,9 +52,10 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     // Availability guard BEFORE any prep side effects: a missing agent
     // runtime must not trigger a remote clone/checkout. Prep (clone/reset/
     // clean/prompt-write) only runs when the agent kind is available.
-    if !super::availability::local_kind_available_or_error(
+    if !super::availability::launch_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        launch_sig.llxprt_version.as_ref(),
         &launch_sig.remote,
     ) {
         return;
@@ -77,8 +78,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
-        &send_info.work_dir,
-        launch_sig.agent_kind,
+        &launch_sig,
     ) {
         return;
     }
@@ -263,7 +263,7 @@ fn prompt_origin_mismatch_confirm(
 fn prepare_confirm_send_target(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    work_dir: &Path,
+    _work_dir: &Path,
     launch_sig: &LaunchSignature,
 ) -> Option<super::issue_prep::WorkTarget> {
     // Close the confirm modal first so the UI reflects the user's decision
@@ -272,9 +272,10 @@ fn prepare_confirm_send_target(
 
     // Re-check availability BEFORE prep side effects: the runtime may have
     // been removed while the confirm modal was open.
-    if !super::availability::local_kind_available_or_error(
+    if !super::availability::launch_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        launch_sig.llxprt_version.as_ref(),
         &launch_sig.remote,
     ) {
         return None;
@@ -291,10 +292,7 @@ fn prepare_confirm_send_target(
     // Centralized pre-side-effect availability probe (defect 2): BEFORE any
     // destructive prep, re-probe the selected runtime on the resolved target.
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        work_dir,
-        launch_sig.agent_kind,
+        app_state, &target, launch_sig,
     ) {
         return None;
     }
@@ -517,24 +515,26 @@ fn launch_issue_agent(
     launch_sig: LaunchSignature,
     assignment: IssueAssignment,
 ) {
-    let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    let launch_result = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    let launched = launch_result.is_ok();
     // Resolve the worker PID for the persisted binding's PID-liveness
     // fallback, before taking the app-state write lock (lock-ordering
     // constraint). Skipped on the failure path (no binding persisted).
     let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
-    if launched {
-        persist_issue_agent_launch_success(
+    match launch_result {
+        Ok(()) => persist_issue_agent_launch_success(
             &mut state,
             &agent_id,
             launch_sig,
             pid,
             process_identity,
-        );
-    } else {
-        *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-            error: "Failed to launch agent".to_string(),
-        });
+        ),
+        Err(error) => {
+            *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
+                error: error.to_string(),
+            });
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -577,35 +577,29 @@ fn spawn_and_attach_fresh_for_issue(
     agent_id: &AgentId,
     work_dir: &Path,
     launch_sig: &LaunchSignature,
-) -> bool {
+) -> Result<(), RuntimeError> {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context unavailable".to_owned(),
+        ));
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context lock unavailable".to_owned(),
+        ));
     };
-    match ctx_guard
-        .runtime
-        .spawn_session_fresh(agent_id, work_dir, launch_sig)
-    {
-        Ok(()) => attach_issue_agent(&mut ctx_guard.runtime, agent_id),
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not spawn agent for issue send");
-            false
-        }
+    let result = super::send_runtime::spawn_and_attach_fresh(
+        &mut ctx_guard.runtime,
+        agent_id,
+        work_dir,
+        launch_sig,
+        REMOTE_ATTACH_SETTLE_DELAY,
+    );
+    if let Err(error) = &result {
+        warn!(agent_id = %agent_id.0, error = %error, "could not launch agent for issue send");
+        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
     }
-}
-
-fn attach_issue_agent(runtime: &mut jefe::runtime::TmuxRuntimeManager, agent_id: &AgentId) -> bool {
-    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    match runtime.attach(agent_id) {
-        Ok(()) => true,
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not attach agent after issue send");
-            let _ = runtime.mark_session_dead(agent_id);
-            false
-        }
-    }
+    result
 }
 
 fn persist_issue_agent_launch_success(

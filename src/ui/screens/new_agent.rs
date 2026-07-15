@@ -104,8 +104,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         ),
     ];
 
-    // Fields rendered AFTER the Agent Runtime selector.
-    let post_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 3] = [
+    let post_kind_text_fields: std::boxed::Box<[_]> = vec![
         (
             "Model",
             &fields.code_puppy_model,
@@ -119,12 +118,19 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
             cursor.mode,
         ),
         (
+            "Version",
+            &fields.llxprt_version,
+            AgentFormFocus::LlxprtVersion,
+            cursor.llxprt_version,
+        ),
+        (
             "LLXPRT_DEBUG",
             &fields.llxprt_debug,
             AgentFormFocus::LlxprtDebug,
             cursor.llxprt_debug,
         ),
-    ];
+    ]
+    .into_boxed_slice();
 
     // Content line 0: title, line 1: blank.
     let mut all_lines: Vec<AnyElement<'static>> = Vec::new();

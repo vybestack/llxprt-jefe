@@ -653,7 +653,6 @@ fn seed_sticky_agent_state(
 ) {
     use crate::domain::{Agent, AgentStatus, Repository, RepositoryId};
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("testrepo".into()),
@@ -681,14 +680,13 @@ fn seed_sticky_agent_state(
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    let paths = PersistencePaths {
+    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
-    };
-    let persistence = FilePersistenceManager::with_paths(paths);
+    });
     persistence
         .save_state(&persisted_state)
-        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+        .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
 #[cfg(unix)]
@@ -713,6 +711,7 @@ fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,

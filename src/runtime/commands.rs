@@ -6,14 +6,16 @@
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Output};
+use std::time::Duration;
 
 use tracing::debug;
 
-use crate::domain::{AgentKind, LaunchSignature};
+pub(super) use super::command_capture::run_command_capture_with_timeout;
 
-use super::agent_executable::AgentExecutableResolver;
+use crate::domain::{AgentKind, LaunchSignature, LaunchSource, llxprt_launch_source};
+
+use super::agent_executable::{AgentExecutableResolver, AgentExecutableTarget};
 use super::errors::RuntimeError;
 use super::multiplexer::{MultiplexerCapability, MultiplexerPlan};
 use super::preflight::sandbox_ssh_agent_warning;
@@ -290,51 +292,6 @@ pub(super) fn run_command_capture(
     run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
 }
 
-/// [`run_command_capture`] with an injectable deadline so tests can drive the
-/// timeout branch with a sub-second value instead of the 20s production
-/// default (#173).
-fn run_command_capture_with_timeout(
-    mut cmd: Command,
-    timeout: Duration,
-    error_context: &str,
-) -> Result<Output, RuntimeError> {
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}")))?;
-
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                return child.wait_with_output().map_err(|e| {
-                    RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}"))
-                });
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(RuntimeError::RemoteExecutionFailed(format!(
-                        "{error_context}: timed out after {}s",
-                        timeout.as_secs_f64()
-                    )));
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(RuntimeError::RemoteExecutionFailed(format!(
-                    "{error_context}: {e}"
-                )));
-            }
-        }
-    }
-}
-
 pub fn remote_tmux_command(
     remote: &crate::domain::RemoteRepositorySettings,
     inner_command: &str,
@@ -504,6 +461,27 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
     }
 }
 
+fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
+    let llxprt_args = launch_args(signature);
+    match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
+        LaunchSource::Direct => (
+            AgentExecutableTarget::Agent(signature.agent_kind),
+            llxprt_args,
+        ),
+        LaunchSource::NpmBacked(selector) => {
+            let mut args = vec![
+                "exec".to_owned(),
+                "--yes".to_owned(),
+                format!("--package={}", selector.package_spec()),
+                "--".to_owned(),
+                AgentKind::Llxprt.binary_name().to_owned(),
+            ];
+            args.extend(llxprt_args);
+            (AgentExecutableTarget::Npm, args)
+        }
+    }
+}
+
 fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
     // Code Puppy interactive mode: output `-i`, an optional explicit model,
     // and, for fresh (issue/PR-driven) sends, one positional instruction.
@@ -598,6 +576,25 @@ fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
     }
 }
 
+struct RemoteLaunchArgv {
+    executable: String,
+    args: Vec<String>,
+}
+
+fn remote_launch_argv(
+    signature: &LaunchSignature,
+    direct_command: Option<String>,
+) -> Result<RemoteLaunchArgv, RuntimeError> {
+    let (target, args) = launch_target_and_args(signature);
+    let executable = match target {
+        AgentExecutableTarget::Npm => "npm".to_owned(),
+        AgentExecutableTarget::Agent(_) => direct_command.ok_or_else(|| {
+            RuntimeError::SpawnFailed("direct agent executable was not resolved".to_owned())
+        })?,
+    };
+    Ok(RemoteLaunchArgv { executable, args })
+}
+
 fn build_remote_launch_command(
     session_name: &str,
     work_dir: &Path,
@@ -606,14 +603,18 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let agent_command = resolve_remote_agent_command(
-        remote,
-        work_dir,
-        remote.setup_env_default,
-        signature.agent_kind,
-    )?;
-    let args = launch_args(signature);
-    let cli_command = remote_cli_command(&agent_command, &args);
+    let direct_command =
+        match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
+            LaunchSource::Direct => Some(resolve_remote_agent_command(
+                remote,
+                work_dir,
+                remote.setup_env_default,
+                signature.agent_kind,
+            )?),
+            LaunchSource::NpmBacked(_) => None,
+        };
+    let launch = remote_launch_argv(signature, direct_command)?;
+    let cli_command = remote_cli_command(&launch.executable, &launch.args);
     // Scrub jefe's tmux client vars from the remote agent pane for the same
     // reason as the local path (#171): a bare `tmux` inside the agent must not
     // reach the (remote) tmux server hosting the agent session.
@@ -657,7 +658,7 @@ fn build_remote_tmux_script(
 }
 
 struct LocalLaunchPlan {
-    agent_kind: AgentKind,
+    executable: AgentExecutableTarget,
     args: Vec<String>,
     env: Vec<(String, String)>,
     warning: Option<String>,
@@ -685,9 +686,10 @@ fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
         env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
     }
+    let (executable, args) = launch_target_and_args(signature);
     LocalLaunchPlan {
-        agent_kind: signature.agent_kind,
-        args: launch_args(signature),
+        executable,
+        args,
         env,
         warning,
     }
@@ -708,7 +710,7 @@ fn local_launch_command(
         .arg(work_dir);
 
     let executable = AgentExecutableResolver::current()
-        .resolve(launch.agent_kind)
+        .resolve_target(launch.executable)
         .map_err(RuntimeError::AgentExecutable)?;
     let pane_args = launch.args.iter().map(OsString::from).collect::<Vec<_>>();
     let environment = launch
@@ -734,7 +736,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     for (key, value) in &plan.env {
         args.push(format!("{key}={value}"));
     }
-    args.push(plan.agent_kind.binary_name().to_owned());
+    args.push(plan.executable.binary_name().to_owned());
     args.extend(plan.args.iter().cloned());
     args
 }
@@ -937,6 +939,9 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[path = "commands_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "npm_launch_tests.rs"]
+mod npm_launch_tests;
 #[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

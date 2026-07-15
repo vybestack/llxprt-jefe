@@ -21,6 +21,10 @@ fn bound_runtime_agent(repository_id: &RepositoryId, index: u32, kind: AgentKind
     agent.code_puppy_model = "model/Ω".to_owned();
     agent.code_puppy_quick_resume = kind == AgentKind::CodePuppy;
     agent.pass_continue = kind == AgentKind::Llxprt;
+    if kind == AgentKind::Llxprt {
+        agent.llxprt_version =
+            crate::domain::LlxprtNpmPackageSelector::normalize("0.10.0-nightly.260712.21cb698b6");
+    }
     agent.runtime_binding = Some(runtime_binding(&agent, &id, work_dir, index, kind));
     agent
 }
@@ -46,6 +50,7 @@ fn runtime_binding(
         sandbox_flags: String::new(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: kind,
+        llxprt_version: agent.llxprt_version.clone(),
     };
     RuntimeBinding {
         session_name: crate::runtime::RuntimeSession::session_name_for(id),
@@ -93,6 +98,14 @@ fn restart_roundtrip_preserves_unicode_multi_runtime_bindings() {
     assert_eq!(loaded.agents[1].agent_kind, AgentKind::CodePuppy);
     assert!(loaded.agents[0].pass_continue);
     assert!(loaded.agents[1].code_puppy_quick_resume);
+    assert_eq!(
+        loaded.agents[0]
+            .runtime_binding
+            .as_ref()
+            .and_then(|binding| binding.launch_signature.llxprt_version.as_ref())
+            .map(crate::domain::LlxprtNpmPackageSelector::as_str),
+        Some("0.10.0-nightly.260712.21cb698b6")
+    );
     let loaded_bindings = loaded
         .agents
         .iter()

@@ -142,12 +142,56 @@ fn sidebar_lines_include_selection_prefix() {
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
+        default_llxprt_version: None,
     });
     // Select the first repo so the rendered "> " prefix appears.
     state.selected_repository_index = Some(0);
     let content = pane_content_lines(SelectablePane::Sidebar, &state, None, &[], 120, 40);
     // Selected repo gets "> " prefix; matches the Sidebar renderer.
     assert_eq!(content.lines, vec!["> repo-one (0)".to_string()]);
+}
+
+fn repository_form_selection_projection_matches_runtime_focus_order() {
+    use crate::state::{
+        ModalState, RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
+    };
+
+    let fields = RepositoryFormFields {
+        default_profile: "profile".to_owned(),
+        default_agent_kind: "LLxprt".to_owned(),
+        default_llxprt_version: "0.9.0".to_owned(),
+        github_repo: "owner/repo".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    let state = AppState {
+        modal: ModalState::NewRepository {
+            fields,
+            focus: RepositoryFormFocus::DefaultLlxprtVersion,
+            cursor: RepositoryFormCursor {
+                default_llxprt_version: 5,
+                ..RepositoryFormCursor::default()
+            },
+        },
+        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        ..AppState::default()
+    };
+    let lines = crate::selection::repository_form_content_lines(&state)
+        .unwrap_or_else(|| panic!("expected repository form projection"));
+    let positions = [
+        "Default Profile",
+        "Default Agent",
+        "Default Version",
+        "GitHub Repo",
+    ]
+    .map(|label| {
+        lines
+            .iter()
+            .position(|line| line.contains(label))
+            .unwrap_or_else(|| panic!("missing {label}"))
+    });
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(lines[positions[2]].contains("0.9.0▏"));
+    assert!(!lines.iter().any(|line| line.contains("Default Model")));
 }
 
 #[test]
@@ -424,6 +468,11 @@ fn repository_form_lines_include_title_and_fields() {
         content.lines.iter().any(|l| l.contains("my-repo")),
         "repository form must include the repo name field value"
     );
+}
+
+#[test]
+fn repository_form_selection_projection_uses_runtime_focus_order() {
+    repository_form_selection_projection_matches_runtime_focus_order();
 }
 
 #[test]

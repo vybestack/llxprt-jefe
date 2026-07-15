@@ -74,7 +74,8 @@ pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
-    is_field_visible, kind_from_form_value, next_visible_focus, prev_visible_focus,
+    is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
+    next_visible_repository_focus, prev_visible_focus, prev_visible_repository_focus,
 };
 
 use tracing::{debug, trace};
@@ -944,7 +945,6 @@ mod prs_tests_filter;
 #[path = "prs_tests_merge.rs"]
 mod prs_tests_merge;
 
-// Per-repository user-preference persistence tests (issue #163).
 #[cfg(test)]
 #[path = "preferences_tests.rs"]
 mod preferences_tests;
