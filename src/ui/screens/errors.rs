@@ -94,15 +94,17 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
         .iter()
         .enumerate()
         .map(|(idx, entry)| {
-            let title = if entry.title.len() > list_content_width as usize - 10 {
-                // Truncate to fit: "[seq] title..."
-                format!(
-                    "[{}] {}…",
-                    entry.seq,
-                    &entry.title[..list_content_width as usize - 13]
-                )
+            let prefix = format!("[{}] ", entry.seq);
+            let remaining = (list_content_width as usize).saturating_sub(prefix.chars().count());
+            let title = if entry.title.chars().count() > remaining {
+                let truncated: String = entry
+                    .title
+                    .chars()
+                    .take(remaining.saturating_sub(1))
+                    .collect();
+                format!("{prefix}{truncated}…")
             } else {
-                format!("[{}] {}", entry.seq, entry.title)
+                format!("{prefix}{}", entry.title)
             };
             let source_label = match entry.source {
                 crate::domain::ErrorSource::Issues => "Issues",
@@ -156,13 +158,14 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
         (vec![], String::new())
     };
 
+    let header_line_offset = header_rows.len();
     let detail_props = DetailPaneProps {
         header_rows,
         content: detail_content,
         content_cursor: None,
         scroll_offset: detail_scroll_offset,
         viewport_rows: detail_viewport_rows,
-        content_line_offset: 3, // header rows
+        content_line_offset: header_line_offset,
         max_line_width: detail_content_width,
         focused: detail_focused,
         pane: SelectablePane::ErrorDetail,

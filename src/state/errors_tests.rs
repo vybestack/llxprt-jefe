@@ -81,6 +81,23 @@ fn push_evicts_oldest_at_capacity() {
         last_title,
         format!("error {}", crate::domain::ERROR_STORE_CAPACITY + 4)
     );
+    // The oldest 5 errors should have been evicted.
+    let titles: Vec<&str> = state
+        .errors_state
+        .errors
+        .iter()
+        .map(|e| e.title.as_str())
+        .collect();
+    for i in 0..5 {
+        let evicted = format!("error {i}");
+        assert!(
+            !titles.contains(&evicted.as_str()),
+            "evicted error {i} should not be present"
+        );
+    }
+    // The oldest remaining error should be error 5.
+    let oldest = titles.last().unwrap_or(&"");
+    assert_eq!(*oldest, "error 5");
 }
 
 /// `EnterErrorsMode` switches screen mode, activates state, and focuses list.
@@ -180,7 +197,7 @@ fn navigate_home_goes_to_first() {
     assert_eq!(state.errors_state.selected_index, Some(0));
 }
 
-/// Cycle focus rotates RepoList → ErrorList → ErrorDetail → RepoList.
+/// Cycle focus rotates ErrorList -> ErrorDetail -> RepoList -> ErrorList.
 #[test]
 fn cycle_focus_rotates() {
     let mut state = AppState::default();
@@ -301,9 +318,12 @@ fn scroll_detail_clamps() {
     state.apply_errors_message(ErrorsMessage::ScrollDetail(ScrollDir::Down));
     assert_eq!(state.errors_state.detail_scroll_offset, 1);
 
-    // Page down should jump by VIEWPORT_PAGE_JUMP.
+    // Page down should jump by VIEWPORT_PAGE_JUMP from current offset (1).
     state.apply_errors_message(ErrorsMessage::ScrollDetail(ScrollDir::PageDown));
-    assert!(state.errors_state.detail_scroll_offset > 1);
+    assert_eq!(
+        state.errors_state.detail_scroll_offset,
+        1 + crate::state::VIEWPORT_PAGE_JUMP
+    );
 
     // Scroll up from 0 stays at 0.
     state.errors_state.detail_scroll_offset = 0;

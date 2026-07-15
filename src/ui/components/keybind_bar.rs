@@ -61,7 +61,7 @@ pub fn keybind_hints_for(
             }
         },
         ScreenMode::DashboardErrors => {
-            "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | C clear all | Esc exit"
+            "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | Ctrl-C clear | Esc exit"
         }
     }
 }

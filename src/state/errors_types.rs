@@ -64,6 +64,26 @@ impl ErrorsState {
     pub(super) fn reset_actions_tracker(&mut self) {
         self.last_captured_actions = None;
     }
+
+    /// Read-only snapshot of the global dedup tracker for fast-change checks.
+    pub(super) fn last_captured_global_snapshot(&self) -> Option<&str> {
+        self.last_captured_global.as_deref()
+    }
+
+    /// Read-only snapshot of the issues dedup tracker.
+    pub(super) fn last_captured_issues_snapshot(&self) -> Option<&str> {
+        self.last_captured_issues.as_deref()
+    }
+
+    /// Read-only snapshot of the PRs dedup tracker.
+    pub(super) fn last_captured_prs_snapshot(&self) -> Option<&str> {
+        self.last_captured_prs.as_deref()
+    }
+
+    /// Read-only snapshot of the actions dedup tracker.
+    pub(super) fn last_captured_actions_snapshot(&self) -> Option<&str> {
+        self.last_captured_actions.as_deref()
+    }
 }
 
 impl Default for ErrorsState {

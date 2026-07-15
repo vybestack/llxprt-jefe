@@ -14,14 +14,17 @@ pub fn error_list_lines(state: &AppState, render_cols: u16) -> PaneContent {
         .errors
         .iter()
         .map(|entry| {
-            let title = if entry.title.len() > content_width.saturating_sub(10) {
-                format!(
-                    "[{}] {}…",
-                    entry.seq,
-                    &entry.title[..content_width.saturating_sub(13)]
-                )
+            let prefix = format!("[{}] ", entry.seq);
+            let remaining = content_width.saturating_sub(prefix.chars().count());
+            let title = if entry.title.chars().count() > remaining {
+                let truncated: String = entry
+                    .title
+                    .chars()
+                    .take(remaining.saturating_sub(1))
+                    .collect();
+                format!("{prefix}{truncated}…")
             } else {
-                format!("[{}] {}", entry.seq, entry.title)
+                format!("{prefix}{}", entry.title)
             };
             crate::list_viewport::fit_text_to_width(&title, content_width)
         })

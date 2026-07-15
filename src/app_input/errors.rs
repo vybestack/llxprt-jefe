@@ -35,8 +35,11 @@ pub(super) fn handle_errors_mode_key(
         KeyCode::Tab | KeyCode::Right => Some(AppEvent::ErrorsCycleFocus),
         // Left/Backtab: cycle focus reverse.
         KeyCode::BackTab | KeyCode::Left => Some(AppEvent::ErrorsCycleFocusReverse),
-        // Clear all errors.
-        KeyCode::Char('c') => Some(AppEvent::ErrorsClearAll),
+        // Ctrl-c: clear all errors (destructive — requires modifier like
+        // other destructive actions in this codebase).
+        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::ErrorsClearAll)
+        }
         // Scroll detail (j/k as vim-like aliases).
         KeyCode::Char('j') if focus == ErrorsFocus::ErrorDetail => {
             Some(AppEvent::ErrorsScrollDetailDown)

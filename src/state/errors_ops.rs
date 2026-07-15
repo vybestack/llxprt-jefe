@@ -163,7 +163,24 @@ impl AppState {
 /// error slots (global `error_message`, per-mode `issues_state.error`,
 /// `prs_state.error`, `actions_state.error`) and pushes a new entry into
 /// `errors_state` when the text changes. Deduplication is per-slot.
+///
+/// The timestamp is only allocated when at least one slot has changed, to
+/// avoid per-message heap allocation on the hot path.
 pub(super) fn capture_runtime_errors(state: &mut AppState) {
+    // Quick-change check: see if any slot differs from the last captured value.
+    let global_changed =
+        state.error_message.as_deref() != state.errors_state.last_captured_global_snapshot();
+    let issues_changed =
+        state.issues_state.error.as_deref() != state.errors_state.last_captured_issues_snapshot();
+    let prs_changed =
+        state.prs_state.error.as_deref() != state.errors_state.last_captured_prs_snapshot();
+    let actions_changed =
+        state.actions_state.error.as_deref() != state.errors_state.last_captured_actions_snapshot();
+
+    if !global_changed && !issues_changed && !prs_changed && !actions_changed {
+        return;
+    }
+
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| format!("{}", d.as_secs()))

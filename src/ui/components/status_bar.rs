@@ -58,9 +58,11 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
         format!("WARN: {warning}")
     } else if let Some(error) = &props.last_error {
         // Truncate to keep the single-line bar readable (issue #292).
-        let max_len = 50;
-        let display = if error.len() > max_len {
-            format!("{}…", &error[..max_len])
+        // Use char-based truncation to avoid splitting multi-byte UTF-8.
+        let max_chars = 50;
+        let display = if error.chars().count() > max_chars {
+            let truncated: String = error.chars().take(max_chars).collect();
+            format!("{truncated}…")
         } else {
             error.clone()
         };

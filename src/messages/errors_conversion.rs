@@ -52,15 +52,16 @@ impl ErrorsMessage {
 
     fn map_navigation(dir: NavDir) -> AppEvent {
         match dir {
-            NavDir::Up => AppEvent::ErrorsNavigateUp,
+            NavDir::Up | NavDir::Next | NavDir::Prev => AppEvent::ErrorsNavigateUp,
             NavDir::Down => AppEvent::ErrorsNavigateDown,
             NavDir::Home => AppEvent::ErrorsNavigateHome,
             NavDir::End => AppEvent::ErrorsNavigateEnd,
-            // Page/Next/Prev don't have dedicated error variants; map Up/Down
-            // as no-ops to keep the enum closed.
-            NavDir::PageUp(_) | NavDir::PageDown(_) | NavDir::Next | NavDir::Prev => {
-                AppEvent::ErrorsNavigateUp
-            }
+            // PageUp/PageDown scroll the detail pane in errors mode (the key
+            // handler maps PageUp/PageDown to scroll events directly, so these
+            // branches are only reached if Navigate(PageUp/Down) is constructed
+            // programmatically).
+            NavDir::PageUp(_) => AppEvent::ErrorsScrollDetailUp,
+            NavDir::PageDown(_) => AppEvent::ErrorsScrollDetailDown,
         }
     }
 
