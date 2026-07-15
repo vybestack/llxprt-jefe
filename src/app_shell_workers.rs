@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::warn;
+use tracing::{debug, warn};
 
 use jefe::domain::AgentId;
 use jefe::runtime::{HISTORY_LINE_CAP, RuntimeManager, capture_pane_history, strip_trailing_rows};
@@ -23,11 +23,11 @@ const PERSIST_POLL_MS: u64 = 50;
 /// offloads the durable write to `smol::unblock`. When no snapshot is
 /// pending, the loop yields immediately.
 pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) {
+    let Some(ctx_arc) = ctx.as_ref() else {
+        return;
+    };
     loop {
         smol::Timer::after(Duration::from_millis(PERSIST_POLL_MS)).await;
-        let Some(ctx_arc) = &ctx else {
-            continue;
-        };
         let handle_and_fn = {
             let Ok(ctx_guard) = ctx_arc.lock() else {
                 continue;
@@ -61,7 +61,12 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         .await;
         match result {
             Ok(()) => {
-                let _ = handle.commit(generation);
+                if !handle.commit(generation) {
+                    debug!(
+                        generation,
+                        "persist commit rejected (newer snapshot already committed)"
+                    );
+                }
             }
             Err(e) => {
                 warn!(error = %e, generation, "background persist failed; not committing generation");
@@ -80,11 +85,11 @@ const CAPTURE_POLL_MS: u64 = 50;
 /// only if the `(agent_id, generation)` still matches the currently attached
 /// session (stale-result guard).
 pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) {
+    let Some(ctx_arc) = ctx.as_ref() else {
+        return;
+    };
     loop {
         smol::Timer::after(Duration::from_millis(CAPTURE_POLL_MS)).await;
-        let Some(ctx_arc) = &ctx else {
-            continue;
-        };
         let capture_request = {
             let Ok(ctx_guard) = ctx_arc.lock() else {
                 continue;

@@ -66,14 +66,18 @@ pub fn capture_session_output(
 /// render frame: re-capture only when `take_dirty()` returns true (new PTY
 /// data) or the attached session changes.
 pub fn capture_history(mgr: &mut TmuxRuntimeManager) -> Option<Vec<String>> {
-    let agent_id = mgr.attached_agent_id.clone()?;
-    let session = mgr.sessions.get(&agent_id)?;
-    let session_name = session.session_name.clone();
-
-    // Remote sessions do not support local capture-pane history.
-    if session.launch_signature.remote.enabled {
-        return None;
-    }
+    let agent_id = mgr.attached_agent_id.as_ref()?;
+    let session_name = {
+        let session = mgr.sessions.get(agent_id)?;
+        // Clone is required: session_name outlives the sessions borrow
+        // because subsequent calls (output_generation, snapshot,
+        // history_cache.store) borrow mgr through other fields.
+        let name = session.session_name.clone();
+        if session.launch_signature.remote.enabled {
+            return None;
+        }
+        name
+    };
 
     // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
     // The generation counter increments on take_dirty(). Also treat a

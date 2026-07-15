@@ -293,6 +293,13 @@ impl TmuxRuntimeManager {
     }
 
     /// Allocate the next lifecycle generation (issue #301 Phase 4).
+    ///
+    /// Uses `Relaxed` ordering: all reads and writes of
+    /// `lifecycle_counter` and individual session `lifecycle_generation`
+    /// fields occur while holding the `TmuxRuntimeManager` `&mut self`
+    /// borrow (i.e., under the `AppContext` mutex). The atomic is used
+    /// only to obtain a monotonically increasing counter without a
+    /// `Cell`; the mutex provides the happens-before guarantees.
     #[must_use]
     fn next_lifecycle_generation(&self) -> u64 {
         self.lifecycle_counter.fetch_add(1, Ordering::Relaxed) + 1
