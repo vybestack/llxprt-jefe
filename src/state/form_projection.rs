@@ -180,8 +180,8 @@ pub fn is_repository_field_visible(
 ) -> bool {
     use crate::state::RepositoryFormFocus as F;
     match focus {
-        F::DefaultCodePuppyModel => kind == AgentKind::CodePuppy,
-        F::DefaultLlxprtVersion => kind == AgentKind::Llxprt,
+        F::DefaultCodePuppyModel | F::DefaultCodePuppyYolo => kind == AgentKind::CodePuppy,
+        F::DefaultLlxprtMode | F::DefaultLlxprtVersion => kind == AgentKind::Llxprt,
         _ => true,
     }
 }
@@ -365,6 +365,10 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultAgentKind, AgentKind::Llxprt),
+            R::DefaultLlxprtMode
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultLlxprtMode, AgentKind::Llxprt),
             R::DefaultLlxprtVersion
         );
         assert_eq!(
@@ -377,6 +381,10 @@ mod tests {
         );
         assert_eq!(
             prev_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
+            R::DefaultLlxprtMode
+        );
+        assert_eq!(
+            prev_visible_repository_focus(R::DefaultLlxprtMode, AgentKind::Llxprt),
             R::DefaultAgentKind
         );
         assert_eq!(
@@ -403,6 +411,10 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
+            R::DefaultCodePuppyYolo
+        );
+        assert_eq!(
+            next_visible_repository_focus(R::DefaultCodePuppyYolo, AgentKind::CodePuppy),
             R::TransientAgentDir
         );
         assert_eq!(

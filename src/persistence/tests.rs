@@ -308,6 +308,7 @@ fn test_issue_base_prompt_state_round_trip() {
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         transient_agent_dir: PathBuf::new(),
         default_code_puppy_yolo: None,
+        default_llxprt_mode_flags: Vec::new(),
         transient_max_concurrent: 0,
         agent_ids: vec![],
         default_llxprt_version: None,

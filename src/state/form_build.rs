@@ -186,6 +186,7 @@ impl AppState {
                 .unwrap_or_default(),
             transient_agent_dir: parse_transient_agent_dir(&fields.transient_agent_dir),
             default_code_puppy_yolo: fields.default_code_puppy_yolo.then_some(true),
+            default_llxprt_mode_flags: parse_mode_flags(&fields.default_llxprt_mode),
             transient_max_concurrent: parse_transient_max_concurrent(
                 &fields.transient_max_concurrent,
             ),
@@ -223,6 +224,7 @@ impl AppState {
             .trim()
             .clone_into(&mut repo.default_code_puppy_model);
         repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
+        repo.default_llxprt_mode_flags = parse_mode_flags(&fields.default_llxprt_mode);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         repo.default_llxprt_version =
@@ -342,6 +344,10 @@ impl AppState {
         agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
     }
 }
+fn parse_mode_flags(value: &str) -> Vec<String> {
+    value.split_whitespace().map(str::to_owned).collect()
+}
+
 /// Parse the transient agent directory from form input (issue #213).
 ///
 /// An empty or whitespace-only string yields an empty `PathBuf` (meaning
