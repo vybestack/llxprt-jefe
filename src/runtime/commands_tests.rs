@@ -6,6 +6,7 @@ use crate::domain::SandboxEngine;
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 #[cfg(unix)]
 use std::process::Stdio;
+#[cfg(unix)]
 use std::time::Duration;
 #[test]
 fn remote_attach_plan_uses_direct_ssh_and_excludes_local_psmux_namespace() {
