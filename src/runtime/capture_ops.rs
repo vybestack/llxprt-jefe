@@ -85,14 +85,14 @@ pub fn capture_history(mgr: &mut TmuxRuntimeManager) -> Option<Vec<String>> {
     // not serve stale lines before take_dirty() bumps the generation.
     let generation = mgr.output_generation();
     let is_currently_dirty = mgr.is_dirty();
-    if !is_currently_dirty && let Some(cached) = mgr.history_cache.get(&agent_id, generation) {
+    if !is_currently_dirty && let Some(cached) = mgr.history_cache.get(agent_id, generation) {
         return Some(cached.clone());
     }
 
     // Cache miss / dirty: re-capture. On transient failure, return prior
     // cache so a momentary tmux hiccup doesn't wipe retained history.
     let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP) else {
-        if let Some(prior) = mgr.history_cache.get_fallback(&agent_id) {
+        if let Some(prior) = mgr.history_cache.get_fallback(agent_id) {
             debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
             return Some(prior.clone());
         }
@@ -111,7 +111,7 @@ pub fn capture_history(mgr: &mut TmuxRuntimeManager) -> Option<Vec<String>> {
     // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
     // capture not applicable").
     mgr.history_cache
-        .store(&agent_id, generation, Some(lines.clone()));
+        .store(agent_id, generation, Some(lines.clone()));
 
     Some(lines)
 }

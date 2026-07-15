@@ -57,7 +57,6 @@ impl TmuxRuntimeManager {
     /// The caller must have validated that `agent_id` is still the desired
     /// target before calling this. Drops any existing viewer on a background
     /// thread and marks the old session as detached.
-    #[must_use]
     pub fn apply_attach_result(
         &mut self,
         agent_id: &AgentId,
