@@ -369,11 +369,11 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
-            R::GitHubRepo
+            R::TransientAgentDir
         );
         assert_eq!(
             prev_visible_repository_focus(R::GitHubRepo, AgentKind::Llxprt),
-            R::DefaultLlxprtVersion
+            R::TransientMaxConcurrent
         );
         assert_eq!(
             prev_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
@@ -403,11 +403,11 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
-            R::GitHubRepo
+            R::TransientAgentDir
         );
         assert_eq!(
             prev_visible_repository_focus(R::GitHubRepo, AgentKind::CodePuppy),
-            R::DefaultAgentKind
+            R::TransientMaxConcurrent
         );
         assert_eq!(
             prev_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),

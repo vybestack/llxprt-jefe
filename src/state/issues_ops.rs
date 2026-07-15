@@ -560,10 +560,11 @@ impl AppState {
                 }
             }
             AppEvent::AgentChooserNavigateDown => {
-                if let Some(chooser) = &mut self.issues_state.agent_chooser
-                    && chooser.selected_index + 1 < chooser.agents.len()
-                {
-                    chooser.selected_index += 1;
+                if let Some(chooser) = &mut self.issues_state.agent_chooser {
+                    let max = chooser.agents.len() + usize::from(chooser.transient_available);
+                    if max > 0 && chooser.selected_index + 1 < max {
+                        chooser.selected_index += 1;
+                    }
                 }
             }
             AppEvent::AgentChooserConfirm
@@ -586,7 +587,8 @@ impl AppState {
     fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let repo_id = self.selected_repository_id().cloned();
         let entries = super::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
-        if entries.is_empty() {
+        let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
+        if entries.is_empty() && !transient_available {
             self.issues_state.agent_chooser = None;
             self.issues_state.draft_notice = Some("No agents available".to_string());
         } else {
@@ -594,6 +596,7 @@ impl AppState {
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
                 agents: entries,
+                transient_available,
             });
         }
     }

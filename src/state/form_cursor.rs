@@ -16,15 +16,12 @@ pub(super) fn handle_repository_field_char(
     c: char,
 ) -> bool {
     match focus {
-        RepositoryFormFocus::Name => {
-            cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
-        }
+        RepositoryFormFocus::Name => insert_repository_char(&mut fields.name, &mut cursor.name, c),
         RepositoryFormFocus::BaseDir => {
-            cursor.base_dir = insert_char_at(&mut fields.base_dir, cursor.base_dir, c);
+            insert_repository_char(&mut fields.base_dir, &mut cursor.base_dir, c);
         }
         RepositoryFormFocus::DefaultProfile => {
-            cursor.default_profile =
-                insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
+            insert_repository_char(&mut fields.default_profile, &mut cursor.default_profile, c);
         }
         RepositoryFormFocus::DefaultCodePuppyModel => insert_repository_char(
             &mut fields.default_code_puppy_model,
@@ -37,35 +34,41 @@ pub(super) fn handle_repository_field_char(
             c,
         ),
         RepositoryFormFocus::GitHubRepo => {
-            cursor.github_repo = insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
+            insert_repository_char(&mut fields.github_repo, &mut cursor.github_repo, c);
         }
-        RepositoryFormFocus::IssuePrRepo => {
-            cursor.github_issue_pr_repo = insert_char_at(
-                &mut fields.github_issue_pr_repo,
-                cursor.github_issue_pr_repo,
-                c,
-            );
-        }
+        RepositoryFormFocus::IssuePrRepo => insert_repository_char(
+            &mut fields.github_issue_pr_repo,
+            &mut cursor.github_issue_pr_repo,
+            c,
+        ),
         RepositoryFormFocus::LoginUser => {
-            cursor.login_user = insert_char_at(&mut fields.login_user, cursor.login_user, c);
+            insert_repository_char(&mut fields.login_user, &mut cursor.login_user, c);
         }
-        RepositoryFormFocus::Host => {
-            cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
-        }
+        RepositoryFormFocus::Host => insert_repository_char(&mut fields.host, &mut cursor.host, c),
         RepositoryFormFocus::SshPort => {
-            cursor.ssh_port = insert_char_at(&mut fields.ssh_port, cursor.ssh_port, c);
+            insert_repository_char(&mut fields.ssh_port, &mut cursor.ssh_port, c);
         }
         RepositoryFormFocus::IdentityFile => {
-            cursor.identity_file =
-                insert_char_at(&mut fields.identity_file, cursor.identity_file, c);
+            insert_repository_char(&mut fields.identity_file, &mut cursor.identity_file, c);
         }
         RepositoryFormFocus::SshOptions => {
-            cursor.ssh_options = insert_char_at(&mut fields.ssh_options, cursor.ssh_options, c);
+            insert_repository_char(&mut fields.ssh_options, &mut cursor.ssh_options, c);
         }
         RepositoryFormFocus::RunAsUser => {
-            cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
+            insert_repository_char(&mut fields.run_as_user, &mut cursor.run_as_user, c);
         }
+        RepositoryFormFocus::TransientAgentDir => insert_repository_char(
+            &mut fields.transient_agent_dir,
+            &mut cursor.transient_agent_dir,
+            c,
+        ),
+        RepositoryFormFocus::TransientMaxConcurrent => insert_repository_char(
+            &mut fields.transient_max_concurrent,
+            &mut cursor.transient_max_concurrent,
+            c,
+        ),
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {
             return c == ' ' || c == 'x' || c == 'X';
@@ -81,6 +84,7 @@ pub(super) fn move_repository_field_cursor_right(
 ) {
     match focus {
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_right(&fields.name, cursor.name),
@@ -125,6 +129,16 @@ pub(super) fn move_repository_field_cursor_right(
         }
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
+        }
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir =
+                move_cursor_right(&fields.transient_agent_dir, cursor.transient_agent_dir);
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_right(
+                &fields.transient_max_concurrent,
+                cursor.transient_max_concurrent,
+            );
         }
     }
 }
@@ -192,6 +206,7 @@ pub(super) fn move_repository_field_cursor_left(
 ) {
     match focus {
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_left(cursor.name),
@@ -221,6 +236,12 @@ pub(super) fn move_repository_field_cursor_left(
             cursor.ssh_options = move_cursor_left(cursor.ssh_options);
         }
         RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_left(cursor.run_as_user),
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir = move_cursor_left(cursor.transient_agent_dir);
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_left(cursor.transient_max_concurrent);
+        }
     }
 }
 

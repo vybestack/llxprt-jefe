@@ -134,6 +134,9 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+    let chooser_transient_available = agent_chooser
+        .as_ref()
+        .is_some_and(|c| c.transient_available);
 
     // Merge chooser overlay (issue #92)
     let merge_chooser = state.and_then(|s| s.prs_state.merge_chooser.clone());
@@ -203,6 +206,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 version: crate::VERSION.to_owned(),
                 kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
+                last_error: state.and_then(AppState::last_error_title),
                 colors: colors.clone(),
                 selection: selection,
             )
@@ -316,6 +320,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                 AgentChooser(
                                     visible: true,
                                     agents: chooser_agents.clone(),
+                                    transient_available: chooser_transient_available,
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
                                     selection: selection,
@@ -385,6 +390,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
                 terminal_focused: false,
                 actions_focus: None,
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )
         }

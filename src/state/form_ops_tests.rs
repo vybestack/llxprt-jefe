@@ -336,6 +336,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        origin: crate::domain::AgentOrigin::Persistent,
         llxprt_version: None,
     };
 
@@ -389,6 +390,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        origin: crate::domain::AgentOrigin::Persistent,
         llxprt_version: None,
     };
     let fields = AgentFormFields {
@@ -426,9 +428,12 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion
-    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → DefaultAgentKind
-    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
+    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → TransientAgentDir
+    state = state.apply(AppEvent::FormNextField); // TransientAgentDir → DefaultCodePuppyYolo
+    state = state.apply(AppEvent::FormNextField); // DefaultCodePuppyYolo → TransientMaxConcurrent
+    state = state.apply(AppEvent::FormNextField); // TransientMaxConcurrent → GitHubRepo
     state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
     state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled

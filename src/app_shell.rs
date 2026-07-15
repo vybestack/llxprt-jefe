@@ -367,6 +367,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     // Handle quit.
     if should_quit.get() {
+        // Clean up transient agent work directories before exit (issue #213).
+        {
+            let state = app_state.read();
+            crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
+        }
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
         crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());

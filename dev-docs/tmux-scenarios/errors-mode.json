@@ -1,0 +1,20 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 24,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "e" },
+    { "waitFor": "Errors" },
+    { "expect": "No errors recorded" },
+    { "expect": "Esc exit" },
+    { "key": "Escape" },
+    { "waitForNot": "No errors recorded" },
+    { "keys": ["q", "q", "q"] },
+    { "waitForExit": 3000 }
+  ]
+}

@@ -276,6 +276,7 @@ pub enum ScreenMode {
     /// @pseudocode component-001 lines 66-76
     DashboardPullRequests,
     DashboardActions,
+    DashboardErrors,
 }
 
 /// Pane focus within a view.
@@ -378,6 +379,10 @@ pub struct AppState {
     /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
     pub actions_state: ActionsState,
 
+    /// Errors-mode state (runtime-only — omitted from persisted DTO).
+    /// Captures the last N errors for the dedicated errors panel (issue #292).
+    pub errors_state: super::ErrorsState,
+
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
 
@@ -437,6 +442,10 @@ pub struct AppState {
     /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
     /// #179). settings.toml is the source of truth; the render path reads this.
     pub override_agent_theme: bool,
+
+    /// Pending transient-agent sends queued because max_concurrent is reached
+    /// (issue #213). Runtime-only — never persisted.
+    pub transient_queue: TransientAgentQueue,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -516,10 +525,50 @@ pub enum EditorTarget {
 /// The `agents` vector carries typed [`AgentChooserEntry`] snapshots built at
 /// the `app_input` boundary (where git probing is permitted). Reducers only
 /// validate non-emptiness and open/close/navigate — they never execute git.
+///
+/// When `transient_available` is true, an additional "Transient Agent" entry
+/// appears after all regular agents at index `agents.len()` (issue #213).
+/// Navigation bounds become `agents.len() + transient_available as usize`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentChooserState {
     pub selected_index: usize,
     pub agents: Vec<crate::domain::AgentChooserEntry>,
+    /// Whether the transient-agent slot is available (issue #213).
+    pub transient_available: bool,
+}
+
+/// What to send to a transient agent (issue #213).
+///
+/// Mirrors the issue/PR send paths: the payload is the same `SendPayload` /
+/// `PrSendPayload` that the regular send orchestration consumes.
+#[derive(Debug, Clone)]
+pub enum TransientPayload {
+    Issue {
+        payload: crate::github::SendPayload,
+    },
+    PullRequest {
+        payload: crate::github::PrSendPayload,
+    },
+}
+
+/// A queued transient agent send waiting for a slot (issue #213).
+///
+/// When `transient_max_concurrent` is reached, the send context is captured
+/// here and replayed when a running transient agent completes.
+#[derive(Debug, Clone)]
+pub struct QueuedTransientSend {
+    pub repository_id: RepositoryId,
+    pub work_dir: std::path::PathBuf,
+    pub launch_signature: LaunchSignature,
+    pub payload: TransientPayload,
+}
+
+/// Queue of pending transient agent sends (issue #213).
+///
+/// Runtime-only — never persisted.
+#[derive(Debug, Clone, Default)]
+pub struct TransientAgentQueue {
+    pub pending: Vec<QueuedTransientSend>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

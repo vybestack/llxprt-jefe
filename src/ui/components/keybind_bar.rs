@@ -18,6 +18,9 @@ pub struct KeybindBarProps {
     pub terminal_focused: bool,
     /// Active Actions pane when Actions mode is rendered.
     pub actions_focus: Option<ActionsFocus>,
+    /// Process-identity label (pid + commit) shown in the lower-right corner
+    /// (issue #223).
+    pub identity_label: String,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -60,6 +63,9 @@ pub fn keybind_hints_for(
                 "^/v jobs | Enter/Right expand | Left collapse | Esc collapse/back | PgUp/PgDn scroll | Tab pane | ? help"
             }
         },
+        ScreenMode::DashboardErrors => {
+            "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | Ctrl-C clear | Esc exit"
+        }
     }
 }
 
@@ -76,12 +82,19 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
 
     element! {
         Box(
+            flex_direction: FlexDirection::Row,
             width: 100pct,
             height: 1u32,
             background_color: rc.fg,
+            justify_content: JustifyContent::SpaceBetween,
             padding_left: 1u32,
+            padding_right: 1u32,
         ) {
+            // Left: keybind hints
             Text(content: hints, color: rc.bg)
+
+            // Right: process identity (pid + commit) — issue #223
+            Text(content: props.identity_label.clone(), color: rc.bg)
         }
     }
 }
@@ -134,6 +147,7 @@ mod tests {
                     screen_mode: ScreenMode::DashboardActions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::RunList),
+                    identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
             }
@@ -159,6 +173,7 @@ mod tests {
                     screen_mode: ScreenMode::DashboardActions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::Detail),
+                    identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
             }
@@ -172,5 +187,37 @@ mod tests {
 
         assert!(rendered.contains("PgUp/PgDn scroll"));
         assert!(rendered.contains("? help"));
+    }
+
+    #[test]
+    fn keybind_bar_renders_identity_label_in_lower_right() {
+        let identity = "pid:99999 deadbeef".to_string();
+        // Use a width wide enough for the hints + identity in any screen mode.
+        let mut element = element! {
+            Box(width: 300u32, height: 1u32) {
+                KeybindBar(
+                    screen_mode: ScreenMode::Dashboard,
+                    terminal_focused: false,
+                    actions_focus: None,
+                    identity_label: identity.clone(),
+                    colors: ThemeColors::default(),
+                )
+            }
+        };
+        let canvas = element.render(Some(300));
+        let mut output = Vec::new();
+        canvas
+            .write_ansi(&mut output)
+            .unwrap_or_else(|error| panic!("render keybind bar: {error}"));
+        let rendered = String::from_utf8_lossy(&output);
+
+        assert!(
+            rendered.contains(&identity),
+            "keybind bar must render the identity label: {rendered}"
+        );
+        assert!(
+            rendered.contains("pid:"),
+            "keybind bar must show the pid marker: {rendered}"
+        );
     }
 }

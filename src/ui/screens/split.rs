@@ -99,6 +99,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 version: crate::VERSION.to_owned(),
                 kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
+                last_error: state.and_then(AppState::last_error_title),
                 colors: colors.clone(),
                 selection: selection,
             )
@@ -136,6 +137,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 screen_mode: ScreenMode::Split,
                 terminal_focused: false,
                 actions_focus: None,
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
             )
         }

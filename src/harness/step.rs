@@ -37,6 +37,8 @@ pub enum Step {
     WaitForNot { pattern: String },
     /// Assert that `pattern` is currently on screen.
     Expect { pattern: String },
+    /// Assert that a full-width line ends with `pattern` at the right edge.
+    ExpectRightEdge { pattern: String },
     /// Assert that `pattern` appears exactly `count` times.
     ExpectCount { pattern: String, count: u32 },
     /// Capture the current screen under `name`.
@@ -67,9 +69,9 @@ impl Step {
             Self::Keys { keys } => validate_keys(keys),
             Self::WaitFor { pattern } => reject_empty("waitFor", pattern),
             Self::WaitForNot { pattern } => reject_empty("waitForNot", pattern),
-            Self::Expect { pattern } | Self::ExpectCount { pattern, .. } => {
-                reject_empty("expect", pattern)
-            }
+            Self::Expect { pattern }
+            | Self::ExpectRightEdge { pattern }
+            | Self::ExpectCount { pattern, .. } => reject_empty("expect", pattern),
             Self::Capture { name }
             | Self::HistorySample { name }
             | Self::ExpectHistoryDelta { name } => reject_empty("capture name", name),
@@ -130,6 +132,7 @@ enum StepCore {
     WaitFor(String),
     WaitForNot(String),
     Expect(String),
+    ExpectRightEdge(String),
     ExpectCount(String),
     Capture(String),
     HistorySample(String),
@@ -185,6 +188,9 @@ impl StepParts {
             StepCore::Expect(pattern) => {
                 no_aux(count, args.as_ref()).map(|()| Step::Expect { pattern })
             }
+            StepCore::ExpectRightEdge(pattern) => {
+                no_aux(count, args.as_ref()).map(|()| Step::ExpectRightEdge { pattern })
+            }
             StepCore::ExpectCount(pattern) => finish_expect_count(pattern, count, args),
             StepCore::Capture(name) => {
                 no_aux(count, args.as_ref()).map(|()| Step::Capture { name })
@@ -218,6 +224,7 @@ where
         "waitFor" => set_core(map, parts, &key, StepCore::WaitFor)?,
         "waitForNot" => set_core(map, parts, &key, StepCore::WaitForNot)?,
         "expect" => set_core(map, parts, &key, StepCore::Expect)?,
+        "expectRightEdge" => set_core(map, parts, &key, StepCore::ExpectRightEdge)?,
         "expectCount" => set_core(map, parts, &key, StepCore::ExpectCount)?,
         "capture" => set_core(map, parts, &key, StepCore::Capture)?,
         "historySample" => set_core(map, parts, &key, StepCore::HistorySample)?,

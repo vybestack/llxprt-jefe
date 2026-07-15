@@ -5,6 +5,7 @@
 
 mod actions;
 mod dashboard;
+mod errors;
 mod issues;
 mod new_agent;
 mod new_repository;
@@ -17,6 +18,7 @@ mod workflow_dispatch;
 
 pub use actions::{ActionsScreen, ActionsScreenProps};
 pub use dashboard::{Dashboard, DashboardProps};
+pub use errors::{ErrorsScreen, ErrorsScreenProps};
 pub use issues::{IssuesScreen, IssuesScreenProps};
 pub use new_agent::{NewAgentForm, NewAgentFormProps};
 pub use new_repository::{NewRepositoryForm, NewRepositoryFormProps};

@@ -38,6 +38,14 @@ use super::{
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    // Check if the transient slot is selected BEFORE resolving send info
+    // (issue #213). The transient slot is at index agents.len() when
+    // transient_available is true.
+    if super::transient_issue_send::is_transient_slot_selected_issues(app_state) {
+        super::transient_issue_send::dispatch_transient_issue_send(app_state, ctx);
+        return;
+    }
+
     let send_info = issue_send_info(app_state);
     apply_and_persist(app_state, ctx, AppEvent::AgentChooserConfirm);
 
@@ -483,7 +491,7 @@ pub(super) fn issue_send_info_from_state(state: &AppState) -> Option<IssueSendIn
     })
 }
 
-fn focused_issue_comment(
+pub(super) fn focused_issue_comment(
     state: &AppState,
     detail: &jefe::domain::IssueDetail,
 ) -> Option<jefe::domain::IssueComment> {
@@ -507,7 +515,7 @@ fn clone_identity_for_agent(
     identity
 }
 
-fn launch_issue_agent(
+pub(super) fn launch_issue_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
@@ -554,7 +562,7 @@ fn launch_issue_agent(
 /// Apply a deterministic [`IssueAssignmentAction`] at the orchestration
 /// boundary: spawn the background assignment, surface a non-blocking warning,
 /// or do nothing. Shared by the direct and post-preflight paths (issue #186).
-fn apply_assignment_action(
+pub(super) fn apply_assignment_action(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     action: IssueAssignmentAction,
@@ -572,7 +580,7 @@ fn apply_assignment_action(
     }
 }
 
-fn spawn_and_attach_fresh_for_issue(
+pub(super) fn spawn_and_attach_fresh_for_issue(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &Path,
@@ -602,7 +610,7 @@ fn spawn_and_attach_fresh_for_issue(
     result
 }
 
-fn persist_issue_agent_launch_success(
+pub(super) fn persist_issue_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
@@ -626,7 +634,11 @@ fn persist_issue_agent_launch_success(
     mark_agent_runtime_attached(state, agent_id, true);
 }
 
-fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
+pub(super) fn apply_send_to_agent_failed(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    error: String,
+) {
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed { error });
     let persisted = to_persisted_state(&state);

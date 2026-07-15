@@ -7,7 +7,9 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::screens::{ActionsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen};
+use crate::ui::screens::{
+    ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen,
+};
 use crate::ui::{
     AuthModal, ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
     WorkflowDispatchForm,
@@ -239,6 +241,14 @@ pub fn build_screen_element(
         .into_any(),
         ScreenMode::DashboardActions => element! {
             ActionsScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
+            )
+        }
+        .into_any(),
+        ScreenMode::DashboardErrors => element! {
+            ErrorsScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),

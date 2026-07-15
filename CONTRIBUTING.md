@@ -93,6 +93,15 @@ namespace-scoped cleanup. Failure diagnostics are written beneath
   merge.
 - Squash-merge or rebase-merge to `main`. Delete the feature branch after merge.
 
+## Code review demand
+
+Keep active work in a draft PR (or use the documented WIP markers), run the
+required exact-head local gate, and push that verified head before marking the
+PR ready and adding the `review-ready` label. The
+[CodeRabbit review-demand policy](dev-docs/code-review-demand.md) defines the
+explicit trigger, automatic-review limits, deliberate manual reruns,
+reviewed-head coverage, and immutable measurement events.
+
 ## Standards
 
 The authoritative standards live under [`dev-docs/standards/`](dev-docs/standards/):

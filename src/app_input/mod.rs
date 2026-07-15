@@ -46,6 +46,8 @@ mod prs_orchestration;
 
 mod actions;
 mod actions_orchestration;
+// Errors-mode key dispatch (issue #292).
+mod errors;
 // In-app device-code auth remediation dispatch (issue #244).
 mod auth_remediation;
 mod gh_async;
@@ -62,6 +64,10 @@ mod issues_send;
 mod remote_probe;
 mod target_resolution;
 mod tracker_resolver;
+pub mod transient_cleanup;
+mod transient_issue_send;
+mod transient_pr_send;
+mod transient_queue_ops;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
@@ -191,14 +197,46 @@ fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
     Some(ctx_guard.gh_client)
 }
 pub fn to_persisted_state(state: &AppState) -> PersistedState {
+    // Transient agents are runtime-only — never persisted to state.json
+    // (issue #213). Filter them out and project selection metadata onto the
+    // remaining persistent-agent collection so no transient index/ID lingers.
+    let persistent_agents: Vec<_> = state
+        .agents
+        .iter()
+        .filter(|a| !a.is_transient())
+        .cloned()
+        .collect();
+
+    // Recompute selected_agent_index by tracking the originally-selected
+    // agent's ID through the filter: if it was transient, clear; otherwise
+    // find its new index in the persistent list (issue #213 OCR fix).
+    let selected_agent_index = state.selected_agent_index.and_then(|idx| {
+        let original = state.agents.get(idx)?;
+        if original.is_transient() {
+            return None;
+        }
+        persistent_agents.iter().position(|a| a.id == original.id)
+    });
+
+    // Filter last_selected_agent_by_repo: remove entries whose agent ID
+    // belonged to a transient agent (no longer in persistent_agents).
+    let persistent_agent_ids: std::collections::HashSet<_> =
+        persistent_agents.iter().map(|a| a.id.clone()).collect();
+    let last_selected_agent_by_repo: Vec<_> = state
+        .last_selected_agent_by_repo
+        .iter()
+        .filter(|(_, agent_id)| persistent_agent_ids.contains(agent_id))
+        .cloned()
+        .collect();
+
     PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
         repositories: state.repositories.clone(),
-        agents: state.agents.clone(),
+        agents: persistent_agents,
         selected_repository_index: state.selected_repository_index,
-        selected_agent_index: state.selected_agent_index,
+        selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
-        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        last_selected_agent_by_repo,
         pane_focus: pane_focus_to_persisted(state.pane_focus),
         terminal_focused: state.terminal_focused,
         user_preferences: state.user_preferences.clone(),
@@ -230,6 +268,28 @@ fn launch_signature_for_agent(
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
         llxprt_version: agent.llxprt_version.clone(),
+    }
+}
+
+pub fn launch_signature_for_transient(
+    repository: &Repository,
+    work_dir: &std::path::Path,
+) -> LaunchSignature {
+    LaunchSignature {
+        work_dir: work_dir.to_path_buf(),
+        profile: repository.default_profile.clone(),
+        code_puppy_model: repository.default_code_puppy_model.trim().to_owned(),
+        code_puppy_yolo: repository.default_code_puppy_yolo,
+        code_puppy_quick_resume: false,
+        mode_flags: Vec::new(),
+        llxprt_debug: String::new(),
+        pass_continue: false,
+        sandbox_enabled: false,
+        sandbox_engine: jefe::domain::SandboxEngine::default(),
+        sandbox_flags: String::new(),
+        remote: repository.remote.clone(),
+        agent_kind: repository.default_agent_kind,
+        llxprt_version: repository.default_llxprt_version.clone(),
     }
 }
 
@@ -615,6 +675,14 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
+        AppMessage::Runtime(RuntimeMessage::AgentStatusChanged(agent_id, status)) => {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::AgentStatusChanged(agent_id, status),
+            );
+            transient_queue_ops::drain_transient_queue(app_state, ctx);
+        }
         AppMessage::Issues(message) => {
             issues_dispatch::dispatch_issues_message(app_state, ctx, message);
         }
@@ -709,91 +777,8 @@ fn log_dispatch(message: &AppMessage) {
     );
 }
 
-fn dispatch_kill_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-        warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
-        persist_error_message(app_state, ctx, error);
-        return;
-    }
-
-    let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
-    state.terminal_focused = false;
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn kill_runtime_agent(ctx: &SharedContext, agent_id: &AgentId) -> Result<(), String> {
-    let Some(ctx_arc) = ctx else {
-        return Ok(());
-    };
-    match ctx_arc.lock() {
-        Ok(mut ctx_guard) => ctx_guard.runtime.kill(agent_id).map_err(|e| e.to_string()),
-        Err(error) => Err(format!("application context lock poisoned: {error}")),
-    }
-}
-
-fn persist_error_message(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
-    let mut state = app_state.write();
-    state.error_message = Some(error);
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-/// Restart an agent: kill, wait for session teardown, then relaunch with fresh
-/// config/env (issue #117). Surfaces an error if any step fails.
-fn dispatch_restart_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    // Only kill if the agent is currently running; dead agents skip straight
-    // to relaunch (tolerating Ctrl-r on already-dead agents).
-    let state = app_state.read();
-    let agent_is_running = state
-        .agents
-        .iter()
-        .find(|agent| agent.id == agent_id)
-        .is_some_and(jefe::domain::Agent::is_running);
-    let signature = agent_and_signature(&state, &agent_id).map(|(_, signature)| signature);
-    drop(state);
-    if let Some(signature) = signature {
-        if !availability::launch_available_or_error(
-            app_state,
-            signature.agent_kind,
-            signature.llxprt_version.as_ref(),
-            &signature.remote,
-        ) {
-            return;
-        }
-        if let Err(error) = jefe::runtime::require_npm_package_available(&signature) {
-            persist_error_message(app_state, ctx, error.to_string());
-            return;
-        }
-    }
-
-    if agent_is_running {
-        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
-            persist_error_message(app_state, ctx, error);
-            return;
-        }
-
-        // Apply kill state transition so the UI reflects the kill immediately.
-        {
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
-            state.terminal_focused = false;
-            let persisted = to_persisted_state(&state);
-            drop(state);
-            persist_state(ctx, &persisted);
-        }
-
-        // Wait for session teardown before relaunching (issue says 1-2s).
-        std::thread::sleep(Duration::from_millis(1500));
-    }
-
-    // Relaunch with fresh config (reuses existing relaunch plumbing).
-    dispatch_relaunch_agent(app_state, ctx, agent_id);
-}
+mod agent_lifecycle_ops;
+use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_restart_agent};
 
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
@@ -841,3 +826,8 @@ mod prs_dispatch_tests;
 #[cfg(test)]
 #[path = "issue266_tracker_tests.rs"]
 mod issue266_tracker_tests;
+
+// Transient agent persistence tests (issue #213).
+#[cfg(test)]
+#[path = "transient_persistence_tests.rs"]
+mod transient_persistence_tests;
