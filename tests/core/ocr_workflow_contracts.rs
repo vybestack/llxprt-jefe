@@ -4,7 +4,9 @@
 //! present in `.github/workflows/ocr-review.yml` without weakening any quality
 //! rules or adding suppressions. They read the workflow as text (the same
 //! approach used by `tmux_harness_docs_contracts`) and assert that each
-//! acceptance criterion is structurally wired.
+//! acceptance criterion is structurally wired. Assertions are scoped to
+//! specific named step bodies so comments or unrelated steps cannot satisfy
+//! a contract check.
 
 use std::path::{Path, PathBuf};
 
@@ -20,23 +22,73 @@ fn repo_path(relative_path: impl AsRef<Path>) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path.as_ref())
 }
 
+/// Extract the body of a single named workflow step, starting from the
+/// `- name: <step_name>` line until the next top-level `- name:` or
+/// step-level key at the same indentation. This isolates assertions so
+/// comments or content from unrelated steps cannot satisfy a contract.
+fn step_body(content: &str, step_name: &str) -> String {
+    let needle = format!("- name: {step_name}");
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| l.trim() == needle)
+        .unwrap_or_else(|| panic!("step '{step_name}' not found in workflow"));
+
+    // The first line after `- name:` determines the indentation of step
+    // child keys (typically 8 spaces for steps under jobs.<id>.steps).
+    let step_indent = lines
+        .get(start + 1)
+        .map_or(8, |l| l.len() - l.trim_start().len());
+
+    let mut body = String::new();
+    body.push_str(lines[start]);
+    body.push('\n');
+
+    for line in &lines[start + 1..] {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        // Stop at the next step (`- name:` at the same indentation as the
+        // enclosing steps list) or at a key at a lower indentation (like
+        // the job-level `- name: Notify...` or a new job header).
+        if indent < step_indent && !trimmed.starts_with('#') {
+            break;
+        }
+        if indent == step_indent && trimmed.starts_with("- name:") {
+            break;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    body
+}
+
 // ---------------------------------------------------------------------------
 // Criterion 1: single exact OCR version source
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ocr_version_is_declared_as_single_source() {
+fn ocr_version_is_declared_exactly_once() {
     let content = read_workflow();
-    let line = content
+    // Count non-comment lines declaring OCR_VERSION — exactly one.
+    let declarations: Vec<&str> = content
         .lines()
-        .find(|l| l.trim().starts_with("OCR_VERSION:"))
-        .unwrap_or_else(|| {
-            panic!("Workflow must declare OCR_VERSION as the single version source")
-        });
-    let raw_value = line
+        .filter(|l| {
+            let trimmed = l.trim();
+            trimmed.starts_with("OCR_VERSION:") && !trimmed.starts_with('#')
+        })
+        .collect();
+    assert_eq!(
+        declarations.len(),
+        1,
+        "OCR_VERSION must be declared exactly once as the single source of truth"
+    );
+    let raw_value = declarations[0]
         .trim()
         .strip_prefix("OCR_VERSION:")
-        .unwrap_or_else(|| panic!("OCR_VERSION line was malformed: {line:?}"))
+        .unwrap_or_else(|| panic!("OCR_VERSION line was malformed"))
         .trim();
     let unquoted = raw_value.trim_matches(|ch| ch == '"' || ch == '\'');
     assert_eq!(
@@ -55,15 +107,30 @@ fn ocr_install_references_version_variable_not_literal() {
 }
 
 #[test]
-fn ocr_literal_version_appears_only_once() {
+fn ocr_install_literal_version_is_absent() {
+    // The literal pinned version must NOT appear in the install command.
+    // It may only appear in the OCR_VERSION declaration. Checking for zero
+    // occurrences of the full install literal guarantees the install path
+    // uses the variable exclusively.
     let content = read_workflow();
-    let occurrences = content
+    let install_literal_count = content
         .lines()
         .filter(|l| l.contains("@alibaba-group/open-code-review@1.7.9"))
         .count();
     assert_eq!(
-        occurrences, 0,
-        "Literal 1.7.9 must not appear in the install command; only in the OCR_VERSION declaration"
+        install_literal_count, 0,
+        "The literal @alibaba-group/open-code-review@1.7.9 must not appear in the workflow; the install command must reference ${{OCR_VERSION}}"
+    );
+}
+
+#[test]
+fn ocr_npm_cache_uses_version_variable() {
+    let content = read_workflow();
+    // The npm download cache key must reference OCR_VERSION so a version
+    // bump does not leave a stale cache pointing at the old version.
+    assert!(
+        content.contains("npm-ocr-") && content.contains("${{ env.OCR_VERSION }}"),
+        "npm cache key must reference ${{ env.OCR_VERSION }} so cache identity tracks the single version source"
     );
 }
 
@@ -74,17 +141,27 @@ fn ocr_literal_version_appears_only_once() {
 #[test]
 fn ocr_has_bounded_connectivity_preflight() {
     let content = read_workflow();
+    // Scope to the connectivity step body so the assertions cannot be
+    // satisfied by comments or other steps mentioning timeouts.
+    let preflight = content
+        .lines()
+        .find(|l| l.contains("llm test"))
+        .unwrap_or_else(|| {
+            panic!("Workflow must run ocr llm test as a bounded connectivity preflight")
+        });
+    let _ = preflight; // verify presence
+    let step = step_body(&content, "Validate OCR LLM connectivity");
     assert!(
-        content.contains("llm test"),
-        "Workflow must run a bounded OCR LLM connectivity preflight (ocr llm test)"
+        step.contains("llm test"),
+        "Connectivity step must run 'ocr llm test'"
     );
     assert!(
-        content.contains("timeout 120s"),
+        step.contains("timeout 120s"),
         "Connectivity preflight must be bounded by an explicit timeout wrapper"
     );
-    // Exit code 124 is the standard GNU coreutils `timeout` kill exit code.
+    // Exit code 124 is the standard GNU coreutils timeout kill code.
     assert!(
-        content.contains("124"),
+        step.contains("124"),
         "Connectivity preflight must distinguish timeout (exit 124) from other failures"
     );
 }
@@ -132,10 +209,17 @@ fn ocr_review_classifies_all_file_and_auth_failures() {
 
 #[test]
 fn ocr_review_classifies_timeout_distinctly() {
+    // Assert the specific timeout classification branch exists (the grep
+    // pattern + the reason text passed to mark_infrastructure_failure),
+    // not just a generic "timed out" comment.
     let content = read_workflow();
     assert!(
-        content.contains("timed out"),
-        "OCR review must classify timeout distinctly from other failure modes"
+        content.contains("timed out|timeout"),
+        "OCR review must classify timeout distinctly via a grep pattern"
+    );
+    assert!(
+        content.contains("OCR review timed out"),
+        "OCR review must map timeout stderr to a distinct timeout reason classification"
     );
 }
 
@@ -146,17 +230,41 @@ fn ocr_review_classifies_timeout_distinctly() {
 #[test]
 fn ocr_redaction_destroys_original_before_redaction() {
     let content = read_workflow();
+    // Scope to the redaction step so the assertions bind to the actual
+    // redaction loop, not comments in other steps.
+    let step = step_body(&content, "Redact OCR diagnostic artifacts");
+
+    // The fail-closed placeholder must use the specific format.
     assert!(
-        content.contains("Fail closed")
-            || content.contains("fail-closed")
-            || content.contains("fail closed"),
-        "Redaction must document the fail-closed invariant"
+        step.contains("[redaction unavailable for"),
+        "Redaction step must write a safe placeholder before attempting redaction"
     );
-    // The original file must be overwritten with a placeholder BEFORE the
-    // redacted content is written, so a write error can never leak secrets.
+    // The placeholder write must precede the redacted-content write.
+    let placeholder_pos = step
+        .find("[redaction unavailable for")
+        .unwrap_or_else(|| panic!("placeholder text not found in redaction step"));
+    let redact_pos = step
+        .find("redact(raw)")
+        .unwrap_or_else(|| panic!("redact(raw) call not found in redaction step"));
     assert!(
-        content.contains("[redaction unavailable for") || content.contains("placeholder"),
-        "Redaction must write a safe placeholder before attempting redaction"
+        placeholder_pos < redact_pos,
+        "Placeholder write must precede the redacted-content write so a write error cannot leak secrets"
+    );
+    // When the placeholder write itself fails, the file must be removed so
+    // the original unredacted content cannot be uploaded.
+    assert!(
+        step.contains("rmSync"),
+        "Redaction must remove the file if the placeholder write fails, preventing upload of unredacted content"
+    );
+}
+
+#[test]
+fn ocr_upload_skipped_on_redaction_failure() {
+    let content = read_workflow();
+    // The upload step must be conditioned on the redaction step succeeding.
+    assert!(
+        content.contains("steps.redact-ocr-artifacts.outcome == 'success'"),
+        "Upload step must be skipped when redaction fails (id: redact-ocr-artifacts)"
     );
 }
 
@@ -187,8 +295,11 @@ fn ocr_notification_retries_reads_not_writes() {
 #[test]
 fn ocr_notification_reconciles_ambiguous_writes() {
     let content = read_workflow();
-    // The create path must search before creating and re-check after a
-    // failed create, reconciling by the deterministic issue title.
+    // The create path must search before creating and re-check before create,
+    // reconciling by the deterministic issue title. There are exactly four
+    // gh issue list calls: initial search, pre-create recheck, and two inside
+    // converge_tracking_issues (called from the comment path and the create path).
+    // The key structural requirement is >= 2 lookups outside convergence.
     let recheck_count = content.matches("gh issue list").count();
     assert!(
         recheck_count >= 3,
@@ -201,13 +312,19 @@ fn ocr_notification_reconciles_ambiguous_writes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ocr_label_less_fallback_is_conditional() {
+fn ocr_label_less_fallback_requires_422_and_label_evidence() {
+    // The label-less fallback must require BOTH a 422 status code AND label
+    // evidence in the error, not match on either independently.
     let content = read_workflow();
-    // The label-less fallback must check for a verified missing-label response,
-    // not retry unconditionally.
     assert!(
-        content.contains("Labels") || content.contains("labels") || content.contains("label"),
-        "Label-less fallback must inspect the label error response"
+        content.contains("422") && content.contains("label|ci/cd"),
+        "Label-less fallback must check for both HTTP 422 and label/ci/cd evidence"
+    );
+    // The fallback must use a compound condition (&&), not a single grep.
+    assert!(
+        content.contains("grep -Eq '(^|[^0-9])422([^0-9]|$)'")
+            && content.contains("grep -Eqi \"label|ci/cd\""),
+        "Label-less fallback must require both 422 and label evidence via a compound condition"
     );
 }
 
@@ -222,10 +339,20 @@ fn ocr_notification_converges_duplicate_tracking_issues() {
         content.contains("cancel-in-progress: false"),
         "Tracking notification job must serialize (cancel-in-progress: false)"
     );
-    // The convergence sweep must close duplicates.
+    // The convergence function must exist by name and close duplicates.
     assert!(
-        content.contains("converge") || content.contains("dedup") || content.contains("close"),
-        "Notification must converge duplicate open tracking issues"
+        content.contains("converge_tracking_issues"),
+        "Notification must define a converge_tracking_issues function"
+    );
+    assert!(
+        content.contains("gh issue close"),
+        "converge_tracking_issues must close duplicate tracking issues"
+    );
+    // The convergence must be called on all notification paths (comment and create).
+    let converge_calls = content.matches("converge_tracking_issues || true").count();
+    assert!(
+        converge_calls >= 2,
+        "converge_tracking_issues must be called on both the comment and create paths (found {converge_calls} call sites)"
     );
 }
 
@@ -237,8 +364,14 @@ fn ocr_notification_converges_duplicate_tracking_issues() {
 fn ocr_deduplicates_findings_before_posting() {
     let content = read_workflow();
     assert!(
-        content.contains("dedup") || content.contains("Dedup") || content.contains("deduplicate"),
+        content.contains("findingIdentityKey") && content.contains("dedupedFindings"),
         "Post-OCR posting must deduplicate exact candidates from the current result before batch posting"
+    );
+    // The dedup key must normalize reversed ranges (startLine > endLine).
+    assert!(
+        content.contains("startLine > endLine")
+            || content.contains("[startLine, endLine] = [endLine, startLine]"),
+        "Dedup key must normalize reversed line ranges so 10-5 and 5-10 collapse to the same key"
     );
 }
 

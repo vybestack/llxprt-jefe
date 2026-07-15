@@ -798,8 +798,14 @@ jobs:
             // matching the same key used for cross-run same-head suppression.
             function findingIdentityKey(f) {
               const path = (f && typeof f.path === 'string') ? f.path : '';
-              const startLine = Number.isInteger(f && f.start_line) ? f.start_line : 0;
-              const endLine = Number.isInteger(f && f.end_line) ? f.end_line : 0;
+              let startLine = Number.isInteger(f && f.start_line) ? f.start_line : 0;
+              let endLine = Number.isInteger(f && f.end_line) ? f.end_line : 0;
+              // Normalize the range so reversed inputs (10-5 and 5-10) collapse
+              // to the same key, matching the normalization the inline/lineless
+              // split applies later when building posted candidates.
+              if (startLine > endLine) {
+                [startLine, endLine] = [endLine, startLine];
+              }
               const rawText = f && (f.content || f.comment || f.message || f.body);
               const text = typeof rawText === 'string' ? rawText : '';
               return `${path}\u0000${startLine}\u0000${endLine}\u0000${unrenderFindingText(text)}`;
@@ -1048,6 +1054,7 @@ jobs:
           fi
 
       - name: Redact OCR diagnostic artifacts
+        id: redact-ocr-artifacts
         shell: bash
         if: always()
         env:
@@ -1118,7 +1125,15 @@ jobs:
             const placeholder = `[redaction unavailable for ${fileName}]\n`;
             try {
               fs.writeFileSync(fileName, placeholder);
-            } catch (_) {
+            } catch (placeholderError) {
+              // The original unredacted content may still be on disk. Remove
+              // it so the artifact upload cannot publish secrets. If removal
+              // also fails, signal failure so the upload step is skipped.
+              try {
+                fs.rmSync(fileName, { force: true });
+              } catch (_) {
+                core.setFailed(`Could not overwrite or remove ${fileName} before redaction; refusing to upload potentially unredacted content`);
+              }
               continue;
             }
             try {
@@ -1170,7 +1185,7 @@ jobs:
           done
 
       - name: Upload OCR artifacts
-        if: always()
+        if: ${{ always() && steps.redact-ocr-artifacts.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # ratchet:actions/upload-artifact@v4
         with:
           name: ocr-review-output
@@ -1374,7 +1389,8 @@ jobs:
               # The GitHub API returns HTTP 422 with a message mentioning the
               # label when it does not exist. Any other failure is a genuine
               # error that must not be retried label-less.
-              if grep -Eqi "label|'ci/cd'|422|Validation Failed" "$create_stderr"; then
+              if grep -Eq '(^|[^0-9])422([^0-9]|$)' "$create_stderr" &&
+                 grep -Eqi "label|ci/cd" "$create_stderr"; then
                 echo "::warning::Failed to create OCR infrastructure issue with ci/cd label (verified missing-label response); retrying without labels."
                 rm -f "$create_stderr"
                 if gh issue create "$@" --body-file "$issue_body_file"; then
@@ -1397,10 +1413,10 @@ jobs:
               first=1
               if ! all_issues="$(
                 retry_gh gh issue list \
-                  --search ""${ISSUE_TITLE}" in:title is:issue state:open sort:created-asc" \
+                  --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
                   --limit 30 \
                   --json number,title \
-                  --jq "[.[] | select(.title == "${ISSUE_TITLE}") | .number]"
+                  --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number]"
               )"; then
                 echo "::warning::Failed to search for duplicate tracking issues during convergence."
                 return 0
@@ -1415,9 +1431,12 @@ jobs:
                   || echo "::warning::Could not close duplicate tracking issue #${issue_num}."
               done
             }
+            # Canonical-issue policy: both lookups and convergence use
+            # created-asc ordering so the oldest tracking issue is always
+            # selected for commenting and preserved by convergence.
             if ! EXISTING_ISSUE="$(
               retry_gh gh issue list \
-                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-desc" \
+                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
                 --limit 30 \
                 --json number,title \
                 --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number] | .[0] // empty"
@@ -1446,7 +1465,7 @@ jobs:
             fi
             if ! EXISTING_ISSUE="$(
               retry_gh gh issue list \
-                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-desc" \
+                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
                 --limit 30 \
                 --json number,title \
                 --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number] | .[0] // empty"
