@@ -60,6 +60,9 @@ pub fn keybind_hints_for(
                 "^/v jobs | Enter/Right expand | Left collapse | Esc collapse/back | PgUp/PgDn scroll | Tab pane | ? help"
             }
         },
+        ScreenMode::DashboardErrors => {
+            "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | C clear all | Esc exit"
+        }
     }
 }
 

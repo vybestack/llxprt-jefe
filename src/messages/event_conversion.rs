@@ -7,7 +7,7 @@
 use crate::state::AppEvent;
 
 use super::{
-    ActionsMessage, AppMessage, IssuesMessage, ModalMessage, PersistenceMessage,
+    ActionsMessage, AppMessage, ErrorsMessage, IssuesMessage, ModalMessage, PersistenceMessage,
     PullRequestsMessage, RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
 };
@@ -202,6 +202,8 @@ impl AppMessage {
             Self::Issues(IssuesMessage::from_app_event(event))
         } else if Self::is_actions_event(&event) {
             Self::Actions(ActionsMessage::from_app_event(event))
+        } else if Self::is_errors_event(&event) {
+            Self::Errors(ErrorsMessage::from_app_event(event))
         } else {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
@@ -212,6 +214,26 @@ impl AppMessage {
     /// Whether the event belongs to the issues domain.
     fn is_issues_event(event: &AppEvent) -> bool {
         Self::is_issues_nav_event(event) || Self::is_issues_data_event(event)
+    }
+
+    /// Whether the event belongs to the errors domain (issue #292).
+    fn is_errors_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::EnterErrorsMode
+                | AppEvent::ExitErrorsMode
+                | AppEvent::RefocusErrorList
+                | AppEvent::ErrorsNavigateUp
+                | AppEvent::ErrorsNavigateDown
+                | AppEvent::ErrorsNavigateHome
+                | AppEvent::ErrorsNavigateEnd
+                | AppEvent::ErrorsEnter
+                | AppEvent::ErrorsCycleFocus
+                | AppEvent::ErrorsCycleFocusReverse
+                | AppEvent::ErrorsScrollDetailUp
+                | AppEvent::ErrorsScrollDetailDown
+                | AppEvent::ErrorsClearAll
+        )
     }
 
     /// Whether the event belongs to the actions domain.
@@ -419,6 +441,7 @@ impl From<AppMessage> for AppEvent {
             // @requirement REQ-PR-002
             AppMessage::PullRequests(message) => message.into(),
             AppMessage::Actions(message) => message.into(),
+            AppMessage::Errors(message) => message.into(),
             AppMessage::System(message) => message.into(),
         }
     }

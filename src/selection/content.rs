@@ -121,6 +121,8 @@ pub fn pane_content_lines_with_context(
         SelectablePane::ActionsDetail => {
             super::actions_content::actions_detail_lines(state, render_cols, render_rows)
         }
+        SelectablePane::ErrorList => super::errors_content::error_list_lines(state, render_cols),
+        SelectablePane::ErrorDetail => super::errors_content::error_detail_lines(state),
         SelectablePane::Sidebar => sidebar_lines(state, render_cols, render_rows),
         SelectablePane::AgentList => super::dashboard_content::agent_list_lines(
             state,

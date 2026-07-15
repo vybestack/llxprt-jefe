@@ -46,6 +46,8 @@ mod prs_orchestration;
 
 mod actions;
 mod actions_orchestration;
+// Errors-mode key dispatch (issue #292).
+mod errors;
 // In-app device-code auth remediation dispatch (issue #244).
 mod auth_remediation;
 mod gh_async;

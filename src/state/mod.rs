@@ -17,6 +17,8 @@ mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
+mod errors_ops;
+mod errors_types;
 mod events;
 mod form_build;
 mod form_cursor;
@@ -60,16 +62,15 @@ pub mod transient_ops;
 mod types;
 mod util;
 
+pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
 pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
-
 /// Default row jump for list and detail page navigation without a measured viewport.
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
-
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
     is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
@@ -335,6 +336,10 @@ impl AppState {
                 let handled = self.apply_actions_message(message);
                 debug_assert!(handled, "unhandled actions message in apply_message()");
             }
+            AppMessage::Errors(message) => {
+                let handled = self.apply_errors_message(message);
+                debug_assert!(handled, "unhandled errors message in apply_message()");
+            }
         }
 
         self.finalize_message(route);
@@ -376,6 +381,7 @@ impl AppState {
         self.rebuild_repository_agent_ids();
         self.normalize_selection_indices();
         self.validate_dashboard_grab();
+        errors_ops::capture_runtime_errors(self);
         self.last_selected_agent_by_repo
             .retain(|(repo_id, agent_id)| {
                 self.repositories.iter().any(|repo| repo.id == *repo_id)
@@ -881,11 +887,9 @@ impl AppState {
     }
 }
 
-// In-app device-code auth dialog state-machine tests (issue #244).
 #[cfg(test)]
 #[path = "auth_ops_tests.rs"]
 mod auth_ops_tests;
-
 #[cfg(test)]
 #[path = "confirm_focus_tests.rs"]
 mod confirm_focus_tests;
@@ -916,6 +920,9 @@ mod issues_tests_mutations;
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 #[cfg(test)]
+#[path = "issues_tests_self_assignment.rs"]
+mod issues_tests_self_assignment;
+#[cfg(test)]
 #[path = "issues_tests_send_to_agent.rs"]
 mod issues_tests_send_to_agent;
 #[cfg(test)]
@@ -923,39 +930,29 @@ mod issues_tests_send_to_agent;
 mod issues_tests_subfocus;
 
 #[cfg(test)]
-#[path = "issues_tests_self_assignment.rs"]
-mod issues_tests_self_assignment;
-
-#[cfg(test)]
-#[path = "issues_tests_close_delete.rs"]
-mod issues_tests_close_delete;
-
-#[cfg(test)]
-#[path = "issues_tests_close_reason.rs"]
-mod issues_tests_close_reason;
-
-#[cfg(test)]
-#[path = "prs_tests.rs"]
-mod prs_tests;
-#[cfg(test)]
-#[path = "prs_tests_detail.rs"]
-mod prs_tests_detail;
-#[cfg(test)]
-#[path = "prs_tests_filter.rs"]
-mod prs_tests_filter;
-#[cfg(test)]
-#[path = "prs_tests_merge.rs"]
-mod prs_tests_merge;
-
+#[path = "errors_tests.rs"]
+mod errors_tests;
 #[cfg(test)]
 #[path = "issues_test_fixtures.rs"]
 mod issues_test_fixtures;
 #[cfg(test)]
+#[path = "issues_tests_close_delete.rs"]
+mod issues_tests_close_delete;
+#[cfg(test)]
+#[path = "issues_tests_close_reason.rs"]
+mod issues_tests_close_reason;
+#[cfg(test)]
 #[path = "preferences_tests.rs"]
 mod preferences_tests;
 #[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;
+#[cfg(test)]
 #[path = "prs_test_fixtures.rs"]
 mod prs_test_fixtures;
+#[cfg(test)]
+#[path = "prs_tests.rs"]
+mod prs_tests;
 #[cfg(test)]
 #[path = "prs_tests_bodyless_review_nav.rs"]
 mod prs_tests_bodyless_review_nav;
@@ -968,13 +965,24 @@ mod prs_tests_components;
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
-/// @plan PLAN-20260624-PR-MODE.P14 @requirement REQ-PR-010
 #[cfg(test)]
 #[path = "prs_tests_cursor_arrows.rs"]
 mod prs_tests_cursor_arrows;
 #[cfg(test)]
+#[path = "prs_tests_detail.rs"]
+mod prs_tests_detail;
+#[cfg(test)]
 #[path = "prs_tests_detail_flow.rs"]
 mod prs_tests_detail_flow;
+#[cfg(test)]
+#[path = "prs_tests_filter.rs"]
+mod prs_tests_filter;
+#[cfg(test)]
+#[path = "prs_tests_merge.rs"]
+mod prs_tests_merge;
+#[cfg(test)]
+#[path = "prs_tests_pagination.rs"]
+mod prs_tests_pagination;
 #[cfg(test)]
 #[path = "prs_tests_repo_nav.rs"]
 mod prs_tests_repo_nav;
@@ -984,13 +992,6 @@ mod prs_tests_review_threads;
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
 mod prs_tests_silent_refresh;
-// @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
-#[cfg(test)]
-#[path = "prs_integration_tests.rs"]
-mod prs_integration_tests;
-#[cfg(test)]
-#[path = "prs_tests_pagination.rs"]
-mod prs_tests_pagination;
 #[cfg(test)]
 #[path = "transient_agent_tests.rs"]
 mod transient_agent_tests;

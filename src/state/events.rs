@@ -843,4 +843,19 @@ pub enum AppEvent {
         kind: super::PrPropertyKind,
         error: String,
     },
+
+    // Errors Mode events (issue #292)
+    EnterErrorsMode,
+    ExitErrorsMode,
+    RefocusErrorList,
+    ErrorsNavigateUp,
+    ErrorsNavigateDown,
+    ErrorsNavigateHome,
+    ErrorsNavigateEnd,
+    ErrorsEnter,
+    ErrorsCycleFocus,
+    ErrorsCycleFocusReverse,
+    ErrorsScrollDetailUp,
+    ErrorsScrollDetailDown,
+    ErrorsClearAll,
 }

@@ -126,6 +126,9 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
+    if screen_mode == ScreenMode::DashboardErrors {
+        return super::errors::handle_errors_mode_key(app_state, ctx, key_event);
+    }
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return event;
     }
@@ -186,7 +189,7 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
 /// bare `q` harmlessly advances the `qqq` sequence).
 fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
     match screen_mode {
-        ScreenMode::Dashboard | ScreenMode::Split => true,
+        ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardErrors => true,
         ScreenMode::DashboardIssues => issues_quit_shortcut_active(state),
         ScreenMode::DashboardPullRequests => prs_quit_shortcut_active(state),
         ScreenMode::DashboardActions => actions_quit_shortcut_active(state),
@@ -490,6 +493,9 @@ pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) ->
         KeyCode::Char('g' | 'G') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterActionsMode))
         }
+        KeyCode::Char('e' | 'E') if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::EnterErrorsMode))
+        }
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterSplitMode))
         }
@@ -707,8 +713,7 @@ mod tests {
         assert!(issues_quit_shortcut_active(&state));
     }
 
-    /// The quit shortcut must NOT act when the filter controls overlay is open
-    /// — `q` types into the filter instead.
+    /// Quit shortcut must NOT act when filter controls overlay is open.
     #[test]
     fn quit_shortcut_inactive_when_filter_controls_open() {
         let mut state = issues_base_state();
@@ -720,8 +725,7 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// The quit shortcut must NOT act when the search input is focused — `q`
-    /// types into the search query instead.
+    /// Quit shortcut must NOT act when search input is focused.
     #[test]
     fn quit_shortcut_inactive_when_search_input_focused() {
         let mut state = issues_base_state();
@@ -733,8 +737,7 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// The quit shortcut must NOT act when an inline composer/editor is active
-    /// — `q` types into the composer body instead.
+    /// Quit shortcut must NOT act when inline composer/editor is active.
     #[test]
     fn quit_shortcut_inactive_when_inline_composer_active() {
         let mut state = issues_base_state();
@@ -771,8 +774,7 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// Sanity: for a plain `ScreenMode::Dashboard` state the issues predicate
-    /// returns false, because `input_mode_for_state` would be `Normal`.
+    /// Issues predicate is false for plain Dashboard state.
     #[test]
     fn issues_predicate_false_for_non_issues_dashboard_state() {
         let state = AppState {
@@ -942,8 +944,7 @@ mod tests {
         }
     }
 
-    /// Ctrl-r on a dead agent should also emit `RestartAgent` — restart works
-    /// regardless of status (unlike `l` which only relaunches dead agents).
+    /// Ctrl-r on a dead agent also emits RestartAgent.
     #[test]
     fn restart_event_is_emitted_for_dead_agent() {
         let snapshot = snapshot_with_agent("a2", false);
@@ -957,9 +958,7 @@ mod tests {
         }
     }
 
-    /// Plain `r` without CONTROL must NOT produce a restart event — it should
-    /// be unhandled by `resolve_agent_lifecycle_key` so it falls through to
-    /// `handle_direct_pane_focus_key` (focus repositories pane).
+    /// Plain `r` without CONTROL must NOT produce a restart event.
     #[test]
     fn plain_r_does_not_restart() {
         let snapshot = snapshot_with_agent("a1", true);

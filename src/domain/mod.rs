@@ -18,6 +18,10 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+// Error-log domain types (issue #292).
+mod errors;
+pub use errors::{ERROR_STORE_CAPACITY, ErrorEntry, ErrorSource};
+
 /// Pagination contracts shared across list state and boundary messages.
 // Sandbox engine + platform capability types extracted to keep this file
 // under the source-file-size limit.

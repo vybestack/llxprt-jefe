@@ -276,6 +276,7 @@ pub enum ScreenMode {
     /// @pseudocode component-001 lines 66-76
     DashboardPullRequests,
     DashboardActions,
+    DashboardErrors,
 }
 
 /// Pane focus within a view.
@@ -377,6 +378,10 @@ pub struct AppState {
 
     /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
     pub actions_state: ActionsState,
+
+    /// Errors-mode state (runtime-only — omitted from persisted DTO).
+    /// Captures the last N errors for the dedicated errors panel (issue #292).
+    pub errors_state: super::ErrorsState,
 
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,

@@ -25,6 +25,9 @@ pub struct StatusBarProps {
     pub kennel_mode: bool,
     /// Optional warning text shown in the center status area.
     pub warning_message: Option<String>,
+    /// Last error title (issue #292). Shown in the center area with precedence
+    /// below warnings (ssh agent socket) so legacy warnings still surface.
+    pub last_error: Option<String>,
     /// Theme colors.
     pub colors: ThemeColors,
     /// Active text selection, if any. When it targets this pane the whole
@@ -51,15 +54,23 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     } else {
         ""
     };
-    let stats = props.warning_message.as_ref().map_or_else(
-        || {
-            format!(
-                "{} repos | {}/{} running",
-                props.repo_count, props.running_count, props.agent_count
-            )
-        },
-        |warning| format!("WARN: {warning}"),
-    );
+    let stats = if let Some(warning) = &props.warning_message {
+        format!("WARN: {warning}")
+    } else if let Some(error) = &props.last_error {
+        // Truncate to keep the single-line bar readable (issue #292).
+        let max_len = 50;
+        let display = if error.len() > max_len {
+            format!("{}…", &error[..max_len])
+        } else {
+            error.clone()
+        };
+        format!("ERR: {display}")
+    } else {
+        format!(
+            "{} repos | {}/{} running",
+            props.repo_count, props.running_count, props.agent_count
+        )
+    };
 
     element! {
         Box(
