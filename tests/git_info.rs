@@ -1,10 +1,13 @@
 //! Public behavior tests for git repository parsing, status, and display projection.
 
+mod support;
+
 use jefe::git_info::{
     GitRepoInfo, ParsedRepositoryOrigin, origin_display_shortform, parse_repository_origin,
     porcelain_is_dirty,
 };
 use std::path::Path;
+use support::{TestOptionExt, TestResultExt};
 
 #[test]
 fn parse_ssh_url() {
@@ -211,35 +214,11 @@ fn list_suffix_dirty_no_branch_no_marker() {
 // untracked changes produce dirty=true while a clean worktree produces
 // dirty=false. Jefe-owned .jefe/ and .llxprt/ paths must NOT count as dirty.
 
-/// Project-standard test Result extension: unwrap with a context message
-/// instead of bare `expect`/`unwrap`.
-trait TestResultExt<T> {
-    fn value_or_panic(self, context: &str) -> T;
-}
-
-impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
-    fn value_or_panic(self, context: &str) -> T {
-        match self {
-            Ok(value) => value,
-            Err(error) => panic!("{context}: {error:?}"),
-        }
-    }
-}
-
-impl<T> TestResultExt<T> for Option<T> {
-    fn value_or_panic(self, context: &str) -> T {
-        match self {
-            Some(value) => value,
-            None => panic!("{context}"),
-        }
-    }
-}
-
 /// Helper: create a temp git repo on a deterministically-named branch with an
 /// initial commit, returning its path. Uses a named branch (`test-main`) so
 /// tests can assert a concrete branch rather than guessing `master`/`main`.
 fn temp_git_repo() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().value_or_panic("create git test tempdir");
+    let dir = tempfile::tempdir().test_unwrap("create git test tempdir");
     let path = dir.path();
     // `-b` is supported since git 2.28 (2020). Rename via symbolic-ref as a
     // fallback for any older git that ignores -b.
@@ -249,7 +228,7 @@ fn temp_git_repo() -> tempfile::TempDir {
     run_git(path, &["config", "user.email", "test@test.test"]);
     run_git(path, &["config", "user.name", "Test"]);
     run_git(path, &["config", "commit.gpgsign", "false"]);
-    std::fs::write(path.join("README.md"), "hello\n").value_or_panic("write README");
+    std::fs::write(path.join("README.md"), "hello\n").test_unwrap("write README");
     run_git(path, &["add", "README.md"]);
     run_git(path, &["commit", "--quiet", "-m", "init"]);
     dir
@@ -261,7 +240,8 @@ fn run_git(dir: &Path, args: &[&str]) {
         .arg(dir)
         .args(args)
         .output()
-        .value_or_panic(&format!("spawn git {args:?}"));
+        .ok()
+        .test_unwrap(&format!("spawn git {args:?}"));
     assert!(
         output.status.success(),
         "git {args:?} failed in {}
@@ -274,13 +254,13 @@ fn run_git(dir: &Path, args: &[&str]) {
 fn write_file(path: &Path, content: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .value_or_panic(&format!("mkdir parent for {}", path.display()));
+            .test_unwrap(&format!("mkdir parent for {}", path.display()));
     }
-    std::fs::write(path, content).value_or_panic(&format!("write {}", path.display()));
+    std::fs::write(path, content).test_unwrap(&format!("write {}", path.display()));
 }
 
 fn create_dir(path: &Path) {
-    std::fs::create_dir_all(path).value_or_panic(&format!("mkdir {}", path.display()));
+    std::fs::create_dir_all(path).test_unwrap(&format!("mkdir {}", path.display()));
 }
 
 #[test]

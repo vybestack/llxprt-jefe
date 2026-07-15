@@ -2,34 +2,39 @@
 
 use super::{launch_signature_for_transient, transient_queue_ops::agent_from_queued_signature};
 use jefe::domain::{AgentId, AgentKind, Repository, RepositoryId};
+use tempfile::TempDir;
 
-#[test]
-fn transient_signature_copies_repository_llxprt_mode_flags() {
+fn transient_repository(kind: AgentKind) -> (TempDir, Repository) {
+    let root =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create temp repository: {error}"));
     let mut repository = Repository::new(
         RepositoryId("repo-317".to_owned()),
         "Repo".to_owned(),
         "repo".to_owned(),
-        "/tmp/repo-317".into(),
+        root.path().join("repo"),
     );
-    repository.default_agent_kind = AgentKind::Llxprt;
-    repository.default_llxprt_mode_flags = vec!["--yolo".to_owned(), "--fast".to_owned()];
+    repository.default_agent_kind = kind;
+    (root, repository)
+}
 
-    let signature = launch_signature_for_transient(&repository, "/tmp/transient-317".as_ref());
+#[test]
+fn transient_signature_copies_repository_llxprt_mode_flags() {
+    let (_root, mut repository) = transient_repository(AgentKind::Llxprt);
+    repository.default_llxprt_mode_flags = vec!["--yolo".to_owned(), "--fast".to_owned()];
+    let work_dir = repository.effective_transient_dir().join("transient");
+
+    let signature = launch_signature_for_transient(&repository, &work_dir);
 
     assert_eq!(signature.mode_flags, vec!["--yolo", "--fast"]);
 }
 
 #[test]
 fn transient_signature_enables_code_puppy_yolo_by_default() {
-    let mut repository = Repository::new(
-        RepositoryId("repo-317".to_owned()),
-        "Repo".to_owned(),
-        "repo".to_owned(),
-        "/tmp/repo-317".into(),
-    );
-    repository.default_agent_kind = AgentKind::CodePuppy;
+    let (_root, repository) = transient_repository(AgentKind::CodePuppy);
+    assert_eq!(repository.default_code_puppy_yolo, Some(true));
+    let work_dir = repository.effective_transient_dir().join("transient");
 
-    let signature = launch_signature_for_transient(&repository, "/tmp/transient-317".as_ref());
+    let signature = launch_signature_for_transient(&repository, &work_dir);
 
     assert_eq!(signature.code_puppy_yolo, Some(true));
 }
@@ -37,13 +42,7 @@ fn transient_signature_enables_code_puppy_yolo_by_default() {
 #[test]
 fn dequeued_agent_retains_the_queued_launch_snapshot() {
     for kind in [AgentKind::Llxprt, AgentKind::CodePuppy] {
-        let mut repository = Repository::new(
-            RepositoryId("repo-317".to_owned()),
-            "Repo".to_owned(),
-            "repo".to_owned(),
-            "/tmp/repo-317".into(),
-        );
-        repository.default_agent_kind = kind;
+        let (_root, mut repository) = transient_repository(kind);
         repository.default_profile = "queued-profile".to_owned();
         repository.default_llxprt_mode_flags = vec!["--queued-yolo".to_owned()];
         repository.default_code_puppy_yolo = Some(true);
@@ -73,17 +72,12 @@ fn dequeued_agent_retains_the_queued_launch_snapshot() {
 
 #[test]
 fn transient_signature_preserves_runtime_specific_yolo_opt_out() {
-    let mut repository = Repository::new(
-        RepositoryId("repo-317".to_owned()),
-        "Repo".to_owned(),
-        "repo".to_owned(),
-        "/tmp/repo-317".into(),
-    );
-    repository.default_agent_kind = AgentKind::CodePuppy;
+    let (_root, mut repository) = transient_repository(AgentKind::CodePuppy);
     repository.default_llxprt_mode_flags.clear();
     repository.default_code_puppy_yolo = None;
+    let work_dir = repository.effective_transient_dir().join("transient");
 
-    let signature = launch_signature_for_transient(&repository, "/tmp/transient-317".as_ref());
+    let signature = launch_signature_for_transient(&repository, &work_dir);
 
     assert!(signature.mode_flags.is_empty());
     assert_eq!(signature.code_puppy_yolo, None);
