@@ -27,6 +27,7 @@ fn base_signature() -> LaunchSignature {
 fn code_puppy_blank_version_keeps_direct_launch_plan_exact() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "  \n  ".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(
         plan.executable,
@@ -66,13 +67,21 @@ fn code_puppy_hostile_version_remains_one_local_and_remote_argument() {
     signature.agent_kind = AgentKind::CodePuppy;
     signature.code_puppy_version = format!("  {version}  ");
     let local = local_launch_plan(&signature);
-    assert_eq!(local.args[1], format!("code-puppy=={version}"));
+    assert_eq!(
+        local.args,
+        vec![
+            "--from".to_owned(),
+            format!("code-puppy=={version}"),
+            "code-puppy".to_owned(),
+            "-i".to_owned(),
+            "--yolo".to_owned(),
+            "false".to_owned(),
+        ]
+    );
     let remote = remote_launch_argv(&signature, None)
         .unwrap_or_else(|error| panic!("remote uvx plan: {error}"));
     assert_eq!(remote.executable, "uvx");
     assert_eq!(remote.args, local.args);
-    let command = remote_cli_command(&remote.executable, &remote.args);
-    assert!(command.contains(&shell_escape_single(&format!("code-puppy=={version}"))));
 }
 
 #[cfg(unix)]

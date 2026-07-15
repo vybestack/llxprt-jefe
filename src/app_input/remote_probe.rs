@@ -285,6 +285,8 @@ fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
 }
 
 fn probe_inner_command_for_code_puppy(_work_dir: &Path, version: &str) -> String {
+    // Do not cd to the work directory: clone-if-missing means it may not exist
+    // yet, while the effective user's global PATH remains authoritative.
     let binary = if version.trim().is_empty() {
         "code-puppy"
     } else {

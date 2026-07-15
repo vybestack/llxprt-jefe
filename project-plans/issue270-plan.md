@@ -103,7 +103,7 @@ this issue. The 2,500-net-line hard stop and all architecture/non-goal boundarie
 remain in force.
 
 ## Review counters
-- Local OCR: 0/2
+- Local OCR: 1/2
 - PR OCR: 0/2
 
 ## Verification evidence
@@ -122,6 +122,22 @@ is fixture propagation from the approved persisted `LaunchSignature` field plus
 the required TUI plan/scenario/evidence. One atomic green commit is required:
 splitting the public struct change from its Rust literals would create knowingly
 unbuildable intermediate commits.
+
+## Review triage
+Local OCR run 1:
+- In-scope—Fix: added whitespace-only blank-sentinel coverage, replaced a weak
+  shell-string substring assertion with exact structural argv evidence, and
+  restored the no-`cd` remote-probe rationale.
+- Reject: claims that POSIX single quoting permits dollar/backtick/newline
+  execution; the real-shell hostile-value test proves exact argv and no side
+  effect.
+- Reject: duplicate version labels; runtime visibility makes the two rows
+  mutually exclusive.
+- Reject: pinned-without-YOLO probing as a regression; A12 requires exact
+  selected-package execution independently of YOLO validation.
+- Reject: Windows remote-shell coverage; SSH targets the remote POSIX shell,
+  while local Windows wrapper/structural argv behavior has dedicated coverage.
+- Reject: hard-index style nit after replacing it with full-vector equality.
 
 ## Deferred findings / follow-ups
 None.
