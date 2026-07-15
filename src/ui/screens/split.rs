@@ -136,6 +136,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 screen_mode: ScreenMode::Split,
                 terminal_focused: false,
                 actions_focus: None,
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
             )
         }

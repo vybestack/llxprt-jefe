@@ -237,6 +237,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 screen_mode: state.map_or(ScreenMode::DashboardActions, |s| s.screen_mode),
                 terminal_focused: false,
                 actions_focus: Some(actions_focus),
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )
         }

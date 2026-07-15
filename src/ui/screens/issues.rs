@@ -435,6 +435,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 screen_mode: state.map_or(ScreenMode::DashboardIssues, |s| s.screen_mode),
                 terminal_focused: false,
                 actions_focus: None,
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )
         }

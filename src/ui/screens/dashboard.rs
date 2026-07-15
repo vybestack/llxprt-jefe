@@ -269,6 +269,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 screen_mode: state.map_or(ScreenMode::Dashboard, |s| s.screen_mode),
                 terminal_focused: terminal_focused,
                 actions_focus: None,
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
             )
         }

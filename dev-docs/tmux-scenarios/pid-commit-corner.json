@@ -1,0 +1,19 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "expect": "No terminal attached" },
+    { "expect": "pid:" },
+    { "capture": "pid-commit-corner" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

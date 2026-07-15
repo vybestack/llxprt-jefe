@@ -297,6 +297,13 @@ fn keybind_bar_lines_match_rendered_hints() {
     let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
     assert_eq!(content.lines.len(), 1);
     assert!(content.lines[0].contains("navigate"));
+    // The process-identity label (pid + commit) must be present so mouse-copy
+    // captures it (issue #223).
+    assert!(
+        content.lines[0].contains("pid:"),
+        "keybind bar copy must include the pid marker: {}",
+        content.lines[0]
+    );
 }
 
 #[test]
