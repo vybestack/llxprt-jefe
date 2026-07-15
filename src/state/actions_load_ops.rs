@@ -159,9 +159,7 @@ fn resort_actions_runs_preserving_selection(
     let selected_id = list
         .selected_index()
         .and_then(|idx| list.items().get(idx).map(|run| run.id));
-    let mut runs = list.items().to_vec();
-    crate::actions_view::sort_workflow_runs_newest_first(&mut runs);
-    list.replace_items(runs);
+    list.sort_by(crate::actions_view::cmp_workflow_runs_newest_first);
     if let Some(id) = selected_id {
         list.set_selected_index(list.items().iter().position(|run| run.id == id));
     }

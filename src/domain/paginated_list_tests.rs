@@ -61,6 +61,21 @@ fn common_list_api_does_not_require_identity_trait_bounds() {
 }
 
 #[test]
+fn sort_by_reorders_in_place_without_changing_selected_index() {
+    let mut list = PaginatedList::from_loaded(ident(1), vec![3, 1, 2], PageToken::Done);
+    list.set_selected_index(Some(1));
+
+    list.sort_by(|a, b| b.cmp(a));
+
+    assert_eq!(list.items(), &[3, 2, 1]);
+    assert_eq!(
+        list.selected_index(),
+        Some(1),
+        "sort_by leaves the selected index unchanged; callers remap by identity"
+    );
+}
+
+#[test]
 fn unbound_boundary_list_requires_stable_identity_before_paging() {
     let mut list: PaginatedList<u32, TestIdentity> =
         PaginatedList::from_unbound(vec![10], PageToken::Cursor("next".to_string()));

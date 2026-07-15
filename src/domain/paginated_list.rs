@@ -246,6 +246,18 @@ impl<T, I> PaginatedList<T, I> {
         self.set_selected_index(self.selected_index);
     }
 
+    /// Sort loaded items in place without allocating a temporary list copy.
+    ///
+    /// Leaves selection index, identity, and pagination tokens unchanged —
+    /// callers that need selection to follow an item identity must remap the
+    /// selected index after sorting.
+    pub fn sort_by<F>(&mut self, compare: F)
+    where
+        F: FnMut(&T, &T) -> std::cmp::Ordering,
+    {
+        self.items.sort_by(compare);
+    }
+
     /// Returns the selected row index, if any.
     #[must_use]
     pub const fn selected_index(&self) -> Option<usize> {
