@@ -181,6 +181,9 @@ Its SHA-256 was
   qualifying ready/opt-in observation and deduplicated repeated readiness cycles.
 - **In-scope—Fix:** Required the initial configuration to omit `path_filters`
   entirely and asserted every configured WIP title marker.
+- **In-scope—Fix:** Made repository read failures name the missing path, parsed
+  YAML keys and path entries without fixed quotes/indentation, and constrained
+  documentation assertions to their owning Markdown sections.
 
 ## Deferred findings and follow-ups
 

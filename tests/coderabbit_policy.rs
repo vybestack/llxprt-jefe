@@ -6,16 +6,32 @@
 use std::{fs, io, path::Path};
 
 fn repository_text(relative_path: &str) -> io::Result<String> {
-    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path))
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    fs::read_to_string(&path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("could not read {}: {error}", path.display()),
+        )
+    })
 }
 
 fn leading_spaces(line: &str) -> usize {
     line.bytes().take_while(|byte| *byte == b' ').count()
 }
 
-fn yaml_section<'a>(text: &'a str, header: &str, indent: usize) -> Vec<&'a str> {
+fn is_yaml_key(line: &str, key: &str, indent: usize) -> bool {
+    if leading_spaces(line) != indent {
+        return false;
+    }
+    line.trim()
+        .strip_prefix(key)
+        .and_then(|suffix| suffix.strip_prefix(':'))
+        .is_some_and(|suffix| suffix.trim().is_empty() || suffix.trim_start().starts_with('#'))
+}
+
+fn yaml_section<'a>(text: &'a str, key: &str, indent: usize) -> Vec<&'a str> {
     let lines = text.lines().collect::<Vec<_>>();
-    let Some(start) = lines.iter().position(|line| *line == header) else {
+    let Some(start) = lines.iter().position(|line| is_yaml_key(line, key, indent)) else {
         return Vec::new();
     };
 
@@ -30,8 +46,27 @@ fn section_contains(section: &[&str], setting: &str) -> bool {
     section.iter().any(|line| line.trim() == setting)
 }
 
+fn yaml_list_scalar<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let item = line.trim().strip_prefix("- ")?;
+    let value = item.strip_prefix(key)?.strip_prefix(':')?.trim();
+    Some(value.trim_matches(['\'', '"']))
+}
+
 fn path_instruction<'a>(config: &'a str, path: &str) -> Vec<&'a str> {
-    yaml_section(config, &format!("    - path: \"{path}\""), 4)
+    let lines = config.lines().collect::<Vec<_>>();
+    let Some(start) = lines
+        .iter()
+        .position(|line| yaml_list_scalar(line, "path") == Some(path))
+    else {
+        return Vec::new();
+    };
+    let indent = leading_spaces(lines[start]);
+
+    lines
+        .into_iter()
+        .skip(start + 1)
+        .take_while(|line| line.trim().is_empty() || leading_spaces(line) > indent)
+        .collect()
 }
 
 fn excludes_rust_scope(filter: &str) -> bool {
@@ -53,10 +88,28 @@ fn excludes_rust_scope(filter: &str) -> bool {
     })
 }
 
+fn markdown_section(text: &str, heading: &str) -> String {
+    let header = format!("## {heading}");
+    let lines = text.lines().collect::<Vec<_>>();
+    let Some(start) = lines.iter().position(|line| line.trim() == header) else {
+        return String::new();
+    };
+
+    lines
+        .into_iter()
+        .skip(start + 1)
+        .take_while(|line| !line.starts_with("## "))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[test]
 fn automatic_reviews_are_ready_only_and_bounded() -> io::Result<()> {
     let config = repository_text(".coderabbit.yaml")?;
-    let auto_review = yaml_section(&config, "  auto_review:", 2);
+    let auto_review = yaml_section(&config, "auto_review", 2);
 
     assert!(
         section_contains(&auto_review, "enabled: false"),
@@ -122,7 +175,7 @@ fn rust_scope_filter_detection_uses_complete_path_components() {
 #[test]
 fn review_scope_includes_rust_source_tests_and_jefe_workflows() -> io::Result<()> {
     let config = repository_text(".coderabbit.yaml")?;
-    let path_filters = yaml_section(&config, "  path_filters:", 2);
+    let path_filters = yaml_section(&config, "path_filters", 2);
 
     assert!(
         path_filters.is_empty(),
@@ -162,7 +215,8 @@ fn review_scope_includes_rust_source_tests_and_jefe_workflows() -> io::Result<()
 #[test]
 fn contributor_policy_defines_deliberate_review_lifecycle() -> io::Result<()> {
     let policy = repository_text("dev-docs/code-review-demand.md")?;
-    let normalized_policy = policy.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lifecycle = markdown_section(&policy, "Deliberate ready-for-review lifecycle");
+    let manual_requests = markdown_section(&policy, "Manual review requests and allowance cost");
     let contributor_guide = repository_text("CONTRIBUTING.md")?;
 
     assert!(
@@ -170,32 +224,32 @@ fn contributor_policy_defines_deliberate_review_lifecycle() -> io::Result<()> {
         "the contributor entry point must link to the demand policy"
     );
     assert!(
-        normalized_policy.contains("Keep the pull request in draft"),
+        lifecycle.contains("Keep the pull request in draft"),
         "active implementation must remain draft"
     );
     assert!(
-        normalized_policy.contains("add the `review-ready` label"),
+        lifecycle.contains("add the `review-ready` label"),
         "ready review must use the configured explicit trigger"
     );
     assert!(
-        normalized_policy.contains("current head SHA"),
+        lifecycle.contains("current head SHA"),
         "readiness and coverage must be tied to the exact head"
     );
     assert!(
-        normalized_policy.contains("`@coderabbitai review`")
-            && normalized_policy.contains("`@coderabbitai full review`"),
-        "both manual review commands must be documented"
+        manual_requests.contains("`@coderabbitai review`")
+            && manual_requests.contains("`@coderabbitai full review`"),
+        "both manual review commands must be documented in the manual-request section"
     );
     assert!(
-        normalized_policy.contains("cost one PR review from the allowance"),
+        manual_requests.contains("cost one PR review from the allowance"),
         "manual review allowance cost must be explicit"
     );
     assert!(
-        normalized_policy.contains("Do not request a review when the reviewed head"),
+        manual_requests.contains("Do not request a review when the reviewed head"),
         "duplicate exact-head requests must be prohibited"
     );
     assert!(
-        normalized_policy.contains("Do not infer coverage from the absence of a throttle"),
+        lifecycle.contains("Do not infer coverage from the absence of a throttle"),
         "missing throttle evidence must not imply coverage"
     );
 
@@ -205,7 +259,8 @@ fn contributor_policy_defines_deliberate_review_lifecycle() -> io::Result<()> {
 #[test]
 fn measurement_policy_requires_reproducible_complete_windows() -> io::Result<()> {
     let policy = repository_text("dev-docs/code-review-demand.md")?;
-    let normalized_policy = policy.split_whitespace().collect::<Vec<_>>().join(" ");
+    let events = markdown_section(&policy, "Immutable measurement events");
+    let windows = markdown_section(&policy, "Complete rolling-window evaluation");
 
     for event_type in [
         "`review_requested`",
@@ -214,49 +269,48 @@ fn measurement_policy_requires_reproducible_complete_windows() -> io::Result<()>
         "`review_coverage_observed`",
     ] {
         assert!(
-            normalized_policy.contains(event_type),
+            events.contains(event_type),
             "measurement policy is missing event type {event_type}"
         );
     }
     assert!(
-        normalized_policy.contains("append-only"),
+        events.contains("append-only"),
         "measurement events must remain immutable"
     );
     assert!(
-        normalized_policy.contains("resolved configuration fingerprint")
-            && normalized_policy.contains("eligibility snapshot"),
+        events.contains("resolved configuration fingerprint")
+            && events.contains("eligibility snapshot"),
         "events must preserve effective configuration and eligibility evidence"
     );
     assert!(
-        normalized_policy.contains("terminal state is `merged` or `closed`"),
+        events.contains("terminal state is `merged` or `closed`"),
         "coverage cohort terminal states must be defined"
     );
     assert!(
-        normalized_policy.contains("qualifying ready/opt-in observation")
-            && normalized_policy.contains("remains in the cohort"),
+        events.contains("qualifying ready/opt-in observation")
+            && events.contains("remains in the cohort"),
         "terminal coverage cohort membership must survive later ready-state changes"
     );
     assert!(
-        normalized_policy.contains("[T-28d, T)") && normalized_policy.contains("[T-56d, T-28d)"),
+        windows.contains("[T-28d, T)") && windows.contains("[T-56d, T-28d)"),
         "adjacent complete rolling windows must be explicit"
     );
     assert!(
-        normalized_policy.contains("measurement cutoff `T`")
-            && normalized_policy.contains("publication time `P = T + 7d`")
-            && normalized_policy.contains("as-of boundary is `P`"),
+        windows.contains("measurement cutoff `T`")
+            && windows.contains("publication time `P = T + 7d`")
+            && windows.contains("as-of boundary is `P`"),
         "window outcomes need explicit cutoff, publication, and as-of boundaries"
     );
     assert!(
-        normalized_policy.contains("zero denominator")
-            && normalized_policy.contains("non-comparable"),
+        windows.contains("zero denominator") && windows.contains("non-comparable"),
         "undefined ratios and mixed configurations need deterministic handling"
     );
     assert!(
-        normalized_policy.contains("throttle rate and exact-head review coverage"),
+        windows.contains("throttle rate and exact-head review coverage"),
         "demand and coverage metrics must be evaluated together"
     );
     assert!(
-        normalized_policy.contains("Never tune from a partial window"),
+        windows.contains("Never tune from a partial window"),
         "partial windows must not drive tuning"
     );
 
