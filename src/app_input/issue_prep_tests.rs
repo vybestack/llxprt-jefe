@@ -134,6 +134,117 @@ fn run_git(cwd: &Path, args: &[&str]) {
     );
 }
 
+fn owned_checkout_conflict(label: &str) -> (PathBuf, PathBuf) {
+    let origin = bare_origin_with_commit(label);
+    let work = clone_origin(&origin, label);
+    run_git(&work, &["config", "user.email", "test@example.com"]);
+    run_git(&work, &["config", "user.name", "Test"]);
+    std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create owned directory");
+    std::fs::write(work.join(".llxprt/LLXPRT.md"), "main memory")
+        .value_or_panic("write main owned file");
+    run_git(&work, &["add", ".llxprt/LLXPRT.md"]);
+    run_git(&work, &["commit", "-m", "add main owned metadata"]);
+    run_git(&work, &["push", "origin", "main"]);
+    run_git(&work, &["checkout", "-b", "feature"]);
+    std::fs::write(work.join(".llxprt/LLXPRT.md"), "feature memory")
+        .value_or_panic("write feature owned file");
+    run_git(&work, &["add", ".llxprt/LLXPRT.md"]);
+    run_git(&work, &["commit", "-m", "change feature owned metadata"]);
+    std::fs::write(work.join(".llxprt/LLXPRT.md"), "local memory")
+        .value_or_panic("modify owned metadata locally");
+    (origin, work)
+}
+
+fn git_stdout(work_dir: &Path, args: &[&str]) -> String {
+    let output = issue_git_prep::git_capture(work_dir, args)
+        .unwrap_or_else(|error| panic!("git {} failed: {error}", args.join(" ")));
+    assert!(
+        output.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+fn local_checkout_blocker_returns_dirty_without_changing_worktree_or_index() {
+    let (origin, work) = owned_checkout_conflict("owned-checkout-stop");
+    let branch_before = git_stdout(&work, &["branch", "--show-current"]);
+    let head_before = git_stdout(&work, &["rev-parse", "HEAD"]);
+    let index_before = git_stdout(&work, &["ls-files", "--stage"]);
+    let status_before = git_stdout(&work, &["status", "--porcelain=v1"]);
+
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop, "prompt")
+        .value_or_panic("checkout conflict should become dirty outcome");
+
+    assert_eq!(outcome, PrepOutcome::Dirty);
+    assert_eq!(
+        git_stdout(&work, &["branch", "--show-current"]),
+        branch_before
+    );
+    assert_eq!(git_stdout(&work, &["rev-parse", "HEAD"]), head_before);
+    assert_eq!(git_stdout(&work, &["ls-files", "--stage"]), index_before);
+    assert_eq!(
+        git_stdout(&work, &["status", "--porcelain=v1"]),
+        status_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.join(".llxprt/LLXPRT.md"))
+            .value_or_panic("read preserved local memory"),
+        "local memory"
+    );
+    assert!(!work.join(".jefe/issue-prompt.md").exists());
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+#[test]
+fn local_confirmed_checkout_blocker_discard_reaches_fetched_main() {
+    let (origin, work) = owned_checkout_conflict("owned-checkout-discard");
+    std::fs::write(work.join(".llxprt/session.json"), "preserve me")
+        .value_or_panic("write untracked owned metadata");
+    std::fs::write(work.join("remove-me.txt"), "discard me")
+        .value_or_panic("write non-owned untracked file");
+    let prompt = "Work issue 316.";
+
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard, prompt)
+        .value_or_panic("confirmed checkout conflict cleanup");
+
+    assert_eq!(outcome, PrepOutcome::Ready);
+    assert_eq!(
+        git_stdout(&work, &["rev-parse", "HEAD"]),
+        git_stdout(&work, &["rev-parse", "origin/main"])
+    );
+    assert_eq!(
+        git_stdout(&work, &["branch", "--show-current"]).trim(),
+        "main"
+    );
+    assert!(
+        git_stdout(&work, &["diff", "--cached", "--name-only"])
+            .trim()
+            .is_empty(),
+        "confirmed cleanup must leave no staged changes"
+    );
+    assert!(!work.join("remove-me.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(work.join(".llxprt/LLXPRT.md"))
+            .value_or_panic("read main owned metadata"),
+        "main memory"
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.join(".llxprt/session.json"))
+            .value_or_panic("read preserved untracked owned metadata"),
+        "preserve me"
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.join(".jefe/issue-prompt.md")).value_or_panic("read prompt"),
+        prompt
+    );
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
 fn cleanup(path: &Path) {
     // Best-effort cleanup; failures are silently ignored because this runs at
     // the end of every test and a missing/non-empty dir is not actionable.
