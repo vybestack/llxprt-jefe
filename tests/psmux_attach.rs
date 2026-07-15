@@ -1,6 +1,5 @@
 #![cfg(all(windows, feature = "psmux-smoke"))]
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -63,15 +62,15 @@ fn native_psmux_attachment_preserves_terminal_contract_and_session() {
     let session = "jefe-attach-contract";
     let mut create = plan.command();
     create.args([
-        OsString::from("new-session"),
-        OsString::from("-d"),
-        OsString::from("-s"),
-        OsString::from(session),
-        OsString::from("-x"),
-        OsString::from("100"),
-        OsString::from("-y"),
-        OsString::from("32"),
-        OsString::from(FIXTURE),
+        "new-session",
+        "-d",
+        "-s",
+        session,
+        "-x",
+        "100",
+        "-y",
+        "32",
+        FIXTURE,
     ]);
     let status = create
         .status()
@@ -133,7 +132,14 @@ fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> 
     let teardown_result = teardown
         .join()
         .map_err(|_| "first viewer teardown thread panicked".to_owned());
-    second_result.and(teardown_result)
+    match (second_result, teardown_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(second_error), Ok(())) => Err(second_error),
+        (Ok(()), Err(teardown_error)) => Err(teardown_error),
+        (Err(second_error), Err(teardown_error)) => Err(format!(
+            "{second_error}; additionally, first viewer teardown failed: {teardown_error}"
+        )),
+    }
 }
 
 fn create_marked_fixture_session(
@@ -144,13 +150,13 @@ fn create_marked_fixture_session(
     let mut create = plan.command();
     let status = create
         .args([
-            OsString::from("new-session"),
-            OsString::from("-d"),
-            OsString::from("-s"),
-            OsString::from(session),
-            OsString::from(FIXTURE),
-            OsString::from("--marker"),
-            OsString::from(marker),
+            "new-session",
+            "-d",
+            "-s",
+            session,
+            FIXTURE,
+            "--marker",
+            marker,
         ])
         .status()
         .map_err(|error| format!("create fixture session {session}: {error}"))?;
