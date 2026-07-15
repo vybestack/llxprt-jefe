@@ -208,6 +208,15 @@ impl AppState {
             .filter(|a| a.is_transient() && a.repository_id == *repo_id && a.is_running())
             .count()
     }
+
+    /// Last error title for status-bar display (issue #292).
+    ///
+    /// Centralizes the `last_error().map(|e| e.title.clone())` lookup so all
+    /// screen files share one source of truth.
+    #[must_use]
+    pub fn last_error_title(&self) -> Option<String> {
+        self.errors_state.last_error().map(|e| e.title.clone())
+    }
 }
 
 /// Build typed chooser entries by joining state-computed eligible agents with

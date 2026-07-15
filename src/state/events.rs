@@ -857,5 +857,7 @@ pub enum AppEvent {
     ErrorsCycleFocusReverse,
     ErrorsScrollDetailUp,
     ErrorsScrollDetailDown,
+    ErrorsScrollDetailPageUp,
+    ErrorsScrollDetailPageDown,
     ErrorsClearAll,
 }

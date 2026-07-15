@@ -232,6 +232,8 @@ impl AppMessage {
                 | AppEvent::ErrorsCycleFocusReverse
                 | AppEvent::ErrorsScrollDetailUp
                 | AppEvent::ErrorsScrollDetailDown
+                | AppEvent::ErrorsScrollDetailPageUp
+                | AppEvent::ErrorsScrollDetailPageDown
                 | AppEvent::ErrorsClearAll
         )
     }

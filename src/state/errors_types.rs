@@ -107,8 +107,20 @@ impl Default for ErrorsState {
 
 impl ErrorsState {
     /// Push a new error entry, evicting the oldest when at capacity.
-    /// Returns the entry that was stored (with its assigned seq).
-    pub fn push(&mut self, title: String, detail: String, source: ErrorSource, timestamp: String) {
+    ///
+    /// When `snap_to_newest` is true (the errors mode is not active), the
+    /// selection/scroll is reset to the newest entry so the status bar's
+    /// last-error indicator shows the just-pushed error. When the user is
+    /// actively browsing (`snap_to_newest` = false), the existing selection
+    /// and scroll position are preserved.
+    pub fn push(
+        &mut self,
+        title: String,
+        detail: String,
+        source: ErrorSource,
+        timestamp: String,
+        snap_to_newest: bool,
+    ) {
         let entry = ErrorEntry {
             seq: self.next_seq,
             title,
@@ -121,9 +133,10 @@ impl ErrorsState {
         if self.errors.len() > ERROR_STORE_CAPACITY {
             self.errors.truncate(ERROR_STORE_CAPACITY);
         }
-        // Reset selection to the newest error.
-        self.selected_index = Some(0);
-        self.detail_scroll_offset = 0;
+        if snap_to_newest {
+            self.selected_index = Some(0);
+            self.detail_scroll_offset = 0;
+        }
     }
 
     /// The most recent error, if any.
@@ -163,6 +176,7 @@ impl ErrorsState {
             msg.to_string(),
             source,
             timestamp.to_string(),
+            !self.active,
         );
         true
     }
@@ -178,6 +192,7 @@ impl ErrorsState {
             msg.to_string(),
             ErrorSource::Issues,
             timestamp.to_string(),
+            !self.active,
         );
         true
     }
@@ -193,6 +208,7 @@ impl ErrorsState {
             msg.to_string(),
             ErrorSource::PullRequests,
             timestamp.to_string(),
+            !self.active,
         );
         true
     }
@@ -208,6 +224,7 @@ impl ErrorsState {
             msg.to_string(),
             ErrorSource::Actions,
             timestamp.to_string(),
+            !self.active,
         );
         true
     }

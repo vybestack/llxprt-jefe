@@ -29,6 +29,7 @@ fn push_adds_to_head_and_selects() {
         "detail one".to_string(),
         ErrorSource::Issues,
         "2025-01-01T00:00:00Z".to_string(),
+        true,
     );
     assert_eq!(state.errors_state.count(), 1);
     assert_eq!(state.errors_state.selected_index, Some(0));
@@ -45,6 +46,7 @@ fn push_adds_to_head_and_selects() {
         "detail two".to_string(),
         ErrorSource::PullRequests,
         "2025-01-01T00:00:01Z".to_string(),
+        true,
     );
     assert_eq!(state.errors_state.count(), 2);
     assert_eq!(
@@ -66,6 +68,7 @@ fn push_evicts_oldest_at_capacity() {
             format!("detail {i}"),
             ErrorSource::Other,
             "ts".to_string(),
+            true,
         );
     }
     assert_eq!(
@@ -137,6 +140,7 @@ fn navigate_down_up_moves_selection() {
             format!("detail {i}"),
             ErrorSource::Other,
             "ts".to_string(),
+            true,
         );
     }
     // Errors are newest-first, so index 0 = "err 4", index 4 = "err 0".
@@ -162,12 +166,20 @@ fn navigate_down_up_moves_selection() {
 #[test]
 fn navigate_clamps_at_end() {
     let mut state = AppState::default();
-    state
-        .errors_state
-        .push("a".into(), "da".into(), ErrorSource::Other, "ts".into());
-    state
-        .errors_state
-        .push("b".into(), "db".into(), ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "a".into(),
+        "da".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    state.errors_state.push(
+        "b".into(),
+        "db".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
 
     state.apply_errors_message(ErrorsMessage::Navigate(NavDir::End));
@@ -188,6 +200,7 @@ fn navigate_home_goes_to_first() {
             format!("d{i}"),
             ErrorSource::Other,
             "ts".into(),
+            true,
         );
     }
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
@@ -201,9 +214,13 @@ fn navigate_home_goes_to_first() {
 #[test]
 fn cycle_focus_rotates() {
     let mut state = AppState::default();
-    state
-        .errors_state
-        .push("e".into(), "d".into(), ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "e".into(),
+        "d".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
     assert_eq!(state.errors_state.focus, ErrorsFocus::ErrorList);
 
@@ -221,9 +238,13 @@ fn cycle_focus_rotates() {
 #[test]
 fn enter_on_list_moves_to_detail() {
     let mut state = AppState::default();
-    state
-        .errors_state
-        .push("e".into(), "d".into(), ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "e".into(),
+        "d".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
 
     state.apply_errors_message(ErrorsMessage::Enter);
@@ -234,12 +255,20 @@ fn enter_on_list_moves_to_detail() {
 #[test]
 fn clear_all_empties_errors() {
     let mut state = AppState::default();
-    state
-        .errors_state
-        .push("e1".into(), "d1".into(), ErrorSource::Other, "ts".into());
-    state
-        .errors_state
-        .push("e2".into(), "d2".into(), ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "e1".into(),
+        "d1".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    state.errors_state.push(
+        "e2".into(),
+        "d2".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
 
     state.apply_errors_message(ErrorsMessage::ClearAll);
     assert!(state.errors_state.is_empty());
@@ -290,12 +319,20 @@ fn reset_global_tracker_allows_recapture() {
 #[test]
 fn seq_numbers_increase() {
     let mut state = AppState::default();
-    state
-        .errors_state
-        .push("a".into(), "da".into(), ErrorSource::Other, "ts".into());
-    state
-        .errors_state
-        .push("b".into(), "db".into(), ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "a".into(),
+        "da".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    state.errors_state.push(
+        "b".into(),
+        "db".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
     let seqs: Vec<u64> = state.errors_state.errors.iter().map(|e| e.seq).collect();
     assert_eq!(seqs, vec![2, 1]);
 }
@@ -308,9 +345,13 @@ fn scroll_detail_clamps() {
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    state
-        .errors_state
-        .push("e".into(), long_detail, ErrorSource::Other, "ts".into());
+    state.errors_state.push(
+        "e".into(),
+        long_detail,
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
     state.errors_state.detail_viewport_rows = 10;
 
@@ -329,4 +370,87 @@ fn scroll_detail_clamps() {
     state.errors_state.detail_scroll_offset = 0;
     state.apply_errors_message(ErrorsMessage::ScrollDetail(ScrollDir::Up));
     assert_eq!(state.errors_state.detail_scroll_offset, 0);
+}
+
+/// While the user is actively browsing errors mode, a background error push
+/// preserves the selection and scroll position (CodeRabbit review finding).
+#[test]
+fn push_preserves_selection_when_active() {
+    let mut state = AppState::default();
+    state.errors_state.push(
+        "first".into(),
+        "d1".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    state.errors_state.push(
+        "second".into(),
+        "d2".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    apply_in_place(&mut state, AppEvent::EnterErrorsMode);
+    // Navigate to the second entry (index 1).
+    state.apply_errors_message(ErrorsMessage::Navigate(NavDir::Down));
+    assert_eq!(state.errors_state.selected_index, Some(1));
+    state.errors_state.detail_scroll_offset = 3;
+
+    // A background push with snap_to_newest=false must not clobber selection.
+    state.errors_state.push(
+        "third".into(),
+        "d3".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        false,
+    );
+    assert_eq!(
+        state.errors_state.selected_index,
+        Some(1),
+        "selection should be preserved when not snapping"
+    );
+    assert_eq!(
+        state.errors_state.detail_scroll_offset, 3,
+        "scroll offset should be preserved when not snapping"
+    );
+
+    // But with snap_to_newest=true, selection resets to newest (index 0).
+    state.errors_state.push(
+        "fourth".into(),
+        "d4".into(),
+        ErrorSource::Other,
+        "ts".into(),
+        true,
+    );
+    assert_eq!(state.errors_state.selected_index, Some(0));
+    assert_eq!(state.errors_state.detail_scroll_offset, 0);
+}
+
+/// Navigation when focused on RepoList does not leak to the error list
+/// (CodeRabbit review finding).
+#[test]
+fn nav_while_repo_focused_does_not_move_error_selection() {
+    let mut state = AppState::default();
+    for i in 0..3 {
+        state.errors_state.push(
+            format!("e{i}"),
+            format!("d{i}"),
+            ErrorSource::Other,
+            "ts".into(),
+            true,
+        );
+    }
+    apply_in_place(&mut state, AppEvent::EnterErrorsMode);
+    // Cycle to repo list focus.
+    state.apply_errors_message(ErrorsMessage::CycleFocus); // ErrorDetail
+    state.apply_errors_message(ErrorsMessage::CycleFocus); // RepoList
+    assert_eq!(state.errors_state.focus, ErrorsFocus::RepoList);
+
+    let before = state.errors_state.selected_index;
+    // Home/End should NOT change error-list selection.
+    state.apply_errors_message(ErrorsMessage::Navigate(NavDir::Home));
+    assert_eq!(state.errors_state.selected_index, before);
+    state.apply_errors_message(ErrorsMessage::Navigate(NavDir::End));
+    assert_eq!(state.errors_state.selected_index, before);
 }

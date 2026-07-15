@@ -56,10 +56,11 @@ impl AppState {
     }
 
     fn handle_error_navigation(&mut self, dir: NavDir) -> bool {
-        if matches!(self.errors_state.focus, ErrorsFocus::RepoList)
-            && matches!(dir, NavDir::Up | NavDir::Down)
-        {
-            self.move_repo_selection(dir);
+        if matches!(self.errors_state.focus, ErrorsFocus::RepoList) {
+            if matches!(dir, NavDir::Up | NavDir::Down) {
+                self.move_repo_selection(dir);
+            }
+            // Home/End/Page/Next/Prev are no-ops for the repo sidebar today.
             return true;
         }
         let count = self.errors_state.errors.len();
@@ -187,9 +188,12 @@ pub(super) fn capture_runtime_errors(state: &mut AppState) {
         .unwrap_or_default();
 
     if let Some(ref msg) = state.error_message {
+        // `error_message` is a catch-all slot written from many subsystems
+        // (agent lifecycle, availability, forms, auth, persistence, etc.),
+        // so it cannot be attributed to a single source.
         state
             .errors_state
-            .capture_global(msg, crate::domain::ErrorSource::Persistence, &timestamp);
+            .capture_global(msg, crate::domain::ErrorSource::Other, &timestamp);
     } else {
         state.errors_state.reset_global_tracker();
     }

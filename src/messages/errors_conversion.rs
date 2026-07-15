@@ -30,6 +30,8 @@ impl ErrorsMessage {
             AppEvent::ErrorsCycleFocusReverse => Self::CycleFocusReverse,
             AppEvent::ErrorsScrollDetailUp => Self::ScrollDetail(ScrollDir::Up),
             AppEvent::ErrorsScrollDetailDown => Self::ScrollDetail(ScrollDir::Down),
+            AppEvent::ErrorsScrollDetailPageUp => Self::ScrollDetail(ScrollDir::PageUp),
+            AppEvent::ErrorsScrollDetailPageDown => Self::ScrollDetail(ScrollDir::PageDown),
             AppEvent::ErrorsClearAll => Self::ClearAll,
             _ => unreachable!("unhandled event for ErrorsMessage: {:?}", event),
         }
@@ -60,15 +62,17 @@ impl ErrorsMessage {
             // handler maps PageUp/PageDown to scroll events directly, so these
             // branches are only reached if Navigate(PageUp/Down) is constructed
             // programmatically).
-            NavDir::PageUp(_) => AppEvent::ErrorsScrollDetailUp,
-            NavDir::PageDown(_) => AppEvent::ErrorsScrollDetailDown,
+            NavDir::PageUp(_) => AppEvent::ErrorsScrollDetailPageUp,
+            NavDir::PageDown(_) => AppEvent::ErrorsScrollDetailPageDown,
         }
     }
 
     fn map_scroll(dir: ScrollDir) -> AppEvent {
         match dir {
-            ScrollDir::Up | ScrollDir::PageUp => AppEvent::ErrorsScrollDetailUp,
-            ScrollDir::Down | ScrollDir::PageDown => AppEvent::ErrorsScrollDetailDown,
+            ScrollDir::Up => AppEvent::ErrorsScrollDetailUp,
+            ScrollDir::Down => AppEvent::ErrorsScrollDetailDown,
+            ScrollDir::PageUp => AppEvent::ErrorsScrollDetailPageUp,
+            ScrollDir::PageDown => AppEvent::ErrorsScrollDetailPageDown,
         }
     }
 }

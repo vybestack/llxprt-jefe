@@ -54,6 +54,6 @@ pub struct ErrorEntry {
     pub detail: String,
     /// Where the error originated.
     pub source: ErrorSource,
-    /// ISO 8601 timestamp of when the error was captured.
+    /// Unix epoch seconds (UTC) of when the error was captured.
     pub timestamp: String,
 }

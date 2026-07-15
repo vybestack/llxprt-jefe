@@ -27,17 +27,17 @@ pub(super) fn handle_errors_mode_key(
         KeyCode::Down => Some(AppEvent::ErrorsNavigateDown),
         KeyCode::Home => Some(AppEvent::ErrorsNavigateHome),
         KeyCode::End => Some(AppEvent::ErrorsNavigateEnd),
-        KeyCode::PageUp => Some(AppEvent::ErrorsScrollDetailUp),
-        KeyCode::PageDown => Some(AppEvent::ErrorsScrollDetailDown),
+        KeyCode::PageUp => Some(AppEvent::ErrorsScrollDetailPageUp),
+        KeyCode::PageDown => Some(AppEvent::ErrorsScrollDetailPageDown),
         // Enter: list → detail focus.
         KeyCode::Enter if focus == ErrorsFocus::ErrorList => Some(AppEvent::ErrorsEnter),
         // Tab/Right: cycle focus forward.
         KeyCode::Tab | KeyCode::Right => Some(AppEvent::ErrorsCycleFocus),
         // Left/Backtab: cycle focus reverse.
         KeyCode::BackTab | KeyCode::Left => Some(AppEvent::ErrorsCycleFocusReverse),
-        // Ctrl-c: clear all errors (destructive — requires modifier like
-        // other destructive actions in this codebase).
-        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+        // Ctrl-c/Ctrl-C: clear all errors (destructive — requires modifier
+        // like other destructive actions in this codebase).
+        KeyCode::Char('c' | 'C') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(AppEvent::ErrorsClearAll)
         }
         // Scroll detail (j/k as vim-like aliases).
