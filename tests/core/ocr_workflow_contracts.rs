@@ -201,9 +201,14 @@ fn ocr_review_classifies_rate_limit_and_overloaded() {
 #[test]
 fn ocr_review_classifies_all_file_and_auth_failures() {
     let content = read_workflow();
+    // The all-file grep pattern and the reason text must both be present.
     assert!(
-        content.contains("file review") && content.contains("provider/config/auth"),
-        "OCR review must classify wholesale per-file failure and auth/config/provider failure"
+        content.contains("all [0-9]+ file review"),
+        "OCR review must grep for wholesale per-file review failures"
+    );
+    assert!(
+        content.contains("provider/config/auth"),
+        "OCR review must classify wholesale failure as a provider/config/auth issue"
     );
 }
 
@@ -295,15 +300,16 @@ fn ocr_notification_retries_reads_not_writes() {
 #[test]
 fn ocr_notification_reconciles_ambiguous_writes() {
     let content = read_workflow();
-    // The create path must search before creating and re-check before create,
-    // reconciling by the deterministic issue title. There are exactly four
-    // gh issue list calls: initial search, pre-create recheck, and two inside
-    // converge_tracking_issues (called from the comment path and the create path).
-    // The key structural requirement is >= 2 lookups outside convergence.
+    // Exactly three gh issue list calls must exist:
+    //   1. converge_tracking_issues — duplicate convergence sweep
+    //   2. initial lookup before creating (sort:created-asc)
+    //   3. pre-create recheck to narrow the race window (sort:created-asc)
+    // An exact count catches both accidental removal of a reconciliation
+    // search and addition of an unnecessary duplicate.
     let recheck_count = content.matches("gh issue list").count();
-    assert!(
-        recheck_count >= 3,
-        "Notification must reconcile ambiguous writes by re-searching before and after create (found {recheck_count} search calls)"
+    assert_eq!(
+        recheck_count, 3,
+        "Notification must have exactly 3 gh issue list calls for reconciliation (found {recheck_count})"
     );
 }
 
