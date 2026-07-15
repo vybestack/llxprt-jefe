@@ -140,6 +140,14 @@ fn classify_startup(
     process: ProcessLiveness,
 ) -> StartupClassification {
     if binding == BindingEvidence::Inconsistent {
+        // A live session is ground truth: the agent is still running even if
+        // the persisted binding signature drifted (e.g. a new binary recomputed
+        // LaunchSignature fields differently). Returning Running lets
+        // restore_runtime_sessions reattach the live session and refresh the
+        // binding instead of marking the agent Dead (issue #323).
+        if session == SessionEvidence::Alive {
+            return StartupClassification::Running;
+        }
         return StartupClassification::Inconsistent;
     }
     if !remote && process == ProcessLiveness::ReusedPid {
@@ -839,12 +847,46 @@ mod tests {
     }
 
     #[test]
-    fn live_session_with_mismatched_binding_is_never_reattached() {
+    fn live_session_survives_mismatched_binding_for_reattach() {
+        // Issue #323: a live tmux session must not be killed just because the
+        // persisted binding signature drifted. The session is the ground truth;
+        // the binding can be refreshed during restore.
+        for liveness in [
+            ProcessLiveness::Alive,
+            ProcessLiveness::Dead,
+            ProcessLiveness::ReusedPid,
+        ] {
+            assert_eq!(
+                classify_startup(
+                    SessionEvidence::Alive,
+                    BindingEvidence::Inconsistent,
+                    false,
+                    liveness
+                ),
+                StartupClassification::Running,
+                "Alive session with Inconsistent binding and {liveness:?} process should be Running"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_session_with_inconsistent_binding_still_inconsistent() {
+        // Negative case: without a live session there is nothing to rescue,
+        // so the Inconsistent classification is preserved (existing behavior).
         assert_eq!(
             classify_startup(
-                SessionEvidence::Alive,
+                SessionEvidence::Missing,
                 BindingEvidence::Inconsistent,
                 false,
+                ProcessLiveness::Alive
+            ),
+            StartupClassification::Inconsistent
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Missing,
+                BindingEvidence::Inconsistent,
+                true,
                 ProcessLiveness::Alive
             ),
             StartupClassification::Inconsistent
