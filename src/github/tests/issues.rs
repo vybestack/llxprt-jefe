@@ -556,6 +556,42 @@ fn test_create_issue_success() {
     assert_eq!(list_issue.number, 45);
     assert_eq!(list_issue.state, IssueState::Open);
     assert_eq!(list_issue.title, "Create issue from issues mode");
+    assert_eq!(list_issue.node_id, "I_kwDOABC");
+}
+
+#[test]
+fn test_create_issue_missing_node_id_is_error() {
+    let json = r#"{
+        "number": 45,
+        "title": "Create issue from issues mode",
+        "body": "Issue body details",
+        "user": {"login": "acoliver"},
+        "created_at": "2026-03-29T14:00:00Z"
+    }"#;
+
+    let result = parse_created_issue_json(json);
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "missing node_id must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_create_issue_empty_node_id_is_error() {
+    let json = r#"{
+        "number": 45,
+        "title": "Create issue from issues mode",
+        "body": "Issue body details",
+        "node_id": "",
+        "user": {"login": "acoliver"},
+        "created_at": "2026-03-29T14:00:00Z"
+    }"#;
+
+    let result = parse_created_issue_json(json);
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "empty node_id must be a ParseError, got {result:?}"
+    );
 }
 
 #[test]

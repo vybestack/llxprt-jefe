@@ -69,7 +69,8 @@ pub fn parse_created_issue_json(json_str: &str) -> Result<CreatedIssue, GhError>
     let node_id = value
         .get("node_id")
         .and_then(Value::as_str)
-        .unwrap_or("")
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| GhError::ParseError("Missing or empty node_id".to_string()))?
         .to_string();
 
     let author_login = value
