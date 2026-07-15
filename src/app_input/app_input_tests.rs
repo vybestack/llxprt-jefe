@@ -217,6 +217,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut second = sample_agent(&agent_b);
@@ -227,6 +228,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut state = AppState::default();
@@ -262,6 +264,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut state = AppState::default();
@@ -914,4 +917,42 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
         jefe::input::InputMode::Confirm,
         "ConfirmIssueDirtyCopy must use InputMode::Confirm"
     );
+}
+
+// --- Regression tests relocated from app_shell.rs (issue #301 review) ---
+//
+// These tests pin the contract that `wants_live_snapshot` depends ONLY on
+// agent status (never pane focus) and that `is_pty_dirty` returns false
+// when no context is available. They were originally in `app_shell.rs` and
+// were moved here to keep `app_shell.rs` under the 1000-line source-file
+// size limit while preserving regression coverage.
+
+#[test]
+fn wants_live_snapshot_for_running_regardless_of_pane() {
+    use jefe::domain::AgentStatus;
+    // Running agents always get a snapshot attempt. pane_focus is irrelevant.
+    assert!(
+        crate::app_shell::wants_live_snapshot_pub(AgentStatus::Running),
+        "Running status must always want a live snapshot"
+    );
+}
+
+#[test]
+fn wants_live_snapshot_for_dead() {
+    use jefe::domain::AgentStatus;
+    assert!(
+        crate::app_shell::wants_live_snapshot_pub(AgentStatus::Dead),
+        "Dead status must want a snapshot capture"
+    );
+}
+
+#[test]
+fn does_not_want_live_snapshot_for_idle_statuses() {
+    use jefe::domain::AgentStatus;
+    for status in [AgentStatus::Queued, AgentStatus::Completed] {
+        assert!(
+            !crate::app_shell::wants_live_snapshot_pub(status),
+            "{status:?} should not produce a terminal snapshot"
+        );
+    }
 }

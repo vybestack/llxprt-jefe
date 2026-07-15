@@ -19,6 +19,7 @@ fn bound_agent_state(agent_id: &AgentId) -> AppState {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
     AppState {
         agents: vec![agent],

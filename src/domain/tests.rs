@@ -429,6 +429,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
         last_seen: None,
         pid: Some(42_000),
         process_identity: Some(ProcessIdentity::new(42_000, 123_456)),
+        lifecycle_generation: 0,
     };
 
     let json = serde_json::to_value(&binding).value_or_panic("should serialize");

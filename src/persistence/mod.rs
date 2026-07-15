@@ -237,6 +237,11 @@ pub fn validate_config_dir(dir: &std::path::Path) -> Result<(), PersistenceError
     let targets = resolve_paths_from_dir(dir);
     validate_persistence_target(dir, &targets.settings_path)?;
     validate_persistence_target(dir, &targets.state_path)?;
+    // The actual temp file is `settings.tmp.<pid>` / `state.json.tmp.<pid>`,
+    // but validating the base `settings.tmp` / `state.json.tmp` sibling is a
+    // useful sanity check: if that sibling already exists as a directory or
+    // non-writable file, it signals a misconfigured config directory that
+    // would also affect the pid-suffixed variant.
     validate_atomic_temp_target(dir, &targets.settings_path.with_extension("tmp"))?;
     validate_atomic_temp_target(dir, &targets.state_path.with_extension("tmp"))?;
 
@@ -601,7 +606,11 @@ impl FilePersistenceManager {
         Self::atomic_write(path, &content)
     }
 
-    /// Atomic write: write to temp file, then rename.
+    /// Atomic write: write to a uniquely-named temp file, then rename.
+    ///
+    /// Uses a process-suffix on the temp file name so concurrent instances
+    /// (e.g. two Jefe processes sharing a config dir) cannot collide on the
+    /// same temp path (issue #301 review).
     fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), PersistenceError> {
         use std::fs;
         use std::io::Write;
@@ -612,8 +621,10 @@ impl FilePersistenceManager {
                 .map_err(|e| PersistenceError::IoError(format!("create dir: {e}")))?;
         }
 
-        // Write to temp file
-        let temp_path = path.with_extension("tmp");
+        // Write to a uniquely-named temp file to avoid collisions when
+        // multiple Jefe instances share the same config directory.
+        let pid = std::process::id();
+        let temp_path = path.with_extension(format!("tmp.{pid}"));
         let mut file = fs::File::create(&temp_path)
             .map_err(|e| PersistenceError::IoError(format!("create temp: {e}")))?;
         file.write_all(content.as_bytes())

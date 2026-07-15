@@ -20,7 +20,9 @@ use super::expand_macros;
 use super::matchers::{MatchPattern, history_delta, screen_contains, screen_count};
 use super::scenario::Scenario;
 use super::step::Step;
-use super::tmux_driver::{TmuxDriver, TmuxDriverError, TmuxSession, TmuxStartRequest};
+use super::tmux_driver::{
+    TmuxDriver, TmuxDriverError, TmuxSession, TmuxSessionGuard, TmuxStartRequest,
+};
 use tracing::warn;
 
 #[cfg(not(windows))]
@@ -197,6 +199,12 @@ fn run_expanded_scenario<D: HarnessDriver>(
 /// Returns [`RunnerError`] if the driver cannot start/cleanup or the scenario
 /// run fails.
 ///
+/// # Panics
+///
+/// Panics if the RAII guard's session is unexpectedly `None` immediately
+/// after construction (an invariant violation — the guard is created with
+/// a live session).
+///
 /// @plan PLAN-20260629-TMUX-HARNESS.P04
 /// @requirement REQ-TMUX-HARNESS-004
 pub fn run_tmux_scenario(
@@ -222,17 +230,25 @@ pub fn run_tmux_scenario(
             return Err(RunnerError::Driver(error.to_string()));
         }
     };
-    let mut driver = TmuxHarnessDriver::new(tmux.clone(), session.clone());
+    // Issue #301 Phase 6: RAII guard ensures the session is killed on every
+    // exit path (success, assertion failure, timeout, panic). Previously
+    // `cleanup_session` was called manually after the run, which leaked
+    // the session on early-return / panic paths.
+    let guard = TmuxSessionGuard::new(tmux.clone(), session);
+    // guard.session() is guaranteed Some right after construction.
+    let session_ref = guard
+        .session()
+        .unwrap_or_else(|| panic!("guard must be created with a live session"));
+    let mut driver = TmuxHarnessDriver::new(tmux.clone(), session_ref.clone());
     let mut result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
     if let Ok(summary) = &mut result {
         summary.multiplexer_details = Some(tmux.diagnostics());
     }
-    let cleanup = tmux.cleanup_session(&session);
-    match (result, cleanup) {
-        (Ok(summary), Ok(())) => Ok(summary),
-        (Err(err), _) => Err(err),
-        (Ok(_), Err(err)) => Err(RunnerError::Driver(err.to_string())),
-    }
+    // The guard's Drop kills the session (unless keep_session is true).
+    // Explicit drop is unnecessary but documents intent: the session must
+    // be torn down before returning the result.
+    drop(guard);
+    result
 }
 
 struct RunContext {

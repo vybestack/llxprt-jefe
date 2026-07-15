@@ -9,9 +9,11 @@
 
 mod agent_executable;
 mod agent_launcher;
+mod async_attach;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
+mod capture_ops;
 mod command_capture;
 mod commands;
 mod errors;
@@ -34,7 +36,6 @@ pub use agent_executable::{
     AgentWrapperKind, CanonicalNpmLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
-#[cfg(feature = "psmux-smoke")]
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
@@ -47,11 +48,15 @@ pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
-    SessionLiveness, alive_session_set, batch_liveness_check, check_remote_session_alive,
-    check_session_alive, parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
-    session_liveness,
+    LivenessIdentity, SessionLiveness, alive_session_set, batch_liveness_check,
+    batch_liveness_check_with_identity, check_remote_session_alive, check_session_alive,
+    parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    reconcile_dead_agents_with_identity, session_liveness,
 };
-pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
+pub use manager::{
+    AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,
+    drop_viewer_in_background_pub,
+};
 pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe,
@@ -68,6 +73,11 @@ pub use process::{
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+/// Issue #301 Phase 2: re-export history cache types and pane capture for
+/// the async capture worker in `app_shell`.
+pub use manager::history_cache::{HistoryCache, strip_trailing_rows};
+pub use pane_capture::capture_pane_history;
 
 #[cfg(test)]
 #[path = "agent_executable_tests.rs"]

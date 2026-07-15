@@ -13,6 +13,7 @@ mod actions_load_tests;
 mod actions_ops;
 #[cfg(test)]
 mod actions_tests;
+mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
@@ -35,16 +36,11 @@ mod list_navigation_ops;
 mod modal_ops;
 /// Generic deterministic pagination state container (`PaginatedList<T, I>`).
 pub mod pagination;
-// In-app device-code auth dialog state machine (issue #244).
-mod auth_ops;
-// Per-repository user-preference snapshot/restore operations (issue #163).
-mod preferences_ops;
-// @plan PLAN-20260624-PR-MODE.P03
 /// Coalesced post-mutation refresh scheduling state.
 pub mod post_mutation_refresh;
 #[cfg(test)]
 mod post_mutation_refresh_tests;
-// @requirement REQ-PR-001
+mod preferences_ops;
 mod property_edit;
 mod prs_inline_ops;
 mod prs_load_ops;
@@ -781,9 +777,7 @@ impl AppState {
             SystemMessage::TransientAgentQueued { queue_position } => {
                 self.apply_transient_queued(queue_position);
             }
-            SystemMessage::TransientAgentDequeued => {
-                self.clear_transient_notice();
-            }
+            SystemMessage::TransientAgentDequeued => self.clear_transient_notice(),
             auth => self.apply_auth_message(auth),
         }
     }
@@ -954,27 +948,26 @@ mod prs_tests_filter;
 mod prs_tests_merge;
 
 #[cfg(test)]
-#[path = "preferences_tests.rs"]
-mod preferences_tests;
-
-#[cfg(test)]
-#[path = "prs_tests_repo_nav.rs"]
-mod prs_tests_repo_nav;
-
-#[cfg(test)]
 #[path = "issues_test_fixtures.rs"]
 mod issues_test_fixtures;
+#[cfg(test)]
+#[path = "preferences_tests.rs"]
+mod preferences_tests;
 #[cfg(test)]
 #[path = "prs_test_fixtures.rs"]
 mod prs_test_fixtures;
 #[cfg(test)]
-#[path = "prs_tests_composer_focus.rs"]
-mod prs_tests_composer_focus;
-
+#[path = "prs_tests_bodyless_review_nav.rs"]
+mod prs_tests_bodyless_review_nav;
 #[cfg(test)]
 #[path = "prs_tests_chooser_security.rs"]
 mod prs_tests_chooser_security;
-
+#[cfg(test)]
+#[path = "prs_tests_components.rs"]
+mod prs_tests_components;
+#[cfg(test)]
+#[path = "prs_tests_composer_focus.rs"]
+mod prs_tests_composer_focus;
 /// @plan PLAN-20260624-PR-MODE.P14 @requirement REQ-PR-010
 #[cfg(test)]
 #[path = "prs_tests_cursor_arrows.rs"]
@@ -982,27 +975,19 @@ mod prs_tests_cursor_arrows;
 #[cfg(test)]
 #[path = "prs_tests_detail_flow.rs"]
 mod prs_tests_detail_flow;
-
 #[cfg(test)]
-#[path = "prs_tests_components.rs"]
-mod prs_tests_components;
-
-#[cfg(test)]
-#[path = "prs_tests_silent_refresh.rs"]
-mod prs_tests_silent_refresh;
-
+#[path = "prs_tests_repo_nav.rs"]
+mod prs_tests_repo_nav;
 #[cfg(test)]
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;
-
 #[cfg(test)]
-#[path = "prs_tests_bodyless_review_nav.rs"]
-mod prs_tests_bodyless_review_nav;
+#[path = "prs_tests_silent_refresh.rs"]
+mod prs_tests_silent_refresh;
 // @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
-
 #[cfg(test)]
 #[path = "prs_tests_pagination.rs"]
 mod prs_tests_pagination;

@@ -201,6 +201,7 @@ fn typed_kill_agent_clears_runtime_binding() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let state = AppState {

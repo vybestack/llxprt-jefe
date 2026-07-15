@@ -160,13 +160,66 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
                 // Offload the batched tmux subprocess calls to a background OS
                 // thread so the smol executor can continue processing input.
-                let dead_agents =
-                    smol::unblock(move || jefe::runtime::batch_liveness_check(&targets)).await;
+                let dead_identities = smol::unblock(move || {
+                    jefe::runtime::batch_liveness_check_with_identity(&targets)
+                })
+                .await;
 
-                if !dead_agents.is_empty() {
-                    debug!(count = dead_agents.len(), "liveness poll found dead agents");
+                if !dead_identities.is_empty() {
+                    debug!(
+                        count = dead_identities.len(),
+                        "liveness poll found dead agents"
+                    );
+                    // Issue #301 Phase 4: stale-result protection. Before
+                    // marking an agent dead, verify the agent's current
+                    // binding session name and lifecycle generation still
+                    // match the liveness snapshot. A mismatch means the
+                    // agent was rebound/restarted after the check was
+                    // dispatched; skip it.
                     let mut state = app_state.write();
-                    for agent_id in &dead_agents {
+                    // Build a lookup map from agent_id → (session_name, gen)
+                    // from the current state to avoid O(n*m) scan for each
+                    // identity (issue #301 review feedback).
+                    let current_bindings: std::collections::HashMap<
+                        &AgentId,
+                        (Option<&String>, u64),
+                    > = state
+                        .agents
+                        .iter()
+                        .map(|a| {
+                            let session = a.runtime_binding.as_ref().map(|b| &b.session_name);
+                            let lifecycle_gen = a
+                                .runtime_binding
+                                .as_ref()
+                                .map_or(0, |b| b.lifecycle_generation);
+                            (&a.id, (session, lifecycle_gen))
+                        })
+                        .collect();
+                    let mut to_apply: Vec<AgentId> = Vec::new();
+                    for identity in &dead_identities {
+                        let Some(&(current_session, current_gen)) =
+                            current_bindings.get(&identity.agent_id)
+                        else {
+                            // Agent removed from state since the check — skip.
+                            continue;
+                        };
+                        let session_matches =
+                            current_session == identity.binding_session_name.as_ref();
+                        let gen_matches = current_gen == identity.lifecycle_generation;
+                        if session_matches && gen_matches {
+                            to_apply.push(identity.agent_id.clone());
+                        } else {
+                            debug!(
+                                agent_id = %identity.agent_id.0,
+                                checked_session = ?identity.binding_session_name,
+                                current_session = ?current_session,
+                                checked_gen = identity.lifecycle_generation,
+                                current_gen,
+                                "liveness: stale result after rebind/restart; skipping"
+                            );
+                        }
+                    }
+                    for agent_id in &to_apply {
                         *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
                             agent_id.clone(),
                             AgentStatus::Dead,
@@ -177,14 +230,35 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             agent.runtime_binding = None;
                         }
                     }
-                    let persisted = to_persisted_state(&state);
-                    drop(state);
-                    persist_state(&ctx, &persisted);
+                    if to_apply.is_empty() {
+                        drop(state);
+                    } else {
+                        let persisted = to_persisted_state(&state);
+                        drop(state);
+                        persist_state(&ctx, &persisted);
+                    }
                 }
             }
         }
     });
 
+    // Issue #301: background persistence worker drain. The actual loop body
+    // lives in [`crate::app_shell_workers::run_persist_worker`].
+    hooks.use_future({
+        let ctx = ctx.clone();
+        async move {
+            crate::app_shell_workers::run_persist_worker(ctx).await;
+        }
+    });
+
+    // Issue #301 Phase 2: background capture worker drain. The actual loop
+    // body lives in [`crate::app_shell_workers::run_capture_worker`].
+    hooks.use_future({
+        let ctx = ctx.clone();
+        async move {
+            crate::app_shell_workers::run_capture_worker(ctx).await;
+        }
+    });
     // Background attach/detach future. Polls the AttachScheduler every 50ms
     // and performs the actual runtime.attach()/detach() on a background OS
     // thread (via smol::unblock) so the render/input path is never blocked.
@@ -211,24 +285,27 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     continue;
                 };
                 let ctx_clone = std::sync::Arc::clone(ctx_arc);
-                let outcome = smol::unblock(move || perform_async_attach(ctx_clone, target)).await;
+                let outcome = smol::unblock(move || {
+                    crate::app_shell_attach::perform_async_attach(ctx_clone, target)
+                })
+                .await;
 
                 match outcome {
-                    AsyncAttachOutcome::Attached(agent_id) => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Attached(agent_id) => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             scheduler.mark_attached(Some(agent_id.clone()));
                         }
                         mark_agent_attached(&mut app_state, &agent_id);
                     }
-                    AsyncAttachOutcome::Detached => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Detached => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             scheduler.mark_attached(None);
                         }
                         clear_all_attachments(&mut app_state);
                     }
-                    AsyncAttachOutcome::Failed(agent_id) => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Failed(agent_id) => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             // Explicitly clear desired so the scheduler does not
@@ -290,11 +367,17 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     // Handle quit.
     if should_quit.get() {
-        let state = app_state.read();
-        let persisted = to_persisted_state(&state);
-        crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
-        drop(state);
-        persist_state(&ctx, &persisted);
+        // Clean up transient agent work directories before exit (issue #213).
+        {
+            let state = app_state.read();
+            crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
+        }
+        // Issue #301: flush the coalescing persistence worker so the final
+        // state is durable before exit.
+        crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());
+        // Issue #301: drain any pending capture request so the capture
+        // worker does not leave a request mid-flight on exit.
+        crate::app_shell_workers::shutdown_flush_capture(ctx.as_ref());
 
         hooks.use_context_mut::<SystemContext>().exit();
 
@@ -378,17 +461,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Capture scrollback history lines for the terminal pane (issue #198).
     // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
     // cache capture to that mode — other modes waste the clone every frame.
-    // Uses the runtime cache (non-consuming is_dirty() so it never steals the
-    // dirty flag from the render-decision path).
+    //
+    // Issue #301 Phase 2: the render path no longer calls `capture_history`
+    // (which shells out to `tmux capture-pane`) synchronously. Instead it
+    // requests a background capture via the `CaptureHandle` and reads the
+    // runtime's `HistoryCache` directly (non-blocking `get`). The background
+    // worker drains the request and stores the result in the cache.
     let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
-        ctx.as_ref()
-            .and_then(|ctx_arc| {
-                ctx_arc
-                    .try_lock()
-                    .ok()
-                    .and_then(|mut guard| guard.runtime.capture_history())
-            })
-            .unwrap_or_default()
+        crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
         Vec::new()
     };
@@ -777,49 +857,6 @@ fn dispatch_mode_specific_key(
     }
 }
 
-/// Outcome of a background attach/detach operation.
-enum AsyncAttachOutcome {
-    Attached(AgentId),
-    Detached,
-    Failed(AgentId),
-}
-
-/// Perform attach/detach on a background thread (via `smol::unblock`).
-///
-/// This locks the `AppContext` mutex and calls the runtime — but on a separate
-/// OS thread, so the executor's input/render path is not blocked.
-fn perform_async_attach(
-    ctx: Arc<std::sync::Mutex<AppContext>>,
-    target: Option<AgentId>,
-) -> AsyncAttachOutcome {
-    let Ok(mut ctx_guard) = ctx.lock() else {
-        return match target {
-            Some(id) => AsyncAttachOutcome::Failed(id),
-            None => AsyncAttachOutcome::Detached,
-        };
-    };
-
-    if let Some(agent_id) = target.as_ref() {
-        debug!(agent_id = %agent_id.0, "background: attaching to running selection");
-        match ctx_guard.runtime.attach(agent_id) {
-            Ok(()) => AsyncAttachOutcome::Attached(agent_id.clone()),
-            Err(error) => {
-                warn!(
-                    agent_id = %agent_id.0,
-                    error = %error,
-                    "background: attach failed for running selection"
-                );
-                let _ = ctx_guard.runtime.mark_session_dead(agent_id);
-                AsyncAttachOutcome::Failed(agent_id.clone())
-            }
-        }
-    } else {
-        debug!("background: detaching (no running agent selected)");
-        let _ = ctx_guard.runtime.detach();
-        AsyncAttachOutcome::Detached
-    }
-}
-
 fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &AgentId) {
     let mut state = app_state.write();
     for agent in &mut state.agents {
@@ -832,17 +869,23 @@ fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &
 /// Apply an attach failure to app state only (no runtime side effects).
 ///
 /// `mark_session_dead` is called in [`perform_async_attach`] while the mutex
-/// is held; this function only updates the UI/state layer.
+/// is held; this function only reverts the UI intent (terminal_focused,
+/// pane_focus) and clears attachment markers — matching the old synchronous
+/// `update_f12_attachment_state` behavior. It does NOT mutate agent lifecycle
+/// state (status/binding) so a transient attach failure (e.g. temporary tmux
+/// unavailability) does not permanently kill a Running agent (issue #301
+/// review feedback).
 fn apply_attach_failure(app_state: &mut HookState<AppState>, agent_id: &AgentId) {
     let mut state = app_state.write();
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
-    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
-        agent.status = AgentStatus::Dead;
-        agent.runtime_binding = None;
-    }
+    // Clear the attachment marker for the failed agent only. Agent status and
+    // runtime_binding are left intact — the liveness poll will detect actual
+    // session death and update lifecycle state through the proper path.
     for agent in &mut state.agents {
-        if let Some(binding) = agent.runtime_binding.as_mut() {
+        if agent.id == *agent_id
+            && let Some(binding) = agent.runtime_binding.as_mut()
+        {
             binding.attached = false;
         }
     }
@@ -866,6 +909,15 @@ fn clear_all_attachments(app_state: &mut HookState<AppState>) {
 #[must_use]
 fn wants_live_snapshot(status: AgentStatus) -> bool {
     matches!(status, AgentStatus::Running | AgentStatus::Dead)
+}
+
+/// Public test accessor for [`wants_live_snapshot`] (issue #301 review:
+/// tests relocated to `app_input_tests.rs` to keep this file under the
+/// source-file size limit).
+#[cfg(test)]
+#[must_use]
+pub fn wants_live_snapshot_pub(status: AgentStatus) -> bool {
+    wants_live_snapshot(status)
 }
 
 /// Capture terminal output for the currently selected agent if available.
@@ -923,66 +975,4 @@ fn is_pty_dirty(ctx: Option<&CtxArc>) -> bool {
         return false;
     };
     ctx_guard.runtime.take_dirty()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use jefe::domain::AgentStatus;
-    use jefe::state::PaneFocus;
-
-    // --- wants_live_snapshot (issue #160 gate removal) ---
-    //
-    // The old `should_skip_live_snapshot(status, pane_focus)` gate suppressed
-    // Running-agent snapshots when `pane_focus != Terminal`. That gate was
-    // removed; `wants_live_snapshot` is the replacement decision function that
-    // depends ONLY on agent status, never on pane focus. These tests pin that
-    // contract: a Running agent's snapshot is always eligible, so the terminal
-    // renders as a read-only preview after restart and during list navigation.
-
-    #[test]
-    fn wants_live_snapshot_for_running_regardless_of_pane() {
-        // Running agents always get a snapshot attempt. `wants_live_snapshot`
-        // does NOT take pane_focus — proving the old focus gate is gone.
-        for focus in [
-            PaneFocus::Agents,
-            PaneFocus::Repositories,
-            PaneFocus::Terminal,
-        ] {
-            let _ = focus; // pane focus is intentionally irrelevant
-            assert!(
-                wants_live_snapshot(AgentStatus::Running),
-                "Running status must always want a live snapshot (pane_focus={focus:?})"
-            );
-        }
-    }
-
-    #[test]
-    fn wants_live_snapshot_for_dead() {
-        // Dead agents get a one-shot pane capture.
-        assert!(
-            wants_live_snapshot(AgentStatus::Dead),
-            "Dead status must want a snapshot capture"
-        );
-    }
-
-    #[test]
-    fn does_not_want_live_snapshot_for_idle_statuses() {
-        for status in [AgentStatus::Queued, AgentStatus::Completed] {
-            assert!(
-                !wants_live_snapshot(status),
-                "{status:?} should not produce a terminal snapshot"
-            );
-        }
-    }
-
-    // --- is_pty_dirty ---
-
-    #[test]
-    fn is_pty_dirty_returns_false_without_ctx() {
-        assert!(
-            !is_pty_dirty(None),
-            "is_pty_dirty should be false with no ctx"
-        );
-    }
 }

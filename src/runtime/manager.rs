@@ -4,7 +4,6 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P08
 //! @requirement REQ-TECH-004
 //! @requirement REQ-FUNC-007
-//! @pseudocode component-002 lines 01-35
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -18,12 +17,25 @@ use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
-use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
 
+/// Inputs needed to build an `AttachedViewer` without holding the runtime lock
+/// (issue #301 Phase 3).
+///
+/// Snapshotted under a short lock, then the viewer is built on a background
+/// thread, then `apply_attach_result` installs it.
+#[derive(Clone, Debug)]
+pub struct AttachInputs {
+    pub session_name: String,
+    pub remote: Option<RemoteRepositorySettings>,
+    pub rows: u16,
+    pub cols: u16,
+}
+
 #[path = "history_cache.rs"]
-mod history_cache;
-use history_cache::{HistoryCache, strip_trailing_rows};
+pub mod history_cache;
+use history_cache::HistoryCache;
 
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
@@ -58,21 +70,35 @@ fn complete_relaunch_attempt(
     result
 }
 
-/// Maximum number of scrollback history lines retained for an embedded
-/// terminal session (issue #198). Matches the `terminal-scrollback.json` test
-/// scenario's `history_limit` (2000), intentionally smaller than the harness
-/// default (10000) to bound render/capture cost.
-const HISTORY_LINE_CAP: usize = 2000;
-
-/// Lightweight metadata for checking session liveness without holding the runtime lock.
+/// Maximum scrollback history lines for an embedded terminal session (#198).
 ///
-/// Callers collect these under the lock, drop it, then run the (potentially slow)
-/// liveness checks externally — avoiding mutex contention with input/render paths.
+/// Matches the `terminal-scrollback.json` scenario's `history_limit` (2000),
+/// intentionally smaller than the harness default (10000) to bound capture
+/// cost.
+pub const HISTORY_LINE_CAP: usize = 2000;
+
+/// Metadata for checking session liveness without holding the runtime lock.
+///
+/// Callers collect these under the lock, drop it, then run the (potentially
+/// slow) liveness checks externally — avoiding mutex contention with
+/// input/render paths.
+///
+/// Issue #301 Phase 4: `binding_session_name` and `lifecycle_generation`
+/// carry the identity of the binding at snapshot time so stale liveness
+/// results (after rebind/restart) can be rejected.
 #[derive(Clone)]
 pub struct LivenessCheck {
     pub agent_id: AgentId,
     pub session_name: String,
     pub remote: Option<RemoteRepositorySettings>,
+    /// The session name the runtime binding referenced at snapshot time.
+    /// If the agent is rebound/restarted, this will differ from the current
+    /// binding's session name, and the liveness result is stale.
+    pub binding_session_name: Option<String>,
+    /// Per-agent lifecycle generation at snapshot time. Incremented on
+    /// spawn/relaunch/kill/rebind. A mismatch means the agent was
+    /// restarted/rebound after the liveness check was dispatched.
+    pub lifecycle_generation: u64,
 }
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -207,11 +233,11 @@ pub trait RuntimeManager: Send {
 /// @requirement REQ-FUNC-007
 pub struct TmuxRuntimeManager {
     /// Active sessions by agent ID.
-    sessions: HashMap<AgentId, RuntimeSession>,
+    pub(crate) sessions: HashMap<AgentId, RuntimeSession>,
     /// Currently attached viewer (single viewer model).
-    viewer: Option<AttachedViewer>,
+    pub(crate) viewer: Option<AttachedViewer>,
     /// Agent ID of the currently attached session.
-    attached_agent_id: Option<AgentId>,
+    pub(crate) attached_agent_id: Option<AgentId>,
     /// Dead sessions that can be relaunched (stores signatures).
     ///
     /// Bounded by [`MAX_DEAD_SIGNATURES`]: once full, the least-recently-used
@@ -230,27 +256,36 @@ pub struct TmuxRuntimeManager {
     /// do not re-shell out to tmux for a session already remediated (#200).
     prefix_enforced: HashSet<String>,
     /// Terminal dimensions.
-    rows: u16,
-    cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cols: u16,
     /// Monotonically increasing PTY-output generation counter (issue #198).
     /// Incremented by `take_dirty()`. The history cache compares the stored
     /// generation to decide re-capture.
     output_generation: AtomicU64,
     /// Cached scrollback history (issue #198).
-    history_cache: HistoryCache,
+    pub(crate) history_cache: HistoryCache,
+    /// Global lifecycle generation counter. Incremented on every
+    /// spawn/relaunch so each `RuntimeSession` gets a unique generation
+    /// for stale-liveness rejection (issue #301 Phase 4).
+    lifecycle_counter: AtomicU64,
 }
 
-/// Move the current viewer (if any) out of the manager and drop it on a
-/// background OS thread.
+/// Drop the current viewer (if any) on a background OS thread.
 ///
 /// `AttachedViewer::drop` performs deterministic child teardown — killing the
 /// tmux child and waiting up to 300ms for it to exit. Running that inline
-/// blocks the caller (the input/render loop). Dropping on a detached thread
-/// keeps the executor responsive while still guaranteeing eventual cleanup.
+/// blocks the caller. Dropping on a detached thread keeps the executor
+/// responsive while still guaranteeing eventual cleanup.
 fn drop_viewer_in_background(viewer: &mut Option<AttachedViewer>) {
     if let Some(old_viewer) = viewer.take() {
         std::thread::spawn(move || drop(old_viewer));
     }
+}
+
+/// Public wrapper so sibling modules (e.g. `async_attach`) can reuse the
+/// same background-drop logic.
+pub fn drop_viewer_in_background_pub(viewer: &mut Option<AttachedViewer>) {
+    drop_viewer_in_background(viewer);
 }
 
 impl TmuxRuntimeManager {
@@ -268,6 +303,7 @@ impl TmuxRuntimeManager {
             cols,
             output_generation: AtomicU64::new(0),
             history_cache: HistoryCache::default(),
+            lifecycle_counter: AtomicU64::new(0),
         }
     }
 
@@ -275,6 +311,19 @@ impl TmuxRuntimeManager {
     pub fn set_size(&mut self, rows: u16, cols: u16) {
         self.rows = rows;
         self.cols = cols;
+    }
+
+    /// Allocate the next lifecycle generation (issue #301 Phase 4).
+    ///
+    /// Uses `Relaxed` ordering: all reads and writes of
+    /// `lifecycle_counter` and individual session `lifecycle_generation`
+    /// fields occur while holding the `TmuxRuntimeManager` `&mut self`
+    /// borrow (i.e., under the `AppContext` mutex). The atomic is used
+    /// only to obtain a monotonically increasing counter without a
+    /// `Cell`; the mutex provides the happens-before guarantees.
+    #[must_use]
+    fn next_lifecycle_generation(&self) -> u64 {
+        self.lifecycle_counter.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Enforce clipboard passthrough for `session_name` if not already done.
@@ -394,6 +443,8 @@ impl TmuxRuntimeManager {
                 } else {
                     None
                 },
+                binding_session_name: Some(session.session_name.clone()),
+                lifecycle_generation: session.lifecycle_generation,
             })
             .collect()
     }
@@ -432,6 +483,13 @@ impl TmuxRuntimeManager {
             return false;
         };
 
+        // Bump lifecycle generation before removing so any in-flight liveness
+        // observation for this agent is rejected as stale (issue #301 Phase 4).
+        // The session is being removed, but the generation bump is recorded
+        // so that if a new session is later created for the same agent, its
+        // generation will be higher than any pending observation.
+        let _ = self.next_lifecycle_generation();
+
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
             drop_viewer_in_background(&mut self.viewer);
@@ -451,6 +509,20 @@ impl TmuxRuntimeManager {
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
         true
+    }
+
+    /// Bump the lifecycle generation for an agent's session (issue #301
+    /// Phase 4).
+    ///
+    /// Called on kill/relaunch/rebind paths so stale liveness observations
+    /// from the prior binding are rejected. Returns the new generation, or
+    /// `None` if the agent has no tracked session.
+    #[must_use]
+    pub fn bump_lifecycle_generation(&mut self, agent_id: &AgentId) -> Option<u64> {
+        let new_gen = self.next_lifecycle_generation();
+        let session = self.sessions.get_mut(agent_id)?;
+        session.lifecycle_generation = new_gen;
+        Some(session.lifecycle_generation)
     }
 
     /// Return the stored worker PID (`llxprt` OS process) for an agent, if known.
@@ -585,11 +657,14 @@ impl TmuxRuntimeManager {
             commands::pane_pid(&session_name)
         };
 
-        // Store/refresh session binding.
+        // Store/refresh session binding. Bump the lifecycle generation so
+        // stale liveness results from a prior binding are rejected (issue
+        // #301 Phase 4).
         let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
+        session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.
@@ -759,6 +834,11 @@ impl RuntimeManager for TmuxRuntimeManager {
             commands::kill_session(&session.session_name)?;
         }
 
+        // Bump lifecycle generation only after a successful session removal,
+        // so stale liveness observations from the killed session are rejected
+        // (issue #301 Phase 4 review: make the invariant explicit).
+        let _ = self.next_lifecycle_generation();
+
         Ok(())
     }
 
@@ -775,6 +855,8 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         // Spawn with stored signature using force-fresh semantics so runtime
         // warnings are surfaced consistently through the relaunch path.
+        // spawn_session_fresh → spawn_session_internal already sets
+        // session.lifecycle_generation, so no explicit bump is needed here.
         let work_dir = signature.work_dir.clone();
         let result = self.spawn_session_fresh(agent_id, &work_dir, &signature);
         complete_relaunch_attempt(&mut self.dead_signatures, agent_id, result)
@@ -871,102 +953,11 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot> {
-        let session = self.sessions.get(agent_id)?;
-        if session.launch_signature.remote.enabled {
-            return None;
-        }
-
-        let lines = commands::capture_pane_lines(&session.session_name)?;
-
-        let rows = lines.len();
-        let cols = lines
-            .iter()
-            .map(|line| line.chars().count())
-            .max()
-            .unwrap_or(0);
-
-        if rows == 0 || cols == 0 {
-            return Some(TerminalSnapshot::default());
-        }
-
-        let default_style = TerminalCellStyle {
-            fg: iocraft::Color::White,
-            bg: iocraft::Color::Black,
-            bold: false,
-            dim: false,
-            underline: false,
-        };
-
-        let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
-        // `capture_pane_lines` does not preserve soft-wrap metadata, so all
-        // rows are treated as hard line breaks (wraps stays all-false, which
-        // is the default from `blank` — issue #197).
-        snapshot.wraps = vec![false; rows];
-        for (r, line) in lines.iter().enumerate() {
-            for (c, ch) in line.chars().enumerate() {
-                snapshot.cells[r][c] = TerminalCell {
-                    ch,
-                    style: default_style,
-                    wide_spacer: false,
-                };
-            }
-        }
-
-        Some(snapshot)
+        super::capture_ops::capture_session_output(self, agent_id)
     }
 
     fn capture_history(&mut self) -> Option<Vec<String>> {
-        let agent_id = self.attached_agent_id.clone()?;
-        let session_name = self
-            .sessions
-            .get(&agent_id)
-            .map(|s| s.session_name.clone())?;
-
-        // Remote sessions do not support local capture-pane history.
-        let is_remote = self
-            .sessions
-            .get(&agent_id)
-            .is_some_and(|s| s.launch_signature.remote.enabled);
-        if is_remote {
-            return None;
-        }
-
-        // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
-        // The generation counter increments on take_dirty(). Also treat a
-        // currently-dirty viewer as a cache miss so input-driven refresh does
-        // not serve stale lines before take_dirty() bumps the generation.
-        let generation = self.output_generation();
-        let is_currently_dirty = self.is_dirty();
-        if !is_currently_dirty && let Some(cached) = self.history_cache.get(&agent_id, generation) {
-            return Some(cached.clone());
-        }
-
-        // Cache miss / dirty: re-capture. On transient failure, return prior
-        // cache so a momentary tmux hiccup doesn't wipe retained history.
-        let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
-        else {
-            if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
-                debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
-                return Some(prior.clone());
-            }
-            return None;
-        };
-
-        // Strip the visible pane rows (live snapshot already has them).
-        let live_rows = self.snapshot().map_or(0, |s| s.rows);
-        let lines = strip_trailing_rows(raw_lines, live_rows);
-
-        // Do NOT strip trailing blank lines — they may be real blank output,
-        // not tmux padding. Cache the result (including an empty capture) so
-        // we don't shell out every frame. Return `Some(lines)` consistently so
-        // the current frame and subsequent cache-hit frames agree (an empty
-        // capture returns `Some(vec![])`, not `None` — callers normalize via
-        // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
-        // capture not applicable").
-        self.history_cache
-            .store(&agent_id, generation, Some(lines.clone()));
-
-        Some(lines)
+        super::capture_ops::capture_history(self)
     }
 }
 

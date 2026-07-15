@@ -627,6 +627,7 @@ pub(super) fn persist_issue_agent_launch_success(
             last_seen: None,
             process_identity,
             pid,
+            lifecycle_generation: 0,
         });
     }
     clear_agent_runtime_attachment(state);

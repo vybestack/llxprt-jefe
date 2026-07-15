@@ -23,6 +23,7 @@ pub struct HistoryCache {
 }
 
 impl HistoryCache {
+    #[must_use]
     pub fn get(&self, agent_id: &AgentId, generation: u64) -> Option<&Vec<String>> {
         if self.cached_agent.as_ref() == Some(agent_id)
             && self.generation == generation
@@ -34,6 +35,11 @@ impl HistoryCache {
         }
     }
 
+    /// Get cached lines for `agent_id` ignoring the generation (fallback).
+    ///
+    /// Used by the capture worker to preserve the last good snapshot on
+    /// transient failure.
+    #[must_use]
     pub fn get_fallback(&self, agent_id: &AgentId) -> Option<&Vec<String>> {
         if self.cached_agent.as_ref() == Some(agent_id)
             && let Some(ref lines) = self.lines

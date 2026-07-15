@@ -28,6 +28,10 @@ pub struct RuntimeSession {
     pub pid: Option<u32>,
     /// Stable process-instance identity used to reject PID reuse.
     pub process_identity: Option<ProcessIdentity>,
+    /// Monotonically increasing lifecycle generation. Incremented on
+    /// spawn/relaunch/kill/rebind so stale liveness results can be rejected
+    /// (issue #301 Phase 4).
+    pub lifecycle_generation: u64,
 }
 
 impl RuntimeSession {
@@ -41,6 +45,7 @@ impl RuntimeSession {
             attached: false,
             pid: None,
             process_identity: None,
+            lifecycle_generation: 0,
         }
     }
 

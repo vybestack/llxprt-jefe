@@ -6,6 +6,8 @@
 mod app_init;
 mod app_input;
 mod app_shell;
+mod app_shell_attach;
+mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;
 mod pty_encoding;
@@ -27,6 +29,14 @@ struct AppContext {
     runtime: TmuxRuntimeManager,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
     gh_client: jefe::github::GhClient,
+    /// Coalescing persistence worker handle (issue #301). When present,
+    /// `persist_state` schedules snapshots here instead of calling
+    /// `save_state` synchronously on the input path.
+    persist_handle: jefe::services::persist_worker::PersistHandle,
+    /// Async capture worker handle (issue #301 Phase 2). When present, the
+    /// render path requests a background capture instead of calling
+    /// `capture_history` synchronously.
+    capture_handle: jefe::services::capture_worker::CaptureHandle,
 }
 
 /// Parse CLI arguments, handling early-exit flags (`--version`, `--help`).
@@ -155,11 +165,18 @@ fn main() {
     theme_manager.load_from_dir(&themes_dir);
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
+    let persist_handle = jefe::services::persist_worker::PersistHandle::new(build_persist_fn(
+        cli_args.config_dir.as_deref(),
+    ));
+    let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
+
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         persistence,
         theme_manager,
         runtime,
         gh_client: jefe::github::GhClient::new(),
+        persist_handle,
+        capture_handle,
     }));
 
     smol::block_on(async {
@@ -173,4 +190,47 @@ fn main() {
             error!(error = %e, "render loop failed");
         }
     });
+}
+
+/// Build the coalescing persistence worker's durable-write boundary (issue #301).
+///
+/// The worker calls this function on a background OS thread; the input path
+/// never touches the filesystem directly. This reuses the persistence
+/// manager already constructed at startup (via `build_persistence`) by
+/// re-invoking the same factory function — the startup instance and the
+/// worker instance operate on the same config dir and file, so writes are
+/// consistent. A second `build_persistence` call is used rather than moving
+/// the startup instance because the startup instance is owned by
+/// `AppContext` and used for synchronous reads (e.g. initial state load);
+/// the worker needs its own `Arc<Mutex<>>` to avoid lock contention with
+/// the input path.
+fn build_persist_fn(
+    config_dir: Option<&std::path::Path>,
+) -> jefe::services::persist_worker::PersistFn {
+    use jefe::persistence::PersistenceManager;
+    let manager =
+        jefe::startup::build_persistence(config_dir).map(|m| Arc::new(std::sync::Mutex::new(m)));
+    match manager {
+        Ok(m) => {
+            let manager = Arc::clone(&m);
+            Arc::new(
+                move |state: &jefe::persistence::State| match manager.lock() {
+                    Ok(mgr) => mgr
+                        .save_state(state)
+                        .map_err(|e: jefe::persistence::PersistenceError| e.to_string()),
+                    Err(poisoned) => {
+                        tracing::warn!("persist worker: mutex poisoned; recovering");
+                        poisoned
+                            .into_inner()
+                            .save_state(state)
+                            .map_err(|e| e.to_string())
+                    }
+                },
+            )
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "persist worker: build_persistence failed; durable writes disabled");
+            Arc::new(|_: &jefe::persistence::State| Ok(()))
+        }
+    }
 }
