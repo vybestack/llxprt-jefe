@@ -194,20 +194,33 @@ fn create_issue(
 
             match result {
                 Some(Ok(created)) => {
+                    let issue = created.into_list_issue();
+                    let created_number = issue.number;
                     apply_and_persist(
                         &mut app_state,
                         &ctx,
                         AppEvent::IssueCreated {
                             scope_repo_id: created_scope,
                             mutation_id,
-                            issue: created.into_list_issue(),
+                            issue,
                         },
                     );
                     // Optimistic list insert already selected the new issue.
-                    // Avoid RefocusIssueList: it clears the create notice and
-                    // triggers an immediate fresh reload that often races
-                    // GitHub search indexing and drops the new row (issue #215).
-                    issues_dispatch::load_issue_detail_for_selection(&mut app_state, &ctx);
+                    // Avoid RefocusIssueList (clears notice + races search indexing)
+                    // and avoid load_issue_detail_for_selection (late detail events
+                    // can race the create selection / notice). Seed a sync preview
+                    // from the list row instead; Enter still loads full detail.
+                    let preview_created = {
+                        let state = app_state.read();
+                        state
+                            .issues_state
+                            .selected_issue_index()
+                            .and_then(|idx| state.issues_state.issues().get(idx))
+                            .is_some_and(|issue| issue.number == created_number)
+                    };
+                    if preview_created {
+                        issues_dispatch::preview_issue_from_list(&mut app_state);
+                    }
                 }
                 Some(Err(e)) => {
                     apply_mutation_failed(

@@ -417,11 +417,12 @@ fn delete_issue_event(
 ///
 /// The reducer's optimistic update already removes the issue from the local
 /// list and clears the detail. We dispatch `RefocusIssueList` to fetch a
-/// fresh list from GitHub (confirming the deletion and reflowing the list),
-/// mirroring `create_issue`'s post-mutation reload. We do NOT call
-/// `load_issue_detail_for_selection` here: that would race the async list
-/// fetch (whose completion resets selection), and the successor detail is
-/// already previewed from list data when the list reload lands.
+/// fresh list from GitHub (confirming the deletion and reflowing the list).
+/// We do NOT call `load_issue_detail_for_selection` here: that would race the
+/// async list fetch (whose completion resets selection), and the successor
+/// detail is already previewed from list data when the list reload lands.
+/// (Issue create intentionally avoids both `RefocusIssueList` and a post-create
+/// detail network fetch — see issue #215.)
 fn apply_delete_outcome(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,

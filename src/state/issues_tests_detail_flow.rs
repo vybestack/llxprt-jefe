@@ -276,6 +276,41 @@ fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
     );
 }
 
+/// Issue #215: create success must keep the create notice; a network detail
+/// reload is not part of the create reducer path (late detail events must not
+/// race the optimistic selection/notice).
+#[test]
+fn test_create_issue_success_preserves_notice_without_clearing_via_refocus() {
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: "title".to_string(),
+        cursor: 5,
+    };
+    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 24,
+        target: submitted_target.clone(),
+    });
+    state.issues_state.inline_state = submitted_target;
+    state.issues_state.issue_detail = Some(p15_detail(10));
+
+    let state = state.apply(AppEvent::IssueCreated {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 24,
+        issue: make_test_issue(88),
+    });
+
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("Created issue #88")
+    );
+    // Reducer itself does not wipe detail; async detail/list reloads are
+    // intentionally not dispatched from the create success path.
+    assert!(state.issues_state.issue_detail.is_some());
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
+}
+
 /// Issue #215: create success prepends the new issue ahead of existing rows and
 /// selects it, without waiting on a race-prone list reload.
 #[test]
