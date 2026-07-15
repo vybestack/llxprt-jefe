@@ -104,7 +104,7 @@ remain in force.
 
 ## Review counters
 - Local OCR: 1/2
-- PR OCR: 0/2
+- PR OCR: 1/2
 
 ## Verification evidence
 - TUI RED: scenario added before Slice 1 production behavior and failed on the missing fields.
@@ -112,7 +112,9 @@ remain in force.
 - `make quick-check`: passed after rebasing onto `origin/main`.
 - `make ci-check`: passed with the coherent rustup 1.97 toolchain after correcting local Homebrew tool shadowing.
 - TUI GREEN: `code-puppy-version-fields.json` passed all 54 steps.
-- CI/native Windows: pending PR CI.
+- CI/native Windows: exact-head PR checks passed, including Build, Test,
+  Coverage, strict Clippy, complexity, source length, formatting, allow policy,
+  and native Windows; optional TUI smoke skipped by workflow policy.
 
 ## Scope review
 The candidate contains 60 files after splitting the cohesive pinned-command test
@@ -138,6 +140,25 @@ Local OCR run 1:
 - Reject: Windows remote-shell coverage; SSH targets the remote POSIX shell,
   while local Windows wrapper/structural argv behavior has dedicated coverage.
 - Reject: hard-index style nit after replacing it with full-vector equality.
+
+PR OCR run 1:
+- Reject: three duplicate claims of an incomplete package-probe rename; the
+  launch-aware wrapper intentionally delegates LLxprt to the existing npm probe,
+  and exact-head all-target CI compiles successfully.
+- Reject: raw form version propagation; availability trims at its predicate and
+  launch/persistence boundaries normalize independently.
+- Reject: remote uvx fallback request; A3/A12 require uvx and the exact package,
+  with pre-side-effect availability and capability probes.
+- Reject: two duplicate transport-abstraction requests; shared structural argv
+  already feeds direct local execution and required SSH shell serialization.
+- Reject: private remote-field helper exhaustiveness concern; its exhaustive
+  caller owns focus routing and fails compilation when variants are added.
+- Reject: explicit initialization of all default form fields; canonical Default
+  plus runtime-specific overrides avoids duplicated type policy.
+- Reject: trimming the legacy model merely to match the new version field;
+  version trimming is explicit acceptance behavior and model changes are out of
+  scope.
+- All ten threads received in-thread replies and were resolved.
 
 ## Deferred findings / follow-ups
 None.
