@@ -123,14 +123,17 @@ fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> 
     wait_for_snapshot(&first_viewer, "PSMUX_BYTE_41")?;
 
     let teardown = thread::spawn(move || drop(first_viewer));
-    let second_viewer = AttachedViewer::spawn_with_plan(second, 32, 100, plan)
-        .map_err(|error| format!("attach second viewer: {error}"))?;
-    wait_for_snapshot(&second_viewer, "PSMUX_BYTE_42")?;
-    drop(second_viewer);
-    teardown
+    let second_result = AttachedViewer::spawn_with_plan(second, 32, 100, plan)
+        .map_err(|error| format!("attach second viewer: {error}"))
+        .and_then(|second_viewer| {
+            let result = wait_for_snapshot(&second_viewer, "PSMUX_BYTE_42").map(|_| ());
+            drop(second_viewer);
+            result
+        });
+    let teardown_result = teardown
         .join()
-        .map_err(|_| "first viewer teardown thread panicked".to_owned())?;
-    Ok(())
+        .map_err(|_| "first viewer teardown thread panicked".to_owned());
+    second_result.and(teardown_result)
 }
 
 fn create_marked_fixture_session(
