@@ -106,11 +106,10 @@ fn native_psmux_switching_displays_target_session() {
     let first = "jefe-switch-first";
     let second = "jefe-switch-second";
 
-    let result = exercise_viewer_switch(&plan, first, second);
-    drop(cleanup);
-    if let Err(error) = result {
+    if let Err(error) = exercise_viewer_switch(&plan, first, second) {
         panic!("{error}");
     }
+    drop(cleanup);
 }
 
 fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> Result<(), String> {

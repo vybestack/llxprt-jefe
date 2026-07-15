@@ -49,7 +49,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     output.write_all(b"\x1b]52;c;bmF0aXZlIGNsaXBib2FyZA==\x07")?;
     output.write_all(b"PSMUX_SMOKE_READY\r\n")?;
     if let Some(marker) = marker {
-        writeln!(output, "PSMUX_MARKER_{marker}")?;
+        write!(output, "PSMUX_MARKER_{marker}\r\n")?;
     }
     output.flush()?;
 
