@@ -1,11 +1,14 @@
 //! White-box tests for the git subprocess timeout helper.
 
+#[cfg(unix)]
 use super::*;
 
+#[cfg(unix)]
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
 }
 
+#[cfg(unix)]
 impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     fn value_or_panic(self, context: &str) -> T {
         match self {
@@ -15,6 +18,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
+#[cfg(unix)]
 impl<T> TestResultExt<T> for Option<T> {
     fn value_or_panic(self, context: &str) -> T {
         match self {
