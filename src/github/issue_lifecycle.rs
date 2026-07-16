@@ -57,6 +57,10 @@ impl GhClient {
     /// `markIssueAsDuplicate` two-step. `node_id` is the issue being closed;
     /// `duplicate_node_id` is the canonical (duplicate-of) issue's node id,
     /// required only when `reason == Duplicate`.
+    ///
+    /// Parses the GraphQL response for a top-level `errors` array (GitHub
+    /// returns HTTP 200 with errors on mutation failures like already-closed,
+    /// permission denied, or issue not found).
     pub fn close_issue_graphql(
         &self,
         node_id: &str,
@@ -64,8 +68,8 @@ impl GhClient {
         duplicate_node_id: Option<&str>,
     ) -> Result<(), GhError> {
         let args = build_close_issue_graphql_args(node_id, reason, duplicate_node_id);
-        Self::run_gh(&args)?;
-        Ok(())
+        let stdout = Self::run_gh(&args)?;
+        parse_graphql_errors(&stdout)
     }
 
     /// Mark an issue as a duplicate of another via the GraphQL
@@ -185,7 +189,8 @@ pub fn build_close_issue_graphql_args(
 /// mutation (issue #204).
 ///
 /// Pure function: produces the exact JSON string that `gh api graphql -F
-/// input=<json>` sends. Unit-testable without iocraft or network.
+/// input=<json>` sends. Uses `serde_json` for proper escaping of node ids.
+/// Unit-testable without iocraft or network.
 #[must_use]
 pub fn build_close_issue_input_json(
     node_id: &str,
@@ -193,13 +198,17 @@ pub fn build_close_issue_input_json(
     duplicate_node_id: Option<&str>,
 ) -> String {
     let state_reason = close_reason_graphql_enum(reason);
-    let dup_field = match (reason, duplicate_node_id) {
-        (CloseReason::Duplicate, Some(dup_id)) if !dup_id.is_empty() => {
-            format!(",\"duplicateIssueId\":\"{dup_id}\"")
-        }
-        _ => String::new(),
-    };
-    format!("{{\"issueId\":\"{node_id}\",\"stateReason\":\"{state_reason}\"{dup_field}}}")
+    let mut input = serde_json::json!({
+        "issueId": node_id,
+        "stateReason": state_reason,
+    });
+    if reason == CloseReason::Duplicate
+        && let Some(dup_id) = duplicate_node_id
+        && !dup_id.is_empty()
+    {
+        input["duplicateIssueId"] = serde_json::Value::String(dup_id.to_string());
+    }
+    input.to_string()
 }
 
 /// Build the `gh api graphql` args for the `deleteIssue` mutation.
@@ -287,6 +296,29 @@ pub fn parse_issue_node_id_json(stdout: &str) -> Result<String, GhError> {
     Ok(id.to_string())
 }
 
+/// Parse a GraphQL mutation response for a top-level `errors` array.
+///
+/// GitHub's GraphQL API returns HTTP 200 with `{"errors": [...]}` on
+/// mutation failures (e.g., already closed, permission denied, issue not
+/// found). Without this check, `run_gh` returns `Ok(())` on a failed
+/// mutation, causing state desynchronization between the TUI and GitHub.
+fn parse_graphql_errors(stdout: &str) -> Result<(), GhError> {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| {
+        GhError::ParseError(format!("invalid JSON parsing closeIssue response: {e}"))
+    })?;
+    if let Some(messages) = graphql_error_messages(&value) {
+        return Err(GhError::ApiError(format!(
+            "GraphQL closeIssue mutation failed: {}",
+            messages.join("; ")
+        )));
+    }
+    Ok(())
+}
+
 /// Extract non-empty GraphQL error messages from a parsed response, if any.
 fn graphql_error_messages(value: &serde_json::Value) -> Option<Vec<String>> {
     let errors = value.get("errors")?.as_array()?;
@@ -306,7 +338,8 @@ mod tests {
     use super::{
         build_close_issue_args, build_close_issue_graphql_args, build_close_issue_input_json,
         build_close_issue_with_reason_args, build_delete_issue_args, build_issue_node_id_args,
-        build_mark_duplicate_args, close_reason_graphql_enum, parse_issue_node_id_json,
+        build_mark_duplicate_args, close_reason_graphql_enum, parse_graphql_errors,
+        parse_issue_node_id_json,
     };
     use crate::domain::CloseReason;
     use crate::github::GhError;
@@ -617,5 +650,37 @@ mod tests {
             input.contains(r#""duplicateIssueId":"I_canonical""#),
             "duplicate graphql args should include duplicateIssueId: {input}"
         );
+    }
+
+    #[test]
+    fn parse_graphql_errors_ok_on_success() {
+        let json =
+            r#"{"data":{"closeIssue":{"issue":{"state":"CLOSED","stateReason":"COMPLETED"}}}}"#;
+        assert!(parse_graphql_errors(json).is_ok());
+    }
+
+    #[test]
+    fn parse_graphql_errors_ok_on_empty() {
+        assert!(parse_graphql_errors("").is_ok());
+        assert!(parse_graphql_errors("   ").is_ok());
+    }
+
+    #[test]
+    fn parse_graphql_errors_surfaces_errors_array() {
+        let json = r#"{"data":null,"errors":[{"message":"issue already closed"}]}"#;
+        let result = parse_graphql_errors(json);
+        match result {
+            Err(GhError::ApiError(msg)) => assert!(
+                msg.contains("issue already closed"),
+                "should surface the GraphQL error message, got: {msg}"
+            ),
+            other => panic!("expected ApiError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_graphql_errors_errors_on_invalid_json() {
+        let result = parse_graphql_errors("{ not valid");
+        assert!(matches!(result, Err(GhError::ParseError(_))));
     }
 }

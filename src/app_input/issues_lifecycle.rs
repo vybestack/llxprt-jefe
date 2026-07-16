@@ -11,6 +11,10 @@ use super::{
     issues_dispatch,
 };
 
+/// Error message when the issue's node id is unavailable for a GraphQL close.
+const NODE_ID_UNAVAILABLE_MSG: &str =
+    "Cannot close: issue node id unavailable. Reload the issue list and try again.";
+
 /// Handle a close-issue request (key-layer `CloseIssue` event).
 ///
 /// The reducer has already set `close_mutation_pending` (with the node id) if
@@ -74,10 +78,7 @@ fn close_issue_event(
     mutation_id: u64,
 ) -> CloseOutcome {
     let Some(node_id) = node_id.filter(|id| !id.is_empty()) else {
-        return CloseOutcome::Failed(
-            "Cannot close: issue node id unavailable. Reload the issue list and try again."
-                .to_string(),
-        );
+        return CloseOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
     };
     match github_client(ctx).map(|client| {
         client.close_issue_graphql(node_id, jefe::domain::CloseReason::Completed, None)
@@ -216,10 +217,7 @@ fn close_with_reason_event(params: CloseWithReasonParams) -> CloseWithReasonOutc
         .unwrap_or(jefe::domain::CloseReason::Completed);
 
     let Some(this_node_id) = params.this_node_id.filter(|id| !id.is_empty()) else {
-        return CloseWithReasonOutcome::Failed(
-            "Cannot close: issue node id unavailable. Reload the issue list and try again."
-                .to_string(),
-        );
+        return CloseWithReasonOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
     };
 
     let client = github_client(params.ctx);

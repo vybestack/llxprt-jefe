@@ -722,8 +722,8 @@ fn test_detail_subfocus_tab_with_comments() {
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
 
-    // Set up issue detail with 2 comments
-    let mut detail = make_test_detail(vec![
+    // Set up issue detail with 2 comments (uses helper's default number 42)
+    let detail = make_test_detail(vec![
         IssueComment {
             comment_id: 100,
             author_login: "user1".to_string(),
@@ -739,7 +739,6 @@ fn test_detail_subfocus_tab_with_comments() {
             body: "Second comment".to_string(),
         },
     ]);
-    detail.number = 1;
     state.issues_state.issue_detail = Some(detail);
 
     // Body -> Comment(0)
