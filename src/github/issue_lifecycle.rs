@@ -307,9 +307,8 @@ fn parse_graphql_errors(stdout: &str) -> Result<(), GhError> {
     if trimmed.is_empty() {
         return Ok(());
     }
-    let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| {
-        GhError::ParseError(format!("invalid JSON parsing closeIssue response: {e}"))
-    })?;
+    let value: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| GhError::ParseError(format!("invalid JSON in closeIssue response: {e}")))?;
     if let Some(messages) = graphql_error_messages(&value) {
         return Err(GhError::ApiError(format!(
             "GraphQL closeIssue mutation failed: {}",

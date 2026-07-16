@@ -369,6 +369,17 @@ mod tests {
     }
 
     #[test]
+    fn header_shows_closed_completed_reason() {
+        let detail = detail_with_state(IssueState::Closed, Some(IssueStateReason::Completed));
+        let view = issue_detail_header_view(&detail);
+        assert!(
+            view.state.contains("CLOSED (completed)"),
+            "completed close should show CLOSED (completed): {}",
+            view.state
+        );
+    }
+
+    #[test]
     fn header_shows_open_without_reason() {
         let detail = detail_with_state(IssueState::Open, None);
         let view = issue_detail_header_view(&detail);
