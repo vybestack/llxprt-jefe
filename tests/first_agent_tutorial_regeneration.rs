@@ -46,7 +46,9 @@ impl Fixture {
             &self
                 .repo
                 .parent()
-                .unwrap_or_else(|| panic!("fixture parent"))
+                .unwrap_or_else(|| {
+                    panic!("fixture repository has no parent: {}", self.repo.display())
+                })
                 .join(root_name),
             environment,
         )
@@ -317,7 +319,7 @@ fn promotion_failure_restores_every_committed_asset() {
     fs::create_dir(&fake_bin).unwrap_or_else(|error| panic!("create fake bin: {error}"));
     write_executable(
         &fake_bin.join("mv"),
-        "#!/bin/sh\ntarget=\nfor arg in \"$@\"; do target=$arg; done\ncase \"$target\" in */first-agent-new-agent.svg) exit 73 ;; esac\nexec /bin/mv \"$@\"\n",
+        "#!/bin/sh\ntarget=\nfor arg in \"$@\"; do target=$arg; done\ncase \"$target\" in */first-agent-new-agent.svg) exit 1 ;; esac\nexec /bin/mv \"$@\"\n",
     );
     let path = format!(
         "{}:{}",

@@ -83,6 +83,8 @@ Target: at most 8 changed files and below 800 net changed lines.
 | PR OCR recommended adding timeout process management to the integration-test command helper | Reject | The referenced helper is private production code, no test timeout dependency exists, and adding a new process-management/termination subsystem is an explicit issue-workflow stopping condition outside this documentation contract |
 | PR OCR suggested generalizing manifest-key parsing for hypothetical regex metacharacters | Reject | All keys are fixed internal literals without regex metacharacters; introducing a broader parser for unsupported callers adds no current correctness or acceptance value |
 | PR OCR suggested making the issue-specific capture script user-configurable | Reject | A custom capture implementation conflicts with the accepted fixed first-agent workflow and risks reviving the explicitly excluded generalized capture platform |
+| PR OCR identified a magic simulated-failure exit code and weak fixture-parent diagnostics | In-scope—Fix | Used the conventional failure status and included the invariant path in the panic message |
+| PR OCR suggested replacing asserted diagnostics with structured markers | Reject | Clear failure diagnostics are an explicit acceptance criterion, so their identifying phrases are intentional observable behavior rather than incidental implementation text |
 
 No unapproved scope changes.
 
@@ -91,11 +93,12 @@ No unapproved scope changes.
 - Open Code Review before PR: 2 / 2 attempted; both external OCR invocations
   were terminated without producing output, so no findings were available to
   triage.
-- Open Code Review after PR: 2 / 2; fourteen findings were classified
+- Open Code Review after PR: 2 / 2; sixteen findings were classified
   In-scope—Fix and remediated. Timeout-process management, manifest-key
-  generalization, and configurable capture implementation recommendations were
-  rejected under the bounded scope rules. Additional automated reruns were
-  workflow-triggered by pushes; no manual review beyond the cap was requested.
+  generalization, configurable capture implementation, and replacing contracted
+  diagnostics with structured markers were rejected under the bounded scope
+  rules. Additional automated reruns were workflow-triggered by pushes; no
+  manual review beyond the cap was requested.
 
 ## Verification evidence
 
