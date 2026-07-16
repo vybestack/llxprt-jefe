@@ -296,11 +296,37 @@ fn issue_closed_duplicate_sets_optimistic_duplicate_reason() {
         list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Duplicate)),
         "list row state_reason should be Duplicate"
     );
+
+    // The reducer updates both list row and detail when issue_detail is loaded.
+    let mut state = state;
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    let scope = RepositoryId("repo-1".to_string());
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: scope.clone(),
+        mutation_id: 43,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(crate::domain::CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: scope,
+        issue_number: 1,
+        mutation_id: 43,
+        close_reason: Some(crate::domain::CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::Duplicate)),
+        "detail state_reason should be Duplicate"
+    );
 }
 
 #[test]
 fn issue_closed_plain_close_defaults_to_completed_reason() {
     let mut state = issues_state_with_list("repo-1");
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
     state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 42,
@@ -320,6 +346,11 @@ fn issue_closed_plain_close_defaults_to_completed_reason() {
     assert!(
         list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Completed)),
         "plain close should default state_reason to Completed"
+    );
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::Completed)),
+        "detail state_reason should default to Completed on plain close"
     );
 }
 

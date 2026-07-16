@@ -170,3 +170,35 @@ fn test_issue_detail_state_reason_none_when_missing() {
     let detail = parse_issue_detail_json(json).value_or_panic("should parse without state_reason");
     assert_eq!(detail.state_reason, None);
 }
+
+#[test]
+fn test_issue_detail_state_reason_none_for_reopened_and_unknown() {
+    fn detail_json(state_reason: &str) -> String {
+        format!(
+            r#"{{
+            "number": 42,
+            "id": "I_kw123",
+            "title": "test",
+            "state": "OPEN",
+            "state_reason": "{state_reason}",
+            "author": {{"login": "dave"}},
+            "createdAt": "2026-06-01T00:00:00Z",
+            "updatedAt": "2026-07-01T00:00:00Z",
+            "labels": [],
+            "assignees": [],
+            "milestone": null,
+            "body": "body",
+            "url": "https://github.com/owner/repo/issues/42",
+            "comments": []
+        }}"#
+        )
+    }
+
+    let reopened =
+        parse_issue_detail_json(&detail_json("reopened")).value_or_panic("should parse reopened");
+    assert_eq!(reopened.state_reason, None);
+
+    let unknown =
+        parse_issue_detail_json(&detail_json("dismissed")).value_or_panic("should parse unknown");
+    assert_eq!(unknown.state_reason, None);
+}
