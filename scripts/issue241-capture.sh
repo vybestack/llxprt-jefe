@@ -49,6 +49,9 @@ validate_new_root() {
     case "$ROOT" in
         "$HOME"|"$HOME"/*) fail "run root must not be the normal home directory" ;;
     esac
+    ROOT_PARENT=$(dirname -- "$ROOT")
+    [ -d "$ROOT_PARENT" ] || fail "run root parent directory does not exist: $ROOT_PARENT"
+    [ ! -L "$ROOT_PARENT" ] || fail "run root parent directory must not be a symlink: $ROOT_PARENT"
     [ ! -e "$ROOT" ] && [ ! -L "$ROOT" ] || fail "run root must not exist"
 }
 

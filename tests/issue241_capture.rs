@@ -71,6 +71,22 @@ fn capture_refuses_relative_and_existing_roots() {
 }
 
 #[test]
+fn capture_reports_a_missing_run_root_parent_before_creation() {
+    let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let (jefe, harness) = fake_binaries(&temp, "publication-safe");
+    let missing_parent = temp.path().join("missing-parent");
+    let root = missing_parent.join("capture");
+    let output = capture(&root, &jefe, &harness);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("run root parent directory does not exist")
+    );
+    assert!(!missing_parent.exists());
+}
+
+#[test]
 fn capture_rejects_non_executable_binary_paths_before_creating_root() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let missing_jefe = temp.path().join("missing-jefe");
