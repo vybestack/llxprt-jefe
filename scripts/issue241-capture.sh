@@ -179,6 +179,8 @@ publish_captures() {
 
 capture_run() {
     parse_capture "$@"
+    [ -x "$JEFE_BIN" ] || fail "jefe binary not found or not executable: $JEFE_BIN"
+    [ -x "$HARNESS_BIN" ] || fail "harness binary not found or not executable: $HARNESS_BIN"
     NORMAL_HOME=$HOME
     validate_new_root
     mkdir "$ROOT" || fail "could not create exclusive run root: $ROOT"

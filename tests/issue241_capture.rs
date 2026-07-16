@@ -71,6 +71,21 @@ fn capture_refuses_relative_and_existing_roots() {
 }
 
 #[test]
+fn capture_rejects_non_executable_binary_paths_before_creating_root() {
+    let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let missing_jefe = temp.path().join("missing-jefe");
+    let missing_harness = temp.path().join("missing-harness");
+    let root = temp.path().join("invalid-binaries");
+    let output = capture(&root, &missing_jefe, &missing_harness);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("jefe binary not found or not executable")
+    );
+    assert!(!root.exists());
+}
+
+#[test]
 fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let (jefe, harness) = fake_binaries(
