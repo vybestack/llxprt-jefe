@@ -134,12 +134,11 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
         .find(|arg| arg.contains(".jefe/issue-prompt.md"))
         .value_or_panic("issue launch signature must include an instruction");
     assert!(instruction.contains(".jefe/issue-prompt.md"));
-    assert!(instruction.contains("create a dedicated issue branch"));
-    assert!(instruction.contains("create a detailed pull request"));
-    assert!(instruction.contains("continuing to poll with a bounded delay"));
-    assert!(instruction.contains("ordinary reviews, inline threads"));
-    assert!(instruction.contains("reply in the corresponding review thread"));
-    assert!(instruction.contains("no actionable unresolved review feedback remains"));
+    assert!(instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"));
+    assert!(instruction.contains("decision-complete acceptance matrix"));
+    assert!(instruction.contains("stop for approval"));
+    assert!(instruction.contains("Blocker-Fix"));
+    assert!(instruction.contains("scope ledger is clean"));
 }
 
 #[test]
