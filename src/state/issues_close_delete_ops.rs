@@ -237,7 +237,7 @@ impl AppState {
         issue_number: u64,
         mutation_id: u64,
         close_reason: Option<crate::domain::CloseReason>,
-        duplicate_of: Option<u64>,
+        _duplicate_of: Option<u64>,
     ) -> bool {
         let pending_matches = self
             .issues_state
@@ -253,7 +253,7 @@ impl AppState {
         }
         self.issues_state.close_mutation_pending = None;
         self.issues_state.error = None;
-        let state_reason = Some(close_reason_to_state_reason(close_reason, duplicate_of));
+        let state_reason = Some(close_reason_to_state_reason(close_reason));
         let mut issues = self.issues_state.list.items().to_vec();
         if let Some(issue) = issues.iter_mut().find(|i| i.number == issue_number) {
             issue.state = IssueState::Closed;
@@ -451,7 +451,6 @@ impl AppState {
 #[must_use]
 fn close_reason_to_state_reason(
     close_reason: Option<crate::domain::CloseReason>,
-    _duplicate_of: Option<u64>,
 ) -> crate::domain::IssueStateReason {
     use crate::domain::{CloseReason, IssueStateReason};
     match close_reason {

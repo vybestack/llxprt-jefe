@@ -35,15 +35,17 @@ impl IssueStateReason {
     ///
     /// Accepts both the GraphQL enum spelling (`COMPLETED`, `NOT_PLANNED`,
     /// `DUPLICATE`) and the REST spelling (`completed`, `not_planned`,
-    /// `duplicate`). Returns `None` for `REOPENED`, unknown, or missing values
+    /// `duplicate`). Case-insensitive to be robust against API casing
+    /// variations. Returns `None` for `REOPENED`, unknown, or missing values
     /// so callers can store an `Option` and let legacy data degrade to "no
     /// reason".
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
-        match value.trim() {
-            "COMPLETED" | "completed" => Some(Self::Completed),
-            "NOT_PLANNED" | "not_planned" => Some(Self::NotPlanned),
-            "DUPLICATE" | "duplicate" => Some(Self::Duplicate),
+        let normalized = value.trim().to_ascii_uppercase();
+        match normalized.as_str() {
+            "COMPLETED" => Some(Self::Completed),
+            "NOT_PLANNED" => Some(Self::NotPlanned),
+            "DUPLICATE" => Some(Self::Duplicate),
             _ => None,
         }
     }
@@ -335,6 +337,22 @@ mod state_reason_tests {
         assert_eq!(
             IssueStateReason::parse("  COMPLETED  "),
             Some(IssueStateReason::Completed)
+        );
+    }
+
+    #[test]
+    fn parse_is_case_insensitive() {
+        assert_eq!(
+            IssueStateReason::parse("Completed"),
+            Some(IssueStateReason::Completed)
+        );
+        assert_eq!(
+            IssueStateReason::parse("Not_Planned"),
+            Some(IssueStateReason::NotPlanned)
+        );
+        assert_eq!(
+            IssueStateReason::parse("Duplicate"),
+            Some(IssueStateReason::Duplicate)
         );
     }
 
