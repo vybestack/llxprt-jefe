@@ -264,7 +264,9 @@ pub fn spawn_external_terminal(plan: &ExternalTerminalPlan) -> Result<(), Extern
         .spawn()
         .map_err(|e| ExternalTerminalError::SpawnFailed(format!("{}: {e}", plan.program)))?;
     std::thread::spawn(move || {
-        let _ = child.wait();
+        if let Err(error) = child.wait() {
+            tracing::warn!(error = %error, "external terminal launcher wait failed");
+        }
     });
     Ok(())
 }
@@ -284,11 +286,24 @@ fn which(program: &str) -> Option<PathBuf> {
         } else {
             candidate
         };
-        if exe_candidate.is_file() {
+        if is_executable_file(&exe_candidate) {
             return Some(exe_candidate);
         }
     }
     None
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 fn work_dir_arg(work_dir: &Path) -> String {

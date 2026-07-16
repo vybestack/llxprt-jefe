@@ -468,6 +468,8 @@ pub struct ShellOverlayState {
     pub agent_id: Option<crate::domain::AgentId>,
     /// Monotonic identity for an open operation, used to reject stale observers.
     pub generation: u64,
+    /// Dashboard pane focus restored when the shell closes.
+    pub previous_pane_focus: Option<PaneFocus>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

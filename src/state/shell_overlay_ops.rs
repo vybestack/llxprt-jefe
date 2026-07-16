@@ -31,6 +31,7 @@ impl AppState {
         self.shell_overlay = ShellOverlayState {
             agent_id: Some(agent_id),
             generation: self.shell_overlay.generation.wrapping_add(1),
+            previous_pane_focus: Some(self.pane_focus),
         };
         // Focus the terminal so keyboard input is forwarded to the shell.
         self.terminal_focused = true;
@@ -44,7 +45,11 @@ impl AppState {
         if self.shell_overlay.agent_id.is_some() {
             self.shell_overlay.agent_id = None;
             self.terminal_focused = false;
-            self.pane_focus = crate::state::PaneFocus::Agents;
+            self.pane_focus = self
+                .shell_overlay
+                .previous_pane_focus
+                .take()
+                .unwrap_or(crate::state::PaneFocus::Agents);
             self.reset_shell_terminal_view();
         }
     }
@@ -89,13 +94,24 @@ mod tests {
 
     #[test]
     fn close_shell_overlay_clears_agent_id_and_restores_focus() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            pane_focus: PaneFocus::Agents,
+            ..AppState::default()
+        };
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.close_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
         assert!(!state.terminal_focused);
         assert_eq!(state.pane_focus, PaneFocus::Agents);
         assert!(!state.shell_overlay_active());
+    }
+
+    #[test]
+    fn close_shell_overlay_restores_repository_focus() {
+        let mut state = AppState::default();
+        state.open_shell_overlay(AgentId("agent-1".into()));
+        state.close_shell_overlay();
+        assert_eq!(state.pane_focus, PaneFocus::Repositories);
     }
 
     #[test]

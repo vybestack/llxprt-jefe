@@ -527,13 +527,15 @@ fn resolve_terminal_point(
             if row < layout.pane_row0 || row >= bottom || col < layout.pane_col0 || col >= right {
                 return None;
             }
+            let chrome_cols = jefe::layout::TERMINAL_VIEW_CHROME_COLS;
+            let chrome_rows = jefe::layout::TERMINAL_VIEW_CHROME_ROWS;
             (
                 SelectablePane::TerminalView,
                 jefe::selection::PaneGeometry::new(
-                    layout.pane_col0.saturating_sub(1),
-                    layout.pane_row0.saturating_sub(2),
-                    layout.pty_cols.saturating_add(2),
-                    layout.pty_rows.saturating_add(3),
+                    layout.pane_col0.saturating_sub(chrome_cols),
+                    layout.pane_row0.saturating_sub(chrome_rows),
+                    layout.pty_cols.saturating_add(chrome_cols * 2),
+                    layout.pty_rows.saturating_add(chrome_rows + 1),
                     layout.pane_col0,
                     layout.pane_row0,
                 ),

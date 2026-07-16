@@ -81,7 +81,9 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, overlay_active
     } else {
         jefe::layout::compute_pty_layout(cols, rows)
     };
-    let _ = guard.runtime.resize(layout.pty_rows, layout.pty_cols);
+    if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
+        warn!(error = %error, "failed to resize shell terminal");
+    }
 }
 
 /// Returns `true` if the key event is the shell-overlay close shortcut (F11)
@@ -96,15 +98,14 @@ pub fn try_close_shell_overlay(
     if key_event.code != KeyCode::F(11) {
         return false;
     }
-    let overlay_active = app_state.read().shell_overlay_active();
-    if !overlay_active {
+    let agent_id = {
+        let state = app_state.read();
+        state.shell_overlay_agent_id().cloned()
+    };
+    let Some(agent_id) = agent_id else {
         return false;
-    }
-
-    let agent_id = app_state.read().shell_overlay_agent_id().cloned();
-    if let Some(agent_id) = agent_id {
-        close_overlay_and_restore(app_state, ctx, &agent_id);
-    }
+    };
+    close_overlay_and_restore(app_state, ctx, &agent_id);
     true
 }
 
