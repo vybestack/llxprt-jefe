@@ -3,6 +3,9 @@
 //! This iocraft-free module maps loaded runs and list geometry into a stable
 //! selection-following window. Job-detail projection lives in
 //! [`crate::actions_detail_view`].
+//!
+//! Run ordering (issue #208) is committed by the Actions state reducer before
+//! projection so navigation indices match the reverse-chronological display.
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
@@ -146,5 +149,22 @@ mod tests {
 
         assert_eq!(view.first_visible_run_index, 1);
         assert!(view.visible_runs.iter().all(|run| !run.is_selected));
+    }
+
+    #[test]
+    fn projected_list_preserves_pre_sorted_newest_first_order() {
+        let mut newest = run(2);
+        newest.created_at = "2026-07-03T10:00:00Z".to_string();
+        let mut middle = run(3);
+        middle.created_at = "2026-07-02T10:00:00Z".to_string();
+        let mut oldest = run(1);
+        oldest.created_at = "2026-07-01T10:00:00Z".to_string();
+        let runs = vec![newest, middle, oldest];
+        let view = project_runs_list(&runs, Some(0), 5);
+        assert_eq!(
+            view.visible_runs.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
+        assert!(view.visible_runs[0].is_selected);
     }
 }

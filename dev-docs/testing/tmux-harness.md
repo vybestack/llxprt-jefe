@@ -188,10 +188,12 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
 - [`actions-mode.json`](../tmux-scenarios/actions-mode.json): uses the fail-closed
-  `scripts/issue194-gh-shim.sh` fixture to load a real run, enters job detail,
-  verifies jobs are collapsed by default, expands success and failure steps
-  with their status glyphs, collapses with `Esc`, navigates job focus, and backs
-  out to the run list. Run it end to end with
+  `scripts/issue194-gh-shim.sh` fixture to load runs returned oldest-first from
+  the API, asserts the newest run is selected first (issue #208), triggers
+  load-more via `End` and checks the archived page-2 row appears, then enters
+  job detail on the newest run, verifies jobs are collapsed by default, expands
+  success and failure steps with their status glyphs, collapses with `Esc`,
+  navigates job focus, and backs out to the run list. Run it end to end with
   `scripts/issue194-run-scenario.sh`; the runner seeds isolated state and audits
   that production performs only the expected read-only `gh` operations.
 - [`code-puppy-chord-passthrough.json`](../tmux-scenarios/code-puppy-chord-passthrough.json):
