@@ -276,5 +276,5 @@ fn newline_y_column_rename_both_owned_is_not_dirty() {
 #[test]
 fn newline_y_column_copy_owned_to_real_is_dirty() {
     // Worktree-only copy: owned→real is dirty.
-    assert!(porcelain_is_dirty(" C src/new.txt -> .jefe/old.md\n"));
+    assert!(porcelain_is_dirty(" C .jefe/old.md -> src/new.txt\n"));
 }

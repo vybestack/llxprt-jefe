@@ -67,7 +67,7 @@ No unplanned work discovered.
 ## Review counters
 
 - Pre-PR Open Code Review runs used: 2 of 2; both external OCR processes were terminated before producing output. A CodeRabbit CLI fallback was also externally terminated during review with no findings emitted.
-- Post-PR Open Code Review runs used: 1 of 2; the PR workflow reviewed commit `4b5bac3` and emitted one actionable diagnostic-preservation finding.
+- Post-PR Open Code Review runs used: 2 of 2; the PR workflows reviewed commits `4b5bac3` and `f3b24c5`, emitting one actionable finding on each reviewed head.
 
 ## Verification evidence
 
@@ -84,6 +84,7 @@ No unplanned work discovered.
 ## Review finding dispositions
 
 - **In-scope—Fix:** preserve the original `std::io::Error` when the real-repository test helper cannot spawn git. Removed the lossy `Result::ok()` conversion before `TestResultExt::test_unwrap` and narrowed git-info test support to a result-only helper so strict dead-code checks remain clean.
+- **In-scope—Fix:** align the newline Y-column owned-to-real copy fixture with its test name and comment by placing the owned source before the real destination.
 
 ## Deferred findings and follow-ups
 
