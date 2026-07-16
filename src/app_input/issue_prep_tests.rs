@@ -247,7 +247,7 @@ fn cleanup(path: &Path) {
 }
 
 #[test]
-fn local_existing_clean_prep_writes_prompt_last() {
+fn local_existing_clean_prep_succeeds() {
     let origin = bare_origin_with_commit("clean");
     let work = clone_origin(&origin, "clean");
     // Pre-create .jefe so we prove owned metadata is ignored.
@@ -422,7 +422,7 @@ fn local_dirty_stop_returns_dirty_without_prompt() {
 }
 
 #[test]
-fn local_dirty_discard_cleans_and_writes_prompt() {
+fn local_dirty_discard_cleans_and_prepares() {
     let origin = bare_origin_with_commit("dirtydiscard");
     let work = clone_origin(&origin, "dirtydiscard");
     std::fs::write(work.join("src.txt"), "dirty change").value_or_panic("write dirty change");
@@ -463,10 +463,10 @@ fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
 }
 
 /// A clean working copy on a non-default branch with the Discard policy must
-/// switch to the default branch, pull, and write the prompt — without
+/// switch to the default branch, pull — without
 /// discarding anything (there is nothing dirty to discard).
 #[test]
-fn local_clean_not_on_default_discard_switches_and_writes_prompt() {
+fn local_clean_not_on_default_discard_switches_and_prepares() {
     let origin = bare_origin_with_commit("clean-not-main-discard");
     let work = clone_origin(&origin, "clean-not-main-discard");
     run_git(&work, &["checkout", "-b", "feature"]);
@@ -482,9 +482,9 @@ fn local_clean_not_on_default_discard_switches_and_writes_prompt() {
 }
 
 /// A dirty working copy that is ALSO not on the default branch: the Discard
-/// policy must clean AND switch to the default branch AND write the prompt.
+/// policy must clean AND switch to the default branch.
 #[test]
-fn local_dirty_and_not_on_default_discard_cleans_switches_and_writes_prompt() {
+fn local_dirty_and_not_on_default_discard_cleans_switches_and_prepares() {
     let origin = bare_origin_with_commit("dirty-not-main-discard");
     let work = clone_origin(&origin, "dirty-not-main-discard");
     run_git(&work, &["checkout", "-b", "feature"]);

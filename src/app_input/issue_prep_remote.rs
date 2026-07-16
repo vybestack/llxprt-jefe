@@ -16,10 +16,9 @@ use super::{DirtyPolicy, PrepOutcome};
 // Remote target prep
 // ──────────────────────────────────────────────────────────────────────────
 
-/// A pure planner that records the remote commands and prompt-transfer plan
-/// **without** executing them. Exposed for deterministic tests proving all
-/// operations target the remote host, use `ssh -T`, and transfer prompt bytes
-/// via stdin.
+/// A pure planner that records the remote commands **without** executing
+/// them. Exposed for deterministic tests proving all operations target the
+/// remote host and use `ssh -T`.
 #[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct RemotePrepPlanner {
@@ -73,7 +72,8 @@ pub struct PlanInputs<'a> {
 pub(super) struct PlannedRemoteOp {
     /// The `ssh -T` argv (everything after the `ssh` binary).
     pub ssh_argv: Vec<String>,
-    /// Prompt bytes sent via stdin, if this op transfers the prompt.
+    /// Prompt bytes sent via stdin. Always `None` after issue #315 (prompt
+    /// content is inlined into the launch instruction, not written to disk).
     pub stdin_prompt: Option<String>,
 }
 

@@ -406,7 +406,7 @@ fn it_search_commit_reloads_with_query() {
     );
 }
 // ═════════════════════════════════════════════════════════════════════════
-// Checkpoint 8: send-to-agent writes prompt and launches (REQ-PR-011)
+// Checkpoint 8: send-to-agent inlines prompt and launches (REQ-PR-011)
 // ═════════════════════════════════════════════════════════════════════════
 
 /// Build a launch signature fixture (mirrors `app_input_tests::sample_signature`).
