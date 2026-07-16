@@ -8,8 +8,9 @@
 //! @requirement REQ-PR-013
 
 use super::prs_dispatch::{
-    RepoContextError, format_pr_prompt, pr_open_in_browser_failure_context_from_state,
-    pr_open_in_browser_info_from_state, selected_pr_still_matches,
+    RepoContextError, build_pr_preview_for_selection, format_pr_prompt,
+    pr_open_in_browser_failure_context_from_state, pr_open_in_browser_info_from_state,
+    selected_pr_still_matches,
 };
 use jefe::domain::{Repository, RepositoryId};
 use jefe::state::{AppEvent, AppState, PullRequestsState, ScreenMode};
@@ -333,5 +334,76 @@ fn test_format_pr_prompt_wraps_focused_comment_in_delimiters() {
     assert!(
         out.contains("BEGIN UNTRUSTED COMMENT") && out.contains("END UNTRUSTED COMMENT"),
         "focused comment must be wrapped in untrusted delimiters; got:\n{out}"
+    );
+}
+
+/// Build an AppState with a selected PR whose `mergeable` is set to `value`.
+/// Used to prove the list→detail preview propagates the mergeable signal.
+fn state_with_mergeable_pr(value: Option<bool>) -> AppState {
+    let mut state = AppState {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        prs_state: PullRequestsState::default(),
+        ..AppState::default()
+    };
+    let mut pr = test_pr(99);
+    pr.mergeable = value;
+    state.prs_state.list.replace_items(vec![pr]);
+    state.prs_state.list.set_selected_index(Some(0));
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        PathBuf::from("/tmp/repo1"),
+    ));
+    state.repositories[0].github_repo = "owner/repo".to_string();
+    state.selected_repository_index = Some(0);
+    state
+}
+
+/// `build_pr_preview_for_selection` must propagate `mergeable: Some(true)`
+/// from the list row into the generated `PullRequestDetail` so the detail
+/// header can show "mergeable" before the full detail loads.
+#[test]
+fn test_preview_preserves_mergeable_true() {
+    let state = state_with_mergeable_pr(Some(true));
+    let result = build_pr_preview_for_selection(&state)
+        .unwrap_or_else(|e| panic!("preview must succeed, got: {}", e.message));
+    let (_, _, detail) =
+        result.unwrap_or_else(|| panic!("preview must yield a detail for a selected PR"));
+    assert_eq!(
+        detail.mergeable,
+        Some(true),
+        "preview detail must carry mergeable=Some(true) from the list row"
+    );
+}
+
+/// `build_pr_preview_for_selection` must propagate `mergeable: Some(false)`
+/// (conflicting PR) so the header can show the conflict indicator.
+#[test]
+fn test_preview_preserves_mergeable_false() {
+    let state = state_with_mergeable_pr(Some(false));
+    let result = build_pr_preview_for_selection(&state)
+        .unwrap_or_else(|e| panic!("preview must succeed, got: {}", e.message));
+    let (_, _, detail) =
+        result.unwrap_or_else(|| panic!("preview must yield a detail for a selected PR"));
+    assert_eq!(
+        detail.mergeable,
+        Some(false),
+        "preview detail must carry mergeable=Some(false) from the list row"
+    );
+}
+
+/// `build_pr_preview_for_selection` must yield `mergeable: None` when the
+/// list row does not carry the signal (backward-compatible default).
+#[test]
+fn test_preview_preserves_mergeable_none() {
+    let state = state_with_mergeable_pr(None);
+    let result = build_pr_preview_for_selection(&state)
+        .unwrap_or_else(|e| panic!("preview must succeed, got: {}", e.message));
+    let (_, _, detail) =
+        result.unwrap_or_else(|| panic!("preview must yield a detail for a selected PR"));
+    assert_eq!(
+        detail.mergeable, None,
+        "preview detail must carry mergeable=None when the list row has no signal"
     );
 }
