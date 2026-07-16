@@ -51,21 +51,40 @@ fn prs_mode_state(repo_id: &str) -> AppState {
 
 /// Detect bracketed actionable keybinding text containing `keyword`, e.g.
 /// `[ m merge ]` or `[ Alt+M approve ]`. Returns true only when an open `[` is
-/// followed by `keyword` and then a closing `]`, so display-only status glyphs
-/// like "\u{2713}merge" (no brackets) never trip it. Used to enforce the
-/// display-only header contract (#012) robustly across binding formats.
+/// followed by `keyword` and then a matching closing `]`, so display-only
+/// status glyphs like "\u{2713}merge" (no brackets) never trip it. Used to
+/// enforce the display-only header contract (#012) robustly across binding
+/// formats.
+///
+/// Tracks bracket depth so a keyword inside an outer bracket pair that also
+/// contains inner brackets (e.g. `[ outer [inner] merge ]`) is still detected.
 fn has_bracketed_action(s: &str, keyword: &str) -> bool {
-    let mut rest = s;
-    while let Some(open) = rest.find('[') {
-        rest = &rest[open..];
-        if let Some(close) = rest.find(']') {
-            if rest[..close].contains(keyword) {
-                return true;
-            }
-            rest = &rest[close + 1..];
-        } else {
-            break;
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
         }
+        // Found an opening bracket — scan to its matching close at depth 0.
+        let content_start = i + 1;
+        let mut depth = 1;
+        let mut j = content_start;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'[' => depth += 1,
+                b']' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                break;
+            }
+            j += 1;
+        }
+        if depth == 0 && s[content_start..j].contains(keyword) {
+            return true;
+        }
+        i = j + 1;
     }
     false
 }
@@ -919,5 +938,23 @@ fn test_has_bracketed_action_detects_bindings_not_status() {
     assert!(
         !has_bracketed_action("OPEN mergeable by @octocat", "merge"),
         "plain text without brackets must not be flagged"
+    );
+}
+
+/// A keyword inside an outer bracket pair that also contains inner brackets
+/// must still be detected (depth-tracking, not first-close).
+#[test]
+fn test_has_bracketed_action_handles_nested_brackets() {
+    assert!(
+        has_bracketed_action("[ outer [inner] merge ]", "merge"),
+        "keyword in outer bracket with nested inner brackets must be detected"
+    );
+    assert!(
+        has_bracketed_action("[outer [inner] approve]", "approve"),
+        "keyword at end of nested-bracket pair must be detected"
+    );
+    assert!(
+        !has_bracketed_action("[ outer [inner] ]", "merge"),
+        "absent keyword in nested brackets must not be detected"
     );
 }
