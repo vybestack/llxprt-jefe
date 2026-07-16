@@ -346,7 +346,7 @@ fn build_pr_preview_for_selection(
             Vec::new(),
             jefe::domain::PageToken::from_cursor(None, false),
         ),
-        mergeable: None,
+        mergeable: pr.mergeable,
         merge_state_status: None,
     };
     Ok(Some((scope_repo_id, pr.number, detail)))

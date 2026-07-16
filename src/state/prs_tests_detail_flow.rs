@@ -48,6 +48,7 @@ fn make_test_pr(number: u64) -> PullRequest {
         is_draft: false,
         review_decision: None,
         checks_status: PrCheckStatus::None,
+        mergeable: None,
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,

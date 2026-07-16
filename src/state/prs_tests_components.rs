@@ -40,6 +40,7 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
         is_draft: false,
         review_decision: None,
         checks_status: PrCheckStatus::None,
+        mergeable: None,
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,

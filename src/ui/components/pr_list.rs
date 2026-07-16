@@ -12,8 +12,9 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::domain::{PrCheckStatus, PrReviewState, PrState, PullRequest};
+use crate::domain::{PrState, PullRequest};
 use crate::list_viewport::{ListGeometry, ListViewport, PaneRows, RowsPerItem};
+use crate::pr_detail_content::{checks_status_glyph, mergeable_glyph, review_status_glyph};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
@@ -81,8 +82,12 @@ fn build_title_line(pr: &PullRequest, prefix: &str, available_width: Option<u16>
     format!("{number_prefix}{title}")
 }
 
-/// Build the meta line for a PR list row (state tag + review/checks glyphs +
-/// author + draft + comment count + assignee + labels).
+/// Build the meta line for a PR list row (state tag + review/checks/mergeable
+/// glyphs + author + draft + comment count + assignee + labels).
+///
+/// The mergeable glyph surfaces whether the PR can be merged without conflicts
+/// (issue #314); the checks glyph surfaces workflow errors; the review glyph
+/// surfaces approvals-needed.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-006
@@ -91,8 +96,9 @@ fn build_meta_line(pr: &PullRequest) -> String {
     let state_tag = pr_state_tag(pr.state);
     let mut meta_parts = vec![
         state_tag.to_string(),
-        review_glyph(pr.review_decision).to_string(),
-        checks_glyph(pr.checks_status).to_string(),
+        mergeable_glyph(pr.mergeable).to_string(),
+        review_status_glyph(pr.review_decision).to_string(),
+        checks_status_glyph(pr.checks_status).to_string(),
         format!("@{}", pr.author_login),
     ];
     if pr.is_draft {
@@ -291,39 +297,6 @@ fn pr_state_tag(state: PrState) -> &'static str {
     }
 }
 
-/// Review-decision glyph for the list meta line.
-///
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 1-12
-fn review_glyph(decision: Option<PrReviewState>) -> &'static str {
-    match decision {
-        Some(PrReviewState::Approved) => "\u{2714}review",
-        Some(
-            PrReviewState::ChangesRequested
-            | PrReviewState::ReviewRequired
-            | PrReviewState::Pending
-            | PrReviewState::Commented,
-        ) => "~review",
-        Some(PrReviewState::Dismissed | PrReviewState::None) | None => "-review",
-    }
-}
-
-/// CI/checks rollup glyph for the list meta line.
-///
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 1-12
-fn checks_glyph(status: PrCheckStatus) -> &'static str {
-    match status {
-        PrCheckStatus::Success => "✓checks",
-        PrCheckStatus::Failure => "✗checks",
-        PrCheckStatus::Pending => "•checks",
-        PrCheckStatus::Neutral => "·checks",
-        PrCheckStatus::None => "-checks",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use unicode_width::UnicodeWidthStr;
@@ -342,22 +315,32 @@ mod tests {
         assert_eq!(UnicodeWidthStr::width(line.as_str()), 8);
     }
 
-    use super::{checks_glyph, review_glyph};
+    use super::checks_status_glyph;
     use crate::domain::{PrCheckStatus, PrReviewState};
+    use crate::pr_detail_content::{mergeable_glyph, review_status_glyph};
 
     /// @plan PLAN-20260624-PR-MODE.P12
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 1-12
     #[test]
     fn review_glyph_maps_each_decision() {
-        assert_eq!(review_glyph(Some(PrReviewState::Approved)), "✔review");
         assert_eq!(
-            review_glyph(Some(PrReviewState::ChangesRequested)),
+            review_status_glyph(Some(PrReviewState::Approved)),
+            "\u{2714}review"
+        );
+        assert_eq!(
+            review_status_glyph(Some(PrReviewState::ChangesRequested)),
             "~review"
         );
-        assert_eq!(review_glyph(Some(PrReviewState::ReviewRequired)), "~review");
-        assert_eq!(review_glyph(Some(PrReviewState::Dismissed)), "-review");
-        assert_eq!(review_glyph(None), "-review");
+        assert_eq!(
+            review_status_glyph(Some(PrReviewState::ReviewRequired)),
+            "~review"
+        );
+        assert_eq!(
+            review_status_glyph(Some(PrReviewState::Dismissed)),
+            "-review"
+        );
+        assert_eq!(review_status_glyph(None), "-review");
     }
 
     /// @plan PLAN-20260624-PR-MODE.P12
@@ -365,11 +348,70 @@ mod tests {
     /// @pseudocode component-001 lines 1-12
     #[test]
     fn checks_glyph_maps_each_status() {
-        assert_eq!(checks_glyph(PrCheckStatus::Success), "✓checks");
-        assert_eq!(checks_glyph(PrCheckStatus::Failure), "✗checks");
-        assert_eq!(checks_glyph(PrCheckStatus::Pending), "•checks");
-        assert_eq!(checks_glyph(PrCheckStatus::Neutral), "·checks");
-        assert_eq!(checks_glyph(PrCheckStatus::None), "-checks");
+        assert_eq!(
+            checks_status_glyph(PrCheckStatus::Success),
+            "\u{2713}checks"
+        );
+        assert_eq!(
+            checks_status_glyph(PrCheckStatus::Failure),
+            "\u{2717}checks"
+        );
+        assert_eq!(
+            checks_status_glyph(PrCheckStatus::Pending),
+            "\u{2022}checks"
+        );
+        assert_eq!(
+            checks_status_glyph(PrCheckStatus::Neutral),
+            "\u{00B7}checks"
+        );
+        assert_eq!(checks_status_glyph(PrCheckStatus::None), "-checks");
+    }
+
+    /// The mergeable glyph must distinguish mergeable, conflicting, and unknown
+    /// states so the PR list surfaces whether a PR can be merged (issue #314).
+    #[test]
+    fn mergeable_glyph_maps_each_state() {
+        assert_eq!(mergeable_glyph(Some(true)), "\u{2713}merge");
+        assert_eq!(mergeable_glyph(Some(false)), "\u{2717}conflict");
+        assert_eq!(mergeable_glyph(None), "-merge");
+    }
+
+    /// The list meta line must include the mergeable glyph so a quick scan of
+    /// the PR list reveals mergeability (issue #314).
+    #[test]
+    fn list_meta_line_includes_mergeable_glyph() {
+        use super::build_meta_line;
+        use crate::domain::{PrCheckStatus, PrState, PullRequest};
+
+        let mergeable_pr = PullRequest {
+            number: 1,
+            title: "ok".to_string(),
+            state: PrState::Open,
+            author_login: "octocat".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            head_ref: "feat".to_string(),
+            head_sha: String::new(),
+            base_ref: "main".to_string(),
+            is_draft: false,
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            mergeable: Some(true),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            comment_count: 0,
+        };
+        let conflicting_pr = PullRequest {
+            mergeable: Some(false),
+            ..mergeable_pr.clone()
+        };
+        assert!(
+            build_meta_line(&mergeable_pr).contains(mergeable_glyph(Some(true))),
+            "meta line for a mergeable PR must contain the merge glyph"
+        );
+        assert!(
+            build_meta_line(&conflicting_pr).contains(mergeable_glyph(Some(false))),
+            "meta line for a conflicting PR must contain the conflict glyph"
+        );
     }
 
     /// The rendered list row (as projected by `pr_list_visible_rows`, which the
@@ -397,6 +439,7 @@ mod tests {
             is_draft: false,
             review_decision: None,
             checks_status: PrCheckStatus::None,
+            mergeable: None,
             assignee_summary: String::new(),
             labels_summary: String::new(),
             comment_count: 0,
@@ -425,9 +468,9 @@ mod tests {
         );
     }
 
-    /// `review_glyph` covers all remaining decision states so a PR list row
-    /// surfaces each review-decision distinctly (Pending/Commented map to the
-    /// "needs-attention" glyph; None maps to the neutral glyph).
+    /// `review_status_glyph` covers all remaining decision states so a PR list
+    /// row surfaces each review-decision distinctly (Pending/Commented map to
+    /// the "needs-attention" glyph; None maps to the neutral glyph).
     ///
     /// @plan PLAN-20260624-PR-MODE.P13
     /// @requirement REQ-PR-006
@@ -435,17 +478,17 @@ mod tests {
     #[test]
     fn test_pr_list_review_glyph_pending_commented_none_distinct() {
         assert_eq!(
-            review_glyph(Some(PrReviewState::Pending)),
+            review_status_glyph(Some(PrReviewState::Pending)),
             "~review",
             "Pending review must map to the needs-attention glyph"
         );
         assert_eq!(
-            review_glyph(Some(PrReviewState::Commented)),
+            review_status_glyph(Some(PrReviewState::Commented)),
             "~review",
             "Commented review must map to the needs-attention glyph"
         );
         assert_eq!(
-            review_glyph(Some(PrReviewState::None)),
+            review_status_glyph(Some(PrReviewState::None)),
             "-review",
             "None review must map to the neutral glyph"
         );
@@ -479,6 +522,7 @@ mod tests {
                 is_draft: false,
                 review_decision: None,
                 checks_status: PrCheckStatus::None,
+                mergeable: None,
                 assignee_summary: String::new(),
                 labels_summary: String::new(),
                 comment_count: 0,

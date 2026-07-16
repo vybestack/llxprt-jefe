@@ -67,6 +67,7 @@ fn make_test_pr(number: u64) -> PullRequest {
         is_draft: false,
         review_decision: None,
         checks_status: PrCheckStatus::None,
+        mergeable: None,
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
@@ -461,30 +462,70 @@ fn test_pr_detail_shows_branches_and_external_url() {
         "rendered header url must be a GitHub HTTPS URL (display-only): {}",
         h.url
     );
-    // Display-only (#012): no merge/approve binding text in the header.
+    // Display-only (#012): no actionable keybinding text (square-bracket
+    // action hints like "[ m merge ]") anywhere in the header. The state row
+    // DOES carry display-only status glyphs (e.g. "\u{2713}merge",
+    // "\u{2713}checks") per issue #314, but those are status, not bindings, so
+    // we assert the absence of bracketed action syntax instead of the bare word.
     let lower_title = h.title.to_lowercase();
     let lower_state = h.state.to_lowercase();
     let lower_branches = h.branches.to_lowercase();
     let lower_url = h.url.to_lowercase();
+    let no_action_binding =
+        |s: &str| !(s.contains("[ m merge") || s.contains("] merge ]") || s.contains("[ approve"));
     assert!(
-        !lower_title.contains("merge") && !lower_title.contains("approve"),
-        "header title must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_title),
+        "header title must have no merge/approve keybinding: {}",
         h.title
     );
     assert!(
-        !lower_state.contains("merge") && !lower_state.contains("approve"),
-        "header state row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_state),
+        "header state row must have no merge/approve keybinding: {}",
         h.state
     );
     assert!(
-        !lower_branches.contains("merge") && !lower_branches.contains("approve"),
-        "header branches row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_branches),
+        "header branches row must have no merge/approve keybinding: {}",
         h.branches
     );
     assert!(
-        !lower_url.contains("merge") && !lower_url.contains("approve"),
-        "header url row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_url),
+        "header url row must have no merge/approve keybinding: {}",
         h.url
+    );
+}
+
+/// Issue #314: the PR detail header state row must surface the mergeable,
+/// checks-rollup, and review-decision status so a user can see at a glance
+/// whether the PR can merge, whether checks are failing, and whether approvals
+/// are needed — without scrolling into the detail content.
+#[test]
+fn test_pr_detail_header_shows_merge_checks_review_status() {
+    use crate::domain::{PrCheckStatus, PrReviewState};
+    use crate::pr_detail_content::{checks_status_glyph, mergeable_glyph, review_status_glyph};
+
+    let mut detail = detail_with_reviews_and_checks(99);
+    detail.mergeable = Some(false);
+    detail.checks_status = PrCheckStatus::Failure;
+    detail.review_decision = Some(PrReviewState::ReviewRequired);
+
+    let h = pr_detail_header_view(&detail);
+    assert!(
+        h.state.contains(mergeable_glyph(Some(false))),
+        "header state row must contain the conflict glyph, got: {}",
+        h.state
+    );
+    assert!(
+        h.state
+            .contains(checks_status_glyph(PrCheckStatus::Failure)),
+        "header state row must contain the failing-checks glyph, got: {}",
+        h.state
+    );
+    assert!(
+        h.state
+            .contains(review_status_glyph(Some(PrReviewState::ReviewRequired))),
+        "header state row must contain the review-needed glyph, got: {}",
+        h.state
     );
 }
 

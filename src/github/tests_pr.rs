@@ -60,6 +60,7 @@ const PR_LIST_SEARCH_JSON: &str = r#"{
                     "headRefOid": "abc123",
                     "baseRefName": "main",
                     "isDraft": true,
+                    "mergeable": "MERGEABLE",
                     "reviewDecision": "REVIEW_REQUIRED",
                     "statusCheckRollup": {
                         "contexts": {
@@ -90,6 +91,7 @@ const PR_LIST_SEARCH_JSON: &str = r#"{
                     "headRefOid": "def789",
                     "baseRefName": "main",
                     "isDraft": false,
+                    "mergeable": "CONFLICTING",
                     "reviewDecision": "APPROVED",
                     "statusCheckRollup": {
                         "contexts": {
@@ -156,6 +158,21 @@ fn test_parse_pr_list_maps_all_fields() {
     assert_eq!(first.comment_count, 5);
 }
 
+/// Issue #314: the GraphQL `mergeable` enum on the first PR fixture
+/// (`MERGEABLE`) must map to `Some(true)`.
+///
+/// @requirement REQ-PR-006
+#[test]
+fn test_parse_pr_list_first_pr_mergeable() {
+    let response =
+        parse_pull_requests_json(PR_LIST_SEARCH_JSON).value_or_panic("should parse PR search");
+    assert_eq!(
+        response.pull_requests[0].mergeable,
+        Some(true),
+        "mergeable MERGEABLE should map to Some(true) (issue #314)"
+    );
+}
+
 /// Companion assertions for the second PR node in `PR_LIST_SEARCH_JSON`
 /// (split from `test_parse_pr_list_maps_all_fields` to keep cognitive
 /// complexity under the clippy gate — all original assertions preserved).
@@ -181,6 +198,11 @@ fn test_parse_pr_list_maps_second_pr_merged_and_failure() {
         PrCheckStatus::Failure,
         "rollup with a FAILURE CheckRun should aggregate to Failure"
     );
+    assert_eq!(
+        second.mergeable,
+        Some(false),
+        "mergeable CONFLICTING should map to Some(false) (issue #314)"
+    );
 }
 
 /// `headRefOid` from the GraphQL search response must populate
@@ -196,6 +218,37 @@ fn test_parse_pr_list_maps_head_sha() {
 
     assert_eq!(response.pull_requests[0].head_sha, "abc123");
     assert_eq!(response.pull_requests[1].head_sha, "def789");
+}
+
+/// The GraphQL `mergeable` enum must map `UNKNOWN` to `None` so the list
+/// renders the neutral merge glyph instead of a wrong mergeable/conflict
+/// indicator (issue #314). `MERGEABLE`/`CONFLICTING` are already covered by
+/// `PR_LIST_SEARCH_JSON`; this covers the `UNKNOWN` and missing cases.
+///
+/// @requirement REQ-PR-006
+#[test]
+fn test_parse_pr_list_mergeable_unknown_and_missing_default_none() {
+    let json = r#"{
+        "data": { "search": { "nodes": [
+            {"number": 1, "title": "a", "state": "OPEN", "mergedAt": null,
+             "author": {"login": "x"}, "updatedAt": "", "headRefName": "",
+             "headRefOid": "", "baseRefName": "", "isDraft": false,
+             "mergeable": "UNKNOWN"},
+            {"number": 2, "title": "b", "state": "OPEN", "mergedAt": null,
+             "author": {"login": "y"}, "updatedAt": "", "headRefName": "",
+             "headRefOid": "", "baseRefName": "", "isDraft": false}
+        ], "pageInfo": {"hasNextPage": false, "endCursor": null} } }
+    }"#;
+    let response =
+        parse_pull_requests_json(json).value_or_panic("should parse PR search with mergeable");
+    assert_eq!(
+        response.pull_requests[0].mergeable, None,
+        "mergeable UNKNOWN should map to None (issue #314)"
+    );
+    assert_eq!(
+        response.pull_requests[1].mergeable, None,
+        "missing mergeable field should default to None (issue #314)"
+    );
 }
 
 /// @plan PLAN-20260624-PR-MODE.P07

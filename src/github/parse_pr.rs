@@ -84,12 +84,12 @@ pub fn build_pr_search_args(
 
 /// GraphQL search query WITH the `$after` cursor variable (PR fields inlined).
 fn pr_search_query_with_after() -> &'static str {
-    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// GraphQL search query WITHOUT the `$after` cursor variable (first page).
 fn pr_search_query_first_page() -> &'static str {
-    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// Build the GitHub search-qualifier string (incl. `is:pr`) for the PR query.
@@ -220,6 +220,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         .unwrap_or(false);
     let review_decision = node.get("reviewDecision").and_then(parse_review_decision);
     let checks_status = parse_checks_rollup(&rollup_nodes(node.get("statusCheckRollup")));
+    let mergeable = parse_mergeable_enum(node.get("mergeable"));
     PullRequest {
         number,
         title,
@@ -232,6 +233,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         is_draft,
         review_decision,
         checks_status,
+        mergeable,
         assignee_summary: join_pr_nodes_field(node, "assignees", "login"),
         labels_summary: join_pr_nodes_field(node, "labels", "name"),
         comment_count: node
@@ -270,6 +272,21 @@ fn str_field(value: &Value, field: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+/// Parse the GraphQL `mergeable` enum (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`)
+/// into a tri-state bool: `MERGEABLE`→`Some(true)`,
+/// `CONFLICTING`→`Some(false)`, anything else (incl. `UNKNOWN` and missing)→
+/// `None`. Used by the list parser so the PR list can show a mergeable/conflict
+/// indicator without a separate detail fetch (issue #314).
+#[must_use]
+pub fn parse_mergeable_enum(value: Option<&Value>) -> Option<bool> {
+    let token = value.and_then(Value::as_str)?;
+    match token {
+        "MERGEABLE" => Some(true),
+        "CONFLICTING" => Some(false),
+        _ => None,
+    }
 }
 
 /// Read `<field>.login` as a string, defaulting to "".
