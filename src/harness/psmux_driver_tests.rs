@@ -26,6 +26,20 @@ fn windows_launch_plan_uses_platform_shell_without_a_unix_wrapper() {
 }
 
 #[test]
+fn literal_type_argv_does_not_append_enter() {
+    let session = TmuxSession {
+        name: "demo".to_string(),
+        cols: 100,
+        rows: 32,
+        keep_session: false,
+    };
+
+    assert_eq!(
+        literal_send_args(&session, "literal payload"),
+        ["send-keys", "-l", "-t", "demo", "--", "literal payload"].map(str::to_string)
+    );
+}
+#[test]
 fn every_driver_gets_a_unique_owned_namespace() {
     let first = TmuxDriver::new();
     let second = TmuxDriver::new();

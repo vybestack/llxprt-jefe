@@ -327,6 +327,47 @@ fn history_size_is_readable_and_monotonic_when_tmux_available() {
     );
 }
 
+#[test]
+fn literal_type_does_not_submit_until_enter_when_tmux_available() {
+    let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        return;
+    }
+    let request = shell_request(
+        "literal-type",
+        "printf 'reader-ready\\n'; read line; printf 'received:<%s>\\n' \"$line\"",
+    );
+    let session = driver
+        .start_session(&request)
+        .value_or_panic("tmux session should start");
+    let guard = SessionGuard {
+        driver: &driver,
+        session,
+    };
+
+    let _ready = wait_for_screen_literal(&driver, &guard.session, "reader-ready")
+        .value_or_panic("reader should announce readiness");
+    driver
+        .send_type(&guard.session, "literal payload")
+        .value_or_panic("literal type should work");
+    let before_enter = driver
+        .capture_screen(&guard.session)
+        .value_or_panic("screen before Enter");
+    assert!(!before_enter.lines.join("\n").contains("received:<"));
+
+    driver
+        .send_key(&guard.session, "Enter")
+        .value_or_panic("Enter should work");
+    let received = wait_for_screen_literal(&driver, &guard.session, "received:<literal payload>")
+        .value_or_panic("reader should receive typed payload after Enter");
+    assert!(
+        received
+            .lines
+            .join("\n")
+            .contains("received:<literal payload>")
+    );
+}
+
 fn shell_request(label: &str, script: &str) -> TmuxStartRequest {
     TmuxStartRequest::command(
         unique_session(label),

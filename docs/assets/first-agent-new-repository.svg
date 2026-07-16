@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="594" viewBox="0 0 800 594" role="img">
+<rect width="800" height="594" fill="#000000"/>
+<text x="8" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">
+<tspan x="8" y="20">╭──────────────────────────────────────────────────────────────────────────────────────────────────╮</tspan>
+<tspan x="8" y="38">│                                                                                                  │</tspan>
+<tspan x="8" y="56">│  New Repository                                                                                  │</tspan>
+<tspan x="8" y="74">│                                                                                                  │</tspan>
+<tspan x="8" y="92">│   Name             [▏]                                                                           │</tspan>
+<tspan x="8" y="110">│   Base Dir         []                                                                            │</tspan>
+<tspan x="8" y="128">│   Default Profile  []                                                                            │</tspan>
+<tspan x="8" y="146">│   Default Agent    [LLxprt]  (space cycles: LLxprt / code_puppy)                                 │</tspan>
+<tspan x="8" y="164">│   Default Mode     [--yolo]                                                                      │</tspan>
+<tspan x="8" y="182">│   Default Version  []                                                                            │</tspan>
+<tspan x="8" y="200">│   GitHub Repo      []                                                                            │</tspan>
+<tspan x="8" y="218">│   Issues / PRs Repo []  (blank uses GitHub Repo)                                                 │</tspan>
+<tspan x="8" y="236">│   Remote Repository [ ]  (space toggles)                                                         │</tspan>
+<tspan x="8" y="254">│   Login User       []                                                                            │</tspan>
+<tspan x="8" y="272">│   Host / IP        []                                                                            │</tspan>
+<tspan x="8" y="290">│   SSH Port         []                                                                            │</tspan>
+<tspan x="8" y="308">│   Identity File    []                                                                            │</tspan>
+<tspan x="8" y="326">│   SSH Options (space-separated) []                                                               │</tspan>
+<tspan x="8" y="344">│   Run As User      []                                                                            │</tspan>
+<tspan x="8" y="362">│   Setup Env Default [ ]  (space toggles)                                                         │</tspan>
+<tspan x="8" y="380">│   Transient Dir    []  (blank uses /tmp)                                                         │</tspan>
+<tspan x="8" y="398">│   Max Transient    []  (0 = no limit)                                                            │</tspan>
+<tspan x="8" y="416">│                                                                                                  │</tspan>
+<tspan x="8" y="434">│   Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter  │</tspan>
+<tspan x="8" y="452">│                                                                                                  │</tspan>
+<tspan x="8" y="470">│                                                                                                  │</tspan>
+<tspan x="8" y="488">│                                                                                                  │</tspan>
+<tspan x="8" y="506">│                                                                                                  │</tspan>
+<tspan x="8" y="524">│                                                                                                  │</tspan>
+<tspan x="8" y="542">│                                                                                                  │</tspan>
+<tspan x="8" y="560">│                                                                                                  │</tspan>
+<tspan x="8" y="578">╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</tspan>
+</text>
+</svg>

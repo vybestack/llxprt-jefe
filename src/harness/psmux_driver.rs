@@ -207,8 +207,13 @@ impl TmuxDriver {
     }
 
     pub fn send_line(&self, session: &TmuxSession, line: &str) -> Result<(), TmuxDriverError> {
-        self.run(&["send-keys", "-l", "-t", &session.name, "--", line])?;
+        self.send_type(session, line)?;
         self.send_key(session, "Enter")
+    }
+
+    pub fn send_type(&self, session: &TmuxSession, text: &str) -> Result<(), TmuxDriverError> {
+        self.run_owned(&literal_send_args(session, text), None)
+            .map(|_| ())
     }
 
     pub fn send_key(&self, session: &TmuxSession, key: &str) -> Result<(), TmuxDriverError> {
@@ -505,6 +510,12 @@ fn parse_version_part(part: Option<&str>, name: &str, source: &str) -> Result<u3
         .trim_matches(|character: char| !character.is_ascii_digit())
         .parse::<u32>()
         .map_err(|error| format!("invalid {name} version component in {source:?}: {error}"))
+}
+
+fn literal_send_args(session: &TmuxSession, text: &str) -> Vec<String> {
+    ["send-keys", "-l", "-t", &session.name, "--", text]
+        .map(str::to_string)
+        .to_vec()
 }
 
 fn new_session_args(request: &TmuxStartRequest) -> Vec<String> {

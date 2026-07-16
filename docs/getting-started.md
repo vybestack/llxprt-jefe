@@ -4,7 +4,10 @@ This guide is for the common first-run workflow:
 
 1. Create a repository in Jefe.
 2. Create your first agent in that repository.
-3. Start working without terminal-tab chaos.
+3. Send input to the agent and return to the dashboard.
+
+Start Jefe with `jefe` (or `cargo run` from a source checkout). The dashboard
+begins with the repository list focused and no terminal attached.
 
 ---
 
@@ -12,7 +15,7 @@ This guide is for the common first-run workflow:
 
 From the dashboard, press `N` (capital N) to open **New Repository**.
 
-![Create repository form](assets/jefe-create-repository.png)
+![New Repository form showing Name, Base Dir, runtime defaults, and optional remote fields](assets/first-agent-new-repository.svg)
 
 ### Repository fields
 
@@ -54,7 +57,7 @@ After submit, the repository is added and selected.
 
 With your repository selected, press `n` (lowercase n) to open **New Agent**.
 
-![Create agent form](assets/jefe-create-agent.png)
+![New Agent form showing its generated work directory, LLxprt runtime, and launch options](assets/first-agent-new-agent.svg)
 
 ### Agent fields and what they mean
 
@@ -113,7 +116,14 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 - `Enter`: submit
 - `Esc`: cancel
 
-After submit, the agent is created and selected.
+After submit, the agent is created and selected. Jefe focuses the terminal, so
+ordinary keystrokes go to the agent. Type your prompt and press `Enter`; the
+agent response appears in the same pane.
+
+Press `F12` to return keyboard control to Jefe. The terminal remains visible as
+a read-only preview, and the created agent remains selected and running.
+
+![Jefe dashboard after returning from terminal capture, with Tutorial Agent selected and its response visible](assets/first-agent-result.svg)
 
 ---
 

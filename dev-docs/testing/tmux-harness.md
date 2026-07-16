@@ -75,7 +75,8 @@ Each step object has one primitive key.
 | Step | Example | Behavior |
 | --- | --- | --- |
 | `wait` | `{ "wait": 100 }` | Sleep for milliseconds. Prefer `waitFor` where possible. |
-| `line` | `{ "line": "hello" }` | Type a full line and press Enter. |
+| `line` | `{ "line": "hello" }` | Type literal text and press Enter. |
+| `type` | `{ "type": "hello" }` | Type literal text without pressing Enter; use this for form fields. |
 | `key` | `{ "key": "?" }` | Send one tmux key token. |
 | `keys` | `{ "keys": ["Tab", "Enter"] }` | Send a sequence of key tokens. |
 | `waitFor` | `{ "waitFor": "Help" }` | Poll the screen until a literal appears. |
@@ -168,6 +169,38 @@ artifact directory.
 - Capture useful checkpoints before quitting so alternate-buffer teardown does
   not hide the interesting screen.
 - Keep scratch/manual scenarios outside required CI until they prove stable.
+
+## First-agent tutorial capture
+
+The Unix-only tutorial workflow creates one exclusive run-owned root, starts the
+real Jefe binary with isolated config and runtime socket paths, and puts a
+local deterministic `llxprt` shim first on its isolated `PATH`:
+
+```bash
+cargo build --workspace --all-features --locked --bins
+scripts/issue241-capture.sh capture \
+  --root /tmp/jefe-first-agent-capture \
+  --jefe-bin "$PWD/target/debug/jefe" \
+  --harness-bin "$PWD/target/debug/jefe-tmux-harness"
+```
+
+The root must be an absolute path that does not already exist. Semantic evidence
+is retained under `evidence/`; publication-validated fixed-size SVGs are written
+under `publication/`; `private/` is diagnostic and is never publication-safe.
+The success or failed outcome and exact Jefe revision/version are recorded in
+`manifest.txt`.
+
+Preview manifest-scoped cleanup before confirming it:
+
+```bash
+scripts/issue241-capture.sh cleanup --dry-run \
+  --root /tmp/jefe-first-agent-capture
+scripts/issue241-capture.sh cleanup --confirm \
+  --root /tmp/jefe-first-agent-capture
+```
+
+Cleanup removes only exact contained paths recorded by that run. Evidence,
+publication assets, the manifest, and unowned paths are retained.
 
 ## Tmux availability and skipping
 

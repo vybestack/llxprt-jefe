@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="594" viewBox="0 0 800 594" role="img">
+<rect width="800" height="594" fill="#000000"/>
+<text x="8" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">
+<tspan x="8" y="20"> LLxprt Jefe WARN: SSH agent socket is present but no identities are loaded. Run `ssh-add`  Green</tspan>
+<tspan x="8" y="38">╭────────────────────╮╭────────────────────────────────────────╮╭──────────────────────────────────╮</tspan>
+<tspan x="8" y="56">│ Repositories       ││ Agents                                 ││ Preview                          │</tspan>
+<tspan x="8" y="74">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="92">│ &gt; Tutorial Reposi… ││ &gt; * [1] Tutorial Agent                 ││ Name: Tutorial Agent             │</tspan>
+<tspan x="8" y="110">│                    ││                                        ││ Status: Running                  │</tspan>
+<tspan x="8" y="128">│                    ││                                        ││ Repo: (unknown)                  │</tspan>
+<tspan x="8" y="146">│                    ││                                        ││ Branch: (unknown)                │</tspan>
+<tspan x="8" y="164">│                    │╰────────────────────────────────────────╯│ Dir: fixture-repo/tutorial-agent │</tspan>
+<tspan x="8" y="182">│                    │╭────────────────────────────────────────╮│                                  │</tspan>
+<tspan x="8" y="200">│                    ││ Terminal (F12/t to focus)              ││ Todo:                            │</tspan>
+<tspan x="8" y="218">│                    ││tutorial-shim: ready                    ││   (no tasks)                     │</tspan>
+<tspan x="8" y="236">│                    ││hello from the tutorial                 ││                                  │</tspan>
+<tspan x="8" y="254">│                    ││tutorial-shim: response: hello from the ││                                  │</tspan>
+<tspan x="8" y="272">│                    ││tutorial                                ││                                  │</tspan>
+<tspan x="8" y="290">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="308">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="326">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="344">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="362">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="380">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="398">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="416">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="434">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="452">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="470">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="488">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="506">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="524">│                    ││                                        ││                                  │</tspan>
+<tspan x="8" y="542">│                    ││[terminal status redacted]││                                  │</tspan>
+<tspan x="8" y="560">╰────────────────────╯╰────────────────────────────────────────╯╰──────────────────────────────────╯</tspan>
+<tspan x="8" y="578"> ^/v navigate | &lt;/&gt; pane | t/f12 terminal focus | v active-only (repos+agents) | ⌥1-9        pid:[redacted]</tspan>
+</text>
+</svg>

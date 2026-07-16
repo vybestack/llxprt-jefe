@@ -58,6 +58,21 @@ fn parses_minimal_valid_scenario() {
     ));
 }
 
+#[test]
+fn first_agent_tutorial_scenario_parses_literal_type_steps() {
+    let scenario = parse_scenario(include_str!(
+        "../../dev-docs/tmux-scenarios/first-agent-tutorial.json"
+    ))
+    .value_or_panic("first-agent tutorial scenario should parse");
+
+    assert!(
+        scenario
+            .steps
+            .iter()
+            .any(|step| matches!(step, Step::Type { text } if text == "hello from the tutorial"))
+    );
+}
+
 /// A scenario using every step primitive parses into its typed variant.
 ///
 /// Exercises the full `Step` surface so a missing/renamed variant is caught.

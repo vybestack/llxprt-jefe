@@ -1,0 +1,49 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "wait_timeout_ms": 10000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "expect": "No terminal attached" },
+    { "capture": "first-agent-dashboard" },
+
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "expect": "Base Dir" },
+    { "capture": "first-agent-new-repository" },
+    { "type": "Tutorial Repository" },
+    { "key": "Tab" },
+    { "type": "fixture-repo" },
+    { "key": "Enter" },
+    { "waitFor": "1 repos | 0/0 running" },
+
+    { "key": "n" },
+    { "waitFor": "New Agent" },
+    { "expect": "Agent Runtime" },
+    { "capture": "first-agent-new-agent" },
+    { "key": "Tab" },
+    { "type": "Tutorial Agent" },
+    { "key": "Enter" },
+    { "waitFor": "Tutorial Agent" },
+    { "waitFor": "tutorial-shim: ready" },
+    { "expect": "F12 unfocus" },
+    { "capture": "first-agent-terminal-ready" },
+
+    { "type": "hello from the tutorial" },
+    { "key": "Enter" },
+    { "waitFor": "tutorial-shim: response: hello from the" },
+    { "expect": "tutorial" },
+    { "capture": "first-agent-terminal-response" },
+
+    { "key": "F12" },
+    { "waitFor": "t/f12 terminal focus" },
+    { "expect": "Tutorial Agent" },
+    { "capture": "first-agent-result" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

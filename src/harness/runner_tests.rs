@@ -46,6 +46,7 @@ struct FakeDriver {
     pane_statuses: VecDeque<PaneStatus>,
     history_sizes: VecDeque<u64>,
     lines_sent: Vec<String>,
+    typed_text: Vec<String>,
     keys_sent: Vec<String>,
     copy_modes: Vec<bool>,
     screen_capture_count: usize,
@@ -76,6 +77,11 @@ impl HarnessDriver for FakeDriver {
 
     fn send_line(&mut self, line: &str) -> Result<(), Self::Error> {
         self.lines_sent.push(line.to_string());
+        Ok(())
+    }
+
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error> {
+        self.typed_text.push(text.to_string());
         Ok(())
     }
 
@@ -186,10 +192,11 @@ fn wait_for_succeeds_when_later_capture_matches() {
 }
 
 #[test]
-fn line_key_keys_and_copy_mode_forward_to_driver() {
+fn line_type_key_keys_and_copy_mode_forward_to_driver() {
     let scenario = scenario(
         r#"[
             { "line": "hello" },
+            { "type": "without enter" },
             { "key": "Enter" },
             { "keys": ["C-b", "["] },
             { "copyMode": true },
@@ -201,6 +208,7 @@ fn line_key_keys_and_copy_mode_forward_to_driver() {
     let _summary = run_scenario(&scenario, &mut driver, None).value_or_panic("runner should pass");
 
     assert_eq!(driver.lines_sent, ["hello"]);
+    assert_eq!(driver.typed_text, ["without enter"]);
     assert_eq!(driver.keys_sent, ["Enter", "C-b", "["]);
     assert_eq!(driver.copy_modes, [true, false]);
 }

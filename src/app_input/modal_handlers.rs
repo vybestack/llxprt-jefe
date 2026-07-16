@@ -9,7 +9,7 @@ use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
 use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
-    AgentFormFocus, AppEvent, AuthDialogPhase, ConfirmFocus, ModalState, PaneFocus,
+    AgentFormFocus, AppEvent, AppState, AuthDialogPhase, ConfirmFocus, ModalState, PaneFocus,
     RepositoryFormFocus,
 };
 use jefe::theme::ThemeManager;
@@ -728,10 +728,15 @@ fn submit_form_and_snapshot_launch(
 
 fn focus_terminal_after_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
-    state.terminal_focused = true;
+    focus_terminal_state(&mut state);
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+}
+
+pub(super) fn focus_terminal_state(state: &mut AppState) {
+    state.pane_focus = PaneFocus::Terminal;
+    state.terminal_focused = true;
 }
 
 fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Option<AppEvent> {
