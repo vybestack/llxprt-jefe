@@ -146,23 +146,30 @@ publication_text() {
     source=$1
     target=$2
     sed -E \
-        -e 's/pid:[0-9]+/pid:[redacted]/g' \
+        -e 's/(^|[[:space:]])pid:[0-9]+/\1pid:[redacted]/g' \
         -e 's/\[[^]]+ [0-9]{1,2}:[0-9]{2} [0-9]{1,2}-[A-Za-z]{3}-[0-9]{2}/[terminal status redacted]/g' \
-        "$source" > "$target"
+        "$source" | perl -CS -Mutf8 -ne '
+            chomp;
+            if (/^(.*?\[terminal status redacted\])(.*)$/) {
+                $_ = $1 . (" " x (100 - length($1) - length($2))) . $2;
+            }
+            $_ .= " " x (100 - length($_)) if length($_) < 100;
+            print "$_\n";
+        ' > "$target"
 }
 
 render_svg() {
     source=$1
     target=$2
     {
-        printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="594" viewBox="0 0 800 594" role="img">'
-        printf '%s\n' '<rect width="800" height="594" fill="#000000"/>'
-        printf '%s\n' '<text x="8" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">'
+        printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="880" height="594" viewBox="0 0 880 594" role="img">'
+        printf '%s\n' '<rect width="880" height="594" fill="#000000"/>'
+        printf '%s\n' '<text x="16" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">'
         row=0
         while IFS= read -r line || [ -n "$line" ]; do
             escaped=$(printf '%s' "$line" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
             y=$((20 + row * 18))
-            printf '<tspan x="8" y="%s">%s</tspan>\n' "$y" "$escaped"
+            printf '<tspan x="16" y="%s" textLength="848" lengthAdjust="spacingAndGlyphs">%s</tspan>\n' "$y" "$escaped"
             row=$((row + 1))
         done < "$source"
         printf '%s\n' '</text>' '</svg>'
