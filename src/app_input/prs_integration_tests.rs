@@ -477,7 +477,7 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-175
 #[test]
-fn it_send_to_agent_resolves_launch_target_for_inlined_prompt() {
+fn it_send_to_agent_resolves_launch_target() {
     let agent_id = AgentId(String::from("pr-agent-1"));
     let temp_work_dir = std::env::temp_dir().join(format!(
         "jefe-pr-int-test-{}",
@@ -529,7 +529,14 @@ fn it_send_to_agent_resolves_launch_target_for_inlined_prompt() {
     );
 
     // Issue #315: no prompt file should be written — the prompt is inlined
-    // into the -i instruction.
+    // into the -i instruction. Verify the formatted prompt content would be
+    // correct (includes the PR number), proving no coverage gap from removing
+    // the on-disk write.
+    let formatted_prompt = prs_dispatch::format_pr_prompt(&send_info.payload);
+    assert!(
+        formatted_prompt.contains("#42") || formatted_prompt.contains("42"),
+        "formatted PR prompt must include the PR number: {formatted_prompt}"
+    );
     assert!(
         !temp_work_dir.join(".jefe").join("pr-prompt.md").exists(),
         "no pr-prompt.md file should exist (prompt is inlined)"

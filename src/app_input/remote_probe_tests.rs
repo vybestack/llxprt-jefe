@@ -1,5 +1,4 @@
-//! Tests for the remote agent-runtime availability probe and classifier
-//! (defects 2, 3, 4).
+//! Tests for the remote agent-runtime availability probe and classifier.
 //!
 //! These tests exercise:
 //! - The pure [`classify_probe_output`] classifier: true/false/transport/auth/
@@ -15,20 +14,10 @@ use std::path::Path;
 use jefe::domain::{AgentKind, RemoteRepositorySettings};
 
 trait TestResultExt<T> {
-    #[allow(dead_code)]
-    fn value_or_panic(self, context: &str) -> T;
     fn error_or_panic(self, context: &str) -> String;
 }
 
 impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
-    #[allow(dead_code)]
-    fn value_or_panic(self, context: &str) -> T {
-        match self {
-            Ok(value) => value,
-            Err(error) => panic!("{context}: {error:?}"),
-        }
-    }
-
     fn error_or_panic(self, context: &str) -> String {
         match self {
             Ok(_) => panic!("{context}: expected error"),
@@ -36,7 +25,6 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
         }
     }
 }
-
 fn valid_remote() -> RemoteRepositorySettings {
     RemoteRepositorySettings {
         enabled: true,
