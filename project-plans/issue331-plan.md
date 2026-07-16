@@ -38,7 +38,7 @@ Issue 331 reorganizes the public `git_info` integration target introduced by pul
 
 - Acceptance rows: A1, A2, A4, A5.
 - Owner / boundary: Rust integration-test target organization only.
-- Allowed paths: `tests/git_info.rs`, `tests/git_info/parsing.rs`, `tests/git_info/dirty_status.rs`, `tests/git_info/real_repository.rs`.
+- Allowed paths: `tests/git_info.rs`, `tests/git_info/parsing.rs`, `tests/git_info/dirty_status.rs`, `tests/git_info/real_repository.rs`, `tests/git_info/support.rs`.
 - Test-first evidence: the strengthened regression from slice 1 is established before relocation; module declarations and inventory checks prove all existing tests remain reachable.
 - Green criteria: all 88 public tests (92 functions including four real-repository helpers) remain discoverable, focused modules are cohesive, and four private timeout tests remain in place.
 - Verification: `cargo test --test git_info`, `cargo test --lib git_info::tests`, `make quick-check`, and `make ci-check`.
@@ -52,6 +52,7 @@ Issue 331 reorganizes the public `git_info` integration target introduced by pul
 | `tests/git_info/parsing.rs` | Origin parsing and display/list projection tests | A1 |
 | `tests/git_info/dirty_status.rs` | Synthetic porcelain and dirty-marker tests, including strengthened Y-column regression | A2, A3 |
 | `tests/git_info/real_repository.rs` | Real temporary-repository helpers and tests plus resolve boundaries | A4 |
+| `tests/git_info/support.rs` | Result-only diagnostic helper used by the real-repository module | A4 |
 | `project-plans/issue331-plan.md` | Acceptance, scope, review, and verification ledger | All |
 | `src/git_info/tests.rs` | Intentionally unchanged home of four private timeout tests | A5 |
 
@@ -65,8 +66,8 @@ No unplanned work discovered.
 
 ## Review counters
 
-- Pre-PR Open Code Review runs used: 2 of 2; both external OCR processes were terminated before producing output. A CodeRabbit CLI fallback was also externally terminated during review with no findings emitted. Automated PR review remains required and will be triaged in the PR loop.
-- Post-PR Open Code Review runs used: 0 of 2.
+- Pre-PR Open Code Review runs used: 2 of 2; both external OCR processes were terminated before producing output. A CodeRabbit CLI fallback was also externally terminated during review with no findings emitted.
+- Post-PR Open Code Review runs used: 1 of 2; the PR workflow reviewed commit `4b5bac3` and emitted one actionable diagnostic-preservation finding.
 
 ## Verification evidence
 
@@ -75,8 +76,14 @@ No unplanned work discovered.
 - Focused RED/effectiveness check: strengthened Y-column test failed against a deliberate local X-column-only mutant; mutant removed with zero production diff.
 - Focused GREEN tests: `cargo test --test git_info` passed all 88 tests; `cargo test --lib git_info::tests` passed all 4 private tests; baseline/current function inventories match exactly.
 - `make quick-check`: passed.
-- `make ci-check`: passed with explicit exit 0.
-- Exact-head CI: pending.
+- `make ci-check`: passed with explicit exit 0 on the initial PR head.
+- Initial exact-head CI: all required jobs passed on `4b5bac3`; the first native Windows psmux smoke attempt failed transiently and the unchanged-head rerun passed every step.
+- Final remediation local evidence: the complete gate passed when run as its exact constituent commands after two aggregate `make ci-check` invocations were externally terminated during long test/coverage execution; format, policies, strict Clippy, complexity, coverage, locked build, and locked workspace tests all exited successfully.
+- Final exact-head CI: pending after review remediation is pushed.
+
+## Review finding dispositions
+
+- **In-scope—Fix:** preserve the original `std::io::Error` when the real-repository test helper cannot spawn git. Removed the lossy `Result::ok()` conversion before `TestResultExt::test_unwrap` and narrowed git-info test support to a result-only helper so strict dead-code checks remain clean.
 
 ## Deferred findings and follow-ups
 

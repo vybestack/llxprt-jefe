@@ -6,4 +6,5 @@ mod dirty_status;
 mod parsing;
 #[path = "git_info/real_repository.rs"]
 mod real_repository;
+#[path = "git_info/support.rs"]
 mod support;

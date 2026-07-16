@@ -1,6 +1,6 @@
 //! Git-info integration tests backed by real and remote repository boundaries.
 
-use crate::support::{TestOptionExt, TestResultExt};
+use crate::support::TestResultExt;
 use jefe::git_info::GitRepoInfo;
 use std::path::Path;
 
@@ -62,7 +62,6 @@ fn run_git(dir: &Path, args: &[&str]) {
         .arg(dir)
         .args(args)
         .output()
-        .ok()
         .test_unwrap(&format!("spawn git {args:?}"));
     assert!(
         output.status.success(),
