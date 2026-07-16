@@ -66,6 +66,14 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
     );
 }
 
+/// Extract a non-empty node id from an `Option<&str>`.
+///
+/// Returns `None` for missing or empty ids, so callers can use a let-else to
+/// surface a `NODE_ID_UNAVAILABLE_MSG` failure (issue #204).
+fn non_empty_node_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.is_empty())
+}
+
 /// Build the close success/failure event from the gh result (pure).
 ///
 /// Plain close uses the GraphQL `closeIssue` mutation with
@@ -77,7 +85,7 @@ fn close_issue_event(
     scope: &RepositoryId,
     mutation_id: u64,
 ) -> CloseOutcome {
-    let Some(node_id) = node_id.filter(|id| !id.is_empty()) else {
+    let Some(node_id) = non_empty_node_id(node_id) else {
         return CloseOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
     };
     match github_client(ctx).map(|client| {
@@ -216,7 +224,7 @@ fn close_with_reason_event(params: CloseWithReasonParams) -> CloseWithReasonOutc
         .close_reason
         .unwrap_or(jefe::domain::CloseReason::Completed);
 
-    let Some(this_node_id) = params.this_node_id.filter(|id| !id.is_empty()) else {
+    let Some(this_node_id) = non_empty_node_id(params.this_node_id) else {
         return CloseWithReasonOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
     };
 
