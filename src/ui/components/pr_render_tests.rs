@@ -49,6 +49,27 @@ fn prs_mode_state(repo_id: &str) -> AppState {
     state
 }
 
+/// Detect bracketed actionable keybinding text containing `keyword`, e.g.
+/// `[ m merge ]` or `[ Alt+M approve ]`. Returns true only when an open `[` is
+/// followed by `keyword` and then a closing `]`, so display-only status glyphs
+/// like "\u{2713}merge" (no brackets) never trip it. Used to enforce the
+/// display-only header contract (#012) robustly across binding formats.
+fn has_bracketed_action(s: &str, keyword: &str) -> bool {
+    let mut rest = s;
+    while let Some(open) = rest.find('[') {
+        rest = &rest[open..];
+        if let Some(close) = rest.find(']') {
+            if rest[..close].contains(keyword) {
+                return true;
+            }
+            rest = &rest[close + 1..];
+        } else {
+            break;
+        }
+    }
+    false
+}
+
 /// Helper: minimal PR list-row.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
@@ -466,13 +487,14 @@ fn test_pr_detail_shows_branches_and_external_url() {
     // action hints like "[ m merge ]") anywhere in the header. The state row
     // DOES carry display-only status glyphs (e.g. "\u{2713}merge",
     // "\u{2713}checks") per issue #314, but those are status, not bindings, so
-    // we assert the absence of bracketed action syntax instead of the bare word.
+    // we assert the absence of bracketed action syntax containing the merge or
+    // approve keywords — regardless of exact spacing or key-binding format.
     let lower_title = h.title.to_lowercase();
     let lower_state = h.state.to_lowercase();
     let lower_branches = h.branches.to_lowercase();
     let lower_url = h.url.to_lowercase();
     let no_action_binding =
-        |s: &str| !(s.contains("[ m merge") || s.contains("] merge ]") || s.contains("[ approve"));
+        |s: &str| !(has_bracketed_action(s, "merge") || has_bracketed_action(s, "approve"));
     assert!(
         no_action_binding(&lower_title),
         "header title must have no merge/approve keybinding: {}",
@@ -863,5 +885,44 @@ fn test_pr_list_shows_draft_and_review_decision_markers() {
         ok_rows[0].meta_line.contains("checks"),
         "successful-checks PR meta_line must contain 'checks', got: {}",
         ok_rows[0].meta_line
+    );
+    assert!(
+        ok_rows[0].meta_line.contains("checks"),
+        "successful-checks PR meta_line must contain 'checks', got: {}",
+        ok_rows[0].meta_line
+    );
+}
+
+/// `has_bracketed_action` must detect actionable binding text regardless of
+/// spacing or key format, while NOT matching display-only status glyphs that
+/// lack brackets. This proves the display-only header contract (#012) is
+/// actually enforced, not just matched against one hardcoded string.
+#[test]
+fn test_has_bracketed_action_detects_bindings_not_status() {
+    // Actionable bindings (bracketed + keyword) — all must be detected.
+    assert!(
+        has_bracketed_action("[ m merge ]", "merge"),
+        "classic binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("[Alt+M merge]", "merge"),
+        "no-space binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("press [ ctrl+enter approve ] now", "approve"),
+        "embedded binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("[a] [ b merge ]", "merge"),
+        "second bracket pair must be scanned"
+    );
+    // Display-only status (no brackets) — must NOT be flagged.
+    assert!(
+        !has_bracketed_action("\u{2713}merge \u{2717}conflict", "merge"),
+        "status glyph without brackets must not be flagged"
+    );
+    assert!(
+        !has_bracketed_action("OPEN mergeable by @octocat", "merge"),
+        "plain text without brackets must not be flagged"
     );
 }
