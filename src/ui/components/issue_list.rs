@@ -74,11 +74,14 @@ fn build_title_line(issue: &Issue, prefix: &str, available_width: Option<u16>) -
 /// @pseudocode component-001 lines 1-12
 fn build_meta_line(issue: &Issue) -> String {
     let state_tag = match issue.state {
-        IssueState::Open => "OPEN",
-        IssueState::Closed => "CLSD",
+        IssueState::Open => "OPEN".to_string(),
+        IssueState::Closed => match issue.state_reason {
+            Some(r) => format!("CLOSED·{}", r.label()),
+            None => "CLSD".to_string(),
+        },
     };
     let mut meta_parts = vec![
-        state_tag.to_string(),
+        state_tag,
         format!("@{}", issue.author_login),
         format!("updated:{}", issue.updated_at),
     ];
@@ -321,5 +324,58 @@ mod tests {
         assert!(rows[0].title_line.contains("#7 "));
         assert!(rows[2].title_line.contains("> #9 "));
         assert!(rows[2].is_selected);
+    }
+
+    #[test]
+    fn meta_line_shows_closed_reason_when_present() {
+        use crate::domain::IssueStateReason;
+        let mut closed = issue(1);
+        closed.state = IssueState::Closed;
+        closed.state_reason = Some(IssueStateReason::NotPlanned);
+        let rows = issue_list_visible_rows(&[closed], Some(0), 8, IssueListLayout::Full, Some(40));
+        assert!(
+            rows[0].meta_line.contains("CLOSED·not planned"),
+            "closed-with-reason should show reason in meta: {}",
+            rows[0].meta_line
+        );
+    }
+
+    #[test]
+    fn meta_line_shows_duplicate_reason() {
+        use crate::domain::IssueStateReason;
+        let mut closed = issue(1);
+        closed.state = IssueState::Closed;
+        closed.state_reason = Some(IssueStateReason::Duplicate);
+        let rows = issue_list_visible_rows(&[closed], Some(0), 8, IssueListLayout::Full, Some(40));
+        assert!(
+            rows[0].meta_line.contains("CLOSED·duplicate"),
+            "duplicate close should show reason: {}",
+            rows[0].meta_line
+        );
+    }
+
+    #[test]
+    fn meta_line_shows_clsds_when_closed_without_reason() {
+        let mut closed = issue(1);
+        closed.state = IssueState::Closed;
+        closed.state_reason = None;
+        let rows = issue_list_visible_rows(&[closed], Some(0), 8, IssueListLayout::Full, Some(40));
+        assert!(
+            rows[0].meta_line.contains("CLSD"),
+            "closed-without-reason should show CLSD: {}",
+            rows[0].meta_line
+        );
+        assert!(!rows[0].meta_line.contains("CLOSED·"));
+    }
+
+    #[test]
+    fn meta_line_shows_open_for_open_issues() {
+        let rows =
+            issue_list_visible_rows(&[issue(1)], Some(0), 8, IssueListLayout::Full, Some(40));
+        assert!(
+            rows[0].meta_line.contains("OPEN"),
+            "open issue should show OPEN: {}",
+            rows[0].meta_line
+        );
     }
 }
