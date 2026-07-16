@@ -73,7 +73,7 @@ The issue and its single automated planning comment are decision-complete: they 
 ## Review counters
 
 - Local Open Code Review runs: 1 / 2
-- Post-PR Open Code Review runs: 0 / 2
+- Post-PR Open Code Review runs: 1 / 2
 
 ## Verification evidence
 
@@ -82,8 +82,8 @@ The issue and its single automated planning comment are decision-complete: they 
 - Fresh-prompt regression GREEN: `cargo test --bin jefe fresh_prompt -- --nocapture` passes all 12 tests, including identical runtime contracts, LLxprt flag preservation, Code Puppy positional prompting, and unchanged PR prompts.
 - `make quick-check` initially exposed the related Send Issue integration assertion's superseded operational wording; after the in-scope semantic update, the command passes all format, check, unit, integration, and doctest targets.
 - Review-finding RED: the focused exact-head test failed until completion explicitly required resolving all `Blocker-Fix` and `In-scope-Fix` findings; it and all 12 fresh-prompt tests pass after the prompt update.
-- Exact-head `make ci-check` passes format, policy, source-size, both Clippy gates, 72.77% line coverage, locked build, and all locked tests.
-- Pending PR CI and review triage.
+- Exact-head `make ci-check` passes format, policy, source-size, both Clippy gates, 72.77% line coverage, locked build, and all locked tests; it passed again after rebasing onto current `origin/main`.
+- PR CI passes on reviewed head `2431c3d`, including native Windows, coverage, build, tests, and Open Code Review; the PR is conflict-free with correct main ancestry.
 
 ## Review findings and dispositions
 
@@ -92,6 +92,7 @@ The issue and its single automated planning comment are decision-complete: they 
 | Open Code Review | Restore a giant exact-string assertion because semantic clause tests permit textual drift | Reject: issue 313 explicitly requires semantic verification without one giant exact-string assertion; focused positive groups plus negative superseded-wording coverage protect the accepted contract while allowing harmless prose edits |
 | Open Code Review | Retain the removed operational workflow inline in case the canonical policy is unavailable | Reject: the issue explicitly requires a concise policy reference and avoiding duplicated workflow text; fresh issue agents run in the prepared repository where the versioned policy path is available |
 | Open Code Review | Exact-head completion could classify findings without resolving accepted blocker and in-scope fixes | In-scope fix: added an explicit resolution requirement and test-first semantic coverage |
+| Post-PR Open Code Review | Add direct unit proof that the composed issue instruction includes the workflow suffix | Reject as already covered: `issue_send_forces_pass_continue_false_on_launch_signature` exercises the public Send Issue composition and asserts representative bounded clauses, while the runtime-equality test proves both launch paths receive that composed instruction |
 
 ## Deferred findings / follow-ups
 
