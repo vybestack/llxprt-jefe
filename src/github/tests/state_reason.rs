@@ -112,27 +112,41 @@ fn test_list_issues_state_reason_none_when_reopened_or_unknown() {
 }
 
 #[test]
-fn test_issue_detail_parses_state_reason_rest() {
+fn test_issue_detail_parses_state_reason_rest_all_values() {
     use crate::domain::IssueStateReason;
-    let json = r#"{
-        "number": 42,
-        "id": "I_kw123",
-        "title": "Closed as not planned",
-        "state": "CLOSED",
-        "state_reason": "not_planned",
-        "author": {"login": "dave"},
-        "createdAt": "2026-06-01T00:00:00Z",
-        "updatedAt": "2026-07-01T00:00:00Z",
-        "labels": [],
-        "assignees": [],
-        "milestone": null,
-        "body": "body",
-        "url": "https://github.com/owner/repo/issues/42",
-        "comments": []
-    }"#;
 
-    let detail = parse_issue_detail_json(json).value_or_panic("should parse REST state_reason");
-    assert_eq!(detail.state_reason, Some(IssueStateReason::NotPlanned));
+    fn detail_json(state_reason: &str, title: &str) -> String {
+        format!(
+            r#"{{
+            "number": 42,
+            "id": "I_kw123",
+            "title": "{title}",
+            "state": "CLOSED",
+            "state_reason": "{state_reason}",
+            "author": {{"login": "dave"}},
+            "createdAt": "2026-06-01T00:00:00Z",
+            "updatedAt": "2026-07-01T00:00:00Z",
+            "labels": [],
+            "assignees": [],
+            "milestone": null,
+            "body": "body",
+            "url": "https://github.com/owner/repo/issues/42",
+            "comments": []
+        }}"#
+        )
+    }
+
+    let completed = parse_issue_detail_json(&detail_json("completed", "Completed issue"))
+        .value_or_panic("should parse completed");
+    assert_eq!(completed.state_reason, Some(IssueStateReason::Completed));
+
+    let not_planned = parse_issue_detail_json(&detail_json("not_planned", "Not planned issue"))
+        .value_or_panic("should parse not_planned");
+    assert_eq!(not_planned.state_reason, Some(IssueStateReason::NotPlanned));
+
+    let duplicate = parse_issue_detail_json(&detail_json("duplicate", "Duplicate issue"))
+        .value_or_panic("should parse duplicate");
+    assert_eq!(duplicate.state_reason, Some(IssueStateReason::Duplicate));
 }
 
 #[test]
