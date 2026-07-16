@@ -448,6 +448,26 @@ pub struct AppState {
     /// Pending transient-agent sends queued because max_concurrent is reached
     /// (issue #213). Runtime-only — never persisted.
     pub transient_queue: TransientAgentQueue,
+
+    /// Embedded agent-shell overlay state (issue #222). When active, the
+    /// dashboard replaces the agent list + preview with the shell terminal
+    /// pane while preserving the repository sidebar and outer bars.
+    /// Runtime-only — never persisted.
+    pub shell_overlay: ShellOverlayState,
+}
+
+/// Embedded agent-shell overlay state (issue #222).
+///
+/// Tracks whether the temporary shell window is open and which agent it
+/// belongs to. The overlay is runtime-only: it is not persisted, and closing
+/// it restores the normal dashboard.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ShellOverlayState {
+    /// The agent whose session hosts the temporary shell window. `None` means
+    /// the overlay is inactive.
+    pub agent_id: Option<crate::domain::AgentId>,
+    /// Monotonic identity for an open operation, used to reject stale observers.
+    pub generation: u64,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

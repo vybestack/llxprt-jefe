@@ -142,8 +142,99 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let sidebar_width = u32::from(LEFT_COL_WIDTH);
     let preview_width = u32::from(RIGHT_COL_WIDTH);
 
+    // Shell overlay (issue #222): when active, the terminal expands to fill
+    // the area between sidebar and right edge (no agent list, no preview).
+    let shell_overlay_active = state.is_some_and(AppState::shell_overlay_active);
+    let overlay_terminal_rows = render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT);
+
+    let workspace = if shell_overlay_active {
+        vec![element! {
+            Box(
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0_f32,
+                height: 100pct,
+            ) {
+                Box(height: overlay_terminal_rows, width: 100pct) {
+                    TerminalView(
+                        snapshot: props.terminal_snapshot.clone(),
+                        focused: terminal_focused,
+                        title: "Agent Shell".to_owned(),
+                        colors: colors.clone(),
+                        selection: selection,
+                        session_live: true,
+                        history_lines: props.history_lines.clone(),
+                        terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
+                        override_theme: state.is_some_and(|s| s.override_agent_theme),
+                        pane_rows: props.terminal_pane_rows,
+                        pane_cols: props.terminal_pane_cols,
+                    )
+                }
+            }
+        }]
+    } else {
+        vec![
+            element! {
+                Box(
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0_f32,
+                    height: 100pct,
+                ) {
+                    Box(height: agent_rows, width: 100pct) {
+                        #(vec![selectable_list_element(agent_list_props(
+                            &agents,
+                            agent_git_infos,
+                            AgentListView {
+                                selection: AgentListSelection {
+                                    selected: selected_agent_idx,
+                                    grabbed: grabbed_agent_idx,
+                                },
+                                window: AgentListWindow {
+                                    pane_rows: agent_rows,
+                                    content_width: agent_content_width,
+                                },
+                            },
+                            !terminal_focused && pane_focus == PaneFocus::Agents,
+                            colors.clone(),
+                            selection,
+                        ))])
+                    }
+                    Box(height: terminal_rows, width: 100pct) {
+                        TerminalView(
+                            snapshot: props.terminal_snapshot.clone(),
+                            focused: terminal_focused,
+                            title: "Terminal".to_owned(),
+                            colors: colors.clone(),
+                            selection: selection,
+                            session_live: session_live,
+                            history_lines: props.history_lines.clone(),
+                            terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
+                            override_theme: state.is_some_and(|s| s.override_agent_theme),
+                            pane_rows: props.terminal_pane_rows,
+                            pane_cols: props.terminal_pane_cols,
+                        )
+                    }
+                }
+            },
+            element! {
+                Box(width: preview_width, height: 100pct) {
+                    Preview(
+                        agent: selected_agent_data,
+                        git_info: selected_agent_git_info,
+                        focused: false,
+                        content_width: usize::from(
+                            crate::list_viewport::bordered_padded_content_width(RIGHT_COL_WIDTH)
+                        ),
+                        colors: colors.clone(),
+                        selection: selection,
+                    )
+                }
+            },
+        ]
+    };
+
     element! {
         Box(
+
             flex_direction: FlexDirection::Column,
             background_color: rc.bg,
             width: 100pct,
@@ -184,91 +275,15 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     )
                 }
 
-                // Middle column (agent list + terminal)
-                Box(
-                    flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0_f32,
-                    height: 100pct,
-                ) {
-                    Box(height: agent_rows, width: 100pct) {
-                        #(vec![selectable_list_element(agent_list_props(
-                            &agents,
-                            agent_git_infos,
-                            AgentListView {
-                                selection: AgentListSelection {
-                                    selected: selected_agent_idx,
-                                    grabbed: grabbed_agent_idx,
-                                },
-                                window: AgentListWindow {
-                                    pane_rows: agent_rows,
-                                    content_width: agent_content_width,
-                                },
-                            },
-                            !terminal_focused && pane_focus == PaneFocus::Agents,
-                            colors.clone(),
-                            selection,
-                        ))])
-                    }
-                    Box(height: terminal_rows, width: 100pct) {
-                        TerminalView(
-                            // When a Jefe-owned terminal selection is active,
-                            // use the snapshot that was captured at gesture
-                            // start (selection_snapshot) so the highlight and
-                            // copy use the SAME grid data (Finding B, issue
-                            // #197). Gate on the selection targeting the
-                            // terminal pane: a sidebar/agent-list selection
-                            // renders from app state, not the terminal grid,
-                            // so it must not pin the terminal to a stale
-                            // snapshot (issue #197 review). Otherwise use the
-                            // live render snapshot.
-                            snapshot: {
-                                let pinned = state.and_then(|s| {
-                                    let sel_is_terminal = s
-                                        .selection
-                                        .is_some_and(|sel| {
-                                            sel.pane()
-                                                == crate::selection::SelectablePane::TerminalView
-                                        });
-                                    if sel_is_terminal {
-                                        s.selection_snapshot.clone()
-                                    } else {
-                                        None
-                                    }
-                                });
-                                pinned.or_else(|| props.terminal_snapshot.clone())
-                            },
-                            focused: terminal_focused,
-                            colors: colors.clone(),
-                            selection: selection,
-                            session_live: session_live,
-                            history_lines: props.history_lines.clone(),
-                            terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
-                            override_theme: state.is_some_and(|s| s.override_agent_theme),
-                            pane_rows: props.terminal_pane_rows,
-                            pane_cols: props.terminal_pane_cols,
-                        )
-                    }
-                }
-
-                // Preview pane (fixed width)
-                Box(width: preview_width, height: 100pct) {
-                    Preview(
-                        agent: selected_agent_data,
-                        git_info: selected_agent_git_info,
-                        focused: false,
-                        content_width: usize::from(
-                            crate::list_viewport::bordered_padded_content_width(RIGHT_COL_WIDTH)
-                        ),
-                        colors: colors.clone(),
-                        selection: selection,
-                    )
-                }
+                // Middle column (agent list + terminal) or expanded shell overlay
+                #(workspace)
             }
 
             // Bottom keybind bar
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::Dashboard, |s| s.screen_mode),
                 terminal_focused: terminal_focused,
+                shell_overlay_active: shell_overlay_active,
                 actions_focus: None,
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,

@@ -5,6 +5,7 @@
 //! hard limit. The stub owns no PTY/tmux resources: every snapshot is blank,
 //! history capture returns `None`, and `is_dirty` is always `false`.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use iocraft::Color;
@@ -21,6 +22,8 @@ pub struct StubRuntimeManager {
     attached_index: Option<usize>,
     spawn_failure: Option<RuntimeError>,
     attach_failure: Option<RuntimeError>,
+    /// Agent IDs whose embedded shell window is currently open (issue #222).
+    open_shell_windows: HashSet<AgentId>,
 }
 
 impl StubRuntimeManager {
@@ -194,5 +197,35 @@ impl RuntimeManager for StubRuntimeManager {
 
     fn capture_history(&mut self) -> Option<Vec<String>> {
         None
+    }
+
+    fn open_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        let session = self
+            .sessions
+            .iter()
+            .find(|s| &s.agent_id == agent_id)
+            .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+        if session.launch_signature.remote.enabled {
+            return Err(RuntimeError::SpawnFailed(
+                "embedded shell is local-only for remote repositories".to_owned(),
+            ));
+        }
+        self.open_shell_windows.insert(agent_id.clone());
+        Ok(())
+    }
+
+    fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        if !self.sessions.iter().any(|s| &s.agent_id == agent_id) {
+            return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+        }
+        self.open_shell_windows.remove(agent_id);
+        Ok(())
+    }
+
+    fn shell_window_exists(&self, agent_id: &AgentId) -> Result<bool, RuntimeError> {
+        if !self.sessions.iter().any(|s| &s.agent_id == agent_id) {
+            return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+        }
+        Ok(self.open_shell_windows.contains(agent_id))
     }
 }

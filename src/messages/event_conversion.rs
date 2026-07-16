@@ -59,7 +59,9 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::TerminalScrollPageUp
             | AppEvent::TerminalScrollPageDown
             | AppEvent::TerminalFollowTail
-            | AppEvent::TerminalScrollToTop => Self::from_split_grab_or_scroll_event(event),
+            | AppEvent::TerminalScrollToTop
+            | AppEvent::OpenShellOverlay
+            | AppEvent::CloseShellOverlay => Self::from_split_grab_or_scroll_event(event),
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
@@ -103,6 +105,9 @@ impl AppMessage {
             AppEvent::TerminalScrollPageDown => Self::UiNavigation(U::TerminalScrollPageDown),
             AppEvent::TerminalFollowTail => Self::UiNavigation(U::TerminalFollowTail),
             AppEvent::TerminalScrollToTop => Self::UiNavigation(U::TerminalScrollToTop),
+            // Shell-overlay events (issue #222).
+            AppEvent::OpenShellOverlay => Self::UiNavigation(U::OpenShellOverlay),
+            AppEvent::CloseShellOverlay => Self::UiNavigation(U::CloseShellOverlay),
             // Catch-all is required: the caller passes an `AppEvent` value that
             // is known at the call site to be split/grab/scroll, but the type
             // system cannot enforce that constraint. This arm delegates to the
@@ -483,6 +488,8 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::TerminalScrollPageDown => Self::TerminalScrollPageDown,
             UiNavigationMessage::TerminalFollowTail => Self::TerminalFollowTail,
             UiNavigationMessage::TerminalScrollToTop => Self::TerminalScrollToTop,
+            UiNavigationMessage::OpenShellOverlay => Self::OpenShellOverlay,
+            UiNavigationMessage::CloseShellOverlay => Self::CloseShellOverlay,
         }
     }
 }

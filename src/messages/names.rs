@@ -54,6 +54,8 @@ message_names!(UiNavigationMessage {
     Self::TerminalScrollPageDown => "TerminalScrollPageDown",
     Self::TerminalFollowTail => "TerminalFollowTail",
     Self::TerminalScrollToTop => "TerminalScrollToTop",
+    Self::OpenShellOverlay => "OpenShellOverlay",
+    Self::CloseShellOverlay => "CloseShellOverlay",
 });
 
 message_names!(ModalMessage {

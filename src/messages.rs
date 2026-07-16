@@ -94,6 +94,10 @@ pub enum UiNavigationMessage {
     TerminalFollowTail,
     /// Scroll to the top of terminal history (Home key, issue #198 review #8).
     TerminalScrollToTop,
+    /// Open the embedded agent-shell overlay (F10, issue #222).
+    OpenShellOverlay,
+    /// Close the embedded agent-shell overlay (F11, issue #222).
+    CloseShellOverlay,
 }
 
 /// Modal and form-editing messages.

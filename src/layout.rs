@@ -260,6 +260,42 @@ pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
     compute_pty_layout_inner(term_cols, term_rows, is_fullscreen_enabled())
 }
 
+/// Compute expanded PTY geometry for the shell overlay (issue #222).
+///
+/// When the embedded shell overlay is active, the terminal pane expands to
+/// fill the area between the repository sidebar and the right edge (the
+/// preview pane is hidden), using the full content height. This uses the
+/// same chrome and layout constants as the normal layout — only the region
+/// dimensions change.
+#[must_use]
+pub fn compute_shell_overlay_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
+    let (render_cols, render_rows) =
+        effective_render_size_inner(term_cols, term_rows, is_fullscreen_enabled());
+
+    // The overlay replaces agent list + preview, so the terminal gets the full
+    // content height minus the outer bars.
+    let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
+    // Width: from just past the left sidebar to the right edge (no preview).
+    let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH);
+
+    let pty_rows = content_rows
+        .saturating_sub(TERMINAL_WIDGET_CHROME_ROWS)
+        .max(2);
+    let pty_cols = middle_cols
+        .saturating_sub(TERMINAL_WIDGET_CHROME_COLS)
+        .max(2);
+
+    let pane_col0 = LEFT_COL_WIDTH.saturating_add(1);
+    let pane_row0 = 3u16;
+
+    PtyLayout {
+        pty_rows,
+        pty_cols,
+        pane_col0,
+        pane_row0,
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Issues-mode detail-pane layout
 // -----------------------------------------------------------------------------

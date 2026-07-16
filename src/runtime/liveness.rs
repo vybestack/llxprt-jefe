@@ -188,7 +188,7 @@ pub fn parse_alive_sessions(raw_output: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Parse raw `tmux list-panes -a -F '#{session_name}:#{pane_dead}'` output into
+/// Parse raw `tmux list-panes -a -F '#{session_name}:#{window_index}:#{pane_dead}'` output into
 /// a set of session names that have at least one non-dead pane.
 ///
 /// Each line has the form `session_name:0` (alive pane) or `session_name:1`
@@ -197,28 +197,21 @@ pub fn parse_alive_sessions(raw_output: &str) -> HashSet<String> {
 /// This is a pure function — it does not invoke tmux — so it can be unit-tested
 /// without a tmux server.
 ///
-/// `rsplit_once(':')` splits on the **last** colon, which correctly isolates
-/// the `pane_dead` suffix even when the session name itself contains colons
-/// (e.g., `my:session:0` -> `("my:session", "0")`). Jefe's session-name
-/// sanitizer also replaces colons with underscores as an extra guarantee,
-/// but the parser itself is robust regardless.
+/// The original agent lives in window index zero. Other windows, including
+/// the temporary issue-222 shell, must not keep a dead agent classified alive.
 #[must_use]
 pub fn parse_pane_alive(raw_output: &str) -> HashSet<String> {
     let mut alive_sessions: HashSet<String> = HashSet::new();
     for line in raw_output.lines() {
         let line = line.trim();
-        if line.is_empty() {
+        let Some((target, pane_dead)) = line.rsplit_once(':') else {
             continue;
-        }
-        if let Some((session, pane_dead)) = line.rsplit_once(':') {
-            let session = session.trim();
-            if session.is_empty() {
-                continue;
-            }
-            // tmux #{pane_dead} outputs 0 (alive) or 1 (dead).
-            if pane_dead.trim() == "0" {
-                alive_sessions.insert(session.to_string());
-            }
+        };
+        let Some((session, window_index)) = target.rsplit_once(':') else {
+            continue;
+        };
+        if !session.trim().is_empty() && window_index.trim() == "0" && pane_dead.trim() == "0" {
+            alive_sessions.insert(session.trim().to_owned());
         }
     }
     alive_sessions
@@ -414,7 +407,7 @@ fn list_alive_pane_sessions() -> Option<HashSet<String>> {
         "list-panes",
         "-a",
         "-F",
-        "#{session_name}:#{pane_dead}",
+        "#{session_name}:#{window_index}:#{pane_dead}",
     ]));
     match output {
         Ok(out) if out.status.success() => {
@@ -595,26 +588,27 @@ jefe-b
     // --- parse_pane_alive (pure) ---
 
     #[test]
-    fn parse_pane_alive_identifies_alive_panes() {
-        // session:0 = alive pane, session:1 = dead pane
-        let raw = "jefe-a:0
-jefe-b:1
-jefe-c:0
+    fn parse_pane_alive_identifies_live_agent_windows_only() {
+        let raw = "jefe-a:0:0
+jefe-b:0:1
+jefe-c:0:0
+jefe-b:1:0
 ";
         let set = parse_pane_alive(raw);
         assert_eq!(set.len(), 2);
         assert!(set.contains("jefe-a"));
         assert!(set.contains("jefe-c"));
-        assert!(!set.contains("jefe-b"));
+        assert!(
+            !set.contains("jefe-b"),
+            "shell window must not mask dead agent"
+        );
     }
 
     #[test]
     fn parse_pane_alive_only_numeric_flags() {
-        // tmux #{pane_dead} outputs only 0 (alive) or 1 (dead).
-        // Non-numeric strings like "false" must not match.
-        let raw = "jefe-a:0
-jefe-b:1
-jefe-c:false
+        let raw = "jefe-a:0:0
+jefe-b:0:1
+jefe-c:0:false
 ";
         let set = parse_pane_alive(raw);
         assert!(set.contains("jefe-a"));
@@ -630,9 +624,9 @@ jefe-c:false
 
     #[test]
     fn parse_pane_alive_skips_malformed_lines() {
-        let raw = "jefe-a:0
+        let raw = "jefe-a:0:0
 malformed
-jefe-b:0
+jefe-b:0:0
 ";
         let set = parse_pane_alive(raw);
         assert_eq!(set.len(), 2);

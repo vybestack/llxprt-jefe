@@ -47,18 +47,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let help_scroll = hooks.use_state(|| 0u32);
     let mut initialized = hooks.use_state(|| false);
     let mut startup_sessions_restored = hooks.use_state(|| false);
-    // Debounce state machine for background attach/detach. The render body
-    // records the *desired* target here; a background future polls and
-    // performs the actual attach off the render/input hot path.
     let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
-    // Some terminals emit a synthetic Enter key before/after a Paste event for
-    // Cmd/Ctrl+V. Suppress only the synthetic Enter (bounded by a short time
-    // window) to avoid swallowing a real submit Enter under load (issue #286).
     let mut suppress_next_enter = hooks.use_state(PasteEnterSuppression::new);
 
     let ctx = props.context.clone();
 
-    // One-time initialization: load persisted state.
     if !initialized.get() {
         initialized.set(true);
         crate::app_init::init_app_state(&mut app_state, &ctx);
@@ -70,13 +63,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
     }
 
-    // Event-driven render: only trigger a re-render when the PTY has new data
-    // (dirty flag) or a safety-net interval (~1s) has elapsed. This avoids
-    // wasteful ~30fps renders that block keyboard input on smol's single
-    // executor thread. PTY dirtiness triggers fast renders when the terminal
-    // pane has input focus; for a read-only preview (Running agent selected but
-    // terminal not focused), dirty renders are throttled to avoid starving the
-    // input loop while navigating lists (issue #160).
     hooks.use_future({
         let ctx = ctx.clone();
         let app_state = app_state;
@@ -113,6 +99,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 }
             }
         }
+    });
+    hooks.use_future({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        async move { crate::app_input::shell_overlay::observe_shell_exit(app_state, ctx).await }
     });
 
     // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
@@ -346,7 +337,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
 
-    // Handle terminal events.
     hooks.use_terminal_events({
         let ctx = ctx.clone();
         let mut app_state = app_state;
@@ -365,12 +355,12 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
 
-    // Handle quit.
     if should_quit.get() {
         // Clean up transient agent work directories before exit (issue #213).
         {
             let state = app_state.read();
             crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
+            crate::app_input::shell_overlay::cleanup_active_shell(&state, &ctx);
         }
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
@@ -390,7 +380,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Agent liveness is checked by the slow-poll future (every ~2s), not here.
     // This keeps expensive tmux subprocess calls off the render hot path.
 
-    // Read state for rendering.
     let state = app_state.read();
     let modal = state.modal.clone();
     let snapshot: AppState = (*state).clone();
@@ -479,7 +468,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-    let pty_layout = compute_pty_layout(term_cols, term_rows);
+    let pty_layout = if snapshot.shell_overlay_active() {
+        jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
+    } else {
+        compute_pty_layout(term_cols, term_rows)
+    };
     let screen_el = build_screen_element(
         &snapshot,
         &colors,
@@ -526,9 +519,6 @@ pub type HookState<T> = iocraft::hooks::State<T>;
 pub type CtxArc = Arc<std::sync::Mutex<AppContext>>;
 
 /// Dispatch a terminal event to the appropriate input/runtime handler.
-///
-/// Extracted from the `App` component so the iocraft hook closures stay
-/// within clippy's cognitive complexity budget.
 fn handle_terminal_event(
     event: TerminalEvent,
     ctx: Option<&CtxArc>,
@@ -541,7 +531,13 @@ fn handle_terminal_event(
         TerminalEvent::Resize(cols, rows) => {
             crate::mouse_routing::clear_selection(app_state);
             synchronize_actions_geometry(app_state, cols, rows);
-            handle_resize(ctx, cols, rows);
+            let overlay_active = app_state.read().shell_overlay_active();
+            crate::app_input::shell_overlay::resize_terminal(
+                &ctx.cloned(),
+                cols,
+                rows,
+                overlay_active,
+            );
         }
         TerminalEvent::FullscreenMouse(mouse_event) => {
             crate::mouse_routing::handle_fullscreen_mouse(ctx, app_state, mouse_event);
@@ -568,15 +564,6 @@ fn handle_terminal_event(
             );
         }
         _ => {}
-    }
-}
-
-fn handle_resize(ctx: Option<&CtxArc>, cols: u16, rows: u16) {
-    if let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        let layout = compute_pty_layout(cols, rows);
-        let _ = ctx_guard.runtime.resize(layout.pty_rows, layout.pty_cols);
     }
 }
 
@@ -691,12 +678,6 @@ fn paste_to_issues_search(
     suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
-/// Whether a key event should be ignored entirely (not forwarded or processed).
-///
-/// Release events are always ignored. Enter repeats are ignored so that holding
-/// Enter under OS key-repeat does not send duplicate submits into the PTY
-/// (issue #286). All other keys (Backspace, Delete, arrows, character input)
-/// keep their normal repeat behavior.
 fn should_ignore_key_event(key_event: &KeyEvent) -> bool {
     key_event.kind == KeyEventKind::Release
         || (key_event.kind == KeyEventKind::Repeat && key_event.code == KeyCode::Enter)
@@ -719,6 +700,7 @@ fn handle_key_event(
     let pane_focus = state_ro.pane_focus;
     let screen_mode = state_ro.screen_mode;
     let modal = state_ro.modal.clone();
+    let shell_overlay_active = state_ro.shell_overlay_active();
     let early_input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
 
@@ -739,39 +721,30 @@ fn handle_key_event(
     }
     update_paste_enter_suppression(early_input_mode, suppress_next_enter, &key_event, now);
 
-    // F12 toggles terminal focus in Dashboard/Split/Actions. In Issues/PR
-    // mode F12 is mode-aware (defocus / return to list) and is handled by
-    // the mode-specific resolvers below, so it must NOT be intercepted here.
-    if key_event.code == KeyCode::F(12)
-        && matches!(
-            screen_mode,
-            ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
-        )
+    if shell_overlay_active
+        && route_shell_overlay_key(ctx, app_state, suppress_next_enter, &key_event)
     {
-        handle_f12_toggle(app_state, &ctx.cloned());
         return;
     }
 
-    if handle_global_shortcut_key(app_state, &ctx.cloned(), &key_event) {
+    if handle_pre_mode_shortcut(
+        ctx,
+        app_state,
+        &key_event,
+        screen_mode,
+        term_focused,
+        early_input_mode,
+    ) {
         return;
     }
 
     let input_mode = resolve_input_mode(app_state, ctx, term_focused, pane_focus);
 
-    // Ctrl-C interrupt passthrough (#200): forward Ctrl-C to the attached
-    // agent terminal regardless of pane focus when the plain dashboard is
-    // showing (no modal/form/search owns the key). See
-    // [`try_ctrl_c_interrupt_passthrough`] for why focus-independence matters.
     if try_ctrl_c_interrupt_passthrough(ctx, suppress_next_enter, input_mode, &key_event) {
         return;
     }
 
-    if input_mode == InputMode::TerminalCapture {
-        // Check scrollback key interception BEFORE forwarding to PTY (issue #198).
-        if try_intercept_terminal_scrollback(app_state, &ctx.cloned(), &key_event) {
-            return;
-        }
-        forward_key_to_pty(ctx, suppress_next_enter, &key_event);
+    if route_terminal_capture_key(ctx, app_state, suppress_next_enter, input_mode, &key_event) {
         return;
     }
 
@@ -788,6 +761,68 @@ fn handle_key_event(
     ) {
         dispatch_app_event(app_state, &ctx.cloned(), evt);
     }
+}
+
+fn route_shell_overlay_key(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
+    key_event: &KeyEvent,
+) -> bool {
+    if !crate::app_input::shell_overlay::try_close_shell_overlay(
+        app_state,
+        &ctx.cloned(),
+        key_event,
+    ) {
+        forward_key_to_pty(ctx, suppress_next_enter, key_event);
+    }
+    true
+}
+
+fn route_terminal_capture_key(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
+    input_mode: InputMode,
+    key_event: &KeyEvent,
+) -> bool {
+    if input_mode != InputMode::TerminalCapture {
+        return false;
+    }
+    if !try_intercept_terminal_scrollback(app_state, &ctx.cloned(), key_event) {
+        forward_key_to_pty(ctx, suppress_next_enter, key_event);
+    }
+    true
+}
+
+fn handle_pre_mode_shortcut(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+    terminal_focused: bool,
+    input_mode: InputMode,
+) -> bool {
+    if key_event.code == KeyCode::F(12)
+        && matches!(
+            screen_mode,
+            ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
+        )
+    {
+        handle_f12_toggle(app_state, &ctx.cloned());
+        return true;
+    }
+    if handle_global_shortcut_key(app_state, &ctx.cloned(), key_event) {
+        return true;
+    }
+    input_mode == InputMode::Normal
+        && screen_mode == ScreenMode::Dashboard
+        && !terminal_focused
+        && crate::app_input::shell_overlay::handle_shell_shortcut_key(
+            app_state,
+            &ctx.cloned(),
+            key_event,
+        )
 }
 
 fn resolve_input_mode(
@@ -866,22 +901,10 @@ fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &
     }
 }
 
-/// Apply an attach failure to app state only (no runtime side effects).
-///
-/// `mark_session_dead` is called in [`perform_async_attach`] while the mutex
-/// is held; this function only reverts the UI intent (terminal_focused,
-/// pane_focus) and clears attachment markers — matching the old synchronous
-/// `update_f12_attachment_state` behavior. It does NOT mutate agent lifecycle
-/// state (status/binding) so a transient attach failure (e.g. temporary tmux
-/// unavailability) does not permanently kill a Running agent (issue #301
-/// review feedback).
 fn apply_attach_failure(app_state: &mut HookState<AppState>, agent_id: &AgentId) {
     let mut state = app_state.write();
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
-    // Clear the attachment marker for the failed agent only. Agent status and
-    // runtime_binding are left intact — the liveness poll will detect actual
-    // session death and update lifecycle state through the proper path.
     for agent in &mut state.agents {
         if agent.id == *agent_id
             && let Some(binding) = agent.runtime_binding.as_mut()
@@ -900,12 +923,6 @@ fn clear_all_attachments(app_state: &mut HookState<AppState>) {
     }
 }
 
-/// Whether the live PTY snapshot should be attempted for the selected agent.
-///
-/// Previously gated on `pane_focus == Terminal` for Running agents via
-/// `should_skip_live_snapshot(status, pane_focus)` (issue #160); now always
-/// attempts for Running agents so the terminal renders as a read-only preview
-/// regardless of which pane has focus. Dead agents also get a one-shot capture.
 #[must_use]
 fn wants_live_snapshot(status: AgentStatus) -> bool {
     matches!(status, AgentStatus::Running | AgentStatus::Dead)

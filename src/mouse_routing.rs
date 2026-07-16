@@ -4,7 +4,7 @@ use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 mod mouse_routing_detail;
 use crate::pty_encoding::mouse_event_to_bytes;
 use jefe::clipboard;
-use jefe::layout::compute_pty_layout;
+use jefe::layout::{compute_pty_layout, compute_shell_overlay_pty_layout};
 use jefe::pane_content_projection::projected_pane_content;
 use jefe::runtime::RuntimeManager;
 use jefe::selection::{
@@ -22,23 +22,21 @@ fn terminal_size() -> (u16, u16) {
     crossterm::terminal::size().unwrap_or((120, 40))
 }
 
-/// Refresh the cached terminal scrollback geometry before applying a wheel-driven
-/// scroll event (issue #198).
-///
-/// Computes `terminal_viewport_rows` (from the PTY layout) and
-/// `terminal_total_lines` (retained history + live snapshot rows) from the
-/// runtime + current layout, writing them to `AppState` so the deterministic
-/// reducer's clamp bounds match the rendered content. Runs at event time (not
-/// render time) to avoid the infinite re-render loop that mutating AppState
-/// during render would cause. When ctx is None or the lock is contended,
-/// preserves existing geometry instead of zeroing it (zeroing would clear the
-/// scroll offset).
+fn active_pty_layout(cols: u16, rows: u16, overlay_active: bool) -> jefe::layout::PtyLayout {
+    if overlay_active {
+        compute_shell_overlay_pty_layout(cols, rows)
+    } else {
+        compute_pty_layout(cols, rows)
+    }
+}
+
 fn refresh_terminal_scroll_geometry_from_ctx(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
 ) {
     let (cols, rows) = terminal_size();
-    let pty_layout = compute_pty_layout(cols, rows);
+    let overlay_active = app_state.read().shell_overlay_active();
+    let pty_layout = active_pty_layout(cols, rows, overlay_active);
 
     let (history_count, live_rows) = match ctx {
         Some(ctx_arc) => match ctx_arc.try_lock() {
@@ -206,7 +204,7 @@ fn route_terminal_gesture(
     // children stay interactive.
     if wheel_intercept_active_for_agent(kennel_mode, shift_held)
         && is_wheel_event(mouse_event)
-        && is_event_over_terminal_pane(mouse_event)
+        && is_event_over_terminal_pane(mouse_event, app_state.read().shell_overlay_active())
     {
         // Refresh scroll geometry from runtime + layout BEFORE applying so
         // the reducer's clamp bounds match the rendered content (mirrors the
@@ -321,7 +319,12 @@ fn execute_gesture_action(
             finalize_terminal_selection(ctx, app_state, clipboard::write_osc52);
         }
         GestureAction::ForwardToPty(replays) => {
-            forward_replays(ctx, &replays, mouse_event);
+            forward_replays(
+                ctx,
+                &replays,
+                mouse_event,
+                app_state.read().shell_overlay_active(),
+            );
         }
         GestureAction::Composite { first, second } => {
             execute_gesture_action(ctx, app_state, *first, mouse_event);
@@ -375,9 +378,12 @@ fn is_wheel_event(mouse_event: &iocraft::FullscreenMouseEvent) -> bool {
 
 /// Whether the mouse event coordinates land inside the terminal pane bounds
 /// (issue #198).
-fn is_event_over_terminal_pane(mouse_event: &iocraft::FullscreenMouseEvent) -> bool {
+fn is_event_over_terminal_pane(
+    mouse_event: &iocraft::FullscreenMouseEvent,
+    overlay_active: bool,
+) -> bool {
     let (cols, rows) = terminal_size();
-    let layout = compute_pty_layout(cols, rows);
+    let layout = active_pty_layout(cols, rows, overlay_active);
     let row_end = layout
         .pane_row0
         .saturating_add(layout.pty_rows.saturating_sub(1));
@@ -428,6 +434,7 @@ fn forward_replays(
     ctx: Option<&CtxArc>,
     replays: &[PtyReplay],
     mouse_event: &iocraft::FullscreenMouseEvent,
+    overlay_active: bool,
 ) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -437,7 +444,7 @@ fn forward_replays(
     };
 
     let (cols, rows) = terminal_size();
-    let layout = compute_pty_layout(cols, rows);
+    let layout = active_pty_layout(cols, rows, overlay_active);
 
     for replay in replays {
         let (screen_col, screen_row) = (replay.col, replay.row);
@@ -505,16 +512,6 @@ fn capture_current_snapshot(
     )
 }
 
-/// Resolve a screen coordinate to a selection point within the terminal pane
-/// (for gesture-state-machine use).
-///
-/// `pane_at` is called with `terminal_input_enabled = false` so the terminal
-/// region resolves to [`SelectablePane::TerminalView`] even while the
-/// terminal is focused. Jefe owns left-button selection over the focused
-/// terminal (issue #197), so the gesture resolver must always be able to map
-/// an in-terminal coordinate to a content point — passing `true` here would
-/// make `pane_at` return `None` for the whole terminal region and the gesture
-/// could never begin (the down would have no anchor).
 fn resolve_terminal_point(
     app_state: &HookState<AppState>,
     col: u16,
@@ -523,7 +520,27 @@ fn resolve_terminal_point(
     let (cols, rows) = terminal_size();
     let (pane, geometry) = {
         let state = app_state.read();
-        resolve_pane(&state, col, row, cols, rows, false)?
+        if state.shell_overlay_active() {
+            let layout = compute_shell_overlay_pty_layout(cols, rows);
+            let bottom = layout.pane_row0.saturating_add(layout.pty_rows);
+            let right = layout.pane_col0.saturating_add(layout.pty_cols);
+            if row < layout.pane_row0 || row >= bottom || col < layout.pane_col0 || col >= right {
+                return None;
+            }
+            (
+                SelectablePane::TerminalView,
+                jefe::selection::PaneGeometry::new(
+                    layout.pane_col0.saturating_sub(1),
+                    layout.pane_row0.saturating_sub(2),
+                    layout.pty_cols.saturating_add(2),
+                    layout.pty_rows.saturating_add(3),
+                    layout.pane_col0,
+                    layout.pane_row0,
+                ),
+            )
+        } else {
+            resolve_pane(&state, col, row, cols, rows, false)?
+        }
     };
     let (line, c) = point_to_content_coords(col, row, 0, &geometry);
     Some(SelectionPoint::new(pane, line, c))
