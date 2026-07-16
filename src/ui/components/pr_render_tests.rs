@@ -49,15 +49,21 @@ fn prs_mode_state(repo_id: &str) -> AppState {
     state
 }
 
-/// Detect bracketed actionable keybinding text containing `keyword`, e.g.
-/// `[ m merge ]` or `[ Alt+M approve ]`. Returns true only when an open `[` is
-/// followed by `keyword` and then a matching closing `]`, so display-only
-/// status glyphs like "\u{2713}merge" (no brackets) never trip it. Used to
-/// enforce the display-only header contract (#012) robustly across binding
-/// formats.
+/// Test-side assertion helper: detect bracketed actionable keybinding text
+/// containing `keyword` (e.g. `[ m merge ]` or `[ Alt+M approve ]`). Returns
+/// true only when an open `[` is followed by `keyword` and then a matching
+/// closing `]`, so display-only status glyphs like "\u{2713}merge" (no
+/// brackets) never trip it. This helper lives in the test module and enforces
+/// the display-only header contract (#012) at the TEST level only — it is not
+/// called from production code.
 ///
-/// Tracks bracket depth so a keyword inside an outer bracket pair that also
-/// contains inner brackets (e.g. `[ outer [inner] merge ]`) is still detected.
+/// The check is intentionally scoped to known action keywords (`merge`,
+/// `approve`) rather than rejecting ALL bracketed text, because legitimate
+/// header metadata also uses brackets (`[DRAFT]`, `labels: [a, b]`,
+/// `assignees: [u1, u2]`). Matching on action keywords avoids false positives
+/// from that metadata while still catching any binding text that advertises
+/// merge/approve. Brackets are ASCII-only by design (all binding formats in
+/// this codebase use ASCII brackets).
 fn has_bracketed_action(s: &str, keyword: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
