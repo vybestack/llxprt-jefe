@@ -1,12 +1,16 @@
 #!/bin/sh
 set -eu
 root=
+[ "${1-}" = "capture" ] || { printf 'expected capture command\n' >&2; exit 1; }
+shift
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --root) root=$2; shift 2 ;;
-        *) shift ;;
+        --jefe-bin|--harness-bin) shift 2 ;;
+        *) printf 'unknown capture argument: %s\n' "$1" >&2; exit 1 ;;
     esac
 done
+[ -n "$root" ] || { printf 'capture requires --root\n' >&2; exit 1; }
 mkdir -p "$root/publication" "$root/private"
 printf 'jefe_commit=%s\n' "$(git rev-parse HEAD)" > "$root/manifest.txt"
 printf 'jefe_version=jefe 9.9.9-fixture\n' >> "$root/manifest.txt"

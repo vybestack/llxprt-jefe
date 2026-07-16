@@ -79,6 +79,7 @@ Target: at most 8 changed files and below 800 net changed lines.
 | Existing issue 241 script already owns isolation, publication validation, diagnostics, and cleanup | Reuse unchanged | The supported wrapper should compose the proven bounded primitive rather than duplicate or generalize it |
 | Exact commit IDs are self-referential if verification requires generated assets to equal the commit that contains them | Record plus fingerprint | Record the source commit/version for provenance, while staleness verification compares a deterministic fingerprint of bounded source inputs and object IDs of selected assets |
 | Wrapper tests need to avoid rebuilding and running a real TUI for every contract branch | In-scope validated-binary path | Acceptance explicitly permits building or validating required binaries; explicit paths preserve production validation and enable deterministic fake binaries |
+| PR OCR identified duplicated command construction, subprocess chmod, incomplete subprocess diagnostics, and permissive fake argument parsing | In-scope—Fix | Centralized fixture invocation, used Unix permission APIs, included both output streams in assertion diagnostics, and made the fake capture parser fail closed |
 
 No unapproved scope changes.
 
@@ -87,7 +88,8 @@ No unapproved scope changes.
 - Open Code Review before PR: 2 / 2 attempted; both external OCR invocations
   were terminated without producing output, so no findings were available to
   triage.
-- Open Code Review after PR: 0 / 2.
+- Open Code Review after PR: 1 / 2; four findings were classified
+  In-scope—Fix and remediated.
 
 ## Verification evidence
 
@@ -106,7 +108,10 @@ No unapproved scope changes.
   source-size, both Clippy gates, 30% coverage gate, locked build, locked tests,
   and doctests.
 - `scripts/regenerate-first-agent-tutorial.sh check`: passed after promotion.
-- PR exact-head CI: pending.
+- Initial PR CI completed except one transient native-Windows psmux readiness
+  timeout; the failed job log identified `puppy-four`, and the unchanged exact
+  head passed the complete native-Windows job on rerun.
+- PR exact-head CI: passed before review remediation; final-head rerun pending.
 
 ## Deferred findings / follow-ups
 

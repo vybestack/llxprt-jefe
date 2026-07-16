@@ -2,6 +2,7 @@
 
 #![cfg(unix)]
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -36,7 +37,12 @@ impl Fixture {
     }
 
     fn regenerate(&self, root_name: &str) -> Output {
-        Command::new("sh")
+        self.regenerate_with_env(root_name, None)
+    }
+
+    fn regenerate_with_env(&self, root_name: &str, environment: Option<(&str, &str)>) -> Output {
+        let mut command = Command::new("sh");
+        command
             .arg(self.repo.join("scripts/regenerate-first-agent-tutorial.sh"))
             .args(["regenerate", "--root"])
             .arg(
@@ -49,7 +55,11 @@ impl Fixture {
             .arg(&self.jefe)
             .arg("--harness-bin")
             .arg(&self.harness)
-            .current_dir(&self.repo)
+            .current_dir(&self.repo);
+        if let Some((key, value)) = environment {
+            command.env(key, value);
+        }
+        command
             .output()
             .unwrap_or_else(|error| panic!("run regenerate: {error}"))
     }
@@ -127,12 +137,20 @@ fn create_fake_binaries(root: &Path) -> (PathBuf, PathBuf) {
 
 fn write_executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-    let status = Command::new("chmod")
-        .args(["+x"])
-        .arg(path)
-        .status()
-        .unwrap_or_else(|error| panic!("chmod {}: {error}", path.display()));
-    assert!(status.success(), "chmod failed for {}", path.display());
+    let mut permissions = fs::metadata(path)
+        .unwrap_or_else(|error| panic!("read permissions for {}: {error}", path.display()))
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(path, permissions)
+        .unwrap_or_else(|error| panic!("set permissions for {}: {error}", path.display()));
+}
+
+fn output_diagnostics(output: &Output) -> String {
+    format!(
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 fn run_success(command: &mut Command) {
@@ -141,8 +159,8 @@ fn run_success(command: &mut Command) {
         .unwrap_or_else(|error| panic!("run fixture command: {error}"));
     assert!(
         output.status.success(),
-        "fixture command failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "fixture command failed:\n{}",
+        output_diagnostics(&output)
     );
 }
 
@@ -152,8 +170,8 @@ fn regeneration_promotes_only_selected_assets_and_records_provenance() {
     let output = fixture.regenerate("successful-run");
     assert!(
         output.status.success(),
-        "regeneration failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "regeneration failed:\n{}",
+        output_diagnostics(&output)
     );
 
     for asset in ASSETS {
@@ -177,39 +195,29 @@ fn regeneration_promotes_only_selected_assets_and_records_provenance() {
     let check = fixture.check();
     assert!(
         check.status.success(),
-        "fresh assets should verify: {}",
-        String::from_utf8_lossy(&check.stderr)
+        "fresh assets should verify:\n{}",
+        output_diagnostics(&check)
     );
 }
 
 #[test]
 fn regeneration_refuses_incomplete_publication_before_replacing_assets() {
     let fixture = Fixture::new();
-    let output = Command::new("sh")
-        .arg(
-            fixture
-                .repo
-                .join("scripts/regenerate-first-agent-tutorial.sh"),
-        )
-        .args(["regenerate", "--root"])
-        .arg(
-            fixture
-                .repo
-                .parent()
-                .unwrap_or_else(|| panic!("fixture parent"))
-                .join("incomplete-run"),
-        )
-        .arg("--jefe-bin")
-        .arg(&fixture.jefe)
-        .arg("--harness-bin")
-        .arg(&fixture.harness)
-        .env("OMIT_ASSET", "first-agent-result.svg")
-        .current_dir(&fixture.repo)
-        .output()
-        .unwrap_or_else(|error| panic!("run incomplete regeneration: {error}"));
+    let output = fixture.regenerate_with_env(
+        "incomplete-run",
+        Some(("OMIT_ASSET", "first-agent-result.svg")),
+    );
 
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("missing publication asset"));
+    assert!(
+        !output.status.success(),
+        "incomplete publication unexpectedly succeeded:\n{}",
+        output_diagnostics(&output)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("missing publication asset"),
+        "missing-asset diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
     for asset in ASSETS {
         let contents = fs::read_to_string(fixture.repo.join("docs/assets").join(asset))
             .unwrap_or_else(|error| panic!("read original {asset}: {error}"));
@@ -221,19 +229,35 @@ fn regeneration_refuses_incomplete_publication_before_replacing_assets() {
 fn check_detects_stale_source_contract_and_promoted_asset_bytes() {
     let source_fixture = Fixture::new();
     let generated = source_fixture.regenerate("source-stale-run");
-    assert!(generated.status.success());
+    assert!(
+        generated.status.success(),
+        "source fixture regeneration failed:\n{}",
+        output_diagnostics(&generated)
+    );
     fs::write(
         source_fixture.repo.join("src/lib.rs"),
         "pub fn changed() {}\n",
     )
     .unwrap_or_else(|error| panic!("change source: {error}"));
     let source_check = source_fixture.check();
-    assert!(!source_check.status.success());
-    assert!(String::from_utf8_lossy(&source_check.stderr).contains("source fingerprint is stale"));
+    assert!(
+        !source_check.status.success(),
+        "stale source unexpectedly verified:\n{}",
+        output_diagnostics(&source_check)
+    );
+    assert!(
+        String::from_utf8_lossy(&source_check.stderr).contains("source fingerprint is stale"),
+        "stale-source diagnostic was absent:\n{}",
+        output_diagnostics(&source_check)
+    );
 
     let asset_fixture = Fixture::new();
     let generated = asset_fixture.regenerate("asset-stale-run");
-    assert!(generated.status.success());
+    assert!(
+        generated.status.success(),
+        "asset fixture regeneration failed:\n{}",
+        output_diagnostics(&generated)
+    );
     fs::write(
         asset_fixture
             .repo
@@ -242,6 +266,14 @@ fn check_detects_stale_source_contract_and_promoted_asset_bytes() {
     )
     .unwrap_or_else(|error| panic!("change asset: {error}"));
     let asset_check = asset_fixture.check();
-    assert!(!asset_check.status.success());
-    assert!(String::from_utf8_lossy(&asset_check.stderr).contains("asset is stale"));
+    assert!(
+        !asset_check.status.success(),
+        "stale asset unexpectedly verified:\n{}",
+        output_diagnostics(&asset_check)
+    );
+    assert!(
+        String::from_utf8_lossy(&asset_check.stderr).contains("asset is stale"),
+        "stale-asset diagnostic was absent:\n{}",
+        output_diagnostics(&asset_check)
+    );
 }
