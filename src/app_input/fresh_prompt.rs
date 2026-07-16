@@ -43,12 +43,39 @@ const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
 );
 
 fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_content: &str) -> String {
+    let truncated = truncate_prompt_content(prompt_content);
     let label = prompt_kind.label();
-    let base = format!("Read and work on the following GitHub {label}.\n\n{prompt_content}");
+    let base = format!("Read and work on the following GitHub {label}.\n\n{truncated}");
     match prompt_kind {
         FreshPromptKind::Issue => format!("{base}\n\n{ISSUE_DELIVERY_WORKFLOW}"),
         FreshPromptKind::PullRequest => base,
     }
+}
+
+/// Maximum prompt content length (in bytes) before truncation.
+///
+/// Cross-platform safe bound that stays well under the smallest OS
+/// command-line length limit (Windows CreateProcess: ~32 KB). The
+/// `ISSUE_DELIVERY_WORKFLOW` appendix adds ~1.5 KB for issues.
+const MAX_PROMPT_CONTENT_BYTES: usize = 24_000;
+
+/// Truncate prompt content if it exceeds the byte budget.
+///
+/// Truncation adds a visible `[... truncated ...]` marker so the agent knows
+/// the content was cut. The cut happens at a character boundary to avoid
+/// splitting multi-byte UTF-8.
+fn truncate_prompt_content(content: &str) -> String {
+    if content.len() <= MAX_PROMPT_CONTENT_BYTES {
+        return content.to_owned();
+    }
+    // Find the last char boundary at or before the byte limit.
+    let mut end = MAX_PROMPT_CONTENT_BYTES;
+    while !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = content[..end].to_owned();
+    truncated.push_str("\n\n[... prompt truncated to stay within command-line length limits ...]");
+    truncated
 }
 
 /// Transform a base signature into a fresh, non-resuming prompt launch.
@@ -348,5 +375,81 @@ mod tests {
             assert_eq!(prepared.llxprt_version, selector);
             assert_eq!(prepared.code_puppy_version, "0.0.361-rc1");
         }
+    }
+
+    #[test]
+    fn prompt_content_is_inlined_into_mode_flags_not_referenced_as_file() {
+        // Issue #315: the full prompt content must appear verbatim inside the
+        // instruction (mode_flags), not as a file-path reference.
+        let unique_content = "UNIQUE_MARKER_42adb: this is the prompt body";
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::Llxprt),
+            FreshPromptKind::Issue,
+            unique_content,
+        );
+        let inlined: &String = result
+            .mode_flags
+            .last()
+            .unwrap_or_else(|| panic!("instruction must be present in mode_flags"));
+        assert!(
+            inlined.contains(unique_content),
+            "prompt content must be inlined: {inlined}"
+        );
+        assert!(
+            !inlined.contains(".jefe/"),
+            "must not reference .jefe file: {inlined}"
+        );
+    }
+
+    #[test]
+    fn truncate_preserves_short_content_unchanged() {
+        let short = "short prompt";
+        assert_eq!(truncate_prompt_content(short), short);
+    }
+
+    #[test]
+    fn truncate_adds_marker_and_stays_within_budget() {
+        let large = "x".repeat(MAX_PROMPT_CONTENT_BYTES + 5000);
+        let truncated = truncate_prompt_content(&large);
+        assert!(
+            truncated.len() <= MAX_PROMPT_CONTENT_BYTES + 200,
+            "truncated content must stay within budget: {} bytes",
+            truncated.len()
+        );
+        assert!(
+            truncated.contains("[... prompt truncated"),
+            "must include truncation marker"
+        );
+    }
+
+    #[test]
+    fn truncate_cuts_at_char_boundary_for_multibyte_utf8() {
+        // Build content that ends with a multi-byte char sequence right at the
+        // boundary so truncation must find the previous char boundary.
+        let filler = "a".repeat(MAX_PROMPT_CONTENT_BYTES - 2);
+        let multibyte_suffix = "🎉🎉";
+        let content = format!("{filler}{multibyte_suffix}");
+        let truncated = truncate_prompt_content(&content);
+        // Must not panic and must end with a valid UTF-8 string.
+        assert!(truncated.contains('a'));
+        assert!(truncated.contains("[... prompt truncated"));
+    }
+
+    #[test]
+    fn adversarial_shell_metacharacters_are_inlined_safely() {
+        // Issue #315 OCR finding: shell metacharacters from GitHub content
+        // must not break argument parsing. The instruction is passed via
+        // Command::args() (execvp), not shell interpolation, so metacharacters
+        // are safe — but verify they survive intact in mode_flags.
+        let adversarial = "'; rm -rf /; echo '\n$(whoami)\n`backtick`";
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::CodePuppy),
+            FreshPromptKind::Issue,
+            adversarial,
+        );
+        assert_eq!(result.mode_flags.len(), 1);
+        assert!(result.mode_flags[0].contains("rm -rf"));
+        assert!(result.mode_flags[0].contains("whoami"));
+        assert!(result.mode_flags[0].contains("backtick"));
     }
 }

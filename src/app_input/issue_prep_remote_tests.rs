@@ -175,7 +175,8 @@ fn plan_applies_run_as_user() {
 #[test]
 fn plan_does_not_write_prompt_to_disk() {
     // Issue #315: the prompt content is inlined into the launch instruction
-    // (-i), so no op should carry stdin_prompt bytes (no `cat > file`).
+    // (-i), so no op should carry stdin_prompt bytes and no SSH command
+    // should reference .jefe/ or a prompt file path.
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
@@ -192,6 +193,21 @@ fn plan_does_not_write_prompt_to_disk() {
         ops.iter().all(|op| op.stdin_prompt.is_none()),
         "no op should carry a prompt via stdin (issue #315 inlines the prompt): {ops:?}"
     );
+    // No SSH command should create .jefe/ or target a prompt file.
+    for op in &ops {
+        for arg in &op.ssh_argv {
+            assert!(
+                !arg.contains(".jefe/")
+                    && !arg.contains("issue-prompt")
+                    && !arg.contains("pr-prompt"),
+                "SSH command must not reference .jefe or prompt paths: {arg}"
+            );
+            assert!(
+                !arg.contains("cat >"),
+                "SSH command must not write a prompt via cat redirect: {arg}"
+            );
+        }
+    }
 }
 
 #[test]
