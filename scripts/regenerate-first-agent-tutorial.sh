@@ -55,9 +55,21 @@ parse_regenerate() {
     HARNESS_BIN=
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --root) ROOT=${2-}; shift 2 ;;
-            --jefe-bin) JEFE_BIN=${2-}; shift 2 ;;
-            --harness-bin) HARNESS_BIN=${2-}; shift 2 ;;
+            --root)
+                [ "$#" -ge 2 ] || fail "--root requires a value"
+                ROOT=$2
+                shift 2
+                ;;
+            --jefe-bin)
+                [ "$#" -ge 2 ] || fail "--jefe-bin requires a value"
+                JEFE_BIN=$2
+                shift 2
+                ;;
+            --harness-bin)
+                [ "$#" -ge 2 ] || fail "--harness-bin requires a value"
+                HARNESS_BIN=$2
+                shift 2
+                ;;
             *) fail "unknown regenerate argument: $1" ;;
         esac
     done
@@ -85,6 +97,8 @@ prepare_binaries() {
 
 write_provenance() {
     manifest=$ROOT/manifest.txt
+    [ -d "$ROOT/private" ] && [ ! -L "$ROOT/private" ] || \
+        fail "capture private directory is missing or unsafe: $ROOT/private"
     source_commit=$(manifest_value jefe_commit "$manifest")
     source_version=$(manifest_value jefe_version "$manifest")
     [ -n "$source_commit" ] || fail "capture manifest does not record jefe_commit"

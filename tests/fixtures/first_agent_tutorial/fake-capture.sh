@@ -11,7 +11,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 [ -n "$root" ] || { printf 'capture requires --root\n' >&2; exit 1; }
-mkdir -p "$root/publication" "$root/private"
+mkdir -p "$root/publication"
+[ -n "${OMIT_PRIVATE-}" ] || mkdir -p "$root/private"
 printf 'jefe_commit=%s\n' "$(git rev-parse HEAD)" > "$root/manifest.txt"
 printf 'jefe_version=jefe 9.9.9-fixture\n' >> "$root/manifest.txt"
 for asset in first-agent-new-repository.svg first-agent-new-agent.svg first-agent-result.svg; do

@@ -225,6 +225,47 @@ fn regeneration_rejects_relative_root_before_delegating_to_capture() {
 }
 
 #[test]
+fn regeneration_reports_a_missing_flag_value() {
+    let fixture = Fixture::new();
+    let output = Command::new("sh")
+        .arg(
+            fixture
+                .repo
+                .join("scripts/regenerate-first-agent-tutorial.sh"),
+        )
+        .args(["regenerate", "--root"])
+        .current_dir(&fixture.repo)
+        .output()
+        .unwrap_or_else(|error| panic!("run missing-value regeneration: {error}"));
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--root requires a value"),
+        "missing-value diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
+}
+
+#[test]
+fn regeneration_reports_a_missing_capture_private_directory() {
+    let fixture = Fixture::new();
+    let output = fixture.regenerate_with_env("missing-private-run", Some(("OMIT_PRIVATE", "1")));
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("capture private directory is missing or unsafe"),
+        "missing-private diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
+    for asset in ASSETS {
+        let contents = fs::read_to_string(fixture.repo.join("docs/assets").join(asset))
+            .unwrap_or_else(|error| panic!("read original {asset}: {error}"));
+        assert_eq!(contents, "old\n", "{asset} must not be replaced");
+    }
+}
+
+#[test]
 fn regeneration_refuses_incomplete_publication_before_replacing_assets() {
     let fixture = Fixture::new();
     let output = fixture.regenerate_with_env(
