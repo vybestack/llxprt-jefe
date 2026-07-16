@@ -203,6 +203,10 @@ pub struct PrDetailPending {
 pub struct PrThreadResolvePending {
     pub scope_repo_id: RepositoryId,
     pub thread_index: usize,
+    /// Stable thread node id captured at dispatch time so the write-back can
+    /// locate the correct thread even if a background refresh reorders
+    /// `detail.reviews` while the mutation is in flight (issue #238).
+    pub thread_id: String,
     pub resolve: bool,
     pub request_id: u64,
 }

@@ -42,8 +42,20 @@ pub fn handle_pr_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
             return;
         }
     };
-    if let ComposerTarget::ReplyToReviewThread { thread_index, .. } = &action.target {
-        let Some(thread_id) = resolve_thread_id(app_state, *thread_index) else {
+    if let ComposerTarget::ReplyToReviewThread {
+        thread_index,
+        thread_id,
+        ..
+    } = &action.target
+    {
+        // Prefer the stable thread_id captured at composer-open time; fall
+        // back to positional resolution only if it is somehow empty (issue #238).
+        let resolved_id = if thread_id.is_empty() {
+            resolve_thread_id(app_state, *thread_index)
+        } else {
+            Some(thread_id.clone())
+        };
+        let Some(thread_id) = resolved_id else {
             apply_and_persist(
                 app_state,
                 ctx,
@@ -331,18 +343,15 @@ fn resolve_thread_id(app_state: &AppStateHandle, thread_index: usize) -> Option<
 fn pr_thread_resolve_action(app_state: &AppStateHandle) -> Option<ThreadResolveAction> {
     let state = app_state.read();
     let pending = state.prs_state.thread_resolve_pending.as_ref()?;
-    let detail = state.prs_state.pr_detail.as_ref()?;
-    let thread = detail
-        .reviews
-        .iter()
-        .flat_map(|r| &r.review_threads)
-        .nth(pending.thread_index)?;
+    // The pending action carries the stable thread_id captured at dispatch
+    // time, so the gh mutation targets the correct thread even if a background
+    // refresh reordered detail.reviews (issue #238).
     let action = ThreadResolveAction {
         scope_repo_id: pending.scope_repo_id.clone(),
         thread_index: pending.thread_index,
         resolve: pending.resolve,
         request_id: pending.request_id,
-        thread_id: thread.thread_id.clone(),
+        thread_id: pending.thread_id.clone(),
     };
     drop(state);
     Some(action)

@@ -241,6 +241,13 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   (idle → awaiting-code → confirming → success / failure / cancelled) live in
   unit tests (`github_tests::auth_device`, `state::auth_ops_tests`,
   `app_input::auth_remediation`, and `ui::modals::auth`).
+- [`pr-review-newest-first.json`](../tmux-scenarios/pr-review-newest-first.json):
+  scenario for issue #238 — PR review newest-first ordering. Uses the fail-closed
+  `scripts/issue238-gh-shim.sh` fixture to load a PR with three out-of-order
+  reviews, opens the PR detail, and asserts the newest reviewer
+  (`newest_reviewer`) renders first. Run it end to end with
+  `scripts/issue238-run-scenario.sh`; the runner seeds isolated state and audits
+  that production performs only the expected read-only `gh` operations.
 
 ## Future regression scenarios
 

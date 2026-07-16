@@ -5,7 +5,8 @@
 //! non-focusable, and reply/resolve targets remain identified by thread id.
 
 use crate::domain::{
-    IssueComment, PrCheckStatus, PrReview, PrReviewState, PrReviewThread, PrState, PullRequestDetail,
+    IssueComment, PrCheckStatus, PrReview, PrReviewState, PrReviewThread, PrState,
+    PullRequestDetail,
 };
 use crate::github::sort_pr_reviews;
 use crate::pr_detail_content::build_pr_detail_content;
@@ -112,12 +113,16 @@ fn newest_review_is_first_nav_stop_after_sort() {
 
     let order = pr_detail_subfocus_order(&detail);
     assert_eq!(
-        order[0..4],
-        [
+        order,
+        vec![
             PrDetailSubfocus::Body,
             PrDetailSubfocus::Review(0),
             PrDetailSubfocus::ReviewThread(0),
             PrDetailSubfocus::Review(1),
+            PrDetailSubfocus::ReviewThread(1),
+            PrDetailSubfocus::Review(2),
+            PrDetailSubfocus::ReviewThread(2),
+            PrDetailSubfocus::NewComment,
         ]
     );
     assert_eq!(detail.reviews[0].author_login, "new");
@@ -156,11 +161,11 @@ fn render_order_matches_nav_order_after_sort() {
     let new_pos = content
         .text
         .find("new_author")
-        .expect("newest author should render");
+        .unwrap_or_else(|| panic!("newest author should render"));
     let old_pos = content
         .text
         .find("old_author")
-        .expect("oldest author should render");
+        .unwrap_or_else(|| panic!("oldest author should render"));
     assert!(
         new_pos < old_pos,
         "newest review header must render before older ones"
@@ -173,7 +178,7 @@ fn render_order_matches_nav_order_after_sort() {
             PrDetailSubfocus::Review(i) => Some(*i),
             _ => None,
         })
-        .expect("expected a review focus stop");
+        .unwrap_or_else(|| panic!("expected a review focus stop"));
     assert_eq!(first_review, 0);
     assert_eq!(detail.reviews[first_review].author_login, "new_author");
 }
@@ -239,6 +244,7 @@ fn resolve_targets_flat_thread_index_after_newest_first_reorder() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 0,
+        thread_id: "t_new".to_string(),
         resolve: true,
         request_id: 1,
     });
@@ -249,7 +255,11 @@ fn resolve_targets_flat_thread_index_after_newest_first_reorder() {
         is_resolved: true,
         request_id: 1,
     });
-    let detail = state.prs_state.pr_detail.as_ref().expect("detail present");
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail present"));
     assert_eq!(detail.reviews[0].review_threads[0].thread_id, "t_new");
     assert!(
         detail.reviews[0].review_threads[0].is_resolved,

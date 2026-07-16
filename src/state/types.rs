@@ -503,8 +503,11 @@ pub enum ComposerTarget {
     },
     /// Reply to a PR review thread (issue #119). `thread_index` is the flat
     /// index across all reviews' threads, matching `PrDetailSubfocus::ReviewThread`.
+    /// `thread_id` is the stable node id captured at open time so the dispatch
+    /// layer can target the correct thread even after a reorder (issue #238).
     ReplyToReviewThread {
         thread_index: usize,
+        thread_id: String,
         author: String,
     },
 }
