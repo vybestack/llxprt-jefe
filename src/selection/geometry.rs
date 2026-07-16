@@ -164,7 +164,8 @@ pub fn pane_at(
         crate::state::ScreenMode::Split => split_pane_at(col, row, render_cols, render_rows),
         crate::state::ScreenMode::DashboardIssues
         | crate::state::ScreenMode::DashboardPullRequests
-        | crate::state::ScreenMode::DashboardActions => {
+        | crate::state::ScreenMode::DashboardActions
+        | crate::state::ScreenMode::DashboardErrors => {
             issues_pane_at(col, row, render_cols, render_rows, *layout)
         }
     }
@@ -372,6 +373,8 @@ fn list_pane(
         SelectablePane::PrList
     } else if layout.is_actions_mode() {
         SelectablePane::ActionsList
+    } else if layout.is_errors_mode() {
+        SelectablePane::ErrorList
     } else {
         SelectablePane::IssueList
     };
@@ -400,6 +403,8 @@ fn detail_pane(
         SelectablePane::PrDetail
     } else if layout.is_actions_mode() {
         SelectablePane::ActionsDetail
+    } else if layout.is_errors_mode() {
+        SelectablePane::ErrorDetail
     } else {
         SelectablePane::IssueDetail
     };

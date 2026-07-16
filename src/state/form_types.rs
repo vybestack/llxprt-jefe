@@ -119,6 +119,12 @@ pub struct RepositoryFormFields {
     /// Default LLxprt npm package version (form draft).
     pub default_llxprt_version: String,
     pub default_agent_kind: String,
+    /// Directory for transient agent work copies (issue #213).
+    pub transient_agent_dir: String,
+    /// Default Code Puppy YOLO for transient agents (issue #213).
+    pub default_code_puppy_yolo: bool,
+    /// Max concurrent transient agents (issue #213).
+    pub transient_max_concurrent: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
     /// Optional override for the GitHub repository that sources issues/PRs
@@ -144,6 +150,8 @@ pub struct RepositoryFormCursor {
     pub default_profile: usize,
     pub default_code_puppy_model: usize,
     pub default_llxprt_version: usize,
+    pub transient_agent_dir: usize,
+    pub transient_max_concurrent: usize,
     pub github_repo: usize,
     pub github_issue_pr_repo: usize,
     pub login_user: usize,
@@ -164,6 +172,9 @@ pub enum RepositoryFormFocus {
     DefaultCodePuppyModel,
     DefaultLlxprtVersion,
     DefaultAgentKind,
+    TransientAgentDir,
+    DefaultCodePuppyYolo,
+    TransientMaxConcurrent,
     GitHubRepo,
     IssuePrRepo,
     RemoteEnabled,
@@ -186,7 +197,10 @@ impl RepositoryFormFocus {
             Self::DefaultProfile => Self::DefaultCodePuppyModel,
             Self::DefaultCodePuppyModel => Self::DefaultAgentKind,
             Self::DefaultAgentKind => Self::DefaultLlxprtVersion,
-            Self::DefaultLlxprtVersion => Self::GitHubRepo,
+            Self::DefaultLlxprtVersion => Self::TransientAgentDir,
+            Self::TransientAgentDir => Self::DefaultCodePuppyYolo,
+            Self::DefaultCodePuppyYolo => Self::TransientMaxConcurrent,
+            Self::TransientMaxConcurrent => Self::GitHubRepo,
             Self::GitHubRepo => Self::IssuePrRepo,
             Self::IssuePrRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
@@ -210,7 +224,10 @@ impl RepositoryFormFocus {
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
             Self::DefaultAgentKind => Self::DefaultCodePuppyModel,
             Self::DefaultLlxprtVersion => Self::DefaultAgentKind,
-            Self::GitHubRepo => Self::DefaultLlxprtVersion,
+            Self::TransientAgentDir => Self::DefaultLlxprtVersion,
+            Self::DefaultCodePuppyYolo => Self::TransientAgentDir,
+            Self::TransientMaxConcurrent => Self::DefaultCodePuppyYolo,
+            Self::GitHubRepo => Self::TransientMaxConcurrent,
             Self::IssuePrRepo => Self::GitHubRepo,
             Self::RemoteEnabled => Self::IssuePrRepo,
             Self::LoginUser => Self::RemoteEnabled,

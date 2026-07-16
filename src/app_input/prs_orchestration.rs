@@ -494,6 +494,11 @@ const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-156
 fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    if super::transient_pr_send::is_transient_slot_selected_prs(app_state) {
+        super::transient_pr_send::dispatch_transient_pr_send(app_state, ctx);
+        return;
+    }
+
     let send_info = pr_send_info(app_state);
     apply_and_persist(app_state, ctx, AppEvent::PrAgentChooserConfirm);
 
@@ -501,9 +506,6 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     };
 
-    // Use the shared kind-specific prompt construction so CodePuppy PR sends
-    // do not get a duplicate -i (the runtime layer prepends it) and the
-    // issue/PR send paths agree on the exact arg shape.
     let launch_sig = prepare_fresh_prompt_signature(
         send_info.signature,
         FreshPromptKind::PullRequest,
@@ -529,12 +531,6 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         }
     };
 
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
-    // PR prompt write, probe the selected runtime on the resolved target.
-    // For local targets this reuses the session snapshot; for remote targets
-    // this is a no-install/no-setup/side-effect-free ssh -T probe for the
-    // exact binary executed as the effective run_as_user. Unavailable remote
-    // means no prompt write operation.
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
@@ -543,27 +539,8 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     }
 
-    // Write the PR prompt to the selected WorkTarget (local fs or remote
-    // ssh -T with prompt bytes via stdin). The remote path reuses the exact
-    // production remote prompt planning seam from `remote_probe` so `.jefe/
-    // pr-prompt.md` is targeted, prompt bytes are stdin, and adversarial
-    // content is absent from argv.
-    let prompt_content = prs_dispatch::format_pr_prompt(&send_info.payload);
-    let write_result = match &target {
-        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
-            &target,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
-            remote,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-    };
-    if let Err(error) = write_result {
+    if let Err(error) = write_pr_prompt_to_target(&target, &send_info.work_dir, &send_info.payload)
+    {
         apply_pr_send_to_agent_failed(app_state, ctx, error);
         return;
     }
@@ -576,6 +553,30 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
             send_info.work_dir,
             launch_sig,
         );
+    }
+}
+
+/// Write the PR prompt to the selected WorkTarget (local fs or remote ssh).
+/// Returns `Err` on failure so the caller can apply the send-failed event.
+fn write_pr_prompt_to_target(
+    target: &super::issue_prep::WorkTarget,
+    work_dir: &std::path::Path,
+    payload: &jefe::github::PrSendPayload,
+) -> Result<(), String> {
+    let prompt_content = prs_dispatch::format_pr_prompt(payload);
+    match target {
+        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
+            target,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
+            remote,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
     }
 }
 
@@ -671,7 +672,7 @@ pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 164-175
-fn focused_pr_comment(
+pub(super) fn focused_pr_comment(
     state: &AppState,
     detail: &jefe::domain::PullRequestDetail,
 ) -> Option<jefe::domain::IssueComment> {
@@ -682,29 +683,12 @@ fn focused_pr_comment(
 }
 
 /// Resolve the base prompt for a PR send.
-///
-/// `Repository` does not yet carry a dedicated `pr_base_prompt` field; this
-/// reuses the issue base prompt as a stand-in.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 164-175
-fn pr_base_prompt(repo: &Repository) -> &str {
+pub(super) fn pr_base_prompt(repo: &Repository) -> &str {
     &repo.issue_base_prompt
 }
 
 /// Launch the runtime agent for a PR send.
-///
-/// Mirrors `launch_issue_agent`: spawn + attach the agent session (same runtime
-/// path issues uses), then deliver success/failure. When `ctx` is `None`
-/// (tests), `spawn_and_attach_fresh_for_pr` returns `false` (the shared helper
-/// guards on `ctx` being present) so the failure event is delivered without a
-/// real spawn — replicating the issues guard exactly.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 155-163
-fn launch_pr_agent(
+pub(super) fn launch_pr_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
@@ -739,14 +723,6 @@ fn launch_pr_agent(
 }
 
 /// Spawn a fresh runtime session and attach it for a PR send.
-///
-/// Mirrors `spawn_and_attach_fresh_for_issue`: when `ctx` is `None` (no runtime
-/// context, as in unit tests), returns `false` without spawning. Otherwise
-/// spawns a fresh session and attaches it.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 147-175
 fn spawn_and_attach_fresh_for_pr(
     ctx: &SharedContext,
     agent_id: &AgentId,
@@ -779,13 +755,6 @@ fn spawn_and_attach_fresh_for_pr(
 
 /// Persist the PR agent launch success: set runtime binding, clear attachments,
 /// mark the launched agent attached.
-///
-/// Mirrors `persist_issue_agent_launch_success`, reusing the shared helpers
-/// (`clear_agent_runtime_attachment`, `mark_agent_runtime_attached`).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 147-175
 fn persist_pr_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
@@ -810,13 +779,8 @@ fn persist_pr_agent_launch_success(
     mark_agent_runtime_attached(state, agent_id, true);
 }
 
-/// Apply a `PrSendToAgentFailed` event + persist (mirrors
-/// `apply_send_to_agent_failed` for issues).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 155-163
-fn apply_pr_send_to_agent_failed(
+/// Apply a `PrSendToAgentFailed` event + persist.
+pub(super) fn apply_pr_send_to_agent_failed(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     error: String,

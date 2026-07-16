@@ -81,6 +81,7 @@ Each step object has one primitive key.
 | `waitFor` | `{ "waitFor": "Help" }` | Poll the screen until a literal appears. |
 | `waitForNot` | `{ "waitForNot": "Loading" }` | Poll the screen until a literal disappears. |
 | `expect` | `{ "expect": "new-agent" }` | Assert the current screen contains a literal. |
+| `expectRightEdge` | `{ "expectRightEdge": "╮" }` | Assert a full-width line ends with a literal at the viewport's right edge. |
 | `expectCount` | `{ "expectCount": "│", "count": 4 }` | Assert an exact literal count on screen. |
 | `capture` | `{ "capture": "after-help" }` | Write `<label>.screen.txt` to the artifact dir. |
 | `historySample` | `{ "historySample": "before" }` | Save scrollback and history size under a label. |

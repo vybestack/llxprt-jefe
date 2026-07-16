@@ -54,6 +54,12 @@ jobs:
     outputs:
       infrastructure_failure: ${{ steps.ocr-classification.outputs.infrastructure_failure }}
       policy_failure: ${{ steps.ocr-classification.outputs.policy_failure }}
+    # Single source of truth for the pinned OCR package version. The cache key
+    # and the install command both reference this so a version bump can never
+    # leave a stale cache key pointing at the old version, and the exact version
+    # is never floated on latest/main.
+    env:
+      OCR_VERSION: "1.7.9"
     # For issue_comment, only run on PR comments requesting a review.
     # The toJSON checks intentionally support LF, CRLF, and tab after the
     # command; other whitespace is not matched to keep triggers predictable.
@@ -202,6 +208,14 @@ jobs:
           }
           EOF
 
+      - name: Cache npm download cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # ratchet:actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-ocr-${{ runner.os }}-${{ env.OCR_VERSION }}
+          restore-keys: |
+            npm-ocr-${{ runner.os }}-
+
       - name: Install OpenCodeReview
         shell: bash
         run: |
@@ -214,7 +228,7 @@ jobs:
             exit 0
           fi
           OCR_PREFIX="${RUNNER_TEMP}/ocr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          if ! npm install --prefix "$OCR_PREFIX" --ignore-scripts @alibaba-group/open-code-review@1.7.5 2>> ocr-stderr.log; then
+          if ! npm install --prefix "$OCR_PREFIX" --ignore-scripts "@alibaba-group/open-code-review@${OCR_VERSION}" 2>> ocr-stderr.log; then
             echo "::warning::OpenCodeReview installation failed."
             echo "70" > ocr-exit-code.txt
             mark_infrastructure_failure "install" "OpenCodeReview installation failed"
@@ -304,6 +318,53 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             echo "78" > ocr-exit-code.txt
             mark_infrastructure_failure "validate" "OCR configuration is missing required variables or secrets"
+            exit 0
+          fi
+
+      - name: Validate OCR LLM connectivity
+        # Bounded connectivity preflight: a single lightweight ocr llm test
+        # call confirms the provider endpoint and credentials are reachable
+        # before the expensive review scope runs. The call is bounded by an
+        # explicit timeout so a hung provider cannot stall the workflow.
+        shell: bash
+        env:
+          OCR_LLM_URL: ${{ vars.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+        run: |
+          set -euo pipefail
+          if [ -s ocr-exit-code.txt ]; then
+            echo "::warning::Skipping OCR LLM connectivity check because an earlier OCR setup/configuration failure was recorded."
+            exit 0
+          fi
+          echo "llm-preflight" > ocr-phase.txt
+          if ! . ./ocr-workflow-helpers.sh; then
+            echo "::warning::Could not load OCR workflow helper script."
+            echo "127" > ocr-exit-code.txt
+            echo "phase=llm-preflight; reason=OCR workflow helper script could not be loaded" > ocr-infrastructure-failure.txt
+            exit 0
+          fi
+          if ! command -v ocr >/dev/null 2>&1; then
+            echo "::warning::OpenCodeReview command is unavailable before LLM connectivity check."
+            echo "OpenCodeReview command is unavailable before LLM connectivity check." >> ocr-stderr.log
+            echo "127" > ocr-exit-code.txt
+            mark_infrastructure_failure "llm-preflight" "OpenCodeReview command is unavailable before LLM connectivity check"
+            exit 0
+          fi
+          set +e
+          timeout 120s ocr llm test >> ocr-stderr.log 2>&1
+          preflight_status=$?
+          set -e
+          if [ "$preflight_status" -ne 0 ]; then
+            if [ "$preflight_status" -eq 124 ]; then
+              echo "::warning::OCR LLM connectivity check timed out after 120s. Verify provider availability and network latency."
+              mark_infrastructure_failure "llm-preflight" "OCR LLM connectivity check timed out"
+            else
+              echo "::warning::OCR LLM connectivity check failed. Verify OCR_LLM_URL, OCR_LLM_AUTH_TOKEN, OCR_LLM_MODEL, and provider availability."
+              mark_infrastructure_failure "llm-preflight" "OCR LLM connectivity check failed (config/provider)"
+            fi
+            echo "$preflight_status" > ocr-exit-code.txt
             exit 0
           fi
 
@@ -470,6 +531,7 @@ jobs:
             --to "$HEAD_SHA" \
             --format json \
             --audience agent \
+            --concurrency 2 \
             --timeout 30 \
             > ocr-stdout.raw 2> ocr-stderr.log
           status=$?
@@ -478,7 +540,22 @@ jobs:
           fi
           echo "$status" > ocr-exit-code.txt
           if [ "$status" -ne 0 ]; then
-            mark_infrastructure_failure "review" "OCR review command failed"
+            # Typed provider-failure classification: distinguish rate-limit,
+            # overloaded, auth/config, timeout, all-file failure, and generic
+            # so the tracking issue and sticky summary report the correct cause.
+            if grep -Eqi "http 429|concurrency reached|rate limit" ocr-stderr.log; then
+              mark_infrastructure_failure "review" "rate-limited: OCR provider concurrency/rate limit reached"
+            elif grep -Eqi "http 529|overloaded" ocr-stderr.log; then
+              mark_infrastructure_failure "review" "provider overloaded (HTTP 529): OCR provider returned overloaded"
+            elif grep -Eqi "timed out|timeout|deadline" ocr-stderr.log; then
+              mark_infrastructure_failure "review" "OCR review timed out"
+            elif grep -Eqi "all [0-9]+ file review(\(s\)|s)? failed" ocr-stderr.log; then
+              mark_infrastructure_failure "review" "all OCR per-file reviews failed; likely provider/config/auth failure"
+            elif grep -Eqi "401|403|unauthor|forbidden|invalid.*key|invalid.*token|authentication" ocr-stderr.log; then
+              mark_infrastructure_failure "review" "OCR provider/config/auth failure: authentication or authorization rejected"
+            else
+              mark_infrastructure_failure "review" "OCR review command failed"
+            fi
           fi
           exit 0
 
@@ -714,6 +791,40 @@ jobs:
               core.warning(`Skipping OCR output parsing because phase ${phase} already recorded exit code ${exitCode}.`);
             }
 
+            // Deduplicate exact candidates inside the current result before
+            // batch posting so a single OCR run cannot post two identical
+            // inline comments or two identical lineless findings. The dedup key
+            // is a structural identity (path + line range + rendered text),
+            // matching the same key used for cross-run same-head suppression.
+            function findingIdentityKey(f) {
+              const path = (f && typeof f.path === 'string') ? f.path : '';
+              let startLine = Number.isInteger(f && f.start_line) ? f.start_line : 0;
+              let endLine = Number.isInteger(f && f.end_line) ? f.end_line : 0;
+              // Normalize the range so reversed inputs (10-5 and 5-10) collapse
+              // to the same key, matching the normalization the inline/lineless
+              // split applies later when building posted candidates.
+              if (startLine > endLine) {
+                [startLine, endLine] = [endLine, startLine];
+              }
+              const rawText = f && (f.content || f.comment || f.message || f.body);
+              const text = typeof rawText === 'string' ? rawText : '';
+              return `${path}\u0000${startLine}\u0000${endLine}\u0000${unrenderFindingText(text)}`;
+            }
+            const dedupSeen = new Set();
+            const dedupedFindings = [];
+            for (const f of findings) {
+              const key = findingIdentityKey(f);
+              if (dedupSeen.has(key)) {
+                continue;
+              }
+              dedupSeen.add(key);
+              dedupedFindings.push(f);
+            }
+            if (dedupedFindings.length !== findings.length) {
+              core.info(`Deduped ${findings.length - dedupedFindings.length} exact duplicate finding(s) from the current OCR result.`);
+            }
+            findings = dedupedFindings;
+
             // Split findings into inline (resolvable file/line) vs. lineless.
             const inline = [];
             const lineless = [];
@@ -943,6 +1054,7 @@ jobs:
           fi
 
       - name: Redact OCR diagnostic artifacts
+        id: redact-ocr-artifacts
         shell: bash
         if: always()
         env:
@@ -997,12 +1109,37 @@ jobs:
             }
           };
           for (const fileName of diagnosticArtifacts) {
+            let raw;
             try {
-              fs.writeFileSync(fileName, redact(fs.readFileSync(fileName, 'utf8')));
-            } catch (error) {
-              if (error && error.code !== 'ENOENT') {
-                replaceWithRedactionFailure(fileName, error);
+              raw = fs.readFileSync(fileName, 'utf8');
+            } catch (readError) {
+              if (readError && readError.code === 'ENOENT') {
+                continue;
               }
+              raw = '';
+            }
+            // Fail closed: destroy the original content on disk *before*
+            // attempting redaction so that a redaction or fallback write
+            // error can never leave unredacted secrets behind for the
+            // artifact upload step.
+            const placeholder = `[redaction unavailable for ${fileName}]\n`;
+            try {
+              fs.writeFileSync(fileName, placeholder);
+            } catch (placeholderError) {
+              // The original unredacted content may still be on disk. Remove
+              // it so the artifact upload cannot publish secrets. If removal
+              // also fails, signal failure so the upload step is skipped.
+              try {
+                fs.rmSync(fileName, { force: true });
+              } catch (_) {
+                core.setFailed(`Could not overwrite or remove ${fileName} before redaction; refusing to upload potentially unredacted content`);
+              }
+              continue;
+            }
+            try {
+              fs.writeFileSync(fileName, redact(raw));
+            } catch (redactError) {
+              replaceWithRedactionFailure(fileName, redactError);
             }
           }
           NODE
@@ -1048,7 +1185,7 @@ jobs:
           done
 
       - name: Upload OCR artifacts
-        if: always()
+        if: ${{ always() && steps.redact-ocr-artifacts.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # ratchet:actions/upload-artifact@v4
         with:
           name: ocr-review-output
@@ -1239,19 +1376,67 @@ jobs:
               local issue_body_file
               issue_body_file="$1"
               shift
-              if retry_gh gh issue create "$@" --body-file "$issue_body_file" --label "ci/cd"; then
+              # gh issue create is non-idempotent: never retry it. The
+              # label-less fallback handles a distinct error class (a verified
+              # missing-label response), not a retry of the same request.
+              local create_stderr
+              create_stderr="$(mktemp)"
+              if gh issue create "$@" --body-file "$issue_body_file" --label "ci/cd" 2>"$create_stderr"; then
+                rm -f "$create_stderr"
                 return 0
               fi
-              echo "::warning::Failed to create OCR infrastructure issue with ci/cd label; retrying without labels."
-              if retry_gh gh issue create "$@" --body-file "$issue_body_file"; then
-                return 0
+              # Only fall back label-less for a verified missing-label response.
+              # The GitHub API returns HTTP 422 with a message mentioning the
+              # label when it does not exist. Any other failure is a genuine
+              # error that must not be retried label-less.
+              if grep -Eq '(^|[^0-9])422([^0-9]|$)' "$create_stderr" &&
+                 grep -Eqi "label|ci/cd" "$create_stderr"; then
+                echo "::warning::Failed to create OCR infrastructure issue with ci/cd label (verified missing-label response); retrying without labels."
+                rm -f "$create_stderr"
+                if gh issue create "$@" --body-file "$issue_body_file"; then
+                  return 0
+                fi
+              else
+                cat "$create_stderr" >&2
+                rm -f "$create_stderr"
               fi
               echo "::warning::Failed to create OCR infrastructure issue."
               return 1
             }
+            # Converge duplicate open tracking issues: close all but the oldest
+            # open issue matching the title so a transient create race
+            # self-corrects on each run rather than accumulating duplicates.
+            converge_tracking_issues() {
+              local all_issues
+              local issue_num
+              local first
+              first=1
+              if ! all_issues="$(
+                retry_gh gh issue list \
+                  --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
+                  --limit 30 \
+                  --json number,title \
+                  --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number]"
+              )"; then
+                echo "::warning::Failed to search for duplicate tracking issues during convergence."
+                return 0
+              fi
+              for issue_num in $(printf '%s' "$all_issues" | jq -r '.[]'); do
+                if [ "$first" -eq 1 ]; then
+                  # Keep the oldest (first in ascending created order).
+                  first=0
+                  continue
+                fi
+                gh issue close "$issue_num" 2>/dev/null \
+                  || echo "::warning::Could not close duplicate tracking issue #${issue_num}."
+              done
+            }
+            # Canonical-issue policy: both lookups and convergence use
+            # created-asc ordering so the oldest tracking issue is always
+            # selected for commenting and preserved by convergence.
             if ! EXISTING_ISSUE="$(
               retry_gh gh issue list \
-                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-desc" \
+                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
                 --limit 30 \
                 --json number,title \
                 --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number] | .[0] // empty"
@@ -1272,12 +1457,15 @@ jobs:
               return 1
             fi
             if [ -n "$EXISTING_ISSUE" ]; then
-              retry_gh gh issue comment "${EXISTING_ISSUE}" --body-file "$body_file" || echo "::warning::Failed to comment on OCR infrastructure issue."
+              # gh issue comment is non-idempotent: never retry it (a transient
+              # response failure could create duplicate comments).
+              gh issue comment "${EXISTING_ISSUE}" --body-file "$body_file" || echo "::warning::Failed to comment on OCR infrastructure issue."
+              converge_tracking_issues || true
               return 0
             fi
             if ! EXISTING_ISSUE="$(
               retry_gh gh issue list \
-                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-desc" \
+                --search "\"${ISSUE_TITLE}\" in:title is:issue state:open sort:created-asc" \
                 --limit 30 \
                 --json number,title \
                 --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number] | .[0] // empty"
@@ -1286,12 +1474,17 @@ jobs:
               return 0
             fi
             if [ -n "$EXISTING_ISSUE" ]; then
-              retry_gh gh issue comment "${EXISTING_ISSUE}" --body-file "$body_file" || echo "::warning::Failed to comment on OCR infrastructure issue after recheck."
+              gh issue comment "${EXISTING_ISSUE}" --body-file "$body_file" || echo "::warning::Failed to comment on OCR infrastructure issue after recheck."
+              converge_tracking_issues || true
               return 0
             fi
             create_infrastructure_issue "$body_file" \
               --title "${ISSUE_TITLE}"
-            return 0
+            create_status=$?
+            # After creating, sweep for any duplicate a concurrent run may have
+            # created in the gap between the second check and create.
+            converge_tracking_issues || true
+            return "$create_status"
           }
           notify_ocr_infrastructure_failure || echo "::warning::OCR infrastructure issue notification failed; continuing."
           exit 0

@@ -34,6 +34,10 @@ pub enum SelectablePane {
     ActionsList,
     /// Actions run detail (Actions-mode workspace, bottom split).
     ActionsDetail,
+    /// Error list (errors-mode workspace, top split). Issue #292.
+    ErrorList,
+    /// Error detail (errors-mode workspace, bottom split). Issue #292.
+    ErrorDetail,
     /// Help modal overlay text.
     HelpModal,
     /// Top status bar (low priority, but selectable).

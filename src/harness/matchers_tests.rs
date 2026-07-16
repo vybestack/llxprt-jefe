@@ -41,6 +41,28 @@ fn history(size: u64, lines: &[&str]) -> ScrollbackSample {
     ScrollbackSample::new(size, lines.iter().map(|line| (*line).to_string()).collect())
 }
 
+#[test]
+fn right_edge_requires_the_pattern_to_reach_the_display_width() {
+    let capture = ScreenCapture::new(2, 8, vec!["1234567╮".to_string(), "12345╮".to_string()]);
+    let outcome = screen_right_edge(&capture, MatchPattern::literal("╮"));
+    assert!(outcome.matched);
+    assert_eq!(outcome.matched_line, Some(0));
+}
+
+#[test]
+fn right_edge_counts_wide_unicode_cells() {
+    let capture = ScreenCapture::new(1, 5, vec!["界12╮".to_string()]);
+    let outcome = screen_right_edge(&capture, MatchPattern::literal("╮"));
+    assert!(outcome.matched);
+}
+
+#[test]
+fn right_edge_rejects_a_clipped_line() {
+    let capture = ScreenCapture::new(1, 8, vec!["123456╮".to_string()]);
+    let outcome = screen_right_edge(&capture, MatchPattern::literal("╮"));
+    assert!(!outcome.matched);
+}
+
 /// Contains succeeds with the first zero-based line containing the literal.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P02

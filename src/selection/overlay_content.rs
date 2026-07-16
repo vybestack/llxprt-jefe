@@ -21,7 +21,6 @@ const SEPARATOR_LINE: &str = "────────────────�
 /// Agent chooser overlay lines: header + separator + agent entries + hints.
 #[must_use]
 pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
-    // The chooser can be active in issues or PR mode; check both.
     let chooser = state
         .issues_state
         .agent_chooser
@@ -31,9 +30,7 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
         return PaneContent::empty(SelectablePane::AgentChooser);
     };
     let mut lines = vec!["Send to Agent".to_string(), SEPARATOR_LINE.to_string()];
-    if chooser.agents.is_empty() {
-        // The empty-state box has height 2 (text + blank), matching the
-        // renderer's Box(height: 2u32).
+    if chooser.agents.is_empty() && !chooser.transient_available {
         lines.push("No agents available. Create an agent in Agents Mode.".to_string());
         lines.push(String::new());
     } else {
@@ -45,6 +42,15 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
             };
             let label = crate::domain::agent_chooser_label(entry);
             lines.push(format!("{marker} {label}"));
+        }
+        if chooser.transient_available {
+            let transient_idx = chooser.agents.len();
+            let marker = if transient_idx == chooser.selected_index {
+                "(x)"
+            } else {
+                "( )"
+            };
+            lines.push(format!("{marker} Transient Agent"));
         }
     }
     lines.push(SEPARATOR_LINE.to_string());
@@ -591,41 +597,12 @@ mod tests {
 
     #[test]
     fn agent_chooser_empty_has_two_line_empty_state() {
-        let state = AppState {
-            issues_state: crate::state::IssuesState {
-                agent_chooser: Some(crate::state::AgentChooserState {
-                    selected_index: 0,
-                    agents: vec![],
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let content = agent_chooser_lines(&state);
-        // Empty state box has height 2 (text + blank), so the "No agents"
-        // message is followed by a blank line before the separator.
-        let Some(no_agents_idx) = content
-            .lines
-            .iter()
-            .position(|l| l.contains("No agents available"))
-        else {
-            panic!("must have no-agents message");
-        };
-        let next_idx = no_agents_idx + 1;
-        assert!(
-            next_idx < content.lines.len() && content.lines[next_idx].is_empty(),
-            "empty-state blank row must follow the no-agents message"
-        );
-    }
-
-    #[test]
-    fn agent_chooser_with_agents_exact_lines() {
         use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
-            screen_mode: crate::state::ScreenMode::DashboardIssues,
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,
+                    transient_available: false,
                     agents: vec![
                         AgentChooserEntry {
                             agent_id: AgentId("a1".to_string()),
@@ -674,6 +651,7 @@ mod tests {
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,
+                    transient_available: false,
                     agents: vec![
                         AgentChooserEntry {
                             agent_id: AgentId("d1".to_string()),

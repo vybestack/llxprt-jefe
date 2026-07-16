@@ -614,6 +614,7 @@ fn state_for_pr_agent_chooser_confirm(
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         }),
         ..jefe::state::PullRequestsState::default()
     };
@@ -832,6 +833,7 @@ fn state_for_issue_agent_chooser_send(
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         }),
         ..jefe::state::IssuesState::default()
     };

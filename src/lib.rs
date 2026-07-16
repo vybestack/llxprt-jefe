@@ -85,4 +85,61 @@ mod github_tests_pr_threads;
 
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Short git commit hash baked in at build time (issue #223).
+///
+/// Falls back to `"unknown"` when the crate was built outside a git working
+/// tree (e.g. a tarball) so display code never has to branch on availability.
+pub const GIT_COMMIT: &str = match option_env!("JEFE_GIT_COMMIT") {
+    Some(commit) => commit,
+    None => "unknown",
+};
+
+/// Format the process-identity label shown in the lower-right corner so the
+/// running jefe can always be identified (issue #223).
+///
+/// The format is `pid:{pid} {commit}` — compact and greppable. The function is
+/// pure so render code and selection-copy projections share one source of
+/// truth and it can be unit-tested without a process or git working tree.
+#[must_use]
+pub fn process_identity_label(pid: u32, commit: &str) -> String {
+    format!("pid:{pid} {commit}")
+}
+
 pub mod harness;
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn label_formats_pid_and_commit() {
+        let label = process_identity_label(12_345, "abc1234");
+        assert_eq!(label, "pid:12345 abc1234");
+    }
+
+    #[test]
+    fn label_includes_pid_marker() {
+        let label = process_identity_label(1, "deadbeef");
+        assert!(
+            label.starts_with("pid:1 "),
+            "label must start with the pid marker: {label}"
+        );
+    }
+
+    #[test]
+    fn label_includes_commit() {
+        let label = process_identity_label(42, "feat0ab");
+        assert!(
+            label.ends_with(" feat0ab"),
+            "label must end with the commit hash: {label}"
+        );
+    }
+
+    #[test]
+    fn git_commit_is_non_empty() {
+        // The build script falls back to "unknown", so the constant is never
+        // empty regardless of whether the build runs inside a git tree.
+        assert!(!GIT_COMMIT.is_empty());
+    }
+}

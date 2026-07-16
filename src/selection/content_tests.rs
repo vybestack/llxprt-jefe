@@ -141,8 +141,11 @@ fn sidebar_lines_include_selection_prefix() {
         remote: crate::domain::RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
-        agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
+        transient_agent_dir: std::path::PathBuf::new(),
+        default_code_puppy_yolo: None,
+        transient_max_concurrent: 0,
         default_llxprt_version: None,
+        agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
     });
     // Select the first repo so the rendered "> " prefix appears.
     state.selected_repository_index = Some(0);
@@ -294,6 +297,13 @@ fn keybind_bar_lines_match_rendered_hints() {
     let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
     assert_eq!(content.lines.len(), 1);
     assert!(content.lines[0].contains("navigate"));
+    // The process-identity label (pid + commit) must be present so mouse-copy
+    // captures it (issue #223).
+    assert!(
+        content.lines[0].contains("pid:"),
+        "keybind bar copy must include the pid marker: {}",
+        content.lines[0]
+    );
 }
 
 #[test]
@@ -507,6 +517,7 @@ fn agent_chooser_lines_include_header_and_agent_names() {
             crate::domain::AgentChooserEntry::simple("a1", "alpha"),
             crate::domain::AgentChooserEntry::simple("a2", "beta"),
         ],
+        transient_available: false,
     });
     let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);
     assert!(

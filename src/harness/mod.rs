@@ -36,8 +36,8 @@ pub use expand::expand_macros;
 pub use macro_def::MacroDef;
 pub use matchers::{
     CountOutcome, HistoryDeltaOutcome, MatchPattern, PredicateOutcome, history_delta,
-    screen_absent, screen_contains, screen_count, scrollback_absent, scrollback_contains,
-    scrollback_count,
+    screen_absent, screen_contains, screen_count, screen_right_edge, scrollback_absent,
+    scrollback_contains, scrollback_count,
 };
 pub use parser::parse_scenario;
 pub use runner::{

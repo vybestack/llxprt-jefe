@@ -65,6 +65,7 @@ fn prs_state_with_chooser() -> AppState {
             AgentKind::Llxprt,
             ChooserRuntimeConfig::default(),
         )],
+        transient_available: false,
     });
     state
 }

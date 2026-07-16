@@ -135,6 +135,9 @@ mod tests {
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: jefe::domain::AgentKind::Llxprt,
+            transient_agent_dir: std::path::PathBuf::new(),
+            default_code_puppy_yolo: None,
+            transient_max_concurrent: 0,
             agent_ids: Vec::new(),
             default_llxprt_version: None,
         }
