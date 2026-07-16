@@ -180,7 +180,17 @@ fn code_puppy_latest_sentinel_case_insensitive_produces_bare_spec() {
     signature.code_puppy_version = "Latest".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
-    assert_eq!(plan.args[1], "code-puppy");
+    assert_eq!(
+        plan.args,
+        vec![
+            "--from",
+            "code-puppy",
+            "code-puppy",
+            "-i",
+            "--yolo",
+            "false",
+        ]
+    );
 }
 
 #[test]
@@ -235,8 +245,8 @@ fn code_puppy_latest_nightly_sentinel_remote_uses_bare_package_spec() {
         host: "example.test".to_owned(),
         ..crate::domain::RemoteRepositorySettings::default()
     };
-    let command = build_remote_launch_command("nightly", &signature.work_dir, &signature)
-        .unwrap_or_else(|error| panic!("nightly remote command: {error}"));
+    let command = build_remote_launch_command("latest nightly", &signature.work_dir, &signature)
+        .unwrap_or_else(|error| panic!("latest nightly remote command: {error}"));
     assert!(command.contains("uvx"));
     assert!(command.contains("code-puppy"));
     assert!(!command.contains("code-puppy=="));
