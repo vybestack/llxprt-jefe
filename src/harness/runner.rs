@@ -99,6 +99,7 @@ pub trait HarnessDriver {
     type Error: std::fmt::Display;
 
     fn send_line(&mut self, line: &str) -> Result<(), Self::Error>;
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error>;
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error>;
     fn send_keys(&mut self, keys: &[String]) -> Result<(), Self::Error>;
     fn capture_screen(&mut self) -> Result<ScreenCapture, Self::Error>;
@@ -129,6 +130,10 @@ impl HarnessDriver for TmuxHarnessDriver {
 
     fn send_line(&mut self, line: &str) -> Result<(), Self::Error> {
         self.driver.send_line(&self.session, line)
+    }
+
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error> {
+        self.driver.send_type(&self.session, text)
     }
 
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error> {
@@ -320,6 +325,7 @@ fn execute_step<D: HarnessDriver>(
             Ok(())
         }
         Step::Line { text } => driver_call(driver.send_line(text)),
+        Step::Type { text } => driver_call(driver.send_type(text)),
         Step::Key { key } => driver_call(driver.send_key(key)),
         Step::Keys { keys } => driver_call(driver.send_keys(keys)),
         Step::WaitFor { pattern } => wait_for_pattern(index, step, driver, context, pattern, true),
@@ -648,6 +654,7 @@ fn step_kind(step: &Step) -> String {
     match step {
         Step::Wait { .. } => "wait",
         Step::Line { .. } => "line",
+        Step::Type { .. } => "type",
         Step::Key { .. } => "key",
         Step::Keys { .. } => "keys",
         Step::WaitFor { .. } => "waitFor",

@@ -5,13 +5,13 @@
 //! Extracted from `modal_handlers.rs` to keep that handler module under the
 //! architecture per-file line limit.
 
-use super::modal_handlers::confirm_focus_is_cancel;
+use super::modal_handlers::{confirm_focus_is_cancel, focus_terminal_state};
 use jefe::domain::{
     AgentId, AgentKind, LaunchSignature, RemoteRepositorySettings, RepositoryId, SandboxEngine,
 };
 use jefe::github::SendPayload;
 use jefe::runtime::PreflightIssue;
-use jefe::state::{ConfirmFocus, ModalState};
+use jefe::state::{AppState, ConfirmFocus, ModalState, PaneFocus};
 
 fn sample_signature() -> LaunchSignature {
     LaunchSignature {
@@ -121,4 +121,18 @@ fn confirm_focus_is_cancel_uses_correct_field_not_default() {
         !confirm_focus_is_cancel(&modal),
         "must read the actual confirm_focus field, not a hardcoded Cancel default"
     );
+}
+
+#[test]
+fn successful_new_agent_submit_focuses_the_terminal_pane_and_capture_mode() {
+    let mut state = AppState {
+        pane_focus: PaneFocus::Repositories,
+        terminal_focused: false,
+        ..AppState::default()
+    };
+
+    focus_terminal_state(&mut state);
+
+    assert_eq!(state.pane_focus, PaneFocus::Terminal);
+    assert!(state.terminal_focused);
 }

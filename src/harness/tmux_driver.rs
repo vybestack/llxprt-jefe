@@ -333,8 +333,17 @@ impl TmuxDriver {
     ///
     /// Returns [`TmuxDriverError`] if tmux rejects the key send.
     pub fn send_line(&self, session: &TmuxSession, line: &str) -> Result<(), TmuxDriverError> {
-        run_tmux(&["send-keys", "-l", "-t", &session.name, "--", line], None)?;
+        self.send_type(session, line)?;
         self.send_key(session, "Enter")
+    }
+
+    /// Send literal text without pressing Enter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError`] if tmux rejects the key send.
+    pub fn send_type(&self, session: &TmuxSession, text: &str) -> Result<(), TmuxDriverError> {
+        run_tmux(&["send-keys", "-l", "-t", &session.name, "--", text], None)
     }
 
     /// Send a single named key.

@@ -129,6 +129,9 @@ fn substitute_step(step: &Step, args: &BTreeMap<String, String>) -> Step {
         Step::Line { text } => Step::Line {
             text: substitute(text, args),
         },
+        Step::Type { text } => Step::Type {
+            text: substitute(text, args),
+        },
         Step::Key { key } => Step::Key {
             key: substitute(key, args),
         },
