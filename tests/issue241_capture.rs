@@ -1,5 +1,6 @@
 //! Behavioral contracts for the bounded issue 241 tutorial capture workflow.
 
+#![cfg(unix)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
