@@ -144,10 +144,15 @@ impl AppState {
         self.modal = ModalState::NewRepository {
             fields: RepositoryFormFields {
                 default_agent_kind: default_kind.label().to_owned(),
+                default_code_puppy_yolo: true,
+                default_llxprt_mode: "--yolo".to_owned(),
                 ..RepositoryFormFields::default()
             },
             focus: RepositoryFormFocus::default(),
-            cursor: RepositoryFormCursor::default(),
+            cursor: RepositoryFormCursor {
+                default_llxprt_mode: "--yolo".chars().count(),
+                ..RepositoryFormCursor::default()
+            },
         };
     }
 
@@ -163,6 +168,7 @@ impl AppState {
                 default_code_puppy_model: r.default_code_puppy_model.clone(),
                 default_code_puppy_version: r.default_code_puppy_version.clone(),
                 default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
+                default_llxprt_mode: r.default_llxprt_mode_flags.join(" "),
                 default_llxprt_version: r.default_llxprt_version.as_ref().map_or_else(
                     String::new,
                     |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
@@ -193,6 +199,7 @@ impl AppState {
                 default_profile: fields.default_profile.chars().count(),
                 default_code_puppy_model: fields.default_code_puppy_model.chars().count(),
                 default_code_puppy_version: fields.default_code_puppy_version.chars().count(),
+                default_llxprt_mode: fields.default_llxprt_mode.chars().count(),
                 default_llxprt_version: fields.default_llxprt_version.chars().count(),
                 github_repo: fields.github_repo.chars().count(),
                 github_issue_pr_repo: fields.github_issue_pr_repo.chars().count(),

@@ -19,6 +19,8 @@
     { "key": "Space" },
     { "waitFor": "Default Agent    [code_puppy]" },
     { "key": "Tab" },
+    { "waitFor": "Default YOLO     [x]" },
+    { "key": "Tab" },
     { "waitFor": "Default Version  [▏]" },
     { "keys": ["0",".","0",".","3","6","1"] },
     { "waitFor": "Default Version  [0.0.361▏]" },

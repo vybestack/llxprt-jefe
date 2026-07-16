@@ -127,6 +127,13 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
     ));
     assert_eq!(
         next_visible_repository_focus(RepositoryFormFocus::DefaultAgentKind, AgentKind::CodePuppy),
+        RepositoryFormFocus::DefaultCodePuppyYolo
+    );
+    assert_eq!(
+        next_visible_repository_focus(
+            RepositoryFormFocus::DefaultCodePuppyYolo,
+            AgentKind::CodePuppy
+        ),
         RepositoryFormFocus::DefaultCodePuppyVersion
     );
 

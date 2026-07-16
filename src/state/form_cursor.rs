@@ -36,6 +36,32 @@ fn insert_repository_remote_char(
     }
 }
 
+fn insert_repository_runtime_char(
+    fields: &mut RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+    c: char,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultCodePuppyVersion => insert_repository_char(
+            &mut fields.default_code_puppy_version,
+            &mut cursor.default_code_puppy_version,
+            c,
+        ),
+        RepositoryFormFocus::DefaultLlxprtMode => insert_repository_char(
+            &mut fields.default_llxprt_mode,
+            &mut cursor.default_llxprt_mode,
+            c,
+        ),
+        RepositoryFormFocus::DefaultLlxprtVersion => insert_repository_char(
+            &mut fields.default_llxprt_version,
+            &mut cursor.default_llxprt_version,
+            c,
+        ),
+        _ => {}
+    }
+}
+
 pub(super) fn handle_repository_field_char(
     fields: &mut RepositoryFormFields,
     cursor: &mut RepositoryFormCursor,
@@ -55,16 +81,11 @@ pub(super) fn handle_repository_field_char(
             &mut cursor.default_code_puppy_model,
             c,
         ),
-        RepositoryFormFocus::DefaultCodePuppyVersion => insert_repository_char(
-            &mut fields.default_code_puppy_version,
-            &mut cursor.default_code_puppy_version,
-            c,
-        ),
-        RepositoryFormFocus::DefaultLlxprtVersion => insert_repository_char(
-            &mut fields.default_llxprt_version,
-            &mut cursor.default_llxprt_version,
-            c,
-        ),
+        RepositoryFormFocus::DefaultCodePuppyVersion
+        | RepositoryFormFocus::DefaultLlxprtMode
+        | RepositoryFormFocus::DefaultLlxprtVersion => {
+            insert_repository_runtime_char(fields, cursor, focus, c);
+        }
         RepositoryFormFocus::GitHubRepo => {
             insert_repository_char(&mut fields.github_repo, &mut cursor.github_repo, c);
         }
@@ -127,6 +148,32 @@ fn move_repository_remote_cursor_right(
     }
 }
 
+fn move_repository_runtime_cursor_right(
+    fields: &RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultCodePuppyVersion => {
+            cursor.default_code_puppy_version = move_cursor_right(
+                &fields.default_code_puppy_version,
+                cursor.default_code_puppy_version,
+            );
+        }
+        RepositoryFormFocus::DefaultLlxprtMode => {
+            cursor.default_llxprt_mode =
+                move_cursor_right(&fields.default_llxprt_mode, cursor.default_llxprt_mode);
+        }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_right(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            );
+        }
+        _ => {}
+    }
+}
+
 pub(super) fn move_repository_field_cursor_right(
     fields: &RepositoryFormFields,
     cursor: &mut RepositoryFormCursor,
@@ -151,17 +198,10 @@ pub(super) fn move_repository_field_cursor_right(
                 cursor.default_code_puppy_model,
             );
         }
-        RepositoryFormFocus::DefaultCodePuppyVersion => {
-            cursor.default_code_puppy_version = move_cursor_right(
-                &fields.default_code_puppy_version,
-                cursor.default_code_puppy_version,
-            );
-        }
-        RepositoryFormFocus::DefaultLlxprtVersion => {
-            cursor.default_llxprt_version = move_cursor_right(
-                &fields.default_llxprt_version,
-                cursor.default_llxprt_version,
-            );
+        RepositoryFormFocus::DefaultCodePuppyVersion
+        | RepositoryFormFocus::DefaultLlxprtMode
+        | RepositoryFormFocus::DefaultLlxprtVersion => {
+            move_repository_runtime_cursor_right(fields, cursor, focus);
         }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
@@ -271,6 +311,9 @@ pub(super) fn move_repository_field_cursor_left(
         }
         RepositoryFormFocus::DefaultCodePuppyVersion => {
             cursor.default_code_puppy_version = move_cursor_left(cursor.default_code_puppy_version);
+        }
+        RepositoryFormFocus::DefaultLlxprtMode => {
+            cursor.default_llxprt_mode = move_cursor_left(cursor.default_llxprt_mode);
         }
         RepositoryFormFocus::DefaultLlxprtVersion => {
             cursor.default_llxprt_version = move_cursor_left(cursor.default_llxprt_version);

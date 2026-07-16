@@ -296,6 +296,13 @@ fn append_repository_runtime_fields(
         fields.default_agent_kind,
         effective_kinds_hint(&kinds)
     ));
+    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyYolo, default_kind) {
+        lines.push(render_checkbox(
+            "Default YOLO",
+            fields.default_code_puppy_yolo,
+            "space toggles",
+        ));
+    }
     if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyVersion, default_kind) {
         let value = focused_value(
             &fields.default_code_puppy_version,
@@ -303,6 +310,14 @@ fn append_repository_runtime_fields(
             focus == RepositoryFormFocus::DefaultCodePuppyVersion,
         );
         lines.push(render_field("Default Version", &value));
+    }
+    if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtMode, default_kind) {
+        let value = focused_value(
+            &fields.default_llxprt_mode,
+            cursor.default_llxprt_mode,
+            focus == RepositoryFormFocus::DefaultLlxprtMode,
+        );
+        lines.push(render_field("Default Mode", &value));
     }
     if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtVersion, default_kind) {
         let value = focused_value(

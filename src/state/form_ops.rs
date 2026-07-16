@@ -253,6 +253,10 @@ impl AppState {
                     cursor.default_code_puppy_version,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtMode => {
+                cursor.default_llxprt_mode =
+                    delete_char_before(&mut fields.default_llxprt_mode, cursor.default_llxprt_mode);
+            }
             RepositoryFormFocus::DefaultLlxprtVersion => {
                 cursor.default_llxprt_version = delete_char_before(
                     &mut fields.default_llxprt_version,
@@ -314,6 +318,9 @@ impl AppState {
                     &mut fields.default_code_puppy_version,
                     cursor.default_code_puppy_version,
                 );
+            }
+            RepositoryFormFocus::DefaultLlxprtMode => {
+                delete_char_at(&mut fields.default_llxprt_mode, cursor.default_llxprt_mode);
             }
             RepositoryFormFocus::DefaultLlxprtVersion => {
                 delete_char_at(

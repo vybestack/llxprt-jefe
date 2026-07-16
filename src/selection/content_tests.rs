@@ -144,6 +144,7 @@ fn sidebar_lines_include_selection_prefix() {
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         transient_agent_dir: std::path::PathBuf::new(),
         default_code_puppy_yolo: None,
+        default_llxprt_mode_flags: Vec::new(),
         transient_max_concurrent: 0,
         default_llxprt_version: None,
         agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
