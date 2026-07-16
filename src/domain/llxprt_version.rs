@@ -25,6 +25,54 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// package name. The full npm spec is `@vybestack/llxprt-code@VERSION`.
 pub const LLXPRT_NPM_PACKAGE: &str = "@vybestack/llxprt-code";
 
+/// The PyPI package name for Code Puppy, used in uvx `--from` specs.
+///
+/// Centralized so every launch path (local and remote) uses exactly the same
+/// package name.
+pub const CODE_PUPPY_PACKAGE: &str = "code-puppy";
+
+/// User-facing sentinel meaning "latest stable release" (#337).
+///
+/// For LLxprt this maps to the npm dist-tag `latest`; for Code Puppy it
+/// produces a bare uvx `--from code-puppy` spec, letting uv resolve the
+/// newest PyPI release.
+pub const LATEST: &str = "latest";
+
+/// User-facing sentinel meaning "latest nightly build" (#337).
+///
+/// For LLxprt this maps to the npm dist-tag `nightly`; for Code Puppy it
+/// also produces a bare uvx `--from code-puppy` spec, since PyPI does not
+/// publish a separate nightly channel for `code-puppy`.
+pub const LATEST_NIGHTLY: &str = "latest nightly";
+
+/// The npm dist-tag that resolves to the latest nightly build of
+/// `@vybestack/llxprt-code`.
+const NPM_NIGHTLY_DIST_TAG: &str = "nightly";
+
+/// Return `true` when `value` (after trimming) matches the `latest` sentinel
+/// case-insensitively but is **not** `latest nightly`.
+///
+/// This is the stable-release sentinel: it means "whatever the latest
+/// published release is".
+#[must_use]
+pub fn is_latest_sentinel(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case(LATEST)
+}
+
+/// Return `true` when `value` (after trimming) matches the `latest nightly`
+/// sentinel case-insensitively.
+#[must_use]
+pub fn is_latest_nightly_sentinel(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case(LATEST_NIGHTLY)
+}
+
+/// Return `true` when `value` matches either the `latest` or `latest nightly`
+/// sentinel (case-insensitive after trim).
+#[must_use]
+pub fn is_version_sentinel(value: &str) -> bool {
+    is_latest_sentinel(value) || is_latest_nightly_sentinel(value)
+}
+
 /// A normalized, nonblank npm package version selector.
 ///
 /// Wraps an inner `String` that is guaranteed non-empty after trimming.
@@ -67,9 +115,20 @@ impl LlxprtNpmPackageSelector {
     /// The full npm package spec: `@vybestack/llxprt-code@VERSION`.
     ///
     /// Used by the launch path to build `npm exec --yes --package=SPEC`.
+    ///
+    /// The `latest nightly` sentinel maps to the npm dist-tag `nightly`
+    /// (#337): the user types "latest nightly" but npm's dist-tag is
+    /// `nightly`. The plain `latest` sentinel passes through unchanged since
+    /// npm's dist-tag is also `latest`. Explicit version strings pass
+    /// through verbatim.
     #[must_use]
     pub fn package_spec(&self) -> String {
-        format!("{LLXPRT_NPM_PACKAGE}@{}", self.selector)
+        let effective = if is_latest_nightly_sentinel(&self.selector) {
+            NPM_NIGHTLY_DIST_TAG
+        } else {
+            self.selector.as_str()
+        };
+        format!("{LLXPRT_NPM_PACKAGE}@{effective}")
     }
 }
 
@@ -95,6 +154,40 @@ pub fn llxprt_launch_source(
         },
         crate::domain::AgentKind::CodePuppy => LaunchSource::Direct,
     }
+}
+
+/// The uvx `--from` spec for a Code Puppy version string (#337).
+///
+/// Returns `None` for blank input (meaning a direct `code-puppy` binary
+/// launch, no uvx wrapper). For the `latest` or `latest nightly` sentinels,
+/// returns the bare package name `code-puppy` — uvx resolves the newest PyPI
+/// release. For an explicit version string, returns
+/// `code-puppy==VERSION`.
+///
+/// PyPI does not publish a separate nightly channel for `code-puppy`, so
+/// `latest nightly` resolves to the same bare package as `latest`.
+///
+/// This centralizes the spec so the launch planner, capability probe, and
+/// package probe all agree.
+#[must_use]
+pub fn code_puppy_uvx_from_spec(version: &str) -> Option<String> {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if is_version_sentinel(trimmed) {
+        return Some(CODE_PUPPY_PACKAGE.to_owned());
+    }
+    Some(format!("{CODE_PUPPY_PACKAGE}=={trimmed}"))
+}
+
+/// Whether a Code Puppy version string requires the uvx wrapper (#337).
+///
+/// Returns `true` for any nonblank version (including sentinels). Blank
+/// versions launch the direct `code-puppy` binary without uvx.
+#[must_use]
+pub fn code_puppy_requires_uvx(version: &str) -> bool {
+    !version.trim().is_empty()
 }
 
 /// Typed launch-source decision for an agent session.
@@ -292,5 +385,118 @@ mod tests {
         let json = serde_json::to_string(&value)
             .unwrap_or_else(|error| panic!("serialize selector: {error}"));
         assert_eq!(json, "\"0.9.0\"");
+    }
+
+    #[test]
+    fn latest_sentinel_is_recognized_case_insensitively() {
+        assert!(is_latest_sentinel("latest"));
+        assert!(is_latest_sentinel("Latest"));
+        assert!(is_latest_sentinel("LATEST"));
+        assert!(is_latest_sentinel("  latest  "));
+        // Not the nightly variant
+        assert!(!is_latest_sentinel("latest nightly"));
+        // Explicit versions are not sentinels
+        assert!(!is_latest_sentinel("0.9.0"));
+    }
+
+    #[test]
+    fn latest_nightly_sentinel_is_recognized_case_insensitively() {
+        assert!(is_latest_nightly_sentinel("latest nightly"));
+        assert!(is_latest_nightly_sentinel("Latest Nightly"));
+        assert!(is_latest_nightly_sentinel("LATEST NIGHTLY"));
+        assert!(is_latest_nightly_sentinel("  latest nightly  "));
+        // Plain latest is not nightly
+        assert!(!is_latest_nightly_sentinel("latest"));
+        // Explicit nightly version is not the sentinel
+        assert!(!is_latest_nightly_sentinel(
+            "0.10.0-nightly.260712.21cb698b6"
+        ));
+    }
+
+    #[test]
+    fn version_sentinel_predicate_covers_both() {
+        assert!(is_version_sentinel("latest"));
+        assert!(is_version_sentinel("latest nightly"));
+        assert!(is_version_sentinel("Latest"));
+        assert!(!is_version_sentinel("0.9.0"));
+        assert!(!is_version_sentinel(""));
+    }
+
+    #[test]
+    fn npm_package_spec_maps_latest_sentinel_to_latest_dist_tag() {
+        let spec = selector("latest").package_spec();
+        assert_eq!(spec, "@vybestack/llxprt-code@latest");
+    }
+
+    #[test]
+    fn npm_package_spec_maps_latest_nightly_sentinel_to_nightly_dist_tag() {
+        // The user types "latest nightly" but npm's dist-tag is "nightly"
+        let spec = selector("latest nightly").package_spec();
+        assert_eq!(spec, "@vybestack/llxprt-code@nightly");
+    }
+
+    #[test]
+    fn npm_package_spec_preserves_explicit_nightly_version() {
+        let version = "0.10.0-nightly.260712.21cb698b6";
+        let spec = selector(version).package_spec();
+        assert_eq!(spec, format!("@vybestack/llxprt-code@{version}"));
+    }
+
+    #[test]
+    fn code_puppy_uvx_spec_latest_is_bare_package() {
+        // "latest" → bare "code-puppy" (uv resolves newest PyPI release)
+        assert_eq!(
+            code_puppy_uvx_from_spec("latest"),
+            Some("code-puppy".to_owned())
+        );
+        assert_eq!(
+            code_puppy_uvx_from_spec("Latest"),
+            Some("code-puppy".to_owned())
+        );
+        assert_eq!(
+            code_puppy_uvx_from_spec("  latest  "),
+            Some("code-puppy".to_owned())
+        );
+    }
+
+    #[test]
+    fn code_puppy_uvx_spec_latest_nightly_is_bare_package() {
+        // PyPI has no nightly channel for code-puppy, so both sentinels map
+        // to the bare package name
+        assert_eq!(
+            code_puppy_uvx_from_spec("latest nightly"),
+            Some("code-puppy".to_owned())
+        );
+        assert_eq!(
+            code_puppy_uvx_from_spec("Latest Nightly"),
+            Some("code-puppy".to_owned())
+        );
+    }
+
+    #[test]
+    fn code_puppy_uvx_spec_explicit_version_is_pinned() {
+        assert_eq!(
+            code_puppy_uvx_from_spec("0.0.361"),
+            Some("code-puppy==0.0.361".to_owned())
+        );
+        assert_eq!(
+            code_puppy_uvx_from_spec("  0.0.361  "),
+            Some("code-puppy==0.0.361".to_owned())
+        );
+    }
+
+    #[test]
+    fn code_puppy_uvx_spec_blank_is_none() {
+        assert!(code_puppy_uvx_from_spec("").is_none());
+        assert!(code_puppy_uvx_from_spec("   ").is_none());
+    }
+
+    #[test]
+    fn code_puppy_requires_uvx_for_nonblank_versions() {
+        assert!(code_puppy_requires_uvx("latest"));
+        assert!(code_puppy_requires_uvx("latest nightly"));
+        assert!(code_puppy_requires_uvx("0.0.361"));
+        assert!(!code_puppy_requires_uvx(""));
+        assert!(!code_puppy_requires_uvx("  "));
     }
 }

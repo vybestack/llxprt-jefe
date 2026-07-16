@@ -363,7 +363,7 @@ pub fn require_launch_package_available(
     signature: &LaunchSignature,
 ) -> Result<(), super::RuntimeError> {
     if signature.agent_kind == crate::domain::AgentKind::CodePuppy
-        && !signature.code_puppy_version.trim().is_empty()
+        && crate::domain::code_puppy_requires_uvx(&signature.code_puppy_version)
     {
         return super::capabilities::validate_code_puppy_launch(signature);
     }

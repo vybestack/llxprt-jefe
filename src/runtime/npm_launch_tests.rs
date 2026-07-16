@@ -261,3 +261,33 @@ fn windows_noncanonical_npm_cmd_is_rejected_before_command_construction() {
         .unwrap_or_else(|| panic!("noncanonical npm wrapper must fail"));
     assert!(error.to_string().contains("official Node.js layout"));
 }
+
+#[test]
+fn latest_sentinel_produces_npm_latest_dist_tag_spec() {
+    let plan = local_launch_plan(&signature(Some("latest")));
+    assert_eq!(plan.executable, AgentExecutableTarget::Npm);
+    // npm resolves @vybestack/llxprt-code@latest natively
+    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@latest");
+}
+
+#[test]
+fn latest_nightly_sentinel_produces_npm_nightly_dist_tag_spec() {
+    // User types "latest nightly", npm dist-tag is "nightly"
+    let plan = local_launch_plan(&signature(Some("latest nightly")));
+    assert_eq!(plan.executable, AgentExecutableTarget::Npm);
+    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@nightly");
+}
+
+#[test]
+fn latest_sentinel_remote_uses_latest_dist_tag() {
+    let plan = remote_launch_argv(&signature(Some("latest")), None)
+        .unwrap_or_else(|error| panic!("latest remote plan: {error}"));
+    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@latest");
+}
+
+#[test]
+fn latest_nightly_sentinel_remote_uses_nightly_dist_tag() {
+    let plan = remote_launch_argv(&signature(Some("latest nightly")), None)
+        .unwrap_or_else(|error| panic!("nightly remote plan: {error}"));
+    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@nightly");
+}

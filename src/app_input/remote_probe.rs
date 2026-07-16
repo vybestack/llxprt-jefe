@@ -402,7 +402,7 @@ fn require_signature_available(
             .map_err(|error| error.to_string());
     }
     if signature.agent_kind == AgentKind::CodePuppy
-        && !signature.code_puppy_version.trim().is_empty()
+        && jefe::domain::code_puppy_requires_uvx(&signature.code_puppy_version)
     {
         return match target {
             WorkTarget::Local => jefe::runtime::require_launch_package_available(signature)

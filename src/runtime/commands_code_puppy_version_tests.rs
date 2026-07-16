@@ -151,3 +151,93 @@ fn pinned_remote_launch_bypasses_global_code_puppy_resolution() {
     assert!(command.contains("code-puppy==0.0.361"));
     assert!(!command.contains("command -v code-puppy"));
 }
+
+#[test]
+fn code_puppy_latest_sentinel_produces_bare_uvx_package_spec() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "latest".to_owned();
+    let plan = local_launch_plan(&signature);
+    assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
+    // Bare package — no "==latest" suffix, which uv would reject
+    assert_eq!(
+        plan.args,
+        vec![
+            "--from",
+            "code-puppy",
+            "code-puppy",
+            "-i",
+            "--yolo",
+            "false",
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_latest_sentinel_case_insensitive_produces_bare_spec() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "Latest".to_owned();
+    let plan = local_launch_plan(&signature);
+    assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
+    assert_eq!(plan.args[1], "code-puppy");
+}
+
+#[test]
+fn code_puppy_latest_nightly_sentinel_produces_bare_uvx_package_spec() {
+    // PyPI has no nightly channel for code-puppy, so both sentinels resolve
+    // to the bare package name
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "latest nightly".to_owned();
+    let plan = local_launch_plan(&signature);
+    assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
+    assert_eq!(
+        plan.args,
+        vec![
+            "--from",
+            "code-puppy",
+            "code-puppy",
+            "-i",
+            "--yolo",
+            "false",
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_latest_sentinel_remote_uses_bare_package_spec() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "latest".to_owned();
+    signature.remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "builder".to_owned(),
+        host: "example.test".to_owned(),
+        ..crate::domain::RemoteRepositorySettings::default()
+    };
+    let command = build_remote_launch_command("latest", &signature.work_dir, &signature)
+        .unwrap_or_else(|error| panic!("latest remote command: {error}"));
+    assert!(command.contains("uvx"));
+    assert!(command.contains("code-puppy"));
+    // No "==" suffix — bare package for sentinel
+    assert!(!command.contains("code-puppy=="));
+}
+
+#[test]
+fn code_puppy_latest_nightly_sentinel_remote_uses_bare_package_spec() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_version = "latest nightly".to_owned();
+    signature.remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "builder".to_owned(),
+        host: "example.test".to_owned(),
+        ..crate::domain::RemoteRepositorySettings::default()
+    };
+    let command = build_remote_launch_command("nightly", &signature.work_dir, &signature)
+        .unwrap_or_else(|error| panic!("nightly remote command: {error}"));
+    assert!(command.contains("uvx"));
+    assert!(command.contains("code-puppy"));
+    assert!(!command.contains("code-puppy=="));
+}

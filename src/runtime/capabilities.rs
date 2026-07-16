@@ -57,7 +57,7 @@ pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), Run
     if signature.agent_kind != AgentKind::CodePuppy {
         return Ok(());
     }
-    let pinned = !signature.code_puppy_version.trim().is_empty();
+    let pinned = crate::domain::code_puppy_requires_uvx(&signature.code_puppy_version);
     if !pinned && signature.code_puppy_yolo.is_none() {
         return Ok(());
     }
@@ -92,22 +92,21 @@ pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), Run
 }
 
 fn code_puppy_help_probe(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
-    let version = signature.code_puppy_version.trim();
-    if version.is_empty() {
-        return (
+    match crate::domain::code_puppy_uvx_from_spec(&signature.code_puppy_version) {
+        None => (
             AgentExecutableTarget::Agent(AgentKind::CodePuppy),
             vec!["--help".to_owned()],
-        );
+        ),
+        Some(from_spec) => (
+            AgentExecutableTarget::Uvx,
+            vec![
+                "--from".to_owned(),
+                from_spec,
+                AgentKind::CodePuppy.binary_name().to_owned(),
+                "--help".to_owned(),
+            ],
+        ),
     }
-    (
-        AgentExecutableTarget::Uvx,
-        vec![
-            "--from".to_owned(),
-            format!("code-puppy=={version}"),
-            AgentKind::CodePuppy.binary_name().to_owned(),
-            "--help".to_owned(),
-        ],
-    )
 }
 
 fn probe_command_label(target: AgentExecutableTarget, args: &[String]) -> String {
@@ -310,5 +309,24 @@ mod tests {
     fn llxprt_and_legacy_code_puppy_do_not_require_yolo_probe() {
         assert!(validate_code_puppy_launch(&signature(AgentKind::Llxprt, Some(true))).is_ok());
         assert!(validate_code_puppy_launch(&signature(AgentKind::CodePuppy, None)).is_ok());
+    }
+
+    #[test]
+    fn latest_sentinel_help_probe_uses_bare_uvx_package() {
+        let mut sentinel = signature(AgentKind::CodePuppy, Some(true));
+        sentinel.code_puppy_version = "latest".to_owned();
+        let (target, args) = code_puppy_help_probe(&sentinel);
+        assert_eq!(target, super::super::AgentExecutableTarget::Uvx);
+        // Bare package — no "==latest" suffix
+        assert_eq!(args, vec!["--from", "code-puppy", "code-puppy", "--help"]);
+    }
+
+    #[test]
+    fn latest_nightly_sentinel_help_probe_uses_bare_uvx_package() {
+        let mut sentinel = signature(AgentKind::CodePuppy, Some(true));
+        sentinel.code_puppy_version = "latest nightly".to_owned();
+        let (target, args) = code_puppy_help_probe(&sentinel);
+        assert_eq!(target, super::super::AgentExecutableTarget::Uvx);
+        assert_eq!(args, vec!["--from", "code-puppy", "code-puppy", "--help"]);
     }
 }

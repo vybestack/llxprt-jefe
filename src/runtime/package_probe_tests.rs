@@ -195,3 +195,27 @@ fn local_boundary_classifies_missing_nonzero_and_timeout() {
         Err(NpmPackageAvailabilityError::ProbeFailure { .. })
     ));
 }
+
+#[test]
+fn latest_sentinel_probe_targets_npm_latest_dist_tag() {
+    let plan = local_probe_arguments(&selector("latest"));
+    assert_eq!(
+        plan,
+        vec!["view", "--json", "@vybestack/llxprt-code@latest", "version"]
+    );
+}
+
+#[test]
+fn latest_nightly_sentinel_probe_targets_npm_nightly_dist_tag() {
+    // "latest nightly" sentinel maps to npm dist-tag "nightly"
+    let plan = local_probe_arguments(&selector("latest nightly"));
+    assert_eq!(
+        plan,
+        vec![
+            "view",
+            "--json",
+            "@vybestack/llxprt-code@nightly",
+            "version"
+        ]
+    );
+}
