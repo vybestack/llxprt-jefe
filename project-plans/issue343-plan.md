@@ -70,7 +70,11 @@ records enough provenance to detect stale committed assets.
   `docs/assets/`.
 - Delivery evidence: this plan.
 
-Target: at most 8 changed files and below 800 net changed lines.
+Initial target: at most 8 changed files and below 800 net changed lines.
+Final scope review: 6 files and 835 net lines before this ledger update. The
+small estimate overage is accepted because bounded transactional rollback and
+its behavioral coverage were inseparable review fixes; this remains well below
+the repository target of 25 files and 1,500 net lines.
 
 ## Scope ledger
 
@@ -85,6 +89,9 @@ Target: at most 8 changed files and below 800 net changed lines.
 | PR OCR suggested making the issue-specific capture script user-configurable | Reject | A custom capture implementation conflicts with the accepted fixed first-agent workflow and risks reviving the explicitly excluded generalized capture platform |
 | PR OCR identified a magic simulated-failure exit code and weak fixture-parent diagnostics | In-scope—Fix | Used the conventional failure status and included the invariant path in the panic message |
 | PR OCR suggested replacing asserted diagnostics with structured markers | Reject | Clear failure diagnostics are an explicit acceptance criterion, so their identifying phrases are intentional observable behavior rather than incidental implementation text |
+| PR OCR found locale-dependent fingerprint sorting and weak nonempty provenance assertions | In-scope—Fix | Forced C-locale ordering and verified both provenance values contain data |
+| PR OCR assumed the promotion lock should be a regular file | Reject | The script intentionally uses atomic directory creation as the portable lock operation, and the passing test accurately exercises that contract |
+| PR OCR identified a signal window between lock acquisition and trap installation | Reject | Installing cleanup before successful acquisition could remove another process's lock; the existing ordering establishes ownership before cleanup and documents recovery from uncatchable interruption |
 
 No unapproved scope changes.
 
@@ -93,12 +100,13 @@ No unapproved scope changes.
 - Open Code Review before PR: 2 / 2 attempted; both external OCR invocations
   were terminated without producing output, so no findings were available to
   triage.
-- Open Code Review after PR: 2 / 2; sixteen findings were classified
+- Open Code Review after PR: 2 / 2; eighteen findings were classified
   In-scope—Fix and remediated. Timeout-process management, manifest-key
-  generalization, configurable capture implementation, and replacing contracted
-  diagnostics with structured markers were rejected under the bounded scope
-  rules. Additional automated reruns were workflow-triggered by pushes; no
-  manual review beyond the cap was requested.
+  generalization, configurable capture implementation, replacing contracted
+  diagnostics, changing the directory-lock contract, and unsafe pre-acquisition
+  cleanup were rejected under the bounded scope rules. Additional automated
+  reruns were workflow-triggered by pushes; no manual review beyond the cap was
+  requested.
 
 ## Verification evidence
 

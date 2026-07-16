@@ -42,7 +42,7 @@ source_fingerprint() {
     files=$(git -C "$REPO_ROOT" ls-files -- $CONTRACT_PATHS)
     [ -n "$files" ] || fail "no tracked first-agent source contract files found"
     {
-        printf '%s\n' "$files" | sort | while IFS= read -r file; do
+        printf '%s\n' "$files" | LC_ALL=C sort | while IFS= read -r file; do
             object=$(git -C "$REPO_ROOT" hash-object -- "$file")
             printf '%s  %s\n' "$object" "$file"
         done

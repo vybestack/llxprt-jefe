@@ -202,8 +202,15 @@ fn regeneration_promotes_only_selected_assets_and_records_provenance() {
     .unwrap_or_else(|error| panic!("read provenance: {error}"));
     assert!(provenance.contains("format_version=1"));
     assert!(provenance.contains("source_version=jefe 9.9.9-fixture"));
-    assert!(provenance.contains("source_commit="));
-    assert!(provenance.contains("source_fingerprint="));
+    for key in ["source_commit", "source_fingerprint"] {
+        let prefix = format!("{key}=");
+        assert!(
+            provenance.lines().any(|line| line
+                .strip_prefix(&prefix)
+                .is_some_and(|value| !value.is_empty())),
+            "provenance must record a nonempty {key}"
+        );
+    }
     for asset in ASSETS {
         assert!(provenance.contains(&format!("asset={asset}:")));
     }
