@@ -311,8 +311,11 @@ fn repository_form_toggles_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Base Dir
     state = state.apply(AppEvent::FormNextField); // Default Profile
-    state = state.apply(AppEvent::FormNextField); // Default LLxprt Version
     state = state.apply(AppEvent::FormNextField); // Default Agent Kind (hidden Code Puppy model skipped)
+    state = state.apply(AppEvent::FormNextField); // Default LLxprt Version
+    state = state.apply(AppEvent::FormNextField); // Transient Agent Dir
+    state = state.apply(AppEvent::FormNextField); // Default Code Puppy Yolo
+    state = state.apply(AppEvent::FormNextField); // Transient Max Concurrent
     state = state.apply(AppEvent::FormNextField); // GitHub Repo
     state = state.apply(AppEvent::FormNextField); // Issues / PRs Repo
     state = state.apply(AppEvent::FormNextField); // RemoteEnabled

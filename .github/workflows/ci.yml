@@ -253,23 +253,50 @@ jobs:
             --out-dir $artifacts 2>&1 |
             Tee-Object -FilePath target/windows-ci/tui-startup.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify renderer viewport edges without full redraws
+        shell: pwsh
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP 'jefe renderer config'
+          $working = Join-Path $env:RUNNER_TEMP 'jefe renderer working directory'
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-renderer'
+          New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
+          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
+          $jefe = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe.exe'
+          & $harness `
+            --scenario dev-docs/tmux-scenarios/windows-renderer-viewport.json `
+            --jefe-bin $jefe `
+            --config $config `
+            --working-dir $working `
+            --session "jefe-renderer-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --out-dir $artifacts 2>&1 |
+            Tee-Object -FilePath target/windows-ci/tui-renderer.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Record remaining owned psmux sessions
         if: always()
         continue-on-error: true
         shell: pwsh
         run: |
           $remaining = 'target/windows-ci/remaining-sessions.txt'
-          'No harness namespace was recorded.' | Out-File $remaining
-          $details = 'target/tmux-harness/windows-startup/multiplexer.txt'
-          if (Test-Path $details) {
-            $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
-            if ($null -ne $match) {
-              $namespace = $match.Matches[0].Groups[1].Value
-              $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
-              $status = $LASTEXITCODE
-              @("namespace: $namespace", "status: $status") + $output |
-                Out-File $remaining
+          $recordedNamespace = $false
+          $detailsFiles = @(
+            'target/tmux-harness/windows-startup/multiplexer.txt',
+            'target/tmux-harness/windows-renderer/multiplexer.txt'
+          )
+          foreach ($details in $detailsFiles) {
+            if (Test-Path $details) {
+              $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
+              if ($null -ne $match) {
+                $recordedNamespace = $true
+                $namespace = $match.Matches[0].Groups[1].Value
+                $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
+                $status = $LASTEXITCODE
+                @("namespace: $namespace", "status: $status") + $output |
+                  Out-File $remaining -Append
+              }
             }
+          }
+          if (-not $recordedNamespace) {
+            'No harness namespace was recorded.' | Out-File $remaining
           }
           exit 0
       - name: Upload native Windows diagnostics

@@ -108,9 +108,13 @@ impl AppState {
         }
     }
 
-    pub(super) fn create_repository_from_fields(
+    /// Validate repository form fields shared by create and update paths.
+    ///
+    /// Returns `(trimmed_name, slug, remote_settings)` on success, or `None`
+    /// (after logging the rejection reason) when validation fails.
+    fn validate_repository_fields(
         fields: &RepositoryFormFields,
-    ) -> Option<Repository> {
+    ) -> Option<(String, String, RemoteRepositorySettings)> {
         let trimmed_name = fields.name.trim();
         if trimmed_name.is_empty() {
             return None;
@@ -124,7 +128,7 @@ impl AppState {
         if !Self::validate_github_repo(&fields.github_repo) {
             warn!(
                 github_repo = %fields.github_repo,
-                "rejecting repository create: github_repo must be 'owner/repo' or empty"
+                "rejecting repository: github_repo must be 'owner/repo' or empty"
             );
             return None;
         }
@@ -133,12 +137,20 @@ impl AppState {
             warn!(
                 github_issue_pr_repo = %fields.github_issue_pr_repo,
                 error = %error,
-                "rejecting repository create: github_issue_pr_repo must be 'owner/repo' or empty"
+                "rejecting repository: github_issue_pr_repo must be 'owner/repo' or empty"
             );
             return None;
         }
 
         let remote_settings = Self::validated_remote_settings(fields)?;
+
+        Some((trimmed_name.to_owned(), slug, remote_settings))
+    }
+
+    pub(super) fn create_repository_from_fields(
+        fields: &RepositoryFormFields,
+    ) -> Option<Repository> {
+        let (trimmed_name, slug, remote_settings) = Self::validate_repository_fields(fields)?;
 
         let trimmed_base_dir = fields.base_dir.trim();
         let base_dir = if trimmed_base_dir.is_empty() {
@@ -161,7 +173,7 @@ impl AppState {
 
         Some(Repository {
             id: RepositoryId(generate_id("repo")),
-            name: trimmed_name.to_owned(),
+            name: trimmed_name,
             slug,
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
@@ -172,6 +184,11 @@ impl AppState {
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
                 .unwrap_or_default(),
+            transient_agent_dir: parse_transient_agent_dir(&fields.transient_agent_dir),
+            default_code_puppy_yolo: fields.default_code_puppy_yolo.then_some(true),
+            transient_max_concurrent: parse_transient_max_concurrent(
+                &fields.transient_max_concurrent,
+            ),
             default_llxprt_version: crate::domain::LlxprtNpmPackageSelector::normalize(
                 &fields.default_llxprt_version,
             ),
@@ -183,35 +200,9 @@ impl AppState {
         repo: &mut Repository,
         fields: &RepositoryFormFields,
     ) -> bool {
-        let trimmed_name = fields.name.trim();
-        let slug = form_runtime::repository_slug_from_name(trimmed_name);
-        if trimmed_name.is_empty() || slug.is_empty() {
+        let Some((trimmed_name, slug, remote_settings)) = Self::validate_repository_fields(fields)
+        else {
             return false;
-        }
-
-        if !Self::validate_github_repo(&fields.github_repo) {
-            warn!(
-                github_repo = %fields.github_repo,
-                "rejecting repository update: github_repo must be 'owner/repo' or empty"
-            );
-            return false;
-        }
-
-        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
-            warn!(
-                github_issue_pr_repo = %fields.github_issue_pr_repo,
-                error = %error,
-                "rejecting repository update: github_issue_pr_repo must be 'owner/repo' or empty"
-            );
-            return false;
-        }
-
-        let remote_settings = match Self::remote_settings_from_fields(fields) {
-            Ok(settings) => settings,
-            Err(error) => {
-                warn!(error = %error, "rejecting repository update: invalid remote config");
-                return false;
-            }
         };
 
         trimmed_name.clone_into(&mut repo.name);
@@ -231,6 +222,7 @@ impl AppState {
             .default_code_puppy_model
             .trim()
             .clone_into(&mut repo.default_code_puppy_model);
+        repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         repo.default_llxprt_version =
@@ -241,6 +233,9 @@ impl AppState {
             .trim()
             .clone_into(&mut repo.github_issue_pr_repo);
         repo.remote = remote_settings;
+        repo.transient_agent_dir = parse_transient_agent_dir(&fields.transient_agent_dir);
+        repo.transient_max_concurrent =
+            parse_transient_max_concurrent(&fields.transient_max_concurrent);
         true
     }
 
@@ -346,4 +341,39 @@ impl AppState {
             .unwrap_or_default();
         agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
     }
+}
+/// Parse the transient agent directory from form input (issue #213).
+///
+/// An empty or whitespace-only string yields an empty `PathBuf` (meaning
+/// "use /tmp" via [`Repository::effective_transient_dir`]). Tilde is
+/// expanded for local repositories.
+///
+/// Paths containing `..` components are rejected (treated as empty) to
+/// prevent directory traversal escaping the intended transient-agent
+/// boundary (issue #213 OCR fix).
+fn parse_transient_agent_dir(value: &str) -> std::path::PathBuf {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return std::path::PathBuf::new();
+    }
+    let expanded = expand_tilde(trimmed);
+    if std::path::Path::new(&expanded)
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return std::path::PathBuf::new();
+    }
+    std::path::PathBuf::from(expanded)
+}
+
+/// Parse the transient max-concurrent setting from form input (issue #213).
+///
+/// An empty string or "0" yields 0 (meaning "no limit"). A non-numeric
+/// value also yields 0 to avoid rejecting the form over a typo.
+fn parse_transient_max_concurrent(value: &str) -> u32 {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    trimmed.parse::<u32>().unwrap_or(0)
 }

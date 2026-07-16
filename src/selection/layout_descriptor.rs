@@ -133,4 +133,11 @@ impl ScreenLayout {
     pub fn is_actions_mode(self) -> bool {
         matches!(self.screen_mode, ScreenMode::DashboardActions)
     }
+
+    /// Whether this layout is for Errors mode (affects pane identity, not
+    /// geometry — Errors shares the Issues/PR list+detail split). Issue #292.
+    #[must_use]
+    pub fn is_errors_mode(self) -> bool {
+        matches!(self.screen_mode, ScreenMode::DashboardErrors)
+    }
 }

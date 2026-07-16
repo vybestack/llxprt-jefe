@@ -127,6 +127,7 @@ fn test_send_to_agent_no_eligible_clears_stale_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
+        transient_available: false,
         agents: vec![AgentChooserEntry::simple("stale", "Stale")],
     });
 

@@ -27,6 +27,7 @@
 mod actions_content;
 mod content;
 mod dashboard_content;
+mod errors_content;
 mod form_content;
 mod geometry;
 mod gesture;

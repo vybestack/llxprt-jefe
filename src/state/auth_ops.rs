@@ -42,7 +42,11 @@ impl AppState {
             SystemMessage::AuthCancelled => self.auth_cancelled(),
             SystemMessage::AuthRetry => self.auth_retry(),
             // Non-auth system messages are handled by the caller.
-            SystemMessage::Quit | SystemMessage::ClearError | SystemMessage::ClearWarning => {}
+            SystemMessage::Quit
+            | SystemMessage::ClearError
+            | SystemMessage::ClearWarning
+            | SystemMessage::TransientAgentQueued { .. }
+            | SystemMessage::TransientAgentDequeued => {}
         }
     }
 

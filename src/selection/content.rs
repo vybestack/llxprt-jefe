@@ -121,6 +121,8 @@ pub fn pane_content_lines_with_context(
         SelectablePane::ActionsDetail => {
             super::actions_content::actions_detail_lines(state, render_cols, render_rows)
         }
+        SelectablePane::ErrorList => super::errors_content::error_list_lines(state, render_cols),
+        SelectablePane::ErrorDetail => super::errors_content::error_detail_lines(state),
         SelectablePane::Sidebar => sidebar_lines(state, render_cols, render_rows),
         SelectablePane::AgentList => super::dashboard_content::agent_list_lines(
             state,
@@ -397,7 +399,9 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 }
 
 /// Keybind bar line that matches the rendered hint text for the active screen
-/// mode, reusing the pure [`keybind_hints_for`] projection.
+/// mode, reusing the pure [`keybind_hints_for`] projection. The right-aligned
+/// process-identity label (pid + commit) is appended so mouse-selection copy
+/// captures it (issue #223).
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let actions_focus =
         (state.screen_mode == ScreenMode::DashboardActions).then_some(state.actions_state.focus);
@@ -406,7 +410,12 @@ fn keybind_bar_lines(state: &AppState) -> PaneContent {
         false,
         actions_focus,
     );
-    PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
+    let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);
+    // The rendered bar uses SpaceBetween so the identity sits on the far
+    // right. For the flat selection text, append it with a separator so the
+    // full row is captureable in one string.
+    let line = format!("{hints}   {identity}");
+    PaneContent::new(SelectablePane::KeybindBar, vec![line])
 }
 
 // ── Issue #178: overlay content providers (delegated to submodules) ──────

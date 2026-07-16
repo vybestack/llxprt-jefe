@@ -120,6 +120,7 @@ impl AppState {
                 base_dir: r.base_dir.to_string_lossy().into_owned(),
                 default_profile: r.default_profile.clone(),
                 default_code_puppy_model: r.default_code_puppy_model.clone(),
+                default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
                 default_llxprt_version: r.default_llxprt_version.as_ref().map_or_else(
                     String::new,
                     |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
@@ -138,6 +139,8 @@ impl AppState {
                 ssh_options: r.remote.options.join(" "),
                 run_as_user: r.remote.run_as_user.clone(),
                 setup_env_default: r.remote.setup_env_default,
+                transient_agent_dir: r.transient_agent_dir.to_string_lossy().into_owned(),
+                transient_max_concurrent: r.transient_max_concurrent.to_string(),
             })
             .unwrap_or_default();
         self.modal = ModalState::EditRepository {
@@ -156,6 +159,8 @@ impl AppState {
                 identity_file: fields.identity_file.chars().count(),
                 ssh_options: fields.ssh_options.chars().count(),
                 run_as_user: fields.run_as_user.chars().count(),
+                transient_agent_dir: fields.transient_agent_dir.chars().count(),
+                transient_max_concurrent: fields.transient_max_concurrent.chars().count(),
             },
             fields,
             focus: RepositoryFormFocus::default(),

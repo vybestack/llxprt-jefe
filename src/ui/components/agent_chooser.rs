@@ -17,6 +17,8 @@ pub struct AgentChooserProps {
     pub visible: bool,
     /// Typed entries for available agents.
     pub agents: Vec<AgentChooserEntry>,
+    /// Whether the transient-agent slot is available (issue #213).
+    pub transient_available: bool,
     /// Currently highlighted agent index.
     pub selected_index: usize,
     /// Theme colors.
@@ -71,7 +73,7 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
     ));
 
     // Agent list or empty state
-    if props.agents.is_empty() {
+    if props.agents.is_empty() && !props.transient_available {
         lines.push(selectable_line(
             "No agents available. Create an agent in Agents Mode.",
             {
@@ -105,6 +107,25 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
             let color = if selected { rc.bright } else { rc.fg };
             lines.push(selectable_line(
                 &display,
+                {
+                    let li = line_idx;
+                    line_idx += 1;
+                    li
+                },
+                selection,
+                pane,
+                color,
+                sel,
+            ));
+        }
+        if props.transient_available {
+            let transient_idx = props.agents.len();
+            let selected = transient_idx == props.selected_index;
+            let marker = if selected { "(x)" } else { "( )" };
+            let label = format!("{marker} Transient Agent");
+            let color = if selected { rc.bright } else { rc.fg };
+            lines.push(selectable_line(
+                &label,
                 {
                     let li = line_idx;
                     line_idx += 1;

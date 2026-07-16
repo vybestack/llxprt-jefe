@@ -213,6 +213,7 @@ fn issue_send_state(repo: Repository) -> AppState {
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         }),
         ..IssuesState::default()
     };

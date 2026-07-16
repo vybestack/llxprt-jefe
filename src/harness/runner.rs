@@ -17,7 +17,9 @@ use super::capture::{PaneStatus, ScreenCapture, ScrollbackSample};
 use super::config::AssertMode;
 use super::error::ScenarioError;
 use super::expand_macros;
-use super::matchers::{MatchPattern, history_delta, screen_contains, screen_count};
+use super::matchers::{
+    MatchPattern, history_delta, screen_contains, screen_count, screen_right_edge,
+};
 use super::scenario::Scenario;
 use super::step::Step;
 use super::tmux_driver::{
@@ -325,6 +327,9 @@ fn execute_step<D: HarnessDriver>(
             wait_for_pattern(index, step, driver, context, pattern, false)
         }
         Step::Expect { pattern } => expect_screen(index, step, driver, context, pattern),
+        Step::ExpectRightEdge { pattern } => {
+            expect_right_edge(index, step, driver, context, pattern)
+        }
         Step::ExpectCount { pattern, count } => {
             expect_count(index, step, driver, context, pattern, *count)
         }
@@ -412,6 +417,24 @@ fn expect_screen<D: HarnessDriver>(
         step,
         outcome.matched,
         format!("expected screen to contain '{pattern}'"),
+    )
+}
+
+fn expect_right_edge<D: HarnessDriver>(
+    index: usize,
+    step: &Step,
+    driver: &mut D,
+    context: &mut RunContext,
+    pattern: &str,
+) -> Result<(), RunnerError> {
+    let capture = driver.capture_screen().map_err(driver_error)?;
+    let outcome = screen_right_edge(&capture, MatchPattern::literal(pattern));
+    handle_assertion(
+        context,
+        index,
+        step,
+        outcome.matched,
+        format!("expected a full-width screen line to end with '{pattern}'"),
     )
 }
 
@@ -630,6 +653,7 @@ fn step_kind(step: &Step) -> String {
         Step::WaitFor { .. } => "waitFor",
         Step::WaitForNot { .. } => "waitForNot",
         Step::Expect { .. } => "expect",
+        Step::ExpectRightEdge { .. } => "expectRightEdge",
         Step::ExpectCount { .. } => "expectCount",
         Step::Capture { .. } => "capture",
         Step::HistorySample { .. } => "historySample",

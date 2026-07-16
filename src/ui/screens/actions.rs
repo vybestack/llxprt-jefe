@@ -134,6 +134,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
+                last_error: state.and_then(AppState::last_error_title),
                 colors: colors.clone(),
                 selection: selection,
             )
@@ -237,6 +238,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 screen_mode: state.map_or(ScreenMode::DashboardActions, |s| s.screen_mode),
                 terminal_focused: false,
                 actions_focus: Some(actions_focus),
+                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )
         }

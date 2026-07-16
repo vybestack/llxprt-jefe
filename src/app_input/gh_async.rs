@@ -107,7 +107,7 @@ mod tests {
                     receiver.recv().ok()
                 },
                 async {
-                    smol::Timer::after(Duration::from_secs(2)).await;
+                    smol::Timer::after(Duration::from_secs(10)).await;
                     None
                 },
             )

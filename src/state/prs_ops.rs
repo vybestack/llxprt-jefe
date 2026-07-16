@@ -434,8 +434,8 @@ impl AppState {
             }
             AppEvent::PrAgentChooserNavigateDown => {
                 if let Some(chooser) = &mut self.prs_state.agent_chooser {
-                    let max = chooser.agents.len().saturating_sub(1);
-                    if chooser.selected_index < max {
+                    let max = chooser.agents.len() + usize::from(chooser.transient_available);
+                    if max > 0 && chooser.selected_index + 1 < max {
                         chooser.selected_index += 1;
                     }
                 }
@@ -467,14 +467,17 @@ impl AppState {
         let repo_id = self.selected_repository_id().cloned();
         let entries =
             crate::state::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
-        if entries.is_empty() {
+        let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
+        if entries.is_empty() && !transient_available {
             self.prs_state.agent_chooser = None;
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }
+        self.prs_state.draft_notice = None;
         self.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents: entries,
+            transient_available,
         });
     }
 

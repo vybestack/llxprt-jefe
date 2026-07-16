@@ -173,6 +173,50 @@ impl AppState {
             .is_some_and(|r| r.remote.enabled);
         repo_remote || self.installed_agent_kinds.contains(&agent.agent_kind)
     }
+
+    /// Whether the transient-agent slot should be available for a repository
+    /// (issue #213).
+    ///
+    /// The transient slot is available when:
+    /// - The repository has a nonblank `github_repo` (needed for cloning), and
+    /// - At least one agent kind is installed (or the repo is remote-enabled,
+    ///   where PATH resolution is authoritative).
+    #[must_use]
+    pub fn is_transient_available_for_repo(&self, repo_id: Option<&RepositoryId>) -> bool {
+        let Some(repo) = repo_id.and_then(|rid| self.repository_by_id(rid)) else {
+            return false;
+        };
+        if repo.github_repo.trim().is_empty() {
+            return false;
+        }
+        // Remote-enabled repos can always run agents; local repos need the
+        // repository's default_agent_kind to be installed.
+        repo.remote.enabled
+            || self
+                .installed_agent_kinds
+                .contains(&repo.default_agent_kind)
+    }
+
+    /// Count running transient agents for a repository (issue #213).
+    ///
+    /// Used by the send orchestration to check whether `transient_max_concurrent`
+    /// has been reached.
+    #[must_use]
+    pub fn running_transient_count(&self, repo_id: &RepositoryId) -> usize {
+        self.agents
+            .iter()
+            .filter(|a| a.is_transient() && a.repository_id == *repo_id && a.is_running())
+            .count()
+    }
+
+    /// Last error title for status-bar display (issue #292).
+    ///
+    /// Centralizes the `last_error().map(|e| e.title.clone())` lookup so all
+    /// screen files share one source of truth.
+    #[must_use]
+    pub fn last_error_title(&self) -> Option<String> {
+        self.errors_state.last_error().map(|e| e.title.clone())
+    }
 }
 
 /// Build typed chooser entries by joining state-computed eligible agents with

@@ -23,6 +23,9 @@ mod actions_conversion;
 mod prs_conversion;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
+mod errors;
+mod errors_conversion;
+pub use errors::ErrorsMessage;
 
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
@@ -44,6 +47,7 @@ pub enum MessageDomain {
     /// @requirement REQ-PR-001
     PullRequests,
     Actions,
+    Errors,
     System,
 }
 
@@ -818,6 +822,12 @@ pub enum SystemMessage {
     AuthCancelled,
     /// User requested a retry of the auth flow.
     AuthRetry,
+    /// A transient agent send was queued (issue #213).
+    TransientAgentQueued {
+        queue_position: usize,
+    },
+    /// A transient agent was dequeued and is being launched (issue #213).
+    TransientAgentDequeued,
 }
 
 /// Top-level typed message routed by the bus.
@@ -834,6 +844,7 @@ pub enum AppMessage {
     /// @requirement REQ-PR-001
     PullRequests(PullRequestsMessage),
     Actions(ActionsMessage),
+    Errors(ErrorsMessage),
     System(SystemMessage),
 }
 
@@ -852,6 +863,7 @@ impl AppMessage {
             // @requirement REQ-PR-001
             Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::Actions(_) => MessageDomain::Actions,
+            Self::Errors(_) => MessageDomain::Errors,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -878,6 +890,7 @@ impl AppMessage {
             // @requirement REQ-PR-002
             Self::PullRequests(message) => message.name(),
             Self::Actions(message) => message.name(),
+            Self::Errors(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }

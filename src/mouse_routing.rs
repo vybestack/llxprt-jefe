@@ -756,9 +756,11 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        ScreenMode::Dashboard | ScreenMode::Split => (false, false),
+        ScreenMode::DashboardErrors | ScreenMode::Dashboard | ScreenMode::Split => (false, false),
     };
-    let error_visible = state.error_message.is_some() || mode_error;
+    let error_visible = (state.error_message.is_some()
+        && !matches!(state.screen_mode, ScreenMode::DashboardErrors))
+        || mode_error;
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
         .with_overlay(active_overlay_for(state))
 }

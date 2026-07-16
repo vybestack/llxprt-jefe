@@ -75,6 +75,7 @@ fn state_for_issue_agent_chooser_send(
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         }),
         ..jefe::state::IssuesState::default()
     };
