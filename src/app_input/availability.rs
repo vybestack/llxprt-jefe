@@ -70,7 +70,8 @@ pub(super) fn require_launch_available(
     available: &[AgentKind],
 ) -> Result<(), String> {
     if jefe::domain::llxprt_launch_source(kind, selector).requires_npm()
-        || (kind == AgentKind::CodePuppy && !code_puppy_version.trim().is_empty())
+        || (kind == AgentKind::CodePuppy
+            && jefe::domain::code_puppy_requires_uvx(code_puppy_version))
     {
         if jefe::domain::target::is_valid_remote(remote) || !remote.enabled {
             return Ok(());

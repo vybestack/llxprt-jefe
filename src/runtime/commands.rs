@@ -463,12 +463,11 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
 
 fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
     let inner_args = launch_args(signature);
-    if signature.agent_kind == AgentKind::CodePuppy
-        && !signature.code_puppy_version.trim().is_empty()
+    if let Some(from_spec) = crate::domain::code_puppy_uvx_from_spec(&signature.code_puppy_version)
     {
         let mut args = vec![
             "--from".to_owned(),
-            format!("code-puppy=={}", signature.code_puppy_version.trim()),
+            from_spec,
             AgentKind::CodePuppy.binary_name().to_owned(),
         ];
         args.extend(inner_args);
@@ -616,7 +615,7 @@ fn build_remote_launch_command(
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
     let pinned_code_puppy = signature.agent_kind == AgentKind::CodePuppy
-        && !signature.code_puppy_version.trim().is_empty();
+        && crate::domain::code_puppy_requires_uvx(&signature.code_puppy_version);
     let direct_command =
         match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
             LaunchSource::Direct if !pinned_code_puppy => Some(resolve_remote_agent_command(

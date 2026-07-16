@@ -53,8 +53,10 @@ pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
 // Normalized LLxprt npm package selector.
 mod llxprt_version;
 pub use llxprt_version::{
-    LLXPRT_NPM_PACKAGE, LaunchSource, LlxprtNpmPackageSelector, deserialize_optional_selector,
-    llxprt_launch_source,
+    CODE_PUPPY_PACKAGE, LATEST, LATEST_NIGHTLY, LLXPRT_NPM_PACKAGE, LaunchSource,
+    LlxprtNpmPackageSelector, code_puppy_requires_uvx, code_puppy_uvx_from_spec,
+    deserialize_optional_selector, is_latest_nightly_sentinel, is_latest_sentinel,
+    is_version_sentinel, llxprt_launch_source,
 };
 
 // Typed send-to-agent chooser entry and pure label projection (issue #230).
