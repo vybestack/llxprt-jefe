@@ -32,6 +32,7 @@ pub(super) fn new_agent_package_probe_plan(state: &AppState) -> NewAgentPackageP
         work_dir: &fields.work_dir,
         profile: &fields.profile,
         code_puppy_model: &fields.code_puppy_model,
+        code_puppy_version: &fields.code_puppy_version,
         code_puppy_yolo: fields.code_puppy_yolo,
         code_puppy_quick_resume: fields.code_puppy_quick_resume,
         agent_kind: &fields.agent_kind,
@@ -50,6 +51,8 @@ pub(super) fn new_agent_package_probe_plan(state: &AppState) -> NewAgentPackageP
         );
     };
     if llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()).requires_npm()
+        || (signature.agent_kind == jefe::domain::AgentKind::CodePuppy
+            && !signature.code_puppy_version.is_empty())
     {
         NewAgentPackageProbePlan::Probe(Box::new(signature))
     } else {

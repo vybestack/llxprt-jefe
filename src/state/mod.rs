@@ -892,10 +892,8 @@ mod auth_ops_tests;
 #[cfg(test)]
 mod confirm_focus_tests;
 #[cfg(test)]
-#[path = "errors_tests.rs"]
 mod errors_tests;
 #[cfg(test)]
-#[path = "issues_test_fixtures.rs"]
 mod issues_test_fixtures;
 #[cfg(test)]
 #[path = "issues_tests.rs"]
@@ -912,6 +910,8 @@ mod issues_tests_components;
 #[cfg(test)]
 #[path = "issues_tests_composer_focus.rs"]
 mod issues_tests_composer_focus;
+#[cfg(test)]
+mod issues_tests_create;
 #[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;

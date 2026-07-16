@@ -178,6 +178,7 @@ impl AppState {
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
             default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
+            default_code_puppy_version: fields.default_code_puppy_version.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
             github_issue_pr_repo: fields.github_issue_pr_repo.trim().to_owned(),
             remote: remote_settings,
@@ -186,6 +187,7 @@ impl AppState {
                 .unwrap_or_default(),
             transient_agent_dir: parse_transient_agent_dir(&fields.transient_agent_dir),
             default_code_puppy_yolo: fields.default_code_puppy_yolo.then_some(true),
+            default_llxprt_mode_flags: parse_mode_flags(&fields.default_llxprt_mode),
             transient_max_concurrent: parse_transient_max_concurrent(
                 &fields.transient_max_concurrent,
             ),
@@ -222,7 +224,12 @@ impl AppState {
             .default_code_puppy_model
             .trim()
             .clone_into(&mut repo.default_code_puppy_model);
+        fields
+            .default_code_puppy_version
+            .trim()
+            .clone_into(&mut repo.default_code_puppy_version);
         repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
+        repo.default_llxprt_mode_flags = parse_mode_flags(&fields.default_llxprt_mode);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         repo.default_llxprt_version =
@@ -259,6 +266,7 @@ impl AppState {
             work_dir: &fields.work_dir,
             profile: &fields.profile,
             code_puppy_model: &fields.code_puppy_model,
+            code_puppy_version: &fields.code_puppy_version,
             code_puppy_yolo: fields.code_puppy_yolo,
             code_puppy_quick_resume: fields.code_puppy_quick_resume,
             agent_kind: &fields.agent_kind,
@@ -322,6 +330,10 @@ impl AppState {
             .code_puppy_model
             .trim()
             .clone_into(&mut agent.code_puppy_model);
+        fields
+            .code_puppy_version
+            .trim()
+            .clone_into(&mut agent.code_puppy_version);
         agent.code_puppy_yolo = Some(fields.code_puppy_yolo);
         agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
         agent.agent_kind =
@@ -342,6 +354,10 @@ impl AppState {
         agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
     }
 }
+fn parse_mode_flags(value: &str) -> Vec<String> {
+    value.split_whitespace().map(str::to_owned).collect()
+}
+
 /// Parse the transient agent directory from form input (issue #213).
 ///
 /// An empty or whitespace-only string yields an empty `PathBuf` (meaning

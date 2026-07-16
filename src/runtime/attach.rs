@@ -496,7 +496,11 @@ fn attach_command(
             cmd.arg(arg);
         }
         cmd.arg("attach-session");
-        cmd.arg("-t");
+        if !cfg!(windows) {
+            cmd.arg("-t");
+        }
+        // psmux 3.3.6 ignores `attach-session -t`; its positional target is
+        // resolved correctly. Upstream tmux continues to receive `-t` above.
         cmd.arg(session_name);
         cmd
     };

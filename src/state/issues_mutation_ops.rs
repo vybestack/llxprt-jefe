@@ -43,8 +43,8 @@ impl AppState {
             AppEvent::IssueCreated {
                 scope_repo_id,
                 mutation_id,
-                issue_number,
-            } => self.apply_issue_created(&scope_repo_id, mutation_id, issue_number),
+                issue,
+            } => self.apply_issue_created(&scope_repo_id, mutation_id, *issue),
             AppEvent::CommentCreated { .. }
             | AppEvent::IssueBodyUpdated { .. }
             | AppEvent::CommentUpdated { .. } => self.apply_issue_mutation_success(event),
@@ -65,17 +65,26 @@ impl AppState {
     /// late-arriving success cannot be misattributed to a repository the user
     /// has since switched to. Gating on the originally-submitted `mutation_id`
     /// and scope keeps this reducer deterministic and side-effect free.
+    ///
+    /// Issue #215: insert the created issue into the local list immediately so
+    /// the UI does not depend on a racing GitHub list reload for visibility.
     fn apply_issue_created(
         &mut self,
         scope_repo_id: &crate::domain::RepositoryId,
         mutation_id: u64,
-        issue_number: u64,
+        issue: crate::domain::Issue,
     ) -> bool {
         if !self.mutation_pending_matches(mutation_id)
             || self.selected_repository_id() != Some(scope_repo_id)
         {
             return false;
         }
+        let issue_number = issue.number;
+        if created_issue_visible_in_committed_filter(&self.issues_state.committed_filter) {
+            prepend_or_replace_created_issue(&mut self.issues_state.list, issue);
+            self.issues_state.list.set_selected_index(Some(0));
+        }
+        self.issues_state.issue_focus = super::IssueFocus::IssueList;
         self.issues_state.draft_notice = Some(format!("Created issue #{issue_number}"));
         true
     }
@@ -214,4 +223,30 @@ impl AppState {
             false
         }
     }
+}
+
+/// Whether a newly created (always-open) issue belongs in the current committed
+/// list filter. Closed-only views stay unchanged; Open/All/default show it.
+fn created_issue_visible_in_committed_filter(filter: &crate::domain::IssueFilter) -> bool {
+    !matches!(
+        filter
+            .state
+            .unwrap_or(crate::domain::IssueFilterState::Open),
+        crate::domain::IssueFilterState::Closed
+    )
+}
+
+/// Prepend `issue` to the list (or replace an existing row with the same
+/// number) so create success does not wait on a racy GitHub list reload.
+fn prepend_or_replace_created_issue(
+    list: &mut crate::state::pagination::PaginatedList<
+        crate::domain::Issue,
+        crate::state::IssueListIdentity,
+    >,
+    issue: crate::domain::Issue,
+) {
+    let mut issues = list.items().to_vec();
+    issues.retain(|existing| existing.number != issue.number);
+    issues.insert(0, issue);
+    list.replace_items(issues);
 }

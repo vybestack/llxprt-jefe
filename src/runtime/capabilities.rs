@@ -4,12 +4,16 @@
 //! command. Model entry therefore remains free text behind this boundary until
 //! upstream publishes one; do not couple Jefe to Code Puppy's private config.
 
-use std::process::Command;
+use std::ffi::OsString;
 
 use crate::domain::{AgentKind, LaunchSignature};
 
 use super::RuntimeError;
-use super::commands::{run_command_capture, run_remote_ssh};
+use super::agent_executable::{AgentExecutableResolver, AgentExecutableTarget};
+use super::agent_launcher::command_for_executable;
+use super::commands::{
+    remote_tmux_command, run_command_capture, run_remote_ssh, shell_escape_single,
+};
 
 /// Model discovery support advertised by an agent runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,16 +54,28 @@ pub fn code_puppy_help_supports_yolo(help: &str) -> bool {
 /// too old or cannot be probed; blindly passing an unsupported flag would turn
 /// a useful preflight error into a cryptic argparse failure.
 pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), RuntimeError> {
-    if signature.agent_kind != AgentKind::CodePuppy || signature.code_puppy_yolo.is_none() {
+    if signature.agent_kind != AgentKind::CodePuppy {
+        return Ok(());
+    }
+    let pinned = !signature.code_puppy_version.trim().is_empty();
+    if !pinned && signature.code_puppy_yolo.is_none() {
         return Ok(());
     }
 
+    let (target, args) = code_puppy_help_probe(signature);
+    let command_label = probe_command_label(target, &args);
     let output = if signature.remote.enabled {
-        run_remote_ssh(&signature.remote, "code-puppy --help")?
+        let command = remote_tmux_command(&signature.remote, &command_label);
+        run_remote_ssh(&signature.remote, &command)?
     } else {
-        let mut command = Command::new(AgentKind::CodePuppy.binary_name());
-        command.arg("--help");
-        run_command_capture(command, "code-puppy --help")?
+        let executable = AgentExecutableResolver::current()
+            .resolve_target(target)
+            .map_err(RuntimeError::AgentExecutable)?;
+        let arguments = args.iter().map(OsString::from).collect::<Vec<_>>();
+        run_command_capture(
+            command_for_executable(&executable, &arguments),
+            &command_label,
+        )?
     };
 
     let help = format!(
@@ -67,21 +83,73 @@ pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), Run
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    validate_code_puppy_help(output.status.success(), &help)
+    validate_code_puppy_help(
+        output.status.success(),
+        &help,
+        &command_label,
+        signature.code_puppy_yolo.is_some(),
+    )
 }
 
-fn validate_code_puppy_help(success: bool, help: &str) -> Result<(), RuntimeError> {
-    if !success {
-        return Err(RuntimeError::CapabilityProbeFailed(
-            "`code-puppy --help` exited unsuccessfully".to_owned(),
-        ));
+fn code_puppy_help_probe(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
+    let version = signature.code_puppy_version.trim();
+    if version.is_empty() {
+        return (
+            AgentExecutableTarget::Agent(AgentKind::CodePuppy),
+            vec!["--help".to_owned()],
+        );
     }
-    if code_puppy_help_supports_yolo(help) {
+    (
+        AgentExecutableTarget::Uvx,
+        vec![
+            "--from".to_owned(),
+            format!("code-puppy=={version}"),
+            AgentKind::CodePuppy.binary_name().to_owned(),
+            "--help".to_owned(),
+        ],
+    )
+}
+
+fn probe_command_label(target: AgentExecutableTarget, args: &[String]) -> String {
+    std::iter::once(target.binary_name().to_owned())
+        .chain(args.iter().cloned())
+        .map(|argument| shell_escape_single(&argument))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn validate_code_puppy_help(
+    success: bool,
+    help: &str,
+    command_label: &str,
+    require_yolo: bool,
+) -> Result<(), RuntimeError> {
+    if !success {
+        return Err(RuntimeError::CapabilityProbeFailed(format!(
+            "`{command_label}` exited unsuccessfully: {}",
+            bounded_probe_diagnostic(help)
+        )));
+    }
+    if !require_yolo || code_puppy_help_supports_yolo(help) {
         return Ok(());
     }
-    Err(RuntimeError::CapabilityCheckFailed(
-        "Code Puppy on the launch target does not advertise `--yolo true|false`. Upgrade Code Puppy or edit the agent with a supported version before launching.".to_owned(),
-    ))
+    let selected = if command_label.contains("code-puppy==") {
+        format!("Selected Code Puppy launch `{command_label}`")
+    } else {
+        "Code Puppy on the launch target".to_owned()
+    };
+    Err(RuntimeError::CapabilityCheckFailed(format!(
+        "{selected} does not advertise `--yolo true|false`. Upgrade Code Puppy or edit the agent with a supported version before launching."
+    )))
+}
+
+fn bounded_probe_diagnostic(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        "no diagnostic was returned".to_owned()
+    } else {
+        value.chars().take(512).collect()
+    }
 }
 
 fn strip_terminal_controls(value: &str) -> String {
@@ -129,6 +197,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/puppy"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: yolo,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -144,6 +213,50 @@ mod tests {
     }
 
     #[test]
+    fn pinned_help_probe_targets_exact_uvx_package_structurally() {
+        let mut pinned = signature(AgentKind::CodePuppy, Some(true));
+        pinned.code_puppy_version = "  0.0.361;$(nope)  ".to_owned();
+        let (target, args) = code_puppy_help_probe(&pinned);
+        assert_eq!(target, super::super::AgentExecutableTarget::Uvx);
+        assert_eq!(
+            args,
+            vec![
+                "--from",
+                "code-puppy==0.0.361;$(nope)",
+                "code-puppy",
+                "--help"
+            ]
+        );
+    }
+
+    #[test]
+    fn blank_help_probe_remains_direct_code_puppy() {
+        let direct = signature(AgentKind::CodePuppy, Some(true));
+        let (target, args) = code_puppy_help_probe(&direct);
+        assert_eq!(
+            target,
+            super::super::AgentExecutableTarget::Agent(AgentKind::CodePuppy)
+        );
+        assert_eq!(args, vec!["--help"]);
+    }
+
+    #[test]
+    fn failed_pinned_help_diagnostic_names_exact_selection() {
+        let result = validate_code_puppy_help(
+            false,
+            "package import failed",
+            "uvx --from code-puppy==0.0.361 code-puppy --help",
+            true,
+        );
+        let Err(error) = result else {
+            panic!("failed package execution must fail capability validation");
+        };
+        let diagnostic = error.to_string();
+        assert!(diagnostic.contains("code-puppy==0.0.361"));
+        assert!(diagnostic.contains("package import failed"));
+    }
+
+    #[test]
     fn detects_yolo_in_plain_and_decorated_help() {
         assert!(code_puppy_help_supports_yolo("--yolo {true,false}"));
         assert!(code_puppy_help_supports_yolo(
@@ -154,13 +267,13 @@ mod tests {
 
     #[test]
     fn rejects_help_without_explicit_yolo_support() {
-        let result = validate_code_puppy_help(true, "--model MODEL");
+        let result = validate_code_puppy_help(true, "--model MODEL", "code-puppy --help", true);
         assert!(matches!(
             result,
             Err(RuntimeError::CapabilityCheckFailed(_))
         ));
         assert!(matches!(
-            validate_code_puppy_help(false, "--yolo {true,false}"),
+            validate_code_puppy_help(false, "--yolo {true,false}", "code-puppy --help", true,),
             Err(RuntimeError::CapabilityProbeFailed(_))
         ));
     }

@@ -41,6 +41,7 @@ pub(super) fn sample_signature() -> LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec![String::from("--yolo")],
@@ -68,6 +69,7 @@ fn app_input_signature_constructor_retains_selector_and_binding() {
     let agent_id = AgentId("selector-agent".to_owned());
     let mut agent = sample_agent(&agent_id);
     agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
+    agent.code_puppy_version = "0.0.361".to_owned();
     let repository = jefe::domain::Repository::new(
         agent.repository_id.clone(),
         "repo".to_owned(),
@@ -76,6 +78,7 @@ fn app_input_signature_constructor_retains_selector_and_binding() {
     );
     let signature = launch_signature_for_agent(&agent, &repository);
     assert_eq!(signature.llxprt_version, agent.llxprt_version);
+    assert_eq!(signature.code_puppy_version, "0.0.361");
 
     let mut state = AppState {
         agents: vec![agent],
@@ -96,6 +99,13 @@ fn app_input_signature_constructor_retains_selector_and_binding() {
             .and_then(|binding| binding.launch_signature.llxprt_version.as_ref())
             .map(jefe::domain::LlxprtNpmPackageSelector::as_str),
         Some("nightly")
+    );
+    assert_eq!(
+        state.agents[0]
+            .runtime_binding
+            .as_ref()
+            .map(|binding| binding.launch_signature.code_puppy_version.as_str()),
+        Some("0.0.361")
     );
 }
 

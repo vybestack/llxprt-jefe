@@ -355,6 +355,21 @@ pub fn require_npm_package_available(
     }
 }
 
+/// Probe the package boundary required by the exact launch signature.
+///
+/// Direct launches remain probe-free here; direct Code Puppy capability checks
+/// continue through `validate_code_puppy_launch` during normal preflight.
+pub fn require_launch_package_available(
+    signature: &LaunchSignature,
+) -> Result<(), super::RuntimeError> {
+    if signature.agent_kind == crate::domain::AgentKind::CodePuppy
+        && !signature.code_puppy_version.trim().is_empty()
+    {
+        return super::capabilities::validate_code_puppy_launch(signature);
+    }
+    require_npm_package_available(signature).map_err(super::RuntimeError::NpmPackageAvailability)
+}
+
 #[cfg(test)]
 #[path = "package_probe_tests.rs"]
 mod tests;

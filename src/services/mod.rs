@@ -50,6 +50,8 @@ pub struct CreateAgentParams<'a> {
     pub profile: &'a str,
     /// Optional Code Puppy model override.
     pub code_puppy_model: &'a str,
+    /// Raw Code Puppy package version (trimmed and copied on creation).
+    pub code_puppy_version: &'a str,
     /// Explicit Code Puppy YOLO choice.
     pub code_puppy_yolo: bool,
     /// Whether Code Puppy should resume its latest autosaved session.
@@ -115,10 +117,26 @@ pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<Launch
         params.code_puppy_model.trim()
     };
 
+    let agent_kind = AgentKind::from_form_value(params.agent_kind)
+        .unwrap_or(params.repository.default_agent_kind);
+
     Some(LaunchSignature {
         work_dir: PathBuf::from(work_dir),
         profile: normalize_profile(params.profile),
         code_puppy_model: code_puppy_model.to_owned(),
+        code_puppy_version: if agent_kind == AgentKind::CodePuppy {
+            if params.code_puppy_version.trim().is_empty() {
+                params
+                    .repository
+                    .default_code_puppy_version
+                    .trim()
+                    .to_owned()
+            } else {
+                params.code_puppy_version.trim().to_owned()
+            }
+        } else {
+            String::new()
+        },
         code_puppy_yolo: Some(params.code_puppy_yolo),
         code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
         mode_flags: params.mode.split_whitespace().map(String::from).collect(),
@@ -128,8 +146,7 @@ pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<Launch
         sandbox_engine,
         sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
         remote: params.repository.remote.clone(),
-        agent_kind: AgentKind::from_form_value(params.agent_kind)
-            .unwrap_or(params.repository.default_agent_kind),
+        agent_kind,
         llxprt_version: LlxprtNpmPackageSelector::normalize(params.llxprt_version),
     })
 }
@@ -154,6 +171,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         work_dir: launch.work_dir,
         profile: launch.profile,
         code_puppy_model: launch.code_puppy_model,
+        code_puppy_version: launch.code_puppy_version,
         code_puppy_yolo: launch.code_puppy_yolo,
         code_puppy_quick_resume: launch.code_puppy_quick_resume,
         mode_flags: launch.mode_flags,

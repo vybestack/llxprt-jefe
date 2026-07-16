@@ -616,8 +616,7 @@ impl TmuxRuntimeManager {
         let reattached = if can_reattach {
             true
         } else {
-            super::package_probe::require_npm_package_available(signature)
-                .map_err(RuntimeError::NpmPackageAvailability)?;
+            super::package_probe::require_launch_package_available(signature)?;
             self.create_or_reattach_after_probe(
                 agent_id,
                 work_dir,

@@ -27,6 +27,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: None,
         code_puppy_quick_resume: false,
         mode_flags: agent.mode_flags.clone(),

@@ -221,7 +221,7 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 12,
-        issue_number: 1,
+        issue: Box::new(make_test_issue(1)),
     });
 
     assert!(state.issues_state.mutation_pending.is_some());
@@ -230,35 +230,6 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
         other => panic!("expected new repo draft to remain, got {other:?}"),
     }
     assert!(state.issues_state.draft_notice.is_none());
-}
-
-#[test]
-fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
-    let submitted_target = InlineState::Composer {
-        target: ComposerTarget::NewIssue,
-        text: "title".to_string(),
-        cursor: 5,
-    };
-    let state = issues_mode_state_with_repo("repo-1");
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 21,
-        target: submitted_target.clone(),
-    });
-    state.issues_state.inline_state = submitted_target;
-
-    let state = state.apply(AppEvent::IssueCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 21,
-        issue_number: 77,
-    });
-
-    assert!(state.issues_state.mutation_pending.is_none());
-    assert_eq!(state.issues_state.inline_state, InlineState::None);
-    assert_eq!(
-        state.issues_state.draft_notice.as_deref(),
-        Some("Created issue #77")
-    );
 }
 
 /// P15 Test 10: Enter issues, exit — prior agent focus is restored.

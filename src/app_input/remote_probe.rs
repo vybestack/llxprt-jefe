@@ -180,12 +180,39 @@ pub(super) fn plan_remote_probe(
         .unwrap_or_else(|error| panic!("plan remote probe: {error}"))
 }
 
+#[must_use]
+#[cfg(test)]
+pub(super) fn plan_remote_code_puppy_probe(
+    remote: &RemoteRepositorySettings,
+    work_dir: &Path,
+    version: &str,
+) -> Vec<String> {
+    ssh_arguments_as_strings(
+        remote,
+        &remote_code_puppy_probe_command(remote, work_dir, version),
+    )
+    .unwrap_or_else(|error| panic!("plan remote Code Puppy probe: {error}"))
+}
+
 fn remote_probe_command(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
     kind: AgentKind,
 ) -> String {
     let inner = probe_inner_command(kind, work_dir);
+    wrap_probe_for_effective_user(remote, inner)
+}
+
+fn remote_code_puppy_probe_command(
+    remote: &RemoteRepositorySettings,
+    work_dir: &Path,
+    version: &str,
+) -> String {
+    let inner = probe_inner_command_for_code_puppy(work_dir, version);
+    wrap_probe_for_effective_user(remote, inner)
+}
+
+fn wrap_probe_for_effective_user(remote: &RemoteRepositorySettings, inner: String) -> String {
     let effective = effective_user(remote);
     if effective == remote.login_user.trim() {
         inner
@@ -235,20 +262,11 @@ fn ssh_arguments_as_strings(
 /// exact global `code-puppy` binary only (the launch resolver has no
 /// path-local fallback for code-puppy).
 fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
-    let sentinel_ok = shell_escape(SENTINEL_OK);
-    let sentinel_no = shell_escape(SENTINEL_NO);
     match kind {
-        AgentKind::CodePuppy => {
-            // CodePuppy: exact global command only. No cd — the work
-            // directory may not exist yet (clone-if-missing), and a global
-            // install must still be detected.
-            format!(
-                "command -v code-puppy >/dev/null 2>&1 \
-                 && printf '%s' {sentinel_ok} \
-                 || printf '%s' {sentinel_no}",
-            )
-        }
+        AgentKind::CodePuppy => probe_inner_command_for_code_puppy(work_dir, ""),
         AgentKind::Llxprt => {
+            let sentinel_ok = shell_escape(SENTINEL_OK);
+            let sentinel_no = shell_escape(SENTINEL_NO);
             // LLxprt: mirror launch resolver non-mutating checks — global
             // command (no cd) OR executable <work_dir>/node_modules/.bin/llxprt.
             // The global check runs first without cd so a missing work
@@ -264,6 +282,23 @@ fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
             )
         }
     }
+}
+
+fn probe_inner_command_for_code_puppy(_work_dir: &Path, version: &str) -> String {
+    // Do not cd to the work directory: clone-if-missing means it may not exist
+    // yet, while the effective user's global PATH remains authoritative.
+    let binary = if version.trim().is_empty() {
+        "code-puppy"
+    } else {
+        "uvx"
+    };
+    let sentinel_ok = shell_escape(SENTINEL_OK);
+    let sentinel_no = shell_escape(SENTINEL_NO);
+    format!(
+        "command -v {binary} >/dev/null 2>&1 \
+         && printf '%s' {sentinel_ok} \
+         || printf '%s' {sentinel_no}",
+    )
 }
 
 /// Execute a remote agent-runtime availability probe.
@@ -290,8 +325,25 @@ pub(super) fn execute_remote_probe(
     work_dir: &Path,
     kind: AgentKind,
 ) -> RemoteProbeResult {
-    let command = remote_probe_command(remote, work_dir, kind);
-    let plan = match jefe::ssh::SshPlan::new(remote, &command, jefe::ssh::SshMode::NonInteractive) {
+    execute_remote_probe_command(remote, &remote_probe_command(remote, work_dir, kind))
+}
+
+fn execute_remote_code_puppy_probe(
+    remote: &RemoteRepositorySettings,
+    work_dir: &Path,
+    version: &str,
+) -> RemoteProbeResult {
+    execute_remote_probe_command(
+        remote,
+        &remote_code_puppy_probe_command(remote, work_dir, version),
+    )
+}
+
+fn execute_remote_probe_command(
+    remote: &RemoteRepositorySettings,
+    command: &str,
+) -> RemoteProbeResult {
+    let plan = match jefe::ssh::SshPlan::new(remote, command, jefe::ssh::SshMode::NonInteractive) {
         Ok(plan) => plan,
         Err(error) => return RemoteProbeResult::Error(error.to_string()),
     };
@@ -346,8 +398,31 @@ fn require_signature_available(
     if jefe::domain::llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref())
         .requires_npm()
     {
-        return jefe::runtime::require_npm_package_available(signature)
+        return jefe::runtime::require_launch_package_available(signature)
             .map_err(|error| error.to_string());
+    }
+    if signature.agent_kind == AgentKind::CodePuppy
+        && !signature.code_puppy_version.trim().is_empty()
+    {
+        return match target {
+            WorkTarget::Local => jefe::runtime::require_launch_package_available(signature)
+                .map_err(|error| error.to_string()),
+            WorkTarget::Remote(remote) => match execute_remote_code_puppy_probe(
+                remote,
+                &signature.work_dir,
+                &signature.code_puppy_version,
+            ) {
+                RemoteProbeResult::Available => {
+                    jefe::runtime::require_launch_package_available(signature)
+                        .map_err(|error| error.to_string())
+                }
+                RemoteProbeResult::NotAvailable => Err(format!(
+                    "uvx is not installed on the remote host for user '{}'. Install uv on that target or clear the Code Puppy version.",
+                    effective_user(remote)
+                )),
+                RemoteProbeResult::Error(error) => Err(error),
+            },
+        };
     }
     match target {
         WorkTarget::Local => super::availability::require_local_kind_available_for_target(
@@ -381,6 +456,7 @@ pub(super) fn require_runtime_available(
         work_dir: work_dir.to_path_buf(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: None,
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),

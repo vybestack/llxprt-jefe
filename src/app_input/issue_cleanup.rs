@@ -28,10 +28,22 @@ pub(in crate::app_input) fn discard_workdir_changes(work_dir: &Path) -> Result<(
         remove_untracked_path(work_dir, relative)?;
     }
     remove_empty_untracked_parents(work_dir, &untracked)?;
-    restore_tracked_paths(work_dir)
+    restore_tracked_paths(work_dir, TrackedPathScope::NonOwned)
 }
 
-fn restore_tracked_paths(work_dir: &Path) -> Result<(), String> {
+pub(in crate::app_input) fn discard_checkout_blocking_tracked_changes(
+    work_dir: &Path,
+) -> Result<(), String> {
+    restore_tracked_paths(work_dir, TrackedPathScope::All)
+}
+
+#[derive(Clone, Copy)]
+enum TrackedPathScope {
+    NonOwned,
+    All,
+}
+
+fn restore_tracked_paths(work_dir: &Path, scope: TrackedPathScope) -> Result<(), String> {
     let output = git_capture(
         work_dir,
         [
@@ -44,7 +56,11 @@ fn restore_tracked_paths(work_dir: &Path) -> Result<(), String> {
         ],
     )?;
     require_success(&output, "diff --name-only -z HEAD")?;
-    for relative in parse_changed_paths(&output.stdout)? {
+    let paths = match scope {
+        TrackedPathScope::NonOwned => parse_changed_paths(&output.stdout)?,
+        TrackedPathScope::All => parse_paths(&output.stdout)?,
+    };
+    for relative in paths {
         git_require_success(
             work_dir,
             [

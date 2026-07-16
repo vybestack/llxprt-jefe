@@ -73,7 +73,13 @@ env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" \
 
 [[ -s "$AUDIT" ]] || { echo "FATAL: gh shim was not invoked" >&2; exit 1; }
 if grep -q REJECTED "$AUDIT"; then cat "$AUDIT" >&2; exit 1; fi
-for expected in "actions/runs?page=1&per_page=30" "actions/workflows" "run view --repo owner/actions-fixture 19401" "--json jobs --jq .jobs"; do
+for expected in \
+  "actions/runs?page=1&per_page=30" \
+  "actions/runs?page=2&per_page=30" \
+  "actions/workflows" \
+  "run view --repo owner/actions-fixture 19401" \
+  "--json jobs --jq .jobs"
+do
   grep -F -- "$expected" "$AUDIT" >/dev/null || { echo "FATAL: missing audit operation: $expected" >&2; cat "$AUDIT" >&2; exit 1; }
 done
-printf 'PASS: issue 194 Actions scenario and read-only gh audit\n'
+printf 'PASS: issue 194/208 Actions scenario (newest-first + jobs) and read-only gh audit\n'

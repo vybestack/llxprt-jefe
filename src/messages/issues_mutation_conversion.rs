@@ -26,11 +26,11 @@ impl IssuesMessage {
             AppEvent::IssueCreated {
                 scope_repo_id,
                 mutation_id,
-                issue_number,
+                issue,
             } => Self::IssueCreated {
                 scope_repo_id,
                 mutation_id,
-                issue_number,
+                issue,
             },
             AppEvent::CommentCreated {
                 scope_repo_id,
@@ -119,11 +119,11 @@ impl IssuesMessage {
             Self::IssueCreated {
                 scope_repo_id,
                 mutation_id,
-                issue_number,
+                issue,
             } => AppEvent::IssueCreated {
                 scope_repo_id,
                 mutation_id,
-                issue_number,
+                issue,
             },
             Self::CommentCreated {
                 scope_repo_id,

@@ -701,6 +701,7 @@ fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: vec![],

@@ -3,8 +3,7 @@
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
-    issues_dispatch,
+    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, issues_dispatch,
 };
 
 pub(super) fn handle_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -181,9 +180,7 @@ fn create_issue(
     let mutation_id = begin_mutation(app_state, ctx, pending_target);
     let failure_target = mutation_failure_target(app_state);
     let panic_failure_target = failure_target.clone();
-    // Capture the originally-submitted scope so a late-arriving success is
-    // attributed to the repository that was active at submission time, not to
-    // whatever the user has since selected.
+    // Capture submission-time scope so late success is not misattributed.
     let created_scope = failure_target.scope_repo_id.clone();
     gh_async::spawn_gh_task_with_panic(
         app_state,
@@ -192,19 +189,9 @@ fn create_issue(
             let result = github_client(&ctx).map(|client| {
                 client.create_issue(&repo_target.owner, &repo_target.repo, &title, &body)
             });
-
             match result {
-                Some(Ok(issue)) => {
-                    apply_and_persist(
-                        &mut app_state,
-                        &ctx,
-                        AppEvent::IssueCreated {
-                            scope_repo_id: created_scope,
-                            mutation_id,
-                            issue_number: issue.number,
-                        },
-                    );
-                    dispatch_app_event(&mut app_state, &ctx, AppEvent::RefocusIssueList);
+                Some(Ok(created)) => {
+                    apply_created_issue(&mut app_state, &ctx, created_scope, mutation_id, created);
                 }
                 Some(Err(e)) => {
                     apply_mutation_failed(
@@ -230,6 +217,44 @@ fn create_issue(
             );
         },
     );
+}
+
+/// Persist optimistic create success and seed a sync detail preview when selected.
+fn apply_created_issue(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    scope_repo_id: jefe::domain::RepositoryId,
+    mutation_id: u64,
+    created: jefe::github::CreatedIssue,
+) {
+    let issue = created.into_list_issue();
+    let created_number = issue.number;
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::IssueCreated {
+            scope_repo_id,
+            mutation_id,
+            issue: Box::new(issue),
+        },
+    );
+    // Avoid RefocusIssueList / detail network fetch races (#215).
+    preview_created_issue_if_selected(app_state, created_number);
+}
+
+/// Seed a sync list-row detail preview when create selected the new issue.
+fn preview_created_issue_if_selected(app_state: &mut AppStateHandle, created_number: u64) {
+    let preview_created = {
+        let state = app_state.read();
+        state
+            .issues_state
+            .selected_issue_index()
+            .and_then(|idx| state.issues_state.issues().get(idx))
+            .is_some_and(|issue| issue.number == created_number)
+    };
+    if preview_created {
+        issues_dispatch::preview_issue_from_list(app_state);
+    }
 }
 
 fn create_comment(

@@ -289,7 +289,8 @@ pub enum AppEvent {
     IssueCreated {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
-        issue_number: u64,
+        /// Newly created issue row used for optimistic list insert (issue #215).
+        issue: Box<crate::domain::Issue>,
     },
     CommentCreated {
         scope_repo_id: RepositoryId,

@@ -1,6 +1,5 @@
 #![cfg(all(windows, feature = "psmux-smoke"))]
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,38 +31,46 @@ impl Drop for ServerCleanup {
     }
 }
 
-#[test]
-fn native_psmux_attachment_preserves_terminal_contract_and_session() {
+fn psmux_test_context() -> Option<(MultiplexerPlan, ServerCleanup)> {
     let executable = std::env::var_os("JEFE_PSMUX_BIN")
         .filter(|value| !value.is_empty())
         .map_or_else(|| PathBuf::from("psmux"), PathBuf::from);
     if Command::new(&executable).arg("-V").output().is_err() {
         assert!(
             std::env::var_os("JEFE_REQUIRE_PSMUX").is_none(),
-            "psmux is required but {executable:?} is unavailable"
+            "psmux is required but {} is unavailable",
+            executable.display()
         );
-        return;
+        return None;
     }
-    let namespace = unique_namespace();
-    let plan = MultiplexerPlan::for_platform(
+    let plan = match MultiplexerPlan::for_platform(
         LocalPlatform::Windows,
         executable,
-        MultiplexerIsolation::Namespace(namespace.clone()),
-    )
-    .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+        MultiplexerIsolation::Namespace(unique_namespace()),
+    ) {
+        Ok(plan) => plan,
+        Err(error) => panic!("construct psmux plan: {error}"),
+    };
     let cleanup = ServerCleanup { plan: plan.clone() };
+    Some((plan, cleanup))
+}
+#[test]
+fn native_psmux_attachment_preserves_terminal_contract_and_session() {
+    let Some((plan, cleanup)) = psmux_test_context() else {
+        return;
+    };
     let session = "jefe-attach-contract";
     let mut create = plan.command();
     create.args([
-        OsString::from("new-session"),
-        OsString::from("-d"),
-        OsString::from("-s"),
-        OsString::from(session),
-        OsString::from("-x"),
-        OsString::from("100"),
-        OsString::from("-y"),
-        OsString::from("32"),
-        OsString::from(FIXTURE),
+        "new-session",
+        "-d",
+        "-s",
+        session,
+        "-x",
+        "100",
+        "-y",
+        "32",
+        FIXTURE,
     ]);
     let status = create
         .status()
@@ -91,6 +98,73 @@ fn native_psmux_attachment_preserves_terminal_contract_and_session() {
     }
 }
 
+#[test]
+fn native_psmux_switching_displays_target_session() {
+    let Some((plan, _cleanup)) = psmux_test_context() else {
+        return;
+    };
+    let first = "jefe-switch-first";
+    let second = "jefe-switch-second";
+
+    if let Err(error) = exercise_viewer_switch(&plan, first, second) {
+        panic!("{error}");
+    }
+}
+
+fn exercise_viewer_switch(plan: &MultiplexerPlan, first: &str, second: &str) -> Result<(), String> {
+    create_marked_fixture_session(plan, first, "A")?;
+    create_marked_fixture_session(plan, second, "B")?;
+
+    let first_viewer = AttachedViewer::spawn_with_plan(first, 32, 100, plan)
+        .map_err(|error| format!("attach first viewer: {error}"))?;
+    wait_for_snapshot(&first_viewer, "PSMUX_MARKER_A")?;
+
+    let teardown = thread::spawn(move || drop(first_viewer));
+    let second_result = AttachedViewer::spawn_with_plan(second, 32, 100, plan)
+        .map_err(|error| format!("attach second viewer: {error}"))
+        .and_then(|second_viewer| {
+            let result = wait_for_snapshot(&second_viewer, "PSMUX_MARKER_B").map(|_| ());
+            drop(second_viewer);
+            result
+        });
+    let teardown_result = teardown
+        .join()
+        .map_err(|_| "first viewer teardown thread panicked".to_owned());
+    match (second_result, teardown_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(second_error), Ok(())) => Err(second_error),
+        (Ok(()), Err(teardown_error)) => Err(teardown_error),
+        (Err(second_error), Err(teardown_error)) => Err(format!(
+            "{second_error}; additionally, first viewer teardown failed: {teardown_error}"
+        )),
+    }
+}
+
+fn create_marked_fixture_session(
+    plan: &MultiplexerPlan,
+    session: &str,
+    marker: &str,
+) -> Result<(), String> {
+    let mut create = plan.command();
+    let status = create
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            session,
+            FIXTURE,
+            "--marker",
+            marker,
+        ])
+        .status()
+        .map_err(|error| format!("create fixture session {session}: {error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "fixture session {session} creation failed: {status}"
+        ));
+    }
+    Ok(())
+}
 fn exercise_attachment(plan: &MultiplexerPlan, session: &str) -> Result<(), String> {
     let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, plan)
         .map_err(|error| format!("attach through production viewer: {error}"))?;

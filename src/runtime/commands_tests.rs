@@ -45,6 +45,7 @@ fn base_signature() -> LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
@@ -60,6 +61,7 @@ fn base_signature() -> LaunchSignature {
 }
 
 #[test]
+
 fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -69,6 +71,7 @@ fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
 }
 
 #[test]
+
 fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -92,6 +95,7 @@ fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
 }
 
 #[test]
+
 fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -103,6 +107,7 @@ fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
 }
 
 #[test]
+
 fn code_puppy_omits_model_argument_when_unset() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -114,6 +119,7 @@ fn code_puppy_omits_model_argument_when_unset() {
 }
 
 #[test]
+
 fn code_puppy_passes_configured_model_as_exact_argv() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -126,6 +132,7 @@ fn code_puppy_passes_configured_model_as_exact_argv() {
 }
 
 #[test]
+
 fn llxprt_ignores_code_puppy_model() {
     let mut signature = base_signature();
     signature.code_puppy_model = "puppy-only".to_owned();
@@ -137,6 +144,7 @@ fn llxprt_ignores_code_puppy_model() {
 }
 
 #[test]
+
 fn code_puppy_passes_explicit_true_yolo_value() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -149,6 +157,7 @@ fn code_puppy_passes_explicit_true_yolo_value() {
 }
 
 #[test]
+
 fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -196,6 +205,7 @@ fn llxprt_debug_env_is_omitted_when_empty() {
 }
 
 #[test]
+
 fn remote_tmux_command_wraps_run_as_user_once() {
     let remote = crate::domain::RemoteRepositorySettings {
         enabled: true,
@@ -341,6 +351,7 @@ fn llxprt_debug_env_is_included_when_non_empty() {
 }
 
 #[test]
+
 fn remote_launch_command_enables_remain_on_exit() {
     let session_name = shell_escape_single("jefe-agent-test");
     let work_dir = shell_escape_single("/tmp/work");
@@ -625,6 +636,7 @@ fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
 }
 
 #[test]
+
 fn local_multiplexer_plan_uses_platform_isolation() {
     let plan = MultiplexerPlan::current()
         .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
@@ -647,24 +659,28 @@ fn local_multiplexer_plan_uses_platform_isolation() {
 }
 
 #[test]
+
 fn parse_pane_pid_extracts_first_numeric_line() {
     assert_eq!(parse_pane_pid("12345\n"), Some(12_345));
     assert_eq!(parse_pane_pid("  98765  \n"), Some(98_765));
 }
 
 #[test]
+
 fn parse_pane_pid_returns_none_for_empty_output() {
     assert_eq!(parse_pane_pid(""), None);
     assert_eq!(parse_pane_pid("   \n  \n"), None);
 }
 
 #[test]
+
 fn parse_pane_pid_returns_none_for_garbage() {
     assert_eq!(parse_pane_pid("not-a-pid\n"), None);
     assert_eq!(parse_pane_pid("abc\ndef\n"), None);
 }
 
 #[test]
+
 fn is_tmux_fork_broken_classifies_known_messages() {
     assert!(is_tmux_fork_broken("tmux: fork failed"));
     assert!(is_tmux_fork_broken(
@@ -675,6 +691,7 @@ fn is_tmux_fork_broken_classifies_known_messages() {
 }
 
 #[test]
+
 fn launch_args_emits_continue_when_pass_continue_true() {
     let signature = base_signature();
     assert!(
@@ -685,6 +702,7 @@ fn launch_args_emits_continue_when_pass_continue_true() {
 }
 
 #[test]
+
 fn launch_args_omits_continue_when_pass_continue_false() {
     let mut signature = base_signature();
     signature.pass_continue = false;
@@ -697,6 +715,7 @@ fn launch_args_omits_continue_when_pass_continue_false() {
 }
 
 #[test]
+
 fn code_puppy_launch_uses_only_supported_args() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -724,6 +743,7 @@ fn code_puppy_launch_uses_only_supported_args() {
 // LLxprt mode_flags must never leak through.
 
 #[test]
+
 fn code_puppy_normal_launch_outputs_only_interactive_flag() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -735,6 +755,7 @@ fn code_puppy_normal_launch_outputs_only_interactive_flag() {
 }
 
 #[test]
+
 fn code_puppy_fresh_send_outputs_instruction_positional() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -754,6 +775,7 @@ fn code_puppy_fresh_send_outputs_instruction_positional() {
 }
 
 #[test]
+
 fn code_puppy_strips_all_llxprt_only_flags() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -770,6 +792,7 @@ fn code_puppy_strips_all_llxprt_only_flags() {
 }
 
 #[test]
+
 fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
@@ -779,6 +802,7 @@ fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
 }
 
 #[test]
+
 fn code_puppy_discards_unrecognized_positional_flags() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
