@@ -6,7 +6,7 @@
 //! with reason + duplicate_of, cancel clears chooser, IssueClosed with reason
 //! updates issue state.
 
-use crate::domain::{CloseReason, Issue, IssueState, RepositoryId};
+use crate::domain::{CloseReason, Issue, IssueDetail, IssueState, RepositoryId};
 use crate::state::{AppEvent, AppState, IssueFocus};
 
 fn issues_state_with_list(repo_id: &str) -> AppState {
@@ -458,4 +458,154 @@ fn filter_duplicate_candidates_no_match() {
     let candidates = vec![(1u64, "First".to_string()), (10u64, "Second".to_string())];
     let filtered = filter_duplicate_candidates(&candidates, "999");
     assert!(filtered.is_empty(), "should return empty when no match");
+}
+
+fn make_detail(number: u64, node_id: &str) -> IssueDetail {
+    IssueDetail {
+        repo_owner_name: "test/test".to_string(),
+        number,
+        node_id: node_id.to_string(),
+        title: format!("Detail {number}"),
+        state: IssueState::Open,
+        author_login: "octocat".to_string(),
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        updated_at: "2026-01-02T00:00:00Z".to_string(),
+        labels: Vec::new(),
+        assignees: Vec::new(),
+        milestone: None,
+        body: "Body".to_string(),
+        external_url: String::new(),
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            Vec::new(),
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
+        issue_type_name: None,
+        state_reason: None,
+    }
+}
+
+#[test]
+fn issue_closed_with_reason_sets_optimistic_state_reason() {
+    use crate::domain::IssueStateReason;
+    use crate::state::IssueLifecycleMutationPending;
+
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    let scope = RepositoryId("repo-1".to_string());
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: scope.clone(),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(CloseReason::NotPlanned),
+        duplicate_of: None,
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: scope,
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: Some(CloseReason::NotPlanned),
+        duplicate_of: None,
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::NotPlanned)),
+        "list row state_reason should be NotPlanned after close-with-reason"
+    );
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::NotPlanned)),
+        "detail state_reason should be NotPlanned after close-with-reason"
+    );
+}
+
+#[test]
+fn issue_closed_duplicate_sets_optimistic_duplicate_reason() {
+    use crate::domain::IssueStateReason;
+    use crate::state::IssueLifecycleMutationPending;
+
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: Some(CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Duplicate)),
+        "list row state_reason should be Duplicate"
+    );
+
+    // The reducer updates both list row and detail when issue_detail is loaded.
+    let mut state = state;
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    let scope = RepositoryId("repo-1".to_string());
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: scope.clone(),
+        mutation_id: 43,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: scope,
+        issue_number: 1,
+        mutation_id: 43,
+        close_reason: Some(CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::Duplicate)),
+        "detail state_reason should be Duplicate"
+    );
+}
+
+#[test]
+fn issue_closed_plain_close_defaults_to_completed_reason() {
+    use crate::domain::IssueStateReason;
+    use crate::state::IssueLifecycleMutationPending;
+
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: None,
+        duplicate_of: None,
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: None,
+        duplicate_of: None,
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Completed)),
+        "plain close should default state_reason to Completed"
+    );
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::Completed)),
+        "detail state_reason should default to Completed on plain close"
+    );
 }
