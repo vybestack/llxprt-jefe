@@ -24,8 +24,9 @@ mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 pub use error::GhError;
 pub use issue_lifecycle::{
-    build_close_issue_args, build_close_issue_with_reason_args, build_delete_issue_args,
-    build_issue_node_id_args, build_mark_duplicate_args, parse_issue_node_id_json,
+    build_close_issue_args, build_close_issue_graphql_args, build_close_issue_input_json,
+    build_close_issue_with_reason_args, build_delete_issue_args, build_issue_node_id_args,
+    build_mark_duplicate_args, close_reason_graphql_enum, parse_issue_node_id_json,
 };
 use repo_merge::parse_repo_merge_methods;
 

@@ -35,9 +35,15 @@ impl AppState {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
-                close_reason: _,
-                duplicate_of: _,
-            } => self.apply_issue_closed(scope_repo_id, *issue_number, *mutation_id),
+                close_reason,
+                duplicate_of,
+            } => self.apply_issue_closed(
+                scope_repo_id,
+                *issue_number,
+                *mutation_id,
+                *close_reason,
+                *duplicate_of,
+            ),
             AppEvent::IssueDeleted {
                 scope_repo_id,
                 issue_number,
@@ -106,6 +112,12 @@ impl AppState {
     }
 
     /// Begin a close mutation on the focused issue.
+    ///
+    /// Captures the issue's node id so the dispatch layer can use the GraphQL
+    /// `closeIssue` mutation (by node id) for both the plain close and the
+    /// close-with-reason paths (issue #204). If the node id is unavailable the
+    /// close is blocked with a notice rather than falling back to a REST close
+    /// that cannot carry `stateReason`.
     fn begin_issue_close(&mut self) {
         if self.lifecycle_overlay_active() {
             return;
@@ -128,12 +140,17 @@ impl AppState {
             self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
             return;
         };
+        let Some(node_id) = self.focused_issue_node_id(issue_number) else {
+            self.issues_state.error = Some("Cannot close: issue node id unavailable".to_string());
+            return;
+        };
         let mutation_id = self.next_issue_mutation_id();
         self.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
             scope_repo_id: scope,
             mutation_id,
             issue_number,
-            node_id: None,
+            node_id: Some(node_id),
+            // Plain close defaults to COMPLETED at the dispatch layer.
             close_reason: None,
             duplicate_of: None,
         });
@@ -211,11 +228,16 @@ impl AppState {
     /// Apply a successful close: update list + detail state, clear pending.
     /// Returns `true` (handled) even on mutation-id mismatch — a stale result is
     /// gracefully ignored (the pending is kept) rather than treated as unhandled.
+    ///
+    /// Also sets `state_reason` optimistically so the list/detail immediately
+    /// reflect the reason before the next list reload (issue #204).
     fn apply_issue_closed(
         &mut self,
         scope_repo_id: &RepositoryId,
         issue_number: u64,
         mutation_id: u64,
+        close_reason: Option<crate::domain::CloseReason>,
+        duplicate_of: Option<u64>,
     ) -> bool {
         let pending_matches = self
             .issues_state
@@ -230,15 +252,18 @@ impl AppState {
             return true;
         }
         self.issues_state.close_mutation_pending = None;
+        let state_reason = Some(close_reason_to_state_reason(close_reason, duplicate_of));
         let mut issues = self.issues_state.list.items().to_vec();
         if let Some(issue) = issues.iter_mut().find(|i| i.number == issue_number) {
             issue.state = IssueState::Closed;
+            issue.state_reason = state_reason;
         }
         self.issues_state.list.replace_items(issues);
         if let Some(detail) = &mut self.issues_state.issue_detail
             && detail.number == issue_number
         {
             detail.state = IssueState::Closed;
+            detail.state_reason = state_reason;
         }
         self.issues_state.draft_notice = Some(format!("Closed issue #{issue_number}"));
         true
@@ -411,6 +436,26 @@ impl AppState {
             | ReadOnlyHintKind::ReadOnlyResolveOnThread => "Action not available".to_string(),
         };
         self.issues_state.draft_notice = Some(text);
+    }
+}
+
+/// Map a `CloseReason` (the user's selection) to the `IssueStateReason` that
+/// should be set optimistically on the domain model after a successful close
+/// (issue #204).
+///
+/// `None` (plain close via `C`) maps to `Completed` since the GraphQL
+/// `closeIssue` mutation defaults plain closes to `COMPLETED`. `Duplicate`
+/// maps to `Duplicate` regardless of whether a target was selected.
+#[must_use]
+fn close_reason_to_state_reason(
+    close_reason: Option<crate::domain::CloseReason>,
+    _duplicate_of: Option<u64>,
+) -> crate::domain::IssueStateReason {
+    use crate::domain::{CloseReason, IssueStateReason};
+    match close_reason {
+        None | Some(CloseReason::Completed) => IssueStateReason::Completed,
+        Some(CloseReason::NotPlanned | CloseReason::Invalid) => IssueStateReason::NotPlanned,
+        Some(CloseReason::Duplicate) => IssueStateReason::Duplicate,
     }
 }
 

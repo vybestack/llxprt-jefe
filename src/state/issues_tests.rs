@@ -723,46 +723,24 @@ fn test_detail_subfocus_tab_with_comments() {
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
 
     // Set up issue detail with 2 comments
-    state.issues_state.issue_detail = Some(IssueDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 1,
-        node_id: String::new(),
-        title: "Test Issue".to_string(),
-        state: IssueState::Open,
-        author_login: "testuser".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-02T00:00:00Z".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: "Issue body".to_string(),
-        external_url: "https://github.com/owner/repo/issues/1".to_string(),
-        comments: crate::domain::PaginatedList::from_loaded(
-            crate::domain::CommentDetailIdentity {
-                scope_repo_id: crate::domain::RepositoryId::default(),
-                number: 1,
-            },
-            vec![
-                IssueComment {
-                    comment_id: 100,
-                    author_login: "user1".to_string(),
-                    created_at: "2024-01-02T00:00:00Z".to_string(),
-                    edited_at: None,
-                    body: "First comment".to_string(),
-                },
-                IssueComment {
-                    comment_id: 101,
-                    author_login: "user2".to_string(),
-                    created_at: "2024-01-03T00:00:00Z".to_string(),
-                    edited_at: None,
-                    body: "Second comment".to_string(),
-                },
-            ],
-            crate::domain::PageToken::Done,
-        ),
-        issue_type_name: None,
-        state_reason: None,
-    });
+    let mut detail = make_test_detail(vec![
+        IssueComment {
+            comment_id: 100,
+            author_login: "user1".to_string(),
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+            edited_at: None,
+            body: "First comment".to_string(),
+        },
+        IssueComment {
+            comment_id: 101,
+            author_login: "user2".to_string(),
+            created_at: "2024-01-03T00:00:00Z".to_string(),
+            edited_at: None,
+            body: "Second comment".to_string(),
+        },
+    ]);
+    detail.number = 1;
+    state.issues_state.issue_detail = Some(detail);
 
     // Body -> Comment(0)
     let state = state.apply(AppEvent::IssueDetailSubfocusNext);

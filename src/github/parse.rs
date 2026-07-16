@@ -128,33 +128,17 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .and_then(Value::as_u64)
         .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
-    let node_id = item
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let title = item
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
+    let node_id = json_field_str(item, "id");
+    let title = json_field_str(item, "title");
     let state = parse_issue_state(item);
     let state_reason = parse_issue_state_reason(item);
-
     let author_login = item
         .get("author")
         .and_then(|a| a.get("login"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-
-    let updated_at = item
-        .get("updatedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let updated_at = json_field_str(item, "updatedAt");
 
     let assignees = collect_nodes_field(item, "assignees");
     let labels = collect_nodes_field(item, "labels");
@@ -170,11 +154,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .and_then(Value::as_u64)
         .unwrap_or(0);
 
-    let body = item
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let body = json_field_str(item, "body");
 
     Ok(Issue {
         number,
@@ -194,6 +174,14 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         body,
         state_reason,
     })
+}
+
+/// Read a top-level string field as `String`, defaulting to "".
+fn json_field_str(item: &Value, field: &str) -> String {
+    item.get(field)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 fn module_from_labels(labels: &[String]) -> String {
@@ -276,17 +264,17 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let title = json_string_field(&value, "title");
+    let title = json_field_str(&value, "title");
     let state = parse_issue_state(&value);
     let state_reason = parse_issue_state_reason(&value);
     let author_login = json_login_field(&value, "author");
-    let created_at = json_string_field(&value, "createdAt");
-    let updated_at = json_string_field(&value, "updatedAt");
+    let created_at = json_field_str(&value, "createdAt");
+    let updated_at = json_field_str(&value, "updatedAt");
     let labels = json_string_array(&value, "labels", "name");
     let assignees = json_string_array(&value, "assignees", "login");
     let milestone = parse_optional_string_field(&value, "milestone", "title");
-    let body = json_string_field(&value, "body");
-    let external_url = json_string_field(&value, "url");
+    let body = json_field_str(&value, "body");
+    let external_url = json_field_str(&value, "url");
 
     // Extract repo_owner_name from URL (format: https://github.com/owner/repo/issues/NUM)
     let repo_owner_name = external_url
@@ -324,15 +312,6 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         issue_type_name: None,
         state_reason,
     })
-}
-
-/// Read a top-level string field, defaulting to "".
-fn json_string_field(value: &Value, field: &str) -> String {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
 }
 
 /// Read `<field>.login` as a string, defaulting to "".

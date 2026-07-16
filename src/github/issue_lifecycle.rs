@@ -21,6 +21,14 @@ const MARK_DUPLICATE_QUERY: &str = "mutation($canonical: ID!, $duplicate: ID!) {
 const ISSUE_NODE_ID_QUERY: &str = "query($owner: String!, $repo: String!, $number: Int!) { \
     repository(owner: $owner, name: $repo) { issue(number: $number) { id } } }";
 
+/// The GraphQL `closeIssue` mutation (issue #204).
+///
+/// Replaces the REST `gh issue close --reason` + `markIssueAsDuplicate`
+/// two-step with a single call that carries `stateReason` and an optional
+/// `duplicateIssueId` as first-class fields.
+const CLOSE_ISSUE_GRAPHQL_QUERY: &str = "mutation($input: CloseIssueInput!) { \
+    closeIssue(input: $input) { issue { state stateReason } } }";
+
 impl GhClient {
     /// Close an issue via `gh issue close` (by number, no node id required).
     pub fn close_issue(&self, owner: &str, repo: &str, number: u64) -> Result<(), GhError> {
@@ -38,6 +46,24 @@ impl GhClient {
         reason: CloseReason,
     ) -> Result<(), GhError> {
         let args = build_close_issue_with_reason_args(owner, repo, number, reason);
+        Self::run_gh(&args)?;
+        Ok(())
+    }
+
+    /// Close an issue via the GraphQL `closeIssue` mutation with a native
+    /// `stateReason` and optional `duplicateIssueId` (issue #204).
+    ///
+    /// Single GraphQL call replacing the REST `gh issue close --reason` +
+    /// `markIssueAsDuplicate` two-step. `node_id` is the issue being closed;
+    /// `duplicate_node_id` is the canonical (duplicate-of) issue's node id,
+    /// required only when `reason == Duplicate`.
+    pub fn close_issue_graphql(
+        &self,
+        node_id: &str,
+        reason: CloseReason,
+        duplicate_node_id: Option<&str>,
+    ) -> Result<(), GhError> {
+        let args = build_close_issue_graphql_args(node_id, reason, duplicate_node_id);
         Self::run_gh(&args)?;
         Ok(())
     }
@@ -114,6 +140,66 @@ pub fn build_close_issue_with_reason_args(
         "--reason".to_string(),
         reason.gh_reason_flag().to_string(),
     ]
+}
+
+/// Map a `CloseReason` to the GraphQL `IssueClosedStateReason` enum string
+/// (issue #204).
+///
+/// GitHub's `closeIssue` mutation accepts `COMPLETED`, `NOT_PLANNED`, and
+/// `DUPLICATE`. `Invalid` has no GraphQL representation and maps to
+/// `NOT_PLANNED`, matching the REST `gh issue close --reason` behavior.
+#[must_use]
+pub fn close_reason_graphql_enum(reason: CloseReason) -> &'static str {
+    match reason {
+        CloseReason::Completed => "COMPLETED",
+        CloseReason::NotPlanned | CloseReason::Invalid => "NOT_PLANNED",
+        CloseReason::Duplicate => "DUPLICATE",
+    }
+}
+
+/// Build the `gh api graphql` args for the `closeIssue` mutation (issue #204).
+///
+/// Constructs a single GraphQL call carrying `stateReason` and an optional
+/// `duplicateIssueId`, replacing the REST + `markIssueAsDuplicate` two-step.
+/// `node_id` is the GraphQL node id of the issue being closed;
+/// `duplicate_node_id` is the canonical (duplicate-of) issue's node id,
+/// required only when the reason is `Duplicate`.
+#[must_use]
+pub fn build_close_issue_graphql_args(
+    node_id: &str,
+    reason: CloseReason,
+    duplicate_node_id: Option<&str>,
+) -> Vec<String> {
+    let input = build_close_issue_input_json(node_id, reason, duplicate_node_id);
+    vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={CLOSE_ISSUE_GRAPHQL_QUERY}"),
+        "-F".to_string(),
+        format!("input={input}"),
+    ]
+}
+
+/// Build the JSON-encoded `CloseIssueInput` object for the `closeIssue`
+/// mutation (issue #204).
+///
+/// Pure function: produces the exact JSON string that `gh api graphql -F
+/// input=<json>` sends. Unit-testable without iocraft or network.
+#[must_use]
+pub fn build_close_issue_input_json(
+    node_id: &str,
+    reason: CloseReason,
+    duplicate_node_id: Option<&str>,
+) -> String {
+    let state_reason = close_reason_graphql_enum(reason);
+    let dup_field = match (reason, duplicate_node_id) {
+        (CloseReason::Duplicate, Some(dup_id)) if !dup_id.is_empty() => {
+            format!(",\"duplicateIssueId\":\"{dup_id}\"")
+        }
+        _ => String::new(),
+    };
+    format!("{{\"issueId\":\"{node_id}\",\"stateReason\":\"{state_reason}\"{dup_field}}}")
 }
 
 /// Build the `gh api graphql` args for the `deleteIssue` mutation.
@@ -218,8 +304,9 @@ fn graphql_error_messages(value: &serde_json::Value) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_close_issue_args, build_close_issue_with_reason_args, build_delete_issue_args,
-        build_issue_node_id_args, build_mark_duplicate_args, parse_issue_node_id_json,
+        build_close_issue_args, build_close_issue_graphql_args, build_close_issue_input_json,
+        build_close_issue_with_reason_args, build_delete_issue_args, build_issue_node_id_args,
+        build_mark_duplicate_args, close_reason_graphql_enum, parse_issue_node_id_json,
     };
     use crate::domain::CloseReason;
     use crate::github::GhError;
@@ -428,5 +515,107 @@ mod tests {
             ),
             other => panic!("expected ApiError, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn close_reason_graphql_enum_maps_correctly() {
+        assert_eq!(
+            close_reason_graphql_enum(CloseReason::Completed),
+            "COMPLETED"
+        );
+        assert_eq!(
+            close_reason_graphql_enum(CloseReason::NotPlanned),
+            "NOT_PLANNED"
+        );
+        assert_eq!(
+            close_reason_graphql_enum(CloseReason::Duplicate),
+            "DUPLICATE"
+        );
+        assert_eq!(
+            close_reason_graphql_enum(CloseReason::Invalid),
+            "NOT_PLANNED"
+        );
+    }
+
+    #[test]
+    fn build_close_issue_input_json_completed() {
+        let json = build_close_issue_input_json("I_kw123", CloseReason::Completed, None);
+        assert_eq!(json, r#"{"issueId":"I_kw123","stateReason":"COMPLETED"}"#);
+    }
+
+    #[test]
+    fn build_close_issue_input_json_not_planned() {
+        let json = build_close_issue_input_json("I_kw123", CloseReason::NotPlanned, None);
+        assert_eq!(json, r#"{"issueId":"I_kw123","stateReason":"NOT_PLANNED"}"#);
+    }
+
+    #[test]
+    fn build_close_issue_input_json_duplicate_with_target() {
+        let json =
+            build_close_issue_input_json("I_dup", CloseReason::Duplicate, Some("I_canonical"));
+        assert!(
+            json.contains(r#""duplicateIssueId":"I_canonical""#),
+            "duplicate close input should include duplicateIssueId: {json}"
+        );
+        assert!(json.contains(r#""stateReason":"DUPLICATE""#));
+    }
+
+    #[test]
+    fn build_close_issue_input_json_duplicate_without_target_omits_field() {
+        let json = build_close_issue_input_json("I_dup", CloseReason::Duplicate, None);
+        assert!(
+            !json.contains("duplicateIssueId"),
+            "duplicate close without a target should NOT include duplicateIssueId: {json}"
+        );
+        assert!(json.contains(r#""stateReason":"DUPLICATE""#));
+    }
+
+    #[test]
+    fn build_close_issue_input_json_duplicate_with_empty_target_omits_field() {
+        let json = build_close_issue_input_json("I_dup", CloseReason::Duplicate, Some(""));
+        assert!(
+            !json.contains("duplicateIssueId"),
+            "duplicate close with empty target should NOT include duplicateIssueId: {json}"
+        );
+    }
+
+    #[test]
+    fn build_close_issue_input_json_invalid_maps_to_not_planned() {
+        let json = build_close_issue_input_json("I_kw123", CloseReason::Invalid, None);
+        assert!(json.contains(r#""stateReason":"NOT_PLANNED""#));
+    }
+
+    #[test]
+    fn build_close_issue_graphql_args_shape() {
+        let args = build_close_issue_graphql_args("I_kw123", CloseReason::Completed, None);
+        assert_eq!(args.len(), 6);
+        assert_eq!(args[0], "api");
+        assert_eq!(args[1], "graphql");
+        assert_eq!(args[2], "-f");
+        assert!(
+            args[3].contains("closeIssue"),
+            "query should contain closeIssue mutation: {}",
+            args[3]
+        );
+        assert_eq!(args[4], "-F");
+        assert!(
+            args[5].starts_with("input="),
+            "should pass input as -F parameter: {}",
+            args[5]
+        );
+        let input = &args[5]["input=".len()..];
+        assert!(input.contains(r#""issueId":"I_kw123""#));
+        assert!(input.contains(r#""stateReason":"COMPLETED""#));
+    }
+
+    #[test]
+    fn build_close_issue_graphql_args_duplicate_includes_target() {
+        let args =
+            build_close_issue_graphql_args("I_dup", CloseReason::Duplicate, Some("I_canonical"));
+        let input = &args[5]["input=".len()..];
+        assert!(
+            input.contains(r#""duplicateIssueId":"I_canonical""#),
+            "duplicate graphql args should include duplicateIssueId: {input}"
+        );
     }
 }

@@ -5,7 +5,7 @@
 //! failure clears pending + sets scoped error, stale-mutation-id guards,
 //! scope-mismatch guards.
 
-use crate::domain::{Issue, IssueDetail, IssueState, RepositoryId};
+use crate::domain::{Issue, IssueDetail, IssueState, IssueStateReason, RepositoryId};
 use crate::state::AppState;
 use crate::state::{
     AppEvent, InlineState, IssueDeleteConfirmState, IssueFocus, IssueLifecycleMutationPending,
@@ -160,6 +160,43 @@ fn close_issue_with_no_repo_selected_shows_notice() {
 }
 
 #[test]
+fn close_issue_captures_node_id_for_graphql_mutation() {
+    // The plain close must now capture the node id so the GraphQL closeIssue
+    // mutation can close by node id (issue #204).
+    let state = issues_state_with_list("repo-1");
+    let state = state.apply(AppEvent::CloseIssue);
+    let pending = state.issues_state.close_mutation_pending.as_ref();
+    let Some(pending) = pending else {
+        panic!("close pending should be set");
+    };
+    assert_eq!(
+        pending.node_id.as_deref(),
+        Some("I_1"),
+        "plain close should capture the node id for the GraphQL mutation"
+    );
+}
+
+#[test]
+fn close_issue_without_node_id_is_blocked() {
+    // An issue with an empty node id cannot be closed via GraphQL (which needs
+    // the node id). The reducer should block with an error rather than creating
+    // a pending that the dispatch layer would reject.
+    let mut state = issues_state_with_list("repo-1");
+    let mut issues = state.issues_state.list.items().to_vec();
+    issues[0].node_id = String::new();
+    state.issues_state.list.replace_items(issues);
+    let state = state.apply(AppEvent::CloseIssue);
+    assert!(
+        state.issues_state.close_mutation_pending.is_none(),
+        "no close pending without a node id"
+    );
+    assert!(
+        state.issues_state.error.is_some(),
+        "an error must be shown when node id is unavailable"
+    );
+}
+
+#[test]
 fn issue_closed_updates_list_and_detail_state() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
@@ -201,6 +238,88 @@ fn issue_closed_updates_list_and_detail_state() {
     assert!(
         notice.is_some_and(|n| n.contains("Closed issue #1")),
         "draft notice should mention closing, got {notice:?}"
+    );
+}
+
+#[test]
+fn issue_closed_with_reason_sets_optimistic_state_reason() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    let scope = RepositoryId("repo-1".to_string());
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: scope.clone(),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(crate::domain::CloseReason::NotPlanned),
+        duplicate_of: None,
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: scope,
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: Some(crate::domain::CloseReason::NotPlanned),
+        duplicate_of: None,
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::NotPlanned)),
+        "list row state_reason should be NotPlanned after close-with-reason"
+    );
+    let detail = state.issues_state.issue_detail.as_ref();
+    assert!(
+        detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::NotPlanned)),
+        "detail state_reason should be NotPlanned after close-with-reason"
+    );
+}
+
+#[test]
+fn issue_closed_duplicate_sets_optimistic_duplicate_reason() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: Some(crate::domain::CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: Some(crate::domain::CloseReason::Duplicate),
+        duplicate_of: Some(2),
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Duplicate)),
+        "list row state_reason should be Duplicate"
+    );
+}
+
+#[test]
+fn issue_closed_plain_close_defaults_to_completed_reason() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: None,
+        duplicate_of: None,
+    });
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: None,
+        duplicate_of: None,
+    });
+    let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
+    assert!(
+        list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Completed)),
+        "plain close should default state_reason to Completed"
     );
 }
 
