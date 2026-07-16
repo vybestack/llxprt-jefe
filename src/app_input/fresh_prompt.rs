@@ -22,20 +22,24 @@ impl FreshPromptKind {
 /// instruction. Issue-specific content remains in the prompt file; this text
 /// defines how an agent must carry that issue through review and CI.
 const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
-    "Complete the issue end to end: start from the latest base branch without deleting unrelated ",
-    "or agent-configuration files; create a dedicated issue branch before changing code; use gh ",
-    "to fetch the issue and all comments; research the codebase and make a test-first ",
-    "implementation plan; implement the change and run the repository's complete verification ",
-    "suite; commit and push the branch; create a detailed pull request linked to the issue; watch ",
-    "every pull-request workflow until terminal completion, continuing to poll with a bounded delay ",
-    "even when a watch command or shell invocation times out; inspect failed workflow logs, fix ",
-    "failures, rerun verification, commit, push, and watch again; collect all project review ",
-    "feedback, including ordinary reviews, inline threads, and automated review comments; address ",
-    "every actionable finding, reply in the corresponding review thread with the fix or why it does ",
-    "not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, ",
-    "replies, and workflow watches until all required checks pass and no actionable unresolved review ",
-    "feedback remains. Do not return merely because workflows are pending; report only completion or ",
-    "a genuine external blocker."
+    "Follow the canonical bounded issue-delivery policy in ",
+    "dev-docs/workflow/ISSUE-DELIVERY.md. Before implementation, shape a decision-complete ",
+    "acceptance matrix and record explicit non-goals, bounded vertical slices, expected paths, and a ",
+    "scope ledger. Agents must stop for approval before adding an unplanned subsystem or public ",
+    "abstraction, ",
+    "making a workflow, agent-memory, quality-tool, or dependency change, moving an unrelated ",
+    "refactor or test move into scope, implementing behavior outside the acceptance matrix, or ",
+    "exceeding the hard scope budget. Target no more than 25 files or 1,500 net changed lines, perform ",
+    "a mandatory scope review above either threshold, and stop without approval above 40 files or ",
+    "2,500 net changed lines. Classify every review finding as Blocker-Fix, In-scope-Fix, Reject, or ",
+    "Defer; reviewer suggestions do not authorize scope expansion. Limit Open Code Review to two ",
+    "local and two PR OCR reviews per issue/PR effort. Declare exact-head completion only when every ",
+    "accepted behavior has behavioral evidence, local verification and CI pass on the candidate head, ",
+    "reviews are complete and triaged, all Blocker-Fix and In-scope-Fix findings are resolved, correct ",
+    "ancestry is confirmed, the PR is conflict-free, and the scope ",
+    "ledger is clean. Stop successfully when accepted behavior and all required gates are complete. ",
+    "Do not continue optional hardening or cleanup, and do not weaken architecture, TDD, lint, ",
+    "complexity, source-size, safety, coverage, cross-platform, or CI requirements."
 );
 
 fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_relative_path: &str) -> String {
@@ -106,18 +110,79 @@ mod tests {
     }
 
     #[test]
-    fn issue_delivery_workflow_is_exact_and_runtime_neutral() {
-        let expected = concat!(
-            "Read and work on the GitHub issue described in .jefe/issue-prompt.md. ",
-            "Complete the issue end to end: start from the latest base branch without deleting unrelated or agent-configuration files; create a dedicated issue branch before changing code; use gh to fetch the issue and all comments; research the codebase and make a test-first implementation plan; implement the change and run the repository's complete verification suite; commit and push the branch; create a detailed pull request linked to the issue; watch every pull-request workflow until terminal completion, continuing to poll with a bounded delay even when a watch command or shell invocation times out; inspect failed workflow logs, fix failures, rerun verification, commit, push, and watch again; collect all project review feedback, including ordinary reviews, inline threads, and automated review comments; address every actionable finding, reply in the corresponding review thread with the fix or why it does not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, replies, and workflow watches until all required checks pass and no actionable unresolved review feedback remains. Do not return merely because workflows are pending; report only completion or a genuine external blocker."
-        );
-
-        assert_eq!(
-            fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md"),
-            expected
-        );
-        assert!(!ISSUE_DELIVERY_WORKFLOW.contains("OCR"));
+    fn issue_delivery_workflow_references_policy_and_shapes_accepted_scope() {
+        for required in [
+            "dev-docs/workflow/ISSUE-DELIVERY.md",
+            "decision-complete acceptance matrix",
+            "explicit non-goals",
+            "bounded vertical slices",
+            "expected paths",
+            "scope ledger",
+        ] {
+            assert!(
+                ISSUE_DELIVERY_WORKFLOW.contains(required),
+                "issue delivery workflow must require {required}"
+            );
+        }
         assert!(!ISSUE_DELIVERY_WORKFLOW.contains("CodeRabbit"));
+    }
+
+    #[test]
+    fn issue_delivery_workflow_stops_unplanned_scope_expansion() {
+        for required in [
+            "stop for approval",
+            "unplanned subsystem",
+            "public abstraction",
+            "workflow, agent-memory, quality-tool, or dependency change",
+            "unrelated refactor or test move",
+            "behavior outside the acceptance matrix",
+            "25 files or 1,500 net changed lines",
+            "40 files or 2,500 net changed lines",
+        ] {
+            assert!(
+                ISSUE_DELIVERY_WORKFLOW.contains(required),
+                "issue delivery workflow must include scope guardrail: {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue_delivery_workflow_bounds_and_triages_review() {
+        for required in [
+            "Blocker-Fix",
+            "In-scope-Fix",
+            "Reject",
+            "Defer",
+            "two local and two PR OCR reviews",
+        ] {
+            assert!(
+                ISSUE_DELIVERY_WORKFLOW.contains(required),
+                "issue delivery workflow must include review rule: {required}"
+            );
+        }
+        assert!(!ISSUE_DELIVERY_WORKFLOW.contains("address every actionable finding"));
+    }
+
+    #[test]
+    fn issue_delivery_workflow_defines_exact_head_success() {
+        for required in [
+            "exact-head",
+            "behavioral evidence",
+            "local verification",
+            "CI",
+            "reviews are complete and triaged",
+            "Blocker-Fix and In-scope-Fix findings are resolved",
+            "correct ancestry",
+            "conflict-free",
+            "scope ledger is clean",
+            "Stop successfully",
+            "Do not continue optional hardening",
+        ] {
+            assert!(
+                ISSUE_DELIVERY_WORKFLOW.contains(required),
+                "issue delivery workflow must include completion rule: {required}"
+            );
+        }
     }
 
     #[test]
