@@ -14,6 +14,7 @@ use crate::domain::{
 use serde_json::Value;
 
 use super::comment_pages::exhausted_comments;
+use super::timestamp::cmp_rfc3339_newest_first;
 use super::{GhError, IssueListResponse};
 
 /// Categorize a subprocess error into a GhError variant.
@@ -250,9 +251,7 @@ fn collect_nodes_field(item: &Value, field: &str) -> Vec<String> {
 /// @pseudocode component-002 lines 46-54
 pub fn sort_issues(issues: &mut [Issue]) {
     issues.sort_by(|a, b| {
-        b.updated_at
-            .cmp(&a.updated_at)
-            .then(a.number.cmp(&b.number))
+        cmp_rfc3339_newest_first(&a.updated_at, &b.updated_at).then(a.number.cmp(&b.number))
     });
 }
 

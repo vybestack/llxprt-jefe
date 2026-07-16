@@ -84,6 +84,10 @@ mod github_tests_pr_detail;
 mod github_tests_pr_sort_reviews;
 
 #[cfg(test)]
+#[path = "github/tests_timestamp_sort.rs"]
+mod github_tests_timestamp_sort;
+
+#[cfg(test)]
 #[path = "github/tests_pr_threads.rs"]
 mod github_tests_pr_threads;
 

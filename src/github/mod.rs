@@ -54,6 +54,7 @@ pub use actions::{
 };
 
 mod parse;
+mod timestamp;
 use comment_pages::loaded_comments;
 use parse::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use parse::{
