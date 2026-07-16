@@ -133,7 +133,7 @@ validate_capture() {
     forbidden_literal "$file" "$NORMAL_HOME" "normal home path"
     forbidden_literal "$file" "$ROOT" "run-root path"
     forbidden_literal "$file" "$REPO_ROOT" "unrelated repository path"
-    if grep -Ei '(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|(token|password|secret)[=:][^[:space:]]+)' "$file" >/dev/null 2>&1; then
+    if grep -Ei '(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|(token|password|secret)[[:space:]]*[=:][[:space:]]*[^[:space:]]+)' "$file" >/dev/null 2>&1; then
         record_failure "publication validation rejected credential-like content in $(basename "$file")"
     fi
 }
@@ -151,8 +151,8 @@ render_svg() {
     source=$1
     target=$2
     {
-        printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="576" viewBox="0 0 800 576" role="img">'
-        printf '%s\n' '<rect width="800" height="576" fill="#000000"/>'
+        printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="594" viewBox="0 0 800 594" role="img">'
+        printf '%s\n' '<rect width="800" height="594" fill="#000000"/>'
         printf '%s\n' '<text x="8" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">'
         row=0
         while IFS= read -r line || [ -n "$line" ]; do

@@ -92,7 +92,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     assert!(manifest.contains("jefe_commit="));
     let svg = fs::read_to_string(root.join("publication/first-agent-result.svg"))
         .unwrap_or_else(|error| panic!("read svg: {error}"));
-    assert!(svg.contains("width=\"800\" height=\"576\""));
+    assert!(svg.contains("width=\"800\" height=\"594\""));
     assert!(svg.contains("Tutorial Agent ready"));
     assert!(svg.contains("pid:[redacted]"));
     assert!(svg.contains("[terminal status redacted]"));
@@ -120,6 +120,19 @@ fn unsafe_capture_fails_without_claiming_success_and_retains_diagnostics() {
     );
 }
 
+#[test]
+fn credential_validation_rejects_whitespace_around_delimiters() {
+    let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let (jefe, harness) = fake_binaries(&temp, "password : exposed-value");
+    let root = temp.path().join("credential");
+    let output = capture(&root, &jefe, &harness);
+    assert!(!output.status.success());
+
+    let manifest = fs::read_to_string(root.join("manifest.txt"))
+        .unwrap_or_else(|error| panic!("read failed manifest: {error}"));
+    assert!(manifest.contains("outcome=failed"));
+    assert!(manifest.contains("credential-like content"));
+}
 #[test]
 fn cleanup_is_manifest_scoped_dry_run_first_and_preserves_evidence() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));

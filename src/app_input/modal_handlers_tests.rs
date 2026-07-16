@@ -124,7 +124,7 @@ fn confirm_focus_is_cancel_uses_correct_field_not_default() {
 }
 
 #[test]
-fn successful_new_agent_submit_focuses_the_terminal_pane_and_capture_mode() {
+fn successful_new_agent_submit_focuses_terminal_pane_and_sets_focused() {
     let mut state = AppState {
         pane_focus: PaneFocus::Repositories,
         terminal_focused: false,
