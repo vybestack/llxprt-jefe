@@ -229,6 +229,7 @@ fn thread_resolve_succeeded_flips_is_resolved_and_clears_pending() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 0,
+        thread_id: "T1".to_string(),
         resolve: true,
         request_id: 1,
     });
@@ -262,6 +263,7 @@ fn thread_resolve_succeeded_out_of_range_clears_pending() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 99,
+        thread_id: "T_nonexistent".to_string(),
         resolve: true,
         request_id: 1,
     });
@@ -286,6 +288,7 @@ fn thread_resolve_succeeded_stale_request_id_ignored() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 0,
+        thread_id: "T1".to_string(),
         resolve: true,
         request_id: 5,
     });
@@ -312,6 +315,7 @@ fn thread_resolve_failed_clears_pending_and_sets_error() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 0,
+        thread_id: "T1".to_string(),
         resolve: true,
         request_id: 1,
     });
@@ -343,6 +347,7 @@ fn thread_resolve_failed_stale_request_id_ignored() {
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         thread_index: 0,
+        thread_id: "T1".to_string(),
         resolve: true,
         request_id: 5,
     });
@@ -362,4 +367,110 @@ fn thread_resolve_failed_stale_request_id_ignored() {
         new_state.prs_state.error.is_none(),
         "stale failure must not set error"
     );
+}
+
+// ── Reorder-safe resolve (issue #238) ────────────────────────────────────
+
+/// Build a review with a single thread carrying the given id/path.
+fn reorder_test_review(
+    review_id: &str,
+    author: &str,
+    submitted_at: &str,
+    thread_id: &str,
+    path: &str,
+    line: u32,
+) -> PrReview {
+    PrReview {
+        review_id: Some(review_id.to_string()),
+        author_login: author.to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: submitted_at.to_string(),
+        body: Some(author.to_string()),
+        review_threads: vec![make_thread(thread_id, false, Some(path), Some(line))],
+    }
+}
+
+fn assert_thread_resolved(state: &AppState, review_idx: usize, thread_idx: usize, expected: bool) {
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail"));
+    let actual = detail.reviews[review_idx].review_threads[thread_idx].is_resolved;
+    assert_eq!(
+        actual, expected,
+        "reviews[{review_idx}].review_threads[{thread_idx}].is_resolved"
+    );
+}
+
+/// Resolve targets the correct thread by `thread_id` even when a background
+/// silent refresh reorders `detail.reviews` while the mutation is in flight.
+///
+/// Before the fix, the write-back used the positional `thread_index`. If a
+/// newer review arrived and shifted flat positions, the resolve would apply
+/// to whatever thread now occupied the old index — the wrong thread.
+///
+/// This test simulates the race: dispatch resolve on thread T1 at index 0,
+/// then swap reviews so a different thread now sits at index 0, then deliver
+/// the succeeded event. The resolve must land on T1, not the impostor.
+#[test]
+fn resolve_survives_mid_flight_review_reorder() {
+    use crate::github::sort_pr_reviews;
+
+    let mut state = prs_state_with_detail("repo-1", 1);
+    {
+        let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+            panic!("test fixture must have pr_detail");
+        };
+        // Fetch order: old review first, so T1 is flat index 0.
+        detail.reviews = vec![
+            reorder_test_review(
+                "PRR_OLD",
+                "old",
+                "2026-07-01T10:00:00Z",
+                "T1",
+                "src/a.rs",
+                1,
+            ),
+            reorder_test_review(
+                "PRR_NEW",
+                "new",
+                "2026-07-03T10:00:00Z",
+                "T2",
+                "src/b.rs",
+                2,
+            ),
+        ];
+    }
+
+    // Dispatch resolve on flat index 0 (= T1).
+    let mut state = state.apply(AppEvent::PrToggleThreadResolve { thread_index: 0 });
+    let pending = state
+        .prs_state
+        .thread_resolve_pending
+        .as_ref()
+        .unwrap_or_else(|| panic!("pending must be set after toggle"));
+    assert_eq!(pending.thread_id, "T1");
+
+    // Simulate background silent-refresh reordering: sort moves newer review
+    // (T2) to index 0, pushing T1 to index 1.
+    {
+        let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+            panic!("pr_detail must exist");
+        };
+        sort_pr_reviews(&mut detail.reviews);
+    }
+
+    // Resolve succeeds carrying the OLD thread_index (0). Without thread_id
+    // validation, this would resolve T2 — the wrong thread.
+    let state = state.apply(AppEvent::PrThreadResolveSucceeded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        thread_index: 0,
+        is_resolved: true,
+        request_id: 1,
+    });
+
+    // T1 (now at reviews[1]) must be resolved; T2 (now at reviews[0]) must not.
+    assert_thread_resolved(&state, 1, 0, true);
+    assert_thread_resolved(&state, 0, 0, false);
 }

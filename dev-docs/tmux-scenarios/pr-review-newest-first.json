@@ -1,0 +1,24 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "waitFor": "Add newest-first review sorting" },
+    { "key": "Enter" },
+    { "waitFor": "Reviews" },
+    { "waitFor": "newest_reviewer" },
+    { "capture": "pr-detail-newest-review-first" },
+    { "key": "Escape" },
+    { "key": "Escape" },
+    { "waitFor": "No terminal attached" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

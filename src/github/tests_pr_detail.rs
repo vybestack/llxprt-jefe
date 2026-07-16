@@ -682,8 +682,18 @@ fn test_sort_pr_reviews_falls_back_to_author_login_when_time_and_id_missing() {
 fn test_sort_pr_reviews_puts_empty_timestamps_last() {
     let mut reviews = vec![
         make_sort_review(Some("PRR_1"), "missing", "", Some("missing")),
-        make_sort_review(Some("PRR_2"), "newest", "2026-07-02T10:00:00Z", Some("newest")),
-        make_sort_review(Some("PRR_3"), "older", "2026-07-01T10:00:00Z", Some("older")),
+        make_sort_review(
+            Some("PRR_2"),
+            "newest",
+            "2026-07-02T10:00:00Z",
+            Some("newest"),
+        ),
+        make_sort_review(
+            Some("PRR_3"),
+            "older",
+            "2026-07-01T10:00:00Z",
+            Some("older"),
+        ),
     ];
     sort_pr_reviews(&mut reviews);
     assert_eq!(

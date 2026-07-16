@@ -87,6 +87,7 @@ impl AppState {
         self.prs_state.inline_state = InlineState::Composer {
             target: ComposerTarget::ReplyToReviewThread {
                 thread_index,
+                thread_id: thread.thread_id.clone(),
                 author: author.clone(),
             },
             text: author,
@@ -108,6 +109,7 @@ impl AppState {
             return;
         };
         let resolve = !thread.is_resolved;
+        let thread_id = thread.thread_id.clone();
         let Some(scope) = self.selected_repository_id().cloned() else {
             self.prs_state.error = Some("No repository selected".to_string());
             return;
@@ -120,6 +122,7 @@ impl AppState {
         self.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
             scope_repo_id: scope,
             thread_index,
+            thread_id,
             resolve,
             request_id,
         });
@@ -146,10 +149,28 @@ impl AppState {
         if !self.pr_thread_resolve_request_matches(request_id) {
             return;
         }
+        // Capture the stable thread_id from the pending action before clearing
+        // it, then locate the thread by id — not positional index — so a
+        // background silent refresh that reordered detail.reviews cannot cause
+        // the result to apply to the wrong thread (issue #238).
+        let thread_id = self
+            .prs_state
+            .thread_resolve_pending
+            .as_ref()
+            .map(|p| p.thread_id.clone());
         self.prs_state.thread_resolve_pending = None;
+        let Some(thread_id) = thread_id else {
+            return;
+        };
         if let Some(thread) =
+            Self::pr_find_thread_by_id_mut(self.prs_state.pr_detail.as_mut(), &thread_id)
+        {
+            thread.is_resolved = is_resolved;
+        } else if let Some(thread) =
             Self::pr_find_thread_mut(self.prs_state.pr_detail.as_mut(), thread_index)
         {
+            // Fallback to positional index if the thread_id lookup missed
+            // (e.g. thread was removed and re-added with a new id).
             thread.is_resolved = is_resolved;
         }
     }
@@ -213,6 +234,26 @@ impl AppState {
                     return Some(thread);
                 }
                 idx += 1;
+            }
+        }
+        None
+    }
+
+    /// Borrow a review thread by stable node id (mutable).
+    ///
+    /// Used by the resolve write-back to survive mid-flight reordering of
+    /// `detail.reviews` (issue #238). Scans all reviews' threads for a
+    /// matching `thread_id`.
+    fn pr_find_thread_by_id_mut<'a>(
+        detail: Option<&'a mut crate::domain::PullRequestDetail>,
+        thread_id: &str,
+    ) -> Option<&'a mut PrReviewThread> {
+        let detail = detail?;
+        for review in &mut detail.reviews {
+            for thread in &mut review.review_threads {
+                if thread.thread_id == thread_id {
+                    return Some(thread);
+                }
             }
         }
         None
