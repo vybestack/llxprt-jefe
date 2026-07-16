@@ -1,0 +1,41 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 2000,
+    "initial_wait_ms": 1500,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "expect": "Default Mode     [--yolo]" },
+    { "keys": ["i","s","s","u","e","3","1","7","-","t","r","a","n","s","i","e","n","t"] },
+    { "key": "Tab" },
+    { "keys": ["/","t","m","p","/","j","e","f","e","-","i","s","s","u","e","3","1","7","-","s","c","e","n","a","r","i","o"] },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "waitFor": "Default Agent    [LLxprt]" },
+    { "key": "Tab" },
+    { "waitFor": "Default Mode     [--yolo▏]" },
+    { "keys": ["BSpace","BSpace","BSpace","BSpace","BSpace","BSpace"] },
+    { "waitFor": "Default Mode     [▏]" },
+    { "key": "Enter" },
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "r" },
+    { "key": "Enter" },
+    { "waitFor": "Edit Repository" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "waitFor": "Default Agent    [LLxprt]" },
+    { "key": "Tab" },
+    { "waitFor": "Default Mode     [▏]" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

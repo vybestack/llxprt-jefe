@@ -281,7 +281,7 @@ pub fn launch_signature_for_transient(
         code_puppy_model: repository.default_code_puppy_model.trim().to_owned(),
         code_puppy_yolo: repository.default_code_puppy_yolo,
         code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
+        mode_flags: repository.default_llxprt_mode_flags.clone(),
         llxprt_debug: String::new(),
         pass_continue: false,
         sandbox_enabled: false,
@@ -831,3 +831,7 @@ mod issue266_tracker_tests;
 #[cfg(test)]
 #[path = "transient_persistence_tests.rs"]
 mod transient_persistence_tests;
+
+#[cfg(test)]
+#[path = "transient_launch_options_tests.rs"]
+mod transient_launch_options_tests;

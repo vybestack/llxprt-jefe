@@ -50,10 +50,20 @@ pub(super) fn drain_transient_queue(app_state: &mut AppStateHandle, ctx: &Shared
     let agent_id = AgentId(jefe::services::generate_id("transient"));
     let clone_identity = clone_identity::CloneIdentity::from_repository(&repo);
     let repo_id: RepositoryId = item.repository_id.clone();
-    let agent = Agent::new_transient(agent_id.clone(), repo_id, item.work_dir.clone(), &repo);
+    let agent =
+        agent_from_queued_signature(agent_id.clone(), repo_id, &repo, &item.launch_signature);
     transient_issue_send::push_transient_agent_pub(app_state, ctx, agent);
 
     dispatch_dequeued_payload(app_state, ctx, item, &agent_id, clone_identity);
+}
+
+pub(super) fn agent_from_queued_signature(
+    agent_id: AgentId,
+    repository_id: RepositoryId,
+    repo: &jefe::domain::Repository,
+    signature: &jefe::domain::LaunchSignature,
+) -> Agent {
+    Agent::new_transient_from_signature(agent_id, repository_id, repo, signature)
 }
 
 /// Find a repo that has a terminal transient agent and queued items.
