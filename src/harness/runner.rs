@@ -99,6 +99,7 @@ pub trait HarnessDriver {
     type Error: std::fmt::Display;
 
     fn send_line(&mut self, line: &str) -> Result<(), Self::Error>;
+    /// Send literal text without Enter; scenarios use `line` when submission is intended.
     fn send_type(&mut self, text: &str) -> Result<(), Self::Error>;
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error>;
     fn send_keys(&mut self, keys: &[String]) -> Result<(), Self::Error>;

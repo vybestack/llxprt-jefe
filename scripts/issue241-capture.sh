@@ -2,6 +2,7 @@
 # Produce the bounded, local-only evidence for the first-agent tutorial.
 
 set -eu
+umask 077
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -183,7 +184,7 @@ capture_run() {
     [ -x "$HARNESS_BIN" ] || fail "harness binary not found or not executable: $HARNESS_BIN"
     NORMAL_HOME=$HOME
     validate_new_root
-    mkdir "$ROOT" || fail "could not create exclusive run root: $ROOT"
+    mkdir "$ROOT" 2>/dev/null || fail "run root already exists or cannot be created: $ROOT"
     JEFE_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)
     JEFE_VERSION=$($JEFE_BIN --version 2>/dev/null | head -n 1 || printf unknown)
     [ -n "$JEFE_VERSION" ] || JEFE_VERSION=unknown
@@ -213,14 +214,18 @@ validate_cleanup_root() {
     [ -f "$ROOT/manifest.txt" ] && [ ! -L "$ROOT/manifest.txt" ] || fail "run manifest is missing or unsafe"
 }
 
-cleanup_path() {
+validate_owned_path() {
     relative=$1
     case "$relative" in
         home|config|socket|fixture-repo|private|bin) ;;
         *) fail "manifest contains an unrecognized owned path: $relative" ;;
     esac
+    [ ! -L "$ROOT/$relative" ] || fail "refusing symlink cleanup path: $relative"
+}
+
+cleanup_path() {
+    relative=$1
     path="$ROOT/$relative"
-    [ ! -L "$path" ] || fail "refusing symlink cleanup path: $relative"
     [ -e "$path" ] || return 0
     printf '%s\n' "$path"
     [ "$CLEANUP_MODE" = "dry-run" ] || find "$path" -depth -delete
@@ -240,10 +245,17 @@ cleanup_run() {
     [ -n "$CLEANUP_MODE" ] || fail "cleanup requires --dry-run or --confirm"
     [ -n "$ROOT" ] || fail "cleanup requires --root"
     validate_cleanup_root
-    grep '^owned_path=' "$ROOT/manifest.txt" | while IFS='=' read -r key relative; do
-        [ "$key" = "owned_path" ] || fail "invalid manifest ownership entry"
+    owned_count=0
+    while IFS='=' read -r key relative; do
+        [ "$key" = "owned_path" ] || continue
+        validate_owned_path "$relative"
+        owned_count=$((owned_count + 1))
+    done < "$ROOT/manifest.txt"
+    [ "$owned_count" -gt 0 ] || fail "manifest contains no owned paths"
+    while IFS='=' read -r key relative; do
+        [ "$key" = "owned_path" ] || continue
         cleanup_path "$relative"
-    done
+    done < "$ROOT/manifest.txt"
 }
 
 COMMAND=${1-}

@@ -104,7 +104,17 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
         .unwrap_or_else(|error| panic!("read manifest: {error}"));
     assert!(manifest.contains("outcome=success"));
     assert!(manifest.contains("jefe_version=jefe 0.0.29-test"));
-    assert!(manifest.contains("jefe_commit="));
+    let commit = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("jefe_commit="))
+        .unwrap_or_else(|| panic!("manifest must record jefe_commit"));
+    assert_eq!(commit.len(), 40, "expected a full git commit: {commit}");
+    assert!(
+        commit
+            .chars()
+            .all(|character| character.is_ascii_hexdigit()),
+        "expected hexadecimal git commit: {commit}"
+    );
     let svg = fs::read_to_string(root.join("publication/first-agent-result.svg"))
         .unwrap_or_else(|error| panic!("read svg: {error}"));
     assert!(svg.contains("width=\"800\" height=\"594\""));
@@ -148,6 +158,34 @@ fn credential_validation_rejects_whitespace_around_delimiters() {
     assert!(manifest.contains("outcome=failed"));
     assert!(manifest.contains("credential-like content"));
 }
+
+#[test]
+fn cleanup_rejects_an_invalid_owned_path_after_a_valid_entry() {
+    let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let root = temp.path().join("invalid-manifest");
+    fs::create_dir_all(root.join("config"))
+        .unwrap_or_else(|error| panic!("create config fixture: {error}"));
+    fs::write(root.join(".issue241-run"), "jefe-issue241-capture-v1\n")
+        .unwrap_or_else(|error| panic!("write sentinel: {error}"));
+    fs::write(
+        root.join("manifest.txt"),
+        "format_version=1\nowned_path=config\nowned_path=outside\n",
+    )
+    .unwrap_or_else(|error| panic!("write manifest: {error}"));
+
+    let output = cleanup(&root, "--confirm");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unrecognized owned path"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("config").is_dir(),
+        "cleanup must validate every ownership entry before deleting anything"
+    );
+}
+
 #[test]
 fn cleanup_is_manifest_scoped_dry_run_first_and_preserves_evidence() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
