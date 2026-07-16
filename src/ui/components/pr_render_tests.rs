@@ -886,11 +886,6 @@ fn test_pr_list_shows_draft_and_review_decision_markers() {
         "successful-checks PR meta_line must contain 'checks', got: {}",
         ok_rows[0].meta_line
     );
-    assert!(
-        ok_rows[0].meta_line.contains("checks"),
-        "successful-checks PR meta_line must contain 'checks', got: {}",
-        ok_rows[0].meta_line
-    );
 }
 
 /// `has_bracketed_action` must detect actionable binding text regardless of
