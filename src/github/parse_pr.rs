@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use super::comment_pages::exhausted_comments;
 use super::parse::parse_page_info;
+use super::timestamp::cmp_rfc3339_newest_first;
 use super::{GhError, PrListResponse};
 
 /// Build the GraphQL query string for the PR comments fetch
@@ -589,9 +590,7 @@ fn merged_at_non_empty(merged_at: &Value) -> bool {
 /// @pseudocode component-002 lines 194-196
 pub fn sort_pull_requests(items: &mut [PullRequest]) {
     items.sort_by(|a, b| {
-        b.updated_at
-            .cmp(&a.updated_at)
-            .then(a.number.cmp(&b.number))
+        cmp_rfc3339_newest_first(&a.updated_at, &b.updated_at).then(a.number.cmp(&b.number))
     });
 }
 
@@ -609,8 +608,7 @@ fn cmp_pr_reviews_newest_first(
     a: &crate::domain::PrReview,
     b: &crate::domain::PrReview,
 ) -> std::cmp::Ordering {
-    b.submitted_at
-        .cmp(&a.submitted_at)
+    cmp_rfc3339_newest_first(&a.submitted_at, &b.submitted_at)
         .then_with(|| b.review_id.cmp(&a.review_id))
         .then_with(|| a.author_login.cmp(&b.author_login))
 }
