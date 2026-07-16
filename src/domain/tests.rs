@@ -333,6 +333,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         base_dir: PathBuf::from("/tmp/test-repo"),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_code_puppy_version: String::new(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
@@ -340,6 +341,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         transient_agent_dir: PathBuf::new(),
         default_code_puppy_yolo: None,
+        default_llxprt_mode_flags: Vec::new(),
         transient_max_concurrent: 0,
         agent_ids: vec![],
         default_llxprt_version: None,
@@ -413,6 +415,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             work_dir: PathBuf::from("/tmp/agent-2"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -551,7 +554,8 @@ fn repository_new_defaults_transient_fields() {
         PathBuf::from("/tmp/repo"),
     );
     assert!(repo.transient_agent_dir.as_os_str().is_empty());
-    assert_eq!(repo.default_code_puppy_yolo, None);
+    assert_eq!(repo.default_code_puppy_yolo, Some(true));
+    assert_eq!(repo.default_llxprt_mode_flags, vec!["--yolo"]);
     assert_eq!(repo.transient_max_concurrent, 0);
 }
 
@@ -603,6 +607,7 @@ fn agent_new_transient_sets_is_transient_true_and_inherits_repo_defaults() {
     repo.default_profile = "dev".to_string();
     repo.default_code_puppy_model = "gpt-5".to_string();
     repo.default_code_puppy_yolo = Some(true);
+    repo.default_llxprt_mode_flags = vec!["--yolo".to_owned(), "--fast".to_owned()];
     repo.default_agent_kind = AgentKind::CodePuppy;
 
     let work_dir = repo.effective_transient_dir().join("jefe-transient-1");
@@ -620,6 +625,7 @@ fn agent_new_transient_sets_is_transient_true_and_inherits_repo_defaults() {
     assert_eq!(agent.profile, "dev");
     assert_eq!(agent.code_puppy_model, "gpt-5");
     assert_eq!(agent.code_puppy_yolo, Some(true));
+    assert_eq!(agent.mode_flags, vec!["--yolo", "--fast"]);
     assert_eq!(agent.agent_kind, AgentKind::CodePuppy);
     assert!(!agent.pass_continue, "transient agents are one-shot");
     assert_eq!(agent.status, AgentStatus::Queued);
@@ -635,11 +641,12 @@ fn repository_transient_fields_backward_compat_with_missing_fields() {
         "base_dir": "/tmp/repo",
         "default_profile": "",
         "agent_ids": []
-        // Note: no transient_agent_dir, default_code_puppy_yolo, transient_max_concurrent
+        // Note: no transient-agent option fields.
     });
     let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
     assert!(repo.transient_agent_dir.as_os_str().is_empty());
-    assert_eq!(repo.default_code_puppy_yolo, None);
+    assert_eq!(repo.default_code_puppy_yolo, Some(true));
+    assert_eq!(repo.default_llxprt_mode_flags, vec!["--yolo"]);
     assert_eq!(repo.transient_max_concurrent, 0);
     assert_eq!(repo.effective_transient_dir(), std::env::temp_dir());
 }

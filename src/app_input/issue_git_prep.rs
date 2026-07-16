@@ -26,7 +26,9 @@ mod issue_cleanup;
 /// module split.
 #[path = "reclone_safety.rs"]
 mod reclone_safety;
-pub(super) use issue_cleanup::discard_workdir_changes;
+pub(super) use issue_cleanup::{
+    discard_checkout_blocking_tracked_changes, discard_workdir_changes,
+};
 pub(super) use reclone_safety::validate_reclone_target;
 
 /// Check whether `work_dir` exists and is a git working copy.
@@ -303,12 +305,17 @@ fn clone_repository(work_dir: &Path, clone_url: &str) -> PrepResult {
     Ok(())
 }
 
-/// Outcome of preparing the working copy for an issue-driven launch.
-///
-/// `Ok(())` means the working copy is now on the default branch and clean
-/// (modulo ignored jefe/llxprt paths) and the launch may proceed.
-/// `Err(_)` carries a human-readable error for the user.
+/// Result returned by Git preparation boundaries that only succeed or fail.
 pub(super) type PrepResult = Result<(), String>;
+
+/// Outcome of synchronizing a working copy to its fetched default branch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum WorkdirPrepOutcome {
+    /// Fetch and checkout completed; the worktree matches the remote default.
+    Ready,
+    /// Checkout refused because local tracked changes would be overwritten.
+    CheckoutBlockedByLocalChanges,
+}
 
 /// Resolve the repository's default branch for the working copy at `work_dir`.
 ///
@@ -399,7 +406,7 @@ pub(super) use jefe::git_info::porcelain_is_dirty;
 /// `branch` must be validated by [`is_valid_branch_name`] (called from
 /// [`resolve_default_branch`]) before being passed here, to prevent option
 /// injection.
-fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
+fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<WorkdirPrepOutcome, String> {
     debug_assert!(
         is_valid_branch_name(branch),
         "branch must be validated by resolve_default_branch before calling checkout_and_pull"
@@ -412,7 +419,7 @@ fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
     // The `--` disambiguates the following args (none here) from pathspecs.
     let checkout_result = git_capture(work_dir, ["checkout", "-B", branch, &remote_ref, "--"]);
     match checkout_result {
-        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) if output.status.success() => Ok(WorkdirPrepOutcome::Ready),
         Ok(output) => {
             // checkout failed — could be a linked worktree where the branch
             // is already checked out in the primary worktree. Only reset
@@ -420,12 +427,17 @@ fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
             // branch; otherwise resetting would move the wrong branch ref
             // and risk discarding commits on an unrelated branch.
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // Locale-independent: git_capture sets LC_ALL=C, so this English
-            // fragment is reliable regardless of the user's locale.
-            if stderr.contains("already used by worktree") {
+            // Locale-independent: git_capture sets LC_ALL=C, so these English
+            // fragments are reliable regardless of the user's locale.
+            if stderr
+                .contains("local changes to the following files would be overwritten by checkout")
+            {
+                Ok(WorkdirPrepOutcome::CheckoutBlockedByLocalChanges)
+            } else if stderr.contains("already used by worktree") {
                 let current = current_branch_name(work_dir)?;
                 if current == branch {
-                    git_require_success(work_dir, ["reset", "--hard", &remote_ref])
+                    git_require_success(work_dir, ["reset", "--hard", &remote_ref])?;
+                    Ok(WorkdirPrepOutcome::Ready)
                 } else {
                     Err(format!(
                         "Cannot reset to {remote_ref}: worktree is on branch '{current}', \
@@ -462,7 +474,7 @@ fn current_branch_name(work_dir: &Path) -> Result<String, String> {
 /// Prepare the working copy for a fresh issue-driven launch: resolve the
 /// default branch, check it out, and pull. Does **not** touch uncommitted
 /// changes — callers must gate on [`is_workdir_dirty`] first.
-pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
+pub(super) fn prepare_issue_workdir(work_dir: &Path) -> Result<WorkdirPrepOutcome, String> {
     let branch = resolve_default_branch(work_dir)?;
     checkout_and_pull(work_dir, &branch)
 }

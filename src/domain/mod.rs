@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 // keep this file under the source-file-size limit.
 mod actions;
 mod quick_resume;
+mod transient_agent;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
@@ -162,6 +163,18 @@ pub struct RemoteRepositorySettings {
 }
 
 /// A repository is a named codebase container.
+fn default_code_puppy_yolo() -> Option<bool> {
+    default_code_puppy_yolo_enabled().then_some(true)
+}
+
+const fn default_code_puppy_yolo_enabled() -> bool {
+    true
+}
+
+fn default_llxprt_mode_flags() -> Vec<String> {
+    vec!["--yolo".to_owned()]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
     pub id: RepositoryId,
@@ -172,6 +185,9 @@ pub struct Repository {
     /// Default Code Puppy model. Empty preserves Code Puppy's own default.
     #[serde(default)]
     pub default_code_puppy_model: String,
+    /// Default Code Puppy package version copied into newly created Code Puppy agents.
+    #[serde(default)]
+    pub default_code_puppy_version: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -195,8 +211,11 @@ pub struct Repository {
     #[serde(default)]
     pub transient_agent_dir: PathBuf,
     /// Default Code Puppy YOLO for transient agents. `None` = no yolo.
-    #[serde(default)]
+    #[serde(default = "default_code_puppy_yolo")]
     pub default_code_puppy_yolo: Option<bool>,
+    /// Default LLxprt mode flags for transient agents.
+    #[serde(default = "default_llxprt_mode_flags")]
+    pub default_llxprt_mode_flags: Vec<String>,
     /// Max concurrent transient agents. 0 = no limit (no queueing).
     #[serde(default)]
     pub transient_max_concurrent: u32,
@@ -651,6 +670,9 @@ pub struct Agent {
     /// Optional Code Puppy model override. Empty inherits the repository default.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Code Puppy package version. Blank keeps the direct executable launch.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -748,6 +770,9 @@ pub struct LaunchSignature {
     /// Effective Code Puppy model for this launch.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Trimmed Code Puppy package version. Blank launches the direct executable.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -795,6 +820,7 @@ impl Agent {
 
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -816,73 +842,6 @@ impl Agent {
     pub fn is_running(&self) -> bool {
         self.status == AgentStatus::Running
     }
-
-    /// Whether this agent is transient (created on-the-fly, not persisted).
-    #[must_use]
-    pub fn is_transient(&self) -> bool {
-        self.origin == AgentOrigin::Transient
-    }
-
-    /// Create a transient agent from repository defaults.
-    ///
-    /// Transient agents are one-shot: they are created on-the-fly from the
-    /// issue/PR agent chooser, use the repository's default model/options,
-    /// run in a temporary work directory, and are never persisted to
-    /// `state.json`. `pass_continue` is always `false` because transient
-    /// agents are single-session.
-    ///
-    /// # Parameters
-    ///
-    /// - `id` — stable identifier for the new agent.
-    /// - `repository_id` — the repository the transient agent is bound to.
-    /// - `work_dir` — temporary working directory (under the repo's
-    ///   `effective_transient_dir`).
-    /// - `repo` — the source repository whose defaults (profile, model, kind,
-    ///   yolo) are copied.
-    ///
-    /// # Panics (debug only)
-    ///
-    /// In debug builds, panics if `work_dir` is not under the repo's effective
-    /// transient directory. In release builds the check is skipped. Callers
-    /// should always use `generate_transient_work_dir` to produce a valid
-    /// path; this assertion is defense-in-depth against bugs or misuse that
-    /// would escape the expected cleanup/isolation boundary.
-    #[must_use]
-    pub fn new_transient(
-        id: AgentId,
-        repository_id: RepositoryId,
-        work_dir: PathBuf,
-        repo: &Repository,
-    ) -> Self {
-        debug_assert!(
-            work_dir.starts_with(repo.effective_transient_dir()),
-            "transient agent work_dir must be under the repo's effective_transient_dir"
-        );
-        Self {
-            id: id.clone(),
-            display_id: id.0.clone(),
-            repository_id,
-            shortcut_slot: None,
-            name: format!("Transient ({})", repo.name),
-            description: String::new(),
-            work_dir,
-            profile: repo.default_profile.clone(),
-            code_puppy_model: repo.default_code_puppy_model.clone(),
-            code_puppy_yolo: repo.default_code_puppy_yolo,
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            agent_kind: repo.default_agent_kind,
-            status: AgentStatus::Queued,
-            runtime_binding: None,
-            origin: AgentOrigin::Transient,
-            llxprt_version: repo.default_llxprt_version.clone(),
-        }
-    }
 }
 
 impl Repository {
@@ -896,13 +855,15 @@ impl Repository {
             base_dir,
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_code_puppy_version: String::new(),
             github_repo: String::new(),
             github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
             transient_agent_dir: PathBuf::new(),
-            default_code_puppy_yolo: None,
+            default_code_puppy_yolo: default_code_puppy_yolo(),
+            default_llxprt_mode_flags: default_llxprt_mode_flags(),
             transient_max_concurrent: 0,
             default_llxprt_version: None,
             agent_ids: Vec::new(),

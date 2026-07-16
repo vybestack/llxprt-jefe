@@ -65,10 +65,13 @@ pub(super) fn require_local_kind_available(
 pub(super) fn require_launch_available(
     kind: AgentKind,
     selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
+    code_puppy_version: &str,
     remote: &RemoteRepositorySettings,
     available: &[AgentKind],
 ) -> Result<(), String> {
-    if jefe::domain::llxprt_launch_source(kind, selector).requires_npm() {
+    if jefe::domain::llxprt_launch_source(kind, selector).requires_npm()
+        || (kind == AgentKind::CodePuppy && !code_puppy_version.trim().is_empty())
+    {
         if jefe::domain::target::is_valid_remote(remote) || !remote.enabled {
             return Ok(());
         }
@@ -82,10 +85,11 @@ pub(super) fn launch_available_or_error(
     app_state: &mut AppStateHandle,
     kind: AgentKind,
     selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
+    code_puppy_version: &str,
     remote: &RemoteRepositorySettings,
 ) -> bool {
     let available = app_state.read().installed_agent_kinds.clone();
-    match require_launch_available(kind, selector, remote, &available) {
+    match require_launch_available(kind, selector, code_puppy_version, remote, &available) {
         Ok(()) => true,
         Err(message) => {
             app_state.write().error_message = Some(message);
@@ -128,6 +132,31 @@ mod tests {
             host: "build.example.com".to_owned(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn pinned_code_puppy_does_not_require_global_code_puppy_snapshot() {
+        let remote = RemoteRepositorySettings::default();
+        assert!(
+            require_launch_available(
+                AgentKind::CodePuppy,
+                None,
+                "0.0.361",
+                &remote,
+                &[AgentKind::Llxprt],
+            )
+            .is_ok()
+        );
+        assert!(
+            require_launch_available(
+                AgentKind::CodePuppy,
+                None,
+                "",
+                &remote,
+                &[AgentKind::Llxprt],
+            )
+            .is_err()
+        );
     }
 
     #[test]

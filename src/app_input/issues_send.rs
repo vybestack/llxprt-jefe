@@ -64,6 +64,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         app_state,
         launch_sig.agent_kind,
         launch_sig.llxprt_version.as_ref(),
+        &launch_sig.code_puppy_version,
         &launch_sig.remote,
     ) {
         return;
@@ -284,6 +285,7 @@ fn prepare_confirm_send_target(
         app_state,
         launch_sig.agent_kind,
         launch_sig.llxprt_version.as_ref(),
+        &launch_sig.code_puppy_version,
         &launch_sig.remote,
     ) {
         return None;

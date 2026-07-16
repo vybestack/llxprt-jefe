@@ -61,7 +61,9 @@ pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe,
 };
-pub use package_probe::{NpmPackageAvailabilityError, require_npm_package_available};
+pub use package_probe::{
+    NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,
+};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -111,6 +113,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -144,6 +147,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -182,6 +186,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -211,6 +216,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],

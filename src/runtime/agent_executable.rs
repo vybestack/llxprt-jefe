@@ -10,6 +10,7 @@ const WINDOWS_REMEDIATION: &str =
     "install a launchable .exe, .com, .cmd, .bat, or .ps1 wrapper and restart Jefe";
 const UNIX_REMEDIATION: &str = "install an executable runtime on PATH and restart Jefe";
 const NPM_REMEDIATION: &str = "install Node.js with npm on PATH and restart Jefe";
+const UVX_REMEDIATION: &str = "install uv with uvx on PATH and restart Jefe";
 const NPM_LAYOUT_REMEDIATION: &str = "install the official Node.js npm layout (npm.cmd/npm.bat beside node.exe and node_modules/npm/bin/npm-cli.js) or put npm.exe on PATH, then restart Jefe";
 
 /// Operating-system executable-resolution policy.
@@ -40,6 +41,8 @@ pub enum AgentExecutableTarget {
     Agent(AgentKind),
     /// npm used for a selector-backed LLxprt launch or package probe.
     Npm,
+    /// uvx used for a pinned Code Puppy package launch or capability probe.
+    Uvx,
 }
 
 impl AgentExecutableTarget {
@@ -49,6 +52,7 @@ impl AgentExecutableTarget {
         match self {
             Self::Agent(kind) => kind.binary_name(),
             Self::Npm => "npm",
+            Self::Uvx => "uvx",
         }
     }
 
@@ -56,6 +60,7 @@ impl AgentExecutableTarget {
         match self {
             Self::Agent(kind) => kind.label(),
             Self::Npm => "npm",
+            Self::Uvx => "uvx",
         }
     }
 }
@@ -119,7 +124,7 @@ impl ResolvedAgentExecutable {
     pub const fn runtime(&self) -> Option<AgentKind> {
         match self.target {
             AgentExecutableTarget::Agent(kind) => Some(kind),
-            AgentExecutableTarget::Npm => None,
+            AgentExecutableTarget::Npm | AgentExecutableTarget::Uvx => None,
         }
     }
 
@@ -246,6 +251,8 @@ impl AgentExecutableResolver {
             target,
             remediation: if target == AgentExecutableTarget::Npm {
                 NPM_REMEDIATION
+            } else if target == AgentExecutableTarget::Uvx {
+                UVX_REMEDIATION
             } else {
                 match self.platform {
                     AgentExecutablePlatform::Unix => UNIX_REMEDIATION,

@@ -33,10 +33,9 @@
     { "key": "Right" },
     { "expect": "( Confirm )" },
     { "capture": "dirty-copy-focus-confirm" },
-    { "key": "Left" },
-    { "expect": "( Cancel )" },
-    { "key": "Escape" },
+    { "key": "Enter" },
     { "waitForNot": "Dirty Working Copy" },
+    { "capture": "dirty-copy-confirm-activated" },
     { "key": "Escape" },
     { "key": "q" },
     { "waitForExit": 3000 }

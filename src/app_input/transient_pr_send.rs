@@ -124,6 +124,7 @@ fn transient_pr_availability_and_target(
         app_state,
         prep.launch_sig.agent_kind,
         prep.launch_sig.llxprt_version.as_ref(),
+        &prep.launch_sig.code_puppy_version,
         &prep.launch_sig.remote,
     ) {
         super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);

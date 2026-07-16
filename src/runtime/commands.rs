@@ -462,11 +462,22 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
 }
 
 fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
-    let llxprt_args = launch_args(signature);
+    let inner_args = launch_args(signature);
+    if signature.agent_kind == AgentKind::CodePuppy
+        && !signature.code_puppy_version.trim().is_empty()
+    {
+        let mut args = vec![
+            "--from".to_owned(),
+            format!("code-puppy=={}", signature.code_puppy_version.trim()),
+            AgentKind::CodePuppy.binary_name().to_owned(),
+        ];
+        args.extend(inner_args);
+        return (AgentExecutableTarget::Uvx, args);
+    }
     match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
         LaunchSource::Direct => (
             AgentExecutableTarget::Agent(signature.agent_kind),
-            llxprt_args,
+            inner_args,
         ),
         LaunchSource::NpmBacked(selector) => {
             let mut args = vec![
@@ -476,7 +487,7 @@ fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget
                 "--".to_owned(),
                 AgentKind::Llxprt.binary_name().to_owned(),
             ];
-            args.extend(llxprt_args);
+            args.extend(inner_args);
             (AgentExecutableTarget::Npm, args)
         }
     }
@@ -588,6 +599,7 @@ fn remote_launch_argv(
     let (target, args) = launch_target_and_args(signature);
     let executable = match target {
         AgentExecutableTarget::Npm => "npm".to_owned(),
+        AgentExecutableTarget::Uvx => "uvx".to_owned(),
         AgentExecutableTarget::Agent(_) => direct_command.ok_or_else(|| {
             RuntimeError::SpawnFailed("direct agent executable was not resolved".to_owned())
         })?,
@@ -603,15 +615,17 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
+    let pinned_code_puppy = signature.agent_kind == AgentKind::CodePuppy
+        && !signature.code_puppy_version.trim().is_empty();
     let direct_command =
         match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
-            LaunchSource::Direct => Some(resolve_remote_agent_command(
+            LaunchSource::Direct if !pinned_code_puppy => Some(resolve_remote_agent_command(
                 remote,
                 work_dir,
                 remote.setup_env_default,
                 signature.agent_kind,
             )?),
-            LaunchSource::NpmBacked(_) => None,
+            LaunchSource::Direct | LaunchSource::NpmBacked(_) => None,
         };
     let launch = remote_launch_argv(signature, direct_command)?;
     let cli_command = remote_cli_command(&launch.executable, &launch.args);
@@ -934,6 +948,10 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
         )))
     }
 }
+
+#[cfg(test)]
+#[path = "commands_code_puppy_version_tests.rs"]
+mod code_puppy_version_tests;
 
 #[cfg(test)]
 #[path = "commands_tests.rs"]

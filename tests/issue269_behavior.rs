@@ -308,6 +308,7 @@ fn launch_signature_serde_selector_missing_null_blank_and_nonblank_normalize_and
         work_dir: PathBuf::from("/remote/work/serde"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: None,
         code_puppy_quick_resume: false,
         mode_flags: vec!["--yolo".to_owned()],
@@ -339,6 +340,7 @@ fn projection_state(agent_kind: AgentKind) -> AppState {
     "reviewer".clone_into(&mut fields.profile);
     agent_kind.label().clone_into(&mut fields.agent_kind);
     "sonnet".clone_into(&mut fields.code_puppy_model);
+    "puppy-nightly".clone_into(&mut fields.code_puppy_version);
     fields.code_puppy_yolo = true;
     fields.code_puppy_quick_resume = true.into();
     "--yolo".clone_into(&mut fields.mode);
@@ -349,23 +351,24 @@ fn projection_state(agent_kind: AgentKind) -> AppState {
 }
 
 #[test]
-fn code_puppy_selection_content_projection_matches_ui_order_and_format_without_llxprt_version() {
+fn code_puppy_selection_content_projection_shows_puppy_version_without_llxprt_version() {
     let state = projection_state(AgentKind::CodePuppy);
     let lines = agent_form_content_lines(&state)
         .unwrap_or_else(|| panic!("new-agent selection content should project"));
 
     assert_eq!(
-        &lines[6..10],
+        &lines[6..11],
         [
             "  Agent Runtime    [code_puppy]  (space cycles: LLxprt / code_puppy)",
             "  Model            [sonnet]",
+            "  Version          [puppy-nightly]",
             "  YOLO             [x]  (space toggles)",
             "  Quick resume     [x]  (space toggles)",
         ]
     );
     assert!(
-        lines.iter().all(|line| !line.starts_with("  Version")),
-        "Code Puppy projection must omit the LLxprt Version row"
+        lines.iter().all(|line| !line.contains(NIGHTLY_SELECTOR)),
+        "Code Puppy projection must omit the dormant LLxprt Version value"
     );
 }
 

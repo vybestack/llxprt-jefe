@@ -34,8 +34,9 @@ use jefe::domain::RemoteRepositorySettings;
 
 use super::clone_identity::CloneIdentity;
 use super::issue_git_prep::{
-    WorkdirAssurance, discard_workdir_changes, ensure_workdir_cloned, ensure_workdir_with_origin,
-    is_workdir_dirty, prepare_issue_workdir, remove_workdir,
+    WorkdirAssurance, WorkdirPrepOutcome, discard_checkout_blocking_tracked_changes,
+    discard_workdir_changes, ensure_workdir_cloned, ensure_workdir_with_origin, is_workdir_dirty,
+    prepare_issue_workdir, remove_workdir,
 };
 
 /// Relative path of the issue prompt inside the work dir. This is the single
@@ -241,7 +242,21 @@ fn run_local_policy_and_prep(
             DirtyPolicy::Discard => discard_workdir_changes(work_dir)?,
         }
     }
-    prepare_issue_workdir(work_dir)?;
+    match prepare_issue_workdir(work_dir)? {
+        WorkdirPrepOutcome::Ready => {}
+        WorkdirPrepOutcome::CheckoutBlockedByLocalChanges => match policy {
+            DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
+            DirtyPolicy::Discard => {
+                discard_checkout_blocking_tracked_changes(work_dir)?;
+                if prepare_issue_workdir(work_dir)? != WorkdirPrepOutcome::Ready {
+                    return Err(
+                        "Working copy is still blocking default-branch checkout after discard"
+                            .to_owned(),
+                    );
+                }
+            }
+        },
+    }
     write_prompt_local(work_dir, prompt)?;
     Ok(PrepOutcome::Ready)
 }

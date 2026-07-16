@@ -226,13 +226,13 @@ jobs:
       - name: Test locked all-feature workspace
         shell: pwsh
         run: |
-          cargo test --workspace --all-features --locked 2>&1 |
+          cargo test --workspace --all-features --locked -- --test-threads=1 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-test.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run real psmux command-surface smoke suite
         shell: pwsh
         run: |
-          cargo test --features psmux-smoke --test psmux_smoke -- --nocapture 2>&1 |
+          cargo test --features psmux-smoke --test psmux_smoke -- --nocapture --test-threads=1 2>&1 |
             Tee-Object -FilePath target/windows-ci/psmux-smoke.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run deterministic startup and quit TUI scenario

@@ -7,6 +7,7 @@ fn signature(selector: Option<&str>) -> LaunchSignature {
         work_dir: Path::new("/tmp/work").to_path_buf(),
         profile: "review profile".to_owned(),
         code_puppy_model: String::new(),
+        code_puppy_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec!["--yolo".to_owned(), "prompt with spaces".to_owned()],
@@ -22,6 +23,7 @@ fn signature(selector: Option<&str>) -> LaunchSignature {
 }
 
 #[test]
+
 fn direct_local_plan_remains_exact() {
     let plan = local_launch_plan(&signature(None));
     assert_eq!(
@@ -44,6 +46,7 @@ fn direct_local_plan_remains_exact() {
 }
 
 #[test]
+
 fn nightly_local_plan_prefixes_complete_existing_llxprt_argv() {
     let nightly = "0.10.0-nightly.260712.21cb698b6";
     let plan = local_launch_plan(&signature(Some(nightly)));

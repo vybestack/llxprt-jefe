@@ -67,6 +67,11 @@ impl AppState {
                     insert_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model, c);
                 false
             }
+            AgentFormFocus::CodePuppyVersion => {
+                cursor.code_puppy_version =
+                    insert_char_at(&mut fields.code_puppy_version, cursor.code_puppy_version, c);
+                false
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
                 false
@@ -242,6 +247,16 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultCodePuppyVersion => {
+                cursor.default_code_puppy_version = delete_char_before(
+                    &mut fields.default_code_puppy_version,
+                    cursor.default_code_puppy_version,
+                );
+            }
+            RepositoryFormFocus::DefaultLlxprtMode => {
+                cursor.default_llxprt_mode =
+                    delete_char_before(&mut fields.default_llxprt_mode, cursor.default_llxprt_mode);
+            }
             RepositoryFormFocus::DefaultLlxprtVersion => {
                 cursor.default_llxprt_version = delete_char_before(
                     &mut fields.default_llxprt_version,
@@ -297,6 +312,15 @@ impl AppState {
                     &mut fields.default_code_puppy_model,
                     cursor.default_code_puppy_model,
                 );
+            }
+            RepositoryFormFocus::DefaultCodePuppyVersion => {
+                delete_char_at(
+                    &mut fields.default_code_puppy_version,
+                    cursor.default_code_puppy_version,
+                );
+            }
+            RepositoryFormFocus::DefaultLlxprtMode => {
+                delete_char_at(&mut fields.default_llxprt_mode, cursor.default_llxprt_mode);
             }
             RepositoryFormFocus::DefaultLlxprtVersion => {
                 delete_char_at(
@@ -356,6 +380,10 @@ impl AppState {
                 cursor.code_puppy_model =
                     delete_char_before(&mut fields.code_puppy_model, cursor.code_puppy_model);
             }
+            AgentFormFocus::CodePuppyVersion => {
+                cursor.code_puppy_version =
+                    delete_char_before(&mut fields.code_puppy_version, cursor.code_puppy_version);
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
             }
@@ -407,6 +435,9 @@ impl AppState {
             }
             AgentFormFocus::CodePuppyModel => {
                 delete_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model);
+            }
+            AgentFormFocus::CodePuppyVersion => {
+                delete_char_at(&mut fields.code_puppy_version, cursor.code_puppy_version);
             }
             AgentFormFocus::Mode => {
                 delete_char_at(&mut fields.mode, cursor.mode);

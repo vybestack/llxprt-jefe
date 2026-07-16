@@ -485,6 +485,7 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         app_state,
         signature.agent_kind,
         signature.llxprt_version.as_ref(),
+        &signature.code_puppy_version,
         &signature.remote,
     ) {
         return;
@@ -495,6 +496,25 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     }
     focus_terminal_after_submit(app_state, ctx);
     let _ = execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+}
+
+type FormLaunchSelection = (
+    jefe::domain::AgentKind,
+    Option<jefe::domain::LlxprtNpmPackageSelector>,
+    String,
+    jefe::domain::RemoteRepositorySettings,
+);
+
+fn agent_form_launch_selection(
+    fields: &jefe::state::AgentFormFields,
+    remote: jefe::domain::RemoteRepositorySettings,
+) -> FormLaunchSelection {
+    (
+        jefe::domain::AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default(),
+        jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
+        fields.code_puppy_version.clone(),
+        remote,
+    )
 }
 
 /// Pre-submit validation: check that the selected agent kind is locally
@@ -511,43 +531,39 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
             let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
             let selector =
                 jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
-            jefe::state::AppState::remote_settings_from_fields(fields)
-                .map(|remote| (kind, selector, remote))
+            jefe::state::AppState::remote_settings_from_fields(fields).map(|remote| {
+                (
+                    kind,
+                    selector,
+                    fields.default_code_puppy_version.clone(),
+                    remote,
+                )
+            })
         }
         ModalState::NewAgent {
             repository_id,
             fields,
             ..
         } => {
-            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
             let remote = state
                 .repository_by_id(repository_id)
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            Ok((
-                kind,
-                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
-                remote,
-            ))
+            Ok(agent_form_launch_selection(fields, remote))
         }
         ModalState::EditAgent { id, fields, .. } => {
-            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
             let remote = state
                 .repository_for_agent(id)
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            Ok((
-                kind,
-                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
-                remote,
-            ))
+            Ok(agent_form_launch_selection(fields, remote))
         }
         _ => return true,
     };
     drop(state);
-    let (kind, selector, remote) = match selection {
+    let (kind, selector, code_puppy_version, remote) = match selection {
         Ok(selection) => selection,
         Err(error) => {
             app_state.write().error_message = Some(error);
@@ -555,7 +571,13 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
         }
     };
 
-    super::availability::launch_available_or_error(app_state, kind, selector.as_ref(), &remote)
+    super::availability::launch_available_or_error(
+        app_state,
+        kind,
+        selector.as_ref(),
+        &code_puppy_version,
+        &remote,
+    )
 }
 
 /// Extract workflow dispatch form data if the modal is a WorkflowDispatch
@@ -665,7 +687,7 @@ fn submit_form_and_snapshot_launch(
     };
     let package_probe_result = super::new_agent_submit::execute_new_agent_package_probe(
         &package_probe_plan,
-        jefe::runtime::require_npm_package_available,
+        jefe::runtime::require_launch_package_available,
     );
 
     let mut state = app_state.write();

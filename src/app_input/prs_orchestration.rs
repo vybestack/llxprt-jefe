@@ -519,6 +519,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         app_state,
         launch_sig.agent_kind,
         launch_sig.llxprt_version.as_ref(),
+        &launch_sig.code_puppy_version,
         &launch_sig.remote,
     ) {
         return;

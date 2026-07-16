@@ -112,6 +112,12 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
             cursor.code_puppy_model,
         ),
         (
+            "Version",
+            &fields.code_puppy_version,
+            AgentFormFocus::CodePuppyVersion,
+            cursor.code_puppy_version,
+        ),
+        (
             "Mode Flags",
             &fields.mode,
             AgentFormFocus::Mode,

@@ -90,6 +90,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/work"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec!["--stale".to_owned()],
@@ -276,8 +277,10 @@ mod tests {
         ] {
             let mut signature = base_sig(AgentKind::Llxprt);
             signature.llxprt_version = selector.clone();
+            signature.code_puppy_version = "0.0.361-rc1".to_owned();
             let prepared = prepare_fresh_prompt_signature(signature, kind, path);
             assert_eq!(prepared.llxprt_version, selector);
+            assert_eq!(prepared.code_puppy_version, "0.0.361-rc1");
         }
     }
 }
