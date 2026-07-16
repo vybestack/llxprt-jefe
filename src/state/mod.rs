@@ -894,14 +894,27 @@ mod auth_ops_tests;
 #[path = "confirm_focus_tests.rs"]
 mod confirm_focus_tests;
 #[cfg(test)]
+mod errors_tests;
+#[cfg(test)]
+#[path = "issues_test_fixtures.rs"]
+mod issues_test_fixtures;
+#[cfg(test)]
 #[path = "issues_tests.rs"]
 mod issues_tests;
+#[cfg(test)]
+#[path = "issues_tests_close_delete.rs"]
+mod issues_tests_close_delete;
+#[cfg(test)]
+#[path = "issues_tests_close_reason.rs"]
+mod issues_tests_close_reason;
 #[cfg(test)]
 #[path = "issues_tests_components.rs"]
 mod issues_tests_components;
 #[cfg(test)]
 #[path = "issues_tests_composer_focus.rs"]
 mod issues_tests_composer_focus;
+#[cfg(test)]
+mod issues_tests_create;
 #[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
@@ -928,19 +941,6 @@ mod issues_tests_send_to_agent;
 #[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;
-
-#[cfg(test)]
-#[path = "errors_tests.rs"]
-mod errors_tests;
-#[cfg(test)]
-#[path = "issues_test_fixtures.rs"]
-mod issues_test_fixtures;
-#[cfg(test)]
-#[path = "issues_tests_close_delete.rs"]
-mod issues_tests_close_delete;
-#[cfg(test)]
-#[path = "issues_tests_close_reason.rs"]
-mod issues_tests_close_reason;
 #[cfg(test)]
 #[path = "preferences_tests.rs"]
 mod preferences_tests;
