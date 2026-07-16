@@ -118,15 +118,19 @@ impl LlxprtNpmPackageSelector {
     ///
     /// The `latest nightly` sentinel maps to the npm dist-tag `nightly`
     /// (#337): the user types "latest nightly" but npm's dist-tag is
-    /// `nightly`. The plain `latest` sentinel passes through unchanged since
-    /// npm's dist-tag is also `latest`. Explicit version strings pass
-    /// through verbatim.
+    /// `nightly`. The `latest` sentinel normalizes to the lowercase npm
+    /// dist-tag `latest` since npm dist-tags are case-sensitive — a
+    /// user-entered `LATEST` would otherwise produce
+    /// `@vybestack/llxprt-code@LATEST`, which npm cannot resolve.
+    /// Explicit version strings pass through verbatim.
     #[must_use]
     pub fn package_spec(&self) -> String {
         let effective = if is_latest_nightly_sentinel(&self.selector) {
-            NPM_NIGHTLY_DIST_TAG
+            NPM_NIGHTLY_DIST_TAG.to_owned()
+        } else if is_latest_sentinel(&self.selector) {
+            LATEST.to_owned()
         } else {
-            self.selector.as_str()
+            self.selector.clone()
         };
         format!("{LLXPRT_NPM_PACKAGE}@{effective}")
     }
@@ -440,6 +444,28 @@ mod tests {
         let version = "0.10.0-nightly.260712.21cb698b6";
         let spec = selector(version).package_spec();
         assert_eq!(spec, format!("@vybestack/llxprt-code@{version}"));
+    }
+
+    #[test]
+    fn npm_package_spec_normalizes_latest_sentinel_case() {
+        // npm dist-tags are case-sensitive; uppercase sentinels must normalize
+        // to lowercase so npm can resolve them.
+        assert_eq!(
+            selector("LATEST").package_spec(),
+            "@vybestack/llxprt-code@latest"
+        );
+        assert_eq!(
+            selector("Latest").package_spec(),
+            "@vybestack/llxprt-code@latest"
+        );
+        assert_eq!(
+            selector("LATEST NIGHTLY").package_spec(),
+            "@vybestack/llxprt-code@nightly"
+        );
+        assert_eq!(
+            selector("Latest Nightly").package_spec(),
+            "@vybestack/llxprt-code@nightly"
+        );
     }
 
     #[test]
