@@ -172,7 +172,7 @@ impl RemotePrepPlanner {
                     }
                     DirtyPolicy::Discard => {
                         // Discard: reset --hard + clean -fd with exclusions,
-                        // but only when actually dirty (a clean-but-not-on-main
+                        // but only when actually dirty (a clean-but-not-on-default
                         // copy just needs the checkout below).
                         if *is_dirty {
                             let script = format!(
@@ -539,12 +539,18 @@ impl RemotePrepRunner {
             }
         }
 
-        // 4. Resolve default branch + fetch + checkout. The checkout uses a
-        // fallback to reset --hard ONLY when the worktree is already on the
-        // desired default branch (linked worktrees cannot check out a branch
-        // already used elsewhere). If the worktree is on a different branch,
-        // reset --hard would move the wrong branch ref — so we fail with a
-        // clear error instead.
+        // 4. Resolve default branch + fetch + checkout. When the Discard
+        // policy was reached via `not_on_default` alone (clean tree, wrong
+        // branch), the branch switch happens here — there is nothing to
+        // discard, so the cleanup step above is skipped and this checkout
+        // performs the switch. The outcome is `Ready` because prep is
+        // complete (the user already confirmed the modal), not because no
+        // branch switch occurred.
+        // The checkout uses a fallback to reset --hard ONLY when the worktree
+        // is already on the desired default branch (linked worktrees cannot
+        // check out a branch already used elsewhere). If the worktree is on a
+        // different branch, reset --hard would move the wrong branch ref — so
+        // we fail with a clear error instead.
         let script = format!(
             "set -e; cd {escaped_work}; \
              branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'); \
