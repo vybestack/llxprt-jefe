@@ -249,7 +249,9 @@ impl AppState {
         // node id), so the node id is required for every reason (issue #204).
         let Some(node_id) = self.focused_issue_node_id(issue_number) else {
             self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
-            self.issues_state.error = Some("Cannot close: issue node id unavailable".to_string());
+            self.issues_state.error = Some(format!(
+                "Cannot close issue #{issue_number}: node id unavailable. Reload the issue list and try again."
+            ));
             return;
         };
 

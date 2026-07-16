@@ -141,7 +141,9 @@ impl AppState {
             return;
         };
         let Some(node_id) = self.focused_issue_node_id(issue_number) else {
-            self.issues_state.error = Some("Cannot close: issue node id unavailable".to_string());
+            self.issues_state.error = Some(format!(
+                "Cannot close issue #{issue_number}: node id unavailable. Reload the issue list and try again."
+            ));
             return;
         };
         let mutation_id = self.next_issue_mutation_id();

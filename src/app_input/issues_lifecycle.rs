@@ -211,7 +211,7 @@ pub(super) fn handle_issue_close_with_reason(app_state: &mut AppStateHandle, ctx
     );
 }
 
-/// Build the close-with-reason outcome from the gh result (pure).
+/// Build the close-with-reason outcome by executing the gh GraphQL mutation.
 ///
 /// Uses the GraphQL `closeIssue` mutation with `stateReason` and (for
 /// Duplicate) `duplicateIssueId` as first-class fields (issue #204). For a
