@@ -62,7 +62,7 @@ replacements count toward the file budget but do not add a new subsystem.
 | The existing 800-pixel viewport is narrower than 100 monospace glyphs at 14px plus padding | Blocker—Fix | Direct reproduction of issue 342 |
 | Publication redaction changes some row string lengths | In-scope geometry handling | Unicode-aware publication normalization preserves redaction markers while restoring each semantic row to the fixed 100-column grid |
 | Generic SVG text-length support is inconsistent across renderers | In-scope fallback geometry | The explicit text extent proves the contract, while a wider viewport and normalized rows also keep all glyphs visible when a renderer ignores `textLength` |
-| OCR found that consuming whitespace before `pid:` skipped a PID at column zero | Blocker—Fix | The redaction now preserves either the start-of-line or whitespace prefix and tests both positions |
+| OCR found that consuming whitespace before `pid:` skipped PIDs at column zero or after punctuation | Blocker—Fix | The redaction again matches `pid:` in any position and tests leading, whitespace-prefixed, and parenthesized forms |
 | Unicode-aware row normalization uses Perl | Reject portability finding | POSIX shell and the available awk count UTF-8 bytes on supported macOS; Perl is already available in the bounded Unix capture environment and preserves the required Unicode character-column contract without a new project dependency |
 | PR 339 already pins height to 32 rows and 594 pixels | No change | Issue 342 is horizontal clipping only; preserving fixed height is required |
 
@@ -103,8 +103,9 @@ No unapproved scope changes.
 - Local OpenCodeReview artifact:
   `/Users/acoliver/Library/Logs/llxprt-code/opencodereview/runs/20260716T190441Z-81d2ad9f`;
   OCR reported `complete_best_effort` coverage over the changed script and test.
-- OCR remediation: leading and interior PID redaction now pass RED/GREEN focused
-  coverage; the status-marker split uses the first marker; focused Clippy passes.
+- OCR remediation: leading, whitespace-prefixed, and parenthesized PID redaction
+  pass RED/GREEN focused coverage; the status-marker split uses the first marker;
+  malformed geometry is checked before subtraction; focused Clippy passes.
 - `make quick-check`: passed on the completed implementation.
 - `make ci-check`: passed after correcting focused Clippy findings; format,
   policy, source-size, both Clippy passes, 73.39% line coverage, locked build,

@@ -146,7 +146,7 @@ publication_text() {
     source=$1
     target=$2
     sed -E \
-        -e 's/(^|[[:space:]])pid:[0-9]+/\1pid:[redacted]/g' \
+        -e 's/pid:[0-9]+/pid:[redacted]/g' \
         -e 's/\[[^]]+ [0-9]{1,2}:[0-9]{2} [0-9]{1,2}-[A-Za-z]{3}-[0-9]{2}/[terminal status redacted]/g' \
         "$source" | perl -CS -Mutf8 -ne '
             chomp;

@@ -107,14 +107,17 @@ fn assert_terminal_grid_is_contained(svg: &str, context: &str) {
     for row in svg.lines().filter(|line| line.starts_with("<tspan ")) {
         let text_x = numeric_attribute(row, "x");
         let text_length = numeric_attribute(row, "textLength");
-        let right_padding = viewport_width - text_x - text_length;
+        let text_end = text_x
+            .checked_add(text_length)
+            .unwrap_or_else(|| panic!("rendered terminal row overflows geometry in {context}"));
+        assert!(
+            text_end < viewbox_width,
+            "rendered terminal row extends outside {context}"
+        );
+        let right_padding = viewport_width - text_end;
         assert_eq!(
             text_x, right_padding,
             "unequal horizontal padding in {context}"
-        );
-        assert!(
-            text_x + text_length < viewbox_width,
-            "rendered terminal row extends outside {context}"
         );
         assert_eq!(
             rendered_text(row).chars().count(),
@@ -177,7 +180,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let (jefe, harness) = fake_binaries(
         &temp,
-        "pid:123\nTutorial Agent ready        pid:456\n[private-host 12:34 16-Jul-26",
+        "pid:123\nTutorial Agent ready        pid:456\nProcess (pid:789) exited\n[private-host 12:34 16-Jul-26",
     );
     let root = temp.path().join("capture");
     let output = capture(&root, &jefe, &harness);
@@ -210,6 +213,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     assert!(svg.contains("[terminal status redacted]"));
     assert!(!svg.contains("pid:123"));
     assert!(!svg.contains("pid:456"));
+    assert!(!svg.contains("pid:789"));
     assert!(!svg.contains("private-host"));
     let publication = fs::read_to_string(root.join("private/first-agent-result.publication.txt"))
         .unwrap_or_else(|error| panic!("read publication text: {error}"));
