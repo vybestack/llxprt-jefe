@@ -1,7 +1,7 @@
 format_version=1
-source_commit=32330df41c6b2b2ab4d848bbe6de935ffae3827b
+source_commit=ed5abd3873441adba09f09d0d0c8efd16c9b4e37
 source_version=jefe 0.0.29
-source_fingerprint=66f4f6e39ccd596713b3e9565577e746699f4de3
+source_fingerprint=b5268fbb4d656a47305685a6e7369519e7a80f59
 asset=first-agent-new-repository.svg:f4bb84e1b40ca0578c4cf8ccadd34d34f1d6d0d9
 asset=first-agent-new-agent.svg:e712ac175e35c3cd52382c0feda3cbc82f2cb255
 asset=first-agent-result.svg:89ba8d5b854cba46c5a36bab1e483c8849e5248d

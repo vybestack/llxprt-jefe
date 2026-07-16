@@ -1,8 +1,9 @@
 //! Behavioral contracts for the supported first-agent tutorial regeneration.
 
 #![cfg(unix)]
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -147,13 +148,14 @@ fn create_fake_binaries(root: &Path) -> (PathBuf, PathBuf) {
 }
 
 fn write_executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-    let mut permissions = fs::metadata(path)
-        .unwrap_or_else(|error| panic!("read permissions for {}: {error}", path.display()))
-        .permissions();
-    permissions.set_mode(0o700);
-    fs::set_permissions(path, permissions)
-        .unwrap_or_else(|error| panic!("set permissions for {}: {error}", path.display()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(path)
+        .unwrap_or_else(|error| panic!("create {}: {error}", path.display()));
+    file.write_all(body.as_bytes())
+        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
 }
 
 fn output_diagnostics(output: &Output) -> String {

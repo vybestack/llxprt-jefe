@@ -125,7 +125,8 @@ validate_publication() {
 }
 
 cleanup_promotion() {
-    if [ -n "${STAGE_DIR-}" ] && [ -d "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ]; then
+    if [ "${PRESERVE_STAGE-0}" -ne 1 ] && [ -n "${STAGE_DIR-}" ] && \
+        [ -d "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ]; then
         find "$STAGE_DIR" -depth -delete
     fi
     if [ -n "${LOCK_DIR-}" ] && [ -d "$LOCK_DIR" ] && [ ! -L "$LOCK_DIR" ]; then
@@ -133,10 +134,23 @@ cleanup_promotion() {
     fi
 }
 
+abort_promotion() {
+    trap - HUP INT TERM
+    if [ "${PROMOTION_STARTED-0}" -eq 1 ] && ! restore_publication; then
+        PRESERVE_STAGE=1
+        printf 'tutorial promotion interrupted; rollback incomplete; recover backups from %s/backup\n' \
+            "$STAGE_DIR" >&2
+    fi
+    exit 1
+}
+
 prepare_promotion() {
     LOCK_DIR="$ASSET_DIR/.first-agent-tutorial.lock"
     mkdir "$LOCK_DIR" 2>/dev/null || fail "another regeneration owns promotion: $LOCK_DIR"
-    trap cleanup_promotion EXIT HUP INT TERM
+    PROMOTION_STARTED=0
+    PRESERVE_STAGE=0
+    trap cleanup_promotion EXIT
+    trap abort_promotion HUP INT TERM
     STAGE_DIR=$(mktemp -d "$ASSET_DIR/.first-agent-tutorial.XXXXXX") || \
         fail "cannot create tutorial promotion staging directory"
     mkdir "$STAGE_DIR/new" "$STAGE_DIR/backup"
@@ -154,19 +168,29 @@ prepare_promotion() {
 }
 
 restore_publication() {
+    restored=1
     for file in $ASSETS first-agent-tutorial.provenance; do
-        cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file" || true
+        if ! cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file"; then
+            printf 'failed to restore tutorial asset: %s\n' "$file" >&2
+            restored=0
+        fi
     done
+    [ "$restored" -eq 1 ]
 }
 
 promote_publication() {
     prepare_promotion
+    PROMOTION_STARTED=1
     for file in $ASSETS first-agent-tutorial.provenance; do
         if ! mv "$STAGE_DIR/new/$file" "$ASSET_DIR/$file"; then
-            restore_publication
-            fail "tutorial promotion failed; restored every committed asset"
+            if restore_publication; then
+                fail "tutorial promotion failed; restored every committed asset"
+            fi
+            PRESERVE_STAGE=1
+            fail "tutorial promotion failed and rollback was incomplete; recover backups from $STAGE_DIR/backup"
         fi
     done
+    PROMOTION_STARTED=0
     cleanup_promotion
     trap - EXIT HUP INT TERM
 }

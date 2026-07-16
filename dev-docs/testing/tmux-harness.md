@@ -216,6 +216,13 @@ publication assets, the manifest, and unowned paths are retained. Remove the
 remaining run directory yourself only after preserving or discarding that
 retained evidence.
 
+Promotion normally removes its uniquely owned staging and lock directories. An
+uncatchable termination can leave `docs/assets/.first-agent-tutorial.lock` and a
+`.first-agent-tutorial.*` staging directory. Before another regeneration,
+confirm no regeneration process is active, inspect retained backups if present,
+then remove the empty lock with `rmdir`; remove only the matching staging
+directory after recovery or inspection.
+
 ## Tmux availability and skipping
 
 Unit tests use fake drivers for deterministic runner behavior. Guarded real tmux
