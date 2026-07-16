@@ -79,7 +79,7 @@ Target: at most 8 changed files and below 800 net changed lines.
 | Existing issue 241 script already owns isolation, publication validation, diagnostics, and cleanup | Reuse unchanged | The supported wrapper should compose the proven bounded primitive rather than duplicate or generalize it |
 | Exact commit IDs are self-referential if verification requires generated assets to equal the commit that contains them | Record plus fingerprint | Record the source commit/version for provenance, while staleness verification compares a deterministic fingerprint of bounded source inputs and object IDs of selected assets |
 | Wrapper tests need to avoid rebuilding and running a real TUI for every contract branch | In-scope validated-binary path | Acceptance explicitly permits building or validating required binaries; explicit paths preserve production validation and enable deterministic fake binaries |
-| PR OCR identified duplicated command construction, subprocess chmod, incomplete subprocess diagnostics, permissive fake argument parsing, delegated absolute-root validation, missing flag-value diagnostics, and an implicit private-directory dependency | In-scope—Fix | Centralized fixture invocation, used Unix permission APIs, included both output streams in assertion diagnostics, made the fake capture parser fail closed, added wrapper-level absolute-root and flag-value validation, and validated the successful capture's private-directory contract |
+| PR OCR identified duplicated command construction, subprocess chmod, incomplete subprocess diagnostics, permissive fake argument parsing, delegated absolute-root validation, missing flag-value diagnostics, an implicit private-directory dependency, partial promotion failure, concurrent promotion, and PID-based temporary names | In-scope—Fix | Centralized fixture invocation, used Unix permission APIs, included both output streams in assertion diagnostics, made the fake capture parser fail closed, added wrapper-level input and capture-contract validation, and made promotion lock-serialized with unique staging plus rollback on replacement failure |
 | PR OCR recommended adding timeout process management to the integration-test command helper | Reject | The referenced helper is private production code, no test timeout dependency exists, and adding a new process-management/termination subsystem is an explicit issue-workflow stopping condition outside this documentation contract |
 | PR OCR suggested generalizing manifest-key parsing for hypothetical regex metacharacters | Reject | All keys are fixed internal literals without regex metacharacters; introducing a broader parser for unsupported callers adds no current correctness or acceptance value |
 
@@ -90,10 +90,11 @@ No unapproved scope changes.
 - Open Code Review before PR: 2 / 2 attempted; both external OCR invocations
   were terminated without producing output, so no findings were available to
   triage.
-- Open Code Review after PR: 2 / 2; seven findings were classified
+- Open Code Review after PR: 2 / 2; ten findings were classified
   In-scope—Fix and remediated. The timeout-subsystem recommendation and
   hypothetical manifest-key generalization were rejected under the bounded
-  scope rules.
+  scope rules. Additional automated reruns were workflow-triggered by pushes;
+  no manual review beyond the cap was requested.
 
 ## Verification evidence
 

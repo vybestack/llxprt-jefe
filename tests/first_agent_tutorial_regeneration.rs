@@ -101,6 +101,11 @@ fn create_fixture_files(repo: &Path) {
         fs::write(repo.join("docs/assets").join(asset), "old\n")
             .unwrap_or_else(|error| panic!("write old {asset}: {error}"));
     }
+    fs::write(
+        repo.join("docs/assets/first-agent-tutorial.provenance"),
+        "old\n",
+    )
+    .unwrap_or_else(|error| panic!("write old provenance: {error}"));
 }
 
 fn write_source_contract(repo: &Path) {
@@ -283,10 +288,57 @@ fn regeneration_refuses_incomplete_publication_before_replacing_assets() {
         "missing-asset diagnostic was absent:\n{}",
         output_diagnostics(&output)
     );
+    assert_original_assets(&fixture);
+}
+
+#[test]
+fn regeneration_refuses_a_concurrent_promotion_owner() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.repo.join("docs/assets/.first-agent-tutorial.lock"))
+        .unwrap_or_else(|error| panic!("create promotion lock: {error}"));
+
+    let output = fixture.regenerate("locked-run");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("another regeneration owns promotion"),
+        "lock diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
+    assert_original_assets(&fixture);
+}
+
+#[test]
+fn promotion_failure_restores_every_committed_asset() {
+    let fixture = Fixture::new();
+    let fake_bin = fixture.repo.join("fake-bin");
+    fs::create_dir(&fake_bin).unwrap_or_else(|error| panic!("create fake bin: {error}"));
+    write_executable(
+        &fake_bin.join("mv"),
+        "#!/bin/sh\ntarget=\nfor arg in \"$@\"; do target=$arg; done\ncase \"$target\" in */first-agent-new-agent.svg) exit 73 ;; esac\nexec /bin/mv \"$@\"\n",
+    );
+    let path = format!(
+        "{}:{}",
+        fake_bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = fixture.regenerate_with_env("failed-promotion-run", Some(("PATH", &path)));
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("promotion failed; restored"),
+        "rollback diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
+    assert_original_assets(&fixture);
+}
+
+fn assert_original_assets(fixture: &Fixture) {
     for asset in ASSETS {
         let contents = fs::read_to_string(fixture.repo.join("docs/assets").join(asset))
             .unwrap_or_else(|error| panic!("read original {asset}: {error}"));
-        assert_eq!(contents, "old\n", "{asset} must not be partially replaced");
+        assert_eq!(contents, "old\n", "{asset} must not be replaced");
     }
 }
 

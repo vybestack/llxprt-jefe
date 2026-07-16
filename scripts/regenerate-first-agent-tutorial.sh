@@ -124,23 +124,51 @@ validate_publication() {
     done
 }
 
-promote_publication() {
-    for asset in $ASSETS; do
-        cp "$ROOT/publication/$asset" "$ASSET_DIR/.$asset.tmp.$$"
-    done
-    cp "$ROOT/private/first-agent-tutorial.provenance" \
-        "$ASSET_DIR/.first-agent-tutorial.provenance.tmp.$$"
-    for asset in $ASSETS; do
-        mv "$ASSET_DIR/.$asset.tmp.$$" "$ASSET_DIR/$asset"
-    done
-    mv "$ASSET_DIR/.first-agent-tutorial.provenance.tmp.$$" "$PROVENANCE"
+cleanup_promotion() {
+    if [ -n "${STAGE_DIR-}" ] && [ -d "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ]; then
+        find "$STAGE_DIR" -depth -delete
+    fi
+    if [ -n "${LOCK_DIR-}" ] && [ -d "$LOCK_DIR" ] && [ ! -L "$LOCK_DIR" ]; then
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+    fi
 }
 
-remove_promotion_temps() {
+prepare_promotion() {
+    LOCK_DIR="$ASSET_DIR/.first-agent-tutorial.lock"
+    mkdir "$LOCK_DIR" 2>/dev/null || fail "another regeneration owns promotion: $LOCK_DIR"
+    trap cleanup_promotion EXIT HUP INT TERM
+    STAGE_DIR=$(mktemp -d "$ASSET_DIR/.first-agent-tutorial.XXXXXX") || \
+        fail "cannot create tutorial promotion staging directory"
+    mkdir "$STAGE_DIR/new" "$STAGE_DIR/backup"
+
     for asset in $ASSETS; do
-        rm -f "$ASSET_DIR/.$asset.tmp.$$"
+        cp "$ROOT/publication/$asset" "$STAGE_DIR/new/$asset"
     done
-    rm -f "$ASSET_DIR/.first-agent-tutorial.provenance.tmp.$$"
+    cp "$ROOT/private/first-agent-tutorial.provenance" \
+        "$STAGE_DIR/new/first-agent-tutorial.provenance"
+    for file in $ASSETS first-agent-tutorial.provenance; do
+        target=$ASSET_DIR/$file
+        [ -f "$target" ] && [ ! -L "$target" ] || fail "promotion target is missing or unsafe: $target"
+        cp "$target" "$STAGE_DIR/backup/$file"
+    done
+}
+
+restore_publication() {
+    for file in $ASSETS first-agent-tutorial.provenance; do
+        cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file" || true
+    done
+}
+
+promote_publication() {
+    prepare_promotion
+    for file in $ASSETS first-agent-tutorial.provenance; do
+        if ! mv "$STAGE_DIR/new/$file" "$ASSET_DIR/$file"; then
+            restore_publication
+            fail "tutorial promotion failed; restored every committed asset"
+        fi
+    done
+    cleanup_promotion
+    trap - EXIT HUP INT TERM
 }
 
 regenerate() {
@@ -152,9 +180,7 @@ regenerate() {
     "$CAPTURE_SCRIPT" capture --root "$ROOT" --jefe-bin "$JEFE_BIN" --harness-bin "$HARNESS_BIN"
     validate_publication
     write_provenance
-    trap remove_promotion_temps EXIT HUP INT TERM
     promote_publication
-    trap - EXIT HUP INT TERM
     printf 'promoted first-agent tutorial assets from %s\n' "$ROOT"
     printf 'verify with: scripts/regenerate-first-agent-tutorial.sh check\n'
 }
