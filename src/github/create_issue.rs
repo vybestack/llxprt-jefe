@@ -37,6 +37,7 @@ impl CreatedIssue {
             module: String::new(),
             comment_count: 0,
             body: self.body,
+            state_reason: None,
         }
     }
 }

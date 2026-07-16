@@ -47,6 +47,7 @@ fn make_issue(number: u64, node_id: &str) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 

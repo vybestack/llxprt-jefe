@@ -9,7 +9,7 @@
 
 use crate::domain::{
     FILTER_CHOICE_ANY, FILTER_CHOICE_NONE, Issue, IssueComment, IssueDetail, IssueFilter,
-    IssueFilterState, IssueState,
+    IssueFilterState, IssueState, IssueStateReason,
 };
 use serde_json::Value;
 
@@ -141,6 +141,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .to_string();
 
     let state = parse_issue_state(item);
+    let state_reason = parse_issue_state_reason(item);
 
     let author_login = item
         .get("author")
@@ -191,6 +192,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         module,
         comment_count,
         body,
+        state_reason,
     })
 }
 
@@ -276,6 +278,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .to_string();
     let title = json_string_field(&value, "title");
     let state = parse_issue_state(&value);
+    let state_reason = parse_issue_state_reason(&value);
     let author_login = json_login_field(&value, "author");
     let created_at = json_string_field(&value, "createdAt");
     let updated_at = json_string_field(&value, "updatedAt");
@@ -319,6 +322,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         external_url,
         comments,
         issue_type_name: None,
+        state_reason,
     })
 }
 
@@ -350,6 +354,18 @@ fn parse_issue_state(value: &Value) -> IssueState {
             "CLOSED" => IssueState::Closed,
             _ => IssueState::Open,
         })
+}
+
+/// Parse the GraphQL `stateReason` / REST `state_reason` field into an
+/// [`IssueStateReason`], returning `None` when missing, null, `REOPENED`, or
+/// unknown (issue #204). Handles both the GraphQL spelling (`COMPLETED`) and
+/// the REST spelling (`completed`) returned by `gh issue view --json`.
+fn parse_issue_state_reason(value: &Value) -> Option<IssueStateReason> {
+    value
+        .get("stateReason")
+        .or_else(|| value.get("state_reason"))
+        .and_then(Value::as_str)
+        .and_then(IssueStateReason::parse)
 }
 
 /// Collect `<field>[*].<key>` into `Vec<String>`.
@@ -820,7 +836,7 @@ fn build_repository_issue_type_args(
         ""
     };
     let query = format!(
-        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ id number title state author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
+        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ id number title state stateReason author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
         variable_defs.join(", "),
         filters.join(", ")
     );
@@ -976,9 +992,9 @@ pub fn build_issue_search_args(
     }
 
     let query = if cursor.is_some() {
-        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { id number title state stateReason author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state stateReason author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),

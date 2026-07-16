@@ -16,6 +16,49 @@ pub enum IssueState {
     Closed,
 }
 
+/// The GitHub-native reason an issue was closed (issue #204 read side).
+///
+/// Mirrors the GraphQL `IssueStateReason` values that are meaningful for a
+/// closed issue. `REOPENED` is out of scope (no reopen-with-reason) and is
+/// therefore not represented. Parsed from the GraphQL `stateReason` field and
+/// the REST `state_reason` field; unknown/missing values yield `None` on the
+/// domain types so legacy fixtures and partial data degrade gracefully.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssueStateReason {
+    Completed,
+    NotPlanned,
+    Duplicate,
+}
+
+impl IssueStateReason {
+    /// Parse a GraphQL/REST state-reason string into a domain value.
+    ///
+    /// Accepts both the GraphQL enum spelling (`COMPLETED`, `NOT_PLANNED`,
+    /// `DUPLICATE`) and the REST spelling (`completed`, `not_planned`,
+    /// `duplicate`). Returns `None` for `REOPENED`, unknown, or missing values
+    /// so callers can store an `Option` and let legacy data degrade to "no
+    /// reason".
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "COMPLETED" | "completed" => Some(Self::Completed),
+            "NOT_PLANNED" | "not_planned" => Some(Self::NotPlanned),
+            "DUPLICATE" | "duplicate" => Some(Self::Duplicate),
+            _ => None,
+        }
+    }
+
+    /// User-facing, emoji-free label for display.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::NotPlanned => "not planned",
+            Self::Duplicate => "duplicate",
+        }
+    }
+}
+
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-006
 /// Issue list representation.
@@ -39,6 +82,9 @@ pub struct Issue {
     /// Optional lightweight preview body; list/search fetches may leave this empty
     /// so full body content is loaded through `IssueDetail` instead.
     pub body: String,
+    /// The GitHub-native close reason, if any (issue #204). `None` for open
+    /// issues or closed issues whose reason is unknown/missing.
+    pub state_reason: Option<IssueStateReason>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -63,6 +109,9 @@ pub struct IssueDetail {
     pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
     /// The issue's type name (GitHub issue types), if any (issue #175).
     pub issue_type_name: Option<String>,
+    /// The GitHub-native close reason, if any (issue #204). `None` for open
+    /// issues or closed issues whose reason is unknown/missing.
+    pub state_reason: Option<IssueStateReason>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -230,5 +279,69 @@ mod close_reason_tests {
         assert_eq!(CLOSE_REASONS[1], CloseReason::NotPlanned);
         assert_eq!(CLOSE_REASONS[2], CloseReason::Duplicate);
         assert_eq!(CLOSE_REASONS[3], CloseReason::Invalid);
+    }
+}
+
+#[cfg(test)]
+mod state_reason_tests {
+    use super::IssueStateReason;
+
+    #[test]
+    fn parse_graphql_spellings() {
+        assert_eq!(
+            IssueStateReason::parse("COMPLETED"),
+            Some(IssueStateReason::Completed)
+        );
+        assert_eq!(
+            IssueStateReason::parse("NOT_PLANNED"),
+            Some(IssueStateReason::NotPlanned)
+        );
+        assert_eq!(
+            IssueStateReason::parse("DUPLICATE"),
+            Some(IssueStateReason::Duplicate)
+        );
+    }
+
+    #[test]
+    fn parse_rest_spellings() {
+        assert_eq!(
+            IssueStateReason::parse("completed"),
+            Some(IssueStateReason::Completed)
+        );
+        assert_eq!(
+            IssueStateReason::parse("not_planned"),
+            Some(IssueStateReason::NotPlanned)
+        );
+        assert_eq!(
+            IssueStateReason::parse("duplicate"),
+            Some(IssueStateReason::Duplicate)
+        );
+    }
+
+    #[test]
+    fn parse_reopened_returns_none() {
+        assert_eq!(IssueStateReason::parse("REOPENED"), None);
+        assert_eq!(IssueStateReason::parse("reopened"), None);
+    }
+
+    #[test]
+    fn parse_unknown_returns_none() {
+        assert_eq!(IssueStateReason::parse("WHATEVER"), None);
+        assert_eq!(IssueStateReason::parse(""), None);
+    }
+
+    #[test]
+    fn parse_trims_whitespace() {
+        assert_eq!(
+            IssueStateReason::parse("  COMPLETED  "),
+            Some(IssueStateReason::Completed)
+        );
+    }
+
+    #[test]
+    fn labels_are_human_readable() {
+        assert_eq!(IssueStateReason::Completed.label(), "completed");
+        assert_eq!(IssueStateReason::NotPlanned.label(), "not planned");
+        assert_eq!(IssueStateReason::Duplicate.label(), "duplicate");
     }
 }

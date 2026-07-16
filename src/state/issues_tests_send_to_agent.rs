@@ -43,6 +43,7 @@ fn issue_detail() -> IssueDetail {
         body: String::new(),
         external_url: String::new(),
         comments: crate::domain::PaginatedList::default(),
+        state_reason: None,
     }
 }
 

@@ -797,6 +797,7 @@ mod tests {
             external_url: String::new(),
             comments: crate::domain::PaginatedList::default(),
             issue_type_name: None,
+            state_reason: None,
         });
         state.issues_state.property_editor = Some(IssuePropertyEditorState {
             kind: IssuePropertyKind::Labels,

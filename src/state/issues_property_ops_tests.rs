@@ -22,6 +22,7 @@ fn make_state_with_detail() -> AppState {
         body: "body".to_string(),
         external_url: "url".to_string(),
         comments: crate::domain::PaginatedList::default(),
+        state_reason: None,
     };
     AppState {
         issues_state: IssuesState {
@@ -64,6 +65,7 @@ fn full_detail_load_preserves_issue_type_from_list_row() {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     };
     state.issues_state.list.replace_items(vec![issue]);
     state.issues_state.list.set_selected_index(Some(0));
@@ -117,6 +119,7 @@ fn issue_row_with_type(issue_type: &str) -> crate::domain::Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 

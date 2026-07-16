@@ -246,6 +246,7 @@ fn issue_list_lines_match_rendered_projection_with_prefix() {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     });
     state.issues_state.list.set_selected_index(Some(0));
     let content = pane_content_lines(SelectablePane::IssueList, &state, None, &[], 120, 40);
@@ -335,6 +336,7 @@ fn issue_detail_lines_start_with_header_rows() {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     });
     let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
     // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,

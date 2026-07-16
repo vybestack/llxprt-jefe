@@ -25,6 +25,7 @@ fn make_test_issue(number: u64) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 
@@ -57,6 +58,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
             crate::domain::PageToken::Done,
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 

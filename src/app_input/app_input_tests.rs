@@ -830,6 +830,7 @@ fn state_for_issue_agent_chooser_send(
             jefe::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     };
 
     let issues_state = jefe::state::IssuesState {

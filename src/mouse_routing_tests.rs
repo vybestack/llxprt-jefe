@@ -773,6 +773,7 @@ fn state_with_issue_body(body: &str) -> AppState {
             jefe::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     });
     state
 }

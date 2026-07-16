@@ -35,6 +35,7 @@ fn make_test_issue(number: u64) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
             crate::domain::PageToken::Done,
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 
@@ -759,6 +761,7 @@ fn test_detail_subfocus_tab_with_comments() {
             crate::domain::PageToken::Done,
         ),
         issue_type_name: None,
+        state_reason: None,
     });
 
     // Body -> Comment(0)
@@ -822,6 +825,7 @@ fn test_detail_subfocus_tab_no_comments() {
             crate::domain::PageToken::Done,
         ),
         issue_type_name: None,
+        state_reason: None,
     });
 
     // Body -> NewComment (skip comments since there are none)

@@ -39,6 +39,7 @@ fn issue_detail_with_comment() -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 

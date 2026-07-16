@@ -235,7 +235,7 @@ impl GhClient {
                 &format!("{owner}/{repo}"),
                 &number.to_string(),
                 "--json",
-                "number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
+                "number,title,state,state_reason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
             ])
             .output()
             .map_err(|e| {

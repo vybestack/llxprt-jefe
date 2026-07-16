@@ -49,6 +49,7 @@ fn make_issue(number: u64, node_id: &str) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 
@@ -76,6 +77,7 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 

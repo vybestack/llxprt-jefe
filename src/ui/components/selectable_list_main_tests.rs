@@ -79,6 +79,7 @@ fn issue(n: u64) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 

@@ -36,6 +36,7 @@ fn make_test_issue(number: u64) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 
@@ -77,6 +78,7 @@ fn p15_detail(number: u64) -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 
@@ -149,6 +151,7 @@ fn send_payload_detail() -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 
