@@ -79,7 +79,8 @@ Target: at most 8 changed files and below 800 net changed lines.
 | Existing issue 241 script already owns isolation, publication validation, diagnostics, and cleanup | Reuse unchanged | The supported wrapper should compose the proven bounded primitive rather than duplicate or generalize it |
 | Exact commit IDs are self-referential if verification requires generated assets to equal the commit that contains them | Record plus fingerprint | Record the source commit/version for provenance, while staleness verification compares a deterministic fingerprint of bounded source inputs and object IDs of selected assets |
 | Wrapper tests need to avoid rebuilding and running a real TUI for every contract branch | In-scope validated-binary path | Acceptance explicitly permits building or validating required binaries; explicit paths preserve production validation and enable deterministic fake binaries |
-| PR OCR identified duplicated command construction, subprocess chmod, incomplete subprocess diagnostics, and permissive fake argument parsing | In-scope—Fix | Centralized fixture invocation, used Unix permission APIs, included both output streams in assertion diagnostics, and made the fake capture parser fail closed |
+| PR OCR identified duplicated command construction, subprocess chmod, incomplete subprocess diagnostics, permissive fake argument parsing, and delegated absolute-root validation | In-scope—Fix | Centralized fixture invocation, used Unix permission APIs, included both output streams in assertion diagnostics, made the fake capture parser fail closed, and added wrapper-level absolute-root validation with behavioral coverage |
+| PR OCR recommended adding timeout process management to the integration-test command helper | Reject | The referenced helper is private production code, no test timeout dependency exists, and adding a new process-management/termination subsystem is an explicit issue-workflow stopping condition outside this documentation contract |
 
 No unapproved scope changes.
 
@@ -88,8 +89,9 @@ No unapproved scope changes.
 - Open Code Review before PR: 2 / 2 attempted; both external OCR invocations
   were terminated without producing output, so no findings were available to
   triage.
-- Open Code Review after PR: 1 / 2; four findings were classified
-  In-scope—Fix and remediated.
+- Open Code Review after PR: 2 / 2; five findings were classified
+  In-scope—Fix and remediated, and one timeout-subsystem recommendation was
+  rejected under the bounded-workflow stopping rules.
 
 ## Verification evidence
 
@@ -111,7 +113,10 @@ No unapproved scope changes.
 - Initial PR CI completed except one transient native-Windows psmux readiness
   timeout; the failed job log identified `puppy-four`, and the unchanged exact
   head passed the complete native-Windows job on rerun.
-- PR exact-head CI: passed before review remediation; final-head rerun pending.
+- Review-remediation head CI: all required checks passed after rerunning two
+  native-Windows attempts that failed in different existing guarded psmux/TUI
+  readiness timeouts; the same head then passed the complete Windows job.
+- Final absolute-root remediation head CI: pending.
 
 ## Deferred findings / follow-ups
 

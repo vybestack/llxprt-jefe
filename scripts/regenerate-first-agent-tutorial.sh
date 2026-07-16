@@ -62,6 +62,10 @@ parse_regenerate() {
         esac
     done
     [ -n "$ROOT" ] || fail "regenerate requires --root"
+    case "$ROOT" in
+        /*) ;;
+        *) fail "regenerate requires an absolute --root" ;;
+    esac
     if [ -n "$JEFE_BIN" ] || [ -n "$HARNESS_BIN" ]; then
         [ -n "$JEFE_BIN" ] && [ -n "$HARNESS_BIN" ] || \
             fail "--jefe-bin and --harness-bin must be provided together"

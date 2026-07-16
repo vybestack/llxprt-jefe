@@ -41,16 +41,22 @@ impl Fixture {
     }
 
     fn regenerate_with_env(&self, root_name: &str, environment: Option<(&str, &str)>) -> Output {
+        self.regenerate_at(
+            &self
+                .repo
+                .parent()
+                .unwrap_or_else(|| panic!("fixture parent"))
+                .join(root_name),
+            environment,
+        )
+    }
+
+    fn regenerate_at(&self, root: &Path, environment: Option<(&str, &str)>) -> Output {
         let mut command = Command::new("sh");
         command
             .arg(self.repo.join("scripts/regenerate-first-agent-tutorial.sh"))
             .args(["regenerate", "--root"])
-            .arg(
-                self.repo
-                    .parent()
-                    .unwrap_or_else(|| panic!("fixture parent"))
-                    .join(root_name),
-            )
+            .arg(root)
             .arg("--jefe-bin")
             .arg(&self.jefe)
             .arg("--harness-bin")
@@ -198,6 +204,24 @@ fn regeneration_promotes_only_selected_assets_and_records_provenance() {
         "fresh assets should verify:\n{}",
         output_diagnostics(&check)
     );
+}
+
+#[test]
+fn regeneration_rejects_relative_root_before_delegating_to_capture() {
+    let fixture = Fixture::new();
+    let output = fixture.regenerate_at(Path::new("relative-run"), None);
+
+    assert!(
+        !output.status.success(),
+        "relative root unexpectedly succeeded:\n{}",
+        output_diagnostics(&output)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("absolute --root"),
+        "absolute-root diagnostic was absent:\n{}",
+        output_diagnostics(&output)
+    );
+    assert!(!fixture.repo.join("relative-run").exists());
 }
 
 #[test]
