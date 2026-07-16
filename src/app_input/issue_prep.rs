@@ -35,8 +35,8 @@ use jefe::domain::RemoteRepositorySettings;
 use super::clone_identity::CloneIdentity;
 use super::issue_git_prep::{
     WorkdirAssurance, WorkdirPrepOutcome, discard_checkout_blocking_tracked_changes,
-    discard_workdir_changes, ensure_workdir_cloned, ensure_workdir_with_origin, is_workdir_dirty,
-    prepare_issue_workdir, remove_workdir,
+    discard_workdir_changes, ensure_workdir_cloned, ensure_workdir_with_origin,
+    is_on_default_branch, is_workdir_dirty, prepare_issue_workdir, remove_workdir,
 };
 
 /// Relative path of the issue prompt inside the work dir. This is the single
@@ -231,15 +231,33 @@ fn prepare_local(
 
 /// Shared local sequence after the worktree exists: dirty check → policy →
 /// prep → prompt write.
+///
+/// Issue #338: a clean working copy that is **not on the default branch**
+/// also triggers the confirm modal (Stop) — silently switching branches is
+/// surprising. When the user confirms (Discard), uncommitted changes are
+/// discarded (if any) and the checkout+pull to the default branch proceeds
+/// as normal.
 fn run_local_policy_and_prep(
     work_dir: &Path,
     policy: DirtyPolicy,
     prompt: &str,
 ) -> Result<PrepOutcome, String> {
-    if is_workdir_dirty(work_dir)? {
+    let dirty = is_workdir_dirty(work_dir)?;
+    // Only evaluate branch position when clean: a dirty tree triggers the
+    // modal regardless of which branch it is on.
+    let not_on_default = if dirty {
+        false
+    } else {
+        !is_on_default_branch(work_dir)?
+    };
+    if dirty || not_on_default {
         match policy {
             DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
-            DirtyPolicy::Discard => discard_workdir_changes(work_dir)?,
+            DirtyPolicy::Discard => {
+                if dirty {
+                    discard_workdir_changes(work_dir)?;
+                }
+            }
         }
     }
     match prepare_issue_workdir(work_dir)? {

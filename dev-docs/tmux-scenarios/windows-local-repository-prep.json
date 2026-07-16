@@ -13,11 +13,11 @@
     { "key": "Enter" },
     { "waitFor": "Send to Agent" },
     { "key": "Enter" },
-    { "waitFor": "Dirty Working Copy" },
+    { "waitFor": "Working Copy Not Ready" },
     { "expect": "( Cancel )" },
     { "capture": "windows-local-repository-dirty-safety" },
     { "key": "Escape" },
-    { "waitForNot": "Dirty Working Copy" },
+    { "waitForNot": "Working Copy Not Ready" },
     { "key": "Escape" },
     { "key": "q" },
     { "waitForExit": 3000 }

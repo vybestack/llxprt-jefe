@@ -543,8 +543,8 @@ mod tests {
         };
         let content = confirm_modal_lines(&state);
         assert!(!content.lines.is_empty());
-        assert_eq!(content.lines[0], "Dirty Working Copy");
-        assert!(content.lines[2].contains("uncommitted changes"));
+        assert_eq!(content.lines[0], "Working Copy Not Ready");
+        assert!(content.lines[2].contains("default branch"));
     }
 
     #[test]

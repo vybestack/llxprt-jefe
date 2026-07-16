@@ -56,6 +56,11 @@ pub struct PlanInputs<'a> {
     pub presence: WorkdirPresence,
     /// The remote work dir is dirty (meaningful only when a git worktree).
     pub is_dirty: bool,
+    /// The remote work dir is **not** on the default branch (issue #338).
+    /// When true alongside `policy == Stop`, the planner short-circuits so
+    /// the caller can open the confirm modal — silently switching branches
+    /// is surprising.
+    pub not_on_default: bool,
     /// The remote work dir's origin does not match the configured repository.
     /// When true, the planner short-circuits (no checkout/pull/prompt op),
     /// mirroring the `Dirty`+`Stop` short-circuit.
@@ -112,6 +117,7 @@ impl RemotePrepPlanner {
             policy,
             presence,
             is_dirty,
+            not_on_default,
             origin_mismatch,
             prompt,
         } = inputs;
@@ -153,9 +159,11 @@ impl RemotePrepPlanner {
         // 2. Dirty check. NotGit was already handled above as a hard error,
         // so this branch covers Git (pre-existing) and Absent (just cloned).
         {
-            // After clone the worktree is clean; only check dirty when it
-            // pre-existed as a git worktree.
-            if is_git && *is_dirty {
+            // After clone the worktree is clean and on the default branch;
+            // only check dirty/branch when it pre-existed as a git worktree.
+            // Issue #338: a clean working copy not on the default branch also
+            // triggers the confirm modal — silently switching is surprising.
+            if is_git && (*is_dirty || *not_on_default) {
                 match policy {
                     DirtyPolicy::Stop => {
                         // Stop: no further ops. The caller opens the confirm
@@ -163,17 +171,21 @@ impl RemotePrepPlanner {
                         return Ok(ops);
                     }
                     DirtyPolicy::Discard => {
-                        // Discard: reset --hard + clean -fd with exclusions.
-                        let script = format!(
-                            "set -e; cd {escaped_work}; \
-                             git reset --hard; \
-                             git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
-                            jefe = shell_escape(".jefe/"),
-                            jefe_glob = shell_escape(".jefe/**"),
-                            llx = shell_escape(".llxprt/"),
-                            llx_glob = shell_escape(".llxprt/**"),
-                        );
-                        ops.push(self.wrapped_ssh_op(&script, None));
+                        // Discard: reset --hard + clean -fd with exclusions,
+                        // but only when actually dirty (a clean-but-not-on-main
+                        // copy just needs the checkout below).
+                        if *is_dirty {
+                            let script = format!(
+                                "set -e; cd {escaped_work}; \
+                                 git reset --hard; \
+                                 git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
+                                jefe = shell_escape(".jefe/"),
+                                jefe_glob = shell_escape(".jefe/**"),
+                                llx = shell_escape(".llxprt/"),
+                                llx_glob = shell_escape(".llxprt/**"),
+                            );
+                            ops.push(self.wrapped_ssh_op(&script, None));
+                        }
                     }
                 }
             }
@@ -493,20 +505,36 @@ impl RemotePrepRunner {
         let porcelain = self.run_wrapped_capture(&dirty_script)?;
         let dirty = super::super::issue_git_prep::porcelain_is_dirty(&porcelain);
 
-        if dirty {
+        // Issue #338: a clean working copy on a non-default branch also
+        // triggers the confirm modal. Only evaluate branch position when
+        // clean — a dirty tree triggers the modal regardless of branch.
+        let not_on_default = if dirty {
+            false
+        } else {
+            !self.run_remote_check(&format!(
+                "cd {escaped_work} && \
+                 test \"$(git rev-parse --abbrev-ref HEAD)\" = \
+                 \"$(git symbolic-ref refs/remotes/origin/HEAD \
+                   | sed 's@^refs/remotes/origin/@@')\""
+            ))?
+        };
+
+        if dirty || not_on_default {
             match policy {
                 DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
                 DirtyPolicy::Discard => {
-                    let script = format!(
-                        "set -e; cd {escaped_work}; \
-                         git reset --hard; \
-                         git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
-                        jefe = shell_escape(".jefe/"),
-                        jefe_glob = shell_escape(".jefe/**"),
-                        llx = shell_escape(".llxprt/"),
-                        llx_glob = shell_escape(".llxprt/**"),
-                    );
-                    self.run_wrapped(&script)?;
+                    if dirty {
+                        let script = format!(
+                            "set -e; cd {escaped_work}; \
+                             git reset --hard; \
+                             git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
+                            jefe = shell_escape(".jefe/"),
+                            jefe_glob = shell_escape(".jefe/**"),
+                            llx = shell_escape(".llxprt/"),
+                            llx_glob = shell_escape(".llxprt/**"),
+                        );
+                        self.run_wrapped(&script)?;
+                    }
                 }
             }
         }

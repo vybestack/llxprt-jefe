@@ -305,10 +305,12 @@ fn local_linked_worktree_is_detected_as_git() {
 }
 
 #[test]
-fn local_linked_worktree_on_non_default_branch_fails_safely() {
+fn local_linked_worktree_on_non_default_branch_warns_then_fails_safely() {
     // A linked worktree on a non-default branch must NOT be silently reset
     // to the default branch (that would move the wrong branch ref and risk
-    // discarding commits). The safe behavior returns a clear error instead.
+    // discarding commits). With issue #338, the Stop policy now returns
+    // Dirty (warns the user before any checkout) and the Discard policy
+    // surfaces a clear error when the checkout is attempted.
     let origin = bare_origin_with_commit("linkedwtfail");
     let primary = clone_origin(&origin, "linkedwtfail-primary");
     let linked = std::env::temp_dir().join(format!(
@@ -330,8 +332,15 @@ fn local_linked_worktree_on_non_default_branch_fails_safely() {
     );
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
-    let result = prepare_local(&linked, None, DirtyPolicy::Stop, "prompt");
-    let err = result.error_or_panic("linked worktree on non-default branch must error");
+    // Stop policy: the user is warned (Dirty) before any checkout attempt.
+    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop, "prompt")
+        .value_or_panic("linked worktree Stop must return Dirty");
+    assert_eq!(outcome, PrepOutcome::Dirty);
+
+    // Discard policy: the checkout is attempted and fails safely because the
+    // worktree is on a different branch than the default.
+    let err = prepare_local(&linked, None, DirtyPolicy::Discard, "prompt")
+        .error_or_panic("linked worktree Discard must error on checkout");
     assert!(
         err.contains("not the default"),
         "error must explain wrong-branch refusal: {err}"
@@ -442,6 +451,85 @@ fn local_dirty_discard_cleans_and_writes_prompt() {
 
     // The dirty change was discarded.
     assert!(!work.join("src.txt").exists());
+    // Prompt written.
+    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
+        .value_or_panic("read written prompt");
+    assert_eq!(written, prompt);
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+// ── Issue #338: clean-but-not-on-default-branch triggers confirm modal ──
+
+/// A clean working copy on a non-default branch must return `Dirty` (trigger
+/// the confirm modal) under the Stop policy — it must NOT silently switch.
+#[test]
+fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
+    let origin = bare_origin_with_commit("clean-not-main-stop");
+    let work = clone_origin(&origin, "clean-not-main-stop");
+    // Switch to a feature branch; the tree stays clean.
+    run_git(&work, &["checkout", "-b", "feature"]);
+
+    let outcome =
+        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    assert_eq!(outcome, PrepOutcome::Dirty);
+
+    // Still on feature branch — nothing was switched.
+    assert_eq!(
+        git_stdout(&work, &["branch", "--show-current"]),
+        "feature\n"
+    );
+    // No prompt written.
+    assert!(!work.join(".jefe/issue-prompt.md").exists());
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+/// A clean working copy on a non-default branch with the Discard policy must
+/// switch to the default branch, pull, and write the prompt — without
+/// discarding anything (there is nothing dirty to discard).
+#[test]
+fn local_clean_not_on_default_discard_switches_and_writes_prompt() {
+    let origin = bare_origin_with_commit("clean-not-main-discard");
+    let work = clone_origin(&origin, "clean-not-main-discard");
+    run_git(&work, &["checkout", "-b", "feature"]);
+
+    let prompt = "Switched to main, now do the work.";
+    let outcome =
+        prepare_local(&work, None, DirtyPolicy::Discard, prompt).value_or_panic("prepare_local");
+    assert_eq!(outcome, PrepOutcome::Ready);
+
+    // Now on main.
+    assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
+    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
+        .value_or_panic("read written prompt");
+    assert_eq!(written, prompt);
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+/// A dirty working copy that is ALSO not on the default branch: the Discard
+/// policy must clean AND switch to the default branch AND write the prompt.
+#[test]
+fn local_dirty_and_not_on_default_discard_cleans_switches_and_writes_prompt() {
+    let origin = bare_origin_with_commit("dirty-not-main-discard");
+    let work = clone_origin(&origin, "dirty-not-main-discard");
+    run_git(&work, &["checkout", "-b", "feature"]);
+    // Add an untracked file so the tree is dirty.
+    std::fs::write(work.join("untracked.txt"), "junk").value_or_panic("write untracked file");
+
+    let prompt = "Cleaned and switched, now do the work.";
+    let outcome =
+        prepare_local(&work, None, DirtyPolicy::Discard, prompt).value_or_panic("prepare_local");
+    assert_eq!(outcome, PrepOutcome::Ready);
+
+    // On main now.
+    assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
+    // Untracked file was cleaned.
+    assert!(!work.join("untracked.txt").exists());
     // Prompt written.
     let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
         .value_or_panic("read written prompt");

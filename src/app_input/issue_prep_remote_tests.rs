@@ -98,6 +98,7 @@ fn plan_uses_ssh_t_not_tt() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "do the work",
         })
@@ -127,6 +128,7 @@ fn plan_targets_remote_host_user() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "do the work",
         })
@@ -151,6 +153,7 @@ fn plan_applies_run_as_user() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "do the work",
         })
@@ -183,6 +186,7 @@ fn plan_prompt_transferred_via_stdin_not_shell() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: adversarial,
         })
@@ -219,6 +223,7 @@ fn plan_does_not_create_local_workdir() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -239,6 +244,7 @@ fn plan_dirty_stop_emits_no_cleanup() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: true,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -262,6 +268,7 @@ fn plan_dirty_discard_emits_cleanup_then_prep() {
             policy: DirtyPolicy::Discard,
             presence: WorkdirPresence::Git,
             is_dirty: true,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -293,6 +300,7 @@ fn plan_clone_when_missing() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -326,6 +334,7 @@ fn plan_absent_without_identity_emits_no_ops() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -348,6 +357,7 @@ fn plan_https_url_regardless_of_remote_enabled() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "prompt",
         })
@@ -384,6 +394,7 @@ fn plan_origin_mismatch_short_circuits() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: true,
             prompt: "prompt",
         })
@@ -464,6 +475,7 @@ fn plan_not_git_is_a_hard_error_not_empty() {
         policy: DirtyPolicy::Stop,
         presence: WorkdirPresence::NotGit,
         is_dirty: false,
+        not_on_default: false,
         origin_mismatch: false,
         prompt: "prompt",
     });
@@ -496,6 +508,7 @@ fn pr_prompt_remote_plan_transfers_prompt_via_stdin_not_shell() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: adversarial,
         })
@@ -543,6 +556,7 @@ fn pr_prompt_remote_target_is_correct_ssh_t_host() {
             policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
+            not_on_default: false,
             origin_mismatch: false,
             prompt: "PR prompt",
         })
@@ -561,5 +575,73 @@ fn pr_prompt_remote_target_is_correct_ssh_t_host() {
             .iter()
             .any(|a| a == "ubuntu@build.example.com"),
         "PR prompt remote op must target ubuntu@build.example.com"
+    );
+}
+
+// ── Issue #338: not-on-default-branch planner behavior ─────────────
+
+/// Clean but not on the default branch with Stop: the planner must
+/// short-circuit with no ops at all, mirroring the dirty+Stop behavior.
+#[test]
+fn plan_not_on_default_stop_emits_no_cleanup() {
+    let planner = RemotePrepPlanner::new(remote_settings());
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            not_on_default: true,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
+    assert!(
+        ops.is_empty(),
+        "Stop policy on a clean non-default branch must emit no ops: {ops:?}"
+    );
+}
+
+/// Clean but not on the default branch with Discard: the planner must emit
+/// the checkout script (to switch to the default branch) and the prompt write,
+/// but NO reset/clean op (the tree is clean, only a branch switch is needed).
+#[test]
+fn plan_not_on_default_discard_emits_checkout_without_cleanup() {
+    let planner = RemotePrepPlanner::new(remote_settings());
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Discard,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            not_on_default: true,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
+    assert!(!ops.is_empty(), "Discard must emit checkout + prompt ops");
+    // No dedicated cleanup op — the tree is clean, so no reset+clean step.
+    // (The checkout script itself contains a reset --hard fallback for the
+    // linked-worktree edge case, but that is NOT the destructive cleanup.)
+    for op in &ops {
+        for arg in &op.ssh_argv {
+            assert!(
+                !arg.contains("git clean -fd"),
+                "clean non-default branch must not trigger git clean -fd: {arg}"
+            );
+        }
+    }
+    // The checkout script must be present.
+    assert!(
+        ops.iter()
+            .any(|op| { op.ssh_argv.iter().any(|a| a.contains("git fetch origin")) }),
+        "Discard must emit a fetch+checkout op: {ops:?}"
+    );
+    // The prompt write op must be present.
+    assert!(
+        ops.iter().any(|op| op.stdin_prompt.is_some()),
+        "Discard must emit a prompt-write op: {ops:?}"
     );
 }

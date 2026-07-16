@@ -393,6 +393,24 @@ pub(super) fn is_workdir_dirty(work_dir: &Path) -> Result<bool, String> {
 /// resolve without source changes.
 pub(super) use jefe::git_info::porcelain_is_dirty;
 
+/// Return `true` when the working copy is currently checked out on the
+/// repository's default branch (issue #338).
+///
+/// Compares [`current_branch_name`] against [`resolve_default_branch`]. A
+/// working copy that is clean but on a non-default branch should still warn
+/// the user before jefe silently switches it, so callers use this alongside
+/// [`is_workdir_dirty`] to decide whether to show the confirm modal.
+///
+/// Returns `Err` when the default branch cannot be resolved (e.g.
+/// `origin/HEAD` unset) or the current branch cannot be determined
+/// (detached HEAD). The caller decides whether to propagate the error or
+/// fall back to a safe default.
+pub(super) fn is_on_default_branch(work_dir: &Path) -> Result<bool, String> {
+    let default = resolve_default_branch(work_dir)?;
+    let current = current_branch_name(work_dir)?;
+    Ok(current == default)
+}
+
 /// Check out `branch` in the working copy at the latest remote state.
 ///
 /// First `git fetch origin <branch>` to update the remote-tracking ref, then

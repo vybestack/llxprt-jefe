@@ -222,11 +222,13 @@ pub enum ModalState {
         issue_self_assignment: Option<IssueSelfAssignmentFollowUp>,
         confirm_focus: ConfirmFocus,
     },
-    /// Issue send: the working copy has uncommitted changes (excluding
-    /// jefe/llxprt-owned paths). Prompt the user to discard them before
-    /// the issue-driven launch proceeds. The default is no/halt; the
-    /// user must explicitly opt in (Enter) before destructive cleanup.
-    /// Escape (or `n`) aborts and leaves the working copy untouched.
+    /// Issue send: the working copy is dirty (uncommitted changes, excluding
+    /// jefe/llxprt-owned paths) OR not on the repository's default branch
+    /// (issue #338). Prompt the user to switch to the default branch, discard
+    /// non-owned changes, and pull before the issue-driven launch proceeds.
+    /// The default is no/halt; the user must explicitly opt in (Enter) before
+    /// destructive cleanup. Escape (or `n`) aborts and leaves the working
+    /// copy untouched.
     ConfirmIssueDirtyCopy {
         agent_id: AgentId,
         work_dir: std::path::PathBuf,
