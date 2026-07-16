@@ -11,6 +11,7 @@
 use super::{ActionsListIdentity, AppState};
 use crate::domain::{ActionsFilter, ListRequestId, PageToken, RepositoryId, WorkflowRun};
 use crate::state::pagination::{AcceptOutcome, LoadCorrelation, PageResult, ReloadResult};
+use std::cmp::Ordering;
 
 /// Bundled fields extracted from `ActionsMessage::RunsLoaded` /
 /// `RunsPageLoaded` so that reload/page-apply functions stay within the clippy
@@ -33,7 +34,7 @@ impl AppState {
         };
         // Sort before accept so visible reload selects index 0 = newest (issue #208).
         let mut runs = data.runs;
-        crate::actions_view::sort_workflow_runs_newest_first(&mut runs);
+        runs.sort_by(cmp_workflow_runs_newest_first);
         let result = ReloadResult {
             identity,
             request_id: ListRequestId::from_raw(data.request_id),
@@ -151,6 +152,12 @@ impl AppState {
     }
 }
 
+fn cmp_workflow_runs_newest_first(a: &WorkflowRun, b: &WorkflowRun) -> Ordering {
+    b.created_at
+        .cmp(&a.created_at)
+        .then_with(|| b.id.cmp(&a.id))
+}
+
 /// Sort Actions runs newest-first and keep the selected run identity stable
 /// across the reorder (issue #208). Used after page appends where indices shift.
 fn resort_actions_runs_preserving_selection(
@@ -159,7 +166,7 @@ fn resort_actions_runs_preserving_selection(
     let selected_id = list
         .selected_index()
         .and_then(|idx| list.items().get(idx).map(|run| run.id));
-    list.sort_by(crate::actions_view::cmp_workflow_runs_newest_first);
+    list.sort_by(cmp_workflow_runs_newest_first);
     if let Some(id) = selected_id {
         list.set_selected_index(list.items().iter().position(|run| run.id == id));
     }

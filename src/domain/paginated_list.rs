@@ -251,7 +251,7 @@ impl<T, I> PaginatedList<T, I> {
     /// Leaves selection index, identity, and pagination tokens unchanged —
     /// callers that need selection to follow an item identity must remap the
     /// selected index after sorting.
-    pub fn sort_by<F>(&mut self, compare: F)
+    pub(crate) fn sort_by<F>(&mut self, compare: F)
     where
         F: FnMut(&T, &T) -> std::cmp::Ordering,
     {

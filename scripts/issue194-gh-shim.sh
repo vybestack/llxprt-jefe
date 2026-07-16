@@ -14,7 +14,7 @@ JSON
     ;;
   "api repos/owner/actions-fixture/actions/runs"\?"page=2&per_page=30")
     cat <<'JSON'
-{"total_count":60,"workflow_runs":[{"id":20800,"name":"CI","display_title":"Archived Actions fixture run","head_branch":"issue208-archive","head_sha":"arc208","run_number":100,"event":"push","status":"completed","conclusion":"cancelled","created_at":"2026-06-01T00:00:00Z","updated_at":"2026-06-01T00:01:00Z"}]}
+{"total_count":60,"workflow_runs":[{"id":20800,"name":"CI","display_title":"Interleaved Actions fixture run","head_branch":"issue208-interleaved","head_sha":"mid208","run_number":100,"event":"push","status":"completed","conclusion":"failure","created_at":"2026-07-10T00:00:00Z","updated_at":"2026-07-10T00:01:00Z"}]}
 JSON
     ;;
   "api repos/owner/actions-fixture/actions/workflows --jq .workflows")
@@ -44,7 +44,7 @@ JSON
     ;;
   "run view --repo owner/actions-fixture 20800 --json attempt,conclusion,createdAt,databaseId,displayTitle,event,headBranch,headSha,name,number,startedAt,status,updatedAt,url,workflowDatabaseId,workflowName")
     cat <<'JSON'
-{"databaseId":20800,"name":"Archived Actions fixture run","headBranch":"issue208-archive","headSha":"arc208","number":100,"event":"push","status":"completed","conclusion":"cancelled","workflowName":"CI","createdAt":"2026-06-01T00:00:00Z","updatedAt":"2026-06-01T00:01:00Z"}
+{"databaseId":20800,"name":"Interleaved Actions fixture run","headBranch":"issue208-interleaved","headSha":"mid208","number":100,"event":"push","status":"completed","conclusion":"failure","workflowName":"CI","createdAt":"2026-07-10T00:00:00Z","updatedAt":"2026-07-10T00:01:00Z"}
 JSON
     ;;
   "run view --repo owner/actions-fixture 20800 --json jobs --jq .jobs")
