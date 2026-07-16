@@ -252,6 +252,7 @@ impl AppState {
             return true;
         }
         self.issues_state.close_mutation_pending = None;
+        self.issues_state.error = None;
         let state_reason = Some(close_reason_to_state_reason(close_reason, duplicate_of));
         let mut issues = self.issues_state.list.items().to_vec();
         if let Some(issue) = issues.iter_mut().find(|i| i.number == issue_number) {
@@ -291,6 +292,7 @@ impl AppState {
             return true;
         }
         self.issues_state.delete_mutation_pending = None;
+        self.issues_state.error = None;
         // Capture the deleted issue's index BEFORE removal so the selection can
         // be adjusted precisely (shifting down when an earlier row is removed,
         // rather than silently landing on whichever issue now occupies the slot).

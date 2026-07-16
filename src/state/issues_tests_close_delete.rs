@@ -383,6 +383,31 @@ fn issue_closed_with_wrong_scope_is_ignored() {
 }
 
 #[test]
+fn issue_closed_clears_prior_error() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: None,
+        duplicate_of: None,
+    });
+    state.issues_state.error = Some("Previous error".to_string());
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: None,
+        duplicate_of: None,
+    });
+    assert!(
+        state.issues_state.error.is_none(),
+        "a successful close must clear a prior error"
+    );
+}
+
+#[test]
 fn issue_deleted_with_wrong_scope_is_ignored() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {

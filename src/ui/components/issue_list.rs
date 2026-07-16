@@ -76,7 +76,7 @@ fn build_meta_line(issue: &Issue) -> String {
     let state_tag = match issue.state {
         IssueState::Open => "OPEN".to_string(),
         IssueState::Closed => match issue.state_reason {
-            Some(r) => format!("CLOSED·{}", r.label()),
+            Some(r) => format!("CLSD·{}", r.label()),
             None => "CLSD".to_string(),
         },
     };
@@ -334,21 +334,21 @@ mod tests {
         closed.state_reason = Some(IssueStateReason::NotPlanned);
         let rows = issue_list_visible_rows(&[closed], Some(0), 8, IssueListLayout::Full, Some(40));
         assert!(
-            rows[0].meta_line.contains("CLOSED·not planned"),
+            rows[0].meta_line.contains("CLSD·not planned"),
             "closed-with-reason should show reason in meta: {}",
             rows[0].meta_line
         );
     }
 
     #[test]
-    fn meta_line_shows_duplicate_reason() {
+    fn meta_line_shows_duplicate_close_reason() {
         use crate::domain::IssueStateReason;
         let mut closed = issue(1);
         closed.state = IssueState::Closed;
         closed.state_reason = Some(IssueStateReason::Duplicate);
         let rows = issue_list_visible_rows(&[closed], Some(0), 8, IssueListLayout::Full, Some(40));
         assert!(
-            rows[0].meta_line.contains("CLOSED·duplicate"),
+            rows[0].meta_line.contains("CLSD·duplicate"),
             "duplicate close should show reason: {}",
             rows[0].meta_line
         );
@@ -365,7 +365,7 @@ mod tests {
             "closed-without-reason should show CLSD: {}",
             rows[0].meta_line
         );
-        assert!(!rows[0].meta_line.contains("CLOSED·"));
+        assert!(!rows[0].meta_line.contains("CLSD·"));
     }
 
     #[test]

@@ -228,9 +228,10 @@ fn close_with_reason_event(params: CloseWithReasonParams) -> CloseWithReasonOutc
         match params.duplicate_of {
             Some(dup_num) => {
                 let Some(c) = client.as_ref() else {
-                    return CloseWithReasonOutcome::Failed(
-                        "Application context unavailable".to_string(),
-                    );
+                    return CloseWithReasonOutcome::Failed(format!(
+                        "Cannot close issue #{} as duplicate: application context unavailable",
+                        params.issue_number
+                    ));
                 };
                 match c.resolve_issue_node_id(
                     &params.repo_target.owner,
@@ -246,9 +247,10 @@ fn close_with_reason_event(params: CloseWithReasonParams) -> CloseWithReasonOutc
                 }
             }
             None => {
-                return CloseWithReasonOutcome::Failed(
-                    "Cannot close as duplicate: no duplicate target selected".to_string(),
-                );
+                return CloseWithReasonOutcome::Failed(format!(
+                    "Cannot close issue #{} as duplicate: no duplicate target selected",
+                    params.issue_number
+                ));
             }
         }
     } else {
