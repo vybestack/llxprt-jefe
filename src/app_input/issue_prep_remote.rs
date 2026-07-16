@@ -10,7 +10,7 @@ use std::path::Path;
 use jefe::domain::RemoteRepositorySettings;
 
 use super::super::clone_identity::CloneIdentity;
-use super::{DirtyPolicy, ISSUE_PROMPT_RELATIVE_PATH, PrepOutcome};
+use super::{DirtyPolicy, PrepOutcome};
 
 // ──────────────────────────────────────────────────────────────────────────
 // Remote target prep
@@ -62,11 +62,9 @@ pub struct PlanInputs<'a> {
     /// is surprising.
     pub not_on_default: bool,
     /// The remote work dir's origin does not match the configured repository.
-    /// When true, the planner short-circuits (no checkout/pull/prompt op),
+    /// When true, the planner short-circuits (no checkout/pull op),
     /// mirroring the `Dirty`+`Stop` short-circuit.
     pub origin_mismatch: bool,
-    /// Prompt bytes to transfer via stdin.
-    pub prompt: &'a str,
 }
 
 /// A single recorded remote operation (for test verification).
@@ -94,8 +92,7 @@ impl RemotePrepPlanner {
     /// 1. detect git worktree (if not, clone if identity present);
     /// 2. dirty check;
     /// 3. if dirty and Discard, reset+clean;
-    /// 4. resolve default branch, fetch, checkout;
-    /// 5. mkdir .jefe + write prompt via stdin.
+    /// 4. resolve default branch, fetch, checkout.
     ///
     /// This is pure — it does not inspect the remote filesystem. Callers
     /// supply `presence`, `is_dirty`, and `origin_mismatch` to drive the
@@ -119,7 +116,6 @@ impl RemotePrepPlanner {
             is_dirty,
             not_on_default,
             origin_mismatch,
-            prompt,
         } = inputs;
         let is_git = *presence == WorkdirPresence::Git;
 
@@ -206,19 +202,6 @@ impl RemotePrepPlanner {
                  fi",
             );
             ops.push(self.wrapped_ssh_op(&script, None));
-
-            // 5. mkdir .jefe + write prompt via stdin (cat > file). Escape
-            // the full joined prompt path (consistent with plan_force_reclone
-            // and the live run() path) so a metacharacter in the work dir or
-            // the constant can never break the shell command.
-            let prompt_path =
-                shell_escape(&work_dir.join(ISSUE_PROMPT_RELATIVE_PATH).to_string_lossy());
-            let script = format!(
-                "set -e; mkdir -p {jefe_dir}; cat > {prompt_path}",
-                jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy()),
-                prompt_path = prompt_path,
-            );
-            ops.push(self.wrapped_ssh_op(&script, Some((*prompt).to_owned())));
         }
 
         Ok(ops)
@@ -235,7 +218,6 @@ impl RemotePrepPlanner {
         &self,
         work_dir: &Path,
         identity: &CloneIdentity,
-        prompt: &str,
     ) -> Vec<PlannedRemoteOp> {
         let mut ops = Vec::new();
         let escaped_work = shell_escape(&work_dir.to_string_lossy());
@@ -270,12 +252,6 @@ impl RemotePrepPlanner {
              fi",
         );
         ops.push(self.wrapped_ssh_op(&checkout_script, None));
-        // 5. mkdir .jefe + write prompt via stdin.
-        let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
-        let prompt_path =
-            shell_escape(&work_dir.join(ISSUE_PROMPT_RELATIVE_PATH).to_string_lossy());
-        let prompt_script = format!("set -e; mkdir -p {jefe_dir}; cat > {prompt_path}");
-        ops.push(self.wrapped_ssh_op(&prompt_script, Some(prompt.to_owned())));
 
         ops
     }
@@ -451,7 +427,6 @@ impl RemotePrepRunner {
         work_dir: &Path,
         identity: Option<&CloneIdentity>,
         policy: DirtyPolicy,
-        prompt: &str,
     ) -> Result<PrepOutcome, String> {
         let escaped_work = shell_escape(&work_dir.to_string_lossy());
 
@@ -566,13 +541,6 @@ impl RemotePrepRunner {
         );
         self.run_wrapped(&script)?;
 
-        // 5. mkdir .jefe + write prompt via stdin.
-        let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
-        let prompt_path =
-            shell_escape(&work_dir.join(ISSUE_PROMPT_RELATIVE_PATH).to_string_lossy());
-        let script = format!("set -e; mkdir -p {jefe_dir}; cat > {prompt_path}");
-        self.run_wrapped_stdin(&script, prompt.as_bytes())?;
-
         Ok(PrepOutcome::Ready)
     }
 
@@ -677,7 +645,6 @@ impl RemotePrepRunner {
         &self,
         work_dir: &Path,
         identity: &CloneIdentity,
-        prompt: &str,
     ) -> Result<PrepOutcome, String> {
         // Defense-in-depth: refuse catastrophic targets (root, empty,
         // top-level entry) even though the user confirmed. This runs BEFORE
@@ -723,37 +690,7 @@ impl RemotePrepRunner {
         self.run_wrapped(&checkout_script)
             .map_err(|e| format!("After force-recloning {} remotely (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))?;
 
-        // 4. mkdir .jefe + write prompt via stdin.
-        let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
-        let prompt_path =
-            shell_escape(&work_dir.join(ISSUE_PROMPT_RELATIVE_PATH).to_string_lossy());
-        let prompt_script = format!("set -e; mkdir -p {jefe_dir}; cat > {prompt_path}");
-        self.run_wrapped_stdin(&prompt_script, prompt.as_bytes())?;
-
         Ok(PrepOutcome::Ready)
-    }
-
-    /// Write a prompt file to the remote host at `work_dir/{relative_path}`
-    /// via `ssh -T`, piping prompt bytes through stdin.
-    ///
-    /// This is the reusable remote write used by [`write_prompt_to_target`]
-    /// for both issue and PR prompts. It does NOT clone, check dirty, or
-    /// switch branches — it only creates `.jefe/` and writes the file.
-    pub(super) fn write_prompt(
-        &self,
-        work_dir: &Path,
-        relative_path: &str,
-        prompt_bytes: &[u8],
-    ) -> Result<(), String> {
-        // Defense-in-depth: validate the relative path even though current
-        // call sites pass the safe ISSUE_PROMPT_RELATIVE_PATH constant. This
-        // guards against future misuse of this pub(super) API with a
-        // traversal value (e.g. ../../etc/passwd) that would escape work_dir.
-        super::validate_prompt_relative_path(relative_path)?;
-        let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
-        let prompt_path = shell_escape(&work_dir.join(relative_path).to_string_lossy());
-        let script = format!("set -e; mkdir -p {jefe_dir}; cat > {prompt_path}");
-        self.run_wrapped_stdin(&script, prompt_bytes)
     }
 
     /// Run a wrapped (effective-user) remote command requiring success.
@@ -766,12 +703,6 @@ impl RemotePrepRunner {
     fn run_wrapped_capture(&self, script: &str) -> Result<String, String> {
         let wrapped = wrap_effective_user(&self.remote, script);
         self.run_remote_capture(&wrapped)
-    }
-
-    /// Run a wrapped remote command with stdin bytes.
-    fn run_wrapped_stdin(&self, script: &str, stdin: &[u8]) -> Result<(), String> {
-        let wrapped = wrap_effective_user(&self.remote, script);
-        self.run_remote_stdin(&wrapped, stdin)
     }
 
     /// Run a remote predicate probe under the effective user and return its
@@ -813,16 +744,6 @@ impl RemotePrepRunner {
         let output = self.run_remote_capture_raw(remote_command)?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-        } else {
-            Err(remote_failure_message(&self.remote, &output))
-        }
-    }
-
-    /// Run a remote command with prompt bytes piped via stdin.
-    fn run_remote_stdin(&self, remote_command: &str, stdin_bytes: &[u8]) -> Result<(), String> {
-        let output = self.execute_ssh(remote_command, Some(stdin_bytes))?;
-        if output.status.success() {
-            Ok(())
         } else {
             Err(remote_failure_message(&self.remote, &output))
         }

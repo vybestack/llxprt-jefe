@@ -7,10 +7,7 @@
 //! - The pure [`plan_remote_probe`] planner: ssh -T, exact binary, effective
 //!   user, no install/setup, sentinel protocol.
 //! - The centralized [`require_runtime_available`] validation: unavailable
-//!   remote means no prep/prompt operation.
-//! - The production PR prompt planning seam [`plan_remote_prompt_write`]:
-//!   `.jefe/pr-prompt.md` targeted, prompt bytes in stdin, adversarial
-//!   content absent from argv.
+//!   remote means no prep operation.
 
 use super::*;
 use std::path::Path;
@@ -18,11 +15,13 @@ use std::path::Path;
 use jefe::domain::{AgentKind, RemoteRepositorySettings};
 
 trait TestResultExt<T> {
+    #[allow(dead_code)]
     fn value_or_panic(self, context: &str) -> T;
     fn error_or_panic(self, context: &str) -> String;
 }
 
 impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    #[allow(dead_code)]
     fn value_or_panic(self, context: &str) -> T {
         match self {
             Ok(value) => value,
@@ -658,229 +657,4 @@ fn require_runtime_local_wires_to_local_check() {
         )
         .is_ok()
     );
-}
-
-// ── plan_remote_prompt_write: PR prompt planning seam (defect 4) ─────
-
-#[test]
-fn pr_prompt_plan_targets_jefe_pr_prompt_path() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "PR prompt content",
-    )
-    .value_or_panic("valid plan");
-    assert!(
-        plan.ssh_argv
-            .iter()
-            .any(|a| a.contains(".jefe/pr-prompt.md")),
-        "must target .jefe/pr-prompt.md: {:?}",
-        plan.ssh_argv
-    );
-    // Must NOT target the issue path.
-    assert!(
-        plan.ssh_argv
-            .iter()
-            .all(|a| !a.contains(".jefe/issue-prompt.md")),
-        "must NOT target issue path: {:?}",
-        plan.ssh_argv
-    );
-}
-
-#[test]
-fn pr_prompt_plan_not_targets_issue_path() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    for arg in &plan.ssh_argv {
-        assert!(
-            !arg.contains("issue-prompt"),
-            "PR plan must not reference issue prompt: {arg}"
-        );
-    }
-}
-
-#[test]
-fn pr_prompt_plan_prompt_bytes_in_stdin_not_argv() {
-    let adversarial = "'; rm -rf /; echo '`\n$(whoami)";
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        adversarial,
-    )
-    .value_or_panic("valid plan");
-    // Prompt bytes are in stdin_prompt.
-    assert_eq!(plan.stdin_prompt, adversarial);
-    // No adversarial content in argv.
-    for arg in &plan.ssh_argv {
-        assert!(
-            !arg.contains("rm -rf"),
-            "adversarial content must not appear in argv: {arg}"
-        );
-        assert!(
-            !arg.contains("whoami"),
-            "adversarial content must not appear in argv: {arg}"
-        );
-    }
-}
-
-#[test]
-fn pr_prompt_plan_uses_cat_redirect_for_stdin_transfer() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert!(
-        plan.ssh_argv.iter().any(|a| a.contains("cat >")),
-        "must use cat > for stdin transfer: {:?}",
-        plan.ssh_argv
-    );
-}
-
-#[test]
-fn pr_prompt_plan_creates_jefe_dir() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert!(
-        plan.ssh_argv.iter().any(|a| a.contains("mkdir -p")),
-        "must create .jefe dir: {:?}",
-        plan.ssh_argv
-    );
-}
-
-#[test]
-fn pr_prompt_plan_uses_ssh_t() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert!(plan.ssh_argv.iter().any(|a| a == "-T"));
-    assert!(!plan.ssh_argv.iter().any(|a| a == "-tt"));
-}
-
-#[test]
-fn pr_prompt_plan_targets_login_user_at_host() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert!(
-        plan.ssh_argv
-            .iter()
-            .any(|a| a == "ubuntu@build.example.com"),
-        "must target ubuntu@build.example.com: {:?}",
-        plan.ssh_argv
-    );
-}
-
-#[test]
-fn pr_prompt_plan_wraps_effective_user() {
-    let plan = plan_remote_prompt_write(
-        &remote_with_run_as(),
-        Path::new("/home/acoliver/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert!(
-        plan.ssh_argv.iter().any(|a| a.contains("sudo")),
-        "must wrap effective user: {:?}",
-        plan.ssh_argv
-    );
-    assert!(
-        plan.ssh_argv.iter().any(|a| a.contains("acoliver")),
-        "must run as acoliver: {:?}",
-        plan.ssh_argv
-    );
-}
-
-#[test]
-fn pr_prompt_plan_rejects_absolute_path() {
-    let result = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        "/etc/passwd",
-        "content",
-    );
-    assert!(result.is_err());
-}
-
-#[test]
-fn pr_prompt_plan_rejects_traversal_path() {
-    let result = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        ".jefe/../../../etc/passwd",
-        "content",
-    );
-    assert!(result.is_err());
-}
-
-#[test]
-fn pr_prompt_plan_rejects_non_jefe_path() {
-    let result = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        "etc/evil.md",
-        "content",
-    );
-    assert!(result.is_err());
-}
-
-#[test]
-fn pr_prompt_relative_path_constant_has_correct_value() {
-    // The PR seam must target .jefe/pr-prompt.md, NOT the issue path.
-    // Verify the constant value that all PR prompt writes use.
-    assert_eq!(PR_PROMPT_RELATIVE_PATH, ".jefe/pr-prompt.md");
-}
-
-#[test]
-fn pr_prompt_plan_relative_path_recorded() {
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    )
-    .value_or_panic("valid plan");
-    assert_eq!(plan.relative_path, ".jefe/pr-prompt.md");
-}
-
-#[test]
-fn pr_prompt_plan_adversarial_newlines_in_stdin_only() {
-    let adversarial = "line1\nline2\n'; injected '; `backtick`";
-    let plan = plan_remote_prompt_write(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        PR_PROMPT_RELATIVE_PATH,
-        adversarial,
-    )
-    .value_or_panic("valid plan");
-    assert_eq!(plan.stdin_prompt, adversarial);
-    for arg in &plan.ssh_argv {
-        assert!(
-            !arg.contains("injected"),
-            "adversarial must not leak into argv: {arg}"
-        );
-    }
 }

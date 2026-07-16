@@ -760,7 +760,7 @@ fn code_puppy_fresh_send_outputs_instruction_positional() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
     signature.mode_flags =
-        vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned()];
+        vec!["Read and work on the following GitHub issue.\n\nIssue body".to_owned()];
     signature.pass_continue = false;
 
     assert_eq!(
@@ -769,7 +769,7 @@ fn code_puppy_fresh_send_outputs_instruction_positional() {
             "-i",
             "--yolo",
             "false",
-            "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+            "Read and work on the following GitHub issue.\n\nIssue body"
         ]
     );
 }
@@ -785,7 +785,7 @@ fn code_puppy_strips_all_llxprt_only_flags() {
         "ignored-profile".to_owned(),
         "--sandbox".to_owned(),
         "--continue".to_owned(),
-        "Read and work on the GitHub PR described in .jefe/pr-prompt.md".to_owned(),
+        "Read and work on the following GitHub PR.\n\nPR body".to_owned(),
     ];
 
     assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);

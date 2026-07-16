@@ -42,27 +42,29 @@ const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
     "complexity, source-size, safety, coverage, cross-platform, or CI requirements."
 );
 
-fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_relative_path: &str) -> String {
-    let base = format!(
-        "Read and work on the GitHub {} described in {prompt_relative_path}",
-        prompt_kind.label()
-    );
+fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_content: &str) -> String {
+    let label = prompt_kind.label();
+    let base = format!("Read and work on the following GitHub {label}.\n\n{prompt_content}");
     match prompt_kind {
-        FreshPromptKind::Issue => format!("{base}. {ISSUE_DELIVERY_WORKFLOW}"),
+        FreshPromptKind::Issue => format!("{base}\n\n{ISSUE_DELIVERY_WORKFLOW}"),
         FreshPromptKind::PullRequest => base,
     }
 }
 
 /// Transform a base signature into a fresh, non-resuming prompt launch.
+///
+/// The full prompt content is inlined directly into the instruction string
+/// (issue #315), eliminating the `.jefe/issue-prompt.md` / `.jefe/pr-prompt.md`
+/// file write that previously got in the way of git operations.
 #[must_use]
 pub(super) fn prepare_fresh_prompt_signature(
     mut sig: LaunchSignature,
     prompt_kind: FreshPromptKind,
-    prompt_relative_path: &str,
+    prompt_content: &str,
 ) -> LaunchSignature {
     sig.pass_continue = false;
     sig.code_puppy_quick_resume = false;
-    let instruction = fresh_prompt_instruction(prompt_kind, prompt_relative_path);
+    let instruction = fresh_prompt_instruction(prompt_kind, prompt_content);
     match sig.agent_kind {
         // LLxprt keeps the agent's persisted mode flags (e.g. `--yolo`) and
         // appends the fresh instruction. Replacing them here dropped `--yolo`,
@@ -184,18 +186,17 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn llxprt_and_code_puppy_project_the_identical_issue_contract() {
         let llxprt = prepare_fresh_prompt_signature(
             base_sig(AgentKind::Llxprt),
             FreshPromptKind::Issue,
-            ".jefe/issue-prompt.md",
+            "issue content body",
         );
         let code_puppy = prepare_fresh_prompt_signature(
             base_sig(AgentKind::CodePuppy),
             FreshPromptKind::Issue,
-            ".jefe/issue-prompt.md",
+            "issue content body",
         );
 
         assert_eq!(llxprt.mode_flags.last(), code_puppy.mode_flags.first());
@@ -208,7 +209,7 @@ mod tests {
         let result = prepare_fresh_prompt_signature(
             base_sig(AgentKind::Llxprt),
             FreshPromptKind::Issue,
-            ".jefe/issue-prompt.md",
+            "issue content body",
         );
         assert!(!result.pass_continue);
         // Persisted mode flags are preserved and the instruction is appended.
@@ -217,7 +218,7 @@ mod tests {
             vec![
                 "--stale".to_owned(),
                 "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
+                fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
             ]
         );
     }
@@ -227,12 +228,15 @@ mod tests {
         let result = prepare_fresh_prompt_signature(
             base_sig(AgentKind::CodePuppy),
             FreshPromptKind::PullRequest,
-            ".jefe/pr-prompt.md",
+            "pr content body",
         );
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
-            vec!["Read and work on the GitHub PR described in .jefe/pr-prompt.md"]
+            vec![fresh_prompt_instruction(
+                FreshPromptKind::PullRequest,
+                "pr content body"
+            )]
         );
     }
 
@@ -241,14 +245,14 @@ mod tests {
         let result = prepare_fresh_prompt_signature(
             base_sig(AgentKind::CodePuppy),
             FreshPromptKind::Issue,
-            ".jefe/issue-prompt.md",
+            "issue content body",
         );
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec![fresh_prompt_instruction(
                 FreshPromptKind::Issue,
-                ".jefe/issue-prompt.md"
+                "issue content body"
             )]
         );
     }
@@ -262,14 +266,14 @@ mod tests {
         let mut sig = base_sig(AgentKind::Llxprt);
         sig.mode_flags = vec!["--yolo".to_owned()];
         let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, "issue content body");
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec![
                 "--yolo".to_owned(),
                 "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
+                fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
             ]
         );
     }
@@ -282,13 +286,13 @@ mod tests {
         let mut sig = base_sig(AgentKind::Llxprt);
         sig.mode_flags.clear();
         let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, "issue content body");
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec![
                 "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
+                fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
             ]
         );
     }
@@ -301,14 +305,14 @@ mod tests {
         let mut sig = base_sig(AgentKind::Llxprt);
         sig.mode_flags = vec!["--yolo".to_owned(), "--continue".to_owned()];
         let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, ".jefe/pr-prompt.md");
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, "pr content body");
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec![
-                "--yolo",
-                "-i",
-                "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
+                "--yolo".to_owned(),
+                "-i".to_owned(),
+                fresh_prompt_instruction(FreshPromptKind::PullRequest, "pr content body")
             ]
         );
     }
@@ -318,16 +322,16 @@ mod tests {
         let result = prepare_fresh_prompt_signature(
             base_sig(AgentKind::Llxprt),
             FreshPromptKind::PullRequest,
-            ".jefe/pr-prompt.md",
+            "pr content body",
         );
         assert!(!result.pass_continue);
         // Persisted mode flags are preserved and the instruction is appended.
         assert_eq!(
             result.mode_flags,
             vec![
-                "--stale",
-                "-i",
-                "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
+                "--stale".to_owned(),
+                "-i".to_owned(),
+                fresh_prompt_instruction(FreshPromptKind::PullRequest, "pr content body")
             ]
         );
         issue_and_pr_fresh_signatures_retain_exact_selector();
@@ -336,14 +340,11 @@ mod tests {
     fn issue_and_pr_fresh_signatures_retain_exact_selector() {
         let selector =
             jefe::domain::LlxprtNpmPackageSelector::normalize("0.10.0-nightly.260712.21cb698b6");
-        for (kind, path) in [
-            (FreshPromptKind::Issue, ".jefe/issue-prompt.md"),
-            (FreshPromptKind::PullRequest, ".jefe/pr-prompt.md"),
-        ] {
+        for kind in [FreshPromptKind::Issue, FreshPromptKind::PullRequest] {
             let mut signature = base_sig(AgentKind::Llxprt);
             signature.llxprt_version = selector.clone();
             signature.code_puppy_version = "0.0.361-rc1".to_owned();
-            let prepared = prepare_fresh_prompt_signature(signature, kind, path);
+            let prepared = prepare_fresh_prompt_signature(signature, kind, "content body");
             assert_eq!(prepared.llxprt_version, selector);
             assert_eq!(prepared.code_puppy_version, "0.0.361-rc1");
         }
