@@ -737,7 +737,6 @@ fn fullscreen_event_at(col: u16, row: u16, kind: MouseEventKind) -> iocraft::Ful
 }
 
 // ── Wrap-aware mouse→content reverse map (issue #212 follow-up) ──────────────
-//
 // When the issue detail body WORD-WRAPS, several display rows belong to the
 // SAME content line. A naive `row → content_line` map (1:1) would put a click
 // on a wrapped subrow onto the wrong line. `content_coords_for_pane` threads
@@ -773,6 +772,7 @@ fn state_with_issue_body(body: &str) -> AppState {
             jefe::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     });
     state
 }

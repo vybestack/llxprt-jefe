@@ -22,6 +22,7 @@ fn issue(number: u64, updated_at: &str) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 

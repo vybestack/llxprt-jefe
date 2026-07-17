@@ -245,10 +245,14 @@ impl AppState {
         }
 
         let issue_number = chooser.issue_number;
-        let node_id = if reason == CloseReason::Duplicate {
-            self.focused_issue_node_id(issue_number)
-        } else {
-            None
+        // All close-reason paths now use the GraphQL `closeIssue` mutation (by
+        // node id), so the node id is required for every reason (issue #204).
+        let Some(node_id) = self.focused_issue_node_id(issue_number) else {
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            self.issues_state.error = Some(format!(
+                "Cannot close issue #{issue_number}: node id unavailable. Reload the issue list and try again."
+            ));
+            return;
         };
 
         // All preconditions validated — commit by consuming the chooser.
@@ -258,7 +262,7 @@ impl AppState {
             scope_repo_id: scope,
             mutation_id,
             issue_number,
-            node_id,
+            node_id: Some(node_id),
             close_reason: Some(reason),
             duplicate_of,
         });

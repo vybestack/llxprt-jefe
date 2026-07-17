@@ -11,15 +11,20 @@ use super::{
     issues_dispatch,
 };
 
+/// Error message when the issue's node id is unavailable for a GraphQL close.
+const NODE_ID_UNAVAILABLE_MSG: &str =
+    "Cannot close: issue node id unavailable. Reload the issue list and try again.";
+
 /// Handle a close-issue request (key-layer `CloseIssue` event).
 ///
-/// The reducer has already set `close_mutation_pending` if the close is valid.
-/// If no pending was set (e.g. already closed), this is a no-op. Otherwise we
-/// spawn `GhClient::close_issue` off-thread and deliver `IssueClosed` /
-/// `MutationFailed`. On success we reload list + detail.
+/// The reducer has already set `close_mutation_pending` (with the node id) if
+/// the close is valid. If no pending was set (e.g. already closed), this is a
+/// no-op. Otherwise we spawn the GraphQL `closeIssue` mutation off-thread
+/// with `stateReason: COMPLETED` (plain close defaults to completed per issue
+/// #204) and deliver `IssueClosed` / `MutationFailed`.
 pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let (pending, repo_target) = match resolve_close_context(app_state) {
-        CloseContext::Pending(pending, repo) => (pending, repo),
+    let pending = match resolve_close_context(app_state) {
+        CloseContext::Pending(pending, _repo) => pending,
         CloseContext::NothingToDo => return,
         CloseContext::MissingRepoConfig(pending, malformed) => {
             report_missing_github_repo(app_state, ctx, pending, malformed);
@@ -34,6 +39,7 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
     let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
+    let node_id = pending.node_id.clone();
 
     gh_async::spawn_gh_task_with_panic(
         app_state,
@@ -41,8 +47,8 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
         move |mut app_state, ctx| {
             let event = close_issue_event(
                 &ctx,
-                &repo_target,
                 issue_number,
+                node_id.as_deref(),
                 &failure_target.scope_repo_id,
                 mutation_id,
             );
@@ -60,17 +66,31 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
     );
 }
 
+/// Extract a non-empty node id from an `Option<&str>`.
+///
+/// Returns `None` for missing or empty ids, so callers can use a let-else to
+/// surface a `NODE_ID_UNAVAILABLE_MSG` failure (issue #204).
+fn non_empty_node_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.is_empty())
+}
+
 /// Build the close success/failure event from the gh result (pure).
+///
+/// Plain close uses the GraphQL `closeIssue` mutation with
+/// `stateReason: COMPLETED` (issue #204).
 fn close_issue_event(
     ctx: &SharedContext,
-    repo_target: &GhRepoTarget,
     issue_number: u64,
+    node_id: Option<&str>,
     scope: &RepositoryId,
     mutation_id: u64,
 ) -> CloseOutcome {
-    match github_client(ctx)
-        .map(|client| client.close_issue(&repo_target.owner, &repo_target.repo, issue_number))
-    {
+    let Some(node_id) = non_empty_node_id(node_id) else {
+        return CloseOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
+    };
+    match github_client(ctx).map(|client| {
+        client.close_issue_graphql(node_id, jefe::domain::CloseReason::Completed, None)
+    }) {
         Some(Ok(())) => CloseOutcome::Closed {
             scope_repo_id: scope.clone(),
             issue_number,
@@ -128,17 +148,14 @@ enum CloseOutcome {
     Failed(String),
 }
 
-/// Handle a close-issue-with-reason request (issue #188).
+/// Handle a close-issue-with-reason request (issue #188 / #204).
 ///
 /// The reducer has already set `close_mutation_pending` with the reason
 /// (and `duplicate_of` for Duplicate). If no pending was set, this is a
-/// no-op. Otherwise we spawn `GhClient::close_issue_with_reason` off-thread
-/// and deliver `IssueClosed` (carrying the reason) / `MutationFailed`.
-///
-/// For `Duplicate`, after the close succeeds we additionally resolve the
-/// duplicate-of issue's node id and call `mark_issue_as_duplicate`. Failures
-/// in the duplicate-marking step are non-fatal (warning only) — the close
-/// itself has already succeeded.
+/// no-op. Otherwise we spawn the GraphQL `closeIssue` mutation off-thread,
+/// carrying `stateReason` and (for Duplicate) `duplicateIssueId` as
+/// first-class fields, and deliver `IssueClosed` (carrying the reason) /
+/// `MutationFailed`.
 pub(super) fn handle_issue_close_with_reason(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let (pending, repo_target) = match resolve_close_context(app_state) {
         CloseContext::Pending(pending, repo) => (pending, repo),
@@ -194,101 +211,74 @@ pub(super) fn handle_issue_close_with_reason(app_state: &mut AppStateHandle, ctx
     );
 }
 
-/// Build the close-with-reason outcome from the gh result (pure).
+/// Build the close-with-reason outcome by executing the gh GraphQL mutation.
 ///
-/// For `Duplicate`, after closing successfully we resolve the duplicate-of
-/// issue's node id and call `mark_issue_as_duplicate`. Failures in the
-/// duplicate-marking step are logged as a warning but do NOT fail the close
-/// — the issue is already closed at this point.
+/// Uses the GraphQL `closeIssue` mutation with `stateReason` and (for
+/// Duplicate) `duplicateIssueId` as first-class fields (issue #204). For a
+/// Duplicate close, the canonical (duplicate-of) issue's node id is resolved
+/// before the mutation so it can be passed as `duplicateIssueId` in the same
+/// call. If the canonical node id cannot be resolved, the close fails — we do
+/// not close as Duplicate without the link.
 fn close_with_reason_event(params: CloseWithReasonParams) -> CloseWithReasonOutcome {
     let reason = params
         .close_reason
         .unwrap_or(jefe::domain::CloseReason::Completed);
+
+    let Some(this_node_id) = non_empty_node_id(params.this_node_id) else {
+        return CloseWithReasonOutcome::Failed(NODE_ID_UNAVAILABLE_MSG.to_string());
+    };
+
     let client = github_client(params.ctx);
 
-    let close_result = client.as_ref().map(|c| {
-        c.close_issue_with_reason(
-            &params.repo_target.owner,
-            &params.repo_target.repo,
-            params.issue_number,
-            reason,
-        )
-    });
+    // For a Duplicate close, resolve the canonical issue's node id so it can be
+    // passed as `duplicateIssueId` in the single GraphQL `closeIssue` call.
+    let duplicate_node_id = if reason == jefe::domain::CloseReason::Duplicate {
+        match params.duplicate_of {
+            Some(dup_num) => {
+                let Some(c) = client.as_ref() else {
+                    return CloseWithReasonOutcome::Failed(format!(
+                        "Cannot close issue #{} as duplicate: application context unavailable",
+                        params.issue_number
+                    ));
+                };
+                match c.resolve_issue_node_id(
+                    &params.repo_target.owner,
+                    &params.repo_target.repo,
+                    dup_num,
+                ) {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        return CloseWithReasonOutcome::Failed(format!(
+                            "Failed to resolve duplicate-of issue #{dup_num} node id: {e}"
+                        ));
+                    }
+                }
+            }
+            None => {
+                return CloseWithReasonOutcome::Failed(format!(
+                    "Cannot close issue #{} as duplicate: no duplicate target selected",
+                    params.issue_number
+                ));
+            }
+        }
+    } else {
+        None
+    };
+
+    let close_result = client
+        .as_ref()
+        .map(|c| c.close_issue_graphql(this_node_id, reason, duplicate_node_id.as_deref()));
 
     match close_result {
-        Some(Ok(())) => {
-            if reason == jefe::domain::CloseReason::Duplicate
-                && let Some(dup_num) = params.duplicate_of
-            {
-                try_mark_duplicate(
-                    client.as_ref(),
-                    params.repo_target,
-                    dup_num,
-                    params.this_node_id,
-                    params.issue_number,
-                );
-            }
-            CloseWithReasonOutcome::Closed {
-                scope_repo_id: params.scope.clone(),
-                issue_number: params.issue_number,
-                mutation_id: params.mutation_id,
-                close_reason: Some(reason),
-                duplicate_of: params.duplicate_of,
-            }
-        }
+        Some(Ok(())) => CloseWithReasonOutcome::Closed {
+            scope_repo_id: params.scope.clone(),
+            issue_number: params.issue_number,
+            mutation_id: params.mutation_id,
+            close_reason: Some(reason),
+            duplicate_of: params.duplicate_of,
+        },
         Some(Err(error)) => CloseWithReasonOutcome::Failed(error.to_string()),
         None => CloseWithReasonOutcome::Failed("Application context unavailable".to_string()),
-    }
-}
-
-/// Attempt to mark an issue as a duplicate of another (non-fatal on failure).
-///
-/// Resolves the canonical (duplicate-of) issue's node id, then calls
-/// `mark_issue_as_duplicate`. If either step fails, a warning is logged but
-/// the close is still considered successful — the issue is already closed.
-fn try_mark_duplicate(
-    client: Option<&jefe::github::GhClient>,
-    repo_target: &GhRepoTarget,
-    canonical_number: u64,
-    duplicate_node_id: Option<&str>,
-    issue_number: u64,
-) {
-    let Some(c) = client else {
-        return;
-    };
-    let canonical_id = match c.resolve_issue_node_id(
-        &repo_target.owner,
-        &repo_target.repo,
-        canonical_number,
-    ) {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                canonical_number,
-                issue_number,
-                "failed to resolve canonical issue node id for duplicate marking; close still succeeded",
-            );
-            return;
-        }
-    };
-    let dup_id = match duplicate_node_id {
-        Some(id) if !id.is_empty() => id.to_string(),
-        _ => {
-            tracing::warn!(
-                issue_number,
-                "missing node id for duplicate issue; cannot mark as duplicate (close still succeeded)",
-            );
-            return;
-        }
-    };
-    if let Err(e) = c.mark_issue_as_duplicate(&canonical_id, &dup_id) {
-        tracing::warn!(
-            error = %e,
-            canonical_number,
-            issue_number,
-            "markIssueAsDuplicate mutation failed; close still succeeded",
-        );
     }
 }
 

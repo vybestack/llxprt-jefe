@@ -107,6 +107,7 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     } else {
                         Some(issue.issue_type.clone())
                     },
+                    state_reason: issue.state_reason,
                 }
             })
     };

@@ -458,6 +458,7 @@ mod tests {
                 crate::domain::PageToken::from_cursor(None, false),
             ),
             issue_type_name: None,
+            state_reason: None,
         }
     }
 

@@ -98,6 +98,7 @@ fn test_list_issues_sorts_by_updated_desc() {
             module: String::new(),
             comment_count: 0,
             body: String::new(),
+            state_reason: None,
         },
         Issue {
             number: 1,
@@ -115,6 +116,7 @@ fn test_list_issues_sorts_by_updated_desc() {
             module: String::new(),
             comment_count: 0,
             body: String::new(),
+            state_reason: None,
         },
         Issue {
             number: 2,
@@ -132,6 +134,7 @@ fn test_list_issues_sorts_by_updated_desc() {
             module: String::new(),
             comment_count: 0,
             body: String::new(),
+            state_reason: None,
         },
     ];
 
@@ -598,6 +601,7 @@ fn test_build_send_payload_with_comment() {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     };
 
     let focused_comment = IssueComment {
@@ -654,6 +658,7 @@ fn test_build_send_payload_without_comment() {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     };
 
     let payload = GhClient::build_send_payload("owner/repo", &detail, None, "Base prompt here");

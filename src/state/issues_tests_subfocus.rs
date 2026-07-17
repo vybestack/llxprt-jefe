@@ -39,6 +39,7 @@ fn p15_detail(number: u64) -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 

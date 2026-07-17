@@ -49,6 +49,7 @@ fn make_issue(number: u64, node_id: &str) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        state_reason: None,
     }
 }
 
@@ -76,6 +77,7 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
             crate::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
+        state_reason: None,
     }
 }
 
@@ -154,6 +156,43 @@ fn close_issue_with_no_repo_selected_shows_notice() {
     assert!(
         state.issues_state.draft_notice.is_some(),
         "a notice must be shown when no repository is selected"
+    );
+}
+
+#[test]
+fn close_issue_captures_node_id_for_graphql_mutation() {
+    // The plain close must now capture the node id so the GraphQL closeIssue
+    // mutation can close by node id (issue #204).
+    let state = issues_state_with_list("repo-1");
+    let state = state.apply(AppEvent::CloseIssue);
+    let pending = state.issues_state.close_mutation_pending.as_ref();
+    let Some(pending) = pending else {
+        panic!("close pending should be set");
+    };
+    assert_eq!(
+        pending.node_id.as_deref(),
+        Some("I_1"),
+        "plain close should capture the node id for the GraphQL mutation"
+    );
+}
+
+#[test]
+fn close_issue_without_node_id_is_blocked() {
+    // An issue with an empty node id cannot be closed via GraphQL (which needs
+    // the node id). The reducer should block with an error rather than creating
+    // a pending that the dispatch layer would reject.
+    let mut state = issues_state_with_list("repo-1");
+    let mut issues = state.issues_state.list.items().to_vec();
+    issues[0].node_id = String::new();
+    state.issues_state.list.replace_items(issues);
+    let state = state.apply(AppEvent::CloseIssue);
+    assert!(
+        state.issues_state.close_mutation_pending.is_none(),
+        "no close pending without a node id"
+    );
+    assert!(
+        state.issues_state.error.is_some(),
+        "an error must be shown when node id is unavailable"
     );
 }
 
@@ -258,6 +297,31 @@ fn issue_closed_with_wrong_scope_is_ignored() {
             .find(|i| i.number == 1)
             .is_some_and(|i| i.state == IssueState::Open),
         "wrong-scope close result must NOT mutate the local issue state"
+    );
+}
+
+#[test]
+fn issue_closed_clears_prior_error() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 42,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+        close_reason: None,
+        duplicate_of: None,
+    });
+    state.issues_state.error = Some("Previous error".to_string());
+    let state = state.apply(AppEvent::IssueClosed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 42,
+        close_reason: None,
+        duplicate_of: None,
+    });
+    assert!(
+        state.issues_state.error.is_none(),
+        "a successful close must clear a prior error"
     );
 }
 

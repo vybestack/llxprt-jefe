@@ -9,7 +9,7 @@
 
 use crate::domain::{
     FILTER_CHOICE_ANY, FILTER_CHOICE_NONE, Issue, IssueComment, IssueDetail, IssueFilter,
-    IssueFilterState, IssueState,
+    IssueFilterState, IssueState, IssueStateReason,
 };
 use serde_json::Value;
 
@@ -128,32 +128,17 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .and_then(Value::as_u64)
         .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
-    let node_id = item
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let title = item
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
+    let node_id = json_field_str(item, "id");
+    let title = json_field_str(item, "title");
     let state = parse_issue_state(item);
-
+    let state_reason = parse_issue_state_reason(item);
     let author_login = item
         .get("author")
         .and_then(|a| a.get("login"))
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-
-    let updated_at = item
-        .get("updatedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let updated_at = json_field_str(item, "updatedAt");
 
     let assignees = collect_nodes_field(item, "assignees");
     let labels = collect_nodes_field(item, "labels");
@@ -169,11 +154,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .and_then(Value::as_u64)
         .unwrap_or(0);
 
-    let body = item
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let body = json_field_str(item, "body");
 
     Ok(Issue {
         number,
@@ -191,7 +172,16 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         module,
         comment_count,
         body,
+        state_reason,
     })
+}
+
+/// Read a top-level string field as `String`, defaulting to "".
+fn json_field_str(item: &Value, field: &str) -> String {
+    item.get(field)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 fn module_from_labels(labels: &[String]) -> String {
@@ -274,16 +264,17 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let title = json_string_field(&value, "title");
+    let title = json_field_str(&value, "title");
     let state = parse_issue_state(&value);
+    let state_reason = parse_issue_state_reason(&value);
     let author_login = json_login_field(&value, "author");
-    let created_at = json_string_field(&value, "createdAt");
-    let updated_at = json_string_field(&value, "updatedAt");
+    let created_at = json_field_str(&value, "createdAt");
+    let updated_at = json_field_str(&value, "updatedAt");
     let labels = json_string_array(&value, "labels", "name");
     let assignees = json_string_array(&value, "assignees", "login");
     let milestone = parse_optional_string_field(&value, "milestone", "title");
-    let body = json_string_field(&value, "body");
-    let external_url = json_string_field(&value, "url");
+    let body = json_field_str(&value, "body");
+    let external_url = json_field_str(&value, "url");
 
     // Extract repo_owner_name from URL (format: https://github.com/owner/repo/issues/NUM)
     let repo_owner_name = external_url
@@ -319,16 +310,8 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         external_url,
         comments,
         issue_type_name: None,
+        state_reason,
     })
-}
-
-/// Read a top-level string field, defaulting to "".
-fn json_string_field(value: &Value, field: &str) -> String {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
 }
 
 /// Read `<field>.login` as a string, defaulting to "".
@@ -350,6 +333,18 @@ fn parse_issue_state(value: &Value) -> IssueState {
             "CLOSED" => IssueState::Closed,
             _ => IssueState::Open,
         })
+}
+
+/// Parse the GraphQL `stateReason` / REST `state_reason` field into an
+/// [`IssueStateReason`], returning `None` when missing, null, `REOPENED`, or
+/// unknown (issue #204). Handles both the GraphQL spelling (`COMPLETED`) and
+/// the REST spelling (`completed`) returned by `gh issue view --json`.
+fn parse_issue_state_reason(value: &Value) -> Option<IssueStateReason> {
+    value
+        .get("stateReason")
+        .or_else(|| value.get("state_reason"))
+        .and_then(Value::as_str)
+        .and_then(IssueStateReason::parse)
 }
 
 /// Collect `<field>[*].<key>` into `Vec<String>`.
@@ -820,7 +815,7 @@ fn build_repository_issue_type_args(
         ""
     };
     let query = format!(
-        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ id number title state author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
+        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ id number title state stateReason author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
         variable_defs.join(", "),
         filters.join(", ")
     );
@@ -976,9 +971,9 @@ pub fn build_issue_search_args(
     }
 
     let query = if cursor.is_some() {
-        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { id number title state stateReason author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state stateReason author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),

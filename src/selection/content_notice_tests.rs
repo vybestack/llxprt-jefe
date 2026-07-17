@@ -22,6 +22,7 @@ fn make_issues() -> Vec<Issue> {
             module: String::new(),
             comment_count: 0,
             body: format!("Body for issue {number}"),
+            state_reason: None,
         })
         .collect()
 }

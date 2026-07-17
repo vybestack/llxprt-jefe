@@ -44,8 +44,11 @@ pub struct IssueDetailHeaderView {
 #[must_use]
 pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     let state_tag = match detail.state {
-        IssueState::Open => "OPEN",
-        IssueState::Closed => "CLOSED",
+        IssueState::Open => "OPEN".to_string(),
+        IssueState::Closed => match detail.state_reason {
+            Some(reason) => format!("CLOSED ({})", reason.label()),
+            None => "CLOSED".to_string(),
+        },
     };
     let created = crate::ui::util::format_iso_date(&detail.created_at);
     let updated = crate::ui::util::format_iso_date(&detail.updated_at);
@@ -306,8 +309,82 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
 
 #[cfg(test)]
 mod tests {
-    use super::{DetailContent, build_new_issue_content};
+    use super::{DetailContent, build_new_issue_content, issue_detail_header_view};
+    use crate::domain::{IssueDetail, IssueState, IssueStateReason};
     use crate::state::{ComposerTarget, InlineState};
+
+    fn detail_with_state(state: IssueState, state_reason: Option<IssueStateReason>) -> IssueDetail {
+        IssueDetail {
+            repo_owner_name: "owner/repo".to_string(),
+            number: 42,
+            node_id: String::new(),
+            title: "Test".to_string(),
+            state,
+            author_login: "alice".to_string(),
+            created_at: "2026-01-01".to_string(),
+            updated_at: "2026-01-02".to_string(),
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            milestone: None,
+            body: String::new(),
+            external_url: "https://github.com/owner/repo/issues/42".to_string(),
+            comments: crate::domain::PaginatedList::default(),
+            issue_type_name: None,
+            state_reason,
+        }
+    }
+
+    #[test]
+    fn header_shows_closed_with_reason_in_state_row() {
+        let detail = detail_with_state(IssueState::Closed, Some(IssueStateReason::NotPlanned));
+        let view = issue_detail_header_view(&detail);
+        assert!(
+            view.state.contains("CLOSED (not planned)"),
+            "closed-with-reason detail should show reason: {}",
+            view.state
+        );
+    }
+
+    #[test]
+    fn header_shows_closed_duplicate_reason() {
+        let detail = detail_with_state(IssueState::Closed, Some(IssueStateReason::Duplicate));
+        let view = issue_detail_header_view(&detail);
+        assert!(
+            view.state.contains("CLOSED (duplicate)"),
+            "duplicate close detail should show reason: {}",
+            view.state
+        );
+    }
+
+    #[test]
+    fn header_shows_plain_closed_without_reason() {
+        let detail = detail_with_state(IssueState::Closed, None);
+        let view = issue_detail_header_view(&detail);
+        assert!(
+            view.state.contains("CLOSED"),
+            "closed-without-reason detail should show CLOSED: {}",
+            view.state
+        );
+        assert!(!view.state.contains("CLOSED ("));
+    }
+
+    #[test]
+    fn header_shows_closed_completed_reason() {
+        let detail = detail_with_state(IssueState::Closed, Some(IssueStateReason::Completed));
+        let view = issue_detail_header_view(&detail);
+        assert!(
+            view.state.contains("CLOSED (completed)"),
+            "completed close should show CLOSED (completed): {}",
+            view.state
+        );
+    }
+
+    #[test]
+    fn header_shows_open_without_reason() {
+        let detail = detail_with_state(IssueState::Open, None);
+        let view = issue_detail_header_view(&detail);
+        assert!(view.state.contains("OPEN"));
+    }
 
     #[test]
     fn build_new_issue_content_renders_static_prompt_only() {
