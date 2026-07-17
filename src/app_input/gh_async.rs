@@ -32,6 +32,8 @@ impl GhDeliveryHandle {
     fn deliver(&self, delivery: BackgroundGhDelivery) {
         if let Some(handler) = lock_recover(&self.handler).as_mut() {
             handler(delivery);
+        } else {
+            tracing::debug!("discarding background gh delivery without a root handler");
         }
     }
 }

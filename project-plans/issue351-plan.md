@@ -77,6 +77,9 @@
 | `gh_async` runs caller work, including state mutation, inside `smol::unblock` | Approved in-scope architecture change for issue-list dispatch | Introduce a root-owned typed delivery handler and migrate issue-list fetches first. The user explicitly approved this event-queue boundary; migration of the remaining routes is deferred. |
 | Live `llxprt-luther` now has open issues | Test fixture decision | Required proof uses a fail-closed shim with an explicitly empty second repository; no test depends on live repository contents. |
 | Unkeyed dynamic selectable-list children | Reject for this issue | The captured panic originates inside the GitHub background task, not a list component hook. Existing list parity remains unchanged. |
+| OCR: scenario build and harness lacked outer timeouts | In-scope—Fix | Added a portable Python-backed timeout wrapper because Python is already a required scenario dependency and macOS does not provide GNU `timeout` by default. |
+| OCR: move `catch_unwind` outside `smol::unblock` | Reject | `catch_unwind` encloses the blocking closure, so a work panic is converted before it can escape the blocking executor. Moving the catch outside would require the panic to cross the `unblock` future boundary first, weakening containment. |
+| OCR: delivery without an installed handler was silent | In-scope—Fix | Added a debug diagnostic for the unreachable-before-first-render/shutdown discard path; late results remain intentionally unapplied after owner loss. |
 
 ## Review counters
 

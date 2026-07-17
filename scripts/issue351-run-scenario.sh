@@ -9,6 +9,23 @@ REPO="$ARTIFACT/repo"
 AUDIT="$ARTIFACT/gh-audit.log"
 SESSION="jefe-issue351-$$"
 
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  python3 - "$timeout_seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+seconds = int(sys.argv[1])
+command = sys.argv[2:]
+try:
+    result = subprocess.run(command, timeout=seconds, check=False)
+except subprocess.TimeoutExpired:
+    print(f"FATAL: command timed out after {seconds} seconds: {' '.join(command)}", file=sys.stderr)
+    raise SystemExit(124)
+raise SystemExit(result.returncode)
+PY
+}
 cleanup() {
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION" || echo "WARN: failed to stop tmux session $SESSION" >&2
@@ -70,8 +87,8 @@ SHIM_SOURCE="$ROOT/scripts/issue351-gh-shim.sh"
 cp "$SHIM_SOURCE" "$SHIM_BIN/gh"
 chmod +x "$SHIM_BIN/gh"
 
-(cd "$ROOT" && cargo build --locked --bin jefe --bin jefe-tmux-harness)
-env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" RUST_BACKTRACE=1 \
+(cd "$ROOT" && run_with_timeout 300 cargo build --locked --bin jefe --bin jefe-tmux-harness)
+run_with_timeout 300 env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" RUST_BACKTRACE=1 \
   "$ROOT/target/debug/jefe-tmux-harness" \
   --scenario "$ROOT/dev-docs/tmux-scenarios/issues-empty-repository.json" \
   --jefe-bin "$ROOT/target/debug/jefe" \
