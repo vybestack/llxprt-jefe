@@ -101,6 +101,11 @@
 | OCR: lifecycle ownership invariant is implicit | In-scope—Fix | Expand the public handle documentation to state that iocraft owns/polls queued futures only while mounted, late enqueue is inert after teardown, and root rerenders replace the slot with the current owner. |
 | OCR: result-mapping callbacks are outside panic containment | Reject | The callbacks are state-free constructors that only move owned data into `BackgroundGhDelivery`; adding nested recovery would either lose the delivery or require reusing a consumed `FnOnce`, while the accepted panic boundary already contains all blocking GitHub work. |
 | OCR: handler replacement should warn | Reject | Duplicate of the earlier finding: installation intentionally occurs on every root render, so the slot is normally occupied and a warning would misreport every healthy rerender. |
+| OCR: timeout kills only the direct child | Blocker—Fix | Start each bounded command in a new process session and send `SIGKILL` to its process group on timeout so Cargo/harness descendants cannot survive as orphans. |
+| OCR: exact CLI audit is brittle | Reject | The fail-closed shim deliberately verifies the production side-effect contract, while the TUI separately verifies user-visible outcomes; relaxing argv validation would allow an unintended GitHub operation to pass. |
+| OCR: generated state JSON lacks a round-trip validation | Reject | `json.dump` cannot emit malformed JSON from the in-memory typed fixture, Python generation exceptions already fail immediately under `set -e`, and startup parsing is part of the real scenario path. |
+| OCR: generated tmux session name may contain unusual characters | Reject | `mktemp` receives the fixed template `issue351.XXXXXX`; `basename` therefore contains only the literal alphanumeric prefix, one dot, and `mktemp`'s six portable suffix characters, and the dot is replaced before use. |
+| OCR: delivery payload should use `pub(super)` | Reject | Duplicate contradicted by compiler evidence: `BackgroundGhDelivery` crosses the app-input/root-shell boundary and narrowing the payload produced a `private_interfaces` warning under the mandatory warning-free gate; payload fields remain private. |
 
 ## Review counters
 

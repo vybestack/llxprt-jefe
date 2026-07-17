@@ -14,20 +14,28 @@ run_with_timeout() {
   local timeout_seconds="$1"
   shift
   python3 - "$timeout_seconds" "$@" <<'PY'
+import os
+import signal
 import subprocess
 import sys
 
 seconds = int(sys.argv[1])
 command = sys.argv[2:]
 try:
-    result = subprocess.run(command, timeout=seconds, check=False)
+    process = subprocess.Popen(command, start_new_session=True)
+    returncode = process.wait(timeout=seconds)
 except subprocess.TimeoutExpired:
     print(f"FATAL: command timed out after {seconds} seconds: {' '.join(command)}", file=sys.stderr)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
     raise SystemExit(124)
 except OSError as error:
     print(f"FATAL: cannot run command {' '.join(command)}: {error}", file=sys.stderr)
     raise SystemExit(126)
-raise SystemExit(result.returncode)
+raise SystemExit(returncode)
 PY
 }
 cleanup() {
@@ -48,8 +56,8 @@ trap cleanup EXIT
 for command_name in cargo python3 tmux; do
   command -v "$command_name" >/dev/null || { echo "FATAL: $command_name is required" >&2; exit 1; }
 done
-python3 -c 'import json, subprocess, sys; raise SystemExit(sys.version_info < (3, 8))' || {
-  echo "FATAL: python3 3.8+ with json and subprocess support is required" >&2
+python3 -c 'import json, os, signal, subprocess, sys; raise SystemExit(sys.version_info < (3, 8))' || {
+  echo "FATAL: python3 3.8+ with process-group and JSON support is required" >&2
   exit 1
 }
 
