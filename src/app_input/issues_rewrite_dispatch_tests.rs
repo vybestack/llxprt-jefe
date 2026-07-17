@@ -38,8 +38,9 @@ fn with_new_issue_draft(state: AppState, text: &str) -> AppState {
 }
 
 /// Unwrap the resolver's `Result` (a precondition failure is unexpected in
-/// these tests) so the caller asserts directly on the `Option`.
-fn resolved(state: &AppState) -> Option<super::RewriteContext> {
+/// these tests) so the caller asserts directly on the `Option`. Panics on
+/// `Err` to make the test-only contract explicit.
+fn resolve_or_panic(state: &AppState) -> Option<super::RewriteContext> {
     match resolve_rewrite_context_from_state(state) {
         Ok(opt) => opt,
         Err(error) => panic!("resolver precondition should not fail in tests: {error}"),
@@ -49,7 +50,7 @@ fn resolved(state: &AppState) -> Option<super::RewriteContext> {
 #[test]
 fn resolves_none_without_composer() {
     let state = base_state();
-    assert!(resolved(&state).is_none());
+    assert!(resolve_or_panic(&state).is_none());
 }
 
 #[test]
@@ -60,33 +61,33 @@ fn resolves_none_for_new_comment_composer() {
         text: "draft".to_string(),
         cursor: 5,
     };
-    assert!(resolved(&state).is_none());
+    assert!(resolve_or_panic(&state).is_none());
 }
 
 #[test]
 fn resolves_none_for_empty_draft() {
     let state = with_new_issue_draft(base_state(), "   ");
-    assert!(resolved(&state).is_none());
+    assert!(resolve_or_panic(&state).is_none());
 }
 
 #[test]
 fn resolves_none_when_rewrite_already_pending() {
     let mut state = with_new_issue_draft(base_state(), "fix the bug");
     state.issues_state.rewrite_pending = true;
-    assert!(resolved(&state).is_none());
+    assert!(resolve_or_panic(&state).is_none());
 }
 
 #[test]
 fn resolves_none_without_selected_repo() {
     let mut state = with_new_issue_draft(base_state(), "fix the bug");
     state.selected_repository_index = None;
-    assert!(resolved(&state).is_none());
+    assert!(resolve_or_panic(&state).is_none());
 }
 
 #[test]
 fn resolves_instruction_and_signature_from_draft_and_repo() {
     let state = with_new_issue_draft(base_state(), "fix the bug\nsome details");
-    let ctx = resolved(&state).unwrap_or_else(|| {
+    let ctx = resolve_or_panic(&state).unwrap_or_else(|| {
         panic!("a NewIssue draft with a selected repo must resolve a rewrite context")
     });
     assert!(
@@ -106,7 +107,7 @@ fn resolves_instruction_and_signature_from_draft_and_repo() {
 fn resolves_signature_for_code_puppy_default() {
     let mut state = with_new_issue_draft(base_state(), "draft");
     state.repositories[0].default_agent_kind = AgentKind::CodePuppy;
-    let ctx = resolved(&state)
+    let ctx = resolve_or_panic(&state)
         .unwrap_or_else(|| panic!("Code Puppy default repo must resolve a rewrite context"));
     assert_eq!(ctx.signature.agent_kind, AgentKind::CodePuppy);
 }

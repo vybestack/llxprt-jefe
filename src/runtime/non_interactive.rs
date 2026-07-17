@@ -60,10 +60,11 @@ fn llxprt_non_interactive_args(signature: &LaunchSignature, instruction: &str) -
         args.push(signature.profile.clone());
     }
     // Non-interactive rewrite is always a fresh run: never pass --continue
-    // even if it lingers in the configured mode flags.
+    // even if it lingers in the configured mode flags. Match by prefix so a
+    // parameterized form like --continue=true is also stripped.
     args.extend(signature.mode_flags.iter().filter_map(|flag| {
         let trimmed = flag.trim();
-        if trimmed.is_empty() || trimmed == "--continue" {
+        if trimmed.is_empty() || trimmed.starts_with("--continue") {
             None
         } else {
             Some(flag.clone())
@@ -156,9 +157,10 @@ pub fn run_non_interactive(
     let owned_args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
     let mut command = command_for_executable(&executable, &owned_args);
     if work_dir.as_os_str().is_empty() {
-        // An unset work_dir resolves to the current directory; propagate a
-        // failure to resolve it rather than running the agent in an
-        // arbitrary/unintended location.
+        // Defensive fallback: the dispatch layer always resolves a real
+        // work_dir (the repository base_dir, or the process cwd). An empty
+        // path here is unexpected; fall back to the process working directory
+        // rather than leaving the child to inherit an unspecified location.
         let current = std::env::current_dir().map_err(|_| {
             RuntimeError::SpawnFailed(
                 "could not resolve the current directory for the non-interactive run".to_owned(),

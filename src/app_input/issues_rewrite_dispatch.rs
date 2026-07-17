@@ -134,12 +134,16 @@ fn resolve_rewrite_context_from_state(state: &AppState) -> Result<Option<Rewrite
         return Ok(None);
     };
 
-    // The agent runs in the project working directory so it can study the
-    // source while rewriting the issue text. Fail explicitly rather than
-    // silently running the agent in an unintended location.
-    let work_dir = std::env::current_dir().map_err(|_| {
-        "Could not resolve the current working directory for the agent rewrite".to_owned()
-    })?;
+    // The agent runs in the repository's local working copy so it can study
+    // the source while rewriting the issue text. Fall back to the process
+    // working directory only when the repository has no configured base_dir.
+    let work_dir = if repository.base_dir.as_os_str().is_empty() {
+        std::env::current_dir().map_err(|_| {
+            "Could not resolve the working directory for the agent rewrite".to_owned()
+        })?
+    } else {
+        repository.base_dir.clone()
+    };
     let signature = launch_signature_for_transient(repository, &work_dir);
 
     let trimmed_repo = repository.github_repo.trim();

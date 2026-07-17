@@ -58,6 +58,23 @@ fn llxprt_never_passes_continue() {
 }
 
 #[test]
+fn llxprt_strips_parameterized_continue_form() {
+    // A mode flag like --continue=true must also be stripped so continuation
+    // never leaks into a non-interactive rewrite run.
+    let mut sig = signature(AgentKind::Llxprt);
+    sig.mode_flags = vec!["--continue=true".to_owned(), "--verbose".to_owned()];
+    let (_, args) = non_interactive_argv(&sig, "x");
+    assert!(
+        !args.iter().any(|a| a.starts_with("--continue")),
+        "parameterized --continue must be stripped: {args:?}"
+    );
+    assert!(
+        args.contains(&"--verbose".to_owned()),
+        "unrelated mode flags must survive the continue filter"
+    );
+}
+
+#[test]
 fn llxprt_includes_mode_flags_and_sandbox() {
     let mut sig = signature(AgentKind::Llxprt);
     sig.mode_flags = vec!["--dangerously-skip-permissions".to_owned()];
