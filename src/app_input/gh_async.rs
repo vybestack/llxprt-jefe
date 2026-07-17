@@ -41,7 +41,10 @@ impl GhDeliveryHandle {
 fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
+        Err(poisoned) => {
+            tracing::warn!("recovering poisoned background gh delivery mutex");
+            poisoned.into_inner()
+        }
     }
 }
 

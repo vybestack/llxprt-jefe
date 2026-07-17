@@ -80,11 +80,18 @@
 | OCR: scenario build and harness lacked outer timeouts | In-scope—Fix | Added a portable Python-backed timeout wrapper because Python is already a required scenario dependency and macOS does not provide GNU `timeout` by default. |
 | OCR: move `catch_unwind` outside `smol::unblock` | Reject | `catch_unwind` encloses the blocking closure, so a work panic is converted before it can escape the blocking executor. Moving the catch outside would require the panic to cross the `unblock` future boundary first, weakening containment. |
 | OCR: delivery without an installed handler was silent | In-scope—Fix | Added a debug diagnostic for the unreachable-before-first-render/shutdown discard path; late results remain intentionally unapplied after owner loss. |
+| OCR: failed scenarios delete artifacts and hide harness diagnostics | In-scope—Fix | Preserve the unique run directory on failure, print retained location, and emit available harness error/screen/scrollback diagnostics before returning the original status. |
+| OCR: PID-based scenario artifact naming can collide | In-scope—Fix | Use `mktemp -d` under the owned harness target root and derive the tmux session name from that unique directory. |
+| OCR: timeout wrapper prints no build-failure message | Reject | Cargo owns the build boundary and already emits its diagnostic before the wrapper preserves its non-zero status; adding a generic duplicate message does not improve diagnosis. |
+| OCR: `IssueListDelivery` visibility is broader than required | Reject | `BackgroundGhDelivery` crosses from `app_input` into the root app shell, so Rust requires its variant payload to be at least crate-visible; narrowing it triggers `private_interfaces` under the mandatory Clippy gate. Its private fields already prevent external construction or deconstruction. |
+| OCR: invoke the async handler inside another `catch_unwind` | Reject | `Handler::call` only queues the lifecycle-bound future; state access occurs later when iocraft polls that future. Catching the enqueue call cannot catch that later poll, and the suggested reuse of the consumed panic callback is invalid. |
+| OCR: warn whenever the root delivery handler is replaced | Reject | Root `App` installs the current clone on every render by design; warning on replacement would report normal renders as failures. |
+| OCR: mutex-poison recovery is silent | In-scope—Fix | Emit a warning before recovering the delivery-slot mutex so an earlier panic remains observable. |
 
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (both invocations were terminated by signal 15 without output; no findings available to triage)
-- Post-PR Open Code Review: 0 / 2
+- Post-PR Open Code Review: 2 / 2 (both automated PR runs completed and all findings were triaged)
 
 ## Verification evidence
 

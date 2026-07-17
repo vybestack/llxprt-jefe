@@ -2,12 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-ARTIFACT="$ROOT/target/tmux-harness/issue351-$$"
-CONFIG="$ARTIFACT/config"
-SHIM_BIN="$ARTIFACT/bin"
-REPO="$ARTIFACT/repo"
-AUDIT="$ARTIFACT/gh-audit.log"
-SESSION="jefe-issue351-$$"
+HARNESS_ROOT="$ROOT/target/tmux-harness"
+ARTIFACT=""
+CONFIG=""
+SHIM_BIN=""
+REPO=""
+AUDIT=""
+SESSION=""
 
 run_with_timeout() {
   local timeout_seconds="$1"
@@ -27,16 +28,31 @@ raise SystemExit(result.returncode)
 PY
 }
 cleanup() {
-  if tmux has-session -t "$SESSION" 2>/dev/null; then
+  local status=$?
+  trap - EXIT
+  if [[ -n "$SESSION" ]] && tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION" || echo "WARN: failed to stop tmux session $SESSION" >&2
   fi
-  rm -rf "$ARTIFACT"
+  if (( status == 0 )); then
+    [[ -z "$ARTIFACT" ]] || rm -rf "$ARTIFACT"
+  elif [[ -n "$ARTIFACT" ]]; then
+    echo "Diagnostics retained at $ARTIFACT" >&2
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
 for command_name in cargo python3 tmux; do
   command -v "$command_name" >/dev/null || { echo "FATAL: $command_name is required" >&2; exit 1; }
 done
+
+mkdir -p "$HARNESS_ROOT"
+ARTIFACT="$(mktemp -d "$HARNESS_ROOT/issue351.XXXXXX")"
+CONFIG="$ARTIFACT/config"
+SHIM_BIN="$ARTIFACT/bin"
+REPO="$ARTIFACT/repo"
+AUDIT="$ARTIFACT/gh-audit.log"
+SESSION="jefe-$(basename "$ARTIFACT" | tr '.' '-')"
 
 mkdir -p "$CONFIG" "$SHIM_BIN" "$REPO"
 cat > "$CONFIG/settings.toml" <<'EOF'
@@ -88,11 +104,22 @@ cp "$SHIM_SOURCE" "$SHIM_BIN/gh"
 chmod +x "$SHIM_BIN/gh"
 
 (cd "$ROOT" && run_with_timeout 300 cargo build --locked --bin jefe --bin jefe-tmux-harness)
+harness_status=0
 run_with_timeout 300 env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" RUST_BACKTRACE=1 \
   "$ROOT/target/debug/jefe-tmux-harness" \
   --scenario "$ROOT/dev-docs/tmux-scenarios/issues-empty-repository.json" \
   --jefe-bin "$ROOT/target/debug/jefe" \
-  --config "$CONFIG" --out-dir "$ARTIFACT" --session "$SESSION"
+  --config "$CONFIG" --out-dir "$ARTIFACT" --session "$SESSION" || harness_status=$?
+if (( harness_status != 0 )); then
+  echo "FATAL: issue 351 harness failed with status $harness_status" >&2
+  for diagnostic in error.txt final-screen.txt final-scrollback.txt; do
+    if [[ -s "$ARTIFACT/$diagnostic" ]]; then
+      printf '\n--- %s ---\n' "$diagnostic" >&2
+      cat "$ARTIFACT/$diagnostic" >&2
+    fi
+  done
+  exit "$harness_status"
+fi
 
 [[ -s "$AUDIT" ]] || { echo "FATAL: gh shim was not invoked" >&2; exit 1; }
 if grep -q REJECTED "$AUDIT"; then cat "$AUDIT" >&2; exit 1; fi
