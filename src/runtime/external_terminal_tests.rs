@@ -8,7 +8,9 @@ use std::path::PathBuf;
 
 fn tmp_work_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("jefe-ext-term-test-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        panic!("failed to create external-terminal test directory: {error}");
+    }
     dir
 }
 
@@ -118,11 +120,12 @@ fn override_plan_is_structural() {
 }
 
 #[test]
-fn override_plan_macos_wraps_with_open() {
+fn override_plan_macos_runs_arbitrary_executable_directly() {
     let dir = tmp_work_dir();
-    let plan = super::plan_from_override("iTerm", &dir, DesktopPlatform::Macos);
-    assert_eq!(plan.program, "open");
-    assert!(plan.args.contains(&"iTerm".to_owned()));
+    let plan = super::plan_from_override("kitty", &dir, DesktopPlatform::Macos);
+    assert_eq!(plan.program, "kitty");
+    assert!(plan.args.is_empty());
+    assert_eq!(plan.work_dir, dir);
 }
 
 // ── A7: tmux env scrub (structural verification) ──────────────────────────
@@ -148,8 +151,9 @@ fn tmux_env_scrub_constants_are_complete() {
 #[test]
 fn plan_work_dir_applied_as_current_dir() {
     let dir = tmp_work_dir();
-    let plan = build_external_terminal_plan(&dir, DesktopPlatform::Linux)
+    let plan = build_external_terminal_plan(&dir, DesktopPlatform::Macos)
         .ok()
+        .or_else(|| build_external_terminal_plan(&dir, DesktopPlatform::Linux).ok())
         .or_else(|| build_external_terminal_plan(&dir, DesktopPlatform::Windows).ok());
     let Some(plan) = plan else {
         return; // no emulator on this host is acceptable

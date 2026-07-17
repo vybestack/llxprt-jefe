@@ -146,6 +146,14 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     // the area between sidebar and right edge (no agent list, no preview).
     let shell_overlay_active = state.is_some_and(AppState::shell_overlay_active);
     let overlay_terminal_rows = render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT);
+    let terminal_snapshot = state
+        .filter(|s| {
+            s.selection.is_some_and(|selection| {
+                selection.pane() == crate::selection::SelectablePane::TerminalView
+            })
+        })
+        .and_then(|s| s.selection_snapshot.clone())
+        .or_else(|| props.terminal_snapshot.clone());
 
     let workspace = if shell_overlay_active {
         vec![element! {
@@ -156,7 +164,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
             ) {
                 Box(height: overlay_terminal_rows, width: 100pct) {
                     TerminalView(
-                        snapshot: props.terminal_snapshot.clone(),
+                        snapshot: terminal_snapshot.clone(),
                         focused: terminal_focused,
                         title: "Agent Shell".to_owned(),
                         colors: colors.clone(),
@@ -200,7 +208,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     }
                     Box(height: terminal_rows, width: 100pct) {
                         TerminalView(
-                            snapshot: props.terminal_snapshot.clone(),
+                            snapshot: terminal_snapshot.clone(),
                             focused: terminal_focused,
                             title: "Terminal".to_owned(),
                             colors: colors.clone(),

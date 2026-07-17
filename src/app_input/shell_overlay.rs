@@ -22,7 +22,9 @@ pub fn cleanup_active_shell(state: &jefe::state::AppState, ctx: &SharedContext) 
     if let Some(ctx_arc) = ctx
         && let Ok(mut guard) = ctx_arc.lock()
     {
-        let _ = guard.runtime.close_shell_window(agent_id);
+        if let Err(error) = guard.runtime.close_shell_window(agent_id) {
+            warn!(error = %error, "failed to clean up active shell window");
+        }
     }
 }
 

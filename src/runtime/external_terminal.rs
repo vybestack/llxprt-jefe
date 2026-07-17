@@ -150,16 +150,12 @@ fn plan_from_override(
     work_dir: &Path,
     platform: DesktopPlatform,
 ) -> ExternalTerminalPlan {
+    // Overrides are arbitrary executables, so do not assume emulator-specific
+    // flags. `Command::current_dir` supplies the portable working directory.
     let (resolved_program, resolved_args) = match platform {
-        // On macOS, `open -a <app>` is the standard way to launch an app.
-        DesktopPlatform::Macos => (
-            "open".to_owned(),
-            vec!["-a".to_owned(), program.to_owned(), work_dir_arg(work_dir)],
-        ),
-        // Overrides are arbitrary executables, so do not assume emulator-specific
-        // working-directory flags. `Command::current_dir` supplies the portable
-        // process working directory.
-        DesktopPlatform::Linux | DesktopPlatform::Windows => (program.to_owned(), Vec::new()),
+        DesktopPlatform::Macos | DesktopPlatform::Linux | DesktopPlatform::Windows => {
+            (program.to_owned(), Vec::new())
+        }
     };
 
     ExternalTerminalPlan {
@@ -304,10 +300,6 @@ fn is_executable_file(path: &Path) -> bool {
 #[cfg(not(unix))]
 fn is_executable_file(path: &Path) -> bool {
     path.is_file()
-}
-
-fn work_dir_arg(work_dir: &Path) -> String {
-    work_dir.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]

@@ -4,6 +4,10 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCENARIO="$PROJECT_ROOT/dev-docs/tmux-scenarios/agent-shell-overlay.json"
+if [[ ! -f "$SCENARIO" ]]; then
+    echo "ERROR: issue #222 scenario not found: $SCENARIO" >&2
+    exit 1
+fi
 HARNESS_ROOT="$PROJECT_ROOT/target/tmux-harness"
 mkdir -p "$HARNESS_ROOT"
 ARTIFACT_DIR="$(mktemp -d "$HARNESS_ROOT/issue222-XXXXXX")"

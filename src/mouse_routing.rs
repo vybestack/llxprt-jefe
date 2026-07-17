@@ -33,9 +33,9 @@ fn active_pty_layout(cols: u16, rows: u16, overlay_active: bool) -> jefe::layout
 fn refresh_terminal_scroll_geometry_from_ctx(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
+    overlay_active: bool,
 ) {
     let (cols, rows) = terminal_size();
-    let overlay_active = app_state.read().shell_overlay_active();
     let pty_layout = active_pty_layout(cols, rows, overlay_active);
 
     let (history_count, live_rows) = match ctx {
@@ -120,6 +120,7 @@ pub fn handle_fullscreen_mouse(
     // Determine whether the terminal is the active input target and read the
     // reporting flag ONCE under a single lock (Finding E + F + G + J).
     let (terminal_active, mouse_reporting_active) = terminal_target_info(ctx, app_state);
+    let overlay_active = app_state.read().shell_overlay_active();
 
     // If the terminal is the active input target, route through the gesture
     // state machine. Otherwise, fall through to app-level pane selection.
@@ -130,6 +131,7 @@ pub fn handle_fullscreen_mouse(
             &mouse_event,
             shift_held,
             mouse_reporting_active,
+            overlay_active,
         )
     {
         return;
@@ -181,6 +183,7 @@ fn route_terminal_gesture(
     mouse_event: &iocraft::FullscreenMouseEvent,
     shift_held: bool,
     mouse_reporting_active: bool,
+    overlay_active: bool,
 ) -> bool {
     let (gesture_state, kennel_mode) = {
         let state = app_state.read();
@@ -204,12 +207,12 @@ fn route_terminal_gesture(
     // children stay interactive.
     if wheel_intercept_active_for_agent(kennel_mode, shift_held)
         && is_wheel_event(mouse_event)
-        && is_event_over_terminal_pane(mouse_event, app_state.read().shell_overlay_active())
+        && is_event_over_terminal_pane(mouse_event, overlay_active)
     {
         // Refresh scroll geometry from runtime + layout BEFORE applying so
         // the reducer's clamp bounds match the rendered content (mirrors the
         // keyboard dispatch path). Runs at event time, never at render time.
-        refresh_terminal_scroll_geometry_from_ctx(ctx, app_state);
+        refresh_terminal_scroll_geometry_from_ctx(ctx, app_state, overlay_active);
         if let Some(scroll_evt) = wheel_to_terminal_scroll_event(mouse_event) {
             let mut state = app_state.write();
             *state = std::mem::take(&mut *state).apply(scroll_evt);

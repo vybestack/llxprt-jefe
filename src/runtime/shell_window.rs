@@ -138,12 +138,14 @@ fn select_window(target: &str) -> Result<(), RuntimeError> {
         .args(["select-window", "-t", target])
         .output()
         .map_err(|error| RuntimeError::SpawnFailed(format!("tmux select-window: {error}")))?;
-    output.status.success().then_some(()).ok_or_else(|| {
-        RuntimeError::SpawnFailed(format!(
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(RuntimeError::SpawnFailed(format!(
             "tmux select-window failed: {}",
             String::from_utf8_lossy(&output.stderr)
-        ))
-    })
+        )))
+    }
 }
 
 fn agent_window_alive(session_name: &str) -> Result<bool, RuntimeError> {
