@@ -113,3 +113,31 @@ fn rewrite_failed_clears_pending_and_preserves_draft() {
             .is_some_and(|n| n.contains("agent offline"))
     );
 }
+
+#[test]
+fn rewrite_succeeded_stale_when_composer_closed_clears_pending_only() {
+    // The user closed the composer while the agent was running. The success
+    // must not set a misleading notice or modify any other view — only the
+    // pending flag is cleared so the state is never stuck.
+    let mut state = AppState::default();
+    state.issues_state.rewrite_pending = true;
+    state.issues_state.inline_state = InlineState::None;
+    let state = state.apply(AppEvent::IssueRewriteSucceeded {
+        text: "rewritten".to_owned(),
+    });
+    assert!(!state.issues_state.rewrite_pending);
+    assert!(state.issues_state.draft_notice.is_none());
+}
+
+#[test]
+fn rewrite_failed_stale_when_composer_closed_clears_pending_only() {
+    let mut state = AppState::default();
+    state.issues_state.rewrite_pending = true;
+    state.issues_state.inline_state = InlineState::None;
+    let state = state.apply(AppEvent::IssueRewriteFailed {
+        error: "timeout".to_owned(),
+    });
+    assert!(!state.issues_state.rewrite_pending);
+    // No notice surfaced in an unrelated view.
+    assert!(state.issues_state.draft_notice.is_none());
+}

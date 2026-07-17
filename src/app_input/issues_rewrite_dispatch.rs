@@ -10,8 +10,6 @@
 //! (`state::issues_rewrite_ops`); this module owns only the boundary I/O
 //! (availability probe, agent subprocess, applying the result events).
 
-use std::path::PathBuf;
-
 use jefe::domain::{LaunchSignature, Repository, build_rewrite_instruction};
 use jefe::runtime::run_non_interactive;
 use jefe::state::{AppEvent, AppState, InlineState};
@@ -27,11 +25,21 @@ use super::{
 /// events (`IssueRewriteSucceeded` / `IssueRewriteFailed`) are applied back via
 /// `apply_and_persist`.
 pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let Some(context) = rewrite_context(app_state) else {
-        // No actionable rewrite request (not a NewIssue composer, no draft, no
-        // repo, or already pending). The reducer still consumes the event as a
-        // no-op; nothing to spawn.
-        return;
+    let context = match rewrite_context(app_state) {
+        Ok(None) => {
+            // No actionable rewrite request (not a NewIssue composer, no draft,
+            // no repo, or already pending). The reducer still consumes the
+            // event as a no-op; nothing to spawn.
+            return;
+        }
+        Err(error) => {
+            // A resolvable precondition failed (e.g. the working directory
+            // could not be determined). Surface it as a non-fatal failure so
+            // the draft is preserved and the user is informed.
+            apply_and_persist(app_state, ctx, AppEvent::IssueRewriteFailed { error });
+            return;
+        }
+        Ok(Some(context)) => context,
     };
 
     // Availability guard BEFORE applying the pending flag: a missing agent
@@ -99,14 +107,14 @@ struct RewriteContext {
 
 /// Resolve the rewrite context from the current state.
 ///
-/// Returns `None` when there is no actionable request:
-/// - no NewIssue composer, or the draft is empty/whitespace;
-/// - a rewrite is already in flight;
-/// - no repository is selected (no default agent to run).
+/// - `Ok(None)` when there is no actionable request (no NewIssue composer,
+///   empty draft, a rewrite already in flight, or no repository selected).
+/// - `Err(msg)` when a resolvable precondition failed (e.g. the working
+///   directory cannot be determined) and should be surfaced to the user.
 ///
 /// `resolve_rewrite_context_from_state` is the pure (testable) core; this
 /// wrapper only acquires the read lock.
-fn rewrite_context(app_state: &AppStateHandle) -> Option<RewriteContext> {
+fn rewrite_context(app_state: &AppStateHandle) -> Result<Option<RewriteContext>, String> {
     let state = app_state.read();
     let result = resolve_rewrite_context_from_state(&state);
     drop(state);
@@ -115,16 +123,23 @@ fn rewrite_context(app_state: &AppStateHandle) -> Option<RewriteContext> {
 
 /// Pure resolver: extract the composer draft and build the launch signature +
 /// instruction from the focused repository's configured default agent.
-fn resolve_rewrite_context_from_state(state: &AppState) -> Option<RewriteContext> {
+fn resolve_rewrite_context_from_state(state: &AppState) -> Result<Option<RewriteContext>, String> {
     if state.issues_state.rewrite_pending {
-        return None;
+        return Ok(None);
     }
-    let draft = new_issue_composer_draft(state)?;
-    let repository = focused_repository(state)?;
+    let Some(draft) = new_issue_composer_draft(state) else {
+        return Ok(None);
+    };
+    let Some(repository) = focused_repository(state) else {
+        return Ok(None);
+    };
 
-    // Run the agent in the project working directory so it can study the
-    // source while rewriting the issue text.
-    let work_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // The agent runs in the project working directory so it can study the
+    // source while rewriting the issue text. Fail explicitly rather than
+    // silently running the agent in an unintended location.
+    let work_dir = std::env::current_dir().map_err(|_| {
+        "Could not resolve the current working directory for the agent rewrite".to_owned()
+    })?;
     let signature = launch_signature_for_transient(repository, &work_dir);
 
     let trimmed_repo = repository.github_repo.trim();
@@ -134,10 +149,10 @@ fn resolve_rewrite_context_from_state(state: &AppState) -> Option<RewriteContext
         Some(trimmed_repo)
     };
     let instruction = build_rewrite_instruction(&draft, github_repo);
-    Some(RewriteContext {
+    Ok(Some(RewriteContext {
         instruction,
         signature,
-    })
+    }))
 }
 
 /// The current NewIssue composer draft text, or `None` if the composer is not

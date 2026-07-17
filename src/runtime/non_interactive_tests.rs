@@ -65,7 +65,31 @@ fn llxprt_includes_mode_flags_and_sandbox() {
     let (_, args) = non_interactive_argv(&sig, "x");
     assert!(args.contains(&"--dangerously-skip-permissions".to_owned()));
     assert!(args.contains(&"--sandbox".to_owned()));
-    assert!(args.contains(&"--sandbox-engine".to_owned()));
+    // Assert the actual engine value, not just the flag presence, so a broken
+    // serialization of SandboxEngine is caught.
+    let engine_idx = args
+        .iter()
+        .position(|a| a == "--sandbox-engine")
+        .unwrap_or_else(|| panic!("--sandbox-engine present"));
+    assert_eq!(
+        args.get(engine_idx + 1),
+        Some(&sig.sandbox_engine.as_llxprt_arg().to_owned())
+    );
+}
+
+#[test]
+fn llxprt_strips_continue_from_mode_flags() {
+    let mut sig = signature(AgentKind::Llxprt);
+    sig.mode_flags = vec![
+        "--continue".to_owned(),
+        "--dangerously-skip-permissions".to_owned(),
+    ];
+    let (_, args) = non_interactive_argv(&sig, "x");
+    assert!(
+        !args.contains(&"--continue".to_owned()),
+        "non-interactive run must always be fresh"
+    );
+    assert!(args.contains(&"--dangerously-skip-permissions".to_owned()));
 }
 
 #[test]

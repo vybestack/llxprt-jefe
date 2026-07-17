@@ -59,14 +59,16 @@ fn llxprt_non_interactive_args(signature: &LaunchSignature, instruction: &str) -
         args.push("--profile-load".to_owned());
         args.push(signature.profile.clone());
     }
-    // Non-interactive rewrite is always a fresh run: never pass --continue.
-    args.extend(
-        signature
-            .mode_flags
-            .iter()
-            .filter(|flag| !flag.is_empty())
-            .cloned(),
-    );
+    // Non-interactive rewrite is always a fresh run: never pass --continue
+    // even if it lingers in the configured mode flags.
+    args.extend(signature.mode_flags.iter().filter_map(|flag| {
+        let trimmed = flag.trim();
+        if trimmed.is_empty() || trimmed == "--continue" {
+            None
+        } else {
+            Some(flag.clone())
+        }
+    }));
     if signature.sandbox_enabled {
         args.push("--sandbox".to_owned());
         args.push("--sandbox-engine".to_owned());
@@ -140,9 +142,15 @@ pub fn run_non_interactive(
     let owned_args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
     let mut command = command_for_executable(&executable, &owned_args);
     if work_dir.as_os_str().is_empty() {
-        // An unset work_dir resolves to the current directory; keep it explicit.
-        command
-            .current_dir(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
+        // An unset work_dir resolves to the current directory; propagate a
+        // failure to resolve it rather than running the agent in an
+        // arbitrary/unintended location.
+        let current = std::env::current_dir().map_err(|_| {
+            RuntimeError::SpawnFailed(
+                "could not resolve the current directory for the non-interactive run".to_owned(),
+            )
+        })?;
+        command.current_dir(current);
     } else {
         command.current_dir(work_dir);
     }
@@ -161,7 +169,11 @@ pub fn run_non_interactive(
                 .map_or_else(|| "signal".to_owned(), |c| c.to_string())
         )));
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8(output.stdout).map_err(|_| {
+        RuntimeError::RemoteExecutionFailed(
+            "agent produced non-UTF-8 output that could not be used as an issue draft".to_owned(),
+        )
+    })?;
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
         return Err(RuntimeError::RemoteExecutionFailed(

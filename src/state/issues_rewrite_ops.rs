@@ -8,8 +8,10 @@
 //!
 //! - `RequestIssueRewrite`: flip `rewrite_pending` to true while a rewrite runs.
 //! - `IssueRewriteSucceeded`: replace the composer text with the rewritten
-//!   draft, drop the cursor at the end, clear the pending flag and any prior
-//!   draft notice.
+//!   draft, drop the cursor at the end, clear the pending flag, and surface a
+//!   confirmation notice. Stale results (composer no longer a NewIssue draft)
+//!   only clear the pending flag so the user is never surprised by a text
+//!   change in an unrelated view.
 //! - `IssueRewriteFailed`: clear the pending flag and surface the error as a
 //!   non-fatal draft notice so the original draft is preserved.
 
@@ -40,6 +42,12 @@ impl AppState {
             }
             AppEvent::IssueRewriteSucceeded { text: replaced } => {
                 self.issues_state.rewrite_pending = false;
+                // Staleness guard: only apply the rewritten text and notice
+                // when the user is still on the NewIssue composer. If they
+                // navigated away (comment composer, closed, etc.) the result
+                // is dropped — only the pending flag is cleared so the state
+                // never gets stuck waiting. The pending flag is always cleared
+                // so a future request is never permanently blocked.
                 if let InlineState::Composer {
                     target: ComposerTarget::NewIssue,
                     ref mut text,
@@ -50,15 +58,25 @@ impl AppState {
                     // Drop the caret at the end of the rewritten text. The
                     // cursor is a byte offset (see `insert_inline_char`).
                     *cursor = text.len();
+                    self.issues_state.draft_notice =
+                        Some("Issue draft rewritten by agent".to_owned());
                 }
-                self.issues_state.draft_notice = Some("Issue draft rewritten by agent".to_owned());
                 true
             }
             AppEvent::IssueRewriteFailed { error } => {
                 self.issues_state.rewrite_pending = false;
-                // Preserve the existing draft; surface the failure as a
-                // non-fatal notice so the user can retry or edit manually.
-                self.issues_state.draft_notice = Some(format!("Agent rewrite failed: {error}"));
+                // Scope the notice to the NewIssue composer too, so a failure
+                // is not surfaced in an unrelated view. The draft is preserved
+                // either way; the pending flag is always cleared.
+                if matches!(
+                    self.issues_state.inline_state,
+                    InlineState::Composer {
+                        target: ComposerTarget::NewIssue,
+                        ..
+                    }
+                ) {
+                    self.issues_state.draft_notice = Some(format!("Agent rewrite failed: {error}"));
+                }
                 true
             }
             _ => false,
