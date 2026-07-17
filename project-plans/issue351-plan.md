@@ -89,6 +89,12 @@
 | OCR: mutex-poison recovery is silent | In-scope—Fix | Emit a warning before recovering the delivery-slot mutex so an earlier panic remains observable. |
 | OCR: handler installation failure is silent | In-scope—Fix | Warn when no app context is present and recover a poisoned app-context mutex with an explicit warning before installing the handler. |
 | OCR: dropped-owner test exits the whole render loop | In-scope—Fix | Replace the handler-owning child during a live parent render, then deliver from the newly mounted sibling before the parent exits, proving natural child teardown rather than process-loop exit. |
+| OCR: scenario shim uses broad repository substring matching | In-scope—Fix | Extract the exact `searchQuery` argument and anchor each supported repository at the complete `repo:<owner/name> is:issue` prefix; a similarly prefixed repository is rejected. |
+| OCR: timeout wrapper leaves non-timeout process-launch failures as tracebacks | In-scope—Fix | Catch `OSError`, emit the command and OS error, and return a stable failure status. |
+| OCR: fixture repository helper closes over `base_dir` | In-scope—Fix | Pass the base directory explicitly so the fixture record has no hidden outer dependency. |
+| OCR: scenario only checks that `python3` is on PATH | In-scope—Fix | Add a functional Python 3.8+ import/version probe before creating the scenario run directory. |
+| OCR: iocraft `Handler` allegedly returns a discarded future | Reject | In vendored iocraft, `Handler::call` returns `()` and `use_async_handler` queues the future internally, wakes the hook, and polls queued futures from `UseAsyncHandlerImpl::poll_change`; the finding contradicts the source and passing delivery regressions. |
+| OCR: issue-list loading state is never cleared | Reject | Root delivery dispatch calls `apply_issue_list_delivery`, which calls the existing `persist_issue_list_result`; its loaded/failed events flow through `ListLoader` completion and the TUI scenario proves the loading text disappears before `No issues found` is asserted. |
 
 ## Review counters
 

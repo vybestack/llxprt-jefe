@@ -24,6 +24,9 @@ try:
 except subprocess.TimeoutExpired:
     print(f"FATAL: command timed out after {seconds} seconds: {' '.join(command)}", file=sys.stderr)
     raise SystemExit(124)
+except OSError as error:
+    print(f"FATAL: cannot run command {' '.join(command)}: {error}", file=sys.stderr)
+    raise SystemExit(126)
 raise SystemExit(result.returncode)
 PY
 }
@@ -45,6 +48,10 @@ trap cleanup EXIT
 for command_name in cargo python3 tmux; do
   command -v "$command_name" >/dev/null || { echo "FATAL: $command_name is required" >&2; exit 1; }
 done
+python3 -c 'import json, subprocess, sys; raise SystemExit(sys.version_info < (3, 8))' || {
+  echo "FATAL: python3 3.8+ with json and subprocess support is required" >&2
+  exit 1
+}
 
 mkdir -p "$HARNESS_ROOT"
 ARTIFACT="$(mktemp -d "$HARNESS_ROOT/issue351.XXXXXX")"
@@ -65,12 +72,12 @@ import json
 import sys
 
 repo, output = sys.argv[1:]
-def repository(identifier, name, github_repo):
+def repository(identifier, name, github_repo, base_dir):
     return {
         "id": identifier,
         "name": name,
         "slug": name,
-        "base_dir": repo,
+        "base_dir": base_dir,
         "default_profile": "",
         "default_code_puppy_model": "",
         "github_repo": github_repo,
@@ -83,8 +90,8 @@ def repository(identifier, name, github_repo):
 state = {
     "schema_version": 1,
     "repositories": [
-        repository("with-issues", "with-issues", "owner/with-issues"),
-        repository("empty-issues", "empty-issues", "owner/empty-issues"),
+        repository("with-issues", "with-issues", "owner/with-issues", repo),
+        repository("empty-issues", "empty-issues", "owner/empty-issues", repo),
     ],
     "agents": [],
     "selected_repository_index": 0,
