@@ -93,6 +93,10 @@ fn rewrite_succeeded_preserves_other_composer_targets_unchanged() {
     assert_eq!(composer_text(&state).as_deref(), Some("comment"));
     // pending still cleared
     assert!(!state.issues_state.rewrite_pending);
+    // Cursor must be untouched by the stale success.
+    if let InlineState::Composer { cursor, .. } = &state.issues_state.inline_state {
+        assert_eq!(*cursor, 7, "cursor must be unchanged on stale success");
+    }
 }
 
 #[test]
@@ -105,6 +109,14 @@ fn rewrite_failed_clears_pending_and_preserves_draft() {
     assert!(!state.issues_state.rewrite_pending);
     // Original draft preserved.
     assert_eq!(composer_text(&state).as_deref(), Some("my draft"));
+    // Cursor must be untouched by the failure.
+    if let InlineState::Composer { cursor, .. } = &state.issues_state.inline_state {
+        assert_eq!(
+            *cursor,
+            "my draft".len(),
+            "cursor must be unchanged on failure"
+        );
+    }
     assert!(
         state
             .issues_state

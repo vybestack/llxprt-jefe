@@ -125,6 +125,20 @@ pub fn non_interactive_argv(
 /// Local execution only: non-interactive remote capture requires dedicated
 /// SSH plumbing and is out of scope for issue #214.
 ///
+/// # Why a direct subprocess, not the secure launch-plan flow
+///
+/// The interactive agent launch (`commands.rs`) routes through
+/// `write_launch_plan`/`run_launch_plan` because it must spawn the agent into
+/// a tmux/psmux pane with argv scrubbing and `TMUX` env cleanup. That boundary
+/// returns only an `ExitStatus` — it cannot capture the agent's stdout, which
+/// is the whole point of a non-interactive rewrite. This path therefore builds
+/// a foreground capture subprocess via `command_for_executable` (the same
+/// resolver/wrapper logic, minus the pane-launch serialization) and pipes
+/// stdout/stderr through `run_command_capture_with_timeout`. The `TMUX` env
+/// scrub in the launch-plan exists so a child pane does not inherit the parent
+/// multiplexer; a non-interactive `--prompt` run ignores multiplexers, so the
+/// scrub does not apply here.
+///
 /// # Errors
 ///
 /// Returns a [`RuntimeError`] when the binary cannot be resolved, the process
