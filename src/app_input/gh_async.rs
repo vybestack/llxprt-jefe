@@ -52,11 +52,18 @@ pub fn install_gh_delivery_handler(
     ctx: &SharedContext,
     handler: Handler<'static, BackgroundGhDelivery>,
 ) {
-    if let Some(ctx) = ctx
-        && let Ok(context) = ctx.lock()
-    {
-        context.gh_deliveries.install(handler);
-    }
+    let Some(ctx) = ctx else {
+        tracing::warn!("cannot install background gh delivery handler without app context");
+        return;
+    };
+    let context = match ctx.lock() {
+        Ok(context) => context,
+        Err(poisoned) => {
+            tracing::warn!("recovering poisoned app context while installing gh delivery handler");
+            poisoned.into_inner()
+        }
+    };
+    context.gh_deliveries.install(handler);
 }
 
 pub(super) fn gh_delivery_handle(ctx: &SharedContext) -> Option<GhDeliveryHandle> {
@@ -238,8 +245,78 @@ mod tests {
         if let Some(deliveries) = &props.deliveries {
             deliveries.install(handler.take());
         }
-        hooks.use_context_mut::<SystemContext>().exit();
         element!(Box)
+    }
+
+    #[derive(Default, Props)]
+    struct LateDeliveryTriggerProps {
+        deliveries: Option<GhDeliveryHandle>,
+        worker_notify: Option<mpsc::Sender<()>>,
+    }
+
+    #[component]
+    fn LateDeliveryTrigger(
+        mut hooks: Hooks,
+        props: &LateDeliveryTriggerProps,
+    ) -> impl Into<AnyElement<'static>> {
+        let deliveries = props.deliveries.clone();
+        let worker_notify = props.worker_notify.clone();
+        let mut finished = hooks.use_state(|| false);
+        hooks.use_future(async move {
+            if let Some(deliveries) = deliveries {
+                spawn_gh_request_with_panic(
+                    &deliveries,
+                    &None,
+                    |_ctx| String::from("late result"),
+                    move |message| {
+                        if let Some(sender) = worker_notify {
+                            let _ = sender.send(());
+                        }
+                        BackgroundGhDelivery::Probe(message)
+                    },
+                    BackgroundGhDelivery::Probe,
+                );
+                smol::Timer::after(Duration::from_millis(100)).await;
+            }
+            finished.set(true);
+        });
+        if finished.get() {
+            hooks.use_context_mut::<SystemContext>().exit();
+        }
+        element!(Box)
+    }
+
+    #[derive(Default, Props)]
+    struct DeliveryLifecycleProps {
+        deliveries: Option<GhDeliveryHandle>,
+        applied_notify: Option<mpsc::Sender<String>>,
+        worker_notify: Option<mpsc::Sender<()>>,
+    }
+
+    #[component]
+    fn DeliveryLifecycle(
+        mut hooks: Hooks,
+        props: &DeliveryLifecycleProps,
+    ) -> impl Into<AnyElement<'static>> {
+        let mut show_owner = hooks.use_state(|| true);
+        hooks.use_future(async move {
+            smol::Timer::after(Duration::from_millis(10)).await;
+            show_owner.set(false);
+        });
+        let child = if show_owner.get() {
+            element!(DroppedDeliveryProbe(
+                deliveries: props.deliveries.clone(),
+                notify: props.applied_notify.clone(),
+            ))
+            .into_any()
+        } else {
+            element!(LateDeliveryTrigger(
+                deliveries: props.deliveries.clone(),
+                worker_notify: props.worker_notify.clone(),
+            ))
+            .into_any()
+        };
+        element!(Box { #(vec![child]) })
     }
 
     #[test]
@@ -249,26 +326,16 @@ mod tests {
         let (worker_tx, worker_rx) = mpsc::channel();
 
         smol::block_on(async {
-            let mut app = element!(DroppedDeliveryProbe(
-                deliveries: Some(deliveries.clone()),
-                notify: Some(applied_tx),
+            let mut app = element!(DeliveryLifecycle(
+                deliveries: Some(deliveries),
+                applied_notify: Some(applied_tx),
+                worker_notify: Some(worker_tx),
             ));
             let _: Vec<_> = app
                 .mock_terminal_render_loop(MockTerminalConfig::default())
                 .collect()
                 .await;
         });
-
-        spawn_gh_request_with_panic(
-            &deliveries,
-            &None,
-            |_ctx| String::from("late result"),
-            move |message| {
-                let _ = worker_tx.send(());
-                BackgroundGhDelivery::Probe(message)
-            },
-            BackgroundGhDelivery::Probe,
-        );
 
         assert!(worker_rx.recv_timeout(Duration::from_secs(2)).is_ok());
         assert!(applied_rx.recv_timeout(Duration::from_millis(100)).is_err());

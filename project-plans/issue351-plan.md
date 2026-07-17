@@ -87,6 +87,8 @@
 | OCR: invoke the async handler inside another `catch_unwind` | Reject | `Handler::call` only queues the lifecycle-bound future; state access occurs later when iocraft polls that future. Catching the enqueue call cannot catch that later poll, and the suggested reuse of the consumed panic callback is invalid. |
 | OCR: warn whenever the root delivery handler is replaced | Reject | Root `App` installs the current clone on every render by design; warning on replacement would report normal renders as failures. |
 | OCR: mutex-poison recovery is silent | In-scope—Fix | Emit a warning before recovering the delivery-slot mutex so an earlier panic remains observable. |
+| OCR: handler installation failure is silent | In-scope—Fix | Warn when no app context is present and recover a poisoned app-context mutex with an explicit warning before installing the handler. |
+| OCR: dropped-owner test exits the whole render loop | In-scope—Fix | Replace the handler-owning child during a live parent render, then deliver from the newly mounted sibling before the parent exits, proving natural child teardown rather than process-loop exit. |
 
 ## Review counters
 
