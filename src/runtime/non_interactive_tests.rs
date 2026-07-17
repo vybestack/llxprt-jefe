@@ -70,7 +70,7 @@ fn llxprt_includes_mode_flags_and_sandbox() {
     let engine_idx = args
         .iter()
         .position(|a| a == "--sandbox-engine")
-        .unwrap_or_else(|| panic!("--sandbox-engine present"));
+        .unwrap_or_else(|| panic!("--sandbox-engine flag missing"));
     assert_eq!(
         args.get(engine_idx + 1),
         Some(&sig.sandbox_engine.as_llxprt_arg().to_owned())
@@ -132,7 +132,10 @@ fn llxprt_npm_backed_wraps_with_exec_package() {
     sig.llxprt_version = LlxprtNpmPackageSelector::normalize("1.0.0");
     let (target, args) = non_interactive_argv(&sig, "rewrite");
     assert_eq!(target, AgentExecutableTarget::Npm);
-    assert!(args.contains(&"--package=@vybestack/llxprt-code@1.0.0".to_owned()));
+    // Build the expected package spec from the domain constant so the test
+    // tracks the production package name rather than a brittle string.
+    let expected_package_spec = format!("{}@1.0.0", crate::domain::LLXPRT_NPM_PACKAGE);
+    assert!(args.contains(&format!("--package={expected_package_spec}")));
     assert!(args.contains(&"llxprt".to_owned()));
     assert!(args.contains(&"--prompt".to_owned()));
 }
