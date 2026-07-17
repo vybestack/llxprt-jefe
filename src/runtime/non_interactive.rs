@@ -120,6 +120,26 @@ pub fn non_interactive_argv(
     }
 }
 
+/// Extract a concise, trimmed stderr excerpt for error diagnostics.
+///
+/// Returns `None` when stderr is empty or not valid UTF-8 (non-UTF-8 stderr is
+/// rare and not worth lossy conversion — the status code already conveys the
+/// failure). Bounded so a verbose agent does not flood the user-facing notice.
+fn stderr_excerpt(stderr: &[u8]) -> Option<String> {
+    const MAX_LEN: usize = 500;
+    let text = std::str::from_utf8(stderr).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let taken: String = trimmed.chars().take(MAX_LEN).collect();
+    if trimmed.chars().count() > MAX_LEN {
+        Some(format!("{taken}…"))
+    } else {
+        Some(taken)
+    }
+}
+
 /// Run the configured default agent non-interactively in `work_dir`, feeding
 /// it `instruction` via `--prompt`, and return the captured, trimmed stdout.
 ///
@@ -177,24 +197,31 @@ pub fn run_non_interactive(
         "agent rewrite (non-interactive)",
     )?;
     if !output.status.success() {
-        return Err(RuntimeError::RemoteExecutionFailed(format!(
-            "agent exited with status {}",
-            output
-                .status
-                .code()
-                .map_or_else(|| "signal".to_owned(), |c| c.to_string())
-        )));
+        let status = output
+            .status
+            .code()
+            .map_or_else(|| "signal".to_owned(), |c| c.to_string());
+        let detail = match stderr_excerpt(&output.stderr) {
+            Some(stderr) => format!("agent exited with status {status}: {stderr}"),
+            None => format!("agent exited with status {status}"),
+        };
+        return Err(RuntimeError::RemoteExecutionFailed(detail));
     }
-    let stdout = String::from_utf8(output.stdout).map_err(|_| {
-        RuntimeError::RemoteExecutionFailed(
-            "agent produced non-UTF-8 output that could not be used as an issue draft".to_owned(),
-        )
-    })?;
+    let Ok(stdout) = String::from_utf8(output.stdout) else {
+        let detail = match stderr_excerpt(&output.stderr) {
+            Some(stderr) => format!("agent produced non-UTF-8 output; stderr: {stderr}"),
+            None => "agent produced non-UTF-8 output that could not be used as an issue draft"
+                .to_owned(),
+        };
+        return Err(RuntimeError::RemoteExecutionFailed(detail));
+    };
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return Err(RuntimeError::RemoteExecutionFailed(
-            "agent produced no output".to_owned(),
-        ));
+        let detail = match stderr_excerpt(&output.stderr) {
+            Some(stderr) => format!("agent produced no output; stderr: {stderr}"),
+            None => "agent produced no output".to_owned(),
+        };
+        return Err(RuntimeError::RemoteExecutionFailed(detail));
     }
     Ok(trimmed.to_owned())
 }
