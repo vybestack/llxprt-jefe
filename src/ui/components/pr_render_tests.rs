@@ -49,6 +49,52 @@ fn prs_mode_state(repo_id: &str) -> AppState {
     state
 }
 
+/// Test-side assertion helper: detect bracketed actionable keybinding text
+/// containing `keyword` (e.g. `[ m merge ]` or `[ Alt+M approve ]`). Returns
+/// true only when an open `[` is followed by `keyword` and then a matching
+/// closing `]`, so display-only status glyphs like "\u{2713}merge" (no
+/// brackets) never trip it. This helper lives in the test module and enforces
+/// the display-only header contract (#012) at the TEST level only — it is not
+/// called from production code.
+///
+/// The check is intentionally scoped to known action keywords (`merge`,
+/// `approve`) rather than rejecting ALL bracketed text, because legitimate
+/// header metadata also uses brackets (`[DRAFT]`, `labels: [a, b]`,
+/// `assignees: [u1, u2]`). Matching on action keywords avoids false positives
+/// from that metadata while still catching any binding text that advertises
+/// merge/approve. Brackets are ASCII-only by design (all binding formats in
+/// this codebase use ASCII brackets).
+fn has_bracketed_action(s: &str, keyword: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        // Found an opening bracket — scan to its matching close at depth 0.
+        let content_start = i + 1;
+        let mut depth = 1;
+        let mut j = content_start;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'[' => depth += 1,
+                b']' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                break;
+            }
+            j += 1;
+        }
+        if depth == 0 && s[content_start..j].contains(keyword) {
+            return true;
+        }
+        i = j + 1;
+    }
+    false
+}
+
 /// Helper: minimal PR list-row.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
@@ -67,6 +113,7 @@ fn make_test_pr(number: u64) -> PullRequest {
         is_draft: false,
         review_decision: None,
         checks_status: PrCheckStatus::None,
+        mergeable: None,
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
@@ -461,30 +508,71 @@ fn test_pr_detail_shows_branches_and_external_url() {
         "rendered header url must be a GitHub HTTPS URL (display-only): {}",
         h.url
     );
-    // Display-only (#012): no merge/approve binding text in the header.
+    // Display-only (#012): no actionable keybinding text (square-bracket
+    // action hints like "[ m merge ]") anywhere in the header. The state row
+    // DOES carry display-only status glyphs (e.g. "\u{2713}merge",
+    // "\u{2713}checks") per issue #314, but those are status, not bindings, so
+    // we assert the absence of bracketed action syntax containing the merge or
+    // approve keywords — regardless of exact spacing or key-binding format.
     let lower_title = h.title.to_lowercase();
     let lower_state = h.state.to_lowercase();
     let lower_branches = h.branches.to_lowercase();
     let lower_url = h.url.to_lowercase();
+    let no_action_binding =
+        |s: &str| !(has_bracketed_action(s, "merge") || has_bracketed_action(s, "approve"));
     assert!(
-        !lower_title.contains("merge") && !lower_title.contains("approve"),
-        "header title must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_title),
+        "header title must have no merge/approve keybinding: {}",
         h.title
     );
     assert!(
-        !lower_state.contains("merge") && !lower_state.contains("approve"),
-        "header state row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_state),
+        "header state row must have no merge/approve keybinding: {}",
         h.state
     );
     assert!(
-        !lower_branches.contains("merge") && !lower_branches.contains("approve"),
-        "header branches row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_branches),
+        "header branches row must have no merge/approve keybinding: {}",
         h.branches
     );
     assert!(
-        !lower_url.contains("merge") && !lower_url.contains("approve"),
-        "header url row must be display-only (no merge/approve binding): {}",
+        no_action_binding(&lower_url),
+        "header url row must have no merge/approve keybinding: {}",
         h.url
+    );
+}
+
+/// Issue #314: the PR detail header state row must surface the mergeable,
+/// checks-rollup, and review-decision status so a user can see at a glance
+/// whether the PR can merge, whether checks are failing, and whether approvals
+/// are needed — without scrolling into the detail content.
+#[test]
+fn test_pr_detail_header_shows_merge_checks_review_status() {
+    use crate::domain::{PrCheckStatus, PrReviewState};
+    use crate::pr_detail_content::{checks_status_glyph, mergeable_glyph, review_status_glyph};
+
+    let mut detail = detail_with_reviews_and_checks(99);
+    detail.mergeable = Some(false);
+    detail.checks_status = PrCheckStatus::Failure;
+    detail.review_decision = Some(PrReviewState::ReviewRequired);
+
+    let h = pr_detail_header_view(&detail);
+    assert!(
+        h.state.contains(mergeable_glyph(Some(false))),
+        "header state row must contain the conflict glyph, got: {}",
+        h.state
+    );
+    assert!(
+        h.state
+            .contains(checks_status_glyph(PrCheckStatus::Failure)),
+        "header state row must contain the failing-checks glyph, got: {}",
+        h.state
+    );
+    assert!(
+        h.state
+            .contains(review_status_glyph(Some(PrReviewState::ReviewRequired))),
+        "header state row must contain the review-needed glyph, got: {}",
+        h.state
     );
 }
 
@@ -822,5 +910,57 @@ fn test_pr_list_shows_draft_and_review_decision_markers() {
         ok_rows[0].meta_line.contains("checks"),
         "successful-checks PR meta_line must contain 'checks', got: {}",
         ok_rows[0].meta_line
+    );
+}
+
+/// `has_bracketed_action` must detect actionable binding text regardless of
+/// spacing or key format, while NOT matching display-only status glyphs that
+/// lack brackets. This proves the display-only header contract (#012) is
+/// actually enforced, not just matched against one hardcoded string.
+#[test]
+fn test_has_bracketed_action_detects_bindings_not_status() {
+    // Actionable bindings (bracketed + keyword) — all must be detected.
+    assert!(
+        has_bracketed_action("[ m merge ]", "merge"),
+        "classic binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("[Alt+M merge]", "merge"),
+        "no-space binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("press [ ctrl+enter approve ] now", "approve"),
+        "embedded binding must be detected"
+    );
+    assert!(
+        has_bracketed_action("[a] [ b merge ]", "merge"),
+        "second bracket pair must be scanned"
+    );
+    // Display-only status (no brackets) — must NOT be flagged.
+    assert!(
+        !has_bracketed_action("\u{2713}merge \u{2717}conflict", "merge"),
+        "status glyph without brackets must not be flagged"
+    );
+    assert!(
+        !has_bracketed_action("OPEN mergeable by @octocat", "merge"),
+        "plain text without brackets must not be flagged"
+    );
+}
+
+/// A keyword inside an outer bracket pair that also contains inner brackets
+/// must still be detected (depth-tracking, not first-close).
+#[test]
+fn test_has_bracketed_action_handles_nested_brackets() {
+    assert!(
+        has_bracketed_action("[ outer [inner] merge ]", "merge"),
+        "keyword in outer bracket with nested inner brackets must be detected"
+    );
+    assert!(
+        has_bracketed_action("[outer [inner] approve]", "approve"),
+        "keyword at end of nested-bracket pair must be detected"
+    );
+    assert!(
+        !has_bracketed_action("[ outer [inner] ]", "merge"),
+        "absent keyword in nested brackets must not be detected"
     );
 }

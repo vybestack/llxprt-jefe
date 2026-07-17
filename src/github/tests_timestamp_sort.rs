@@ -42,6 +42,7 @@ fn pull_request(number: u64, updated_at: &str) -> PullRequest {
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
+        mergeable: None,
     }
 }
 

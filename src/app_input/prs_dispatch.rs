@@ -290,7 +290,7 @@ pub(super) fn selected_pr_still_matches(
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-004 lines 119-126
-fn build_pr_preview_for_selection(
+pub(super) fn build_pr_preview_for_selection(
     state: &jefe::state::AppState,
 ) -> Result<Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)>, MalformedPrRepo> {
     let scope_repo_id = current_pr_scope_repo_id(state);
@@ -346,7 +346,7 @@ fn build_pr_preview_for_selection(
             Vec::new(),
             jefe::domain::PageToken::from_cursor(None, false),
         ),
-        mergeable: None,
+        mergeable: pr.mergeable,
         merge_state_status: None,
     };
     Ok(Some((scope_repo_id, pr.number, detail)))

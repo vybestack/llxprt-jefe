@@ -10,7 +10,10 @@
 
 use crate::domain::{PrState, PullRequestDetail};
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
-use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
+use crate::pr_detail_content::{
+    build_pr_detail_content, checks_status_glyph, mergeable_glyph, pr_state_tag,
+    review_status_glyph,
+};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::state::{InlineState, PrDetailSubfocus};
 use crate::theme::ThemeColors;
@@ -53,6 +56,11 @@ pub struct PrDetailHeaderView {
 /// structure is preserved so the fixed `PR_DETAIL_HEADER_ROWS` layout
 /// invariant (and the scroll viewport math it drives) is unchanged.
 ///
+/// Issue #314: the state row now also carries mergeable + checks-rollup +
+/// review-decision status glyphs, so the mergeability, workflow-error, and
+/// approval-needed signals are visible in the fixed header (mirroring the
+/// PR list meta line glyphs).
+///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-012
@@ -66,10 +74,13 @@ pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
     let labels_str = crate::ui::util::field_list(&detail.labels);
     let assignees_str = crate::ui::util::field_list(&detail.assignees);
     let milestone_str = crate::ui::util::field_opt(detail.milestone.as_deref());
+    let merge_glyph = mergeable_glyph(detail.mergeable);
+    let checks_glyph = checks_status_glyph(detail.checks_status);
+    let review_glyph = review_status_glyph(detail.review_decision);
     PrDetailHeaderView {
         title: format!("#{} {}{}", detail.number, detail.title, draft_marker),
         state: format!(
-            "{state_tag}  by @{}  created: {created}  updated: {updated}",
+            "{state_tag}  {merge_glyph}  {checks_glyph}  {review_glyph}  by @{}  created: {created}  updated: {updated}",
             detail.author_login
         ),
         branches: format!(

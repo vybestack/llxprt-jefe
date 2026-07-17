@@ -772,6 +772,50 @@ pub fn pr_state_tag(state: PrState) -> &'static str {
     }
 }
 
+/// Mergeable/conflict indicator glyph for the PR list meta line and the detail
+/// header state row (issue #314).
+///
+/// `Some(true)` (mergeable) -> check-merge; `Some(false)` (has conflicts) ->
+/// cross-conflict; `None` (unknown / not yet computed) -> dash-merge.
+#[must_use]
+pub fn mergeable_glyph(mergeable: Option<bool>) -> &'static str {
+    match mergeable {
+        Some(true) => "\u{2713}merge",
+        Some(false) => "\u{2717}conflict",
+        None => "-merge",
+    }
+}
+
+/// Review-decision glyph shared by the PR list meta line and the detail
+/// header state row (issue #314). Mirrors the list row glyph so the header and
+/// list never disagree on the review signal.
+#[must_use]
+pub fn review_status_glyph(decision: Option<PrReviewState>) -> &'static str {
+    match decision {
+        Some(PrReviewState::Approved) => "\u{2714}review",
+        Some(
+            PrReviewState::ChangesRequested
+            | PrReviewState::ReviewRequired
+            | PrReviewState::Pending
+            | PrReviewState::Commented,
+        ) => "~review",
+        Some(PrReviewState::Dismissed | PrReviewState::None) | None => "-review",
+    }
+}
+
+/// CI/checks rollup glyph shared by the PR list meta line and the detail
+/// header state row (issue #314).
+#[must_use]
+pub fn checks_status_glyph(status: PrCheckStatus) -> &'static str {
+    match status {
+        PrCheckStatus::Success => "\u{2713}checks",
+        PrCheckStatus::Failure => "\u{2717}checks",
+        PrCheckStatus::Pending => "\u{2022}checks",
+        PrCheckStatus::Neutral => "\u{00B7}checks",
+        PrCheckStatus::None => "-checks",
+    }
+}
+
 #[cfg(test)]
 #[path = "pr_detail_content_tests.rs"]
 mod tests;

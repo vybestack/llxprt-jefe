@@ -346,6 +346,10 @@ pub struct PullRequest {
     pub is_draft: bool,
     pub review_decision: Option<PrReviewState>,
     pub checks_status: PrCheckStatus,
+    /// Whether the PR can be merged without conflicts (issue #314).
+    /// `Some(true)` = mergeable, `Some(false)` = conflicting, `None` = unknown
+    /// (GraphQL `mergeable` enum `UNKNOWN`, or not yet fetched).
+    pub mergeable: Option<bool>,
     pub assignee_summary: String,
     pub labels_summary: String,
     pub comment_count: u64,
