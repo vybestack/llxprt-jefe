@@ -113,6 +113,9 @@
 | OCR: future root remounts could receive stale generations | Defer | A generation token could support a future root-remount recovery design, but current `App` is the process-lifetime root and introducing generation semantics is an unplanned lifecycle subsystem; current natural-teardown behavior is documented and tested. |
 | OCR: panic helper should downcast custom payload types | Reject | Rust's standard panic paths produce `String` or static string payloads; arbitrary `panic_any` values have no general display contract, and the generic fallback remains an explicit diagnostic rather than losing the panic event. |
 | OCR: poisoned mutex recovery is silent | Reject | Both recovery sites already emit structured `tracing::warn!` diagnostics before `into_inner()`; the finding is contradicted by the reviewed source. |
+| OCR: delivery-handle retrieval does not recover the poisoned app-context mutex | In-scope—Fix | Align retrieval with installation by warning and recovering the guard; repeated duplicate comments share this disposition. |
+| OCR: scenario runner should preflight the scenario file | In-scope—Fix | Validate the scenario is present and non-empty before building or invoking the harness so setup failures identify the exact missing input. |
+| OCR: relax exact GitHub audit matching | Reject | Duplicate of the intentional fail-closed integration contract: repository-only matching could permit changed qualifiers or unintended operations while the TUI assertions cover the separate visible behavior contract. |
 
 ## Review counters
 

@@ -114,7 +114,9 @@ with open(output, "w", encoding="utf-8") as stream:
     json.dump(state, stream)
 PY
 SHIM_SOURCE="$ROOT/scripts/issue351-gh-shim.sh"
+SCENARIO="$ROOT/dev-docs/tmux-scenarios/issues-empty-repository.json"
 [[ -s "$SHIM_SOURCE" ]] || { echo "FATAL: missing or empty gh shim: $SHIM_SOURCE" >&2; exit 1; }
+[[ -s "$SCENARIO" ]] || { echo "FATAL: missing or empty scenario: $SCENARIO" >&2; exit 1; }
 cp "$SHIM_SOURCE" "$SHIM_BIN/gh"
 chmod +x "$SHIM_BIN/gh"
 
@@ -122,7 +124,7 @@ chmod +x "$SHIM_BIN/gh"
 harness_status=0
 run_with_timeout 300 env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" RUST_BACKTRACE=1 \
   "$ROOT/target/debug/jefe-tmux-harness" \
-  --scenario "$ROOT/dev-docs/tmux-scenarios/issues-empty-repository.json" \
+  --scenario "$SCENARIO" \
   --jefe-bin "$ROOT/target/debug/jefe" \
   --config "$CONFIG" --out-dir "$ARTIFACT" --session "$SESSION" || harness_status=$?
 if (( harness_status != 0 )); then

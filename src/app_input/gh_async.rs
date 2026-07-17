@@ -72,7 +72,14 @@ pub fn install_gh_delivery_handler(
 }
 
 pub(super) fn gh_delivery_handle(ctx: &SharedContext) -> Option<GhDeliveryHandle> {
-    let context = ctx.as_ref()?.lock().ok()?;
+    let ctx = ctx.as_ref()?;
+    let context = match ctx.lock() {
+        Ok(context) => context,
+        Err(poisoned) => {
+            tracing::warn!("recovering poisoned app context while retrieving gh delivery handle");
+            poisoned.into_inner()
+        }
+    };
     Some(context.gh_deliveries.clone())
 }
 
