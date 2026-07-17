@@ -359,6 +359,9 @@ impl AppMessage {
                 | AppEvent::InlineCursorDown
                 | AppEvent::InlineSubmit
                 | AppEvent::InlineCancelOrEsc
+                | AppEvent::RequestIssueRewrite
+                | AppEvent::IssueRewriteSucceeded { .. }
+                | AppEvent::IssueRewriteFailed { .. }
                 | AppEvent::MutationSubmitted { .. }
                 | AppEvent::IssueCreated { .. }
                 | AppEvent::CommentCreated { .. }

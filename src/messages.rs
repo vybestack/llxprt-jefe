@@ -306,6 +306,17 @@ pub enum IssuesMessage {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    /// Ask the configured default agent to rewrite the new-issue draft
+    /// non-interactively (issue #214).
+    RequestIssueRewrite,
+    /// The non-interactive rewrite completed (issue #214).
+    IssueRewriteSucceeded {
+        text: String,
+    },
+    /// The non-interactive rewrite failed (issue #214).
+    IssueRewriteFailed {
+        error: String,
+    },
     MutationSubmitted {
         scope_repo_id: RepositoryId,
         mutation_id: u64,

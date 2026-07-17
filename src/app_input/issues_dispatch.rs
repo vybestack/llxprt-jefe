@@ -12,8 +12,8 @@ use super::{
     github_client, issues_navigation::dispatch_issues_navigation,
 };
 use super::{
-    issues_list_dispatch, issues_mutation, issues_property_edit, issues_send,
-    issues_subfocus_dispatch,
+    issues_list_dispatch, issues_mutation, issues_property_edit, issues_rewrite_dispatch,
+    issues_send, issues_subfocus_dispatch,
 };
 
 /// Resolve the effective issue repository, returning empty components when
@@ -650,6 +650,9 @@ pub(super) fn dispatch_issues_message(
         }
         IssuesMessage::InlineSubmit => {
             issues_mutation::handle_inline_submit(app_state, ctx);
+        }
+        IssuesMessage::RequestIssueRewrite => {
+            issues_rewrite_dispatch::handle_request_issue_rewrite(app_state, ctx);
         }
         message @ (IssuesMessage::OpenPropertyEditor { .. }
         | IssuesMessage::PropertyEditorConfirm

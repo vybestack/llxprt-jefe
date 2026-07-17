@@ -98,6 +98,11 @@ fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         {
             Some(AppEvent::InlineSubmit)
         }
+        // Ctrl+R asks the configured default agent to rewrite the current
+        // new-issue composer draft non-interactively (issue #214).
+        KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::RequestIssueRewrite)
+        }
         KeyCode::Enter => Some(AppEvent::InlineNewline),
         KeyCode::Char(c) => Some(AppEvent::InlineChar(c)),
         KeyCode::Backspace => Some(AppEvent::InlineBackspace),
@@ -393,6 +398,10 @@ pub fn handle_issues_mode_key(
 #[cfg(test)]
 #[path = "issues_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "issues_rewrite_key_tests.rs"]
+mod rewrite_key_tests;
 
 #[cfg(test)]
 #[path = "issues_property_key_tests.rs"]

@@ -46,6 +46,10 @@ pub use paginated_list::{
 mod issues;
 pub use issues::*;
 
+// Issue-draft rewrite instruction construction (issue #214).
+mod issue_rewrite;
+pub use issue_rewrite::build_rewrite_instruction;
+
 // Validated GitHub repo reference for issue/PR tracker routing (issue #266).
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
