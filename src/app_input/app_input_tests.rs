@@ -1,4 +1,4 @@
-use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
+use super::prs_orchestration::pr_send_info_from_state;
 use super::*;
 use std::path::PathBuf;
 
@@ -648,17 +648,18 @@ fn state_for_pr_agent_chooser_confirm(
 }
 
 /// Agent-chooser confirm applies the reducer BEFORE the side effects: after
-/// the confirm dispatch the agent chooser is CLOSED in state, the send is
-/// recorded, and `{work_dir}/.jefe/pr-prompt.md` exists with non-empty content
-/// containing the PR number — proving `apply_and_persist(PrAgentChooserConfirm)`
-/// ran BEFORE `write_pr_prompt`/`launch_pr_agent`.
+/// the confirm dispatch the agent chooser is CLOSED in state and the send is
+/// recorded — proving `apply_and_persist(PrAgentChooserConfirm)` ran BEFORE
+/// `launch_pr_agent`.
 ///
-/// Exercises the dispatch ordering through observable state + filesystem
-/// effects. Since `AppStateHandle` cannot be constructed in unit tests, the
-/// test replicates the EXACT dispatch sequence on raw `AppState`:
+/// Issue #315: the PR prompt is inlined into the launch instruction, so no
+/// `.jefe/pr-prompt.md` file is written.
+///
+/// Exercises the dispatch ordering through observable state. Since
+/// `AppStateHandle` cannot be constructed in unit tests, the test replicates
+/// the EXACT dispatch sequence on raw `AppState`:
 /// (1) `pr_send_info_from_state` reads send info,
-/// (2) `state.apply(PrAgentChooserConfirm)` closes the chooser (reducer-before-side-effect),
-/// (3) `write_pr_prompt` writes the prompt file.
+/// (2) `state.apply(PrAgentChooserConfirm)` closes the chooser (reducer-before-side-effect).
 /// The `ctx` is `None` so `launch_pr_agent` would be guarded (no real spawn).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -675,7 +676,6 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos())
     ));
-    let prompt_path = temp_work_dir.join(".jefe").join("pr-prompt.md");
 
     let state = state_for_pr_agent_chooser_confirm(&agent_id, &temp_work_dir);
 
@@ -690,35 +690,18 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
     assert!(!send_info.payload.pr_title.is_empty());
 
     // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) — this runs
-    // BEFORE write_pr_prompt/launch in the real dispatch.
+    // BEFORE launch in the real dispatch.
     let after_confirm = state.apply(AppEvent::PrAgentChooserConfirm);
     assert!(
         after_confirm.prs_state.agent_chooser.is_none(),
         "PrAgentChooserConfirm must close the agent chooser BEFORE side effects"
     );
 
-    // (3) Write the prompt file (mirrors the dispatch's write_pr_prompt call).
-    let result = write_pr_prompt(&send_info.work_dir, &send_info.payload);
+    // Issue #315: no prompt file should be written — the prompt is inlined
+    // into the -i instruction.
     assert!(
-        result.is_ok(),
-        "write_pr_prompt should succeed: {:?}",
-        result.err()
-    );
-
-    // The prompt file exists with non-empty content containing the PR number.
-    assert!(
-        prompt_path.exists(),
-        "pr-prompt.md must exist at {prompt_path:?}"
-    );
-    let content = std::fs::read_to_string(&prompt_path)
-        .unwrap_or_else(|e| panic!("should read pr-prompt.md: {e}"));
-    assert!(
-        !content.is_empty(),
-        "pr-prompt.md content must be non-empty"
-    );
-    assert!(
-        content.contains('#') && content.contains("42"),
-        "pr-prompt.md should contain the PR number and a heading, got: {content}"
+        !temp_work_dir.join(".jefe").join("pr-prompt.md").exists(),
+        "no pr-prompt.md file should exist (prompt is inlined)"
     );
 
     // Cleanup.
@@ -893,7 +876,8 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
     // This calls the REAL production helper so removing the override would
     // cause this test to fail.
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    let issue_prompt = "Issue body content for app input test.";
+    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
     assert!(
         !launch_sig.pass_continue,
         "issue-driven launches must force pass_continue = false"
@@ -902,8 +886,8 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
         launch_sig
             .mode_flags
             .iter()
-            .any(|flag| flag.contains(".jefe/issue-prompt.md")),
-        "issue launch signature must include the issue prompt instruction"
+            .any(|flag| flag.contains(issue_prompt)),
+        "issue launch signature must include the inlined issue prompt content"
     );
 }
 

@@ -22,8 +22,6 @@ use super::prs_orchestration::{
     apply_pr_send_to_agent_failed, focused_pr_comment, launch_pr_agent, pr_base_prompt,
 };
 
-const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
-
 /// Whether the PRs agent-chooser has the transient slot selected.
 pub(super) fn is_transient_slot_selected_prs(app_state: &AppStateHandle) -> bool {
     let state = app_state.read();
@@ -191,30 +189,32 @@ fn handle_transient_pr_outcome(
     }
 }
 
-/// Availability check, target resolution, clone + prompt write, and launch
-/// for a transient PR send. Reuses the shared clone/checkout prep so the PR
-/// gets a real repository checkout (not just an empty dir).
+/// Availability check, target resolution, clone, and launch for a transient
+/// PR send. Reuses the shared clone/checkout prep so the PR gets a real
+/// repository checkout (not just an empty dir).
+///
+/// Issue #315: the PR prompt content is inlined into the launch instruction
+/// via `-i`, so no `.jefe/pr-prompt.md` file is written.
 fn prepare_and_launch_transient_pr(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     prep: TransientPrPrepContext,
 ) {
+    let prompt_content = prs_dispatch::format_pr_prompt(&prep.payload);
     let launch_sig = prepare_fresh_prompt_signature(
         prep.launch_sig,
         FreshPromptKind::PullRequest,
-        PR_PROMPT_RELATIVE_PATH,
+        &prompt_content,
     );
     let prep = TransientPrPrepContext { launch_sig, ..prep };
     let Some(target) = transient_pr_availability_and_target(app_state, ctx, &prep) else {
         return;
     };
-    let prompt_content = prs_dispatch::format_pr_prompt(&prep.payload);
     let outcome = super::issue_prep::prepare_issue_target(
         &target,
         &prep.work_dir,
         prep.clone_identity.as_ref(),
         DirtyPolicy::Stop,
-        &prompt_content,
     );
     handle_transient_pr_outcome(app_state, ctx, &prep, outcome);
 }

@@ -1,6 +1,6 @@
 //! Side-effect-free remote agent-runtime availability probe.
 //!
-//! Before any issue git prep/cleanup/prompt side effect or PR prompt write,
+//! Before any issue git prep/cleanup side effect,
 //! the selected runtime is probed on the remote target to confirm the exact
 //! binary (`code-puppy` or `llxprt`) is available for the **effective**
 //! run-as user. The probe is:
@@ -224,20 +224,6 @@ fn wrap_probe_for_effective_user(remote: &RemoteRepositorySettings, inner: Strin
         )
     }
 }
-
-fn ssh_arguments_as_strings(
-    remote: &RemoteRepositorySettings,
-    remote_command: &str,
-) -> Result<Vec<String>, String> {
-    jefe::ssh::SshPlan::arguments(remote, remote_command, jefe::ssh::SshMode::NonInteractive)
-        .map(|args| {
-            args.into_iter()
-                .map(|arg| arg.to_string_lossy().into_owned())
-                .collect()
-        })
-        .map_err(|error| error.to_string())
-}
-
 /// Build the inner shell command for the sentinel-based availability probe.
 ///
 /// The script always returns shell success (so `set -e` isn't needed) and
@@ -364,7 +350,7 @@ fn execute_remote_probe_command(
 /// Centralized pre-side-effect availability validation for issue/PR sends.
 ///
 /// This is the single entry point called before any destructive/file side
-/// effect (issue git prep, dirty-confirm, PR prompt write). It:
+/// effect (issue git prep, dirty-confirm). It:
 ///
 /// - **Local targets**: delegates to the `installed_agent_kinds` session
 ///   snapshot (no PATH I/O during input handling).
@@ -478,7 +464,7 @@ pub(super) fn require_runtime_available(
 /// Pre-side-effect availability guard for issue/PR send paths.
 ///
 /// This is the centralized entry point called BEFORE any destructive/file
-/// side effect (issue git prep, dirty-confirm discard, PR prompt write). It:
+/// side effect (issue git prep, dirty-confirm discard). It:
 ///
 /// 1. Reads the `installed_agent_kinds` snapshot from `app_state` under a
 ///    short read-lock.
@@ -515,155 +501,24 @@ pub(super) fn pre_side_effect_runtime_available_or_error(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Production remote PR prompt planning seam (defect 4)
-// ──────────────────────────────────────────────────────────────────────────
-
-/// Relative path of the PR prompt inside the work dir.
-///
-/// Must be exactly `.jefe/pr-prompt.md` — NOT the issue path. Production
-/// callers (`prs_orchestration`) hold their own module-local constant; this
-/// test constant keeps the remote-probe planning-seam tests self-contained.
-#[cfg(test)]
-pub(super) const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
-
-/// A planned remote prompt-write operation (pure data for test verification).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PlannedPromptWrite {
-    /// The full `ssh -T` argv (everything after the `ssh` binary).
-    pub ssh_argv: Vec<String>,
-    /// The controlled Unix command sent to the remote host.
-    remote_command: String,
-    /// The relative prompt path targeted (e.g. `.jefe/pr-prompt.md`).
-    pub relative_path: String,
-    /// Prompt bytes that would be transferred via stdin.
-    pub stdin_prompt: String,
-}
-
-/// Plan a remote prompt-write operation for a production PR prompt.
-///
-/// This is the **exact production remote prompt planning seam** (defect 4).
-/// It is parameterized by `relative_path` so it can be used for both PR
-/// (`.jefe/pr-prompt.md`) and issue prompts. The plan:
-///
-/// - Targets `{work_dir}/{relative_path}` (e.g. `.jefe/pr-prompt.md`).
-/// - Transfers prompt bytes via **stdin** (`cat > path`), never shell
-///   interpolation.
-/// - Uses `ssh -T` (no PTY), targeting `<login_user>@<host>`.
-/// - Wraps in `sudo -n su - <effective_user> -c` when effective user differs.
-/// - Does NOT include adversarial content in argv.
-///
-/// Returns `Err` when the relative path is invalid (not under `.jefe/`,
-/// absolute, or contains `..` traversal).
-pub(super) fn plan_remote_prompt_write(
-    remote: &RemoteRepositorySettings,
-    work_dir: &Path,
-    relative_path: &str,
-    prompt: &str,
-) -> Result<PlannedPromptWrite, String> {
-    validate_prompt_relative_path(relative_path)?;
-    let escaped_jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
-    let escaped_prompt_path = shell_escape(&work_dir.join(relative_path).to_string_lossy());
-    let inner = format!("set -e; mkdir -p {escaped_jefe_dir}; cat > {escaped_prompt_path}");
-    let effective = effective_user(remote);
-    let command = if effective == remote.login_user.trim() {
-        inner
-    } else {
-        format!(
-            "sudo -n su - {} -c {}",
-            shell_escape(&effective),
-            shell_escape(&inner),
-        )
-    };
-    let ssh_argv = ssh_arguments_as_strings(remote, &command)?;
-    // Adversarial content safety: prompt bytes are in stdin, NOT argv.
-    // Compare whole tokens to avoid false positives when a short prompt is a
-    // coincidental substring of a fixed ssh option (e.g. "yes" ⊂ "BatchMode=yes").
-    if !prompt.is_empty() && ssh_argv.iter().any(|arg| arg == prompt) {
-        return Err("prompt content leaked into ssh argv — must be stdin only".to_owned());
-    }
-    Ok(PlannedPromptWrite {
-        ssh_argv,
-        remote_command: command,
-        relative_path: relative_path.to_owned(),
-        stdin_prompt: prompt.to_owned(),
-    })
-}
-
-/// Validate that a prompt relative path is safe: it must start with `.jefe/`,
-/// be relative (no leading `/`), and contain no path-traversal components
-/// (`..`).
-fn validate_prompt_relative_path(relative_path: &str) -> Result<(), String> {
-    if !relative_path.starts_with(".jefe/") {
-        return Err(format!(
-            "Prompt path {relative_path:?} must start with '.jefe/'"
-        ));
-    }
-    if relative_path.starts_with('/') {
-        return Err(format!(
-            "Prompt path {relative_path:?} must be relative, not absolute"
-        ));
-    }
-    if Path::new(relative_path)
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(format!(
-            "Prompt path {relative_path:?} must not contain '..' traversal"
-        ));
-    }
-    Ok(())
-}
-
 /// Shell-escape a single-quoted string (mirrors `runtime::commands`).
 fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-/// Execute a production remote prompt write, reusing the planning seam.
-///
-/// This delegates to [`plan_remote_prompt_write`] to build the exact `ssh -T`
-/// argv (with prompt bytes in stdin), then executes it. The plan guarantees:
-/// - `.jefe/pr-prompt.md` (or the given relative path) is targeted.
-/// - Prompt bytes are transferred via stdin (`cat > path`), never shell
-///   interpolation.
-/// - Adversarial content is absent from argv (validated by the planner).
-///
-/// # Errors
-///
-/// Returns `Err` when:
-/// - The relative path is invalid (not `.jefe/`, absolute, traversal).
-/// - The `ssh` process fails to spawn.
-/// - The remote command exits nonzero.
-pub(super) fn write_remote_prompt(
+/// Build SSH argv as strings (test-only helper for probe planning).
+#[cfg(test)]
+fn ssh_arguments_as_strings(
     remote: &RemoteRepositorySettings,
-    work_dir: &Path,
-    relative_path: &str,
-    prompt: &str,
-) -> Result<(), String> {
-    let planned_write = plan_remote_prompt_write(remote, work_dir, relative_path, prompt)?;
-    let plan = jefe::ssh::SshPlan::new(
-        remote,
-        &planned_write.remote_command,
-        jefe::ssh::SshMode::NonInteractive,
-    )
-    .map_err(|error| error.to_string())?;
-    let output = plan
-        .execute(
-            Some(planned_write.stdin_prompt.as_bytes()),
-            jefe::ssh::SSH_OPERATION_TIMEOUT,
-            None,
-        )
-        .map_err(|error| error.to_string())?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(jefe::ssh::classify_failure(
-            output.status.code(),
-            &String::from_utf8_lossy(&output.stderr),
-        )
-        .to_string())
-    }
+    remote_command: &str,
+) -> Result<Vec<String>, String> {
+    jefe::ssh::SshPlan::arguments(remote, remote_command, jefe::ssh::SshMode::NonInteractive)
+        .map(|args| {
+            args.into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Re-export [`WorkTarget`] from `issue_prep` so this module's signatures

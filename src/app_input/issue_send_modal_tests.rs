@@ -124,7 +124,8 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
     // This calls the REAL production helper so removing the override would
     // cause this test to fail.
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    let issue_prompt = "This is the issue body content for testing.";
+    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
     assert!(
         !launch_sig.pass_continue,
         "issue-driven launches must force pass_continue = false"
@@ -132,9 +133,9 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     let instruction = launch_sig
         .mode_flags
         .iter()
-        .find(|arg| arg.contains(".jefe/issue-prompt.md"))
-        .value_or_panic("issue launch signature must include an instruction");
-    assert!(instruction.contains(".jefe/issue-prompt.md"));
+        .find(|arg| arg.contains(issue_prompt))
+        .value_or_panic("issue launch signature must include the inlined prompt");
+    assert!(instruction.contains(issue_prompt));
     assert!(instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"));
     assert!(instruction.contains("decision-complete acceptance matrix"));
     assert!(instruction.contains("stop for approval"));
@@ -159,14 +160,15 @@ fn code_puppy_issue_send_carries_kind_and_uses_positional_instruction() {
         jefe::domain::AgentKind::CodePuppy
     );
 
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    let issue_prompt = "Code puppy issue body content.";
+    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
     assert!(!launch_sig.pass_continue);
     assert!(!launch_sig.mode_flags.iter().any(|arg| arg == "-i"));
     assert!(
         launch_sig
             .mode_flags
             .iter()
-            .any(|arg| arg.contains(".jefe/issue-prompt.md"))
+            .any(|arg| arg.contains(issue_prompt))
     );
 }
 
@@ -359,7 +361,8 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
 
     // Fresh no-resume signature: pass_continue forced off, positional
     // instruction (no -i).
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    let issue_prompt = "Issue body for clone-identity test.";
+    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
     assert!(
         !launch_sig.pass_continue,
         "CodePuppy issue send must be fresh (no resume)"
@@ -372,8 +375,8 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
         launch_sig
             .mode_flags
             .iter()
-            .any(|arg| arg.contains(".jefe/issue-prompt.md")),
-        "CodePuppy issue signature must reference the issue prompt"
+            .any(|arg| arg.contains(issue_prompt)),
+        "CodePuppy issue signature must contain the inlined prompt"
     );
 }
 

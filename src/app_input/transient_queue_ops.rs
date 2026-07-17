@@ -9,7 +9,7 @@ use jefe::domain::{Agent, AgentId, RepositoryId};
 use jefe::state::{AppEvent, QueuedTransientSend};
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, clone_identity, issues_send,
+    AppStateHandle, SharedContext, apply_and_persist, clone_identity, issues_dispatch, issues_send,
     transient_issue_send, transient_pr_send,
 };
 
@@ -103,7 +103,8 @@ fn dispatch_dequeued_payload(
     let launch_sig = item.launch_signature.clone();
     match item.payload {
         jefe::state::TransientPayload::Issue { payload } => {
-            let launch_sig = issues_send::prepare_issue_launch_signature(launch_sig);
+            let prompt = issues_dispatch::format_issue_prompt(&payload);
+            let launch_sig = issues_send::prepare_issue_launch_signature(launch_sig, &prompt);
             transient_issue_send::dispatch_transient_dequeued_issue(
                 app_state,
                 ctx,

@@ -30,10 +30,10 @@ use jefe::domain::{
 use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
 
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
-// std::boxed::Box). The private fns pr_send_info_from_state and write_pr_prompt
-// are visible to child modules via super::.
+// std::boxed::Box). The private fn pr_send_info_from_state is visible to
+// child modules via super::.
 use super::prs_integration_test_fixtures::make_test_pr_detail;
-use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
+use super::prs_orchestration::pr_send_info_from_state;
 use super::{
     AppStateHandle, SharedContext, normal, prs, prs_comments_dispatch, prs_dispatch,
     prs_list_dispatch,
@@ -407,7 +407,7 @@ fn it_search_commit_reloads_with_query() {
     );
 }
 // ═════════════════════════════════════════════════════════════════════════
-// Checkpoint 8: send-to-agent writes prompt and launches (REQ-PR-011)
+// Checkpoint 8: send-to-agent inlines prompt and launches (REQ-PR-011)
 // ═════════════════════════════════════════════════════════════════════════
 
 /// Build a launch signature fixture (mirrors `app_input_tests::sample_signature`).
@@ -460,44 +460,25 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
     state
 }
 
-/// Assert that the prompt file exists, is non-empty, and contains the PR number.
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 147-175
-fn assert_prompt_content(prompt_path: &std::path::Path, pr_number: &str) {
-    assert!(prompt_path.exists(), "pr-prompt.md must exist");
-    let content = std::fs::read_to_string(prompt_path)
-        .unwrap_or_else(|e| panic!("should read pr-prompt.md: {e}"));
-    assert!(!content.is_empty(), "prompt content must be non-empty");
-    assert!(
-        content.contains(pr_number),
-        "prompt must contain PR number {pr_number}, got: {content}"
-    );
-}
-
 /// Checkpoint 8: `S` opens the agent chooser, Enter confirms, and the dispatch
-/// arm applies the reducer BEFORE writing the prompt file — `.jefe/pr-prompt.md`
-/// exists with non-empty content containing the PR number. The resolved send
-/// info identifies the correct LAUNCH TARGET agent (the AgentId the
-/// chooser-confirm would launch) and the correct work_dir, proving the launch
-/// target is resolved pre-spawn.
+/// arm resolves the correct LAUNCH TARGET agent and work_dir pre-spawn. The
+/// PR prompt content is inlined into the launch instruction (issue #315),
+/// so no `.jefe/pr-prompt.md` file is written.
 ///
 /// Drives the REAL key handlers for `S` (open chooser) and Enter (confirm),
 /// then replicates the EXACT dispatch sequence on raw `AppState`: read
-/// `pr_send_info_from_state`, apply `PrAgentChooserConfirm` (closes chooser),
-/// and `write_pr_prompt` writes the file.
+/// `pr_send_info_from_state`, apply `PrAgentChooserConfirm` (closes chooser).
 ///
 /// NOTE: the actual agent launch requires runtime (`SharedContext` is `None`
 /// in unit tests → the spawn is guarded), mirroring the established convention
-/// in `app_input_tests.rs` (which writes the prompt and asserts target
-/// resolution but cannot observe the spawn). Do NOT add a production seam.
+/// in `app_input_tests.rs` (which resolves target info but cannot observe
+/// the spawn). Do NOT add a production seam.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-175
 #[test]
-fn it_send_to_agent_writes_prompt_file_for_launch() {
+fn it_send_to_agent_resolves_launch_target() {
     let agent_id = AgentId(String::from("pr-agent-1"));
     let temp_work_dir = std::env::temp_dir().join(format!(
         "jefe-pr-int-test-{}",
@@ -505,7 +486,6 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos())
     ));
-    let prompt_path = temp_work_dir.join(".jefe").join("pr-prompt.md");
 
     let mut state = state_for_send_to_agent(&agent_id, &temp_work_dir);
 
@@ -528,7 +508,7 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
         "Enter must emit PrAgentChooserConfirm (got {event:?})"
     );
 
-    // Dispatch ordering: read info, apply reducer, then write prompt.
+    // Dispatch ordering: read info, apply reducer.
     let send_info =
         pr_send_info_from_state(&state).unwrap_or_else(|| panic!("pr_send_info must resolve"));
     assert_eq!(send_info.payload.pr_number, 42);
@@ -548,10 +528,20 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
         state.prs_state.agent_chooser.is_none(),
         "confirm must close the chooser BEFORE side effects"
     );
-    write_pr_prompt(&send_info.work_dir, &send_info.payload)
-        .unwrap_or_else(|e| panic!("write_pr_prompt should succeed: {e:?}"));
 
-    assert_prompt_content(&prompt_path, "42");
+    // Issue #315: no prompt file should be written — the prompt is inlined
+    // into the -i instruction. Verify the formatted prompt content would be
+    // correct (includes the PR number), proving no coverage gap from removing
+    // the on-disk write.
+    let formatted_prompt = prs_dispatch::format_pr_prompt(&send_info.payload);
+    assert!(
+        formatted_prompt.contains("#42") || formatted_prompt.contains("42"),
+        "formatted PR prompt must include the PR number: {formatted_prompt}"
+    );
+    assert!(
+        !temp_work_dir.join(".jefe").join("pr-prompt.md").exists(),
+        "no pr-prompt.md file should exist (prompt is inlined)"
+    );
     let _ = std::fs::remove_dir_all(&temp_work_dir);
     let _ = sample_signature();
 }

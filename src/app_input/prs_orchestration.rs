@@ -477,18 +477,16 @@ fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
     );
 }
 
-/// The PR prompt file written into the agent work dir and referenced in
-/// the launch instruction. Both the fresh-prompt signature construction
-/// (the agent instruction string) and `write_pr_prompt` (the on-disk path)
-/// must use exactly this relative path.
-const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
-
 /// Dispatch the PR agent-chooser confirm (send-to-agent) side effects.
 ///
 /// Mirrors `dispatch_agent_chooser_confirm` exactly: resolve send info, apply
-/// the chooser-confirm reducer (closes chooser + records send), write the PR
-/// prompt, then launch the agent. The ordering is reducer-before-spawn so the
-/// chooser is closed and the send recorded BEFORE any side effect.
+/// the chooser-confirm reducer (closes chooser + records send), inline the PR
+/// prompt content into the launch instruction, then launch the agent. The
+/// ordering is reducer-before-spawn so the chooser is closed and the send
+/// recorded BEFORE any side effect.
+///
+/// Issue #315: the PR prompt content is now inlined directly into the launch
+/// instruction via `-i`, eliminating the `.jefe/pr-prompt.md` file write.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
@@ -506,15 +504,16 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     };
 
+    let prompt_content = prs_dispatch::format_pr_prompt(&send_info.payload);
     let launch_sig = prepare_fresh_prompt_signature(
         send_info.signature,
         FreshPromptKind::PullRequest,
-        PR_PROMPT_RELATIVE_PATH,
+        &prompt_content,
     );
 
-    // Availability + target validation BEFORE any prompt side effect: a
-    // missing agent runtime or an invalid/incomplete remote config must not
-    // trigger a local or remote prompt write.
+    // Availability + target validation BEFORE any prep side effect: a missing
+    // agent runtime or an invalid/incomplete remote config must not trigger
+    // local or remote prep.
     if !super::availability::launch_available_or_error(
         app_state,
         launch_sig.agent_kind,
@@ -540,12 +539,6 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     }
 
-    if let Err(error) = write_pr_prompt_to_target(&target, &send_info.work_dir, &send_info.payload)
-    {
-        apply_pr_send_to_agent_failed(app_state, ctx, error);
-        return;
-    }
-
     if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig, None) {
         launch_pr_agent(
             app_state,
@@ -555,52 +548,6 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
             launch_sig,
         );
     }
-}
-
-/// Write the PR prompt to the selected WorkTarget (local fs or remote ssh).
-/// Returns `Err` on failure so the caller can apply the send-failed event.
-fn write_pr_prompt_to_target(
-    target: &super::issue_prep::WorkTarget,
-    work_dir: &std::path::Path,
-    payload: &jefe::github::PrSendPayload,
-) -> Result<(), String> {
-    let prompt_content = prs_dispatch::format_pr_prompt(payload);
-    match target {
-        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
-            target,
-            work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
-            remote,
-            work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-    }
-}
-
-/// Write the PR agent prompt to disk (local only).
-///
-/// Retained for tests that verify the local PR prompt write step in isolation.
-/// The production dispatch path uses [`issue_prep::write_prompt_to_target`] so
-/// remote PR prompts travel via stdin over `ssh -T`.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-#[cfg(test)]
-pub(super) fn write_pr_prompt(
-    work_dir: &std::path::Path,
-    payload: &jefe::github::PrSendPayload,
-) -> Result<(), String> {
-    let prompt_dir = work_dir.join(".jefe");
-    std::fs::create_dir_all(&prompt_dir)
-        .map_err(|error| format!("Failed to create .jefe dir: {error}"))?;
-    let prompt_path = prompt_dir.join("pr-prompt.md");
-    let prompt_content = prs_dispatch::format_pr_prompt(payload);
-    std::fs::write(&prompt_path, &prompt_content)
-        .map_err(|error| format!("Failed to write PR prompt: {error}"))
 }
 
 /// Resolved context needed to send a PR to an agent (mirrors `IssueSendInfo`).

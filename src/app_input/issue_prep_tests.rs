@@ -175,7 +175,7 @@ fn local_checkout_blocker_returns_dirty_without_changing_worktree_or_index() {
     let index_before = git_stdout(&work, &["ls-files", "--stage"]);
     let status_before = git_stdout(&work, &["status", "--porcelain=v1"]);
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop, "prompt")
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop)
         .value_or_panic("checkout conflict should become dirty outcome");
 
     assert_eq!(outcome, PrepOutcome::Dirty);
@@ -194,7 +194,6 @@ fn local_checkout_blocker_returns_dirty_without_changing_worktree_or_index() {
             .value_or_panic("read preserved local memory"),
         "local memory"
     );
-    assert!(!work.join(".jefe/issue-prompt.md").exists());
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
@@ -206,9 +205,8 @@ fn local_confirmed_checkout_blocker_discard_reaches_fetched_main() {
         .value_or_panic("write untracked owned metadata");
     std::fs::write(work.join("remove-me.txt"), "discard me")
         .value_or_panic("write non-owned untracked file");
-    let prompt = "Work issue 316.";
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard, prompt)
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard)
         .value_or_panic("confirmed checkout conflict cleanup");
 
     assert_eq!(outcome, PrepOutcome::Ready);
@@ -237,10 +235,7 @@ fn local_confirmed_checkout_blocker_discard_reaches_fetched_main() {
             .value_or_panic("read preserved untracked owned metadata"),
         "preserve me"
     );
-    assert_eq!(
-        std::fs::read_to_string(work.join(".jefe/issue-prompt.md")).value_or_panic("read prompt"),
-        prompt
-    );
+
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
@@ -252,22 +247,14 @@ fn cleanup(path: &Path) {
 }
 
 #[test]
-fn local_existing_clean_prep_writes_prompt_last() {
+fn local_existing_clean_prep_succeeds() {
     let origin = bare_origin_with_commit("clean");
     let work = clone_origin(&origin, "clean");
     // Pre-create .jefe so we prove owned metadata is ignored.
     std::fs::create_dir_all(work.join(".jefe")).value_or_panic("create .jefe");
-    std::fs::write(work.join(".jefe/issue-prompt.md"), "OLD").value_or_panic("write OLD prompt");
 
-    let prompt = "Do the work on issue 184.";
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, prompt).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
-
-    // The prompt was overwritten (written last).
-    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
-        .value_or_panic("read written prompt");
-    assert_eq!(written, prompt);
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -333,13 +320,13 @@ fn local_linked_worktree_on_non_default_branch_warns_then_fails_safely() {
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
     // Stop policy: the user is warned (Dirty) before any checkout attempt.
-    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop, "prompt")
+    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop)
         .value_or_panic("linked worktree Stop must return Dirty");
     assert_eq!(outcome, PrepOutcome::Dirty);
 
     // Discard policy: the checkout is attempted and fails safely because the
     // worktree is on a different branch than the default.
-    let err = prepare_local(&linked, None, DirtyPolicy::Discard, "prompt")
+    let err = prepare_local(&linked, None, DirtyPolicy::Discard)
         .error_or_panic("linked worktree Discard must error on checkout");
     assert!(
         err.contains("not the default"),
@@ -371,10 +358,8 @@ fn local_linked_worktree_on_default_branch_succeeds() {
     );
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
-    let outcome =
-        prepare_local(&linked, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
-    assert!(linked.join(".jefe/issue-prompt.md").exists());
 
     cleanup(&linked);
     cleanup(&primary);
@@ -389,7 +374,7 @@ fn local_missing_without_identity_fails_safely() {
         rand_label()
     ));
     // No identity → must fail, not create the dir.
-    let result = prepare_local(&work, None, DirtyPolicy::Stop, "prompt");
+    let result = prepare_local(&work, None, DirtyPolicy::Stop);
     assert!(result.is_err(), "missing dir with no identity must fail");
     assert!(
         !work.exists(),
@@ -406,7 +391,7 @@ fn local_existing_non_git_dir_fails() {
     ));
     std::fs::create_dir_all(&work).value_or_panic("create non-git dir");
     std::fs::write(work.join("file.txt"), "not a repo").value_or_panic("write non-repo file");
-    let result = prepare_local(&work, None, DirtyPolicy::Stop, "prompt");
+    let result = prepare_local(&work, None, DirtyPolicy::Stop);
     assert!(result.is_err(), "non-git dir must fail safely");
     let err = result.error_or_panic("non-git dir must error");
     assert!(
@@ -423,8 +408,7 @@ fn local_dirty_stop_returns_dirty_without_prompt() {
     // Make the worktree dirty with a REAL (non-ignored) change.
     std::fs::write(work.join("src.txt"), "dirty change").value_or_panic("write dirty change");
 
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Dirty);
 
     // The dirty change is preserved (Stop does not clean).
@@ -432,29 +416,22 @@ fn local_dirty_stop_returns_dirty_without_prompt() {
         std::fs::read_to_string(work.join("src.txt")).value_or_panic("read preserved dirty change");
     assert_eq!(preserved, "dirty change");
     // No prompt written (Stop aborts before prompt write).
-    assert!(!work.join(".jefe/issue-prompt.md").exists());
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
 
 #[test]
-fn local_dirty_discard_cleans_and_writes_prompt() {
+fn local_dirty_discard_cleans_and_prepares() {
     let origin = bare_origin_with_commit("dirtydiscard");
     let work = clone_origin(&origin, "dirtydiscard");
     std::fs::write(work.join("src.txt"), "dirty change").value_or_panic("write dirty change");
 
-    let prompt = "After discard, do the work.";
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Discard, prompt).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     // The dirty change was discarded.
     assert!(!work.join("src.txt").exists());
-    // Prompt written.
-    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
-        .value_or_panic("read written prompt");
-    assert_eq!(written, prompt);
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -471,8 +448,7 @@ fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
     // Switch to a feature branch; the tree stays clean.
     run_git(&work, &["checkout", "-b", "feature"]);
 
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Dirty);
 
     // Still on feature branch — nothing was switched.
@@ -481,59 +457,47 @@ fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
         "feature\n"
     );
     // No prompt written.
-    assert!(!work.join(".jefe/issue-prompt.md").exists());
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
 
 /// A clean working copy on a non-default branch with the Discard policy must
-/// switch to the default branch, pull, and write the prompt — without
+/// switch to the default branch, pull — without
 /// discarding anything (there is nothing dirty to discard).
 #[test]
-fn local_clean_not_on_default_discard_switches_and_writes_prompt() {
+fn local_clean_not_on_default_discard_switches_and_prepares() {
     let origin = bare_origin_with_commit("clean-not-main-discard");
     let work = clone_origin(&origin, "clean-not-main-discard");
     run_git(&work, &["checkout", "-b", "feature"]);
 
-    let prompt = "Switched to main, now do the work.";
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Discard, prompt).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     // Now on main.
     assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
-    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
-        .value_or_panic("read written prompt");
-    assert_eq!(written, prompt);
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
 
 /// A dirty working copy that is ALSO not on the default branch: the Discard
-/// policy must clean AND switch to the default branch AND write the prompt.
+/// policy must clean AND switch to the default branch.
 #[test]
-fn local_dirty_and_not_on_default_discard_cleans_switches_and_writes_prompt() {
+fn local_dirty_and_not_on_default_discard_cleans_switches_and_prepares() {
     let origin = bare_origin_with_commit("dirty-not-main-discard");
     let work = clone_origin(&origin, "dirty-not-main-discard");
     run_git(&work, &["checkout", "-b", "feature"]);
     // Add an untracked file so the tree is dirty.
     std::fs::write(work.join("untracked.txt"), "junk").value_or_panic("write untracked file");
 
-    let prompt = "Cleaned and switched, now do the work.";
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Discard, prompt).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     // On main now.
     assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
     // Untracked file was cleaned.
     assert!(!work.join("untracked.txt").exists());
-    // Prompt written.
-    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
-        .value_or_panic("read written prompt");
-    assert_eq!(written, prompt);
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -557,13 +521,12 @@ fn local_dirty_discard_handles_spaces_unicode_and_argv_like_names_without_git_cl
     std::fs::write(work.join("nested Ω/space/file.txt"), "untracked")
         .value_or_panic("write nested untracked file");
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard, "prompt")
-        .value_or_panic("native local preparation");
+    let outcome =
+        prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("native local preparation");
 
     assert_eq!(outcome, PrepOutcome::Ready);
     assert!(!work.join(adversarial).exists());
     assert!(!work.join("nested Ω").exists());
-    assert!(work.join(".jefe/issue-prompt.md").exists());
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&root);
 }
@@ -605,12 +568,10 @@ fn local_owned_metadata_jefe_llxprt_ignored_as_dirty() {
     let work = clone_origin(&origin, "ownedmeta");
     // Only .jefe/ and .llxprt/ changes → must NOT be dirty.
     std::fs::create_dir_all(work.join(".jefe")).value_or_panic("create .jefe");
-    std::fs::write(work.join(".jefe/issue-prompt.md"), "owned").value_or_panic("write .jefe");
     std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create .llxprt");
     std::fs::write(work.join(".llxprt/LLXPRT.md"), "owned").value_or_panic("write .llxprt");
 
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(
         outcome,
         PrepOutcome::Ready,
@@ -641,10 +602,8 @@ fn local_clone_when_missing_with_url() {
     // Set origin/HEAD so prepare_issue_workdir can resolve the branch.
     run_git(&work, &["remote", "set-head", "origin", "-a"]);
     // Now run the full post-clone prep (dirty check → prep → prompt).
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
-    assert!(work.join(".jefe/issue-prompt.md").exists());
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -667,8 +626,8 @@ fn local_origin_mismatch_detected() {
     std::fs::write(work.join("marker.txt"), "untouched").value_or_panic("write marker");
 
     let identity = mismatched_identity();
-    let outcome = prepare_local(&work, Some(&identity), DirtyPolicy::Stop, "prompt")
-        .value_or_panic("prepare_local");
+    let outcome =
+        prepare_local(&work, Some(&identity), DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert!(
         matches!(outcome, PrepOutcome::OriginMismatch { .. }),
         "mismatched origin must return OriginMismatch, got {outcome:?}"
@@ -680,7 +639,6 @@ fn local_origin_mismatch_detected() {
         "untouched"
     );
     // No prompt written (mismatch aborts before prompt write).
-    assert!(!work.join(".jefe/issue-prompt.md").exists());
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -693,8 +651,7 @@ fn local_origin_match_proceeds_ready() {
     let origin = bare_origin_with_commit("match");
     let work = clone_origin(&origin, "match");
 
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
     assert_eq!(
         outcome,
         PrepOutcome::Ready,
@@ -718,129 +675,11 @@ fn local_force_reclone_replaces_mismatched_repo() {
     // via the resolved-URL seam that prepare_local_force_reclone delegates to
     // after resolving the identity. This proves the real remove → clone →
     // prep ordering runs and replaces the mismatched workdir.
-    force_reclone_local_with_url(&work, &clone_url, "prompt")
-        .value_or_panic("force_reclone_local_with_url");
+    force_reclone_local_with_url(&work, &clone_url).value_or_panic("force_reclone_local_with_url");
 
     // Old marker is gone (workdir was replaced).
     assert!(!work.join("old-marker.txt").exists());
-    // Prompt is written.
-    assert!(work.join(".jefe/issue-prompt.md").exists());
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
-}
-
-// ── Local PR prompt writing (reuses write_prompt_to_target) ────────────
-//
-// The PR send path (`prs_orchestration::dispatch_pr_agent_chooser_confirm`)
-// reuses the issue-prep safe target prompt writer for writing
-// `.jefe/pr-prompt.md` to the local filesystem. These tests exercise the
-// local path, including adversarial content that must never appear in any
-// shell argv. The remote-host path is covered in `issue_prep_remote_tests.rs`.
-
-/// Relative path for the PR prompt — must match `prs_orchestration`.
-const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
-
-/// A local PR prompt write via `write_prompt_to_target` creates the `.jefe`
-/// directory and writes the content exactly — including adversarial
-/// metacharacters that must NEVER be interpolated into a shell (the local
-/// path uses `std::fs::write`, no shell at all).
-#[test]
-fn pr_prompt_local_write_writes_exact_content_with_adversarial_chars() {
-    let work_dir = std::env::temp_dir().join(format!(
-        "jefe-pr-prompt-local-{}-{}",
-        std::process::id(),
-        rand_label()
-    ));
-    let adversarial = "'; rm -rf /; echo '`\n$(whoami)\n\" && touch PWNED";
-    let result = write_prompt_to_target(
-        &WorkTarget::Local,
-        &work_dir,
-        PR_PROMPT_RELATIVE_PATH,
-        adversarial,
-    );
-    assert!(
-        result.is_ok(),
-        "local prompt write must succeed: {:?}",
-        result.err()
-    );
-
-    let written = std::fs::read_to_string(work_dir.join(PR_PROMPT_RELATIVE_PATH))
-        .value_or_panic("read PR prompt");
-    assert_eq!(written, adversarial, "content must match exactly");
-    // No PWNED file was created (no shell injection on the local path).
-    assert!(
-        !work_dir.join("PWNED").exists(),
-        "adversarial content must not create files"
-    );
-    cleanup(&work_dir);
-}
-
-/// Local PR prompt write creates the `.jefe` directory when absent.
-#[test]
-fn pr_prompt_local_write_creates_jefe_dir() {
-    let work_dir = std::env::temp_dir().join(format!(
-        "jefe-pr-prompt-mkdir-{}-{}",
-        std::process::id(),
-        rand_label()
-    ));
-    let result = write_prompt_to_target(
-        &WorkTarget::Local,
-        &work_dir,
-        PR_PROMPT_RELATIVE_PATH,
-        "content",
-    );
-    assert!(result.is_ok(), "should succeed: {:?}", result.err());
-    assert!(work_dir.join(".jefe").exists(), ".jefe dir must be created");
-    assert!(work_dir.join(PR_PROMPT_RELATIVE_PATH).exists());
-    cleanup(&work_dir);
-}
-
-/// The PR prompt path constant must start with `.jefe/` (required by the safe
-/// writer so it knows where to `mkdir -p`).
-#[test]
-fn pr_prompt_relative_path_starts_with_jefe() {
-    assert!(
-        PR_PROMPT_RELATIVE_PATH.starts_with(".jefe/"),
-        "PR prompt path must be under .jefe/"
-    );
-}
-
-// ── Path-traversal / absolute-path rejection in write_prompt_to_target ──
-
-/// An absolute path must be rejected (never joined under the work dir to
-/// overwrite an arbitrary filesystem location).
-#[test]
-fn write_prompt_rejects_absolute_path() {
-    let result = write_prompt_to_target(
-        &WorkTarget::Local,
-        Path::new("/tmp/jefe-should-not-exist"),
-        "/etc/passwd",
-        "content",
-    );
-    assert!(result.is_err(), "absolute path must be rejected");
-}
-
-/// A traversal path (`..`) must be rejected (never escape the work dir).
-#[test]
-fn write_prompt_rejects_traversal_path() {
-    let result = write_prompt_to_target(
-        &WorkTarget::Local,
-        Path::new("/tmp/jefe-should-not-exist"),
-        ".jefe/../../../etc/passwd",
-        "content",
-    );
-    assert!(result.is_err(), "traversal path must be rejected");
-}
-
-/// A path not starting with `.jefe/` must be rejected.
-#[test]
-fn write_prompt_rejects_non_jefe_path() {
-    let result = write_prompt_to_target(
-        &WorkTarget::Local,
-        Path::new("/tmp/jefe-should-not-exist"),
-        "etc/evil.md",
-        "content",
-    );
-    assert!(result.is_err(), "non-.jefe path must be rejected");
 }

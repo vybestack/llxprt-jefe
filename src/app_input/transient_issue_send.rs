@@ -163,7 +163,8 @@ fn handle_transient_prep_outcome(
 ) {
     match outcome {
         Ok(PrepOutcome::Ready) => {
-            let launch_sig = prepare_issue_launch_signature(prep.launch_sig.clone());
+            let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
+            let launch_sig = prepare_issue_launch_signature(prep.launch_sig.clone(), &prompt);
             launch_transient_issue_agent(
                 app_state,
                 ctx,
@@ -208,13 +209,11 @@ fn prepare_and_launch_transient_issue(
         return;
     };
 
-    let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
     let outcome = prepare_issue_target(
         &target,
         &prep.work_dir,
         prep.clone_identity.as_ref(),
         DirtyPolicy::Stop,
-        &prompt,
     );
     handle_transient_prep_outcome(app_state, ctx, &prep, outcome);
 }
