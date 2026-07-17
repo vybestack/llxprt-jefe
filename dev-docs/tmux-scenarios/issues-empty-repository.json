@@ -1,0 +1,23 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "wait_timeout_ms": 15000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Fixture issue with rows" },
+    { "key": "BTab" },
+    { "key": "Down" },
+    { "waitFor": "No issues found" },
+    { "wait": 1500 },
+    { "expect": "No issues found" },
+    { "capture": "issues-empty-repository-idle" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

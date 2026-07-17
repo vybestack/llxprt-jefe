@@ -29,6 +29,8 @@ struct AppContext {
     runtime: TmuxRuntimeManager,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
     gh_client: jefe::github::GhClient,
+    /// Root-owned delivery slot for background GitHub request results.
+    gh_deliveries: app_input::GhDeliveryHandle,
     /// Coalescing persistence worker handle (issue #301). When present,
     /// `persist_state` schedules snapshots here instead of calling
     /// `save_state` synchronously on the input path.
@@ -175,6 +177,7 @@ fn main() {
         theme_manager,
         runtime,
         gh_client: jefe::github::GhClient::new(),
+        gh_deliveries: app_input::GhDeliveryHandle::default(),
         persist_handle,
         capture_handle,
     }));

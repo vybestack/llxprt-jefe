@@ -8,10 +8,11 @@ use tracing::{debug, trace, warn};
 
 use crate::AppContext;
 use crate::app_input::{
-    dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
-    handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key,
-    handle_mode_search_key, handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
-    request_pr_background_refresh, synchronize_actions_geometry, to_persisted_state,
+    apply_background_gh_delivery, dispatch_app_event, forward_key_to_pty, handle_f12_toggle,
+    handle_global_shortcut_key, handle_mode_auth_key, handle_mode_confirm_key,
+    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
+    handle_mode_theme_picker_key, handle_normal_key_event, install_gh_delivery_handler,
+    persist_state, request_pr_background_refresh, synchronize_actions_geometry, to_persisted_state,
     try_ctrl_c_interrupt_passthrough, try_intercept_terminal_scrollback,
     try_suppress_synthetic_enter, update_paste_enter_suppression,
 };
@@ -63,6 +64,19 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         initialized.set(true);
         crate::app_init::init_app_state(&mut app_state, &ctx);
     }
+
+    let mut gh_delivery_handler = hooks.use_async_handler({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        move |delivery| {
+            let mut app_state = app_state;
+            let ctx = ctx.clone();
+            async move {
+                apply_background_gh_delivery(&mut app_state, &ctx, delivery);
+            }
+        }
+    });
+    install_gh_delivery_handler(&ctx, gh_delivery_handler.take());
 
     // Restore runtime session map from persisted agent statuses exactly once.
     if !startup_sessions_restored.get() {

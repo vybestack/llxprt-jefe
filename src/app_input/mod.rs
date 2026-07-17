@@ -83,6 +83,23 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use gh_async::{BackgroundGhDelivery, GhDeliveryHandle, install_gh_delivery_handler};
+
+/// Apply a typed background GitHub result on the root component's lifecycle.
+pub fn apply_background_gh_delivery(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    delivery: BackgroundGhDelivery,
+) {
+    match delivery {
+        BackgroundGhDelivery::IssueList(delivery) => {
+            issues_list_dispatch::apply_issue_list_delivery(app_state, ctx, *delivery);
+        }
+        #[cfg(test)]
+        BackgroundGhDelivery::Probe(_) => {}
+    }
+}
+
 pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
 
