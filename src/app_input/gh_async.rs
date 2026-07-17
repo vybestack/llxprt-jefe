@@ -19,6 +19,11 @@ pub enum BackgroundGhDelivery {
 }
 
 /// Shared slot containing the root component's lifecycle-bound delivery handler.
+///
+/// iocraft owns and polls the handler's queued futures only while the root
+/// component is mounted. A retained clone may enqueue after teardown, but the
+/// dropped hook no longer polls that queue; reinstalling on each root render
+/// replaces the slot with the current lifecycle owner.
 #[derive(Clone, Default)]
 pub struct GhDeliveryHandle {
     handler: Arc<Mutex<Option<Handler<'static, BackgroundGhDelivery>>>>,
