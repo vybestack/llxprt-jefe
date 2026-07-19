@@ -89,13 +89,25 @@ shell_quote() {
 
 create_runtime_files() {
     mkdir -p "$ROOT/home" "$ROOT/config" "$ROOT/socket" \
-        "$ROOT/fixture-repo/tutorial-agent" "$ROOT/private" \
+        "$ROOT/home/projects/llxprt-jefe" "$ROOT/fixture-repo" "$ROOT/private" \
         "$ROOT/evidence" "$ROOT/publication" "$ROOT/bin"
     printf 'jefe-issue241-capture-v1\n' > "$ROOT/.issue241-run"
 
-    git -C "$ROOT/fixture-repo/tutorial-agent" init -q
-    git -C "$ROOT/fixture-repo/tutorial-agent" config user.name "Tutorial User"
-    git -C "$ROOT/fixture-repo/tutorial-agent" config user.email "tutorial@example.invalid"
+    git init -q --bare "$ROOT/fixture-repo/origin.git"
+    git init -q "$ROOT/private/seed"
+    git -C "$ROOT/private/seed" config user.name "Tutorial User"
+    git -C "$ROOT/private/seed" config user.email "tutorial@example.invalid"
+    git -C "$ROOT/private/seed" checkout -q -b main
+    printf '# Tutorial fixture\n' > "$ROOT/private/seed/README.md"
+    git -C "$ROOT/private/seed" add README.md
+    git -C "$ROOT/private/seed" commit -q -m "Seed tutorial repository"
+    git -C "$ROOT/private/seed" remote add origin "$ROOT/fixture-repo/origin.git"
+    git -C "$ROOT/private/seed" push -q -u origin main
+    git --git-dir="$ROOT/fixture-repo/origin.git" symbolic-ref HEAD refs/heads/main
+    git clone -q "$ROOT/fixture-repo/origin.git" "$ROOT/home/projects/llxprt-jefe/tutorial-llxprt"
+    git clone -q "$ROOT/fixture-repo/origin.git" "$ROOT/home/projects/llxprt-jefe/tutorial-puppy"
+    git -C "$ROOT/home/projects/llxprt-jefe/tutorial-llxprt" remote set-url origin https://github.com/vybestack/llxprt-jefe.git
+    git -C "$ROOT/home/projects/llxprt-jefe/tutorial-puppy" remote set-url origin https://github.com/vybestack/llxprt-jefe.git
 
     cat > "$ROOT/bin/llxprt" <<'EOF'
 #!/bin/sh
@@ -103,18 +115,69 @@ case " ${*} " in
     *" --version "*) printf 'llxprt 0.0.0-tutorial\n'; exit 0 ;;
 esac
 printf 'tutorial-shim: ready\n'
+case "$*" in
+    *"#352"*) printf 'tutorial-shim: received issue 352\n' ;;
+esac
 while IFS= read -r line; do
     printf 'tutorial-shim: response: %s\n' "$line"
 done
 EOF
     chmod +x "$ROOT/bin/llxprt"
 
+    cat > "$ROOT/bin/code-puppy" <<'EOF'
+#!/bin/sh
+case " ${*} " in
+    *" --help "*) printf '%s\n' 'usage: code-puppy [-i] [--model MODEL] [--yolo {true,false}]'; exit 0 ;;
+    *" --version "*) printf 'code-puppy 0.0.0-tutorial\n'; exit 0 ;;
+esac
+printf 'puppy-shim: ready\n'
+case "$*" in
+    *"#352"*) printf 'puppy-shim: received issue 352\n' ;;
+esac
+while IFS= read -r line; do
+    printf 'puppy-shim: response: %s\n' "$line"
+done
+EOF
+    chmod +x "$ROOT/bin/code-puppy"
+
+    cp "$REPO_ROOT/scripts/first-agent-tutorial-gh-shim.sh" "$ROOT/bin/gh"
+    chmod +x "$ROOT/bin/gh"
+    : > "$ROOT/private/gh-audit.log"
+    printf 'open\n' > "$ROOT/private/gh-state"
+
+    real_git=$(command -v git)
     {
         printf '#!/bin/sh\n'
+        printf 'REAL_GIT='; shell_quote "$real_git"; printf '\n'
+        printf 'LOCAL_ORIGIN='; shell_quote "$ROOT/fixture-repo/origin.git"; printf '\n'
+        cat <<'EOF'
+case "$*" in
+    "rev-parse --is-inside-work-tree"|"remote get-url origin"|"symbolic-ref refs/remotes/origin/HEAD"|"status --porcelain=v1 -z"|"rev-parse --abbrev-ref HEAD"|"checkout -B main origin/main --"|"reset --hard origin/main")
+        exec "$REAL_GIT" "$@"
+        ;;
+    "fetch origin main")
+        exec "$REAL_GIT" fetch "$LOCAL_ORIGIN" main:refs/remotes/origin/main
+        ;;
+    *)
+        printf 'tutorial git fixture rejected: git %s\n' "$*" >&2
+        exit 1
+        ;;
+esac
+EOF
+    } > "$ROOT/bin/git"
+    chmod +x "$ROOT/bin/git"
+
+    {
+        printf '#!/bin/sh\n'
+        printf 'unset SSH_AUTH_SOCK JEFE_GH_BIN JEFE_GIT_BIN GH_TOKEN GITHUB_TOKEN GH_CONFIG_DIR\n'
         printf 'export HOME='; shell_quote "$ROOT/home"; printf '\n'
         printf 'export JEFE_SOCKET_PATH='; shell_quote "$ROOT/socket/jefe.sock"; printf '\n'
+        printf 'export TUTORIAL_GH_AUDIT='; shell_quote "$ROOT/private/gh-audit.log"; printf '\n'
+        printf 'export TUTORIAL_GH_STATE='; shell_quote "$ROOT/private/gh-state"; printf '\n'
+        printf 'export JEFE_GH_BIN='; shell_quote "$ROOT/bin/gh"; printf '\n'
+        printf 'export JEFE_GIT_BIN='; shell_quote "$ROOT/bin/git"; printf '\n'
         printf 'export PATH='; shell_quote "$ROOT/bin:$PATH"; printf '\n'
-        printf 'exec '; shell_quote "$JEFE_BIN"; printf ' "$@"\n'
+        printf 'exec '; shell_quote "$JEFE_BIN"; printf ' "$@" 2>'; shell_quote "$ROOT/private/jefe.stderr.log"; printf '\n'
     } > "$ROOT/bin/jefe-isolated"
     chmod +x "$ROOT/bin/jefe-isolated"
 }
@@ -145,17 +208,24 @@ validate_capture() {
 publication_text() {
     source=$1
     target=$2
-    sed -E \
-        -e 's/pid:[0-9]+/pid:[redacted]/g' \
-        -e 's/\[[^]]+ [0-9]{1,2}:[0-9]{2} [0-9]{1,2}-[A-Za-z]{3}-[0-9]{2}/[terminal status redacted]/g' \
-        "$source" | perl -CS -Mutf8 -ne '
-            chomp;
-            if (/^(.*?\[terminal status redacted\])(.*)$/) {
-                $_ = $1 . (" " x (100 - length($1) - length($2))) . $2;
-            }
-            $_ .= " " x (100 - length($_)) if length($_) < 100;
-            print "$_\n";
-        ' > "$target"
+    TUTORIAL_HOME="$ROOT/home" perl -CSD -Mutf8 -ne '
+        chomp;
+        s/\Q$ENV{TUTORIAL_HOME}\E/~/g;
+        s{Dir: /[^ ]*…}{
+            my $old = $&;
+            my $new = "Dir: ~/projects/llxprt-jefe/…";
+            $new . (" " x (length($old) - length($new)));
+        }ge;
+        s{pid:([0-9]+)}{"pid:" . ("x" x length($1))}ge;
+        s{\[[^]]+ [0-9]{1,2}:[0-9]{2} [0-9]{1,2}-[A-Za-z]{3}-[0-9]{2}}{
+            my $old = $&;
+            my $new = "[terminal status redacted]";
+            $new . (" " x (length($old) - length($new)));
+        }ge;
+        die "publication row exceeds 100 columns\n" if length($_) > 100;
+        $_ .= " " x (100 - length($_));
+        print "$_\n";
+    ' "$source" > "$target"
 }
 
 render_svg() {
@@ -178,7 +248,9 @@ render_svg() {
 
 publish_captures() {
     for label in first-agent-dashboard first-agent-new-repository first-agent-new-agent \
-        first-agent-terminal-ready first-agent-terminal-response first-agent-result; do
+        first-agent-terminal-ready first-agent-terminal-response first-agent-result \
+        first-agent-code-puppy first-agent-issues first-agent-issue-send \
+        first-agent-pull-request first-agent-pr-merge; do
         source="$ROOT/evidence/$label.screen.txt"
         safe_text="$ROOT/private/$label.publication.txt"
         [ -f "$source" ] || record_failure "missing semantic capture: $label"
@@ -212,6 +284,16 @@ capture_run() {
         2> "$ROOT/private/harness.stderr.txt"; then
         record_failure "first-agent tutorial scenario failed"
     fi
+    if grep -F 'REJECTED' "$ROOT/private/gh-audit.log" >/dev/null 2>&1; then
+        record_failure "tutorial GitHub fixture rejected an unexpected command"
+    fi
+    [ -s "$ROOT/private/gh-audit.log" ] || record_failure "tutorial GitHub fixture audit is empty"
+    for operation in issue-search issue-view issue-comments viewer-login issue-assign \
+        pr-search pr-view pr-comments pr-threads merge-methods pr-merge; do
+        if ! grep -F "ACCEPTED $operation" "$ROOT/private/gh-audit.log" >/dev/null 2>&1; then
+            record_failure "tutorial GitHub fixture did not observe $operation"
+        fi
+    done
     publish_captures
     write_manifest success "scenario and publication validation completed"
     printf 'capture complete: %s\n' "$ROOT"

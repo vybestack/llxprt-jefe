@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="594" viewBox="0 0 880 594" role="img">
 <rect width="880" height="594" fill="#000000"/>
 <text x="16" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">
-<tspan x="16" y="20" textLength="848" lengthAdjust="spacingAndGlyphs"> LLxprt Jefe WARN: SSH agent socket is present but no identities are loaded. Run `ssh-add`  Green   </tspan>
+<tspan x="16" y="20" textLength="848" lengthAdjust="spacingAndGlyphs"> LLxprt Jefe - 0.0.29                       1 repos | 1/1 running                      Green Screen </tspan>
 <tspan x="16" y="38" textLength="848" lengthAdjust="spacingAndGlyphs">╭────────────────────╮╭────────────────────────────────────────╮╭──────────────────────────────────╮</tspan>
 <tspan x="16" y="56" textLength="848" lengthAdjust="spacingAndGlyphs">│ Repositories       ││ Agents                                 ││ Preview                          │</tspan>
 <tspan x="16" y="74" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││                                  │</tspan>
-<tspan x="16" y="92" textLength="848" lengthAdjust="spacingAndGlyphs">│ &gt; Tutorial Reposi… ││ &gt; * [1] Tutorial Agent                 ││ Name: Tutorial Agent             │</tspan>
+<tspan x="16" y="92" textLength="848" lengthAdjust="spacingAndGlyphs">│ &gt; LLxprt Jefe (1)  ││ &gt; * [1] Tutorial LLxprt  vybestack/ll… ││ Name: Tutorial LLxprt            │</tspan>
 <tspan x="16" y="110" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││ Status: Running                  │</tspan>
-<tspan x="16" y="128" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││ Repo: (unknown)                  │</tspan>
+<tspan x="16" y="128" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││ Repo: vybestack/llxprt-jefe      │</tspan>
 <tspan x="16" y="146" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││ Branch: (unknown)                │</tspan>
-<tspan x="16" y="164" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │╰────────────────────────────────────────╯│ Dir: fixture-repo/tutorial-agent │</tspan>
+<tspan x="16" y="164" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │╰────────────────────────────────────────╯│ Dir: ~/projects/llxprt-jefe/…    │</tspan>
 <tspan x="16" y="182" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │╭────────────────────────────────────────╮│                                  │</tspan>
 <tspan x="16" y="200" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││ Terminal (F12/t to focus)              ││ Todo:                            │</tspan>
 <tspan x="16" y="218" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││tutorial-shim: ready                    ││   (no tasks)                     │</tspan>
@@ -32,6 +32,6 @@
 <tspan x="16" y="524" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││                                  │</tspan>
 <tspan x="16" y="542" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││[terminal status redacted]              ││                                  │</tspan>
 <tspan x="16" y="560" textLength="848" lengthAdjust="spacingAndGlyphs">╰────────────────────╯╰────────────────────────────────────────╯╰──────────────────────────────────╯</tspan>
-<tspan x="16" y="578" textLength="848" lengthAdjust="spacingAndGlyphs"> ^/v navigate | &lt;/&gt; pane | t/f12 terminal focus | v active-only (repos+agents) | ⌥1-9 pid:[redacted]</tspan>
+<tspan x="16" y="578" textLength="848" lengthAdjust="spacingAndGlyphs"> ^/v navigate | &lt;/&gt; pane | t/f12 terminal focus | v active-only (repos+agents) | ⌥1-9        pid:xx </tspan>
 </text>
 </svg>

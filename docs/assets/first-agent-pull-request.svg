@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="594" viewBox="0 0 880 594" role="img">
+<rect width="880" height="594" fill="#000000"/>
+<text x="16" y="20" fill="#6a9955" font-family="monospace" font-size="14" xml:space="preserve">
+<tspan x="16" y="20" textLength="848" lengthAdjust="spacingAndGlyphs"> LLxprt Jefe - 0.0.29                       1 repos | 1/2 running                      Green Screen </tspan>
+<tspan x="16" y="38" textLength="848" lengthAdjust="spacingAndGlyphs">╭────────────────────╮╭─────────────────────────────────────────────────────────────────────────────</tspan>
+<tspan x="16" y="56" textLength="848" lengthAdjust="spacingAndGlyphs">│ Repositories       ││ Pull Requests                                                               </tspan>
+<tspan x="16" y="74" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││&gt; #353 Complete the filled-in getting-started walkthrough                    </tspan>
+<tspan x="16" y="92" textLength="848" lengthAdjust="spacingAndGlyphs">│ &gt; LLxprt Jefe (2)  ││                                                                             </tspan>
+<tspan x="16" y="110" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                                                             </tspan>
+<tspan x="16" y="128" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                                                             </tspan>
+<tspan x="16" y="146" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                                                             </tspan>
+<tspan x="16" y="164" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                                                             </tspan>
+<tspan x="16" y="182" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │╰─────────────────────────────────────────────────────────────────────────────</tspan>
+<tspan x="16" y="200" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │╔═════════════════════════════════════════════════════════════════════════════</tspan>
+<tspan x="16" y="218" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ #353 Complete the filled-in getting-started walkthrough                     </tspan>
+<tspan x="16" y="236" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ OPEN  ✓merge  ✓checks  ✔review  by @tutorial-agent  created: Jul 17, 2026 16</tspan>
+<tspan x="16" y="254" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ issue352 --&gt; main  labels: documentation  assignees: —  milestone: —        </tspan>
+<tspan x="16" y="272" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ https://github.com/vybestack/llxprt-jefe/pull/353                           </tspan>
+<tspan x="16" y="290" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ ─────────────────────────────────────────                                   </tspan>
+<tspan x="16" y="308" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ Description                                                                 </tspan>
+<tspan x="16" y="326" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║   Implements issue 352 with matching LLxprt Code, Code Puppy, Issues,       </tspan>
+<tspan x="16" y="344" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ and Pull                                                                    </tspan>
+<tspan x="16" y="362" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║   Requests screenshots.                                                     </tspan>
+<tspan x="16" y="380" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ ─────────────────────────────────────────                                   </tspan>
+<tspan x="16" y="398" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ Reviews  (decision: APPROVED)                                               </tspan>
+<tspan x="16" y="416" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ - reviewer APPROVED           2026-07-17T16:50:00Z                          </tspan>
+<tspan x="16" y="434" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║     The tutorial is clear and consistent.                                   </tspan>
+<tspan x="16" y="452" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║                                                                             </tspan>
+<tspan x="16" y="470" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ ─────────────────────────────────────────                                   </tspan>
+<tspan x="16" y="488" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ Checks  (rollup: SUCCESS)                                                   </tspan>
+<tspan x="16" y="506" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ - ci             success    SUCCESS                                         </tspan>
+<tspan x="16" y="524" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ ─────────────────────────────────────────                                   </tspan>
+<tspan x="16" y="542" textLength="848" lengthAdjust="spacingAndGlyphs">│                    │║ Comments                                                                    </tspan>
+<tspan x="16" y="560" textLength="848" lengthAdjust="spacingAndGlyphs">╰────────────────────╯╚═════════════════════════════════════════════════════════════════════════════</tspan>
+<tspan x="16" y="578" textLength="848" lengthAdjust="spacingAndGlyphs"> ^/v items | &lt;/&gt; panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p    pid:xxx </tspan>
+</text>
+</svg>

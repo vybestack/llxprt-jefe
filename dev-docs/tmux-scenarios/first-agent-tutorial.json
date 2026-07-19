@@ -2,48 +2,698 @@
   "config": {
     "cols": 100,
     "rows": 32,
-    "history_limit": 2000,
-    "wait_timeout_ms": 10000,
+    "history_limit": 4000,
+    "wait_timeout_ms": 15000,
     "assert_mode": "strict"
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "expect": "No terminal attached" },
-    { "capture": "first-agent-dashboard" },
-
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "expect": "Base Dir" },
-    { "capture": "first-agent-new-repository" },
-    { "type": "Tutorial Repository" },
-    { "key": "Tab" },
-    { "type": "fixture-repo" },
-    { "key": "Enter" },
-    { "waitFor": "1 repos | 0/0 running" },
-
-    { "key": "n" },
-    { "waitFor": "New Agent" },
-    { "expect": "Agent Runtime" },
-    { "capture": "first-agent-new-agent" },
-    { "key": "Tab" },
-    { "type": "Tutorial Agent" },
-    { "key": "Enter" },
-    { "waitFor": "Tutorial Agent" },
-    { "waitFor": "tutorial-shim: ready" },
-    { "expect": "F12 unfocus" },
-    { "capture": "first-agent-terminal-ready" },
-
-    { "type": "hello from the tutorial" },
-    { "key": "Enter" },
-    { "waitFor": "tutorial-shim: response: hello from the" },
-    { "expect": "tutorial" },
-    { "capture": "first-agent-terminal-response" },
-
-    { "key": "F12" },
-    { "waitFor": "t/f12 terminal focus" },
-    { "expect": "Tutorial Agent" },
-    { "capture": "first-agent-result" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "waitFor": "LLxprt Jefe"
+    },
+    {
+      "expect": "No terminal attached"
+    },
+    {
+      "capture": "first-agent-dashboard"
+    },
+    {
+      "key": "N"
+    },
+    {
+      "waitFor": "New Repository"
+    },
+    {
+      "type": "LLxprt Jefe"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "~/projects/llxprt-jefe"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "tutorial"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "~/projects/llxprt-jefe/transient"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "2"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "vybestack/llxprt-jefe"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "vybestack/llxprt-jefe"
+    },
+    {
+      "expect": "~/projects/llxprt-jefe"
+    },
+    {
+      "expect": "vybestack/llxprt-jefe"
+    },
+    {
+      "capture": "first-agent-new-repository"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "1 repos | 0/0 running"
+    },
+    {
+      "key": "n"
+    },
+    {
+      "waitFor": "New Agent"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Tutorial LLxprt"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Implement issue 352"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "macro": "clear_generated_work_dir",
+      "args": {}
+    },
+    {
+      "type": "~/projects/llxprt-jefe/tutorial-llxprt"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "expect": "Agent Runtime    [LLxprt]"
+    },
+    {
+      "expect": "Profile          [tutorial]"
+    },
+    {
+      "expect": "Implement issue 352"
+    },
+    {
+      "capture": "first-agent-new-agent"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "tutorial-shim: ready"
+    },
+    {
+      "expect": "F12 unfocus"
+    },
+    {
+      "capture": "first-agent-terminal-ready"
+    },
+    {
+      "type": "hello from the tutorial"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "tutorial-shim: response: hello from the"
+    },
+    {
+      "expect": "tutorial"
+    },
+    {
+      "capture": "first-agent-terminal-response"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "t/f12 terminal focus"
+    },
+    {
+      "capture": "first-agent-result"
+    },
+    {
+      "key": "n"
+    },
+    {
+      "waitFor": "New Agent"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Tutorial Puppy"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Review issue 352"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "macro": "clear_generated_work_dir",
+      "args": {}
+    },
+    {
+      "type": "~/projects/llxprt-jefe/tutorial-puppy"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Space"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "gpt-5.6-sol"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "key": "Space"
+    },
+    {
+      "expect": "Agent Runtime    [code_puppy]"
+    },
+    {
+      "expect": "Model            [gpt-5.6-sol]"
+    },
+    {
+      "capture": "first-agent-code-puppy"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "puppy-shim: ready"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "t/f12 terminal focus"
+    },
+    {
+      "key": "C-k"
+    },
+    {
+      "waitFor": "Status: Dead"
+    },
+    {
+      "key": "Up"
+    },
+    {
+      "waitFor": "Name: Tutorial LLxprt"
+    },
+    {
+      "key": "C-k"
+    },
+    {
+      "waitFor": "Status: Dead"
+    },
+    {
+      "key": "i"
+    },
+    {
+      "waitFor": "Issues"
+    },
+    {
+      "waitFor": "#352"
+    },
+    {
+      "expect": "Turn the getting-started guide into a filled-in visual happy path"
+    },
+    {
+      "capture": "first-agent-issues"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Turn the getting-started guide into a filled-in visual happy path"
+    },
+    {
+      "key": "S"
+    },
+    {
+      "waitFor": "Send to Agent"
+    },
+    {
+      "expect": "Tutorial LLxprt [LLxprt] profile: tutorial"
+    },
+    {
+      "expect": "Tutorial Puppy [Code Puppy] model: gpt-5.6-sol"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "key": "Escape"
+    },
+    {
+      "key": "Escape"
+    },
+    {
+      "waitFor": "Name: Tutorial LLxprt"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "tutorial-shim: received issue 352"
+    },
+    {
+      "capture": "first-agent-issue-send"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "t/f12 terminal focus"
+    },
+    {
+      "key": "p"
+    },
+    {
+      "waitFor": "Pull Requests"
+    },
+    {
+      "waitFor": "#353"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Complete the filled-in getting-started walkthrough"
+    },
+    {
+      "expect": "decision: APPROVED"
+    },
+    {
+      "expect": "✓merge"
+    },
+    {
+      "capture": "first-agent-pull-request"
+    },
+    {
+      "key": "m"
+    },
+    {
+      "waitFor": "Merge Pull Request #353"
+    },
+    {
+      "expect": "Squash and merge"
+    },
+    {
+      "capture": "first-agent-pr-merge"
+    },
+    {
+      "key": "Down"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Press Enter to confirm merge"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "MERGED"
+    },
+    {
+      "expect": "Complete the filled-in getting-started walkthrough"
+    },
+    {
+      "key": "C-q"
+    },
+    {
+      "waitForExit": 3000
+    }
+  ],
+  "macros": {
+    "clear_generated_work_dir": {
+      "params": [],
+      "steps": [
+        {
+          "keys": [
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace",
+            "BSpace"
+          ]
+        }
+      ]
+    }
+  }
 }

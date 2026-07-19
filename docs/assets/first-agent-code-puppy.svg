@@ -5,21 +5,21 @@
 <tspan x="16" y="38" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
 <tspan x="16" y="56" textLength="848" lengthAdjust="spacingAndGlyphs">│  New Agent                                                                                       │</tspan>
 <tspan x="16" y="74" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
-<tspan x="16" y="92" textLength="848" lengthAdjust="spacingAndGlyphs">│   Shortcut (1-9)   [1]                                                                           │</tspan>
-<tspan x="16" y="110" textLength="848" lengthAdjust="spacingAndGlyphs">│   Name             [Tutorial LLxprt]                                                             │</tspan>
-<tspan x="16" y="128" textLength="848" lengthAdjust="spacingAndGlyphs">│   Description      [Implement issue 352]                                                         │</tspan>
-<tspan x="16" y="146" textLength="848" lengthAdjust="spacingAndGlyphs">│   Work Dir         [~/projects/llxprt-jefe/tutorial-llxprt]                                      │</tspan>
-<tspan x="16" y="164" textLength="848" lengthAdjust="spacingAndGlyphs">│   Profile          [tutorial]                                                                    │</tspan>
-<tspan x="16" y="182" textLength="848" lengthAdjust="spacingAndGlyphs">│   Agent Runtime    [LLxprt]  (space cycles: LLxprt / code_puppy)                                 │</tspan>
-<tspan x="16" y="200" textLength="848" lengthAdjust="spacingAndGlyphs">│   Mode Flags       [--yolo]                                                                      │</tspan>
-<tspan x="16" y="218" textLength="848" lengthAdjust="spacingAndGlyphs">│   Version          [▏]                                                                           │</tspan>
-<tspan x="16" y="236" textLength="848" lengthAdjust="spacingAndGlyphs">│   LLXPRT_DEBUG     []                                                                            │</tspan>
-<tspan x="16" y="254" textLength="848" lengthAdjust="spacingAndGlyphs">│   Pass --continue  [x]  (space toggles)                                                          │</tspan>
-<tspan x="16" y="272" textLength="848" lengthAdjust="spacingAndGlyphs">│   Sandbox          [ ]  (space toggles)                                                          │</tspan>
-<tspan x="16" y="290" textLength="848" lengthAdjust="spacingAndGlyphs">│   Sandbox Engine   [Podman]  (disabled)                                                          │</tspan>
-<tspan x="16" y="308" textLength="848" lengthAdjust="spacingAndGlyphs">│   Sandbox Flags    [--cpus=2 --memory=12288m --pids-limit=256]                                   │</tspan>
+<tspan x="16" y="92" textLength="848" lengthAdjust="spacingAndGlyphs">│   Shortcut (1-9)   [2]                                                                           │</tspan>
+<tspan x="16" y="110" textLength="848" lengthAdjust="spacingAndGlyphs">│   Name             [Tutorial Puppy]                                                              │</tspan>
+<tspan x="16" y="128" textLength="848" lengthAdjust="spacingAndGlyphs">│   Description      [Review issue 352]                                                            │</tspan>
+<tspan x="16" y="146" textLength="848" lengthAdjust="spacingAndGlyphs">│   Work Dir         [~/projects/llxprt-jefe/tutorial-puppy]                                       │</tspan>
+<tspan x="16" y="164" textLength="848" lengthAdjust="spacingAndGlyphs">│   Agent Runtime    [code_puppy]  (space cycles: LLxprt / code_puppy)                             │</tspan>
+<tspan x="16" y="182" textLength="848" lengthAdjust="spacingAndGlyphs">│   Model            [gpt-5.6-sol]                                                                 │</tspan>
+<tspan x="16" y="200" textLength="848" lengthAdjust="spacingAndGlyphs">│   Version          []                                                                            │</tspan>
+<tspan x="16" y="218" textLength="848" lengthAdjust="spacingAndGlyphs">│   YOLO             [x]  (space toggles)                                                          │</tspan>
+<tspan x="16" y="236" textLength="848" lengthAdjust="spacingAndGlyphs">│   Quick resume     [ ]  (space toggles)                                                          │</tspan>
+<tspan x="16" y="254" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
+<tspan x="16" y="272" textLength="848" lengthAdjust="spacingAndGlyphs">│   Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes      │</tspan>
+<tspan x="16" y="290" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
+<tspan x="16" y="308" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
 <tspan x="16" y="326" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
-<tspan x="16" y="344" textLength="848" lengthAdjust="spacingAndGlyphs">│   Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes      │</tspan>
+<tspan x="16" y="344" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
 <tspan x="16" y="362" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
 <tspan x="16" y="380" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>
 <tspan x="16" y="398" textLength="848" lengthAdjust="spacingAndGlyphs">│                                                                                                  │</tspan>

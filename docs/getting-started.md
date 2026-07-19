@@ -1,159 +1,149 @@
 # Getting started with LLxprt Jefe
 
-This guide is for the common first-run workflow:
+This tutorial follows one complete path through Jefe: add a repository, create one LLxprt Code agent and one Code Puppy agent, send an issue to an agent, and merge the resulting pull request.
 
-1. Create a repository in Jefe.
-2. Create your first agent in that repository.
-3. Send input to the agent and return to the dashboard.
+The screenshots use a deterministic local fixture named `vybestack/llxprt-jefe`, issue 352, and PR 353 so every image tells one consistent story. **Do not send or merge those literal upstream items unless you maintain that repository.** In the steps below, use a repository you own and select the issue and PR produced in that repository.
 
-Start Jefe with `jefe` (or `cargo run` from a source checkout). The dashboard
-begins with the repository list focused and no terminal attached.
+For the full list of fields, keys, and alternate configurations, use the [UI and configuration reference](overview.md).
 
----
+## Before you start
 
-## 1) Create a repository
+Install Jefe, `tmux`, the GitHub CLI (`gh`), and both runtimes used in this walkthrough: `llxprt` and `code-puppy`. Configure their provider credentials before continuing.
 
-From the dashboard, press `N` (capital N) to open **New Repository**.
+Authenticate the GitHub CLI, then fork `vybestack/llxprt-jefe` into your own account if you do not already have a writable tutorial repository:
 
-![New Repository form showing Name, Base Dir, runtime defaults, and optional remote fields](assets/first-agent-new-repository.svg)
+    gh auth login
+    gh auth status
+    gh repo fork vybestack/llxprt-jefe --clone=false
+    GH_USER=$(gh api user --jq .login)
 
-### Repository fields
+Create the two clean checkouts used by the agents:
 
-- **Name**
-  - Friendly label shown in Jefe’s repository list.
-  - Example: `LLxprt Code`, `payments-service`, `client-foo`.
+    mkdir -p ~/projects/llxprt-jefe
+    git clone "https://github.com/$GH_USER/llxprt-jefe.git" ~/projects/llxprt-jefe/tutorial-llxprt
+    git clone "https://github.com/$GH_USER/llxprt-jefe.git" ~/projects/llxprt-jefe/tutorial-puppy
+    git -C ~/projects/llxprt-jefe/tutorial-llxprt status --short
+    git -C ~/projects/llxprt-jefe/tutorial-puppy status --short
 
-- **Base Dir**
-  - Think of this as a **parent directory** for this repo’s work.
-  - A common pattern is: `~/projects/myreponame`
-  - New agent work dirs are usually created under this path.
-  - If you leave it empty, Jefe falls back to a temp path (`/tmp/<slug>`), but in practice you almost always want a real project path.
+Both status commands should print nothing. In the Jefe forms, replace the screenshot’s `vybestack/llxprt-jefe` repository values with `$GH_USER/llxprt-jefe`.
 
-- **Default Profile**
-  - Optional llxprt profile to prefill for new agents in this repository.
-  - Leave blank to use llxprt defaults.
+The screenshots use an LLxprt profile named `tutorial`. If you already have a working profile, use its name instead. Otherwise leave **Default Profile** and **Profile** blank to use LLxprt’s configured default behavior; the rest of the flow is unchanged.
 
-- **GitHub Repo**
-  - The working repository in `owner/repo` format.
-  - Jefe uses this repository for cloning, origin checks, and GitHub Actions.
+Launch Jefe:
 
-- **Issues / PRs Repo**
-  - Optional `owner/repo` override for the repository whose issues and pull requests Jefe displays and updates.
-  - For a contribution fork such as `acoliver/llxprt-jefe`, set this to the upstream repository, for example `vybestack/llxprt-jefe`.
-  - Leave it blank to use **GitHub Repo**. This preserves the expected behavior for independent or long-lived forks that use their own issue tracker and pull requests.
+    jefe
 
-### Submit / navigation
+Jefe opens on the dashboard. The repository list is on the left, agents and their terminal are in the middle, and the selected item’s preview is on the right. The key bar along the bottom changes with the current screen.
 
-- `Tab` or `Down`: next field
-- `Shift+Tab` or `Up`: previous field
-- `Enter`: submit
-- `Esc`: cancel
+## 1. Add the repository
 
-After submit, the repository is added and selected.
+Press capital **N** to open **New Repository**, then enter these values:
 
----
+| Field | Value |
+| --- | --- |
+| Name | `LLxprt Jefe` |
+| Base Dir | `~/projects/llxprt-jefe` |
+| Default Profile | `tutorial` |
+| Default Agent | `LLxprt` |
+| Default Mode | `--yolo` |
+| Transient Dir | `~/projects/llxprt-jefe/transient` |
+| Max Transient | `2` |
+| GitHub Repo | `vybestack/llxprt-jefe` |
+| Issues / PRs Repo | `vybestack/llxprt-jefe` |
 
-## 2) Create an agent
+Use **Tab** to move to the next field. Leave the other fields at their displayed defaults. Your completed form should look like this:
 
-With your repository selected, press `n` (lowercase n) to open **New Agent**.
+![Completed New Repository form for LLxprt Jefe, including tutorial paths and GitHub repository identifiers](assets/first-agent-new-repository.svg)
 
-![New Agent form showing its generated work directory, LLxprt runtime, and launch options](assets/first-agent-new-agent.svg)
+Press **Enter**. Jefe returns to the dashboard with **LLxprt Jefe** selected.
 
-### Agent fields and what they mean
+## 2. Create and use an LLxprt Code agent
 
-- **Shortcut (1-9)**
-  - Optional quick-jump slot for `Alt+1..9`.
-  - `0` clears the shortcut.
+With **LLxprt Jefe** selected, press lowercase **n** to open **New Agent**. Enter:
 
-- **Name**
-  - Agent label in the UI (required to create the agent).
+| Field | Value |
+| --- | --- |
+| Shortcut | `1` |
+| Name | `Tutorial LLxprt` |
+| Description | `Implement issue 352` |
+| Work Dir | `~/projects/llxprt-jefe/tutorial-llxprt` |
+| Profile | `tutorial` |
+| Agent Runtime | `LLxprt` |
+| Mode Flags | `--yolo` |
+| Pass --continue | enabled |
 
-- **Description**
-  - Optional context note for you/team (what this agent is for).
+The repository defaults fill several of these values. Confirm that the completed form matches the tutorial before continuing:
 
-- **Work Dir**
-  - Filesystem path where llxprt runs.
-  - A common pattern is: `~/projects/myreponame/somethingimdoing`
-  - That `somethingimdoing` directory can be either:
-    - a full checkout, or
-    - a git worktree
-  - For **new** agents, Jefe auto-generates this from repository base dir + agent name until you edit this field manually.
+![Completed New Agent form for Tutorial LLxprt using the LLxprt runtime, tutorial profile, and tutorial checkout](assets/first-agent-new-agent.svg)
 
-- **Profile**
-  - llxprt profile name (`--profile-load`).
-  - Blank means use llxprt default behavior.
+Press **Enter**. Jefe launches the agent and gives the terminal keyboard focus. Type:
 
-- **Mode Flags**
-  - Extra llxprt CLI flags.
-  - The new-agent form pre-fills `--yolo`; clear it to run non-yolo. What you
-    save is what is passed.
+    hello from the tutorial
 
-- **LLXPRT_DEBUG**
-  - Optional debug env value for llxprt.
-  - Leave blank unless you are debugging llxprt behavior.
+Press **Enter** and wait for the response. Then press **F12** to return keyboard control to Jefe. The terminal remains visible as a read-only preview:
 
-- **Pass --continue** (checkbox)
-  - When enabled, Jefe launches llxprt with `--continue`.
+![Dashboard showing the running Tutorial LLxprt agent and its response to the tutorial prompt](assets/first-agent-result.svg)
 
-- **Sandbox** (checkbox)
-  - Enables llxprt sandbox mode for this agent.
-  - **Strong recommendation:** turn this on whenever your environment supports it.
+If ordinary navigation keys appear in the terminal instead of moving through Jefe, press **F12** again. This terminal-capture boundary is the most important navigation concept in Jefe.
 
-- **Sandbox Engine**
-  - Engine used for sandboxing (cycles with space in the form).
-  - Typical options include `podman`, `docker`, and `sandbox-exec` depending on platform.
+## 3. Create a Code Puppy agent
 
-- **Sandbox Flags**
-  - Resource limits/options passed via `SANDBOX_FLAGS`.
-  - Jefe defaults to:
-    - `--cpus=2 --memory=12288m --pids-limit=256`
+Press lowercase **n** again. Enter:
 
-### Submit / navigation
+| Field | Value |
+| --- | --- |
+| Shortcut | `2` |
+| Name | `Tutorial Puppy` |
+| Description | `Review issue 352` |
+| Work Dir | `~/projects/llxprt-jefe/tutorial-puppy` |
+| Agent Runtime | `code_puppy` |
+| Model | `gpt-5.6-sol` |
+| YOLO | enabled |
 
-- `Tab` or `Down`: next field
-- `Shift+Tab` or `Up`: previous field
-- `Space`: toggle checkboxes / cycle sandbox engine
-- `Enter`: submit
-- `Esc`: cancel
+Move to **Agent Runtime** and press **Space** to change it from `LLxprt` to `code_puppy`. The LLxprt-only fields are replaced by Code Puppy settings. Fill the model and enable YOLO:
 
-After submit, the agent is created and selected. Jefe focuses the terminal, so
-ordinary keystrokes go to the agent. Type your prompt and press `Enter`; the
-agent response appears in the same pane.
+![Completed New Agent form for Tutorial Puppy using the code_puppy runtime and gpt-5.6-sol model](assets/first-agent-code-puppy.svg)
 
-Press `F12` to return keyboard control to Jefe. The terminal remains visible as
-a read-only preview, and the created agent remains selected and running.
+Press **Enter** and wait for Code Puppy to start. Press **F12** to return control to Jefe.
 
-![Jefe dashboard after returning from terminal capture, with Tutorial Agent selected and its response visible](assets/first-agent-result.svg)
+The next step sends work to an existing agent. Jefe offers persistent agents that are not currently running, so select **Tutorial Puppy**, press **Ctrl-K** to stop it, select **Tutorial LLxprt**, and press **Ctrl-K** again. Each preview should report **Status: Dead**.
 
----
+## 4. Send an issue to an agent
 
-## Sending a GitHub issue to an agent
+Create or choose a small documentation issue in your writable repository. Press lowercase **i** to open **Issues**; Jefe scopes the list to the **Issues / PRs Repo** configured earlier.
 
-**Send Issue** writes the selected issue's details to `.jefe/issue-prompt.md` and
-launches the agent with Jefe's generic end-to-end delivery contract. The agent
-is instructed to create an issue branch, implement and verify the change,
-commit and push it, open a linked pull request, watch required workflows to
-completion, and loop on failures and actionable review feedback. It must reply
-in the relevant review threads and resolve addressed threads where the hosting
-platform supports that operation.
+The fixture screenshot uses issue **352**, **Turn the getting-started guide into a filled-in visual happy path**. In your session, select the issue you created:
 
-This contract is the same for LLxprt, Code Puppy, and future runtimes; only the
-runtime-specific command-line transport differs. Repository-local instructions
-such as `AGENTS.md`, `.llxprt/LLXPRT.md`, or other agent memories may supplement
-project conventions, but Jefe does not require them to provide the delivery
-workflow.
+![Issues screen with fixture issue 352 selected for the LLxprt Jefe repository](assets/first-agent-issues.svg)
 
-If a workflow-watch command or shell invocation times out while checks are
-pending, the agent is told to continue polling with a bounded delay. Pending
-checks alone are not completion and should not cause the agent to return.
+Press **Enter** to load the issue detail, then press capital **S** to open **Send to Agent**. Keep **Tutorial LLxprt** selected and press **Enter**. Jefe verifies the checkout, prepares the issue context, and launches LLxprt with the delivery instructions.
 
----
+![Dashboard after issue handoff, showing Tutorial LLxprt running with the issue context](assets/first-agent-issue-send.svg)
 
-## Recommended baseline for most users
+Jefe also attempts to assign the issue to the authenticated GitHub user; assignment failure is reported as a warning but does not discard the handoff. The agent now has the issue title, body, repository context, and Jefe’s delivery contract. That contract asks it to work on a dedicated branch, verify the change, open a linked pull request, and follow CI and review feedback to completion.
 
-- Set a real repository **Base Dir**.
-- Use a clear agent **Name** + short **Description**.
-- Keep **Sandbox** enabled whenever possible.
-- Start with default sandbox flags unless you know you need different limits.
+## 5. Inspect the resulting pull request
 
-If copy/paste from llxprt ever behaves oddly inside Jefe, check the tmux note in the main README.
+After the agent opens a pull request in your repository, press lowercase **p** to open **Pull Requests**. Select the PR produced by your issue and press **Enter**. Do not select PR 353 in the upstream repository; that number exists only in the deterministic screenshot fixture.
+
+Before merging, check the detail view. In the fixture, PR **353**, **Complete the filled-in getting-started walkthrough**, is approved, its `ci` check passed, and it is mergeable:
+
+![Pull Requests detail for fixture PR 353 showing approval, successful checks, and mergeable state](assets/first-agent-pull-request.svg)
+
+Do not merge until your PR’s required reviews and checks are complete.
+
+## 6. Squash and merge the pull request
+
+With your PR’s detail selected, press lowercase **m**. Jefe opens the merge-method chooser:
+
+![Merge Pull Request chooser for fixture PR 353 with merge, squash, and rebase methods](assets/first-agent-pr-merge.svg)
+
+Press **Down** to select **Squash and merge**, then press **Enter**. Jefe displays **Press Enter to confirm merge**. Review the method one final time and press **Enter** again.
+
+The PR detail refreshes to **MERGED**. You have now completed the happy path: configured a repository, used both supported runtimes, handed an issue to an agent, inspected its pull request, and merged the result.
+
+## Next steps
+
+Use the [overview and UI reference](overview.md) when you need alternate runtime versions, sandbox settings, filters, comments, pagination, transient agents, repository editing, or the complete keyboard reference.
+
+Press **?**, **h**, or **F1** in Jefe for context-sensitive help. If copy and paste behaves unexpectedly inside an agent terminal, see the tmux clipboard guidance in the [main README](../README.md).

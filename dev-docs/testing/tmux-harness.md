@@ -174,8 +174,9 @@ artifact directory.
 
 The supported Unix-only maintainer command builds the current checkout's locked
 workspace binaries, creates one exclusive run-owned root, executes the real
-first-agent TUI scenario, publication-validates the captures, and promotes the
-three tutorial SVGs directly to `docs/assets`:
+first-agent TUI scenario, publication-validates the captures, and promotes eight
+tutorial SVGs directly to `docs/assets`. The selected sequence covers repository
+setup, LLxprt Code, Code Puppy, Issues handoff, and pull-request merge:
 
 ```bash
 RUN_ROOT="${TMPDIR:-/tmp}/jefe-first-agent-capture-$$"
@@ -185,11 +186,16 @@ scripts/regenerate-first-agent-tutorial.sh check
 
 The root must be an absolute path whose parent exists and which does not already
 exist. Choose a new root for every run. The underlying workflow starts the real
-Jefe binary with isolated HOME, config, runtime socket, fixture repository, and
-local deterministic `llxprt` shim paths. It does not use normal Jefe state, user
-configuration, credentials, remote resources, or unrelated repositories.
-Missing tools or binaries fail before capture; scenario drift reports a non-zero
-harness failure and retains private diagnostics beneath the run root.
+Jefe binary with isolated HOME, config, runtime socket, and local git repository.
+Deterministic LLxprt Code and Code Puppy shims provide terminal sessions. A
+fail-closed GitHub CLI fixture supplies issue 352, PR 353, and merge behavior; it
+rejects every command outside its exact allowlist and never delegates to real
+`gh`. A narrowly scoped git fixture keeps agent fetches local while preserving
+the canonical GitHub origin identity. The workflow does not use normal Jefe
+state, user configuration, credentials, network resources, or unrelated
+repositories. Missing tools or binaries fail before capture; scenario drift
+reports a non-zero harness failure and retains private diagnostics beneath the
+run root.
 
 Semantic evidence is retained under `evidence/`; publication-validated fixed-size
 SVGs are written under `publication/`; `private/` is diagnostic and is never

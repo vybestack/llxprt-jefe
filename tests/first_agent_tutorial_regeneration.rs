@@ -9,10 +9,15 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
-const ASSETS: [&str; 3] = [
+const ASSETS: [&str; 8] = [
     "first-agent-new-repository.svg",
     "first-agent-new-agent.svg",
     "first-agent-result.svg",
+    "first-agent-code-puppy.svg",
+    "first-agent-issues.svg",
+    "first-agent-issue-send.svg",
+    "first-agent-pull-request.svg",
+    "first-agent-pr-merge.svg",
 ];
 
 struct Fixture {
@@ -98,6 +103,10 @@ fn create_fixture_files(repo: &Path) {
     write_executable(
         &repo.join("scripts/issue241-capture.sh"),
         include_str!("fixtures/first_agent_tutorial/fake-capture.sh"),
+    );
+    write_executable(
+        &repo.join("scripts/first-agent-tutorial-gh-shim.sh"),
+        "#!/bin/sh\nexit 1\n",
     );
     write_source_contract(repo);
     for asset in ASSETS {

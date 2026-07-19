@@ -9,8 +9,8 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 CAPTURE_SCRIPT="$SCRIPT_DIR/issue241-capture.sh"
 ASSET_DIR="$REPO_ROOT/docs/assets"
 PROVENANCE="$ASSET_DIR/first-agent-tutorial.provenance"
-ASSETS="first-agent-new-repository.svg first-agent-new-agent.svg first-agent-result.svg"
-CONTRACT_PATHS="Cargo.toml Cargo.lock build.rs src dev-docs/tmux-scenarios/first-agent-tutorial.json scripts/issue241-capture.sh scripts/regenerate-first-agent-tutorial.sh"
+ASSETS="first-agent-new-repository.svg first-agent-new-agent.svg first-agent-result.svg first-agent-code-puppy.svg first-agent-issues.svg first-agent-issue-send.svg first-agent-pull-request.svg first-agent-pr-merge.svg"
+CONTRACT_PATHS="Cargo.toml Cargo.lock build.rs src dev-docs/tmux-scenarios/first-agent-tutorial.json scripts/issue241-capture.sh scripts/first-agent-tutorial-gh-shim.sh scripts/regenerate-first-agent-tutorial.sh"
 
 usage() {
     cat <<'EOF'
@@ -162,16 +162,25 @@ prepare_promotion() {
         "$STAGE_DIR/new/first-agent-tutorial.provenance"
     for file in $ASSETS first-agent-tutorial.provenance; do
         target=$ASSET_DIR/$file
-        [ -f "$target" ] && [ ! -L "$target" ] || fail "promotion target is missing or unsafe: $target"
-        cp "$target" "$STAGE_DIR/backup/$file"
+        [ ! -L "$target" ] || fail "promotion target is unsafe: $target"
+        if [ -f "$target" ]; then
+            cp "$target" "$STAGE_DIR/backup/$file"
+        elif [ -e "$target" ]; then
+            fail "promotion target is unsafe: $target"
+        fi
     done
 }
 
 restore_publication() {
     restored=1
     for file in $ASSETS first-agent-tutorial.provenance; do
-        if ! cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file"; then
-            printf 'failed to restore tutorial asset: %s\n' "$file" >&2
+        if [ -f "$STAGE_DIR/backup/$file" ]; then
+            if ! cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file"; then
+                printf 'failed to restore tutorial asset: %s\n' "$file" >&2
+                restored=0
+            fi
+        elif [ -L "$ASSET_DIR/$file" ] || ! rm -f "$ASSET_DIR/$file"; then
+            printf 'failed to remove newly promoted tutorial asset: %s\n' "$file" >&2
             restored=0
         fi
     done

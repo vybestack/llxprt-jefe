@@ -1,7 +1,12 @@
 format_version=1
-source_commit=e3f9299be8e128e30fd74aa0b98e68c4564889c2
+source_commit=e2ce0fb4c3db336c965c1529fab259cfc804849d
 source_version=jefe 0.0.29
-source_fingerprint=62d5efc8c2a66d399e16f4efd7c7be8a57ba15b5
-asset=first-agent-new-repository.svg:f4bb84e1b40ca0578c4cf8ccadd34d34f1d6d0d9
-asset=first-agent-new-agent.svg:e712ac175e35c3cd52382c0feda3cbc82f2cb255
-asset=first-agent-result.svg:89ba8d5b854cba46c5a36bab1e483c8849e5248d
+source_fingerprint=c33530125234531b94d3679cddf9181b97daf9aa
+asset=first-agent-new-repository.svg:1cfb090d0506705359890ea894695ccc72953d0d
+asset=first-agent-new-agent.svg:f2c89e62b6ae5c1b3e2f8e6ad16262c97a31c0ae
+asset=first-agent-result.svg:01fa579cf26769966adb9da0d39073698e658bc4
+asset=first-agent-code-puppy.svg:97bff6a906c046a1ffaacc751cd37c2888bbf550
+asset=first-agent-issues.svg:a9f873b03bb5bd2ae0e92769acdeab0a6506df10
+asset=first-agent-issue-send.svg:5273fa433557a50e778d444f17e8281d41a850b7
+asset=first-agent-pull-request.svg:54f44b6ae2a3917bd0a74d917da147e06cdffca5
+asset=first-agent-pr-merge.svg:43e1f9c42793c44a7eeaf28c5cf129621e47e5b3
