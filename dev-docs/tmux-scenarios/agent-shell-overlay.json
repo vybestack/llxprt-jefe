@@ -32,7 +32,9 @@
     { "waitFor": "issue222-shell-ready" },
     { "capture": "agent-shell-overlay" },
 
+    { "line": "stty -echo -icanon min 5 time 0; bytes=$(dd bs=5 count=1 2>/dev/null | od -An -tx1 | tr -d ' '); stty sane; printf 'issue355-f11-forwarded-%s\\n' \"$bytes\"" },
     { "key": "F11" },
+    { "waitFor": "issue355-f11-forwarded-1b5b32337e" },
     { "waitFor": "F10 close shell" },
     { "key": "F10" },
     { "waitForNot": "Agent Shell" },

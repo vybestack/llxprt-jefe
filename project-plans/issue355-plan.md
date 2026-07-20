@@ -97,7 +97,7 @@ Current scope after approved blocker remediation: 10 files (9 tracked modificati
 | working tree | `scripts/issue222-run-scenario.sh` | PASS: 28 real-tmux steps; `F10` opened and closed the terminal-focused shell and restored the dashboard |
 | working tree | `make quick-check` | PASS: format/check and all test targets (including 2,191 library and 725 binary tests) |
 | working tree | approved source-size remediation plus focused tests | PASS: `src/app_shell.rs` is 994 lines; format, compile, close route, footer, Help, and 17 shell tests pass |
-| working tree | `scripts/issue222-run-scenario.sh` after review remediation | PASS: 30 real-tmux steps, including active-overlay F11 non-close proof; artifacts at `target/tmux-harness/issue222-lKKo2Z` |
+| working tree | `scripts/issue222-run-scenario.sh` after review remediation | PASS: 32 real-tmux steps; shell-side marker proves F11 delivered bytes `1b5b32337e`; artifacts at `target/tmux-harness/issue222-2ylVoQ` |
 | working tree | `make ci-check` after remediation | PASS: format, clippy policy, source-size gate, clippy, coverage, locked build, full tests, and doctests |
 
 ## Review findings and deferred follow-ups
