@@ -10,6 +10,7 @@ mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_navigation;
 mod issues_property_edit;
+mod issues_rewrite_dispatch;
 mod issues_subfocus_dispatch;
 mod list_navigation;
 mod modal_handlers;

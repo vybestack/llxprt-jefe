@@ -46,6 +46,10 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,
+    /// True while a non-interactive agent rewrite of the new-issue draft is in
+    /// flight (issue #214). Guards against duplicate requests and drives the UI
+    /// banner.
+    pub rewrite_pending: bool,
     /// Property editor overlay state (issue #175).
     pub property_editor: Option<super::IssuePropertyEditorState>,
     /// Pending property mutation staleness guard (issue #175).

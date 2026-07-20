@@ -25,6 +25,8 @@ mod identity;
 mod liveness;
 mod manager;
 mod multiplexer;
+/// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
+mod non_interactive;
 mod package_probe;
 mod pane_capture;
 mod preflight;
@@ -69,6 +71,7 @@ pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe,
 };
+pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 pub use package_probe::{
     NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,
 };

@@ -169,9 +169,9 @@ pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
         .push("Title: first line | Body: remaining lines".to_string());
     builder.lines.push(String::new());
 
-    builder
-        .lines
-        .push(String::from("Alt+Enter submit | Esc cancel"));
+    builder.lines.push(String::from(
+        "Alt+Enter submit | Ctrl+R rewrite | Esc cancel",
+    ));
     builder.finish()
 }
 

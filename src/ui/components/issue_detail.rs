@@ -398,7 +398,7 @@ mod tests {
 
         assert!(text.contains("New Issue"));
         assert!(text.contains("Title: first line | Body: remaining lines"));
-        assert!(text.contains("Alt+Enter submit | Esc cancel"));
+        assert!(text.contains("Alt+Enter submit | Ctrl+R rewrite | Esc cancel"));
         // The editor text is rendered by the embedded wrapping TextBox, so it
         // must NOT be flattened into the read-only document (issue #212).
         assert!(
