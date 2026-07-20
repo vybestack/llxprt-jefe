@@ -7,6 +7,7 @@ mod app_init;
 mod app_input;
 mod app_shell;
 mod app_shell_attach;
+mod app_shell_key_routing;
 mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;

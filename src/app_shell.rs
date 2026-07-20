@@ -8,13 +8,14 @@ use tracing::{debug, trace, warn};
 
 use crate::AppContext;
 use crate::app_input::{
-    apply_background_gh_delivery, dispatch_app_event, forward_key_to_pty, handle_f12_toggle,
-    handle_global_shortcut_key, handle_mode_auth_key, handle_mode_confirm_key,
-    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
+    apply_background_gh_delivery, dispatch_app_event, handle_mode_auth_key,
+    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
     handle_mode_theme_picker_key, handle_normal_key_event, install_gh_delivery_handler,
     persist_state, request_pr_background_refresh, synchronize_actions_geometry, to_persisted_state,
-    try_ctrl_c_interrupt_passthrough, try_intercept_terminal_scrollback,
-    try_suppress_synthetic_enter, update_paste_enter_suppression,
+    try_ctrl_c_interrupt_passthrough, try_suppress_synthetic_enter, update_paste_enter_suppression,
+};
+use crate::app_shell_key_routing::{
+    handle_pre_mode_shortcut, route_shell_overlay_key, route_terminal_capture_key,
 };
 use crate::pty_encoding::PasteEnterSuppression;
 
@@ -775,68 +776,6 @@ fn handle_key_event(
     ) {
         dispatch_app_event(app_state, &ctx.cloned(), evt);
     }
-}
-
-fn route_shell_overlay_key(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    key_event: &KeyEvent,
-) -> bool {
-    if !crate::app_input::shell_overlay::try_close_shell_overlay(
-        app_state,
-        &ctx.cloned(),
-        key_event,
-    ) {
-        forward_key_to_pty(ctx, suppress_next_enter, key_event);
-    }
-    true
-}
-
-fn route_terminal_capture_key(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    input_mode: InputMode,
-    key_event: &KeyEvent,
-) -> bool {
-    if input_mode != InputMode::TerminalCapture {
-        return false;
-    }
-    if !try_intercept_terminal_scrollback(app_state, &ctx.cloned(), key_event) {
-        forward_key_to_pty(ctx, suppress_next_enter, key_event);
-    }
-    true
-}
-
-fn handle_pre_mode_shortcut(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    key_event: &KeyEvent,
-    screen_mode: ScreenMode,
-    terminal_focused: bool,
-    input_mode: InputMode,
-) -> bool {
-    if key_event.code == KeyCode::F(12)
-        && matches!(
-            screen_mode,
-            ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
-        )
-    {
-        handle_f12_toggle(app_state, &ctx.cloned());
-        return true;
-    }
-    if handle_global_shortcut_key(app_state, &ctx.cloned(), key_event) {
-        return true;
-    }
-    input_mode == InputMode::Normal
-        && screen_mode == ScreenMode::Dashboard
-        && !terminal_focused
-        && crate::app_input::shell_overlay::handle_shell_shortcut_key(
-            app_state,
-            &ctx.cloned(),
-            key_event,
-        )
 }
 
 fn resolve_input_mode(

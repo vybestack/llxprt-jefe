@@ -32,6 +32,6 @@
 <tspan x="16" y="524" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││                                        ││                                  │</tspan>
 <tspan x="16" y="542" textLength="848" lengthAdjust="spacingAndGlyphs">│                    ││[terminal status redacted]              ││                                  │</tspan>
 <tspan x="16" y="560" textLength="848" lengthAdjust="spacingAndGlyphs">╰────────────────────╯╰────────────────────────────────────────╯╰──────────────────────────────────╯</tspan>
-<tspan x="16" y="578" textLength="848" lengthAdjust="spacingAndGlyphs"> ^/v navigate | &lt;/&gt; pane | t/f12 terminal focus | v active-only (repos+agents) | ⌥1-9        pid:xx </tspan>
+<tspan x="16" y="578" textLength="848" lengthAdjust="spacingAndGlyphs"> ^/v navigate | &lt;/&gt; pane | t/f12 terminal focus | F10 shell | F8 external term | v active-   pid:xx </tspan>
 </text>
 </svg>
