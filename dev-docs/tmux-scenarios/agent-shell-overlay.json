@@ -32,6 +32,8 @@
     { "waitFor": "issue222-shell-ready" },
     { "capture": "agent-shell-overlay" },
 
+    { "key": "F11" },
+    { "waitFor": "F10 close shell" },
     { "key": "F10" },
     { "waitForNot": "Agent Shell" },
     { "waitFor": "Shell Agent" },

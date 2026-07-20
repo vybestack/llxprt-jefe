@@ -97,7 +97,7 @@ Current scope after approved blocker remediation: 10 files (9 tracked modificati
 | working tree | `scripts/issue222-run-scenario.sh` | PASS: 28 real-tmux steps; `F10` opened and closed the terminal-focused shell and restored the dashboard |
 | working tree | `make quick-check` | PASS: format/check and all test targets (including 2,191 library and 725 binary tests) |
 | working tree | approved source-size remediation plus focused tests | PASS: `src/app_shell.rs` is 994 lines; format, compile, close route, footer, Help, and 17 shell tests pass |
-| working tree | `scripts/issue222-run-scenario.sh` after remediation | PASS: 28 real-tmux steps; artifacts at `target/tmux-harness/issue222-A4atOl` |
+| working tree | `scripts/issue222-run-scenario.sh` after review remediation | PASS: 30 real-tmux steps, including active-overlay F11 non-close proof; artifacts at `target/tmux-harness/issue222-lKKo2Z` |
 | working tree | `make ci-check` after remediation | PASS: format, clippy policy, source-size gate, clippy, coverage, locked build, full tests, and doctests |
 
 ## Review findings and deferred follow-ups
@@ -105,3 +105,4 @@ Current scope after approved blocker remediation: 10 files (9 tracked modificati
 - Blocker—Fix resolved: the approved extraction moved the existing non-blocking PTY dirty check into `app_shell_workers`, reduced `src/app_shell.rs` from 1,009 to 994 lines, and preserved behavior.
 - Reject: Open Code Review claimed `handle_shell_shortcut_key` would reopen instead of close an active overlay. Root dispatch routes every active-overlay key through `route_shell_overlay_key` and returns before `handle_pre_mode_shortcut`; the real-tmux scenario proves F10 closes while terminal input owns focus.
 - Reject: Open Code Review suggested changing the pre-existing `(120, 40)` resize fallback. The fallback is unchanged by this issue, outside A1-A5, and changing its error semantics would widen scope without evidence of a regression.
+- In-scope-Fix: CodeRabbit requested route-level proof that F11 is not consumed by the active overlay. The real-tmux scenario now sends F11 while the shell owns input, verifies the active-shell footer remains visible, and then closes with F10.
