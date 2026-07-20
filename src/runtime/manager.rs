@@ -977,7 +977,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         super::shell_window::observe_shell_window_sessions()
     }
     fn close_all_shell_windows(&mut self) -> Vec<RuntimeError> {
-        super::shell_window::close_all_manager_shell_windows(&self.sessions)
+        super::shell_window::close_all_manager_shell_windows()
     }
 }
 

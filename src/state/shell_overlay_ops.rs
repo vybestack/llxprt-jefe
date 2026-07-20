@@ -82,6 +82,7 @@ impl AppState {
         self.shell_overlay.agent_id = None;
         self.shell_overlay.generation = self.shell_overlay.generation.wrapping_add(1);
         self.terminal_focused = false;
+        self.dashboard_grab = None;
         self.pane_focus = self
             .shell_overlay
             .previous_pane_focus

@@ -44,7 +44,9 @@ impl ShellInventory {
     /// Whether `agent_id` owns a tracked shell window.
     #[must_use]
     pub fn contains(&self, agent_id: &AgentId) -> bool {
-        self.agents.iter().any(|entry| entry == agent_id)
+        self.agents
+            .binary_search_by(|entry| entry.0.cmp(&agent_id.0))
+            .is_ok()
     }
 
     /// Number of tracked shell windows.

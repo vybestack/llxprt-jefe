@@ -1,6 +1,6 @@
 //! Embedded shell-window multiplexer operations (issue #222).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
@@ -57,10 +57,8 @@ pub(super) fn hide_manager_shell_window(
 ///
 /// Returns the per-session failures so callers (graceful shutdown) can report
 /// them without blocking the quit path. Sessions whose close succeeds are not
-/// represented; the order of returned errors follows `sessions.values()`.
-pub(super) fn close_all_manager_shell_windows(
-    _sessions: &HashMap<AgentId, RuntimeSession>,
-) -> Vec<RuntimeError> {
+/// represented; failures follow the deterministic discovery order.
+pub(super) fn close_all_manager_shell_windows() -> Vec<RuntimeError> {
     match observe_shell_window_sessions() {
         Ok(session_names) => close_all_shell_windows(&session_names),
         Err(error) => vec![error],
@@ -334,26 +332,15 @@ pub(super) fn list_all_shell_windows_plan(multiplexer: &MultiplexerPlan) -> Comm
 /// no I/O, deterministic, unit-testable.
 #[must_use]
 pub fn parse_sessions_with_shell_windows(raw: &str) -> Vec<String> {
-    let mut owners = Vec::new();
-    for line in raw.lines() {
-        // Use rsplit_once so a session name containing a colon (rare but
-        // possible) is still parsed correctly; the window name is the
-        // trailing segment.
-        let Some((session, window)) = line.rsplit_once(':') else {
-            continue;
-        };
-        if window.trim() != SHELL_WINDOW_NAME {
-            continue;
-        }
-        let session = session.trim();
-        if session.is_empty() || owners.iter().any(|s: &String| s == session) {
-            continue;
-        }
-        owners.push(session.to_owned());
-    }
-    // Deterministic order for callers that diff successive observations.
-    owners.sort();
-    owners
+    raw.lines()
+        .filter_map(|line| line.rsplit_once(':'))
+        .filter(|(_, window)| window.trim() == SHELL_WINDOW_NAME)
+        .map(|(session, _)| session.trim())
+        .filter(|session| !session.is_empty())
+        .map(String::from)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// Parse raw `list-windows -t <session> -F #{window_name}` stdout and report

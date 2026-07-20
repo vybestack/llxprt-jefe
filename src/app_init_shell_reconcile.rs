@@ -20,7 +20,7 @@
 use jefe::domain::AgentId;
 use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession};
 use jefe::state::AppState;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::app_input::SharedContext;
 
@@ -112,7 +112,10 @@ pub fn reconcile_shell_inventory(
     // raw session names so orphans are discovered.
     let observed_sessions: Vec<String> = {
         let Ok(ctx_guard) = ctx_arc.lock() else {
-            return None;
+            warn!("startup shell reconcile: runtime context mutex poisoned");
+            return Some(
+                "could not reconcile shell windows: runtime context unavailable".to_owned(),
+            );
         };
         match ctx_guard.runtime.observe_shell_window_sessions() {
             Ok(sessions) => sessions,
@@ -143,23 +146,29 @@ pub fn reconcile_shell_inventory(
                 ));
             }
         }
-        for orphan in &orphans {
-            match jefe::runtime::close_shell_window(orphan) {
-                Ok(()) | Err(RuntimeError::KillFailed(_) | RuntimeError::SessionNotFound(_)) => {}
-                Err(error) => {
-                    warn!(session = %orphan, error = %error, "startup shell reconcile: orphan kill failed");
-                    warnings.push(format!(
-                        "could not remove orphan shell in {orphan}: {error}"
-                    ));
-                }
-            }
-        }
+        reconcile_orphans(&orphans, &mut warnings);
     }
 
     // Inventory is runtime-only and must never trigger persisted-state writes.
     app_state.write().replace_shell_inventory(adopted);
 
-    warnings.into_iter().next()
+    (!warnings.is_empty()).then(|| warnings.join("; "))
+}
+fn reconcile_orphans(orphans: &[String], warnings: &mut Vec<String>) {
+    for orphan in orphans {
+        match jefe::runtime::close_shell_window(orphan) {
+            Ok(()) | Err(RuntimeError::SessionNotFound(_)) => {}
+            Err(error @ RuntimeError::KillFailed(_)) => {
+                debug!(session = %orphan, error = %error, "startup shell reconcile: orphan already absent or could not be killed");
+            }
+            Err(error) => {
+                warn!(session = %orphan, error = %error, "startup shell reconcile: orphan kill failed");
+                warnings.push(format!(
+                    "could not remove orphan shell in {orphan}: {error}"
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
