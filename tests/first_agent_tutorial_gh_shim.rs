@@ -49,7 +49,8 @@ impl Fixture {
 
 fn diagnostics(output: &Output) -> String {
     format!(
-        "stdout:\n{}\nstderr:\n{}",
+        "status: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
@@ -96,6 +97,12 @@ fn fixture_rejects_mutated_graphql_flags() {
     ]);
 
     assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("fixture rejected: gh api graphql --field query=unexpected"),
+        "mutated GraphQL rejection diagnostic missing:\n{}",
+        diagnostics(&rejected)
+    );
     assert!(fixture.audit().contains("REJECTED"));
 }
 

@@ -214,7 +214,8 @@ publication_text() {
         s{Dir: /[^ ]*…}{
             my $old = $&;
             my $new = "Dir: ~/projects/llxprt-jefe/…";
-            $new . (" " x (length($old) - length($new)));
+            my $padding = length($old) - length($new);
+            $new . (" " x ($padding > 0 ? $padding : 0));
         }ge;
         s{pid:([0-9]+)}{"pid:" . ("x" x length($1))}ge;
         s{\[[^]]+ [0-9]{1,2}:[0-9]{2} [0-9]{1,2}-[A-Za-z]{3}-[0-9]{2}}{

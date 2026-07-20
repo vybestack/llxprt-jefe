@@ -175,12 +175,24 @@ fn capture_rejects_non_executable_binary_paths_before_creating_root() {
     assert!(!root.exists());
 }
 
+fn assert_publication_grid(publication: &str) {
+    let directory = publication
+        .lines()
+        .find_map(|line| line.strip_prefix("Dir: "))
+        .map(str::trim_end);
+    assert_eq!(directory, Some("~/projects/llxprt-jefe/…"));
+    assert!(
+        publication.lines().all(|line| line.chars().count() == 100),
+        "publication rows must preserve the fixed 100-column capture grid"
+    );
+}
+
 #[test]
 fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let (jefe, harness) = fake_binaries(
         &temp,
-        "pid:123\nTutorial Agent ready        pid:456\nProcess (pid:789) exited\n[private-host 12:34 16-Jul-26",
+        "pid:123\nTutorial Agent ready        pid:456\nProcess (pid:789) exited\n[private-host 12:34 16-Jul-26\nDir: /a/…",
     );
     let root = temp.path().join("capture");
     let output = capture(&root, &jefe, &harness);
@@ -217,10 +229,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     assert!(!svg.contains("private-host"));
     let publication = fs::read_to_string(root.join("private/first-agent-result.publication.txt"))
         .unwrap_or_else(|error| panic!("read publication text: {error}"));
-    assert!(
-        publication.lines().all(|line| line.chars().count() == 100),
-        "publication rows must preserve the fixed 100-column capture grid"
-    );
+    assert_publication_grid(&publication);
 }
 
 #[test]
@@ -286,13 +295,15 @@ fn committed_tutorial_assets_keep_right_borders_inside_the_viewport() {
         assert!(
             rows.iter().any(|row| {
                 let row = row.trim_end_matches([' ', '*']);
-                row.ends_with(['╮', '╗']) || row.ends_with('─')
+                row.ends_with('╮') || row.ends_with('╗') || row.ends_with('─')
             }),
             "right corner missing from {name}"
         );
         assert!(
-            rows.iter()
-                .any(|row| row.trim_end_matches([' ', '*']).ends_with(['│', '║'])),
+            rows.iter().any(|row| {
+                let row = row.trim_end_matches([' ', '*']);
+                row.ends_with('│') || row.ends_with('║')
+            }),
             "right vertical border missing from {name}"
         );
         assert_terminal_grid_is_contained(&svg, name);
