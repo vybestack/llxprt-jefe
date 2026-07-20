@@ -425,6 +425,46 @@ pub(super) fn list_shell_windows_plan(
     command
 }
 
+/// Build a `capture-pane -p -t <session>:jefe-shell` argv for the Terminal
+/// Manager preview (issue #361 PR B).
+///
+/// Targeted capture of the shell window only — never the agent pane and never
+/// a second live viewer. Exposed so structural tests can verify the command
+/// shape across Unix tmux and Windows/psmux without live tmux.
+#[must_use]
+pub(super) fn capture_shell_preview_command(
+    multiplexer: &MultiplexerPlan,
+    session_name: &str,
+) -> Command {
+    let mut command = multiplexer.command();
+    let target = format!("{session_name}:{SHELL_WINDOW_NAME}");
+    command.args(["capture-pane", "-p", "-t", &target]);
+    command
+}
+
+/// Capture a throttled, read-only preview of the `<session>:jefe-shell` pane
+/// as plain text lines (issue #361 PR B).
+///
+/// Targets the shell window only — never the agent pane, never a second live
+/// viewer. Bounded by the visible pane (no `-S` history); the manager preview
+/// is intentionally reduced. Session-name free so dead owners still produce a
+/// (failed) result rather than blocking the manager.
+pub fn capture_shell_preview(session_name: &str) -> Result<Vec<String>, RuntimeError> {
+    let multiplexer = MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
+    let mut command = capture_shell_preview_command(&multiplexer, session_name);
+    let output = command.output().map_err(|error| {
+        RuntimeError::CapabilityProbeFailed(format!("tmux capture-pane spawn failed: {error}"))
+    })?;
+    if !output.status.success() {
+        return Err(RuntimeError::CapabilityProbeFailed(format!(
+            "tmux capture-pane failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+}
+
 #[cfg(test)]
 #[path = "shell_window_tests.rs"]
 mod tests;

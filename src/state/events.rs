@@ -888,4 +888,31 @@ pub enum AppEvent {
     ErrorsScrollDetailPageUp,
     ErrorsScrollDetailPageDown,
     ErrorsClearAll,
+
+    // Terminal Manager events (issue #361 PR B)
+    /// F7 from Dashboard opens the Terminal Manager screen.
+    EnterTerminalManagerMode,
+    /// Esc/F12 leaves the Terminal Manager and returns to Dashboard.
+    ExitTerminalManagerMode,
+    TerminalManagerNavigateUp,
+    TerminalManagerNavigateDown,
+    TerminalManagerNavigateHome,
+    TerminalManagerNavigateEnd,
+    /// Request cross-agent focus on the selected Running owner (reducer only
+    /// records generation-guarded pending state; attach happens first).
+    RequestShellFocus(crate::domain::AgentId),
+    /// Confirm a pending focus after the expected owner attached.
+    ConfirmShellFocus(crate::domain::AgentId),
+    /// Fail a pending focus (attach failed or owner no longer Running).
+    FailShellFocus,
+    /// A preview capture result for the selected shell. Correlated by owner
+    /// and generation so stale captures are discarded.
+    ShellPreviewResult {
+        agent_id: crate::domain::AgentId,
+        generation: u64,
+        ok: bool,
+        lines: Vec<String>,
+    },
+    /// A shell was closed (runtime already removed the inventory entry).
+    ShellClosed(crate::domain::AgentId),
 }

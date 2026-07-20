@@ -93,42 +93,29 @@ pub fn handle_normal_key_event(
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
 ) -> Option<AppEvent> {
-    let snapshot = normal_key_snapshot(app_state);
-
-    // Unified quit resolver (`Ctrl-Q` or rapid `qqq`). Runs first so the quit
-    // trigger is honored in every eligible sub-mode and a pending `q` is
-    // swallowed before any lower handler consumes it.
     if let KeyHandling::Handled(event) =
         resolve_quit(app_state, should_quit, key_event, screen_mode)
     {
         return event;
     }
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_issues_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
+    for handling in [
+        handle_dashboard_issues_key(app_state, ctx, key_event, screen_mode),
+        handle_dashboard_prs_key(app_state, ctx, key_event, screen_mode),
+        handle_dashboard_actions_key(app_state, ctx, key_event, screen_mode),
+    ] {
+        if let KeyHandling::Handled(event) = handling {
+            return event;
+        }
     }
-    // PR-mode delegation: must run BEFORE resolve_mode_key so that while
-    // screen_mode == DashboardPullRequests, p/P is intercepted here
-    // (-> handle_prs_mode_key) and never reaches resolve_mode_key (whose p/P
-    // arm only fires for screen == Dashboard).
-    // @plan PLAN-20260624-PR-MODE.P09
-    // @requirement REQ-PR-001
-    // @requirement REQ-PR-002
-    // @pseudocode component-003 lines 10-14
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_prs_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
-    }
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_actions_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
+    if screen_mode == ScreenMode::DashboardTerminals {
+        return super::terminal_manager::handle_terminal_manager_mode_key(
+            app_state, ctx, key_event,
+        );
     }
     if screen_mode == ScreenMode::DashboardErrors {
         return super::errors::handle_errors_mode_key(app_state, ctx, key_event);
     }
+    let snapshot = normal_key_snapshot(app_state);
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return event;
     }
@@ -160,7 +147,6 @@ pub fn handle_normal_key_event(
     if let KeyHandling::Handled(event) = handle_theme_key(app_state, ctx, key_event, screen_mode) {
         return event;
     }
-
     None
 }
 
@@ -171,6 +157,7 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
         selected_agent_is_running: state
             .selected_agent()
             .is_some_and(jefe::domain::Agent::is_running),
+
         selected_repo_id: state
             .selected_repository()
             .map(|repository| repository.id.clone()),
@@ -189,7 +176,10 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
 /// bare `q` harmlessly advances the `qqq` sequence).
 fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
     match screen_mode {
-        ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardErrors => true,
+        ScreenMode::Dashboard
+        | ScreenMode::Split
+        | ScreenMode::DashboardErrors
+        | ScreenMode::DashboardTerminals => true,
         ScreenMode::DashboardIssues => issues_quit_shortcut_active(state),
         ScreenMode::DashboardPullRequests => prs_quit_shortcut_active(state),
         ScreenMode::DashboardActions => actions_quit_shortcut_active(state),
@@ -498,6 +488,9 @@ pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) ->
         }
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterSplitMode))
+        }
+        KeyCode::F(7) if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::EnterTerminalManagerMode))
         }
         KeyCode::Esc if screen_mode == ScreenMode::Split => {
             KeyHandling::Handled(Some(AppEvent::ExitSplitMode))
