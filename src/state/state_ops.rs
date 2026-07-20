@@ -18,9 +18,20 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
         state.repositories.remove(repo_idx);
 
         // Remove all agents belonging to the deleted repository.
+        // Capture the agents about to be removed so their shell windows can
+        // be cleaned up too (issue #361 PR A).
+        let removed_agent_ids: Vec<AgentId> = state
+            .agents
+            .iter()
+            .filter(|agent| &agent.repository_id == repository_id)
+            .map(|agent| agent.id.clone())
+            .collect();
         state
             .agents
             .retain(|agent| &agent.repository_id != repository_id);
+        for agent_id in &removed_agent_ids {
+            state.remove_shell_window(agent_id);
+        }
 
         // Drop the deleted repo's remembered preferences so they cannot be
         // restored if the id is ever reused (issue #163).
@@ -63,6 +74,9 @@ pub fn delete_selected_agent(
     let agent_idx = state.agents.iter().position(|a| &a.id == agent_id)?;
 
     let removed_agent = state.agents.remove(agent_idx);
+    // Immediate shell-inventory cleanup on agent deletion (issue #361 PR A):
+    // the agent is gone from state, so any tracked shell window must be too.
+    state.remove_shell_window(&removed_agent.id);
     let repository_remote_enabled = state
         .repositories
         .iter()
@@ -161,5 +175,78 @@ mod tests {
 
         // Clean up.
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    fn state_with_agent_in_shell_inventory(agent_id: &AgentId) -> AppState {
+        let repo_id = RepositoryId("repo-1".into());
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Repo".into(),
+            "repo".into(),
+            PathBuf::from("/tmp/repo"),
+        );
+        let mut agent = Agent::new(
+            agent_id.clone(),
+            repo_id.clone(),
+            "Agent".into(),
+            PathBuf::from("/tmp/agent"),
+        );
+        agent.status = crate::domain::AgentStatus::Running;
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+        state.agents.push(agent);
+        state.record_shell_window(agent_id.clone());
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+        state
+    }
+
+    #[test]
+    fn delete_selected_agent_removes_shell_inventory_entry() {
+        let agent_id = AgentId("agent-shell".into());
+        let mut state = state_with_agent_in_shell_inventory(&agent_id);
+        assert!(state.has_shell_window(&agent_id));
+
+        delete_selected_agent(&mut state, &agent_id, false);
+
+        assert!(
+            !state.has_shell_window(&agent_id),
+            "deleting an agent must remove its shell inventory entry (issue #361)"
+        );
+    }
+
+    #[test]
+    fn delete_selected_repository_removes_shell_inventory_for_all_its_agents() {
+        let repo_id = RepositoryId("repo-1".into());
+        let agent_a = AgentId("agent-a".into());
+        let agent_b = AgentId("agent-b".into());
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Repo".into(),
+            "repo".into(),
+            PathBuf::from("/tmp/repo"),
+        );
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+        for id in [&agent_a, &agent_b] {
+            let mut agent = Agent::new(
+                id.clone(),
+                repo_id.clone(),
+                "Agent".into(),
+                PathBuf::from("/tmp/agent"),
+            );
+            agent.status = crate::domain::AgentStatus::Running;
+            state.agents.push(agent);
+            state.record_shell_window(id.clone());
+        }
+        assert!(state.has_shell_window(&agent_a));
+        assert!(state.has_shell_window(&agent_b));
+
+        delete_selected_repository(&mut state, &repo_id);
+
+        assert!(!state.has_shell_window(&agent_a));
+        assert!(!state.has_shell_window(&agent_b));
     }
 }

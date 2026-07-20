@@ -56,6 +56,8 @@ message_names!(UiNavigationMessage {
     Self::TerminalScrollToTop => "TerminalScrollToTop",
     Self::OpenShellOverlay => "OpenShellOverlay",
     Self::CloseShellOverlay => "CloseShellOverlay",
+    Self::HideShellOverlay => "HideShellOverlay",
+    Self::ResumeShellOverlay(_) => "ResumeShellOverlay",
 });
 
 message_names!(ModalMessage {

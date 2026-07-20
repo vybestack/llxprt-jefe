@@ -98,6 +98,7 @@ impl RuntimeManager for StubRuntimeManager {
     fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         if let Some(idx) = self.sessions.iter().position(|s| &s.agent_id == agent_id) {
             self.sessions.remove(idx);
+            self.open_shell_windows.remove(agent_id);
             // Adjust attached_index
             match self.attached_index {
                 Some(i) if i == idx => self.attached_index = None,
@@ -227,5 +228,126 @@ impl RuntimeManager for StubRuntimeManager {
             return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
         }
         Ok(self.open_shell_windows.contains(agent_id))
+    }
+
+    fn hide_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        // The stub models shell-window visibility only as set membership; the
+        // real implementation selects window 0. Hiding is a no-op for the
+        // stub because the window stays tracked.
+        if !self.sessions.iter().any(|s| &s.agent_id == agent_id) {
+            return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+        }
+        Ok(())
+    }
+
+    fn observe_shell_window_sessions(&self) -> Result<Vec<String>, RuntimeError> {
+        Ok(self
+            .sessions
+            .iter()
+            .filter(|session| self.open_shell_windows.contains(&session.agent_id))
+            .map(|session| session.session_name.clone())
+            .collect())
+    }
+
+    fn close_all_shell_windows(&mut self) -> Vec<RuntimeError> {
+        self.open_shell_windows.clear();
+        Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{LaunchSignature, RemoteRepositorySettings};
+
+    fn local_signature() -> LaunchSignature {
+        LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp/work"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
+            code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::default(),
+            sandbox_flags: String::new(),
+            remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::default(),
+            llxprt_version: None,
+        }
+    }
+
+    fn stub_with_session(agent_id: &AgentId) -> StubRuntimeManager {
+        let mut stub = StubRuntimeManager::default();
+        stub.spawn_session(
+            agent_id,
+            std::path::Path::new("/tmp/work"),
+            &local_signature(),
+        )
+        .unwrap_or_else(|e| panic!("spawn: {e}"));
+        stub
+    }
+
+    #[test]
+    fn stub_close_all_shell_windows_clears_tracked_set() {
+        let a = AgentId("a".into());
+        let b = AgentId("b".into());
+        let mut stub = stub_with_session(&a);
+        stub.spawn_session(&b, std::path::Path::new("/tmp/work"), &local_signature())
+            .unwrap_or_else(|e| panic!("spawn: {e}"));
+        stub.open_shell_window(&a)
+            .unwrap_or_else(|e| panic!("open shell: {e}"));
+        stub.open_shell_window(&b)
+            .unwrap_or_else(|e| panic!("open shell: {e}"));
+        assert!(
+            stub.shell_window_exists(&a)
+                .unwrap_or_else(|e| panic!("observe shell: {e}"))
+        );
+
+        let failures = stub.close_all_shell_windows();
+        assert!(
+            failures.is_empty(),
+            "best-effort stub cleanup reports no failures"
+        );
+        assert!(
+            !stub
+                .shell_window_exists(&a)
+                .unwrap_or_else(|e| panic!("observe shell: {e}")),
+            "close_all must actually clear the tracked shell set (issue #361)"
+        );
+    }
+
+    #[test]
+    fn stub_hide_shell_window_succeeds_for_known_session() {
+        let a = AgentId("a".into());
+        let mut stub = stub_with_session(&a);
+        stub.open_shell_window(&a)
+            .unwrap_or_else(|e| panic!("open shell: {e}"));
+        stub.hide_shell_window(&a)
+            .unwrap_or_else(|e| panic!("hide: {e}"));
+        // Hide keeps the window tracked in the stub model.
+        assert!(
+            stub.shell_window_exists(&a)
+                .unwrap_or_else(|e| panic!("observe shell: {e}"))
+        );
+    }
+
+    #[test]
+    fn stub_observe_all_shell_window_sessions_returns_session_names() {
+        let a = AgentId("a".into());
+        let mut stub = stub_with_session(&a);
+        stub.open_shell_window(&a)
+            .unwrap_or_else(|e| panic!("open shell: {e}"));
+        let sessions = stub
+            .observe_shell_window_sessions()
+            .unwrap_or_else(|e| panic!("observe all: {e}"));
+        assert_eq!(
+            sessions,
+            vec![RuntimeSession::session_name_for(&a)],
+            "stub must map open shells to session names for startup reconcile"
+        );
     }
 }

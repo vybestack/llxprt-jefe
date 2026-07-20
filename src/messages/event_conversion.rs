@@ -27,14 +27,10 @@ impl From<AppEvent> for AppMessage {
             AppEvent::NavigateEnd => Self::UiNavigation(UiNavigationMessage::NavigateEnd),
             AppEvent::NavigateLeft => Self::UiNavigation(UiNavigationMessage::NavigateLeft),
             AppEvent::NavigateRight => Self::UiNavigation(UiNavigationMessage::NavigateRight),
-            AppEvent::SelectRepository(index) => {
-                Self::UiNavigation(UiNavigationMessage::SelectRepository(index))
-            }
-            AppEvent::SelectAgent(index) => {
-                Self::UiNavigation(UiNavigationMessage::SelectAgent(index))
-            }
+            AppEvent::SelectRepository(index) => ui(UiNavigationMessage::SelectRepository(index)),
+            AppEvent::SelectAgent(index) => ui(UiNavigationMessage::SelectAgent(index)),
             AppEvent::JumpToAgentByShortcut(slot) => {
-                Self::UiNavigation(UiNavigationMessage::JumpToAgentByShortcut(slot))
+                ui(UiNavigationMessage::JumpToAgentByShortcut(slot))
             }
             AppEvent::CyclePaneFocus => Self::UiNavigation(UiNavigationMessage::CyclePaneFocus),
             AppEvent::ToggleTerminalFocus => {
@@ -61,7 +57,9 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::TerminalFollowTail
             | AppEvent::TerminalScrollToTop
             | AppEvent::OpenShellOverlay
-            | AppEvent::CloseShellOverlay => Self::from_split_grab_or_scroll_event(event),
+            | AppEvent::CloseShellOverlay
+            | AppEvent::HideShellOverlay
+            | AppEvent::ResumeShellOverlay(_) => Self::from_split_grab_or_scroll_event(event),
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
@@ -108,6 +106,10 @@ impl AppMessage {
             // Shell-overlay events (issue #222).
             AppEvent::OpenShellOverlay => Self::UiNavigation(U::OpenShellOverlay),
             AppEvent::CloseShellOverlay => Self::UiNavigation(U::CloseShellOverlay),
+            AppEvent::HideShellOverlay => Self::UiNavigation(U::HideShellOverlay),
+            AppEvent::ResumeShellOverlay(agent_id) => {
+                Self::UiNavigation(U::ResumeShellOverlay(agent_id))
+            }
             // Catch-all is required: the caller passes an `AppEvent` value that
             // is known at the call site to be split/grab/scroll, but the type
             // system cannot enforce that constraint. This arm delegates to the
@@ -493,6 +495,8 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::TerminalScrollToTop => Self::TerminalScrollToTop,
             UiNavigationMessage::OpenShellOverlay => Self::OpenShellOverlay,
             UiNavigationMessage::CloseShellOverlay => Self::CloseShellOverlay,
+            UiNavigationMessage::HideShellOverlay => Self::HideShellOverlay,
+            UiNavigationMessage::ResumeShellOverlay(agent_id) => Self::ResumeShellOverlay(agent_id),
         }
     }
 }

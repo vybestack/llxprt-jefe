@@ -98,6 +98,11 @@ pub enum UiNavigationMessage {
     OpenShellOverlay,
     /// Close the embedded agent-shell overlay (F10 toggle, issue #355).
     CloseShellOverlay,
+    /// Hide the visible shell overlay while keeping the `jefe-shell` window
+    /// alive (F12, issue #361).
+    HideShellOverlay,
+    /// Resume a hidden shell for `agent_id` (F10 from dashboard, issue #361).
+    ResumeShellOverlay(crate::domain::AgentId),
 }
 
 /// Modal and form-editing messages.

@@ -18,13 +18,19 @@ pub fn route_shell_overlay_key(
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: &KeyEvent,
 ) -> bool {
-    if !crate::app_input::shell_overlay::try_close_shell_overlay(
-        app_state,
-        &ctx.cloned(),
-        key_event,
-    ) {
-        forward_key_to_pty(ctx, suppress_next_enter, key_event);
+    // F12 hides the visible shell overlay (issue #361): intercept before PTY
+    // forwarding so the key never reaches the multiplexer prefix on any
+    // platform. F10 close is handled next; everything else forwards.
+    if crate::app_input::shell_overlay::try_hide_shell_overlay(app_state, &ctx.cloned(), key_event)
+        || crate::app_input::shell_overlay::try_close_shell_overlay(
+            app_state,
+            &ctx.cloned(),
+            key_event,
+        )
+    {
+        return true;
     }
+    forward_key_to_pty(ctx, suppress_next_enter, key_event);
     true
 }
 

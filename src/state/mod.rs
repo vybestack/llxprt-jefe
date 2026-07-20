@@ -52,9 +52,12 @@ mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;
+mod shell_inventory_ops;
 mod shell_overlay_ops;
+mod shortcut_ops;
 pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
+pub use shell_inventory_ops::ShellInventory;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;
@@ -113,29 +116,6 @@ impl AppState {
     pub fn repository_for_agent(&self, agent_id: &AgentId) -> Option<&Repository> {
         let agent = self.agents.iter().find(|agent| &agent.id == agent_id)?;
         self.repository_by_id(&agent.repository_id)
-    }
-
-    pub(super) fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
-        (1u8..=9u8).find(|slot| {
-            self.agents.iter().all(|agent| {
-                if ignore_agent.is_some_and(|id| &agent.id == id) {
-                    true
-                } else {
-                    agent.shortcut_slot != Some(*slot)
-                }
-            })
-        })
-    }
-
-    fn enforce_shortcut_uniqueness(&mut self, owner_id: &AgentId, slot: Option<u8>) {
-        let Some(slot) = slot else {
-            return;
-        };
-        for agent in &mut self.agents {
-            if agent.id != *owner_id && agent.shortcut_slot == Some(slot) {
-                agent.shortcut_slot = None;
-            }
-        }
     }
 
     fn remember_selected_agent_for_current_repo(&mut self) {
@@ -357,6 +337,8 @@ impl AppState {
                     | UiNavigationMessage::CyclePaneFocus
                     | UiNavigationMessage::OpenShellOverlay
                     | UiNavigationMessage::CloseShellOverlay
+                    | UiNavigationMessage::HideShellOverlay
+                    | UiNavigationMessage::ResumeShellOverlay(_)
             )
         {
             return false;
@@ -477,8 +459,7 @@ impl AppState {
                     message,
                 );
             }
-            message @ (UiNavigationMessage::OpenShellOverlay
-            | UiNavigationMessage::CloseShellOverlay) => self.apply_shell_overlay_message(message),
+            shell_message => self.apply_shell_overlay_message(shell_message),
         }
     }
 
@@ -668,8 +649,13 @@ impl AppState {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = AgentStatus::Dead;
                     agent.runtime_binding = None;
-                    self.sticky_dead_agent_ids.insert(agent_id);
+                    self.sticky_dead_agent_ids.insert(agent_id.clone());
                 }
+                // Immediate shell-inventory cleanup on explicit kill (issue
+                // #361 PR A): the session is being torn down, so any tracked
+                // shell window is gone. Natural AgentStatusChanged->Dead is
+                // NOT touched here; natural death keeps shell close-only.
+                self.remove_shell_window(&agent_id);
             }
             RuntimeMessage::AgentStatusChanged(agent_id, status) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
