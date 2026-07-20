@@ -630,8 +630,7 @@ fn handle_theme_key(
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
 ) -> KeyHandling {
-    // F9 opens the theme picker (Dashboard mode only). F11 is avoided because
-    // macOS (and several Linux DEs) intercept it for Show Desktop / fullscreen.
+    // F9 opens the theme picker in Dashboard mode only.
     if key_event.code != KeyCode::F(9) || screen_mode != ScreenMode::Dashboard {
         return KeyHandling::Unhandled;
     }
