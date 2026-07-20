@@ -8,7 +8,8 @@ use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, issues_dispatch,
+    AppStateHandle, BackgroundGhDelivery, SharedContext, apply_and_persist, gh_async,
+    github_client, issues_dispatch,
     list_loader::{ListLoad, ListLoader},
     persist_state, to_persisted_state,
 };
@@ -91,21 +92,32 @@ fn dispatch_issue_list_fetch_inner(
         // as "no ids allocated yet" and must never be used as a correlation id).
         None => return,
     };
+    let Some(deliveries) = gh_async::gh_delivery_handle(ctx) else {
+        persist_issue_list_failed(
+            app_state,
+            ctx,
+            &params,
+            "Application delivery context unavailable".to_string(),
+        );
+        return;
+    };
+    let success_params = params.clone();
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_request_with_panic(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let result = fetch_issue_list(&ctx, &params);
-            persist_issue_list_result(&mut app_state, &ctx, &params, result);
+        move |ctx| fetch_issue_list(&ctx, &params),
+        move |result| {
+            BackgroundGhDelivery::IssueList(Box::new(IssueListDelivery::completed(
+                success_params,
+                result,
+            )))
         },
-        move |mut app_state, ctx, message| {
-            persist_issue_list_failed(
-                &mut app_state,
-                &ctx,
-                &panic_params,
-                format!("GitHub issue list task panicked: {message}"),
-            );
+        move |message| {
+            BackgroundGhDelivery::IssueList(Box::new(IssueListDelivery::panicked(
+                panic_params,
+                message,
+            )))
         },
     );
 }
@@ -123,6 +135,53 @@ struct IssueFetchParams {
     page_size: u32,
     fresh_reload: bool,
     silent: bool,
+}
+
+pub struct IssueListDelivery {
+    params: IssueFetchParams,
+    outcome: IssueListTaskOutcome,
+}
+
+enum IssueListTaskOutcome {
+    Completed(Option<Result<jefe::github::IssueListResponse, jefe::github::GhError>>),
+    Panicked(String),
+}
+
+impl IssueListDelivery {
+    fn completed(
+        params: IssueFetchParams,
+        result: Option<Result<jefe::github::IssueListResponse, jefe::github::GhError>>,
+    ) -> Self {
+        Self {
+            params,
+            outcome: IssueListTaskOutcome::Completed(result),
+        }
+    }
+
+    fn panicked(params: IssueFetchParams, message: String) -> Self {
+        Self {
+            params,
+            outcome: IssueListTaskOutcome::Panicked(message),
+        }
+    }
+}
+
+pub(super) fn apply_issue_list_delivery(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    delivery: IssueListDelivery,
+) {
+    match delivery.outcome {
+        IssueListTaskOutcome::Completed(result) => {
+            persist_issue_list_result(app_state, ctx, &delivery.params, result);
+        }
+        IssueListTaskOutcome::Panicked(message) => persist_issue_list_failed(
+            app_state,
+            ctx,
+            &delivery.params,
+            format!("GitHub issue list task panicked: {message}"),
+        ),
+    }
 }
 
 fn mark_issue_list_fetch_loading(

@@ -1,9 +1,7 @@
 //! Application state and event layer.
-//!
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P03
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-003
-//!
 //! Pseudocode reference: component-001 lines 01-12
 
 mod actions_job_ops;
@@ -54,6 +52,7 @@ mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;
+mod shell_overlay_ops;
 pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub mod state_ops;
@@ -61,7 +60,6 @@ pub mod theme_picker_view;
 pub mod transient_ops;
 mod types;
 mod util;
-
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
@@ -76,7 +74,6 @@ pub use form_projection::{
     is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
     next_visible_repository_focus, prev_visible_focus, prev_visible_repository_focus,
 };
-
 use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
@@ -347,7 +344,6 @@ impl AppState {
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {
-        // Scrollback events and focus toggles are never blocked (issue #198).
         if let AppMessage::UiNavigation(msg) = message
             && matches!(
                 msg,
@@ -359,6 +355,8 @@ impl AppState {
                     | UiNavigationMessage::TerminalScrollToTop
                     | UiNavigationMessage::ToggleTerminalFocus
                     | UiNavigationMessage::CyclePaneFocus
+                    | UiNavigationMessage::OpenShellOverlay
+                    | UiNavigationMessage::CloseShellOverlay
             )
         {
             return false;
@@ -479,6 +477,8 @@ impl AppState {
                     message,
                 );
             }
+            message @ (UiNavigationMessage::OpenShellOverlay
+            | UiNavigationMessage::CloseShellOverlay) => self.apply_shell_overlay_message(message),
         }
     }
 

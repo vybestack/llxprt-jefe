@@ -252,7 +252,10 @@ impl IssuesMessage {
             | AppEvent::InlineCursorUp
             | AppEvent::InlineCursorDown
             | AppEvent::InlineSubmit
-            | AppEvent::InlineCancelOrEsc => Self::from_app_event_simple_controls(event),
+            | AppEvent::InlineCancelOrEsc
+            | AppEvent::RequestIssueRewrite
+            | AppEvent::IssueRewriteSucceeded { .. }
+            | AppEvent::IssueRewriteFailed { .. } => Self::from_app_event_simple_controls(event),
             property if is_issue_property_app_event(&property) => {
                 Self::from_app_event_property(property)
             }
@@ -302,6 +305,9 @@ impl IssuesMessage {
             AppEvent::InlineCursorDown => Self::InlineCursorDown,
             AppEvent::InlineSubmit => Self::InlineSubmit,
             AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
+            AppEvent::RequestIssueRewrite => Self::RequestIssueRewrite,
+            AppEvent::IssueRewriteSucceeded { text } => Self::IssueRewriteSucceeded { text },
+            AppEvent::IssueRewriteFailed { error } => Self::IssueRewriteFailed { error },
             other => Self::from_app_event_mutation_and_agent(other),
         }
     }
@@ -662,7 +668,10 @@ impl IssuesMessage {
             | Self::InlineCursorUp
             | Self::InlineCursorDown
             | Self::InlineSubmit
-            | Self::InlineCancelOrEsc => self.into_app_event_simple_controls(),
+            | Self::InlineCancelOrEsc
+            | Self::RequestIssueRewrite
+            | Self::IssueRewriteSucceeded { .. }
+            | Self::IssueRewriteFailed { .. } => self.into_app_event_simple_controls(),
             property if is_issue_property_msg(&property) => property.into_app_event_property(),
             other => other.into_app_event_mutation_and_agent(),
         }
@@ -710,6 +719,9 @@ impl IssuesMessage {
             Self::InlineCursorDown => AppEvent::InlineCursorDown,
             Self::InlineSubmit => AppEvent::InlineSubmit,
             Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
+            Self::RequestIssueRewrite => AppEvent::RequestIssueRewrite,
+            Self::IssueRewriteSucceeded { text } => AppEvent::IssueRewriteSucceeded { text },
+            Self::IssueRewriteFailed { error } => AppEvent::IssueRewriteFailed { error },
             other => other.into_app_event_mutation_and_agent(),
         }
     }

@@ -16,6 +16,8 @@ pub struct KeybindBarProps {
     pub screen_mode: ScreenMode,
     /// Whether terminal is focused.
     pub terminal_focused: bool,
+    /// Whether the embedded agent shell owns the workspace.
+    pub shell_overlay_active: bool,
     /// Active Actions pane when Actions mode is rendered.
     pub actions_focus: Option<ActionsFocus>,
     /// Process-identity label (pid + commit) shown in the lower-right corner
@@ -41,7 +43,7 @@ pub fn keybind_hints_for(
     }
     match screen_mode {
         ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
+            "^/v navigate | </> pane | t/f12 terminal focus | F10 shell | F8 external term | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
         }
         ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {
@@ -74,11 +76,15 @@ pub fn keybind_hints_for(
 pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
-    let hints = keybind_hints_for(
-        props.screen_mode,
-        props.terminal_focused,
-        props.actions_focus,
-    );
+    let hints = if props.shell_overlay_active {
+        "F11 close shell"
+    } else {
+        keybind_hints_for(
+            props.screen_mode,
+            props.terminal_focused,
+            props.actions_focus,
+        )
+    };
 
     element! {
         Box(
@@ -102,6 +108,17 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dashboard_hints_include_shell_shortcuts_without_changing_focused_terminal_hint() {
+        let dashboard = keybind_hints_for(ScreenMode::Dashboard, false, None);
+        assert!(dashboard.contains("F10 shell"));
+        assert!(dashboard.contains("F8 external term"));
+        assert_eq!(
+            keybind_hints_for(ScreenMode::Dashboard, true, None),
+            "F12 unfocus"
+        );
+    }
 
     #[test]
     fn actions_hints_are_focus_specific_and_fit_footer_width() {

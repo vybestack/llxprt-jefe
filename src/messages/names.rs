@@ -54,6 +54,8 @@ message_names!(UiNavigationMessage {
     Self::TerminalScrollPageDown => "TerminalScrollPageDown",
     Self::TerminalFollowTail => "TerminalFollowTail",
     Self::TerminalScrollToTop => "TerminalScrollToTop",
+    Self::OpenShellOverlay => "OpenShellOverlay",
+    Self::CloseShellOverlay => "CloseShellOverlay",
 });
 
 message_names!(ModalMessage {
@@ -179,6 +181,9 @@ message_names!(IssuesMessage {
     Self::InlineCursorDown => "InlineCursorDown",
     Self::InlineSubmit => "InlineSubmit",
     Self::InlineCancelOrEsc => "InlineCancelOrEsc",
+    Self::RequestIssueRewrite => "RequestIssueRewrite",
+    Self::IssueRewriteSucceeded { .. } => "IssueRewriteSucceeded",
+    Self::IssueRewriteFailed { .. } => "IssueRewriteFailed",
     Self::MutationSubmitted { .. } => "MutationSubmitted",
     Self::IssueCreated { .. } => "IssueCreated",
     Self::CommentCreated { .. } => "CommentCreated",

@@ -36,6 +36,8 @@ pub struct TerminalViewProps {
     pub snapshot: Option<TerminalSnapshot>,
     /// Whether the terminal is focused (receives input).
     pub focused: bool,
+    /// Title displayed in the terminal chrome.
+    pub title: String,
     /// Theme colors for chrome around the terminal content.
     pub colors: ThemeColors,
     /// Active text selection, if any. Selected cells are painted in
@@ -161,7 +163,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                 padding_left: 1u32,
                 background_color: rc.bg,
             ) {
-                Text(content: "Terminal", weight: Weight::Bold, color: rc.fg)
+                Text(content: props.title.clone(), weight: Weight::Bold, color: rc.fg)
                 Text(content: format!(" ({focus_hint})"), color: rc.dim)
             }
 

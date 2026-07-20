@@ -9,6 +9,11 @@ use super::{
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
 
+// The rewrite reducer cases live in a sibling module declared here (rather
+// than in `mod.rs`) so `state/mod.rs` stays at the source-size ceiling.
+#[path = "issues_rewrite_ops.rs"]
+mod issues_rewrite_ops;
+
 impl AppState {
     /// Enter issues mode, saving prior focus state.
     ///
@@ -675,6 +680,7 @@ impl AppState {
             || self.apply_issue_mutation_event(event.clone())
             || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
+            || self.apply_issue_rewrite_event(event.clone())
             || self.apply_issue_error_event(event)
     }
 }

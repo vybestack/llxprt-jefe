@@ -1,0 +1,40 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "wait_timeout_ms": 10000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "type": "Shell Repository" },
+    { "key": "Tab" },
+    { "type": "fixture-repo" },
+    { "key": "Enter" },
+    { "waitFor": "1 repos | 0/0 running" },
+
+    { "key": "n" },
+    { "waitFor": "New Agent" },
+    { "key": "Tab" },
+    { "type": "Shell Agent" },
+    { "key": "Enter" },
+    { "waitFor": "issue222-agent-ready" },
+    { "key": "F12" },
+    { "waitFor": "t/f12 terminal focus" },
+
+    { "key": "F10" },
+    { "waitFor": "Agent Shell" },
+    { "line": "printf 'issue222-shell-ready\\n'" },
+    { "waitFor": "issue222-shell-ready" },
+    { "capture": "agent-shell-overlay" },
+
+    { "key": "F11" },
+    { "waitFor": "Shell Agent" },
+    { "waitFor": "t/f12 terminal focus" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

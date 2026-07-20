@@ -10,6 +10,7 @@ mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_navigation;
 mod issues_property_edit;
+mod issues_rewrite_dispatch;
 mod issues_subfocus_dispatch;
 mod list_navigation;
 mod modal_handlers;
@@ -21,6 +22,8 @@ mod pty_passthrough;
 mod relaunch;
 mod send_runtime;
 mod settled_refresh;
+/// Shell-overlay key dispatch (issue #222).
+pub mod shell_overlay;
 
 use relaunch::dispatch_relaunch_agent;
 use settled_refresh::SettledRefresh;
@@ -83,6 +86,23 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use gh_async::{BackgroundGhDelivery, GhDeliveryHandle, install_gh_delivery_handler};
+
+/// Apply a typed background GitHub result on the root component's lifecycle.
+pub fn apply_background_gh_delivery(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    delivery: BackgroundGhDelivery,
+) {
+    match delivery {
+        BackgroundGhDelivery::IssueList(delivery) => {
+            issues_list_dispatch::apply_issue_list_delivery(app_state, ctx, *delivery);
+        }
+        #[cfg(test)]
+        BackgroundGhDelivery::Probe(_) => {}
+    }
+}
+
 pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
 
@@ -595,7 +615,12 @@ pub fn try_intercept_terminal_scrollback(
 /// synchronously). The background capture worker fills the cache.
 pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
+    let overlay_active = app_state.read().shell_overlay_active();
+    let pty_layout = if overlay_active {
+        jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
+    } else {
+        jefe::layout::compute_pty_layout(term_cols, term_rows)
+    };
 
     // Read retained history + live snapshot rows from the cache (issue #301
     // Phase 2: no synchronous tmux subprocess). try_lock keeps this

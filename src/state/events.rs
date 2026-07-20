@@ -23,6 +23,12 @@ pub enum AppEvent {
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
 
+    // Embedded agent-shell overlay (issue #222)
+    /// Open the embedded shell overlay for the selected local running agent.
+    OpenShellOverlay,
+    /// Close/restore the embedded shell overlay (F11 or natural exit detected).
+    CloseShellOverlay,
+
     // Screen mode
     EnterSplitMode,
     ExitSplitMode,
@@ -281,6 +287,20 @@ pub enum AppEvent {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    /// Ask the configured default agent to rewrite the current new-issue
+    /// composer draft non-interactively (issue #214). Applied via the app_input
+    /// orchestration layer, which spawns the agent run and applies the result.
+    RequestIssueRewrite,
+    /// The non-interactive rewrite completed; the composer text is replaced
+    /// with `text` (issue #214).
+    IssueRewriteSucceeded {
+        text: String,
+    },
+    /// The non-interactive rewrite failed (issue #214). `error` is surfaced as
+    /// a non-fatal draft notice so the composer draft is preserved.
+    IssueRewriteFailed {
+        error: String,
+    },
     MutationSubmitted {
         scope_repo_id: RepositoryId,
         mutation_id: u64,

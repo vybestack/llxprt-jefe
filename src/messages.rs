@@ -94,6 +94,10 @@ pub enum UiNavigationMessage {
     TerminalFollowTail,
     /// Scroll to the top of terminal history (Home key, issue #198 review #8).
     TerminalScrollToTop,
+    /// Open the embedded agent-shell overlay (F10, issue #222).
+    OpenShellOverlay,
+    /// Close the embedded agent-shell overlay (F11, issue #222).
+    CloseShellOverlay,
 }
 
 /// Modal and form-editing messages.
@@ -306,6 +310,17 @@ pub enum IssuesMessage {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    /// Ask the configured default agent to rewrite the new-issue draft
+    /// non-interactively (issue #214).
+    RequestIssueRewrite,
+    /// The non-interactive rewrite completed (issue #214).
+    IssueRewriteSucceeded {
+        text: String,
+    },
+    /// The non-interactive rewrite failed (issue #214).
+    IssueRewriteFailed {
+        error: String,
+    },
     MutationSubmitted {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
