@@ -69,8 +69,7 @@ pub fn help_content_lines() -> &'static [&'static str] {
         "  s           Split mode",
         "  Space       Grab/move/drop reorder",
         "  v           Toggle active-only (repos + agents)",
-        "  F10         Open embedded agent shell",
-        "  F11         Close embedded agent shell",
+        "  F10         Open/close embedded agent shell",
         "  F8          Open external terminal",
         "  \u{2325}1-\u{2325}9       Jump to agent shortcut",
         "",
@@ -236,6 +235,8 @@ mod tests {
         assert!(joined.contains("Space       Grab/move/drop reorder"));
         assert!(joined.contains("v           Toggle active-only"));
         assert!(joined.contains("F9          Theme picker"));
+        assert!(joined.contains("F10         Open/close embedded agent shell"));
+        assert!(!joined.contains("F11         Close embedded agent shell"));
         for action in [
             "Open run detail / expand focused job",
             "Expand / collapse focused job",

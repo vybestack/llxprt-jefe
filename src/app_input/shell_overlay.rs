@@ -1,7 +1,7 @@
 //! Shell-overlay key dispatch (issue #222).
 //!
-//! Handles F10 (open embedded shell), F8 (open external terminal), and F11
-//! (close embedded shell). F11 is checked early in the key event flow so it
+//! Handles F10 (open/close embedded shell) and F8 (open external terminal).
+//! F10 is checked early in the key event flow while the shell is active so it
 //! works even while `TerminalCapture` mode owns input.
 
 use iocraft::prelude::{KeyCode, KeyEvent};
@@ -88,16 +88,20 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, overlay_active
     }
 }
 
-/// Returns `true` if the key event is the shell-overlay close shortcut (F11)
+fn is_shell_overlay_close_shortcut(key_event: &KeyEvent) -> bool {
+    key_event.code == KeyCode::F(10)
+}
+
+/// Returns `true` if the key event is the shell-overlay close shortcut (F10)
 /// and the overlay is active. This is called early in the key flow — before
-/// `TerminalCapture` forwarding — so F11 can close the shell even while the
+/// `TerminalCapture` forwarding — so F10 can close the shell even while the
 /// terminal owns keyboard input.
 pub fn try_close_shell_overlay(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    if key_event.code != KeyCode::F(11) {
+    if !is_shell_overlay_close_shortcut(key_event) {
         return false;
     }
     let agent_id = {
@@ -293,4 +297,22 @@ fn warn_no_selection(app_state: &mut AppStateHandle, action: &str) {
 
 fn set_warning(app_state: &mut AppStateHandle, message: &str) {
     app_state.write().warning_message = Some(message.to_owned());
+}
+
+#[cfg(test)]
+mod tests {
+    use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
+
+    use super::is_shell_overlay_close_shortcut;
+
+    #[test]
+    fn f10_is_the_only_shell_overlay_close_shortcut() {
+        let f10 = KeyEvent::new(KeyEventKind::Press, KeyCode::F(10));
+        let f11 = KeyEvent::new(KeyEventKind::Press, KeyCode::F(11));
+        let character = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
+
+        assert!(is_shell_overlay_close_shortcut(&f10));
+        assert!(!is_shell_overlay_close_shortcut(&f11));
+        assert!(!is_shell_overlay_close_shortcut(&character));
+    }
 }

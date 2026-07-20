@@ -77,7 +77,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
     let hints = if props.shell_overlay_active {
-        "F11 close shell"
+        "F10 close shell"
     } else {
         keybind_hints_for(
             props.screen_mode,
@@ -154,6 +154,31 @@ mod tests {
         assert!(repos.chars().count() <= 150);
         assert!(list.chars().count() <= 150);
         assert!(detail.chars().count() <= 150);
+    }
+
+    #[test]
+    fn active_shell_footer_documents_f10_close_shortcut() {
+        let mut element = element! {
+            Box(width: 80u32, height: 1u32) {
+                KeybindBar(
+                    screen_mode: ScreenMode::Dashboard,
+                    terminal_focused: true,
+                    shell_overlay_active: true,
+                    actions_focus: None,
+                    identity_label: "pid:1 abc".to_string(),
+                    colors: ThemeColors::default(),
+                )
+            }
+        };
+        let canvas = element.render(Some(80));
+        let mut output = Vec::new();
+        canvas
+            .write_ansi(&mut output)
+            .unwrap_or_else(|error| panic!("render keybind bar: {error}"));
+        let rendered = String::from_utf8_lossy(&output);
+
+        assert!(rendered.contains("F10 close shell"));
+        assert!(!rendered.contains("F11 close shell"));
     }
 
     #[test]

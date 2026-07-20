@@ -101,7 +101,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         .is_some_and(|agent| agent.status == AgentStatus::Running)
                 };
 
-                let dirty = is_pty_dirty(ctx.as_ref());
+                let dirty = crate::app_shell_workers::is_pty_dirty(ctx.as_ref());
                 let should_render = elapsed_ms >= SAFETY_NET_MS
                     || (terminal_focused && dirty)
                     || (running_preview && elapsed_ms >= PREVIEW_THROTTLE_MS && dirty);
@@ -991,19 +991,4 @@ pub fn capture_terminal_snapshot(
         }),
         _ => None,
     }
-}
-
-/// Check whether the attached PTY has new data since the last render.
-///
-/// Uses `try_lock` so the timer future never blocks on the `ctx` mutex. When
-/// the lock is contended (e.g. a background attach is running), this returns
-/// `false` — the next poll iteration will try again.
-fn is_pty_dirty(ctx: Option<&CtxArc>) -> bool {
-    let Some(ctx_arc) = ctx else {
-        return false;
-    };
-    let Ok(ctx_guard) = ctx_arc.try_lock() else {
-        return false;
-    };
-    ctx_guard.runtime.take_dirty()
 }

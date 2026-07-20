@@ -14,6 +14,20 @@ use jefe::services::capture_worker::{CaptureHandle, should_store_result};
 
 use crate::AppContext;
 
+/// Check whether the attached PTY has new data since the last render.
+///
+/// Uses `try_lock` so the timer future never blocks on the `AppContext` mutex.
+/// A contended lock defers the check until the next poll iteration.
+pub fn is_pty_dirty(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> bool {
+    let Some(ctx_arc) = ctx else {
+        return false;
+    };
+    let Ok(ctx_guard) = ctx_arc.try_lock() else {
+        return false;
+    };
+    ctx_guard.runtime.take_dirty()
+}
+
 /// Poll interval for the persistence worker drain loop.
 const PERSIST_POLL_MS: u64 = 50;
 

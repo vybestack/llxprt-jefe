@@ -27,11 +27,13 @@
 
     { "key": "F10" },
     { "waitFor": "Agent Shell" },
+    { "waitFor": "F10 close shell" },
     { "line": "printf 'issue222-shell-ready\\n'" },
     { "waitFor": "issue222-shell-ready" },
     { "capture": "agent-shell-overlay" },
 
-    { "key": "F11" },
+    { "key": "F10" },
+    { "waitForNot": "Agent Shell" },
     { "waitFor": "Shell Agent" },
     { "waitFor": "t/f12 terminal focus" },
     { "key": "C-q" },

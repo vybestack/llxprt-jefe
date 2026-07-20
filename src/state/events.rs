@@ -26,7 +26,7 @@ pub enum AppEvent {
     // Embedded agent-shell overlay (issue #222)
     /// Open the embedded shell overlay for the selected local running agent.
     OpenShellOverlay,
-    /// Close/restore the embedded shell overlay (F11 or natural exit detected).
+    /// Close/restore the embedded shell overlay (F10 toggle or natural exit detected).
     CloseShellOverlay,
 
     // Screen mode

@@ -96,7 +96,7 @@ pub enum UiNavigationMessage {
     TerminalScrollToTop,
     /// Open the embedded agent-shell overlay (F10, issue #222).
     OpenShellOverlay,
-    /// Close the embedded agent-shell overlay (F11, issue #222).
+    /// Close the embedded agent-shell overlay (F10 toggle, issue #355).
     CloseShellOverlay,
 }
 
