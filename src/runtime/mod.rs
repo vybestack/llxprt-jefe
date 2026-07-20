@@ -17,6 +17,8 @@ mod capture_ops;
 mod command_capture;
 mod commands;
 mod errors;
+/// External terminal launch boundary (issue #222).
+mod external_terminal;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
 mod identity;
@@ -28,6 +30,8 @@ mod pane_capture;
 mod preflight;
 mod process;
 mod session;
+/// Embedded shell-window tmux operations (issue #222).
+mod shell_window;
 mod socket;
 mod stub_manager;
 
@@ -46,6 +50,10 @@ pub use commands::build_remote_attach_plan;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
+pub use external_terminal::{
+    DesktopPlatform, ExternalTerminalError, ExternalTerminalPlan, build_external_terminal_plan,
+    spawn_external_terminal,
+};
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, alive_session_set, batch_liveness_check,
@@ -73,6 +81,9 @@ pub use process::{
     classify_process_observation, process_liveness,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+pub use shell_window::{
+    SHELL_WINDOW_NAME, close_shell_window, open_shell_window, shell_window_exists,
+};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
 

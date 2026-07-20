@@ -225,6 +225,11 @@ pub trait RuntimeManager: Send {
     ///   `HISTORY_LINE_CAP` lines.
     /// - **`StubRuntimeManager`**: always returns `None` (no PTY).
     fn capture_history(&mut self) -> Option<Vec<String>>;
+
+    /// Manage the temporary local shell window without affecting its agent session.
+    fn open_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
+    fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
+    fn shell_window_exists(&self, agent_id: &AgentId) -> Result<bool, RuntimeError>;
 }
 /// Real tmux-based runtime manager.
 ///
@@ -957,6 +962,18 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn capture_history(&mut self) -> Option<Vec<String>> {
         super::capture_ops::capture_history(self)
+    }
+
+    fn open_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        super::shell_window::open_manager_shell_window(&self.sessions, agent_id)
+    }
+
+    fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        super::shell_window::close_manager_shell_window(&self.sessions, agent_id)
+    }
+
+    fn shell_window_exists(&self, agent_id: &AgentId) -> Result<bool, RuntimeError> {
+        super::shell_window::manager_shell_window_exists(&self.sessions, agent_id)
     }
 }
 

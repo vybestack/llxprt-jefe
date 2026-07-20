@@ -23,6 +23,12 @@ pub enum AppEvent {
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
 
+    // Embedded agent-shell overlay (issue #222)
+    /// Open the embedded shell overlay for the selected local running agent.
+    OpenShellOverlay,
+    /// Close/restore the embedded shell overlay (F11 or natural exit detected).
+    CloseShellOverlay,
+
     // Screen mode
     EnterSplitMode,
     ExitSplitMode,

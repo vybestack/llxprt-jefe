@@ -725,7 +725,7 @@ fn is_event_over_terminal_pane_origin_is_outside() {
     // terminal-size-independent property.
     let origin = fullscreen_event_at(0, 0, MouseEventKind::ScrollUp);
     assert!(
-        !is_event_over_terminal_pane(&origin),
+        !is_event_over_terminal_pane(&origin, false),
         "(0,0) must be outside the terminal pane (sidebar/status bar region)"
     );
 }
