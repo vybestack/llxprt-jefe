@@ -1,0 +1,138 @@
+# Issue 351 delivery plan
+
+## Issue
+
+- GitHub: https://github.com/vybestack/llxprt-jefe/issues/351
+- Branch: `issue351`
+- Base: `origin/main` at `248d968`
+- Reported behavior: switching the Issues repository selection to a repository with no open issues can print a background-thread panic from `generational-box` line 145 (`Option::unwrap`); the same panic can occur while the Issues screen is idle.
+- Reproduction evidence: the unmodified base emitted the reported panic from the issue-list background task while the Issues screen remained active. The task currently reads and mutates iocraft `State<AppState>` inside `smol::unblock`, while the root component renders and polls the same state on the executor thread.
+
+## Acceptance matrix
+
+| ID | Actor / launch path | Inputs and boundary cases | Target | Observable success | Observable failure / diagnostics | Permitted side effects | Persistence / compatibility | Proof |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A1 | User enters Issues and moves repository focus from a repository with issue rows to a repository whose GitHub issue query returns zero rows | first request may still be in flight; second response is empty; stale first response may finish before or after the empty response | Local Unix TUI; platform-independent state/task contract | selected repository remains the second repository, Issues shows `No issues found`, and no thread panic is printed | GitHub command failures remain an Issues error and/or existing Errors entry; no raw panic text | read-only `gh api graphql`; normal selected-repository persistence | deterministic TUI scenario with a fail-closed `gh` shim; focused async-task test |
+| A2 | User leaves an empty Issues screen idle through later render/poll cycles | no rows, no selected issue, no active filter | Local Unix TUI; platform-independent state/task contract | empty screen remains responsive and exits normally without a `generational-box` panic | recoverable task failures continue through existing typed failure events | periodic render tick only | no schema change | TUI scenario waits after `No issues found`, captures the screen, and exits |
+| A3 | A background GitHub task completes after its owning iocraft component/state has been dropped (shutdown/replacement race) | both success and panic-handler completion paths | all platforms | task does not dereference stale iocraft state and therefore does not panic | task result is safely discarded because there is no live owner to receive it | completed GitHub I/O only; no stale mutation | existing public behavior unchanged while owner is live | mock-terminal regression test drops the component before releasing a blocked task and asserts the task exits cleanly |
+
+## Non-goals
+
+- No new global panic-catching or panic-recovery subsystem. The existing Errors screen already records typed operational failures; recovering an arbitrary iocraft runtime panic safely is a separate architectural feature.
+- No persistence-schema, dependency, workflow, `.llxprt/`, `.code_puppy/`, or quality-gate changes.
+- No refactor of all 32 GitHub dispatch routes in this issue. The issue-list route establishes the approved UI-owned delivery boundary; broader migration is deferred.
+- No change to issue filtering, pagination, repository navigation, or visible empty-state wording.
+- No network-backed required test.
+
+## Planned vertical slice
+
+### Slice S1: lifecycle-safe background GitHub task delivery
+
+- Acceptance rows: A1-A3.
+- Architecture owner: the root app-shell lifecycle plus `app_input::gh_async`, the established boundary for blocking GitHub I/O.
+- Integration boundary: the worker performs only blocking I/O and constructs a typed delivery. An iocraft async handler owned by the root component applies that delivery to `State<AppState>`; dropping the root drops the only consumer, so late results never poll stale state.
+- Approved architecture decision: the user approved a root-owned typed event/delivery queue on 2026-07-17 and clarified that event queues are acceptable project architecture.
+- Allowed production files:
+  - `src/main.rs` for the shared delivery-handle slot in `AppContext`
+  - `src/app_shell.rs` for the root-owned async handler
+  - `src/app_input/mod.rs` for typed delivery dispatch/re-exports
+  - `src/app_input/gh_async.rs` for the typed worker/result boundary
+  - `src/app_input/issues_list_dispatch.rs` for issue-list result construction and UI delivery
+- Allowed evidence/support files:
+  - `dev-docs/tmux-scenarios/issues-empty-repository.json`
+  - `scripts/issue351-gh-shim.sh`
+  - `scripts/issue351-run-scenario.sh`
+  - this plan
+- RED:
+  1. Add a mock-terminal test that starts a blocked background task, drops its state owner, releases the task, and requires clean completion.
+  2. Add the deterministic TUI scenario before production changes and run it on the base implementation.
+- GREEN:
+  - issue-list workers no longer receive or mutate iocraft state;
+  - typed success and panic deliveries are applied only by the root-owned async handler;
+  - empty repository scenario shows `No issues found`, survives idle renders, exits normally, and shim audit contains only expected read-only queries;
+  - focused tests and `make quick-check` pass.
+- REFACTOR: keep the queue typed and lifecycle-owned; avoid stringly typed callbacks or route-specific state access in the worker.
+- Verification:
+  - focused `cargo test` for `gh_async`;
+  - `scripts/issue351-run-scenario.sh`;
+  - `make quick-check`;
+  - `make ci-check` at exact candidate head.
+- Stop conditions: caller API redesign, a new dispatcher/event queue, dependency changes, edits outside the allowed paths, or scope above the workflow budget.
+
+## Expected paths by layer
+
+| Layer | Paths | Reason |
+| --- | --- | --- |
+| Root lifecycle wiring | `src/main.rs`, `src/app_shell.rs` | own the typed delivery handler for exactly the component lifetime |
+| App-input delivery boundary | `src/app_input/mod.rs`, `src/app_input/gh_async.rs`, `src/app_input/issues_list_dispatch.rs` | keep blocking work state-free and apply typed issue-list results on the root handler |
+| End-to-end UI evidence | `dev-docs/tmux-scenarios/issues-empty-repository.json` | prove navigation, empty state, idle stability, and clean exit |
+| Deterministic fixture boundary | `scripts/issue351-gh-shim.sh`, `scripts/issue351-run-scenario.sh` | isolate GitHub/config state and audit allowed operations |
+| Delivery record | `project-plans/issue351-plan.md` | acceptance, scope, review, and verification ledger |
+
+## Scope ledger
+
+| Discovery | Disposition | Rationale / follow-up |
+| --- | --- | --- |
+| Issue comment requests copyable panic diagnostics | Defer | Issue #292 already supplied the Errors screen for typed operational errors. Arbitrary framework panic recovery would be a new subsystem and does not prevent this stale-state panic. Consider a dedicated follow-up for process-level crash reporting if still desired after this fix. |
+| `gh_async` runs caller work, including state mutation, inside `smol::unblock` | Approved in-scope architecture change for issue-list dispatch | Introduce a root-owned typed delivery handler and migrate issue-list fetches first. The user explicitly approved this event-queue boundary; migration of the remaining routes is deferred. |
+| Live `llxprt-luther` now has open issues | Test fixture decision | Required proof uses a fail-closed shim with an explicitly empty second repository; no test depends on live repository contents. |
+| Unkeyed dynamic selectable-list children | Reject for this issue | The captured panic originates inside the GitHub background task, not a list component hook. Existing list parity remains unchanged. |
+| OCR: scenario build and harness lacked outer timeouts | In-scope—Fix | Added a portable Python-backed timeout wrapper because Python is already a required scenario dependency and macOS does not provide GNU `timeout` by default. |
+| OCR: move `catch_unwind` outside `smol::unblock` | Reject | `catch_unwind` encloses the blocking closure, so a work panic is converted before it can escape the blocking executor. Moving the catch outside would require the panic to cross the `unblock` future boundary first, weakening containment. |
+| OCR: delivery without an installed handler was silent | In-scope—Fix | Added a debug diagnostic for the unreachable-before-first-render/shutdown discard path; late results remain intentionally unapplied after owner loss. |
+| OCR: failed scenarios delete artifacts and hide harness diagnostics | In-scope—Fix | Preserve the unique run directory on failure, print retained location, and emit available harness error/screen/scrollback diagnostics before returning the original status. |
+| OCR: PID-based scenario artifact naming can collide | In-scope—Fix | Use `mktemp -d` under the owned harness target root and derive the tmux session name from that unique directory. |
+| OCR: timeout wrapper prints no build-failure message | Reject | Cargo owns the build boundary and already emits its diagnostic before the wrapper preserves its non-zero status; adding a generic duplicate message does not improve diagnosis. |
+| OCR: `IssueListDelivery` visibility is broader than required | Reject | `BackgroundGhDelivery` crosses from `app_input` into the root app shell, so Rust requires its variant payload to be at least crate-visible; narrowing it triggers `private_interfaces` under the mandatory Clippy gate. Its private fields already prevent external construction or deconstruction. |
+| OCR: invoke the async handler inside another `catch_unwind` | Reject | `Handler::call` only queues the lifecycle-bound future; state access occurs later when iocraft polls that future. Catching the enqueue call cannot catch that later poll, and the suggested reuse of the consumed panic callback is invalid. |
+| OCR: warn whenever the root delivery handler is replaced | Reject | Root `App` installs the current clone on every render by design; warning on replacement would report normal renders as failures. |
+| OCR: mutex-poison recovery is silent | In-scope—Fix | Emit a warning before recovering the delivery-slot mutex so an earlier panic remains observable. |
+| OCR: handler installation failure is silent | In-scope—Fix | Warn when no app context is present and recover a poisoned app-context mutex with an explicit warning before installing the handler. |
+| OCR: dropped-owner test exits the whole render loop | In-scope—Fix | Replace the handler-owning child during a live parent render, then deliver from the newly mounted sibling before the parent exits, proving natural child teardown rather than process-loop exit. |
+| OCR: scenario shim uses broad repository substring matching | In-scope—Fix | Extract the exact `searchQuery` argument and anchor each supported repository at the complete `repo:<owner/name> is:issue` prefix; a similarly prefixed repository is rejected. |
+| OCR: timeout wrapper leaves non-timeout process-launch failures as tracebacks | In-scope—Fix | Catch `OSError`, emit the command and OS error, and return a stable failure status. |
+| OCR: fixture repository helper closes over `base_dir` | In-scope—Fix | Pass the base directory explicitly so the fixture record has no hidden outer dependency. |
+| OCR: scenario only checks that `python3` is on PATH | In-scope—Fix | Add a functional Python 3.8+ import/version probe before creating the scenario run directory. |
+| OCR: iocraft `Handler` allegedly returns a discarded future | Reject | In vendored iocraft, `Handler::call` returns `()` and `use_async_handler` queues the future internally, wakes the hook, and polls queued futures from `UseAsyncHandlerImpl::poll_change`; the finding contradicts the source and passing delivery regressions. |
+| OCR: issue-list loading state is never cleared | Reject | Root delivery dispatch calls `apply_issue_list_delivery`, which calls the existing `persist_issue_list_result`; its loaded/failed events flow through `ListLoader` completion and the TUI scenario proves the loading text disappears before `No issues found` is asserted. |
+| OCR: audit expectations allegedly do not match production invocation | Reject | `GhClient::list_issues` calls `fetch_issue_search_page`, whose raw-page path invokes `build_issue_search_args`; that builder constructs the audited `searchQuery=repo:<owner/repo> is:issue state:open` argument, and the fail-closed shim was invoked twice during the passing scenario. |
+| OCR: populated fixture allegedly has an extra closing brace | Reject | The structure has four nested objects (root, `data`, `search`, and `pageInfo`); `python3 -m json.tool` parses the exact shim output and the application consumed it in the passing scenario. |
+| OCR: missing-handler delivery can leave visible loading stuck | Reject | The root installs the handler before terminal-event dispatch can start an issue fetch; after root teardown no loading UI remains to update. Reaching the no-handler branch therefore means startup misuse or post-teardown delivery, both diagnosed and intentionally not applied to dropped state. |
+| OCR: lifecycle ownership invariant is implicit | In-scope—Fix | Expand the public handle documentation to state that iocraft owns/polls queued futures only while mounted, late enqueue is inert after teardown, and root rerenders replace the slot with the current owner. |
+| OCR: result-mapping callbacks are outside panic containment | Reject | The callbacks are state-free constructors that only move owned data into `BackgroundGhDelivery`; adding nested recovery would either lose the delivery or require reusing a consumed `FnOnce`, while the accepted panic boundary already contains all blocking GitHub work. |
+| OCR: handler replacement should warn | Reject | Duplicate of the earlier finding: installation intentionally occurs on every root render, so the slot is normally occupied and a warning would misreport every healthy rerender. |
+| OCR: timeout kills only the direct child | Blocker—Fix | Start each bounded command in a new process session and send `SIGKILL` to its process group on timeout so Cargo/harness descendants cannot survive as orphans. |
+| OCR: exact CLI audit is brittle | Reject | The fail-closed shim deliberately verifies the production side-effect contract, while the TUI separately verifies user-visible outcomes; relaxing argv validation would allow an unintended GitHub operation to pass. |
+| OCR: generated state JSON lacks a round-trip validation | Reject | `json.dump` cannot emit malformed JSON from the in-memory typed fixture, Python generation exceptions already fail immediately under `set -e`, and startup parsing is part of the real scenario path. |
+| OCR: generated tmux session name may contain unusual characters | Reject | `mktemp` receives the fixed template `issue351.XXXXXX`; `basename` therefore contains only the literal alphanumeric prefix, one dot, and `mktemp`'s six portable suffix characters, and the dot is replaced before use. |
+| OCR: delivery payload should use `pub(super)` | Reject | Duplicate contradicted by compiler evidence: `BackgroundGhDelivery` crosses the app-input/root-shell boundary and narrowing the payload produced a `private_interfaces` warning under the mandatory warning-free gate; payload fields remain private. |
+| OCR: scenario repositories should use distinct local directories | Reject | The scenario intentionally varies GitHub tracker identity while holding the local checkout constant; Jefe supports a tracker override independent of `base_dir`, and no per-repository files are written beneath the fixture checkout. |
+| OCR: two request-parameter clones allocate | Reject | The two small clones occur only at a user/network fetch boundary and make independent `FnOnce` ownership explicit; introducing `Arc` would add synchronization ownership complexity without measurable benefit. |
+| OCR: issue-list delivery helper is dead or duplicates root persistence | Reject | `apply_background_gh_delivery` in `app_input/mod.rs` routes the enum payload directly through `issues_list_dispatch::apply_issue_list_delivery`; persistence remains owned in one helper, contrary to the finding. |
+| OCR: unavailable delivery context should queue or retry | Reject | Context absence is a configuration/lifecycle failure, not a transient network condition; the existing path completes the correlated load with a visible failure and the user can reload, while adding a retry/queue subsystem is outside the accepted scope. |
+| OCR: future root remounts could receive stale generations | Defer | A generation token could support a future root-remount recovery design, but current `App` is the process-lifetime root and introducing generation semantics is an unplanned lifecycle subsystem; current natural-teardown behavior is documented and tested. |
+| OCR: panic helper should downcast custom payload types | Reject | Rust's standard panic paths produce `String` or static string payloads; arbitrary `panic_any` values have no general display contract, and the generic fallback remains an explicit diagnostic rather than losing the panic event. |
+| OCR: poisoned mutex recovery is silent | Reject | Both recovery sites already emit structured `tracing::warn!` diagnostics before `into_inner()`; the finding is contradicted by the reviewed source. |
+| OCR: delivery-handle retrieval does not recover the poisoned app-context mutex | In-scope—Fix | Align retrieval with installation by warning and recovering the guard; repeated duplicate comments share this disposition. |
+| OCR: scenario runner should preflight the scenario file | In-scope—Fix | Validate the scenario is present and non-empty before building or invoking the harness so setup failures identify the exact missing input. |
+| OCR: relax exact GitHub audit matching | Reject | Duplicate of the intentional fail-closed integration contract: repository-only matching could permit changed qualifiers or unintended operations while the TUI assertions cover the separate visible behavior contract. |
+
+## Review counters
+
+- Pre-PR Open Code Review: 2 / 2 (both invocations were terminated by signal 15 without output; no findings available to triage)
+- Post-PR Open Code Review: 2 / 2 (both automated PR runs completed and all findings were triaged)
+
+## Verification evidence
+
+| Candidate head | Command | Result |
+| --- | --- | --- |
+| `248d968` | live-repository TUI reproduction | RED: issue-list background task emitted the reported generational-box panic |
+| `248d968` | `scripts/issue351-run-scenario.sh` | Fixture baseline passes the visible empty-state flow; lifecycle RED is supplied by the focused async-owner test |
+| working tree | focused lifecycle test | PASS: 1 passed; late delivery was not applied after owner drop |
+| working tree | `scripts/issue351-run-scenario.sh` | PASS: 11 steps; audited empty-repository flow remained stable and panic-free |
+| working tree | `make quick-check` | PASS |
+| working tree | `make ci-check` | PASS |
+
+## Deferred findings and follow-ups
+
+- Process-level panic capture/copy UX: deferred as a separate feature requiring an explicit recovery and ownership design; no follow-up issue created yet.
