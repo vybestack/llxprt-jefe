@@ -46,7 +46,7 @@ pub fn keybind_hints_for(
     }
     match screen_mode {
         ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | F10 shell | F8 external term | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
+            "^/v navigate | </> pane | t/f12 terminal focus | F7 shells | F10 shell | F8 external term | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
         }
         ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {
@@ -71,6 +71,9 @@ pub fn keybind_hints_for(
         ScreenMode::DashboardErrors => {
             "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | Ctrl-C clear | Esc exit"
         }
+        ScreenMode::DashboardTerminals => {
+            "^/v shells | Enter focus (Running) | Ctrl-k close | Esc/F12 back to dashboard | ? help"
+        }
     }
 }
 
@@ -79,18 +82,17 @@ pub fn keybind_hints_for(
 pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
+    let base_hints = keybind_hints_for(
+        props.screen_mode,
+        props.terminal_focused,
+        props.actions_focus,
+    );
     let hints = if props.shell_overlay_active {
-        // Shell is visible: F12 hides (keeps alive), F10 closes/destroys.
-        "F12 hide shell | F10 close shell"
+        "F12 hide shell | F10 close shell".to_string()
     } else if props.shell_resume_available {
-        // Selected agent has a hidden shell F10 can resume.
-        "F10 resume shell"
+        base_hints.replacen("F10 shell", "F10 resume shell", 1)
     } else {
-        keybind_hints_for(
-            props.screen_mode,
-            props.terminal_focused,
-            props.actions_focus,
-        )
+        base_hints.to_string()
     };
 
     element! {
@@ -193,7 +195,7 @@ mod tests {
     #[test]
     fn dashboard_footer_offers_f10_resume_when_selected_agent_has_hidden_shell() {
         let mut element = element! {
-            Box(width: 80u32, height: 1u32) {
+            Box(width: 180u32, height: 1u32) {
                 KeybindBar(
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: false,
@@ -205,7 +207,7 @@ mod tests {
                 )
             }
         };
-        let canvas = element.render(Some(80));
+        let canvas = element.render(Some(180));
         let mut output = Vec::new();
         canvas
             .write_ansi(&mut output)
@@ -213,6 +215,8 @@ mod tests {
         let rendered = String::from_utf8_lossy(&output);
 
         assert!(rendered.contains("F10 resume shell"));
+        assert!(rendered.contains("F7 shells"));
+        assert!(rendered.contains("F8 external term"));
     }
 
     #[test]
@@ -270,7 +274,7 @@ mod tests {
         let identity = "pid:99999 deadbeef".to_string();
         // Use a width wide enough for the hints + identity in any screen mode.
         let mut element = element! {
-            Box(width: 300u32, height: 1u32) {
+            Box(width: 360u32, height: 1u32) {
                 KeybindBar(
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: false,
@@ -280,7 +284,7 @@ mod tests {
                 )
             }
         };
-        let canvas = element.render(Some(300));
+        let canvas = element.render(Some(360));
         let mut output = Vec::new();
         canvas
             .write_ansi(&mut output)

@@ -8,7 +8,8 @@ use iocraft::prelude::*;
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
 use crate::ui::screens::{
-    ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen,
+    ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, TerminalManagerScreen,
+    ThemePickerScreen,
 };
 use crate::ui::{
     AuthModal, ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
@@ -190,6 +191,21 @@ fn repo_display_name(snapshot: &AppState, id: &crate::domain::RepositoryId) -> S
         .map_or_else(|| String::from("selected repository"), |r| r.name.clone())
 }
 
+fn terminal_manager_element(
+    snapshot: &AppState,
+    colors: &ThemeColors,
+    theme_name: &str,
+) -> AnyElement<'static> {
+    element! {
+        TerminalManagerScreen(
+            state: Some(snapshot.clone()),
+            colors: Some(colors.clone()),
+            theme_name: theme_name.to_owned(),
+        )
+    }
+    .into_any()
+}
+
 /// Build the screen element for the current screen mode.
 #[must_use]
 pub fn build_screen_element(
@@ -256,6 +272,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
+        ScreenMode::DashboardTerminals => terminal_manager_element(snapshot, colors, theme_name),
     }
 }
 

@@ -267,36 +267,45 @@ pub fn handle_shell_shortcut_key(
 /// runtime `open_shell_window` is create-or-select so it never duplicates,
 /// and the inventory records the owner after success.
 fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let resumable = {
+        let state = app_state.read();
+        state
+            .selected_repository()
+            .and_then(|repository| jefe::state::resolve_repository_shell(&state, &repository.id))
+    };
+    if let Some(agent_id) = resumable {
+        let repository_id = app_state
+            .read()
+            .repository_for_agent(&agent_id)
+            .map(|repository| repository.id.clone());
+        let Some(repository_id) = repository_id else {
+            set_warning(app_state, "Shell owner repository is unavailable.");
+            return;
+        };
+        super::terminal_manager::select_agent_for_focus(app_state, ctx, &repository_id, &agent_id);
+        dispatch_app_event(
+            app_state,
+            ctx,
+            AppEvent::RequestShellFocus {
+                agent_id,
+                origin: jefe::state::ShellFocusOrigin::DashboardF10,
+            },
+        );
+        return;
+    }
+
     let snapshot = read_dashboard_agent(app_state);
     let Some((agent_id, _work_dir)) = snapshot else {
         warn_no_selection(app_state, "open an embedded shell");
         return;
     };
-
-    // Idempotency: if the overlay is already active for this agent, no-op.
-    let (already_active, was_hidden) = {
-        let state = app_state.read();
-        (
-            state.shell_overlay_agent_id() == Some(&agent_id),
-            state.has_shell_window(&agent_id),
-        )
-    };
-    if already_active {
+    if app_state.read().shell_overlay_agent_id() == Some(&agent_id) {
         return;
     }
 
-    // Call the runtime to open/resume the shell window before transitioning
-    // state. open_shell_window is create-or-select: it selects an existing
-    // jefe-shell window if present, otherwise creates one.
-    let result = open_runtime_shell_window(ctx, &agent_id);
-    match result {
+    match open_runtime_shell_window(ctx, &agent_id) {
         Ok(()) => {
-            let event = if was_hidden {
-                AppEvent::ResumeShellOverlay(agent_id)
-            } else {
-                AppEvent::OpenShellOverlay
-            };
-            dispatch_app_event(app_state, ctx, event);
+            dispatch_app_event(app_state, ctx, AppEvent::OpenShellOverlay);
             resize_for_active_layout(ctx, true);
         }
         Err(error) => {

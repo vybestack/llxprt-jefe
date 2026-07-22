@@ -75,7 +75,6 @@ fn refresh_terminal_scroll_geometry_from_ctx(
     state.terminal_total_lines = new_total;
 }
 
-/// Map a crossterm event kind to the gesture-state-machine event kind.
 fn gesture_event_kind(kind: crossterm::event::MouseEventKind) -> Option<GestureEventKind> {
     use crossterm::event::{MouseButton, MouseEventKind};
     match kind {
@@ -163,7 +162,6 @@ pub fn handle_fullscreen_mouse(
     }
 }
 
-/// Whether a crossterm event kind is a left-button event.
 fn is_left_button(kind: crossterm::event::MouseEventKind) -> bool {
     matches!(
         kind,
@@ -760,7 +758,6 @@ fn resolve_app_selection_point(
     Some(SelectionPoint::new(pane, line, c))
 }
 
-/// Build the screen-layout descriptor from the current app state + terminal size.
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
     let (mode_error, filter_open) = match state.screen_mode {
         ScreenMode::DashboardIssues => (
@@ -778,7 +775,10 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        ScreenMode::DashboardErrors | ScreenMode::Dashboard | ScreenMode::Split => (false, false),
+        ScreenMode::DashboardErrors
+        | ScreenMode::Dashboard
+        | ScreenMode::Split
+        | ScreenMode::DashboardTerminals => (false, false),
     };
     let error_visible = (state.error_message.is_some()
         && !matches!(state.screen_mode, ScreenMode::DashboardErrors))
