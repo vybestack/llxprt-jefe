@@ -42,6 +42,3 @@ pub fn build_rewrite_instruction(draft: &str, github_repo: Option<&str>) -> Stri
     out
 }
 
-#[cfg(test)]
-#[path = "issue_rewrite_tests.rs"]
-mod tests;

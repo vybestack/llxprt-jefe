@@ -1,6 +1,6 @@
 //! Tests for `stateReason` / `state_reason` parsing (issue #204).
 
-use crate::github::{parse_issue_detail_json, parse_issues_json};
+use jefe::github::{parse_issue_detail_json, parse_issues_json};
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -17,7 +17,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
 
 #[test]
 fn test_list_issues_parses_state_reason_graphql() {
-    use crate::domain::IssueStateReason;
+    use jefe::domain::IssueStateReason;
     let json = r#"[
         {
             "number": 1,
@@ -113,7 +113,7 @@ fn test_list_issues_state_reason_none_when_reopened_or_unknown() {
 
 #[test]
 fn test_issue_detail_parses_state_reason_rest_all_values() {
-    use crate::domain::IssueStateReason;
+    use jefe::domain::IssueStateReason;
 
     fn detail_json(state_reason: &str, title: &str) -> String {
         format!(

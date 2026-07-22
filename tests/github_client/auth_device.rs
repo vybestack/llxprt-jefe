@@ -4,7 +4,7 @@
 //! and stderr parsing of `gh auth login --web` output. The subprocess spawn
 //! itself is exercised end-to-end via the tmux scenario.
 
-use crate::github::{
+use jefe::github::{
     AUTH_SCOPES, DeviceCode, build_auth_login_args, build_auth_login_env,
     is_not_authenticated_error, parse_device_code, redact_device_codes,
 };

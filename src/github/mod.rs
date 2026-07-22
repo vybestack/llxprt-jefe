@@ -829,7 +829,7 @@ impl Default for GhClient {
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
 /// `Review`. Each thread carries the id of its parent review, so threads are
 /// attached to their parent review (or the first review as fallback).
-pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+pub fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
     if threads.is_empty() || reviews.is_empty() {
         return;
     }

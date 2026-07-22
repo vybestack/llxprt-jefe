@@ -1,6 +1,6 @@
 //! Tests for the issue-draft rewrite instruction builder (issue #214).
 
-use super::build_rewrite_instruction;
+use jefe::domain::build_rewrite_instruction;
 
 #[test]
 fn instruction_includes_the_draft_verbatim() {

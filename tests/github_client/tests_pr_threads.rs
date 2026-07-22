@@ -7,7 +7,7 @@
 //!
 //! @requirement REQ-PR-009
 
-use crate::github::{
+use jefe::github::{
     build_pr_review_threads_query, parse_pr_review_threads, parse_pr_review_threads_cursor,
 };
 
@@ -484,8 +484,8 @@ fn test_parse_pr_review_threads_empty_comments_array() {
 
 // ── assign_threads_to_reviews grouping (issue #155 follow-up) ────────────
 
-use crate::domain::{PrReview, PrReviewState, PrReviewThread};
-use crate::github::assign_threads_to_reviews;
+use jefe::domain::{PrReview, PrReviewState, PrReviewThread};
+use jefe::github::assign_threads_to_reviews;
 
 fn review_with_id(review_id: Option<&str>, author: &str) -> PrReview {
     PrReview {

@@ -5,7 +5,7 @@
 //! renderer-level tests continue to cover the same pipeline through
 //! `render_markdown_lines`.
 
-use super::*;
+use jefe::markdown_html_strip::{contains_open_tag, strip_html_to_text};
 
 /// The HTML strip state machine must not pass through literal control
 /// characters (ESC, NUL, C1 CSI) from raw text — defense-in-depth so the
@@ -191,11 +191,11 @@ fn nbsp_decodes_to_nonbreaking_space() {
 /// 4-byte emoji.
 #[test]
 fn entity_window_on_multibyte_boundary_does_not_panic() {
-    let input = format!("&{}中", "a".repeat(MAX_ENTITY_LEN - 2));
+    let input = format!("&{}中", "a".repeat(12 - 2));
     let out = strip_html_to_text(&input);
     assert_eq!(out, input, "unterminated entity passes through: {out:?}");
     // Same shape with a 4-byte emoji on the boundary.
-    let input2 = format!("&{}😀", "a".repeat(MAX_ENTITY_LEN - 3));
+    let input2 = format!("&{}😀", "a".repeat(12 - 3));
     let out2 = strip_html_to_text(&input2);
     assert_eq!(out2, input2, "emoji boundary passes through: {out2:?}");
 }
