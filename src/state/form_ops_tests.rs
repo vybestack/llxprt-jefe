@@ -431,11 +431,9 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
     state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
-    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → DefaultLlxprtVersion
-    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → TransientAgentDir
-    state = state.apply(AppEvent::FormNextField); // TransientAgentDir → DefaultCodePuppyYolo
-    state = state.apply(AppEvent::FormNextField); // DefaultCodePuppyYolo → TransientMaxConcurrent
-    state = state.apply(AppEvent::FormNextField); // TransientMaxConcurrent → GitHubRepo
+    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → DefaultLlxprtMode
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtMode → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → GitHubRepo
     state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
     state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled

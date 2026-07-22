@@ -375,11 +375,11 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
-            R::TransientAgentDir
+            R::GitHubRepo
         );
         assert_eq!(
             prev_visible_repository_focus(R::GitHubRepo, AgentKind::Llxprt),
-            R::TransientMaxConcurrent
+            R::DefaultLlxprtVersion
         );
         assert_eq!(
             prev_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
@@ -391,11 +391,11 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::SetupEnvDefault, AgentKind::Llxprt),
-            R::Name
+            R::TransientAgentDir
         );
         assert_eq!(
             prev_visible_repository_focus(R::Name, AgentKind::Llxprt),
-            R::SetupEnvDefault
+            R::TransientMaxConcurrent
         );
         repository_code_puppy_focus_order_includes_its_version();
     }
@@ -421,11 +421,11 @@ mod tests {
         );
         assert_eq!(
             next_visible_repository_focus(R::DefaultCodePuppyVersion, AgentKind::CodePuppy),
-            R::TransientAgentDir
+            R::GitHubRepo
         );
         assert_eq!(
             prev_visible_repository_focus(R::GitHubRepo, AgentKind::CodePuppy),
-            R::TransientMaxConcurrent
+            R::DefaultCodePuppyVersion
         );
         assert_eq!(
             prev_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),

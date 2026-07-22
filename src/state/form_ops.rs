@@ -898,3 +898,7 @@ mod remote_work_dir_tests;
 #[cfg(test)]
 #[path = "form_ops_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "form_ops_issue369_tests.rs"]
+mod issue369_tests;
