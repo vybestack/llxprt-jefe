@@ -7,6 +7,7 @@
 //! format; there is no legacy adapter or compatibility shim, by explicit
 //! project decision (see issue #380 and the CW-00b migration issue #397).
 
+pub mod capture;
 pub mod contract;
 pub mod env;
 pub mod error;
