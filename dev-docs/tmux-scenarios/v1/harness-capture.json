@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "name": "harness-capture",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 493 }],
+    "files": [],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "gh",
+      "path": "bin/gh",
+      "behavior": {
+        "stdout": "PR #7: fix the flux capacitor\n",
+        "stderr": "warning: rate limited\n",
+        "exit_code": 3,
+        "stdin_limit": 1024,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
+    { "op": "wait", "source": "frame", "literal": "PROBE READY", "timeout_ms": 15000 },
+    { "op": "text", "text": "run gh pr view 7\n" },
+    { "op": "wait", "source": "frame", "literal": "RUN[1] EXIT 3", "timeout_ms": 15000 },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "gh",
+        "invocation": 1,
+        "argv": ["gh", "pr", "view", "7"],
+        "env": [
+          { "name": "PATH", "value": "${workspace}/bin" },
+          { "name": "HOME", "value": "${workspace}/home" },
+          { "name": "LANG", "value": "C.UTF-8" }
+        ],
+        "cwd": "${workspace}/work",
+        "stdout": "PR #7: fix the flux capacitor\n",
+        "stderr": "warning: rate limited\n",
+        "exit_code": 3
+      }
+    },
+    { "op": "text", "text": "run gh auth status\n" },
+    { "op": "wait", "source": "frame", "literal": "RUN[2] EXIT 3", "timeout_ms": 15000 },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "gh",
+        "invocation": 2,
+        "argv": ["gh", "auth", "status"],
+        "env": [],
+        "cwd": "${workspace}/work",
+        "exit_code": 3
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

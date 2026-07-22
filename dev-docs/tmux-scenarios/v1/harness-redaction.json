@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "name": "harness-redaction",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 493 }],
+    "files": [],
+    "env": [{ "name": "API_TOKEN", "value": "sekrit-token-123" }]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
+    { "op": "wait", "source": "frame", "literal": "PROBE READY", "timeout_ms": 15000 },
+    { "op": "text", "text": "print-env API_TOKEN\n" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "ENV API_TOKEN=sekrit-token-123",
+      "timeout_ms": 15000
+    },
+    { "op": "finish" }
+  ],
+  "secrets": ["sekrit-token-123"]
+}

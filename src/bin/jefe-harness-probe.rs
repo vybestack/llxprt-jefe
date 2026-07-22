@@ -4,8 +4,10 @@
 //! A tiny full-screen terminal program with fully predictable output:
 //! - prints `PROBE READY <cols>x<rows>` on start and after every resize
 //!   (SIGWINCH is unavailable without unsafe, so it polls the PTY size);
-//! - echoes typed lines as `INPUT: <line>` and key bytes as `KEY: <hex>`;
-//! - `run <name> [args..]` executes `<name>` from PATH (captures);
+//! - echoes unrecognized lines as `INPUT: <line>`;
+//! - `run <name> [args..]` executes `<name>` from PATH (captures) and
+//!   reports `RUN[<seq>] EXIT <code>` with a per-run sequence number so
+//!   waits on consecutive identical commands stay deterministic;
 //! - `write <path> <text>` writes a durable file relative to the cwd;
 //! - `print-env <NAME>` echoes one environment variable;
 //! - `exit` terminates with code 0.
@@ -33,6 +35,7 @@ fn main() -> ExitCode {
             }
         }
     });
+    let mut run_sequence = 0u64;
     loop {
         let size = terminal_size();
         if size != last_size {
@@ -41,7 +44,7 @@ fn main() -> ExitCode {
         }
         match receiver.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(line) => {
-                if handle_line(&line) {
+                if handle_line(&line, &mut run_sequence) {
                     return ExitCode::SUCCESS;
                 }
             }
@@ -52,14 +55,20 @@ fn main() -> ExitCode {
 }
 
 /// Handle one input line; returns `true` on `exit`.
-fn handle_line(line: &str) -> bool {
+fn handle_line(line: &str, run_sequence: &mut u64) -> bool {
     let mut parts = line.split_whitespace();
     match parts.next() {
         Some("exit") => {
             print_line("PROBE EXITING");
             return true;
         }
-        Some("run") => run_command(&parts.map(str::to_string).collect::<Vec<_>>()),
+        Some("run") => {
+            *run_sequence += 1;
+            run_command(
+                *run_sequence,
+                &parts.map(str::to_string).collect::<Vec<_>>(),
+            );
+        }
         Some("write") => {
             let args: Vec<String> = parts.map(str::to_string).collect();
             write_file(&args);
@@ -74,9 +83,9 @@ fn handle_line(line: &str) -> bool {
     false
 }
 
-fn run_command(args: &[String]) {
+fn run_command(sequence: u64, args: &[String]) {
     let Some(program) = args.first() else {
-        print_line("RUN ERROR: missing program");
+        print_line(&format!("RUN[{sequence}] ERROR: missing program"));
         return;
     };
     let output = std::process::Command::new(program)
@@ -84,16 +93,18 @@ fn run_command(args: &[String]) {
         .output();
     match output {
         Ok(output) => {
-            print_line(&format!("RUN EXIT {}", output.status.code().unwrap_or(-1)));
+            print_line(&format!(
+                "RUN[{sequence}] EXIT {}",
+                output.status.code().unwrap_or(-1)
+            ));
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
-                print_line(&format!("RUN OUT {line}"));
+                print_line(&format!("RUN[{sequence}] OUT {line}"));
             }
         }
-        Err(err) => print_line(&format!("RUN ERROR: {err}")),
+        Err(err) => print_line(&format!("RUN[{sequence}] ERROR: {err}")),
     }
 }
-
 fn write_file(args: &[String]) {
     let (Some(path), rest) = (args.first(), &args[1.min(args.len())..]) else {
         print_line("WRITE ERROR: missing path");

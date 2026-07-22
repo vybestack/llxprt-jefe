@@ -79,6 +79,13 @@ impl Workspace {
             .mode(0o700)
             .create(&root)
             .map_err(|err| HarnessError::process(format!("create workspace: {err}")))?;
+        // Canonicalize so recorded process fields (cwd is kernel-canonical)
+        // share the workspace prefix; on macOS temp_dir() crosses the
+        // /var -> /private/var symlink. The root itself was just created by
+        // us, so this resolves only trusted ancestors.
+        let root = root
+            .canonicalize()
+            .map_err(|err| HarnessError::process(format!("canonicalize workspace: {err}")))?;
         let root_handle = open_dir_nofollow(&root)?;
         let root_metadata = root_handle
             .metadata()

@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "name": "harness-limits",
+  "platform": "macos",
+  "terminal": { "cols": 501, "rows": 30 },
+  "workspace": { "mode": 448, "dirs": [], "files": [], "env": [] },
+  "steps": [{ "op": "finish" }],
+  "secrets": []
+}

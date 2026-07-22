@@ -164,12 +164,19 @@ pub fn load_records(workspace: &Path, name: &str) -> Result<Vec<CaptureRecord>, 
 
 /// Evaluate an `assert-capture` expectation against loaded records.
 ///
+/// Recorded argv, cwd, and env values are workspace-normalized before
+/// comparison: a `workspace_root` prefix is rewritten to the literal
+/// `${workspace}` so expectations can state exact bytes despite the unique
+/// per-run workspace path. Env pairs listed in the expectation must match
+/// exactly by name; deterministic base variables not listed are permitted.
+///
 /// # Errors
 ///
 /// `HAR-E006` describing the first mismatching field.
 pub fn check_expectation(
     records: &[CaptureRecord],
     expectation: &CaptureExpectation,
+    workspace_root: &str,
 ) -> Result<(), HarnessError> {
     let index = usize::try_from(expectation.invocation - 1)
         .map_err(|_| mismatch(expectation, "invocation", "out of range"))?;
@@ -180,13 +187,14 @@ pub fn check_expectation(
             &format!("only {} invocation(s) recorded", records.len()),
         )
     })?;
-    check_argv(record, expectation)?;
-    check_env(record, expectation)?;
-    if record.cwd != expectation.cwd {
+    check_argv(record, expectation, workspace_root)?;
+    check_env(record, expectation, workspace_root)?;
+    let recorded_cwd = normalize(&record.cwd, workspace_root);
+    if recorded_cwd != expectation.cwd {
         return Err(mismatch(
             expectation,
             "cwd",
-            &format!("expected '{}', recorded '{}'", expectation.cwd, record.cwd),
+            &format!("expected '{}', recorded '{recorded_cwd}'", expectation.cwd),
         ));
     }
     check_optional(
@@ -210,39 +218,64 @@ pub fn check_expectation(
     check_exit(record, expectation)
 }
 
+/// Rewrite a `workspace_root` prefix to the literal `${workspace}` token.
+fn normalize(value: &str, workspace_root: &str) -> String {
+    value
+        .strip_prefix(workspace_root)
+        .map_or_else(|| value.to_string(), |rest| format!("${{workspace}}{rest}"))
+}
+
 fn check_argv(
     record: &CaptureRecord,
     expectation: &CaptureExpectation,
+    workspace_root: &str,
 ) -> Result<(), HarnessError> {
-    if record.argv != expectation.argv {
+    let recorded: Vec<String> = record
+        .argv
+        .iter()
+        .map(|arg| normalize(arg, workspace_root))
+        .collect();
+    if recorded != expectation.argv {
         return Err(mismatch(
             expectation,
             "argv",
-            &format!(
-                "expected {:?}, recorded {:?}",
-                expectation.argv, record.argv
-            ),
+            &format!("expected {:?}, recorded {recorded:?}", expectation.argv),
         ));
     }
     Ok(())
 }
 
-fn check_env(record: &CaptureRecord, expectation: &CaptureExpectation) -> Result<(), HarnessError> {
-    let expected: Vec<(String, String)> = {
-        let mut pairs: Vec<(String, String)> = expectation
+fn check_env(
+    record: &CaptureRecord,
+    expectation: &CaptureExpectation,
+    workspace_root: &str,
+) -> Result<(), HarnessError> {
+    for entry in &expectation.env {
+        let recorded = record
             .env
             .iter()
-            .map(|entry| (entry.name.clone(), entry.value.clone()))
-            .collect();
-        pairs.sort();
-        pairs
-    };
-    if record.env != expected {
-        return Err(mismatch(
-            expectation,
-            "env",
-            &format!("expected {expected:?}, recorded {:?}", record.env),
-        ));
+            .find(|(name, _)| *name == entry.name)
+            .map(|(_, value)| normalize(value, workspace_root));
+        match recorded {
+            Some(value) if value == entry.value => {}
+            Some(value) => {
+                return Err(mismatch(
+                    expectation,
+                    "env",
+                    &format!(
+                        "'{}' expected '{}', recorded '{value}'",
+                        entry.name, entry.value
+                    ),
+                ));
+            }
+            None => {
+                return Err(mismatch(
+                    expectation,
+                    "env",
+                    &format!("'{}' was not recorded", entry.name),
+                ));
+            }
+        }
     }
     Ok(())
 }

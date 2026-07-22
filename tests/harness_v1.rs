@@ -27,11 +27,9 @@ fn run_scenario(json: &str) -> RunOutcome {
         parse_scenario_v1(json.as_bytes()).unwrap_or_else(|err| panic!("should parse: {err}"));
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
+        installs: Vec::new(),
     };
-    let outcome = run(&scenario, &config);
-    // Every test workspace is retained on failure by contract; remove it
-    // here after assertions via the returned path when the run passed.
-    outcome
+    run(&scenario, &config)
 }
 
 fn cleanup(outcome: &RunOutcome) {
@@ -157,8 +155,8 @@ fn restart_preserves_durable_files_and_replaces_process() {
 fn capture_records_exact_process_boundary_fields() {
     let steps = r#"{"op":"wait","source":"frame","literal":"PROBE READY","timeout_ms":10000},
            {"op":"text","text":"run gh pr view\n"},
-           {"op":"wait","source":"frame","literal":"RUN EXIT 0","timeout_ms":10000},
-           {"op":"assert-frame","contains":["RUN OUT gh-says-hello"],"absent":[]},
+           {"op":"wait","source":"frame","literal":"RUN[1] EXIT 0","timeout_ms":10000},
+           {"op":"assert-frame","contains":["RUN[1] OUT gh-says-hello"],"absent":[]},
            {"op":"finish"}"#;
     let probe = bin_path("jefe-harness-probe");
     let json = format!(

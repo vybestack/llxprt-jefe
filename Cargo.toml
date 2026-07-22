@@ -75,6 +75,10 @@ path = "src/bin/jefe-capture-shim.rs"
 name = "jefe-harness-probe"
 path = "src/bin/jefe-harness-probe.rs"
 
+[[bin]]
+name = "tmux_scenario"
+path = "src/bin/tmux_scenario.rs"
+
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
 

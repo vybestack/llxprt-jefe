@@ -33,14 +33,14 @@ fn expectation() -> CaptureExpectation {
         env: vec![
             EnvVar {
                 name: "PATH".to_string(),
-                value: "/ws/bin".to_string(),
+                value: "${workspace}/bin".to_string(),
             },
             EnvVar {
                 name: "HOME".to_string(),
-                value: "/ws/home".to_string(),
+                value: "${workspace}/home".to_string(),
             },
         ],
-        cwd: "/ws/work".to_string(),
+        cwd: "${workspace}/work".to_string(),
         stdin: Some("body".to_string()),
         stdout: Some("out".to_string()),
         stderr: Some("err".to_string()),
@@ -50,9 +50,37 @@ fn expectation() -> CaptureExpectation {
 }
 
 #[test]
-fn exact_match_passes_with_unsorted_expected_env() {
-    check_expectation(&[record(1)], &expectation())
+fn workspace_prefixed_records_match_token_expectations() {
+    // Recorded values are absolute (/ws/...); expectations state the
+    // ${workspace} token; unsorted expected env order is fine.
+    check_expectation(&[record(1)], &expectation(), "/ws")
         .unwrap_or_else(|err| panic!("should pass: {err}"));
+}
+
+#[test]
+fn values_outside_workspace_compare_verbatim() {
+    let mut rec = record(1);
+    rec.cwd = "/opt/elsewhere".to_string();
+    let mut exp = expectation();
+    exp.cwd = "/opt/elsewhere".to_string();
+    check_expectation(&[rec], &exp, "/ws").unwrap_or_else(|err| panic!("should pass: {err}"));
+}
+
+#[test]
+fn unlisted_env_pairs_are_permitted_listed_must_match() {
+    let mut exp = expectation();
+    exp.env.remove(0);
+    check_expectation(&[record(1)], &exp, "/ws")
+        .unwrap_or_else(|err| panic!("subset should pass: {err}"));
+    let mut exp = expectation();
+    exp.env.push(crate::harness::v1::contract::EnvVar {
+        name: "MISSING".to_string(),
+        value: "x".to_string(),
+    });
+    let err = check_expectation(&[record(1)], &exp, "/ws")
+        .err()
+        .unwrap_or_else(|| panic!("missing listed pair must fail"));
+    assert_eq!(err.code, HarCode::E006);
 }
 
 type Mutation = fn(&mut CaptureExpectation);
@@ -74,7 +102,7 @@ fn each_field_mismatch_is_e006() {
     for (field, mutate) in mutations {
         let mut exp = expectation();
         mutate(&mut exp);
-        let err = check_expectation(&[record(1)], &exp)
+        let err = check_expectation(&[record(1)], &exp, "/ws")
             .err()
             .unwrap_or_else(|| panic!("{field} mismatch must fail"));
         assert_eq!(err.code, HarCode::E006, "{field}");
@@ -86,7 +114,7 @@ fn each_field_mismatch_is_e006() {
 fn missing_invocation_is_e006() {
     let mut exp = expectation();
     exp.invocation = 2;
-    let err = check_expectation(&[record(1)], &exp)
+    let err = check_expectation(&[record(1)], &exp, "/ws")
         .err()
         .unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E006);
@@ -104,14 +132,14 @@ fn optional_fields_skip_comparison_when_absent() {
     rec.stdout = "different".to_string();
     rec.stderr = "different".to_string();
     rec.exit_code = 42;
-    check_expectation(&[rec], &exp).unwrap_or_else(|err| panic!("should pass: {err}"));
+    check_expectation(&[rec], &exp, "/ws").unwrap_or_else(|err| panic!("should pass: {err}"));
 }
 
 #[test]
 fn incomplete_record_fails_exit_code_expectation() {
     let mut rec = record(1);
     rec.completed = false;
-    let err = check_expectation(&[rec], &expectation())
+    let err = check_expectation(&[rec], &expectation(), "/ws")
         .err()
         .unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E006);

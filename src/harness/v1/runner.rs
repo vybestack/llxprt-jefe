@@ -33,9 +33,14 @@ pub struct RunOutcome {
     pub error: Option<HarnessError>,
 }
 
-/// Configuration for a run: where the capture shim binary lives.
+/// Configuration for a run.
 pub struct RunnerConfig {
+    /// The capture shim fixture binary.
     pub shim_binary: PathBuf,
+    /// Host binaries to materialize into `bin/<name>` inside the workspace
+    /// before any step runs (the app-under-test enters the hermetic world
+    /// this way; launch still resolves only against the explicit PATH).
+    pub installs: Vec<(String, PathBuf)>,
 }
 
 /// Execute a validated scenario. Always returns a report; `error` carries
@@ -62,7 +67,7 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         capture_names: Vec::new(),
         report: Report::new(&scenario.name, &root),
     };
-    let error = state.execute();
+    let error = state.install_binaries().err().or_else(|| state.execute());
     let mut report = state.finalize();
     if error.is_some() {
         report.status = "failed".to_string();
@@ -80,6 +85,22 @@ struct RunState<'a> {
 }
 
 impl RunState<'_> {
+    /// Copy configured host binaries into `bin/<name>` (mode 0755) so the
+    /// hermetic PATH can resolve them.
+    fn install_binaries(&mut self) -> Result<(), HarnessError> {
+        use super::contract::RelPath;
+        for (name, source) in &self.config.installs {
+            let target_rel = RelPath(format!("bin/{name}"));
+            let target = self.workspace.resolve(&target_rel)?;
+            std::fs::copy(source, &target).map_err(|err| {
+                HarnessError::process(format!("install '{name}' into workspace: {err}"))
+            })?;
+            std::fs::set_permissions(&target, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+                .map_err(|err| HarnessError::process(format!("chmod installed '{name}': {err}")))?;
+        }
+        Ok(())
+    }
+
     fn execute(&mut self) -> Option<HarnessError> {
         for (index, step) in self.scenario.steps.iter().enumerate() {
             let result = self.execute_step(step);
@@ -265,7 +286,8 @@ impl RunState<'_> {
 
     fn assert_capture(&self, expectation: &CaptureExpectation) -> Result<(), HarnessError> {
         let records = capture::load_records(self.workspace.root(), &expectation.name)?;
-        capture::check_expectation(&records, expectation)
+        let root = self.workspace.root().to_string_lossy().into_owned();
+        capture::check_expectation(&records, expectation, &root)
     }
 
     fn assert_file(&mut self, expectation: &FileExpectation) -> Result<(), HarnessError> {
