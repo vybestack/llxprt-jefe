@@ -1,8 +1,9 @@
 use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
 use crate::github::{
-    GhClient, GhError, build_assign_issue_args, build_list_issues_args, build_viewer_login_args,
-    categorize_error, parse_comments_json, parse_created_comment_json, parse_issue_detail_json,
-    parse_issue_search_json, parse_issues_json, parse_viewer_login, sort_issues,
+    GhClient, GhError, ISSUE_DETAIL_JSON_FIELDS, build_assign_issue_args, build_list_issues_args,
+    build_viewer_login_args, categorize_error, parse_comments_json, parse_created_comment_json,
+    parse_issue_detail_json, parse_issue_search_json, parse_issues_json, parse_viewer_login,
+    sort_issues,
 };
 
 trait TestResultExt<T> {
@@ -973,5 +974,27 @@ fn test_build_assign_issue_args_shape() {
             "-f".to_string(),
             "assignees[]=acoliver".to_string(),
         ]
+    );
+}
+
+/// Regression test for issue #358: the `gh issue view --json` field list must
+/// use the camelCase `stateReason`, not the snake_case `state_reason`. The `gh`
+/// CLI does not recognize `state_reason` and rejects it with
+/// "Unknown JSON field".
+#[test]
+fn test_issue_detail_json_fields_use_camel_case_state_reason() {
+    let fields: Vec<&str> = ISSUE_DETAIL_JSON_FIELDS.split(',').collect();
+
+    // The gh CLI expects camelCase `stateReason`.
+    assert!(
+        fields.contains(&"stateReason"),
+        "ISSUE_DETAIL_JSON_FIELDS must contain 'stateReason' (camelCase) for the gh CLI, got: {ISSUE_DETAIL_JSON_FIELDS}"
+    );
+
+    // The snake_case `state_reason` is the REST API shape and causes
+    // "Unknown JSON field" errors when passed to `gh issue view --json`.
+    assert!(
+        !fields.contains(&"state_reason"),
+        "ISSUE_DETAIL_JSON_FIELDS must NOT contain 'state_reason' (snake_case); it causes 'Unknown JSON field' in the gh CLI. Got: {ISSUE_DETAIL_JSON_FIELDS}"
     );
 }

@@ -114,6 +114,14 @@ pub struct CommentsResponse {
 }
 
 const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+
+/// Comma-separated `--json` field list for `gh issue view`.
+///
+/// Uses the camelCase spelling `stateReason` because the `gh` CLI expects
+/// camelCase field names in `--json` output (issue #358). The snake_case
+/// `state_reason` is the REST API shape and causes `Unknown JSON field` errors.
+pub(crate) const ISSUE_DETAIL_JSON_FIELDS: &str = "number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id";
+
 /// Default page size for the PR list GraphQL search query.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
@@ -236,7 +244,7 @@ impl GhClient {
                 &format!("{owner}/{repo}"),
                 &number.to_string(),
                 "--json",
-                "number,title,state,state_reason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
+                ISSUE_DETAIL_JSON_FIELDS,
             ])
             .output()
             .map_err(|e| {
