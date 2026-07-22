@@ -6,9 +6,10 @@
 //! - preserves artifact directories,
 //! - is idempotent when the server is already dead.
 //!
-//! Tests that call `kill_harness_server` on the real harness socket would
-//! destroy sessions from concurrent tests sharing the same per-process socket,
-//! so isolation behavior is proved with raw tmux on dedicated sockets instead.
+//! No test in this file calls `TmuxDriver::kill_harness_server()` directly,
+//! because that would kill every session on the per-process harness socket
+//! (shared by all concurrent tests in this binary). Instead, isolation and
+//! idempotency are proved with raw tmux on dedicated sockets.
 
 #![cfg(unix)]
 
@@ -58,29 +59,17 @@ fn handler_count_reflects_registration() {
     assert_eq!(guard2.handler_count(), 4);
 }
 
-/// `kill_harness_server` is idempotent: calling when no harness server is
-/// running returns `Ok` (A6).
-#[test]
-fn kill_harness_server_is_idempotent_when_no_server() {
-    let driver = TmuxDriver::new();
-    // If a harness server happens to be running from another test, kill it
-    // first so the second call proves idempotency on an already-dead server.
-    let _ = driver.kill_harness_server();
-    let result = driver.kill_harness_server();
-    assert!(
-        result.is_ok(),
-        "kill_harness_server should be idempotent, got: {result:?}"
-    );
-}
-
-// ─── Artifact preservation (no tmux session required) ───────────────────
+// ─── Artifact preservation (no tmux kill required) ──────────────────────
 
 /// `perform_cleanup` never touches the filesystem — it only shells out to
 /// `tmux kill-server`. Artifact directories must survive (A3).
 ///
-/// We verify this by creating a marker file and calling `perform_cleanup`
-/// (which calls `kill_harness_server` — a no-op when no server exists, but
-/// the point is it never touches files regardless).
+/// We verify artifact survival by checking that files exist after
+/// `perform_cleanup`. The function's only side-effect is a tmux shell-out
+/// (which never touches files), but we exercise it to prove the contract.
+/// The tmux call targets the harness socket; when no harness server exists
+/// the call is a no-op, but the filesystem assertion is still valid: no
+/// code path in `perform_cleanup` deletes files.
 #[test]
 fn perform_cleanup_preserves_artifact_files() {
     let driver = TmuxDriver::new();
@@ -100,7 +89,7 @@ fn perform_cleanup_preserves_artifact_files() {
     assert_eq!(content, "diagnostic data");
 }
 
-// ─── Isolation test (raw tmux on dedicated sockets) ─────────────────────
+// ─── Isolation and idempotency tests (raw tmux on dedicated sockets) ─────
 
 /// `kill-server` on one socket never affects sessions on a different socket
 /// (A2). This proves the isolation guarantee that `kill_harness_server` relies
@@ -169,6 +158,46 @@ fn kill_server_on_one_socket_does_not_affect_another() {
     kill_server_on_socket(&socket_b);
 }
 
+/// `kill-server` is idempotent: calling it when no server exists does not
+/// produce a hard error (A6). On a non-existent socket, `kill-server` exits
+/// non-zero with a "no server running" message — which
+/// `is_no_server_error` classifies as success (idempotent). On a live
+/// server, it kills everything and exits 0. A second call on the now-dead
+/// socket must also be classified as success.
+#[test]
+fn kill_server_is_idempotent_on_dedicated_socket() {
+    let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping idempotency test: tmux unavailable\n",
+        );
+        return;
+    }
+
+    let socket = format!("jefe-idem-{}", unique_suffix());
+
+    // Kill on a socket that has no server — must be classified as success
+    // (either exit 0 or "no server running" stderr).
+    assert!(
+        kill_server_on_socket_is_ok(&socket),
+        "kill-server on non-existent server must be idempotent"
+    );
+
+    // Start a session, kill it, then kill again — second call must also be ok.
+    let session = format!("idem-{}", unique_suffix());
+    assert!(
+        start_session_on_socket(&socket, &session),
+        "should start session"
+    );
+    assert!(kill_server_on_socket_is_ok(&socket), "first kill must work");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        kill_server_on_socket_is_ok(&socket),
+        "second kill on dead server must be idempotent"
+    );
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 fn unique_suffix() -> u128 {
@@ -212,7 +241,24 @@ fn session_exists_on_socket(socket: &str, session_name: &str) -> bool {
 }
 
 fn kill_server_on_socket(socket: &str) {
-    let _ = std::process::Command::new("tmux")
+    let _ = kill_server_on_socket_is_ok(socket);
+}
+
+/// Returns true if kill-server either succeeds (exit 0) or fails with a
+/// "no server running" message (the idempotent case). This mirrors the
+/// `is_no_server_error` classification in `tmux_driver.rs`.
+fn kill_server_on_socket_is_ok(socket: &str) -> bool {
+    let result = std::process::Command::new("tmux")
         .args(["-L", socket, "-f", "/dev/null", "kill-server"])
         .output();
+    match result {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            stderr.contains("no server running")
+                || (stderr.contains("error connecting")
+                    && stderr.contains("No such file or directory"))
+        }
+        Err(_) => false,
+    }
 }

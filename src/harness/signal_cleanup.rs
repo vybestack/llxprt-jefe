@@ -124,6 +124,7 @@ impl SignalCleanupGuard {
 /// This targets only the harness private socket. It never touches the
 /// shared/default tmux server, any other `-L` socket, or unrelated sessions.
 /// It never deletes files.
+#[cfg(unix)]
 fn perform_cleanup(driver: &TmuxDriver) {
     if let Err(err) = driver.kill_harness_server() {
         tracing::warn!(%err, "harness signal cleanup: failed to kill tmux server");
