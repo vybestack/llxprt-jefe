@@ -39,7 +39,10 @@ pub async fn capture_dead_previews(
         targets
             .into_iter()
             .filter_map(|target| {
-                let session_name = target.binding_session_name.as_deref()?;
+                let Some(session_name) = target.binding_session_name.as_deref() else {
+                    debug!(agent_id = %target.agent_id.0, "dead preview skipped without a runtime binding");
+                    return None;
+                };
                 let pane_target = format!("{session_name}:0");
                 match jefe::runtime::capture_pane_lines_result(&pane_target) {
                     Ok(lines) => Some((target, lines)),

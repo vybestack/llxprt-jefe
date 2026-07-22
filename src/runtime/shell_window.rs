@@ -32,7 +32,7 @@ fn manager_session<'a>(
 /// revalidates ownership with [`ShellWindowInputs::owner_still_matches`]
 /// before applying the result. Command construction is unchanged from the
 /// in-lock path.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct ShellWindowInputs {
     /// The owning agent id captured at snapshot time.
     pub owner: AgentId,

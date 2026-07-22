@@ -645,7 +645,7 @@ fn finalize_terminal_selection(
             // read so no multiplexer subprocess runs under a guard (issue #374
             // S3).
             let (cols, rows) = terminal_size();
-            let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx).clone();
+            let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx);
             let state = app_state.read();
             let content =
                 projected_pane_content(selection.pane(), &state, None, &history_lines, cols, rows);
@@ -700,7 +700,7 @@ fn finalize_and_copy_selection(
         // Capture history lines for the selection content projection (issue
         // #198). Cache-only read so no multiplexer subprocess runs under a
         // guard (issue #374 S3).
-        let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx).clone();
+        let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx);
         let (cols, rows) = terminal_size();
         let content = projected_pane_content(
             selection.pane(),

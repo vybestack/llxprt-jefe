@@ -198,29 +198,39 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         count = dead_identities.len(),
                         "liveness poll found dead agents"
                     );
-                    let dead_previews =
+                    let dead_previews: std::collections::HashMap<_, _> =
                         crate::app_shell_workers::capture_dead_previews(dead_identities.clone())
-                            .await;
+                            .await
+                            .into_iter()
+                            .map(|(identity, lines)| (identity.agent_id, lines))
+                            .collect();
                     let mut state = app_state.write();
+                    let current_bindings: std::collections::HashMap<_, _> = state
+                        .agents
+                        .iter()
+                        .map(|agent| {
+                            let identity = agent.runtime_binding.as_ref().map_or((None, 0), |binding| {
+                                (
+                                    Some(binding.session_name.clone()),
+                                    binding.lifecycle_generation,
+                                )
+                            });
+                            (agent.id.clone(), identity)
+                        })
+                        .collect();
                     let mut changed = false;
                     for identity in &dead_identities {
-                        let binding_matches = state.agents.iter().any(|agent| {
-                            agent.id == identity.agent_id
-                                && agent.runtime_binding.as_ref().is_some_and(|binding| {
-                                    Some(binding.session_name.as_str())
-                                        == identity.binding_session_name.as_deref()
-                                        && binding.lifecycle_generation
-                                            == identity.lifecycle_generation
-                                })
-                        });
+                        let binding_matches = current_bindings
+                            .get(&identity.agent_id)
+                            .is_some_and(|(session_name, lifecycle_generation)| {
+                                session_name.as_deref() == identity.binding_session_name.as_deref()
+                                    && *lifecycle_generation == identity.lifecycle_generation
+                            });
                         if !binding_matches {
                             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
                             continue;
                         }
-                        let preview = dead_previews
-                            .iter()
-                            .find(|(captured, _)| captured == identity)
-                            .map(|(_, lines)| lines.clone());
+                        let preview = dead_previews.get(&identity.agent_id).cloned();
                         *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
                             identity.agent_id.clone(),
                             AgentStatus::Dead,

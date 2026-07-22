@@ -132,8 +132,12 @@ fn execute_select_rejects_remote_snapshot_without_subprocess() {
         remote_enabled: true,
         work_dir: std::path::PathBuf::from("/tmp/remote"),
     };
-    let result = inputs.execute_select();
-    assert!(result.is_err(), "select must reject a remote snapshot");
+    match inputs.execute_select() {
+        Err(RuntimeError::SpawnFailed(message)) => {
+            assert!(message.contains("remote"));
+        }
+        other => panic!("expected SpawnFailed for remote select, got {other:?}"),
+    }
 }
 
 // --- S1: owner revalidation (stale owner rejected) ---
