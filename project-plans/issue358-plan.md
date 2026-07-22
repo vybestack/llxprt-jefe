@@ -55,8 +55,11 @@ field list by copying the REST API shape instead of the `gh` CLI shape.
 
 ## Review Counters
 - Local OCR: 0/2
-- PR OCR: 0/2
+- PR OCR: 1/2 — no findings
 
 ## Verification
 - `make quick-check` during iteration
-- `make ci-check` before push
+- `make ci-check` before push — all green
+- PR #378 CI: all checks pass except `Native Windows (MSVC + psmux)` which is a
+  pre-existing failure (same tmux harness test fails on merged PR #370 on main)
+- OpenCodeReview: no findings
