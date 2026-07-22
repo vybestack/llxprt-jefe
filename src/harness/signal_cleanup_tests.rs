@@ -217,6 +217,143 @@ fn kill_server_is_idempotent_on_dedicated_socket() {
     );
 }
 
+// ─── Signal delivery integration test ───────────────────────────────────
+
+/// Delivering SIGTERM to a process that holds a `SignalCleanupGuard` causes
+/// the guard's background thread to run `perform_cleanup` and exit with
+/// `128 + SIGTERM` (A4). This verifies the full signal → cleanup → exit
+/// pipeline rather than just the raw tmux kill-server behavior.
+///
+/// The test spawns a child `cargo test` process that:
+///   1. Starts a tmux session on the harness socket.
+///   2. Constructs a `SignalCleanupGuard`.
+///   3. Sends SIGTERM to itself via `signal_hook::low_level::raise`.
+///
+/// The parent asserts:
+///   - The child exits with code 128 + SIGTERM (143).
+///   - The child's harness tmux server is killed after exit.
+#[test]
+fn signal_delivery_triggers_cleanup_and_exit() {
+    let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping signal delivery test: tmux unavailable
+",
+        );
+        return;
+    }
+
+    // Spawn a `cargo test` child that runs the signal-self-test helper.
+    // The child constructs a SignalCleanupGuard, starts a tmux session on
+    // the harness socket, then raises SIGTERM to itself. The guard's
+    // background thread should call perform_cleanup + process::exit(143).
+    //
+    // The helper is #[ignore]'d so it only runs when explicitly requested
+    // via --ignored, preventing it from running in normal test suites and
+    // calling process::exit(143) on the whole binary.
+    let child = std::process::Command::new("cargo")
+        .args([
+            "test",
+            "--features",
+            "psmux-smoke",
+            "--",
+            "--ignored",
+            "--exact",
+            "harness::signal_cleanup::tests::signal_self_test_helper",
+            "--nocapture",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .value_or_panic("should spawn cargo test child");
+
+    let child_pid = child.id();
+
+    let output = child
+        .wait_with_output()
+        .value_or_panic("should wait for child");
+
+    // The child should exit with 128 + SIGTERM = 143.
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 128 + signal_hook::consts::SIGTERM,
+        "child should exit with 128+SIGTERM (143), got {code}
+stdout: {}
+stderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    // Verify the child's harness socket was cleaned up. The harness socket
+    // name is `jefe-harness-<child_pid>`. After the signal cleanup, no
+    // server should be running on that socket.
+    let child_socket = format!("jefe-harness-{child_pid}");
+    poll_until_server_dead(&child_socket);
+    assert!(
+        !server_exists_on_socket(&child_socket),
+        "child's harness tmux server must be killed by signal cleanup"
+    );
+}
+
+/// Helper test that runs in a child `cargo test` process. Registers a
+/// `SignalCleanupGuard`, starts a tmux session on the harness socket, then
+/// sends SIGTERM to itself via `signal_hook::low_level::raise`. The guard's
+/// background thread should call `perform_cleanup` (killing the harness
+/// tmux server) and then `std::process::exit(143)`.
+///
+/// Marked `#[ignore]` because it calls `process::exit(143)`, which would
+/// terminate the entire test binary if run alongside other tests. The
+/// parent test spawns a child `cargo test -- --ignored` process that runs
+/// only this test.
+#[test]
+#[ignore = "calls process::exit(143); only run via child cargo test from signal_delivery_triggers_cleanup_and_exit"]
+fn signal_self_test_helper() {
+    let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        // No-op if tmux is unavailable. The parent will fail the exit-code
+        // check, but that's expected — the parent test should be guarded
+        // by its own tmux availability check.
+        let _ = signal_hook::low_level::raise(signal_hook::consts::SIGTERM);
+        return;
+    }
+
+    let _guard = SignalCleanupGuard::new(driver.clone()).value_or_panic("guard should construct");
+
+    // Start a tmux session on the harness socket so we can verify it gets
+    // killed by the signal cleanup.
+    let session_name = format!("signal-test-{}", std::process::id());
+    let request = crate::harness::TmuxStartRequest::command(
+        session_name,
+        vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            "sleep 300".to_string(),
+        ],
+        std::env::temp_dir(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+    let _session = driver
+        .start_session(&request)
+        .value_or_panic("session should start");
+
+    // Send SIGTERM to ourselves via signal-hook (async-signal-safe, no
+    // unsafe block needed). The SignalCleanupGuard's background thread
+    // should catch it, call perform_cleanup (kill_harness_server), and exit
+    // with 128 + 15 = 143.
+    let _ = signal_hook::low_level::raise(signal_hook::consts::SIGTERM);
+
+    // If the guard didn't work, the test would continue past here. We add
+    // a short wait as a safety net so the test doesn't hang indefinitely.
+    std::thread::sleep(Duration::from_secs(5));
+    // If we reach here, the signal cleanup failed. Force-exit so the
+    // parent test gets a non-143 exit code and fails.
+    std::process::exit(1);
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 /// Process-wide counter for unique socket/session names. Combined with
@@ -327,5 +464,42 @@ fn kill_server_on_socket_is_ok(socket: &str) -> bool {
                     && stderr.contains("No such file or directory"))
         }
         Err(_) => false,
+    }
+}
+
+/// Check whether a tmux server is running on the given socket by listing
+/// sessions. Returns true if a server responds (even with zero sessions),
+/// false if no server exists.
+fn server_exists_on_socket(socket: &str) -> bool {
+    let result = std::process::Command::new("tmux")
+        .args(["-L", socket, "-f", "/dev/null", "list-sessions"])
+        .env("LC_ALL", "C")
+        .output();
+    match result {
+        Ok(out) => {
+            // A running server with sessions exits 0.
+            // A non-existent server exits non-zero with "no server running"
+            // or "error connecting" in stderr.
+            // Any other non-zero exit is ambiguous — treat as server exists
+            // (safer for the assertion: we don't want false "killed" claims).
+            if out.status.success() {
+                return true;
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            !(stderr.contains("no server running") || stderr.contains("error connecting"))
+        }
+        Err(_) => false,
+    }
+}
+
+/// Poll until no tmux server responds on the given socket (3s deadline,
+/// 50ms interval).
+fn poll_until_server_dead(socket: &str) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if !server_exists_on_socket(socket) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }

@@ -56,6 +56,7 @@ const HANDLED_SIGNALS: &[i32] = &[
 ///
 /// On Windows this is a no-op (psmux processes die with the parent).
 #[derive(Debug)]
+#[must_use]
 pub struct SignalCleanupGuard {
     #[cfg(unix)]
     handle: Option<signal_hook::iterator::Handle>,

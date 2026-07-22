@@ -117,10 +117,19 @@ explicit teardown.
 | Date | Item | Type |
 |------|------|------|
 | 2026-07-22 | Initial plan | — |
+| 2026-07-22 | Added `#[must_use]` to `SignalCleanupGuard` (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Added signal-delivery integration test (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Added `catch_unwind` around `perform_cleanup` (OCR blocker) | Blocker-Fix |
+| 2026-07-22 | Replaced fixed 200ms sleeps with `poll_until_dead` (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Added `SocketGuard` RAII for test cleanup on panic (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Changed `kill_harness_server` from `run_tmux_capture` to `run_tmux` (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Added PID + AtomicU64 counter to `unique_suffix` (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Documented detached thread intent and `handler_count` purpose (OCR finding) | In-scope-Fix |
+| 2026-07-22 | Set `LC_ALL=C` on raw tmux test helpers (OCR finding) | In-scope-Fix |
 
 ## Review Counters
-- Local OCR: 0/2
-- PR OCR: 0/2
+- Local OCR: 2/2 (completed)
+- PR OCR: 2/2 (completed)
 
 ## Verification
 - `make quick-check` during iteration
