@@ -4,21 +4,40 @@
 //! hard limit. Each function shells out to the jefe-private tmux socket via
 //! [`super::commands::tmux_command`].
 
+use super::RuntimeError;
 use super::commands::tmux_command;
 
-/// Capture pane output for a session as plain text lines.
-pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
-    let output = tmux_command()
-        .ok()?
-        .args(["capture-pane", "-p", "-t", session_name])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
+/// Build the plain pane-capture argv for an explicit multiplexer target.
+#[must_use]
+pub fn capture_pane_lines_args(target: &str) -> Vec<String> {
+    vec![
+        "capture-pane".to_owned(),
+        "-p".to_owned(),
+        "-t".to_owned(),
+        target.to_owned(),
+    ]
+}
 
+/// Capture pane output for an explicit target with typed diagnostics.
+pub fn capture_pane_lines_result(target: &str) -> Result<Vec<String>, RuntimeError> {
+    let output = tmux_command()?
+        .args(capture_pane_lines_args(target))
+        .output()
+        .map_err(|error| RuntimeError::CapabilityProbeFailed(error.to_string()))?;
+    if !output.status.success() {
+        return Err(RuntimeError::CapabilityProbeFailed(format!(
+            "tmux capture-pane failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
     let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+    Ok(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+}
+
+/// Capture pane output for a session as plain text lines.
+#[must_use]
+pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
+    capture_pane_lines_result(session_name).ok()
 }
 
 /// Build the `capture-pane -p -S -<N> -E -` argv for a bounded history capture.

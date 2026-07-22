@@ -38,25 +38,20 @@ fn refresh_terminal_scroll_geometry_from_ctx(
     let (cols, rows) = terminal_size();
     let pty_layout = active_pty_layout(cols, rows, overlay_active);
 
+    // Cache-only history read: no multiplexer subprocess while holding the
+    // context guard (issue #374 S3). On cold miss/contention, preserve prior
+    // geometry instead of zeroing it (which would clear the scroll offset
+    // and jump to follow-tail during attach).
     let (history_count, live_rows) = match ctx {
-        Some(ctx_arc) => match ctx_arc.try_lock() {
-            Ok(mut guard) => {
-                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
-                let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
-                (history_count, live_rows)
-            }
-            Err(_) => {
-                // Lock contention: preserve existing geometry instead of
-                // zeroing it. Zeroing would clear the scroll offset and jump
-                // to follow-tail during attach.
+        Some(ctx_arc) => {
+            let Some(geometry) =
+                crate::app_shell_workers::try_capture_history_geometry_from_cache(Some(ctx_arc))
+            else {
                 return;
-            }
-        },
-        None => {
-            // No context: preserve existing geometry instead of zeroing it.
-            // Zeroing would clear the scroll offset.
-            return;
+            };
+            geometry
         }
+        None => return,
     };
 
     let mut state = app_state.write();
@@ -646,12 +641,11 @@ fn finalize_terminal_selection(
             terminal_selection_text(snap, &selection)
         } else {
             // No bound snapshot — fall back to generic extraction (issue #198:
-            // include retained history lines for the terminal pane).
+            // include retained history lines for the terminal pane). Cache-only
+            // read so no multiplexer subprocess runs under a guard (issue #374
+            // S3).
             let (cols, rows) = terminal_size();
-            let history_lines = ctx
-                .and_then(|ctx_arc| ctx_arc.try_lock().ok())
-                .and_then(|mut guard| guard.runtime.capture_history())
-                .unwrap_or_default();
+            let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx).clone();
             let state = app_state.read();
             let content =
                 projected_pane_content(selection.pane(), &state, None, &history_lines, cols, rows);
@@ -703,15 +697,10 @@ fn finalize_and_copy_selection(
                 .filter(|a| a.is_running())
                 .map(|a| &a.id),
         );
-        // Capture history lines for the selection content projection (issue #198).
-        let history_lines = ctx
-            .and_then(|ctx_arc| {
-                ctx_arc
-                    .try_lock()
-                    .ok()
-                    .and_then(|mut guard| guard.runtime.capture_history())
-            })
-            .unwrap_or_default();
+        // Capture history lines for the selection content projection (issue
+        // #198). Cache-only read so no multiplexer subprocess runs under a
+        // guard (issue #374 S3).
+        let history_lines = crate::app_shell_workers::capture_history_from_cache(ctx).clone();
         let (cols, rows) = terminal_size();
         let content = projected_pane_content(
             selection.pane(),

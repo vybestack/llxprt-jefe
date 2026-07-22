@@ -31,6 +31,7 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
             .retain(|agent| &agent.repository_id != repository_id);
         for agent_id in &removed_agent_ids {
             state.remove_shell_window(agent_id);
+            state.clear_dead_preview(agent_id);
         }
 
         // Drop the deleted repo's remembered preferences so they cannot be
@@ -77,6 +78,8 @@ pub fn delete_selected_agent(
     // Immediate shell-inventory cleanup on agent deletion (issue #361 PR A):
     // the agent is gone from state, so any tracked shell window must be too.
     state.remove_shell_window(&removed_agent.id);
+    // Clear the runtime-only dead preview for the deleted agent (issue #374 S4).
+    state.clear_dead_preview(&removed_agent.id);
     let repository_remote_enabled = state
         .repositories
         .iter()

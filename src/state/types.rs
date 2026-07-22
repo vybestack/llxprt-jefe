@@ -466,6 +466,11 @@ pub struct AppState {
     /// #361 PR B). Set when entering a shell from the manager so F12/F10/natural
     /// exit restore the manager; Dashboard-entered shells keep Dashboard.
     pub shell_return_target: super::ShellReturnTarget,
+
+    /// Runtime-only cache of dead-agent pane previews (issue #374 S4).
+    /// Populated once by the off-lock liveness worker; read by the pure render
+    /// projection. Never persisted.
+    pub dead_preview: super::DeadAgentPreview,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

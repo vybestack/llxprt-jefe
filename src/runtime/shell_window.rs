@@ -23,35 +23,155 @@ fn manager_session<'a>(
         .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))
 }
 
+/// Immutable inputs needed to drive a shell-window subprocess without holding
+/// an `AppContext` guard (issue #374 S1).
+///
+/// Mirrors the existing `AttachInputs` snapshot/free-execute boundary: the
+/// caller captures this under a short lock, releases the lock, runs the
+/// (potentially blocking) multiplexer subprocess via `execute_*`, then
+/// revalidates ownership with [`ShellWindowInputs::owner_still_matches`]
+/// before applying the result. Command construction is unchanged from the
+/// in-lock path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShellWindowInputs {
+    /// The owning agent id captured at snapshot time.
+    pub owner: AgentId,
+    /// The multiplexer session name backing the owner (e.g. `jefe-{agent_id}`).
+    pub session_name: String,
+    /// Runtime lifecycle captured with the session identity.
+    pub lifecycle_generation: u64,
+    /// Whether the owner's repository is remote. Remote snapshots are rejected
+    /// by `execute_*` because the embedded shell is local-only.
+    pub remote_enabled: bool,
+    /// The owner's working directory, needed only by `execute_open`.
+    pub work_dir: std::path::PathBuf,
+}
+
+impl ShellWindowInputs {
+    /// Open (create-or-select) the shell window off-lock. Remote snapshots are
+    /// rejected without a subprocess, matching the in-lock path's invariant.
+    pub fn execute_open(&self) -> Result<(), RuntimeError> {
+        if self.remote_enabled {
+            return Err(RuntimeError::SpawnFailed(
+                "embedded shell is local-only for remote repositories".to_owned(),
+            ));
+        }
+        open_shell_window(&self.session_name, &self.work_dir)
+    }
+
+    /// Select the existing shell window off-lock. Remote snapshots are rejected
+    /// without a subprocess; a missing window surfaces `SessionNotFound`.
+    pub fn execute_select(&self) -> Result<(), RuntimeError> {
+        if self.remote_enabled {
+            return Err(RuntimeError::SpawnFailed(
+                "embedded shell is local-only for remote repositories".to_owned(),
+            ));
+        }
+        if !shell_window_exists(&self.session_name)? {
+            return Err(RuntimeError::SessionNotFound(self.owner.0.clone()));
+        }
+        select_shell_window(&self.session_name)
+    }
+
+    /// Close (kill) the shell window off-lock. No owner restriction: the
+    /// session-name-free close path tolerates dead owners.
+    pub fn execute_close(&self) -> Result<(), RuntimeError> {
+        close_shell_window(&self.session_name)
+    }
+
+    /// Hide the shell window off-lock by selecting window 0.
+    pub fn execute_hide(&self) -> Result<(), RuntimeError> {
+        hide_shell_window(&self.session_name)
+    }
+
+    /// Revalidate that the owner is still tracked with the same session name
+    /// after an off-lock subprocess (issue #374 stale-owner guard).
+    ///
+    /// `sessions` is the current `TmuxRuntimeManager::sessions` map; a mismatch
+    /// means the attached owner changed while the subprocess was in flight and
+    /// the result must be discarded.
+    #[must_use]
+    pub fn owner_still_matches(&self, sessions: &HashMap<AgentId, RuntimeSession>) -> bool {
+        sessions.get(&self.owner).is_some_and(|session| {
+            session.session_name == self.session_name
+                && session.lifecycle_generation == self.lifecycle_generation
+        })
+    }
+}
+
+/// Build a [`ShellWindowInputs`] snapshot for `agent_id` from the current
+/// sessions map (issue #374 S1). Returns `None` for an untracked agent so the
+/// caller surfaces the typed `SessionNotFound` failure under the short lock
+/// before releasing it.
+#[must_use]
+pub fn shell_window_inputs_for(
+    sessions: &HashMap<AgentId, RuntimeSession>,
+    agent_id: &AgentId,
+) -> Option<ShellWindowInputs> {
+    let session = sessions.get(agent_id)?;
+    Some(ShellWindowInputs {
+        owner: agent_id.clone(),
+        session_name: session.session_name.clone(),
+        lifecycle_generation: session.lifecycle_generation,
+        remote_enabled: session.launch_signature.remote.enabled,
+        work_dir: session.launch_signature.work_dir.clone(),
+    })
+}
+
+impl super::manager::TmuxRuntimeManager {
+    /// Snapshot the actual session_name/work_dir/remote for `agent_id` while
+    /// the manager lock is held, so the shell-window subprocess can run
+    /// off-lock (issue #374 S1).
+    ///
+    /// This is the concrete snapshot boundary: the caller holds the
+    /// `AppContext` mutex, calls this to capture typed inputs, then releases
+    /// the lock and dispatches `ShellWindowInputs::execute_*`. Returns `None`
+    /// for an untracked agent so the caller surfaces `SessionNotFound` under
+    /// the short lock.
+    #[must_use]
+    pub fn shell_window_inputs(&self, agent_id: &AgentId) -> Option<ShellWindowInputs> {
+        shell_window_inputs_for(&self.sessions, agent_id)
+    }
+
+    /// Revalidate that the owner captured in `inputs` is still tracked with
+    /// the same session name after an off-lock subprocess (issue #374 S2).
+    ///
+    /// Used by open/select paths to reject stale results when the attached
+    /// owner changed while the subprocess was in flight.
+    #[must_use]
+    pub fn shell_window_owner_matches(&self, inputs: &ShellWindowInputs) -> bool {
+        inputs.owner_still_matches(&self.sessions)
+    }
+}
+
 pub(super) fn open_manager_shell_window(
     sessions: &HashMap<AgentId, RuntimeSession>,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
-    let session = manager_session(sessions, agent_id)?;
-    if session.launch_signature.remote.enabled {
-        return Err(RuntimeError::SpawnFailed(
-            "embedded shell is local-only for remote repositories".to_owned(),
-        ));
-    }
-    open_shell_window(&session.session_name, &session.launch_signature.work_dir)
+    let Some(inputs) = shell_window_inputs_for(sessions, agent_id) else {
+        return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+    };
+    inputs.execute_open()
 }
 
 pub(super) fn select_manager_shell_window(
     sessions: &HashMap<AgentId, RuntimeSession>,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
-    let session = manager_session(sessions, agent_id)?;
-    if !shell_window_exists(&session.session_name)? {
+    let Some(inputs) = shell_window_inputs_for(sessions, agent_id) else {
         return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
-    }
-    select_shell_window(&session.session_name)
+    };
+    inputs.execute_select()
 }
 
 pub(super) fn close_manager_shell_window(
     sessions: &HashMap<AgentId, RuntimeSession>,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
-    close_shell_window(&manager_session(sessions, agent_id)?.session_name)
+    let Some(inputs) = shell_window_inputs_for(sessions, agent_id) else {
+        return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+    };
+    inputs.execute_close()
 }
 
 /// Hide the embedded shell window for an agent by selecting window 0
@@ -60,7 +180,10 @@ pub(super) fn hide_manager_shell_window(
     sessions: &HashMap<AgentId, RuntimeSession>,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
-    hide_shell_window(&manager_session(sessions, agent_id)?.session_name)
+    let Some(inputs) = shell_window_inputs_for(sessions, agent_id) else {
+        return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+    };
+    inputs.execute_hide()
 }
 
 /// Close every tracked `jefe-shell` window best-effort (issue #361 PR A).
@@ -483,3 +606,7 @@ mod tests;
 #[cfg(test)]
 #[path = "shell_lifecycle_tests.rs"]
 mod lifecycle_tests;
+
+#[cfg(test)]
+#[path = "shell_window_snapshot_tests.rs"]
+mod snapshot_tests;

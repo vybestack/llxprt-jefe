@@ -9,7 +9,9 @@ use std::time::Duration;
 use tracing::{debug, warn};
 
 use jefe::domain::AgentId;
-use jefe::runtime::{HISTORY_LINE_CAP, RuntimeManager, capture_pane_history, strip_trailing_rows};
+use jefe::runtime::{
+    HISTORY_LINE_CAP, LivenessIdentity, RuntimeManager, capture_pane_history, strip_trailing_rows,
+};
 use jefe::services::capture_worker::{CaptureHandle, should_store_result};
 
 use crate::AppContext;
@@ -26,6 +28,30 @@ pub fn is_pty_dirty(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> bool {
         return false;
     };
     ctx_guard.runtime.take_dirty()
+}
+
+/// Capture frozen pane previews for newly dead local agents without holding
+/// `AppContext` (issue #374).
+pub async fn capture_dead_previews(
+    targets: Vec<LivenessIdentity>,
+) -> Vec<(LivenessIdentity, Vec<String>)> {
+    smol::unblock(move || {
+        targets
+            .into_iter()
+            .filter_map(|target| {
+                let session_name = target.binding_session_name.as_deref()?;
+                let pane_target = format!("{session_name}:0");
+                match jefe::runtime::capture_pane_lines_result(&pane_target) {
+                    Ok(lines) => Some((target, lines)),
+                    Err(error) => {
+                        warn!(agent_id = %target.agent_id.0, error = %error, "dead preview capture failed");
+                        None
+                    }
+                }
+            })
+            .collect()
+    })
+    .await
 }
 
 /// Poll interval for the persistence worker drain loop.
@@ -207,6 +233,53 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         .history_cache_get(&attached_agent, generation)
         .cloned()
         .unwrap_or_default()
+}
+
+/// Try to read cached history lines for the attached session without a
+/// multiplexer subprocess, returning `None` on contention, no attached
+/// session, or a cold cache miss (issue #374 S3).
+///
+/// Unlike [`capture_history_from_cache`], this preserves prior geometry on a
+/// cold miss: callers (mouse scroll/selection geometry) can return early
+/// instead of zeroing `history_count`, which would clear the scroll offset
+/// and jump to follow-tail during attach.
+#[must_use]
+pub fn try_capture_history_geometry_from_cache(
+    ctx: Option<&Arc<std::sync::Mutex<AppContext>>>,
+) -> Option<(usize, usize)> {
+    let ctx_arc = ctx?;
+    let ctx_guard = ctx_arc.try_lock().ok()?;
+    let attached_agent = ctx_guard.runtime.attached_agent()?;
+    let session = ctx_guard.runtime.get_session(attached_agent)?;
+    let generation = ctx_guard.runtime.output_generation();
+    let handle: &CaptureHandle = &ctx_guard.capture_handle;
+    let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
+        let prev = cell.borrow();
+        let changed = prev
+            .as_ref()
+            .is_some_and(|(a, g)| a != attached_agent || *g != generation)
+            || prev.is_none();
+        drop(prev);
+        if changed {
+            *cell.borrow_mut() = Some((attached_agent.clone(), generation));
+        }
+        changed
+    });
+    if need_request {
+        handle.request(
+            attached_agent.clone(),
+            session.session_name.clone(),
+            generation,
+        );
+    }
+    let history_count = ctx_guard
+        .runtime
+        .history_cache_get(attached_agent, generation)
+        .or_else(|| ctx_guard.runtime.history_cache_fallback(attached_agent))?
+        .len();
+    let live_rows = ctx_guard.runtime.snapshot()?.rows;
+    drop(ctx_guard);
+    Some((history_count, live_rows))
 }
 
 thread_local! {
