@@ -71,6 +71,10 @@ required-features = ["psmux-smoke"]
 name = "jefe-capture-shim"
 path = "src/bin/jefe-capture-shim.rs"
 
+[[bin]]
+name = "jefe-harness-probe"
+path = "src/bin/jefe-harness-probe.rs"
+
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
 

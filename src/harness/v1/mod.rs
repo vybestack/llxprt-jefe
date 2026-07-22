@@ -14,10 +14,16 @@ pub mod error;
 pub mod fields;
 pub mod interp;
 pub mod json;
+pub mod keys;
 pub mod limits;
 pub mod parse;
 pub mod parse_step;
+#[cfg(unix)]
+pub mod pty;
 pub mod redact;
+pub mod report;
+#[cfg(unix)]
+pub mod runner;
 pub mod semantic;
 pub mod validate;
 #[cfg(unix)]
@@ -26,3 +32,6 @@ pub mod workspace;
 pub use contract::{ScenarioV1, Step};
 pub use error::{HarCode, HarnessError};
 pub use parse::parse_scenario_v1;
+pub use report::Report;
+#[cfg(unix)]
+pub use runner::{RunOutcome, RunnerConfig, run};
