@@ -14,7 +14,7 @@ End-to-end outcome: after restart, each enabled installed compatible definition 
 
 | Existing source symbol | Current responsibility | Required final responsibility |
 |---|---|---|
-| `src/domain/mod.rs::AgentKind`, `Agent`, `Repository`, `LaunchSignature` | closed product identity and persisted/runtime values | replace generic `AgentKind` authority with `AgentTypeId`; retain a named schema-1 LLxprt migration adapter only |
+| `src/domain/mod.rs::AgentKind`, `Agent`, `Repository`, `LaunchSignature` | closed product identity and persisted/runtime values | `AgentTypeId` replaces `AgentKind` everywhere; `AgentKind` is deleted at feature-complete — schema-1 alias/field mapping exists only inside the one-way persistence migration and imports no runtime type |
 | `src/agent_detection.rs` | PATH detection for LLxprt/Code Puppy | candidate resolution and probe adapter consuming registry definitions |
 | `src/state/form_projection.rs`, `form_runtime.rs`, `form_ops.rs`, `form_build.rs`, `form_types.rs`, `modal_ops.rs` | product-branched forms | pure projections and typed form values from `AgentDefinition` |
 | `src/selection/form_content.rs` | form presentation projection | render generated labels/status/reasons only |
@@ -60,7 +60,7 @@ ExecutableCandidate={kind:"path-name",value:string}|{kind:"repository-llxprt",va
 ```
 
 * `npm-package` launches `npm exec --yes --package=<package>@<selector> -- <binary> ...` when the agent's persisted version selector is nonblank; blank selector means the candidate is skipped in favor of direct PATH resolution. Shipped definitions declare `core.llxprt -> @vybestack/llxprt-code/llxprt`, `core.codex -> @openai/codex/codex`, and `core.claude-code -> @anthropic-ai/claude-code/claude` (both publish npm packages for macOS/Linux). `core.code-puppy` declares `uvx-package code-puppy/code-puppy`.
-* The existing `LlxprtNpmPackageSelector` normalization, `latest`/`latest nightly` sentinel handling, and the non-installing `npm view --json <spec> version` availability probe generalize to a definition-agnostic selector on the agent form, replacing the LLxprt-only field; the LLxprt-specific type remains only inside the schema-1 migration adapter.
+* The existing `LlxprtNpmPackageSelector` normalization, `latest`/`latest nightly` sentinel handling, and the non-installing `npm view --json <spec> version` availability probe generalize to a definition-agnostic selector on the agent form; the LLxprt-only type is deleted at feature-complete, surviving only inside the one-way schema-1 persistence migration.
 * Probe, capability gating, generations, and launch-plan rules apply identically to package-runner candidates: the resolved runner invocation is fingerprinted and probed like a direct executable, and a selector change invalidates the probe generation.
 * Existing persisted LLxprt/Code Puppy version selectors migrate losslessly into the generalized typed value.
 
@@ -156,19 +156,18 @@ Artifact 1,048,576 bytes; data depth 16; map 256; array 1024; path 4096 bytes; f
 
 Fresh LLxprt forces continue false, removes only the typed continue emitter, and emits one `-i`/`--prompt-interactive` prompt according to fixture-verified evidence. Fresh Code Puppy forces quick-resume false and emits one `-i` prompt according to fixture-verified evidence. Codex and Claude emit only the rows proven above; fresh/resume/remote cells unsupported by the definition or unverified on the installed release remain visible and disabled.
 
-Schema-1 aliases map `llxprt` or missing kind to `core.llxprt`; `code_puppy`, `code-puppy`, and `codepuppy` map to `core.code-puppy`. Product fields become typed namespaced values. Existing LLxprt `mode_flags` and remote setup bytes are retained only in the named migration/runtime compatibility adapter. Unknown types/fields become dormant records. Signature version 1 hashes type ID, definition SHA-256, launch-signature fields, and target fingerprint; it excludes secrets and display-only fields. Restore requires matching signature and live tmux/process evidence; otherwise status is stopped/unknown.
+Schema-1 aliases map `llxprt` or missing kind to `core.llxprt`; `code_puppy`, `code-puppy`, and `codepuppy` map to `core.code-puppy`. Product fields become typed namespaced values through the one-way persistence migration. Existing LLxprt `mode_flags` and remote-setup values migrate into typed definition fields where a typed field exists; values with no typed representation become dormant records with exact bytes preserved — there is no runtime compatibility adapter, and remote launches run through the same definition operation/target/preflight contracts as every agent. Unknown types/fields become dormant records. Signature version 1 hashes type ID, definition SHA-256, launch-signature fields, and target fingerprint; it excludes secrets and display-only fields. Restore requires matching signature and live tmux/process evidence; otherwise status is stopped/unknown.
 
 ## Architecture guard allowlist
 
 The source guard rejects case-insensitive `llxprt`, `code puppy`, `code_puppy`, `codex`, `claude`, and the four stable type IDs in generic Rust source. Allowed locations are only:
 
 * shipped definition data modules/files and their fixture hashes;
-* `src/agent_detection.rs` repository-local LLxprt candidate adapter;
-* the named schema-1 LLxprt/Code-Puppy migration adapter under `src/persistence/`;
-* the named LLxprt legacy remote-setup compatibility adapter under `src/runtime/`;
+* the typed repository-local LLxprt candidate kind in the definition contract;
+* the one-way schema-1 persistence migration module under `src/persistence/`;
 * tests/fixtures that assert provenance, migration, parity, or guard failures.
 
-The guard also rejects `match AgentKind`, generic `if type_id ==`, product-specific form branches, and product-specific Issue/PR send branches outside this allowlist.
+The guard also rejects `match AgentKind`, generic `if type_id ==`, product-specific form branches, and product-specific Issue/PR send branches outside this allowlist, plus (per the epic no-shim policy) shim-token permutations — case-insensitive `legacy`, `compat`, `shim`, `backward`, `bridge`, `_old`, `old_`, `deprecated` — anywhere outside the one-way persistence migration module, its tests/fixtures, and literal user-facing diagnostic text. `AgentKind` itself must not exist at feature-complete.
 
 ## Failure and recovery
 
@@ -279,11 +278,11 @@ Create each scenario, test, and embedded fixture before implementation and recor
 | CW02-12 | IF any generation changes before execution, Jefe shall return `AGT-E203` and perform zero side effects. | `agent-stale-generation.json` | `generation_property` | old/new executable, probe, target, and activation generation tuples |
 | CW02-13 | WHEN schema-1 records migrate, Jefe shall preserve known typed values and exact dormant unknown records. | `agent-legacy-migration.json` | `agent_migration_golden` | every current LLxprt/Code-Puppy field, aliases, invalid kind, and expected schema-2 JSON |
 | CW02-14 | WHEN a matching live launch restores, Jefe shall attach through the existing tmux/PTY boundary. | `agent-terminal-compatibility.json` | `local_remote_tmux` | matching/mismatching signatures, live/dead sessions, resize and Ctrl-C/F12 captures |
-| CW02-15 | WHEN the architecture guard scans source, Jefe shall find product tokens only in the explicit allowlist. | `agent-no-product-branches.json` | `agent_architecture_guard` | allowlisted paths plus one forbidden generic branch per pattern |
+| CW02-15 | WHEN the architecture guard scans source, Jefe shall find product tokens and shim-token permutations only in the explicit allowlist, and `AgentKind` shall not exist. | `agent-no-product-branches.json` | `agent_architecture_guard` | allowlisted paths plus one forbidden generic branch per pattern plus one seeded shim-token hit per permutation |
 | CW02-16 | IF no Claude executable is installed, Jefe shall publish Claude as not found and execute zero Claude process. | `agent-claude-evidence-gate.json` | `claude_entry_gate` | empty PATH for `claude`, visible NotFound status, zero process capture |
 | CW02-17 | WHEN a nonblank version selector is set for an npm/uvx-package candidate, Jefe shall plan the exact package-runner argv and reprobe under a new generation. | `agent-version-selector.json` | `package_runner_selector` | llxprt/codex/claude npm captures, code-puppy uvx capture, `latest`/`latest nightly` sentinel table, blank-selector direct fallback |
 
-GREEN builds one pipeline. REFACTOR removes product branches only after every parity fixture passes.
+GREEN builds one pipeline. REFACTOR deletes `AgentKind`, every product branch, product-specific form/send modules, and any temporary bridge introduced during this issue only after every parity fixture passes; at feature-complete the shim-token scan is clean.
 
 ## Normative documentation updated by this issue
 
@@ -296,4 +295,4 @@ GREEN builds one pipeline. REFACTOR removes product branches only after every pa
 
 ## Definition of done
 
-All seventeen criteria pass; Claude fixture transcripts are captured from a real release or Claude is truthfully shown not found; runtime compatibility is probe-decided per installation with no version allow-list; all shipped mappings are fixture-proven by embedded release evidence; version selectors work for every package-runner candidate with lossless migration of existing LLxprt/Code Puppy selectors; no generic product branch, shell/raw args, guessed mapping, secret leak, stale side effect, `unsafe`, production panic/unwrap/expect, lint suppression, dependency addition, or weakened gate exists. Run unchanged `make ci-check` with Rust 2024, source hard limit 1000/warning 750, complexity 15/60/6/3/250, clippy `-D warnings`, coverage at least 30%, and locked all-feature build/tests.
+All seventeen criteria pass; Claude fixture transcripts are captured from a real release or Claude is truthfully shown not found; runtime compatibility is probe-decided per installation with no version allow-list; all shipped mappings are fixture-proven by embedded release evidence; version selectors work for every package-runner candidate with lossless migration of existing LLxprt/Code Puppy selectors; `AgentKind` and every compatibility shim/legacy adapter/dual path are deleted, with the shim-token permutation scan clean outside the one-way persistence migration allowlist; no generic product branch, shell/raw args, guessed mapping, secret leak, stale side effect, `unsafe`, production panic/unwrap/expect, lint suppression, dependency addition, or weakened gate exists. Run unchanged `make ci-check` with Rust 2024, source hard limit 1000/warning 750, complexity 15/60/6/3/250, clippy `-D warnings`, coverage at least 30%, and locked all-feature build/tests.

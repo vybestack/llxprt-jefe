@@ -37,7 +37,7 @@ Homebrew fixture installs executable at `/opt/homebrew/Cellar/jefe/1.0.0/bin/jef
 
 | Owner capability | Required release evidence |
 |---|---|
-| harness | real PTY, exact capture/interpolation/resize/restart/cleanup/redaction and legacy scenarios |
+| harness | real PTY, exact capture/interpolation/resize/restart/cleanup/redaction and every converted schema-1 scenario |
 | configuration/state/effects | v1-to-v2, lossless hash/write/path/ambiguity/malformed provider-free recovery, stale effect |
 | agents | all four pinned provenance/capability local+remote operation/target/preflight/plan/signature/generation cases |
 | actions/keys | complete default inventory, contexts, protected keys, conflict/availability parity |
@@ -53,7 +53,7 @@ Homebrew fixture installs executable at `/opt/homebrew/Cellar/jefe/1.0.0/bin/jef
 
 All owner limits remain exact; release does not restate alternatives. Build uses locked dependencies and artifacts. Flow: build clean artifact; hash it; install synthetic tree; set contained HOME/PATH/config/state/plugin roots; run installed author kit; run owner fixtures; launch installed binary in real PTY at normal and tiny sizes; exercise terminal capture, Settings save/restart, Git Merger; run malformed-state recovery with a hanging provider trap; scan installed files/reports/logs/process table for secret, orphan, source/development path; compare durable files; emit release index report.
 
-Any warning, contradiction, missing mapping, unapproved dependency, weakened gate, lint suppression, guessed external capability, product/plugin branch, secret, orphan, one-shot startup process, duplicate authority, source path, inaccessible recovery, or owner-fixture mutation blocks release. No waiver.
+Any warning, contradiction, missing mapping, unapproved dependency, weakened gate, lint suppression, guessed external capability, product/plugin branch, compatibility shim/legacy adapter/dual code path or shim-token permutation outside the one-way persistence migration allowlist, surviving superseded symbol (`AgentKind`, `ScreenMode`, pre-registry dispatch/help/footer maps, schema-1 load/save outside migration, old-format harness parsing), secret, orphan, one-shot startup process, duplicate authority, source path, inaccessible recovery, or owner-fixture mutation blocks release. No waiver.
 
 ## Migration, recovery, and security
 
@@ -107,9 +107,10 @@ Normal, focused, unavailable, error, dirty, recovery, and small are separate ins
 | CW15-08 | WHEN Git Merger runs installed, it shall execute exact commands and remain relocatable. | package command/path captures |
 | CW15-09 | WHEN artifacts/reports/processes are scanned, release shall contain no secret/orphan/development path. | exhaustive scan |
 | CW15-10 | WHEN quality gates run, release shall use unchanged thresholds and locked all-feature artifacts. | workflow command assertion |
+| CW15-11 | WHEN the release shim scan runs across source and installed artifacts, it shall find no shim-token permutation, deprecated re-export, compatibility delegate, dual code path, or superseded symbol outside the one-way persistence migration allowlist. | full-tree token-permutation scan, superseded-symbol absence assertions, and audited allowlist diff against the ownership-audit baseline |
 
 RED indexes/layouts with deliberate missing hashes first; GREEN aggregation wiring only; REFACTOR runner invocation without changing expectations.
 
 ## Normative documentation and done
 
-Update `docs/building.md`, `docs/getting-started.md`, `dev-docs/standards/testing-and-quality.md`, and release workflow comments with exact installed layouts, hash/index checks, owner aggregation, provider-free recovery, relocation/security scans, and no-waiver policy. Done requires all owner criteria exactly once on both clean layouts and unchanged `make ci-check`: rustfmt; no clippy allows; source hard 1,000/warn 750; clippy all targets/features `-D warnings`; complexity 15 cognitive/60 lines/6 args/3 bools/type 250; coverage at least 30%; locked all-feature build/test. No unsafe, production unwrap/expect, arbitrary scenario shell, unapproved dependency, warning, or waiver.
+Update `docs/building.md`, `docs/getting-started.md`, `dev-docs/standards/testing-and-quality.md`, and release workflow comments with exact installed layouts, hash/index checks, owner aggregation, provider-free recovery, relocation/security scans, the shim scan, and no-waiver policy. Done requires all owner criteria exactly once on both clean layouts, a clean CW15-11 shim scan, and unchanged `make ci-check`: rustfmt; no clippy allows; source hard 1,000/warn 750; clippy all targets/features `-D warnings`; complexity 15 cognitive/60 lines/6 args/3 bools/type 250; coverage at least 30%; locked all-feature build/test. No unsafe, production unwrap/expect, arbitrary scenario shell, unapproved dependency, compatibility shim, warning, or waiver.

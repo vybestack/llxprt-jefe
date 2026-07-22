@@ -8,7 +8,7 @@ Replace all screen-specific geometry with one I/O-free descriptor registry and o
 
 | Source/symbol | Required ownership | Parity that must not change |
 |---|---|---|
-| `src/state/types.rs::ScreenMode` | migration adapter only; stable `ScreenId` is runtime authority | every legacy variant maps exactly once |
+| `src/state/types.rs::ScreenMode` | deleted at feature-complete; stable `ScreenId` is runtime authority and the one-way persistence migration maps every old variant exactly once | every old variant maps exactly once; `ScreenMode` has zero references outside the migration module before this issue closes |
 | `src/ui/screens/dashboard.rs` | thin renderer over `ResolvedLayout` | repository/agent selection, focus, empty/error states |
 | `src/ui/screens/split.rs` | thin renderer | repository/agent/terminal proportions and PTY focus |
 | `src/ui/screens/issues.rs` | thin renderer | list/detail/filter/search/scroll/mouse behavior |
@@ -43,7 +43,7 @@ A panel appears exactly once in `panels` and layout; each focusable panel appear
 
 Executable algorithm: validate using checked `u32`; flatten each split’s children in declaration order; subtract one internal separator cell per adjacent visible child; begin with all children visible; while visible minima exceed axis space, hide a collapsible child ordered by `(collapse_priority ascending, depth_first_index descending)`; if required minima still do not fit, return only the first required focusable panel in descriptor focus order using the entire rect and `TooSmall{needed,available}`. For remaining children, clamp fixed sizes to `[min,max]`; assign weighted children their minima; distribute remaining cells by `floor(remaining*weight/sum_weight)`; assign remainder one cell at a time in declaration order; when a child reaches max remove it and repeat distribution. Derive contiguous, nonoverlapping rectangles and recurse. Zero-width/height leaves are hidden. Repair focus to the first visible focusable panel at or after prior focus cyclically, then initial focus. Hidden panels have no hit, wrap, selection, scroll, or PTY resize region. Renderer, mouse, selection, focus, scrolling, wrapping, and PTY consume the same immutable snapshot.
 
-Legacy mapping is `Dashboard -> core.dashboard`, `Split -> core.repositories`, `DashboardIssues -> github.issues`, `DashboardPullRequests -> github.pull-requests`, and current Actions state -> `github.actions`. Invalid legacy value warns and selects compiled initial screen. Runtime never uses enum ordinal.
+The one-way persistence migration maps old persisted values `Dashboard -> core.dashboard`, `Split -> core.repositories`, `DashboardIssues -> github.issues`, `DashboardPullRequests -> github.pull-requests`, and current Actions state -> `github.actions`. An invalid old value warns and selects the compiled initial screen. Runtime never uses enum ordinal, and no runtime type carries the old variants — `ScreenMode` is deleted at feature-complete with the mapping living only inside the migration module.
 
 ## Five-screen parity table
 
@@ -104,11 +104,11 @@ Startup validates five compiled descriptors, migrates legacy ID, creates instanc
 | CW04-06 | IF optional minima do not fit, Jefe shall collapse in the stated order. | collapse-priority/depth fixture |
 | CW04-07 | IF required minima do not fit, Jefe shall show the first required panel and TooSmall notice. | dimensions 1x1 through 80x24 |
 | CW04-08 | WHEN a PTY panel is visible, Jefe shall provide a nonzero content rectangle. | terminal-leaf property |
-| CW04-09 | WHEN legacy screen state loads, Jefe shall map it to the exact stable ID. | migration matrix |
+| CW04-09 | WHEN old persisted screen state migrates, Jefe shall map it to the exact stable ID inside the one-way migration, and `ScreenMode` shall have zero references outside that module. | migration matrix plus superseded-symbol absence assertion |
 | CW04-10 | WHEN each applicable unavailable/error/recovery state renders, Jefe shall retain screen-specific parity. | five-screen state ledger; dirty overlay parity |
 
-RED fixtures precede implementation; GREEN migrates one consumer at a time; REFACTOR removes duplicate geometry only after parity.
+RED fixtures precede implementation; GREEN migrates one consumer at a time; REFACTOR deletes the duplicate geometry, per-screen layout arithmetic, and `ScreenMode` (outside the migration module) only after parity — no consumer keeps a non-snapshot geometry path at feature-complete.
 
 ## Documentation and done
 
-Update `dev-docs/standards/display-and-ui.md` with descriptor invariants, allocation pseudocode, snapshot consumers, focus repair, tiny behavior, and the five-screen table; update `dev-docs/standards/architecture.md` to name layout as sole geometry authority. Done requires all old layout/mouse/selection/PTY tests, ledger tests, and unchanged `make ci-check`; no dependency, suppression, threshold change, unsafe, or production unwrap/expect.
+Update `dev-docs/standards/display-and-ui.md` with descriptor invariants, allocation pseudocode, snapshot consumers, focus repair, tiny behavior, and the five-screen table; update `dev-docs/standards/architecture.md` to name layout as sole geometry authority. Done requires all old layout/mouse/selection/PTY tests, ledger tests, `ScreenMode` and duplicate geometry deleted with the shim-token scan clean per the epic no-shim policy, and unchanged `make ci-check`; no dependency, suppression, threshold change, unsafe, or production unwrap/expect.

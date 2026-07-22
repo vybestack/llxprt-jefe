@@ -10,7 +10,7 @@ Capability names below are contracts, not GitHub issue-number placeholders. An a
 
 | Capability | Exact delivered contract | Consumes |
 |---|---|---|
-| deterministic real-process harness | contained schema-1 filesystem/process/PTY/capture/interpolation/resize/restart/redaction runner plus legacy adapter | none |
+| deterministic real-process harness | contained schema-1 filesystem/process/PTY/capture/interpolation/resize/restart/redaction runner; all preexisting scenarios converted in-repo to schema 1 with the old format deleted | none |
 | configuration, state, and effects | schema-2 lossless Settings/State migration, path identity, revisioned atomic writer, provider-free recovery, closed post-commit effects | deterministic harness |
 | four-agent definitions | declarative LLxprt, Code Puppy, Codex CLI, Claude Code capability/probe/operation/target/preflight/plan contracts | harness; configuration/state/effects |
 | actions and keymaps | immutable action/context/availability registry, source-derived defaults, canonical single chords, protected controls | harness; configuration/state/effects |
@@ -33,21 +33,30 @@ Only package inventory has an unresolved prerequisite: maintainer approval of th
 
 | Current source/symbol | Current responsibility | Target sole authority/parity |
 |---|---|---|
-| `src/domain/mod.rs::AgentKind` | closed LLxprt/Code Puppy product enum | migration adapter; immutable agent registry owns all definitions |
+| `src/domain/mod.rs::AgentKind` | closed LLxprt/Code Puppy product enum | deleted at four-agent feature-complete; schema-1 alias mapping lives only inside the one-way persistence migration; immutable agent registry owns all definitions |
 | `src/agent_detection.rs` | binary detection | definition-driven bounded probes with exact diagnostics |
 | `src/state/form_projection.rs`, `form_runtime.rs`, `form_ops.rs`, `form_build.rs` | product-specific forms/runtime | constrained definition fields and typed operation planner |
 | `src/runtime/commands.rs` | command assembly | definition operation adapters; no generic shell/raw args |
 | `src/app_input/fresh_prompt.rs`, `preflight.rs`, `remote_probe.rs` | product policy | typed operation/target/preflight contracts |
 | `src/persistence/mod.rs::{Settings,State}` | schema-1 paths/load/save | lossless schema-2 document/state/path/migration/writer authority |
-| `src/state/types.rs::ScreenMode` | closed screens | migration only; descriptors and `NavState` own runtime identity |
+| `src/state/types.rs::ScreenMode` | closed screens | deleted at descriptor feature-complete; legacy value mapping lives only inside the one-way persistence migration; descriptors and `NavState` own runtime identity |
 | `src/ui/screens/dashboard.rs`, `split.rs`, `issues.rs`, `pull_requests.rs`, `src/actions_view.rs` | screen geometry/control | thin renderers over descriptor/ResolvedLayout snapshots |
 | `src/layout.rs`, `src/mouse_routing.rs`, terminal/selection projections | duplicated geometry consumers | one resolver snapshot for render/hit/wrap/select/scroll/focus/PTY |
 | `src/input.rs`, `src/app_input/`, `src/app_shell.rs`, Help/footer | distributed key/action behavior | action/key registry and typed intent dispatch |
-| `src/harness/`, `dev-docs/tmux-scenarios/` | current real-TTY tests | closed deterministic harness plus behavior-compatible legacy lowering |
+| `src/harness/`, `dev-docs/tmux-scenarios/` | current real-TTY tests | closed deterministic harness; every existing scenario file is converted to schema 1 in-repo and the old format ceases to exist |
 | `src/runtime/` | process/tmux adapters | also provider supervisor; never owns application state |
 | absent package/provider modules | no plugin runtime | static inventory, strict supervisor, host panel/config reducers |
 
 Dependency direction is pure domain/contracts, deterministic application reducers, then adapters/UI/composition. UI renders and emits typed intent; reducers perform no I/O; persistence owns files but no processes; runtime owns handles but no `AppState`; composition commits/releases state before effects; public DTOs import no UI/private message type. Registries publish atomically and become immutable until restart.
+
+## No-shim policy (binding for every capability)
+
+Backward-compatibility shims, legacy adapters, facades over superseded types, dual code paths, and "compatibility mode" branches are prohibited in the delivered tree. The only permitted bridge to old data is the **one-way persistence migration** (settings/state schema 1 to 2 and legacy value/alias mapping inside it): it reads old bytes, produces current-schema values, and imports no superseded runtime type. Concretely:
+
+* A superseded type, module, branch, or duplicated authority may exist only *within* the issue that replaces it, between its RED and REFACTOR phases. At feature-complete for that capability — before the issue closes — the superseded code is deleted, not wrapped, re-exported, aliased, or kept behind a flag.
+* No `#[deprecated]` re-exports, no `*_legacy`/`*_compat`/`*_shim`/`*_old`/`*_v1` runtime modules, no facade that preserves a dead public surface, no adapter whose purpose is to let removed code keep compiling, no environment/config toggle selecting an old code path.
+* Old test fixtures/scenarios are converted to the current format in the same issue; conversion tooling used for that purpose is a one-shot dev-time script or in-repo rewrite, never a runtime input mode that keeps both formats alive.
+* The architecture guard (ownership audit) and the release gate scan generic source for shim-token permutations — case-insensitive `legacy`, `compat`, `shim`, `backward`, `bridge`, `fallback_v1`, `old_`, `_old`, `deprecated` — with an explicit checked allowlist containing only the one-way persistence migration modules, their tests/fixtures, and literal user-facing diagnostics text. Any other hit fails the gate.
 
 ## Global closed grammar, bounds, diagnostics, and errors
 
@@ -135,9 +144,10 @@ Every implementing capability owns separate normal/focused/unavailable/error/dir
 | EPIC-10 | WHEN author/release verification runs, it shall hash and execute unchanged owner fixtures from installed layouts. | Homebrew/Linux release indexes |
 | EPIC-11 | IF any global bound is exceeded by one, Jefe shall fail at the owning boundary without partial publication. | complete at-limit/+1 index |
 | EPIC-12 | WHEN all observations are scanned, Jefe shall expose no resolved secret or unreaped process. | artifact/report/log/frame/process scans |
+| EPIC-13 | WHEN generic source is scanned at each capability's feature-complete and at release, Jefe shall contain no compatibility shim, legacy adapter, facade, dual code path, or superseded type outside the one-way persistence migration allowlist. | shim-token permutation scan plus superseded-symbol deletion proof per capability |
 
 Every capability begins with its named failing unit/property/integration/golden/real-TTY fixtures, implements the smallest owner, then removes obsolete branches only after parity. Harness scenarios use real process boundaries, contained roots, bounded literal synchronization, and no production hooks.
 
 ## Normative documentation and done
 
-Update `dev-docs/standards/architecture.md`, `display-and-ui.md`, `persistence-and-runtime.md`, `testing-and-quality.md`, `dev-docs/RULES.md`, author-kit documentation, package README, and installed-user docs with the final owner contracts; generated descriptions never replace normative types/tables. Done requires every DAG capability and ledger row, no duplicate authority/product/plugin branch, no unresolved contract except the package dependency decision before package-inventory implementation, and unchanged `make ci-check`: formatting; no clippy allow; 1,000-line hard/750 warning source gate; all-target/all-feature clippy `-D warnings`; complexity 15 cognitive/60 lines/6 args/3 bools/type 250; line coverage at least 30%; locked all-feature build/tests. No unsafe, production panic/unwrap/expect, lint suppression, threshold increase, arbitrary shell, weak test, or unapproved dependency.
+Update `dev-docs/standards/architecture.md`, `display-and-ui.md`, `persistence-and-runtime.md`, `testing-and-quality.md`, `dev-docs/RULES.md`, author-kit documentation, package README, and installed-user docs with the final owner contracts; generated descriptions never replace normative types/tables. Done requires every DAG capability and ledger row, no duplicate authority/product/plugin branch, no compatibility shim/legacy adapter/facade/dual code path outside the one-way persistence migration (EPIC-13), no unresolved contract except the package dependency decision before package-inventory implementation, and unchanged `make ci-check`: formatting; no clippy allow; 1,000-line hard/750 warning source gate; all-target/all-feature clippy `-D warnings`; complexity 15 cognitive/60 lines/6 args/3 bools/type 250; line coverage at least 30%; locked all-feature build/tests. No unsafe, production panic/unwrap/expect, lint suppression, threshold increase, arbitrary shell, weak test, or unapproved dependency.

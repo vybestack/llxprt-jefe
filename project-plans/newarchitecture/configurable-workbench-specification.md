@@ -52,7 +52,7 @@ AgentDefinition -> CandidateResolver -> ProbeParser -> CapabilitySet
  -> Operation/Target Resolver -> Preflight -> AgentLaunchPlan -> local/remote adapter
 ```
 
-All exact contracts are public-contract section 4. Product knowledge exists only in shipped definitions, pinned fixtures, and the named legacy LLxprt adapter. Generic domain, forms, state, persistence, Issue/PR orchestration, and runtime contain no product ID/name branch.
+All exact contracts are public-contract section 4. Product knowledge exists only in shipped definitions, recorded fixtures, and the one-way schema-1 persistence migration. Generic domain, forms, state, persistence, Issue/PR orchestration, and runtime contain no product ID/name branch, and no runtime compatibility adapter exists (see the no-shim policy in `configurable-workbench-github-issues/`).
 
 Resolver behavior includes repository-local `.llxprt/bin/llxprt` before PATH for LLxprt, both locally and in the canonical remote workdir. Every candidate is canonicalized/fingerprinted. The exact stream/framing/parser/duplicate-key/UTF-8/size/time/error rules produce Compatible, Incompatible, NotFound, or ProbeError. Capability extraction is deterministic and sorted.
 
