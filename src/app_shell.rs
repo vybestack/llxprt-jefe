@@ -501,7 +501,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // requests a background capture via the `CaptureHandle` and reads the
     // runtime's `HistoryCache` directly (non-blocking `get`). The background
     // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
+    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard
+        || (snapshot.screen_mode == ScreenMode::DashboardTerminals
+            && snapshot.shell_overlay_active())
+    {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
         Vec::new()
@@ -513,7 +516,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-    let pty_layout = if snapshot.shell_overlay_active() {
+    let pty_layout = if snapshot.shell_overlay_active()
+        && snapshot.screen_mode == ScreenMode::DashboardTerminals
+    {
+        jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
+    } else if snapshot.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
     } else {
         compute_pty_layout(term_cols, term_rows)
@@ -576,13 +583,8 @@ fn handle_terminal_event(
         TerminalEvent::Resize(cols, rows) => {
             crate::mouse_routing::clear_selection(app_state);
             synchronize_actions_geometry(app_state, cols, rows);
-            let overlay_active = app_state.read().shell_overlay_active();
-            crate::app_input::shell_overlay::resize_terminal(
-                &ctx.cloned(),
-                cols,
-                rows,
-                overlay_active,
-            );
+            let state = app_state.read();
+            crate::app_input::shell_overlay::resize_terminal(&ctx.cloned(), cols, rows, &state);
         }
         TerminalEvent::FullscreenMouse(mouse_event) => {
             crate::mouse_routing::handle_fullscreen_mouse(ctx, app_state, mouse_event);

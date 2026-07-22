@@ -7,88 +7,257 @@
     "assert_mode": "strict"
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "F7" },
-    { "waitFor": "Terminal Manager" },
-    { "waitFor": "No shells" },
-    { "key": "Escape" },
-    { "waitFor": "F7 shells" },
-
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "type": "Alpha Repository" },
-    { "key": "Tab" },
-    { "type": "fixture-repo-alpha" },
-    { "key": "Enter" },
-    { "waitFor": "1 repos | 0/0 running" },
-    { "key": "n" },
-    { "waitFor": "New Agent" },
-    { "key": "Tab" },
-    { "type": "Alpha Agent" },
-    { "key": "Enter" },
-    { "waitFor": "issue364-agent-ready" },
-    { "key": "F12" },
-    { "waitFor": "F7 shells" },
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "line": "printf 'issue364-shell-alpha\\n'" },
-    { "waitFor": "issue364-shell-alpha" },
-    { "key": "F12" },
-    { "waitFor": "F10 resume shell" },
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "waitFor": "issue364-shell-alpha" },
-    { "key": "F12" },
-    { "waitFor": "F7 shells" },
-
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "type": "Beta Repository" },
-    { "key": "Tab" },
-    { "type": "fixture-repo-beta" },
-    { "key": "Enter" },
-    { "waitFor": "Beta Repository" },
-    { "key": "n" },
-    { "waitFor": "New Agent" },
-    { "key": "Tab" },
-    { "type": "Beta Agent" },
-    { "key": "Enter" },
-    { "waitFor": "issue364-agent-ready" },
-    { "key": "F12" },
-    { "waitFor": "F7 shells" },
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "line": "printf 'issue364-shell-beta\\n'" },
-    { "waitFor": "issue364-shell-beta" },
-    { "key": "F12" },
-    { "waitFor": "F7 shells" },
-    { "wait": 1000 },
-
-    { "key": "F7" },
-    { "waitFor": "Terminal Manager" },
-    { "waitFor": "Alpha Agent" },
-    { "waitFor": "Beta Agent" },
-    { "key": "Home" },
-    { "waitFor": "Agent: Alpha Agent" },
-    { "waitFor": "issue364-shell-alpha" },
-    { "key": "Down" },
-    { "waitFor": "Agent: Beta Agent" },
-    { "waitFor": "issue364-shell-beta" },
-    { "key": "C-k" },
-    { "waitFor": "Agent: Alpha Agent" },
-    { "key": "Enter" },
-    { "waitFor": "Agent Shell" },
-    { "waitFor": "issue364-shell-alpha" },
-    { "key": "F12" },
-    { "waitFor": "Terminal Manager" },
-    { "key": "Enter" },
-    { "waitFor": "Agent Shell" },
-    { "line": "exit" },
-    { "waitFor": "Terminal Manager" },
-    { "waitFor": "No shells" },
-    { "key": "Escape" },
-    { "waitFor": "F7 shells" },
-    { "key": "C-q" },
-    { "waitForExit": 10000 }
+    {
+      "waitFor": "LLxprt Jefe"
+    },
+    {
+      "key": "F7"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "No shells"
+    },
+    {
+      "key": "Escape"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "key": "N"
+    },
+    {
+      "waitFor": "New Repository"
+    },
+    {
+      "type": "Alpha Repository"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "fixture-repo-alpha"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "1 repos | 0/0 running"
+    },
+    {
+      "key": "n"
+    },
+    {
+      "waitFor": "New Agent"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Alpha Agent"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "issue364-agent-ready"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "key": "F10"
+    },
+    {
+      "waitFor": "Agent Shell"
+    },
+    {
+      "line": "printf 'issue364-shell-alpha\\n'"
+    },
+    {
+      "waitFor": "issue364-shell-alpha"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "F10 resume shell"
+    },
+    {
+      "key": "F10"
+    },
+    {
+      "waitFor": "Agent Shell"
+    },
+    {
+      "waitFor": "issue364-shell-alpha"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "key": "N"
+    },
+    {
+      "waitFor": "New Repository"
+    },
+    {
+      "type": "Beta Repository"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "fixture-repo-beta"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Beta Repository"
+    },
+    {
+      "key": "n"
+    },
+    {
+      "waitFor": "New Agent"
+    },
+    {
+      "key": "Tab"
+    },
+    {
+      "type": "Beta Agent"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "issue364-agent-ready"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "key": "F10"
+    },
+    {
+      "waitFor": "Agent Shell"
+    },
+    {
+      "line": "printf 'issue364-shell-beta\\n'"
+    },
+    {
+      "waitFor": "issue364-shell-beta"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "wait": 1000
+    },
+    {
+      "key": "F7"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "Alpha Agent"
+    },
+    {
+      "waitFor": "Beta Agent"
+    },
+    {
+      "key": "Home"
+    },
+    {
+      "waitFor": "Agent: Alpha Agent"
+    },
+    {
+      "waitFor": "issue364-shell-alpha"
+    },
+    {
+      "key": "Down"
+    },
+    {
+      "waitFor": "Agent: Beta Agent"
+    },
+    {
+      "waitFor": "issue364-shell-beta"
+    },
+    {
+      "key": "C-k"
+    },
+    {
+      "waitFor": "Agent: Alpha Agent"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "F12 list | F10 close shell"
+    },
+    {
+      "line": "printf 'issue364-manager-live\\n'"
+    },
+    {
+      "waitFor": "issue364-manager-live"
+    },
+    {
+      "key": "F12"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "Ctrl-k close"
+    },
+    {
+      "key": "Enter"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "F12 list | F10 close shell"
+    },
+    {
+      "line": "exit"
+    },
+    {
+      "waitFor": "Terminal Manager"
+    },
+    {
+      "waitFor": "No shells"
+    },
+    {
+      "key": "Escape"
+    },
+    {
+      "waitFor": "F7 shells"
+    },
+    {
+      "key": "C-q"
+    },
+    {
+      "waitForExit": 10000
+    }
   ]
 }
