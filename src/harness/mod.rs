@@ -28,6 +28,7 @@ pub mod step;
 pub mod tmux_driver;
 #[cfg(not(windows))]
 pub mod tmux_driver;
+pub mod v1;
 
 pub use capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
 pub use config::{AssertMode, ScenarioConfig};
