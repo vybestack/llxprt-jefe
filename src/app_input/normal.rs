@@ -189,9 +189,9 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
 /// Quit is eligible in the plain navigation sub-modes — `Dashboard` normal,
 /// `Split`, `IssuesNormal`, and `PrsNormal` — and explicitly *not* in any
 /// text-capturing or overlay sub-mode, so a `q` typed in a composer/search/
-/// filter is never swallowed by quit. `Split` has no text-capturing sub-modes
-/// and does not bind `q` for anything else, so quit stays eligible there (a
-/// bare `q` harmlessly advances the `qqq` sequence).
+/// filter is never swallowed by quit. `Split`, Errors, and Terminal Manager do
+/// not bind `q`, so quit stays eligible there (a bare `q` harmlessly advances
+/// the `qqq` sequence).
 fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
     match screen_mode {
         ScreenMode::Dashboard

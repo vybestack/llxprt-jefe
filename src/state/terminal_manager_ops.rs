@@ -50,7 +50,6 @@ pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
                     || "Unknown".to_string(),
                     |owner| status_label_for(owner.status).to_string(),
                 ),
-                running: agent.is_some_and(|owner| owner.status == AgentStatus::Running),
                 close_only: !agent.is_some_and(|owner| owner.status == AgentStatus::Running),
             }
         })
@@ -130,7 +129,7 @@ impl AppState {
                 self.terminal_manager
                     .selected_index
                     .and_then(|selected_index| rows.get(selected_index))
-                    .is_some_and(|row| row.agent_id == agent_id && row.running)
+                    .is_some_and(|row| row.agent_id == agent_id && !row.close_only)
             }
             ShellFocusOrigin::DashboardF10 => self.agents.iter().any(|agent| {
                 agent.id == agent_id
@@ -332,7 +331,6 @@ mod tests {
         assert_eq!(rows[0].agent_name, "Alpha Agent");
         assert_eq!(rows[0].repository_name, "Fixture Repo");
         assert_eq!(rows[0].status_label, "Running");
-        assert!(rows[0].running);
         assert!(!rows[0].close_only);
         assert_eq!(rows[1].agent_name, "Beta Agent");
     }
@@ -347,7 +345,6 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].agent_name, "Unknown owner (orphan)");
         assert_eq!(rows[0].repository_name, "Unknown repository");
-        assert!(!rows[0].running);
         assert!(rows[0].close_only);
     }
 
@@ -364,7 +361,6 @@ mod tests {
         let Some(beta) = rows.iter().find(|row| row.agent_name == "Beta Agent") else {
             panic!("beta present");
         };
-        assert!(!beta.running);
         assert!(beta.close_only);
         assert_eq!(beta.status_label, "Dead");
     }

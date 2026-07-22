@@ -80,12 +80,43 @@ impl TerminalManagerMessage {
 
     fn map_navigation(dir: NavDir) -> AppEvent {
         match dir {
-            NavDir::Up | NavDir::Next | NavDir::Prev => AppEvent::TerminalManagerNavigateUp,
-            NavDir::Down | NavDir::PageUp(_) | NavDir::PageDown(_) => {
+            NavDir::Up | NavDir::Prev | NavDir::PageUp(_) => AppEvent::TerminalManagerNavigateUp,
+            NavDir::Down | NavDir::Next | NavDir::PageDown(_) => {
                 AppEvent::TerminalManagerNavigateDown
             }
             NavDir::Home => AppEvent::TerminalManagerNavigateHome,
             NavDir::End => AppEvent::TerminalManagerNavigateEnd,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::list_viewport::PageItemCount;
+    use crate::messages::{NavDir, TerminalManagerMessage};
+    use crate::state::AppEvent;
+
+    #[test]
+    fn navigation_aliases_preserve_direction() {
+        for direction in [
+            NavDir::Up,
+            NavDir::Prev,
+            NavDir::PageUp(PageItemCount::new(2)),
+        ] {
+            assert!(matches!(
+                TerminalManagerMessage::Navigate(direction).into_app_event(),
+                AppEvent::TerminalManagerNavigateUp
+            ));
+        }
+        for direction in [
+            NavDir::Down,
+            NavDir::Next,
+            NavDir::PageDown(PageItemCount::new(2)),
+        ] {
+            assert!(matches!(
+                TerminalManagerMessage::Navigate(direction).into_app_event(),
+                AppEvent::TerminalManagerNavigateDown
+            ));
         }
     }
 }

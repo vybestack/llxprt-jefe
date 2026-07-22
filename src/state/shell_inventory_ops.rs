@@ -88,10 +88,31 @@ impl ShellInventory {
         let Ok(position) = self.position(agent_id) else {
             return;
         };
-        self.next_focus_ordinal = self.next_focus_ordinal.wrapping_add(1).max(1);
+        if self.next_focus_ordinal == u64::MAX {
+            self.rebase_focus_ordinals();
+        }
+        self.next_focus_ordinal += 1;
         if let Some(entry) = self.entries.get_mut(position) {
             entry.focus_ordinal = self.next_focus_ordinal;
         }
+    }
+
+    fn rebase_focus_ordinals(&mut self) {
+        let mut focused = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                (entry.focus_ordinal > 0).then_some((index, entry.focus_ordinal))
+            })
+            .collect::<Vec<_>>();
+        focused.sort_by_key(|(_, ordinal)| *ordinal);
+        for (ordinal, (index, _)) in focused.iter().enumerate() {
+            if let Some(entry) = self.entries.get_mut(*index) {
+                entry.focus_ordinal = ordinal as u64 + 1;
+            }
+        }
+        self.next_focus_ordinal = focused.len() as u64;
     }
 
     /// Snapshot the tracked owner IDs.
@@ -217,6 +238,20 @@ mod tests {
 
         assert_eq!(inventory.focus_ordinal(&id("b")), ordinal);
         assert_eq!(inventory.focus_ordinal(&id("c")), 0);
+    }
+
+    #[test]
+    fn focus_ordinal_overflow_rebases_without_inverting_recency() {
+        let mut inventory = ShellInventory::new();
+        inventory.record(id("a"));
+        inventory.record(id("b"));
+        inventory.entries[0].focus_ordinal = u64::MAX - 1;
+        inventory.entries[1].focus_ordinal = u64::MAX;
+        inventory.next_focus_ordinal = u64::MAX;
+
+        inventory.record_focus(&id("a"));
+
+        assert!(inventory.focus_ordinal(&id("a")) > inventory.focus_ordinal(&id("b")));
     }
 
     #[test]

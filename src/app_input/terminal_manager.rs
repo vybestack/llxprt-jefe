@@ -109,7 +109,7 @@ fn try_focus_selected_shell(
     snapshot: &ManagerKeySnapshot,
 ) -> Option<AppEvent> {
     let row = snapshot.selected_row.as_ref()?;
-    if !row.running {
+    if row.close_only {
         // Non-Running owner: Enter is a no-op (close-only).
         let mut state = app_state.write();
         state.warning_message =
@@ -203,19 +203,24 @@ pub async fn observe_terminal_manager_preview(mut app_state: AppStateHandle, ctx
         let generation = snapshot.generation;
         let preview_owner = agent_id.clone();
 
-        let Some(ctx_arc) = ctx.as_ref() else {
+        if ctx.is_none() {
             continue;
-        };
-        let _ = ctx_arc;
+        }
         let session_name = RuntimeSession::session_name_for(&preview_owner);
         let result = smol::unblock(move || capture_shell_preview(&session_name)).await;
 
-        let mapped = result.map_err(|_| ());
+        let (ok, lines) = match result {
+            Ok(lines) => (true, lines),
+            Err(error) => {
+                warn!(agent_id = %agent_id.0, error = %error, "manager: preview capture failed");
+                (false, Vec::new())
+            }
+        };
         let event = AppEvent::ShellPreviewResult {
             agent_id,
             generation,
-            ok: mapped.is_ok(),
-            lines: mapped.unwrap_or_default(),
+            ok,
+            lines,
         };
         let mut state = app_state.write();
         *state = std::mem::take(&mut *state).apply(event);
@@ -235,19 +240,22 @@ fn expected_focus_screen(origin: ShellFocusOrigin) -> ScreenMode {
     }
 }
 
+fn pending_focus_matches(state: &AppStateHandle, owner: &AgentId, generation: u64) -> bool {
+    state.try_read().is_some_and(|state| {
+        matches!(
+            state.terminal_manager.pending_focus.as_ref(),
+            Some(value) if value.agent_id == *owner && value.generation == generation
+        )
+    })
+}
+
 fn select_pending_runtime_shell(
-    state: AppStateHandle,
-    ctx: std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
+    state: &AppStateHandle,
+    ctx: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
     owner: &AgentId,
     generation: u64,
 ) -> Result<bool, jefe::runtime::RuntimeError> {
-    let current = state
-        .try_read()
-        .and_then(|state| state.terminal_manager.pending_focus.clone());
-    if !matches!(
-        current.as_ref(),
-        Some(value) if value.agent_id == *owner && value.generation == generation
-    ) {
+    if !pending_focus_matches(state, owner, generation) {
         return Ok(false);
     }
     let mut guard = ctx.lock().map_err(|_| {
@@ -291,7 +299,7 @@ pub async fn complete_pending_shell_focus(
     let state_for_guard = app_state;
     let pending_generation = pending.generation;
     let result = smol::unblock(move || {
-        select_pending_runtime_shell(state_for_guard, ctx_clone, &owner, pending_generation)
+        select_pending_runtime_shell(&state_for_guard, &ctx_clone, &owner, pending_generation)
     })
     .await;
     let selected = match result {

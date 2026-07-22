@@ -47,10 +47,8 @@ impl AppState {
 
     /// Deactivate the shell overlay, restoring its launch surface.
     pub fn close_shell_overlay(&mut self) {
-        if self.shell_overlay.agent_id.is_some() {
-            if let Some(agent_id) = self.shell_overlay.agent_id.clone() {
-                self.shell_overlay.inventory.remove(&agent_id);
-            }
+        if let Some(agent_id) = self.shell_overlay.agent_id.take() {
+            self.shell_overlay.inventory.remove(&agent_id);
             self.restore_after_shell_overlay();
         }
     }
@@ -64,11 +62,10 @@ impl AppState {
     /// runtime boundary is responsible for selecting agent window 0 before
     /// invoking this; this reducer performs no I/O.
     pub fn hide_shell_overlay(&mut self) {
-        let Some(agent_id) = self.shell_overlay.agent_id.clone() else {
+        if self.shell_overlay.agent_id.is_none() {
             return;
-        };
+        }
         // Inventory entry persists: the shell window is alive, just hidden.
-        let _ = agent_id;
         self.shell_overlay.generation = self.shell_overlay.generation.wrapping_add(1);
         self.restore_after_shell_overlay();
     }

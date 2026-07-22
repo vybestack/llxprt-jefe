@@ -35,8 +35,6 @@ pub struct ManagedShellRow {
     pub work_dir: String,
     /// Owner status string ("Running", "Dead", ...).
     pub status_label: String,
-    /// Whether the owner is Running (Enter enabled) or close-only.
-    pub running: bool,
     /// Whether the owner is dead/missing (close-only + stale preview).
     pub close_only: bool,
 }
