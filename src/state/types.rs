@@ -461,15 +461,25 @@ pub struct AppState {
 /// Tracks whether the temporary shell window is open and which agent it
 /// belongs to. The overlay is runtime-only: it is not persisted, and closing
 /// it restores the normal dashboard.
+///
+/// Issue #361 PR A: `inventory` mirrors every agent that currently owns a
+/// live `jefe-shell` window (visible or hidden). The visible overlay is
+/// still tracked by `agent_id`; the inventory lets F10 resume a hidden
+/// shell and lets the background observer reconcile hidden exits.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ShellOverlayState {
-    /// The agent whose session hosts the temporary shell window. `None` means
-    /// the overlay is inactive.
+    /// The agent whose session hosts the currently *visible* temporary shell
+    /// window. `None` means no shell overlay is visible (the dashboard owns
+    /// the layout). A hidden shell still exists in `inventory`.
     pub agent_id: Option<crate::domain::AgentId>,
-    /// Monotonic identity for an open operation, used to reject stale observers.
+    /// Monotonic identity for an open/resume operation, used to reject stale observers.
     pub generation: u64,
-    /// Dashboard pane focus restored when the shell closes.
+    /// Dashboard pane focus restored when the visible shell hides/closes.
     pub previous_pane_focus: Option<PaneFocus>,
+    /// Runtime-only inventory of every agent owning a live `jefe-shell`
+    /// window, visible or hidden (issue #361). Updated only after runtime
+    /// success/disappearance.
+    pub inventory: super::ShellInventory,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

@@ -4,22 +4,18 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P08
 //! @requirement REQ-TECH-004
 //! @requirement REQ-FUNC-007
-
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-use lru::LruCache;
-use tracing::{debug, info};
-
 use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
-
+use lru::LruCache;
+use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::{debug, info};
 /// Inputs needed to build an `AttachedViewer` without holding the runtime lock
 /// (issue #301 Phase 3).
 ///
@@ -32,11 +28,9 @@ pub struct AttachInputs {
     pub rows: u16,
     pub cols: u16,
 }
-
 #[path = "history_cache.rs"]
 pub mod history_cache;
 use history_cache::HistoryCache;
-
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
 /// Repeated kill/recreate cycles of *different* agents would otherwise grow
@@ -230,6 +224,9 @@ pub trait RuntimeManager: Send {
     fn open_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
     fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
     fn shell_window_exists(&self, agent_id: &AgentId) -> Result<bool, RuntimeError>;
+    fn hide_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
+    fn observe_shell_window_sessions(&self) -> Result<Vec<String>, RuntimeError>;
+    fn close_all_shell_windows(&mut self) -> Vec<RuntimeError>;
 }
 /// Real tmux-based runtime manager.
 ///
@@ -967,13 +964,20 @@ impl RuntimeManager for TmuxRuntimeManager {
     fn open_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         super::shell_window::open_manager_shell_window(&self.sessions, agent_id)
     }
-
     fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         super::shell_window::close_manager_shell_window(&self.sessions, agent_id)
     }
-
     fn shell_window_exists(&self, agent_id: &AgentId) -> Result<bool, RuntimeError> {
         super::shell_window::manager_shell_window_exists(&self.sessions, agent_id)
+    }
+    fn hide_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        super::shell_window::hide_manager_shell_window(&self.sessions, agent_id)
+    }
+    fn observe_shell_window_sessions(&self) -> Result<Vec<String>, RuntimeError> {
+        super::shell_window::observe_shell_window_sessions()
+    }
+    fn close_all_shell_windows(&mut self) -> Vec<RuntimeError> {
+        super::shell_window::close_all_manager_shell_windows()
     }
 }
 

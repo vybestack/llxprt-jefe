@@ -120,6 +120,13 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         let ctx = ctx.clone();
         async move { crate::app_input::shell_overlay::observe_shell_exit(app_state, ctx).await }
     });
+    // Batched shell-window inventory observer (issue #361 PR A): reconciles
+    // hidden shells against the multiplexer off the input/render path.
+    hooks.use_future({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state, ctx).await }
+    });
 
     // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
     // exactly two tmux subprocess invocations (list-sessions + list-panes -a)
@@ -375,8 +382,12 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         {
             let state = app_state.read();
             crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
-            crate::app_input::shell_overlay::cleanup_active_shell(&state, &ctx);
         }
+        // Graceful shutdown: close every tracked `jefe-shell` window (visible
+        // and hidden) exactly once, best-effort, without killing agent
+        // sessions (issue #361 PR A). Replaces the prior separate
+        // cleanup_active_shell call so the visible shell is not closed twice.
+        crate::app_input::shell_overlay::shutdown_all_shells(&mut app_state, &ctx);
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
         crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());

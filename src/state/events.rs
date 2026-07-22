@@ -28,6 +28,13 @@ pub enum AppEvent {
     OpenShellOverlay,
     /// Close/restore the embedded shell overlay (F10 toggle or natural exit detected).
     CloseShellOverlay,
+    /// Hide the visible shell overlay while keeping the `jefe-shell` window
+    /// alive (issue #361). Selects the agent window 0 so the multiplexer
+    /// current window invariant holds, then restores dashboard focus/layout.
+    HideShellOverlay,
+    /// Resume a hidden shell for the selected agent (issue #361). Re-selects
+    /// the existing `jefe-shell` window without duplicating it.
+    ResumeShellOverlay(crate::domain::AgentId),
 
     // Screen mode
     EnterSplitMode,

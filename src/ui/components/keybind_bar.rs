@@ -16,8 +16,11 @@ pub struct KeybindBarProps {
     pub screen_mode: ScreenMode,
     /// Whether terminal is focused.
     pub terminal_focused: bool,
-    /// Whether the embedded agent shell owns the workspace.
+    /// Whether the embedded agent shell overlay is visible (issue #222/#361).
     pub shell_overlay_active: bool,
+    /// Whether the selected agent owns a hidden shell that F10 can resume
+    /// (issue #361 PR A).
+    pub shell_resume_available: bool,
     /// Active Actions pane when Actions mode is rendered.
     pub actions_focus: Option<ActionsFocus>,
     /// Process-identity label (pid + commit) shown in the lower-right corner
@@ -77,7 +80,11 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
     let hints = if props.shell_overlay_active {
-        "F10 close shell"
+        // Shell is visible: F12 hides (keeps alive), F10 closes/destroys.
+        "F12 hide shell | F10 close shell"
+    } else if props.shell_resume_available {
+        // Selected agent has a hidden shell F10 can resume.
+        "F10 resume shell"
     } else {
         keybind_hints_for(
             props.screen_mode,
@@ -157,13 +164,14 @@ mod tests {
     }
 
     #[test]
-    fn active_shell_footer_documents_f10_close_shortcut() {
+    fn active_shell_footer_documents_f12_hide_and_f10_close_shortcuts() {
         let mut element = element! {
             Box(width: 80u32, height: 1u32) {
                 KeybindBar(
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: true,
                     shell_overlay_active: true,
+                    shell_resume_available: false,
                     actions_focus: None,
                     identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
@@ -177,8 +185,34 @@ mod tests {
             .unwrap_or_else(|error| panic!("render keybind bar: {error}"));
         let rendered = String::from_utf8_lossy(&output);
 
+        assert!(rendered.contains("F12 hide shell"));
         assert!(rendered.contains("F10 close shell"));
         assert!(!rendered.contains("F11 close shell"));
+    }
+
+    #[test]
+    fn dashboard_footer_offers_f10_resume_when_selected_agent_has_hidden_shell() {
+        let mut element = element! {
+            Box(width: 80u32, height: 1u32) {
+                KeybindBar(
+                    screen_mode: ScreenMode::Dashboard,
+                    terminal_focused: false,
+                    shell_overlay_active: false,
+                    shell_resume_available: true,
+                    actions_focus: None,
+                    identity_label: "pid:1 abc".to_string(),
+                    colors: ThemeColors::default(),
+                )
+            }
+        };
+        let canvas = element.render(Some(80));
+        let mut output = Vec::new();
+        canvas
+            .write_ansi(&mut output)
+            .unwrap_or_else(|error| panic!("render keybind bar: {error}"));
+        let rendered = String::from_utf8_lossy(&output);
+
+        assert!(rendered.contains("F10 resume shell"));
     }
 
     #[test]

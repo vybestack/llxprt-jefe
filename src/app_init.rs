@@ -1,5 +1,8 @@
 //! One-time application startup: state hydration and runtime session restore.
 
+#[path = "app_init_shell_reconcile.rs"]
+mod shell_reconcile;
+
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
@@ -503,16 +506,20 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
 
     drop(ctx_guard);
 
-    if revived_running.is_empty() && newly_dead.is_empty() && runtime_warning.is_none() {
-        return;
+    let state_changed =
+        !revived_running.is_empty() || !newly_dead.is_empty() || runtime_warning.is_some();
+    if state_changed {
+        let mut state = app_state.write();
+        apply_restored_state(&mut state, revived_running, newly_dead, runtime_warning);
     }
 
-    let mut state = app_state.write();
-    apply_restored_state(&mut state, revived_running, newly_dead, runtime_warning);
-
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
+    if let Some(warning) = shell_reconcile::reconcile_shell_inventory(app_state, ctx) {
+        append_warning(&mut app_state.write(), warning);
+    }
+    if state_changed {
+        let state = app_state.read();
+        persist_state(ctx, &to_persisted_state(&state));
+    }
 }
 
 /// Outcome of attempting to revive a single Running agent's session.

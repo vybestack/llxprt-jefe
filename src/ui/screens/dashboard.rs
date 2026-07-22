@@ -145,6 +145,13 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     // Shell overlay (issue #222): when active, the terminal expands to fill
     // the area between sidebar and right edge (no agent list, no preview).
     let shell_overlay_active = state.is_some_and(AppState::shell_overlay_active);
+    // Whether the selected agent owns a hidden shell F10 can resume
+    // (issue #361 PR A). Only relevant when the overlay is not visible.
+    let shell_resume_available = state.is_some_and(|s| {
+        !s.shell_overlay_active()
+            && s.selected_agent()
+                .is_some_and(|agent| s.has_shell_window(&agent.id))
+    });
     let overlay_terminal_rows = render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT);
     let terminal_snapshot = state
         .filter(|s| {
@@ -292,6 +299,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 screen_mode: state.map_or(ScreenMode::Dashboard, |s| s.screen_mode),
                 terminal_focused: terminal_focused,
                 shell_overlay_active: shell_overlay_active,
+                shell_resume_available: shell_resume_available,
                 actions_focus: None,
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
