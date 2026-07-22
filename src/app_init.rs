@@ -163,16 +163,14 @@ fn classify_startup(
         SessionEvidence::Alive => StartupClassification::Running,
         SessionEvidence::Unavailable => StartupClassification::Recoverable,
         SessionEvidence::Missing if remote => StartupClassification::Stopped,
-        SessionEvidence::Missing if process_liveness_indicates_alive(process) => {
-            StartupClassification::Recoverable
-        }
         SessionEvidence::Missing => match process {
             ProcessLiveness::Dead => StartupClassification::Stopped,
             ProcessLiveness::ReusedPid => StartupClassification::Stale,
             ProcessLiveness::MalformedIdentity => StartupClassification::Inconsistent,
-            ProcessLiveness::Alive
-            | ProcessLiveness::Inaccessible
-            | ProcessLiveness::ProbeFailure => StartupClassification::Recoverable,
+            liveness if process_liveness_indicates_alive(liveness) => {
+                StartupClassification::Recoverable
+            }
+            _ => StartupClassification::Inconsistent,
         },
     }
 }
