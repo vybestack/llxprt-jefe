@@ -180,7 +180,7 @@ impl AppState {
 
     /// Apply a preview capture result for the selected shell (issue #364 PR A).
     /// Correlates by owner agent id and current generation so stale captures
-    /// are discarded. A failure clears the preview.
+    /// are discarded. A failure clears lines while retaining the owner marker.
     fn apply_shell_preview_result(
         &mut self,
         agent_id: &AgentId,

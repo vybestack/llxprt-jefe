@@ -4,10 +4,10 @@ use crate::domain::{AgentId, AgentStatus, RepositoryId};
 
 use super::AppState;
 
-/// Select a resumable Running-owner shell for `repository_id`.
+/// Select the owning [`AgentId`] of a resumable Running shell in `repository_id`.
 ///
 /// The selected agent wins when it owns a shell. Remaining candidates are
-/// ordered by focus recency and then deterministically by `AgentId`.
+/// ordered by focus recency; lower `AgentId` wins ties deterministically.
 #[must_use]
 pub fn resolve_repository_shell(state: &AppState, repository_id: &RepositoryId) -> Option<AgentId> {
     let selected_owner = state.selected_agent().and_then(|agent| {
@@ -29,10 +29,11 @@ pub fn resolve_repository_shell(state: &AppState, repository_id: &RepositoryId) 
                 && state.has_shell_window(&agent.id)
         })
         .max_by(|left, right| {
-            state
+            let recency = state
                 .shell_focus_ordinal(&left.id)
-                .cmp(&state.shell_focus_ordinal(&right.id))
-                .then_with(|| right.id.0.cmp(&left.id.0))
+                .cmp(&state.shell_focus_ordinal(&right.id));
+            // `max_by` needs the lower AgentId to compare greater on a tie.
+            recency.then_with(|| right.id.0.cmp(&left.id.0))
         })
         .map(|agent| agent.id.clone())
 }

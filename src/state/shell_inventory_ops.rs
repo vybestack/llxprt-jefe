@@ -84,6 +84,7 @@ impl ShellInventory {
             .map_or(0, |entry| entry.focus_ordinal)
     }
 
+    /// Record focus recency for a tracked owner; unknown owners are ignored.
     pub fn record_focus(&mut self, agent_id: &AgentId) {
         let Ok(position) = self.position(agent_id) else {
             return;
@@ -98,6 +99,8 @@ impl ShellInventory {
     }
 
     fn rebase_focus_ordinals(&mut self) {
+        // Preserve recency order while compacting: ascending old ordinals receive
+        // ascending replacements, so larger values still mean more recent focus.
         let mut focused = self
             .entries
             .iter()
