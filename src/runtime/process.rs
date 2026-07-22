@@ -97,6 +97,24 @@ pub fn process_liveness(identity: Option<ProcessIdentity>) -> ProcessLiveness {
     classify_process_observation(Some(identity), probe_process(identity.pid))
 }
 
+#[must_use]
+pub(super) const fn process_liveness_indicates_alive(liveness: ProcessLiveness) -> bool {
+    matches!(
+        liveness,
+        ProcessLiveness::Alive | ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure
+    )
+}
+
+#[must_use]
+pub(super) fn pid_liveness(pid: u32) -> ProcessLiveness {
+    match probe_process(pid) {
+        ProcessObservation::Running(_) => ProcessLiveness::Alive,
+        ProcessObservation::Exited => ProcessLiveness::Dead,
+        ProcessObservation::Inaccessible => ProcessLiveness::Inaccessible,
+        ProcessObservation::ProbeFailed => ProcessLiveness::ProbeFailure,
+    }
+}
+
 #[cfg(windows)]
 fn probe_process(pid: u32) -> ProcessObservation {
     use winsafe::{HPROCESS, co};
@@ -133,21 +151,56 @@ fn probe_process(pid: u32) -> ProcessObservation {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UnixProbeOutcome {
+    Running,
+    Exited,
+    Inaccessible,
+    ProbeFailed,
+}
+
+#[cfg(unix)]
+#[must_use]
+pub(super) fn classify_unix_probe(success: bool, stderr: &str) -> UnixProbeOutcome {
+    if success {
+        return UnixProbeOutcome::Running;
+    }
+    let diagnostic = stderr.to_ascii_lowercase();
+    if diagnostic.contains("operation not permitted") || diagnostic.contains("permission denied") {
+        UnixProbeOutcome::Inaccessible
+    } else if diagnostic.contains("no such process") {
+        UnixProbeOutcome::Exited
+    } else {
+        UnixProbeOutcome::ProbeFailed
+    }
+}
+
+#[cfg(unix)]
+pub(super) fn unix_probe_command(pid: u32) -> std::process::Command {
+    let mut command = std::process::Command::new("kill");
+    command.args(["-0", &pid.to_string()]).env("LC_ALL", "C");
+    command
+}
+
+#[cfg(unix)]
 fn probe_process(pid: u32) -> ProcessObservation {
     if pid == 0 {
         return ProcessObservation::ProbeFailed;
     }
-    match std::process::Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .status()
-    {
-        Ok(status) if status.success() => ProcessObservation::Running(ProcessIdentity {
+    let Ok(output) = unix_probe_command(pid).output() else {
+        return ProcessObservation::ProbeFailed;
+    };
+    match classify_unix_probe(
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).as_ref(),
+    ) {
+        UnixProbeOutcome::Running => ProcessObservation::Running(ProcessIdentity {
             pid,
             started_at: unix_process_start_time(pid),
         }),
-        Ok(_) => ProcessObservation::Exited,
-        Err(_) => ProcessObservation::ProbeFailed,
+        UnixProbeOutcome::Exited => ProcessObservation::Exited,
+        UnixProbeOutcome::Inaccessible => ProcessObservation::Inaccessible,
+        UnixProbeOutcome::ProbeFailed => ProcessObservation::ProbeFailed,
     }
 }
 

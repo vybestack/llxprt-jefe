@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use super::process::{
     ProcessLiveness, ProcessObservation, capture_process_identity, classify_process_observation,
-    process_liveness,
+    process_liveness, process_liveness_indicates_alive,
 };
+#[cfg(unix)]
+use super::process::{UnixProbeOutcome, classify_unix_probe, unix_probe_command};
 use crate::domain::ProcessIdentity;
 
 #[test]
@@ -39,6 +41,78 @@ fn classification_distinguishes_every_required_state() {
     assert_eq!(
         classify_process_observation(Some(expected), ProcessObservation::ProbeFailed),
         ProcessLiveness::ProbeFailure
+    );
+}
+
+#[test]
+fn fail_open_policy_covers_every_final_liveness_state() {
+    for liveness in [
+        ProcessLiveness::Alive,
+        ProcessLiveness::Inaccessible,
+        ProcessLiveness::ProbeFailure,
+    ] {
+        assert!(process_liveness_indicates_alive(liveness));
+    }
+    for liveness in [
+        ProcessLiveness::Dead,
+        ProcessLiveness::ReusedPid,
+        ProcessLiveness::MalformedIdentity,
+    ] {
+        assert!(!process_liveness_indicates_alive(liveness));
+    }
+}
+
+#[test]
+fn windows_access_denied_and_query_failure_remain_fail_open() {
+    let expected = ProcessIdentity::new(41, 900);
+    for observation in [
+        ProcessObservation::Inaccessible,
+        ProcessObservation::ProbeFailed,
+    ] {
+        let liveness = classify_process_observation(Some(expected), observation);
+        assert!(process_liveness_indicates_alive(liveness));
+    }
+
+    let reused = classify_process_observation(
+        Some(expected),
+        ProcessObservation::Running(ProcessIdentity::new(41, 901)),
+    );
+    assert!(!process_liveness_indicates_alive(reused));
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_probe_classifier_distinguishes_exit_access_and_failure() {
+    assert_eq!(classify_unix_probe(true, ""), UnixProbeOutcome::Running);
+    assert_eq!(
+        classify_unix_probe(false, "kill: 41: Operation not permitted"),
+        UnixProbeOutcome::Inaccessible
+    );
+    assert_eq!(
+        classify_unix_probe(false, "kill: 41: Permission denied"),
+        UnixProbeOutcome::Inaccessible
+    );
+    assert_eq!(
+        classify_unix_probe(false, "kill: 41: No such process"),
+        UnixProbeOutcome::Exited
+    );
+    assert_eq!(
+        classify_unix_probe(false, "kill: unexpected diagnostic"),
+        UnixProbeOutcome::ProbeFailed
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_probe_command_uses_structured_arguments_and_c_locale() {
+    let command = unix_probe_command(41);
+    let arguments: Vec<_> = command.get_args().collect();
+    assert_eq!(command.get_program(), "kill");
+    assert_eq!(arguments, ["-0", "41"]);
+    assert!(
+        command
+            .get_envs()
+            .any(|(key, value)| key == "LC_ALL" && value.is_some_and(|value| value == "C"))
     );
 }
 
