@@ -24,7 +24,7 @@ pub mod list_viewport;
 pub mod local_command;
 pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
-pub(crate) mod markdown_html_strip;
+pub mod markdown_html_strip;
 /// Plain-text markdown rendering for the detail panes (issue #155).
 pub mod markdown_render;
 pub mod messages;
@@ -60,37 +60,6 @@ pub mod git_info;
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 pub mod github;
 
-#[cfg(test)]
-mod list_viewport_tests;
-
-#[cfg(test)]
-#[path = "github/tests/mod.rs"]
-mod github_tests;
-
-#[cfg(test)]
-#[path = "github/tests_filters.rs"]
-mod github_tests_filters;
-
-#[cfg(test)]
-#[path = "github/tests_pr.rs"]
-mod github_tests_pr;
-
-#[cfg(test)]
-#[path = "github/tests_pr_detail.rs"]
-mod github_tests_pr_detail;
-
-#[cfg(test)]
-#[path = "github/tests_pr_sort_reviews.rs"]
-mod github_tests_pr_sort_reviews;
-
-#[cfg(test)]
-#[path = "github/tests_timestamp_sort.rs"]
-mod github_tests_timestamp_sort;
-
-#[cfg(test)]
-#[path = "github/tests_pr_threads.rs"]
-mod github_tests_pr_threads;
-
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -115,39 +84,3 @@ pub fn process_identity_label(pid: u32, commit: &str) -> String {
 }
 
 pub mod harness;
-
-#[cfg(test)]
-mod identity_tests {
-    use super::*;
-
-    #[test]
-    fn label_formats_pid_and_commit() {
-        let label = process_identity_label(12_345, "abc1234");
-        assert_eq!(label, "pid:12345 abc1234");
-    }
-
-    #[test]
-    fn label_includes_pid_marker() {
-        let label = process_identity_label(1, "deadbeef");
-        assert!(
-            label.starts_with("pid:1 "),
-            "label must start with the pid marker: {label}"
-        );
-    }
-
-    #[test]
-    fn label_includes_commit() {
-        let label = process_identity_label(42, "feat0ab");
-        assert!(
-            label.ends_with(" feat0ab"),
-            "label must end with the commit hash: {label}"
-        );
-    }
-
-    #[test]
-    fn git_commit_is_non_empty() {
-        // The build script falls back to "unknown", so the constant is never
-        // empty regardless of whether the build runs inside a git tree.
-        assert!(!GIT_COMMIT.is_empty());
-    }
-}

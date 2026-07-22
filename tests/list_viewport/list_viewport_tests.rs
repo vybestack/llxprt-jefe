@@ -1,7 +1,8 @@
-use super::list_viewport::{
+use jefe::list_viewport::{
     BorderRows, ListGeometry, ListMove, ListViewport, PaddingRows, PageItemCount, PaneRows,
     RowsPerItem, TitleRows, fit_text_to_width, move_selection,
 };
+use jefe::list_viewport::ContentRows;
 use unicode_width::UnicodeWidthStr;
 
 #[test]
@@ -20,7 +21,7 @@ fn uniform_viewport_table_covers_zero_rows_and_selection_following() {
         let viewport = ListViewport::uniform(
             len,
             Some(selected),
-            super::list_viewport::ContentRows::new(content_rows),
+            ContentRows::new(content_rows),
             RowsPerItem::new(extent),
         );
         assert_eq!(
@@ -45,7 +46,7 @@ fn viewport_invariants_hold_for_many_uniform_inputs() {
                     let viewport = ListViewport::uniform(
                         len,
                         Some(selected),
-                        super::list_viewport::ContentRows::new(rows),
+                        ContentRows::new(rows),
                         RowsPerItem::new(extent),
                     );
                     let range = viewport.visible_range();

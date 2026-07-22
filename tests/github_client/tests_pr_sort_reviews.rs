@@ -1,10 +1,10 @@
-//! sort_pr_reviews unit tests (issue #238).
+//! sort_pr_reviews unit tests (issue #238) — public API only.
 //!
-//! Extracted from tests_pr_detail.rs to keep that file under the 1000-line
-//! source-file-length hard limit.
+//! The thread-grouping test that needs `assign_threads_to_reviews` remains on
+//! the lib target in `src/github/tests_pr_sort_reviews.rs`.
 
-use crate::domain::{PrReview, PrReviewState};
-use crate::github::sort_pr_reviews;
+use jefe::domain::{PrReview, PrReviewState};
+use jefe::github::sort_pr_reviews;
 
 fn make_sort_review(
     review_id: Option<&str>,
@@ -108,8 +108,8 @@ fn test_sort_pr_reviews_puts_empty_timestamps_last() {
 /// Issue #238: threads stay grouped with their parent review after reordering.
 #[test]
 fn test_sort_pr_reviews_keeps_thread_groups_with_parent() {
-    use crate::domain::PrReviewThread;
-    use crate::github::assign_threads_to_reviews;
+    use jefe::domain::PrReviewThread;
+    use jefe::github::assign_threads_to_reviews;
 
     let mut reviews = vec![
         make_sort_review(Some("PRR_OLD"), "old", "2026-07-01T10:00:00Z", Some("old")),

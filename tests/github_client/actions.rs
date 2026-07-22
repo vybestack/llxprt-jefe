@@ -1,4 +1,4 @@
-use crate::github::{
+use jefe::github::{
     parse_api_runs_json, parse_jobs_json, parse_runs_json, parse_single_run_json,
     parse_workflows_json,
 };
@@ -59,10 +59,10 @@ fn test_parse_runs_json() {
     assert_eq!(runs[0].head_sha, "abc123sha");
     assert_eq!(runs[0].run_number, 42);
     assert_eq!(runs[0].event, "push");
-    assert_eq!(runs[0].status, crate::domain::WorkflowRunStatus::Completed);
+    assert_eq!(runs[0].status, jefe::domain::WorkflowRunStatus::Completed);
     assert_eq!(
         runs[0].conclusion,
-        Some(crate::domain::WorkflowRunConclusion::Success)
+        Some(jefe::domain::WorkflowRunConclusion::Success)
     );
     assert_eq!(runs[0].workflow_name, "CI");
 }
@@ -93,7 +93,7 @@ fn test_parse_api_runs_json() {
     assert_eq!(runs[0].id, 98765);
     assert_eq!(runs[0].name, "fix bug");
     assert_eq!(runs[0].workflow_name, "CI");
-    assert_eq!(runs[0].status, crate::domain::WorkflowRunStatus::InProgress);
+    assert_eq!(runs[0].status, jefe::domain::WorkflowRunStatus::InProgress);
 }
 
 #[test]
@@ -169,10 +169,10 @@ fn test_parse_single_run_json() {
     assert_eq!(run.id, 98765);
     assert_eq!(run.name, "fix bug");
     assert_eq!(run.head_branch, "main");
-    assert_eq!(run.status, crate::domain::WorkflowRunStatus::Completed);
+    assert_eq!(run.status, jefe::domain::WorkflowRunStatus::Completed);
     assert_eq!(
         run.conclusion,
-        Some(crate::domain::WorkflowRunConclusion::Success)
+        Some(jefe::domain::WorkflowRunConclusion::Success)
     );
 }
 

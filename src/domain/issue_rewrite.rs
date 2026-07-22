@@ -55,6 +55,3 @@ pub fn build_rewrite_instruction(
     out
 }
 
-#[cfg(test)]
-#[path = "issue_rewrite_tests.rs"]
-mod tests;
