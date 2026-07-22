@@ -45,23 +45,13 @@ impl AppState {
         self.reset_shell_terminal_view();
     }
 
-    /// Deactivate the shell overlay, restoring normal dashboard state.
+    /// Deactivate the shell overlay, restoring its launch surface.
     pub fn close_shell_overlay(&mut self) {
         if self.shell_overlay.agent_id.is_some() {
-            // Remove from inventory only after the runtime close succeeded;
-            // the runtime boundary calls this after a successful close, so the
-            // inventory entry is dropped here (issue #361).
             if let Some(agent_id) = self.shell_overlay.agent_id.clone() {
                 self.shell_overlay.inventory.remove(&agent_id);
             }
-            self.shell_overlay.agent_id = None;
-            self.terminal_focused = false;
-            self.pane_focus = self
-                .shell_overlay
-                .previous_pane_focus
-                .take()
-                .unwrap_or(crate::state::PaneFocus::Agents);
-            self.reset_shell_terminal_view();
+            self.restore_after_shell_overlay();
         }
     }
 
@@ -79,15 +69,26 @@ impl AppState {
         };
         // Inventory entry persists: the shell window is alive, just hidden.
         let _ = agent_id;
-        self.shell_overlay.agent_id = None;
         self.shell_overlay.generation = self.shell_overlay.generation.wrapping_add(1);
+        self.restore_after_shell_overlay();
+    }
+
+    fn restore_after_shell_overlay(&mut self) {
+        self.shell_overlay.agent_id = None;
         self.terminal_focused = false;
         self.dashboard_grab = None;
-        self.pane_focus = self
-            .shell_overlay
-            .previous_pane_focus
-            .take()
-            .unwrap_or(crate::state::PaneFocus::Agents);
+        if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
+            self.screen_mode = crate::state::ScreenMode::DashboardTerminals;
+            self.terminal_manager.active = true;
+            self.pane_focus = crate::state::PaneFocus::Agents;
+            self.shell_return_target = crate::state::ShellReturnTarget::Dashboard;
+        } else {
+            self.pane_focus = self
+                .shell_overlay
+                .previous_pane_focus
+                .take()
+                .unwrap_or(crate::state::PaneFocus::Agents);
+        }
         self.reset_shell_terminal_view();
     }
 

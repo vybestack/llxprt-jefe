@@ -127,6 +127,21 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         let ctx = ctx.clone();
         async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state, ctx).await }
     });
+    hooks.use_future({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        async move {
+            crate::app_input::terminal_manager::observe_terminal_manager_preview(app_state, ctx)
+                .await;
+        }
+    });
+    hooks.use_future({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        async move {
+            crate::app_input::terminal_manager::observe_pending_shell_focus(app_state, ctx).await;
+        }
+    });
 
     // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
     // exactly two tmux subprocess invocations (list-sessions + list-panes -a)
@@ -328,6 +343,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             scheduler.set_desired(None);
                             scheduler.mark_attached(None);
                         }
+                        crate::app_input::terminal_manager::on_shell_attach_failed(
+                            &mut app_state,
+                            &agent_id,
+                        );
                         apply_attach_failure(&mut app_state, &agent_id);
                         let persisted = {
                             let state = app_state.read();

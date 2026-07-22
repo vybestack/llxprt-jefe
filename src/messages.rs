@@ -26,12 +26,11 @@ pub use actions::ActionsMessage;
 mod errors;
 mod errors_conversion;
 pub use errors::ErrorsMessage;
-
-// @plan PLAN-20260624-PR-MODE.P03
-// @requirement REQ-PR-002
-// @pseudocode component-004 lines 46-50
 mod event_conversion;
 mod names;
+mod terminal_manager;
+mod terminal_manager_conversion;
+pub use terminal_manager::TerminalManagerMessage;
 
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +47,8 @@ pub enum MessageDomain {
     PullRequests,
     Actions,
     Errors,
+    /// Terminal-manager domain (issue #361 PR B).
+    TerminalManager,
     System,
 }
 
@@ -865,6 +866,8 @@ pub enum AppMessage {
     PullRequests(PullRequestsMessage),
     Actions(ActionsMessage),
     Errors(ErrorsMessage),
+    /// Terminal-manager domain (issue #361 PR B).
+    TerminalManager(TerminalManagerMessage),
     System(SystemMessage),
 }
 
@@ -884,6 +887,7 @@ impl AppMessage {
             Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::Actions(_) => MessageDomain::Actions,
             Self::Errors(_) => MessageDomain::Errors,
+            Self::TerminalManager(_) => MessageDomain::TerminalManager,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -911,6 +915,7 @@ impl AppMessage {
             Self::PullRequests(message) => message.name(),
             Self::Actions(message) => message.name(),
             Self::Errors(message) => message.name(),
+            Self::TerminalManager(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }

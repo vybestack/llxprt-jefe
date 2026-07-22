@@ -55,6 +55,8 @@ mod selectors;
 mod shell_inventory_ops;
 mod shell_overlay_ops;
 mod shortcut_ops;
+mod terminal_manager_ops;
+mod terminal_manager_types;
 pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub use shell_inventory_ops::ShellInventory;
@@ -69,6 +71,11 @@ pub use issues_close_reason_ops::filter_duplicate_candidates;
 pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
+pub use terminal_manager_ops::project_managed_shell_rows;
+pub use terminal_manager_types::{
+    ManagedShellRow, PendingShellFocus, ShellPreview, ShellReturnTarget, TerminalManagerState,
+    status_label_for,
+};
 pub use types::*;
 /// Default row jump for list and detail page navigation without a measured viewport.
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
@@ -316,6 +323,13 @@ impl AppState {
             AppMessage::Errors(message) => {
                 let handled = self.apply_errors_message(message);
                 debug_assert!(handled, "unhandled errors message in apply_message()");
+            }
+            AppMessage::TerminalManager(message) => {
+                let handled = self.apply_terminal_manager_message(message);
+                debug_assert!(
+                    handled,
+                    "unhandled terminal manager message in apply_message()"
+                );
             }
         }
 

@@ -64,3 +64,18 @@ fn new_window_uses_powershell_environment_scrub_for_psmux() {
 fn shell_window_name_is_stable() {
     assert_eq!(SHELL_WINDOW_NAME, "jefe-shell");
 }
+
+#[test]
+fn preview_targets_the_shell_window_for_unix_and_psmux() {
+    for platform in [LocalPlatform::Unix, LocalPlatform::Windows] {
+        let command = capture_shell_preview_command(&plan(platform), "jefe-agent-42");
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair == ["-t".to_owned(), "jefe-agent-42:jefe-shell".to_owned()] })
+        );
+    }
+}
