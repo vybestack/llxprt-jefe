@@ -114,6 +114,28 @@ pub struct CommentsResponse {
 }
 
 const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+
+/// `gh issue view --json` field list for issue detail (issue #358).
+///
+/// Field names must match the `gh` CLI schema (camelCase). Using REST-style
+/// `state_reason` causes `Unknown JSON field: "state_reason"` and blocks detail
+/// loads. The parser still accepts both `stateReason` and `state_reason` keys.
+pub const ISSUE_DETAIL_JSON_FIELDS: &str = "number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id";
+
+/// Build `gh issue view --json ...` args for [`GhClient::get_issue_detail`].
+#[must_use]
+pub fn build_issue_detail_args(owner: &str, repo: &str, number: u64) -> Vec<String> {
+    vec![
+        "issue".to_string(),
+        "view".to_string(),
+        "--repo".to_string(),
+        format!("{owner}/{repo}"),
+        number.to_string(),
+        "--json".to_string(),
+        ISSUE_DETAIL_JSON_FIELDS.to_string(),
+    ]
+}
+
 /// Default page size for the PR list GraphQL search query.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
@@ -229,15 +251,7 @@ impl GhClient {
         number: u64,
     ) -> Result<IssueDetail, GhError> {
         let output = gh_command()?
-            .args([
-                "issue",
-                "view",
-                "--repo",
-                &format!("{owner}/{repo}"),
-                &number.to_string(),
-                "--json",
-                "number,title,state,state_reason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
-            ])
+            .args(build_issue_detail_args(owner, repo, number))
             .output()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {

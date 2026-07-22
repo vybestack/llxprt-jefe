@@ -202,3 +202,31 @@ fn test_issue_detail_state_reason_none_for_reopened_and_unknown() {
         parse_issue_detail_json(&detail_json("dismissed")).value_or_panic("should parse unknown");
     assert_eq!(unknown.state_reason, None);
 }
+
+/// Issue #358: `gh issue view --json` must request camelCase `stateReason`.
+#[test]
+fn test_issue_detail_json_fields_use_gh_cli_state_reason() {
+    use crate::github::{ISSUE_DETAIL_JSON_FIELDS, build_issue_detail_args};
+
+    assert!(
+        ISSUE_DETAIL_JSON_FIELDS
+            .split(',')
+            .any(|field| field == "stateReason"),
+        "field list must include gh CLI token stateReason, got {ISSUE_DETAIL_JSON_FIELDS}"
+    );
+    assert!(
+        !ISSUE_DETAIL_JSON_FIELDS
+            .split(',')
+            .any(|field| field == "state_reason"),
+        "field list must not use REST token state_reason, got {ISSUE_DETAIL_JSON_FIELDS}"
+    );
+
+    let args = build_issue_detail_args("owner", "repo", 42);
+    let json_fields = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--json").then_some(pair[1].as_str()))
+        .unwrap_or_else(|| panic!("missing --json in args: {args:?}"));
+    assert_eq!(json_fields, ISSUE_DETAIL_JSON_FIELDS);
+    assert!(json_fields.split(',').any(|field| field == "stateReason"));
+    assert!(!json_fields.split(',').any(|field| field == "state_reason"));
+}
