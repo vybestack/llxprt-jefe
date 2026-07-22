@@ -171,9 +171,10 @@ Planned maximum: 8 changed files and substantially below 1,500 net lines.
   binding/application tests, and 10 startup tests.
 - Post-remediation `make quick-check` passed with 2,285 library tests and 727
   binary tests plus all integration and doc-test targets.
-- Final `make ci-check` exact head: pending
+- Final `make ci-check` passed on `1dace906cb688ab3372cf41465e6521c4d777783`.
 - Native Windows CI exact head: pending
-- PR conflict and ancestry check: pending
+- Pre-PR ancestry check: `origin/main` is an ancestor and 0 commits ahead.
+- PR conflict status: pending
 
 ## Review Triage
 
