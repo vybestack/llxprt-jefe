@@ -13,6 +13,12 @@
 
 use crate::domain::AgentId;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShellInventoryEntry {
+    agent_id: AgentId,
+    focus_ordinal: u64,
+}
+
 /// Runtime-only inventory of agents that own a live `jefe-shell` window
 /// (issue #361).
 ///
@@ -27,11 +33,12 @@ use crate::domain::AgentId;
 /// At most one shell per agent is enforced structurally by the fixed
 /// `jefe-shell` window name.
 ///
-/// Backed by a sorted `Vec<AgentId>` (sorted by the inner `String`) so
+/// Backed by entries sorted on `AgentId`'s inner `String` so
 /// iteration order is deterministic without requiring `AgentId: Ord`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ShellInventory {
-    agents: Vec<AgentId>,
+    entries: Vec<ShellInventoryEntry>,
+    next_focus_ordinal: u64,
 }
 
 impl ShellInventory {
@@ -41,81 +48,120 @@ impl ShellInventory {
         Self::default()
     }
 
+    fn position(&self, agent_id: &AgentId) -> Result<usize, usize> {
+        self.entries
+            .binary_search_by(|entry| entry.agent_id.0.cmp(&agent_id.0))
+    }
+
     /// Whether `agent_id` owns a tracked shell window.
     #[must_use]
     pub fn contains(&self, agent_id: &AgentId) -> bool {
-        self.agents
-            .binary_search_by(|entry| entry.0.cmp(&agent_id.0))
-            .is_ok()
+        self.position(agent_id).is_ok()
     }
 
     /// Number of tracked shell windows.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.agents.len()
+        self.entries.len()
     }
 
     /// Whether no shell windows are tracked.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.agents.is_empty()
+        self.entries.is_empty()
     }
 
-    /// Iterate over the agent IDs owning tracked shell windows, in stable
-    /// lexicographic order of the underlying string.
+    /// Iterate over owner IDs in stable lexicographic order.
     pub fn iter(&self) -> impl Iterator<Item = &AgentId> {
-        self.agents.iter()
+        self.entries.iter().map(|entry| &entry.agent_id)
     }
 
-    /// Snapshot the tracked agent IDs as a `Vec`.
+    #[must_use]
+    pub fn focus_ordinal(&self, agent_id: &AgentId) -> u64 {
+        self.position(agent_id)
+            .ok()
+            .and_then(|position| self.entries.get(position))
+            .map_or(0, |entry| entry.focus_ordinal)
+    }
+
+    /// Record focus recency for a tracked owner; unknown owners are ignored.
+    pub fn record_focus(&mut self, agent_id: &AgentId) {
+        let Ok(position) = self.position(agent_id) else {
+            return;
+        };
+        if self.next_focus_ordinal == u64::MAX {
+            self.rebase_focus_ordinals();
+        }
+        self.next_focus_ordinal += 1;
+        if let Some(entry) = self.entries.get_mut(position) {
+            entry.focus_ordinal = self.next_focus_ordinal;
+        }
+    }
+
+    fn rebase_focus_ordinals(&mut self) {
+        // Preserve recency order while compacting: ascending old ordinals receive
+        // ascending replacements, so larger values still mean more recent focus.
+        let mut focused = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                (entry.focus_ordinal > 0).then_some((index, entry.focus_ordinal))
+            })
+            .collect::<Vec<_>>();
+        focused.sort_by_key(|(_, ordinal)| *ordinal);
+        for (ordinal, (index, _)) in focused.iter().enumerate() {
+            if let Some(entry) = self.entries.get_mut(*index) {
+                entry.focus_ordinal = ordinal as u64 + 1;
+            }
+        }
+        self.next_focus_ordinal = focused.len() as u64;
+    }
+
+    /// Snapshot the tracked owner IDs.
     #[must_use]
     pub fn to_vec(&self) -> Vec<AgentId> {
-        self.agents.clone()
+        self.iter().cloned().collect()
     }
 
-    /// Record a shell window for `agent_id` after a successful runtime
-    /// open/resume. Idempotent: re-recording an existing entry is a no-op so
-    /// resume of a hidden shell does not duplicate.
+    /// Record an observed shell without changing existing focus recency.
     pub fn record(&mut self, agent_id: AgentId) {
-        let position = self.agents.partition_point(|entry| entry.0 < agent_id.0);
-        if self
-            .agents
-            .get(position)
-            .is_some_and(|existing| existing == &agent_id)
-        {
+        let Err(position) = self.position(&agent_id) else {
             return;
-        }
-        self.agents.insert(position, agent_id);
+        };
+        self.entries.insert(
+            position,
+            ShellInventoryEntry {
+                agent_id,
+                focus_ordinal: 0,
+            },
+        );
     }
 
-    /// Remove `agent_id` from the inventory after a runtime close/disappearance.
-    /// Returns whether an entry was actually removed.
     pub fn remove(&mut self, agent_id: &AgentId) -> bool {
-        let position = self.agents.partition_point(|entry| entry.0 < agent_id.0);
-        if self
-            .agents
-            .get(position)
-            .is_some_and(|existing| existing == agent_id)
-        {
-            self.agents.remove(position);
-            true
-        } else {
-            false
-        }
+        let Ok(position) = self.position(agent_id) else {
+            return false;
+        };
+        self.entries.remove(position);
+        true
     }
 
-    /// Replace the entire inventory with `agents`. Used by startup adoption
-    /// and batched reconciliation which observe runtime ground truth. The
-    /// resulting inventory is deduplicated and sorted.
+    /// Replace observed membership while preserving recency for survivors.
     pub fn replace(&mut self, agents: impl IntoIterator<Item = AgentId>) {
-        self.agents = agents.into_iter().collect();
-        self.agents.sort_by(|a, b| a.0.cmp(&b.0));
-        self.agents.dedup_by(|a, b| a == b);
+        let mut next = agents
+            .into_iter()
+            .map(|agent_id| ShellInventoryEntry {
+                focus_ordinal: self.focus_ordinal(&agent_id),
+                agent_id,
+            })
+            .collect::<Vec<_>>();
+        next.sort_by(|left, right| left.agent_id.0.cmp(&right.agent_id.0));
+        next.dedup_by(|left, right| left.agent_id == right.agent_id);
+        self.entries = next;
     }
 
-    /// Clear every entry. Used by graceful shutdown.
     pub fn clear(&mut self) {
-        self.agents.clear();
+        self.entries.clear();
     }
 }
 
@@ -181,6 +227,34 @@ mod tests {
         assert_eq!(inventory.len(), 2);
         let ordered: Vec<_> = inventory.iter().cloned().collect();
         assert_eq!(ordered, vec![id("a"), id("b")]);
+    }
+
+    #[test]
+    fn replace_preserves_focus_recency_for_survivors() {
+        let mut inventory = ShellInventory::new();
+        inventory.record(id("a"));
+        inventory.record(id("b"));
+        inventory.record_focus(&id("b"));
+        let ordinal = inventory.focus_ordinal(&id("b"));
+
+        inventory.replace([id("b"), id("c")]);
+
+        assert_eq!(inventory.focus_ordinal(&id("b")), ordinal);
+        assert_eq!(inventory.focus_ordinal(&id("c")), 0);
+    }
+
+    #[test]
+    fn focus_ordinal_overflow_rebases_without_inverting_recency() {
+        let mut inventory = ShellInventory::new();
+        inventory.record(id("a"));
+        inventory.record(id("b"));
+        inventory.entries[0].focus_ordinal = u64::MAX - 1;
+        inventory.entries[1].focus_ordinal = u64::MAX;
+        inventory.next_focus_ordinal = u64::MAX;
+
+        inventory.record_focus(&id("a"));
+
+        assert!(inventory.focus_ordinal(&id("a")) > inventory.focus_ordinal(&id("b")));
     }
 
     #[test]

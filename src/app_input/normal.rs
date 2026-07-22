@@ -10,7 +10,6 @@ use jefe::input::{InputMode, QuitOutcome, input_mode_for_state, observe_quit_seq
 use jefe::list_viewport::PageItemCount;
 use jefe::runtime::RuntimeManager;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
-use jefe::theme::ThemeManager;
 
 use super::{
     AppStateHandle, MAC_ALT_DIGIT_SHORTCUTS, QuitHandle, SharedContext, jump_to_shortcut_agent,
@@ -30,7 +29,6 @@ pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
 }
-
 fn mac_alt_digit_slot(c: char) -> Option<u8> {
     MAC_ALT_DIGIT_SHORTCUTS
         .iter()
@@ -47,7 +45,6 @@ fn try_extract_shortcut_slot(key_event: &KeyEvent) -> Option<u8> {
                 return u8::try_from(digit).ok();
             }
 
-            // macOS default Option+digit emits these symbols when Option is not in Meta mode.
             if !key_event.modifiers.contains(KeyModifiers::CONTROL)
                 && !key_event.modifiers.contains(KeyModifiers::SUPER)
                 && !key_event.modifiers.contains(KeyModifiers::META)
@@ -82,8 +79,24 @@ pub fn handle_global_shortcut_key(
         let _ = jump_to_shortcut_agent(app_state, ctx, slot);
         return true;
     }
-
     false
+}
+
+fn handle_special_dashboard_mode_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> KeyHandling {
+    match screen_mode {
+        ScreenMode::DashboardTerminals => KeyHandling::Handled(
+            super::terminal_manager::handle_terminal_manager_mode_key(app_state, ctx, key_event),
+        ),
+        ScreenMode::DashboardErrors => KeyHandling::Handled(super::errors::handle_errors_mode_key(
+            app_state, ctx, key_event,
+        )),
+        _ => KeyHandling::Unhandled,
+    }
 }
 
 pub fn handle_normal_key_event(
@@ -95,9 +108,6 @@ pub fn handle_normal_key_event(
 ) -> Option<AppEvent> {
     let snapshot = normal_key_snapshot(app_state);
 
-    // Unified quit resolver (`Ctrl-Q` or rapid `qqq`). Runs first so the quit
-    // trigger is honored in every eligible sub-mode and a pending `q` is
-    // swallowed before any lower handler consumes it.
     if let KeyHandling::Handled(event) =
         resolve_quit(app_state, should_quit, key_event, screen_mode)
     {
@@ -108,14 +118,6 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
-    // PR-mode delegation: must run BEFORE resolve_mode_key so that while
-    // screen_mode == DashboardPullRequests, p/P is intercepted here
-    // (-> handle_prs_mode_key) and never reaches resolve_mode_key (whose p/P
-    // arm only fires for screen == Dashboard).
-    // @plan PLAN-20260624-PR-MODE.P09
-    // @requirement REQ-PR-001
-    // @requirement REQ-PR-002
-    // @pseudocode component-003 lines 10-14
     if let KeyHandling::Handled(event) =
         handle_dashboard_prs_key(app_state, ctx, key_event, screen_mode)
     {
@@ -126,8 +128,10 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
-    if screen_mode == ScreenMode::DashboardErrors {
-        return super::errors::handle_errors_mode_key(app_state, ctx, key_event);
+    if let KeyHandling::Handled(event) =
+        handle_special_dashboard_mode_key(app_state, ctx, key_event, screen_mode)
+    {
+        return event;
     }
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return event;
@@ -157,10 +161,11 @@ pub fn handle_normal_key_event(
     if let KeyHandling::Handled(event) = resolve_enter_key(key_event, &snapshot) {
         return event;
     }
-    if let KeyHandling::Handled(event) = handle_theme_key(app_state, ctx, key_event, screen_mode) {
+    if let KeyHandling::Handled(event) =
+        super::modal_handlers::handle_theme_key(app_state, ctx, key_event, screen_mode)
+    {
         return event;
     }
-
     None
 }
 
@@ -184,12 +189,15 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
 /// Quit is eligible in the plain navigation sub-modes — `Dashboard` normal,
 /// `Split`, `IssuesNormal`, and `PrsNormal` — and explicitly *not* in any
 /// text-capturing or overlay sub-mode, so a `q` typed in a composer/search/
-/// filter is never swallowed by quit. `Split` has no text-capturing sub-modes
-/// and does not bind `q` for anything else, so quit stays eligible there (a
-/// bare `q` harmlessly advances the `qqq` sequence).
+/// filter is never swallowed by quit. `Split`, Errors, and Terminal Manager do
+/// not bind `q`, so quit stays eligible there (a bare `q` harmlessly advances
+/// the `qqq` sequence).
 fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
     match screen_mode {
-        ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardErrors => true,
+        ScreenMode::Dashboard
+        | ScreenMode::Split
+        | ScreenMode::DashboardErrors
+        | ScreenMode::DashboardTerminals => true,
         ScreenMode::DashboardIssues => issues_quit_shortcut_active(state),
         ScreenMode::DashboardPullRequests => prs_quit_shortcut_active(state),
         ScreenMode::DashboardActions => actions_quit_shortcut_active(state),
@@ -499,6 +507,9 @@ pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) ->
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterSplitMode))
         }
+        KeyCode::F(7) if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::EnterTerminalManagerMode))
+        }
         KeyCode::Esc if screen_mode == ScreenMode::Split => {
             KeyHandling::Handled(Some(AppEvent::ExitSplitMode))
         }
@@ -622,35 +633,6 @@ fn resolve_enter_key(key_event: &KeyEvent, snapshot: &NormalKeySnapshot) -> KeyH
         PaneFocus::Terminal => Some(AppEvent::ToggleTerminalFocus),
     };
     KeyHandling::Handled(event)
-}
-
-fn handle_theme_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-    screen_mode: ScreenMode,
-) -> KeyHandling {
-    // F9 opens the theme picker in Dashboard mode only.
-    if key_event.code != KeyCode::F(9) || screen_mode != ScreenMode::Dashboard {
-        return KeyHandling::Unhandled;
-    }
-
-    let event = if let Some(ctx_arc) = &ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-    {
-        let available = ctx_guard.theme_manager.themes_with_names();
-        let active = ctx_guard.theme_manager.active_theme().slug.clone();
-        AppEvent::OpenThemePicker {
-            available_themes: available,
-            active_slug: active,
-        }
-    } else {
-        return KeyHandling::Unhandled;
-    };
-
-    // apply_and_persist internally locks ctx, so the guard above must be dropped.
-    super::apply_and_persist(app_state, ctx, event);
-    KeyHandling::Handled(None)
 }
 
 #[cfg(test)]

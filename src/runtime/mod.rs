@@ -85,8 +85,8 @@ pub use process::{
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use shell_window::{
-    SHELL_WINDOW_NAME, close_shell_window, hide_shell_window, open_shell_window,
-    shell_window_exists,
+    SHELL_WINDOW_NAME, capture_shell_preview, close_shell_window, hide_shell_window,
+    open_shell_window, shell_window_exists,
 };
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;

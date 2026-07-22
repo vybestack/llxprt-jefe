@@ -168,6 +168,7 @@ pub fn pane_at(
         | crate::state::ScreenMode::DashboardErrors => {
             issues_pane_at(col, row, render_cols, render_rows, *layout)
         }
+        crate::state::ScreenMode::DashboardTerminals => None,
     }
 }
 

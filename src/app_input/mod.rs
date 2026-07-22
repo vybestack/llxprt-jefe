@@ -51,6 +51,8 @@ mod actions;
 mod actions_orchestration;
 // Errors-mode key dispatch (issue #292).
 mod errors;
+// Terminal-manager key dispatch and runtime orchestration (issue #364 PR A).
+pub mod terminal_manager;
 // In-app device-code auth remediation dispatch (issue #244).
 mod auth_remediation;
 mod gh_async;
@@ -730,6 +732,10 @@ pub fn dispatch_app_message(
         }
         AppMessage::Actions(message) => {
             actions_orchestration::dispatch_actions_message(app_state, ctx, message);
+        }
+        AppMessage::TerminalManager(message) => {
+            let mut state = app_state.write();
+            *state = std::mem::take(&mut *state).apply(AppEvent::from(message));
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
