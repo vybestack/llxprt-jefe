@@ -8,7 +8,7 @@ Deliver one deterministic navigation/dirty reducer. It consumes immutable action
 
 | Source/symbol | Current concern | Required responsibility/parity |
 |---|---|---|
-| `src/state/types.rs::ScreenMode` | current screen identity | migration only; `NavState` is runtime authority |
+| `src/state/types.rs::ScreenMode` | current screen identity | already deleted by the descriptor capability; the one-way persistence migration supplies the initial instance and `NavState` is sole runtime authority |
 | `src/state/modal_ops.rs` | modal unwind | emit closed `LocalIntent`; retain modal focus behavior |
 | `src/state/issues_ops.rs` | issue local state/navigation | own issue panel state only, never cross-screen mutation |
 | `src/state/prs_ops.rs` | PR local state/navigation | own PR panel state only, never cross-screen mutation |
@@ -39,7 +39,7 @@ Exact Back precedence is: host confirmation, dirty guard, chooser, editor, searc
 
 Every effect/completion carries owner, screen instance, screen generation, activation generation, semantic key, and correlation ID. Suspended/disposed/stale completion is ignored. Follow-up limit is 64. Route/field IDs max 128 bytes, activation fields 32, stack 32, serialized activation 262,144 bytes, nesting 16. Secrets are prohibited.
 
-Legacy migration maps the selected legacy screen to one current instance with empty stack, generation 1, clean state, and compiled activation defaults. Stack, drafts, subscriptions, provider models, and modal state never persist.
+The one-way persistence migration maps the persisted selected screen to one current instance with empty stack, generation 1, clean state, and compiled activation defaults; no old screen-identity type participates at runtime. Stack, drafts, subscriptions, provider models, and modal state never persist.
 
 ## Complete flow, failures, and security
 
@@ -90,11 +90,11 @@ SMALL
 | CW06-06 | WHEN Discard or Cancel is chosen, Jefe shall respectively restore base and navigate or retain exact draft/focus. | dirty-choice matrix |
 | CW06-07 | IF stack would exceed 32, Jefe shall retain state and show `NAV-E001`. | depth 32/33 property |
 | CW06-08 | IF completion identity is stale/suspended/disposed, Jefe shall change nothing. | generation property |
-| CW06-09 | WHEN legacy screen state migrates, Jefe shall create one clean current instance and no stack. | migration matrix |
+| CW06-09 | WHEN persisted screen state migrates, Jefe shall create one clean current instance and no stack. | migration matrix |
 | CW06-10 | WHEN each UI state renders, Jefe shall preserve protected Back/exit and accessible modal focus. | six distinct harness scenarios |
 
-RED tests first, GREEN one reducer, REFACTOR removes mode-specific cross-screen mutations after parity.
+RED tests first, GREEN one reducer, REFACTOR deletes mode-specific cross-screen mutations and any pre-`NavState` screen-switching path after parity — one navigation authority remains, with the shim-token scan clean per the epic no-shim policy.
 
 ## Normative documentation and done
 
-Update `dev-docs/standards/architecture.md` with route ownership, activation and generation invariants; update `dev-docs/standards/display-and-ui.md` with Back precedence, dirty modal keys/focus, and small-terminal behavior; update `dev-docs/standards/persistence-and-runtime.md` to state navigation is nonpersistent. Done requires all legacy Esc/q behavior, exhaustive intent matching, ledger tests, and unchanged `make ci-check`; no new dependency, generic navigation payload, unsafe, unwrap/expect, suppression, or weakened gate.
+Update `dev-docs/standards/architecture.md` with route ownership, activation and generation invariants; update `dev-docs/standards/display-and-ui.md` with Back precedence, dirty modal keys/focus, and small-terminal behavior; update `dev-docs/standards/persistence-and-runtime.md` to state navigation is nonpersistent. Done requires all existing Esc/q behavior, exhaustive intent matching, ledger tests, superseded navigation paths deleted, and unchanged `make ci-check`; no new dependency, generic navigation payload, unsafe, unwrap/expect, suppression, or weakened gate.

@@ -9,7 +9,7 @@ Each numbered Markdown file is the complete exact GitHub issue body and sole imp
 | `00-epic.md` | Epic: Configurable Workbench v1 | none | paste-ready |
 | `01-deterministic-tui-harness.md` | CW-00: Deterministic real-process TUI harness | none | paste-ready |
 | `02-configuration-state-effects.md` | CW-01: Exact configuration/state migration, offline recovery, and closed effects | deterministic real-process harness | paste-ready after harness capability exists |
-| `03-four-agent-cutover.md` | CW-02: Complete vertical four-agent definition cutover | deterministic harness; schema-2 persistence and closed effects | unchanged; paste-ready subject to its explicit Claude executable evidence gate before implementation RED |
+| `03-four-agent-cutover.md` | CW-02: Complete vertical four-agent definition cutover | deterministic harness; schema-2 persistence and closed effects | paste-ready; runtime compatibility is dynamic per installed release (probe-decided), with a Claude fixture-authoring capture required before implementation RED |
 | `04-action-registry-keymaps.md` | CW-03: Action registry, source-derived default inventory, and single-chord keymaps | deterministic harness; schema-2 configuration and closed effects | unchanged; paste-ready after consumed capabilities exist |
 | `05-screen-descriptors-layout.md` | CW-04: Sole internal screen descriptors and unified layout parity | deterministic harness; action registry | paste-ready after consumed capabilities exist |
 | `06-custom-screens-relationships.md` | CW-05: External custom screens lowered to descriptors and typed relationships | configuration/effects; actions/keymaps; descriptors/layout | paste-ready after consumed capabilities exist |
@@ -37,7 +37,7 @@ After approval, replace the dependency-gate preamble inside `10-plugin-package-i
 | Body group | In-body implementation authority |
 |---|---|
 | epic | self-contained capability DAG, source ownership, startup/effect/migration/security contracts, aggregate UI states and release ledger |
-| harness | exact legacy lowering, process capture, interpolation, containment, PTY/restart, exits, redaction and limits |
+| harness | one-time in-repo scenario conversion to schema 1 (old format deleted), process capture, interpolation, containment, PTY/restart, exits, redaction and limits |
 | configuration/state | exact path identity, Settings/State schemas, migration, hash writer, recovery CLI and closed effects |
 | descriptors/custom/navigation | executable layout allocation, five-screen parity, exact discovery/lowering/relationships, closed navigation/dirty intents |
 | Settings/editors | draft identity/hash/revision, preview/reload/export, exact sparse payloads and complete layout-edit flow |
@@ -49,6 +49,6 @@ After approval, replace the dependency-gate preamble inside `10-plugin-package-i
 
 ## Global unchanged delivery gates
 
-Every body uses test-first RED, smallest-owner GREEN, then parity-protected REFACTOR. Every source implementation must pass the unchanged `make ci-check` gates: formatting; clippy allow scan; 1,000-line hard and 750-line warning source limits; all-target/all-feature clippy with `-D warnings`; cognitive/function/argument/boolean/type-complexity limits 15/60/6/3/250; line coverage at least 30%; locked all-feature build and tests. No body authorizes unsafe code, production panic/unwrap/expect, lint suppression, threshold increase, arbitrary scenario shell, guessed external capability, weak/mock-only evidence, or unapproved dependency.
+Every body uses test-first RED, smallest-owner GREEN, then parity-protected REFACTOR that **deletes** the superseded code. The epic's no-shim policy binds every body: no backward-compatibility shim, legacy adapter, facade, dual code path, deprecated re-export, or superseded type survives its capability's feature-complete; the only permitted bridge is the one-way persistence migration (settings/state schema 1 to 2 and its alias/value mapping). The ownership audit and release gate scan for shim-token permutations against a minimal audited allowlist. Every source implementation must pass the unchanged `make ci-check` gates: formatting; clippy allow scan; 1,000-line hard and 750-line warning source limits; all-target/all-feature clippy with `-D warnings`; cognitive/function/argument/boolean/type-complexity limits 15/60/6/3/250; line coverage at least 30%; locked all-feature build and tests. No body authorizes unsafe code, production panic/unwrap/expect, lint suppression, threshold increase, arbitrary scenario shell, guessed external capability, weak/mock-only evidence, unapproved dependency, or compatibility shim.
 
 No issue body depends on this index for a type, algorithm, flow, test, UI state, migration, recovery, security, or documentation contract.

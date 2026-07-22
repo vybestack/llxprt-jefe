@@ -4,17 +4,19 @@
 
 Deliver a deterministic, synchronous, real-PTY scenario runner. It may create contained files and fixture executables, launch Jefe, drive terminal input/resize/restart, capture child invocations, and assert frames/files/process results. It must not modify production startup, execute a shell, inherit ambient environment, or add a test-only production hook. This issue has no prerequisite.
 
+Schema 1 is the only scenario format when this issue closes. Every existing `dev-docs/tmux-scenarios/*.json` file is converted to schema 1 in-repo within this issue, with per-scenario equivalence proven before the old format and its parsing code are deleted. No legacy input mode, dual parser, or format-detection branch ships.
+
 ## Source and symbol inventory
 
 | Source | Existing symbol/responsibility | Required responsibility and parity |
 |---|---|---|
-| `src/harness/mod.rs` | harness public surface | export the closed parser, validator, runner, report, and legacy adapter |
-| `src/harness/scenario.rs` | scenario DTO/parser | parse schema 1 with duplicate-key and unknown-field rejection |
+| `src/harness/mod.rs` | harness public surface | export the closed schema-1 parser, validator, runner, and report; nothing else |
+| `src/harness/scenario.rs` | scenario DTO/parser | parse schema 1 with duplicate-key and unknown-field rejection; missing `schema` is `HAR-E001` |
 | `src/harness/runner.rs` | scenario execution | synchronously execute the operation state machine and always reap process groups |
 | `src/harness/tmux.rs` | real terminal driving | own PTY/tmux launch, literal waits, key delivery, frame capture, and resize acknowledgement |
-| `src/bin/tmux_scenario.rs::main` | harness entry point | select legacy or schema-1 input, print one deterministic report, return 0/2/4/124 |
-| `dev-docs/tmux-scenarios/*.json` | legacy scenarios | continue to parse and execute byte-for-byte equivalent operations through `LegacyScenario::lower` |
-| `dev-docs/testing/tmux-harness.md` | operator contract | document this grammar, legacy mapping, containment, exits, limits, and capture assertions |
+| `src/bin/tmux_scenario.rs::main` | harness entry point | accept schema-1 input only, print one deterministic report, return 0/2/4/124 |
+| `dev-docs/tmux-scenarios/*.json` | old-format scenarios | every file rewritten as an equivalent schema-1 scenario in this issue; superseded parser paths deleted at feature-complete |
+| `dev-docs/testing/tmux-harness.md` | operator contract | document this grammar, containment, exits, limits, capture assertions, and the completed one-time conversion |
 
 If a listed path has moved, update the table and implementation in the same change; do not create a second owner.
 
@@ -51,7 +53,7 @@ Report={schema:1,scenario,status:"passed"|"failed",workspace,steps:[StepResult],
 
 The runner starts with an empty environment. It injects only scenario env plus deterministic `HOME`, `PATH`, `TMPDIR`, `JEFE_CONFIG_DIR`, `JEFE_STATE_DIR`, `JEFE_PLUGIN_DIR`, `LANG=C.UTF-8`, and `TERM=xterm-256color` rooted in the workspace. Capture records raw argv elements, sorted env byte pairs, cwd, stdin, separate stdout/stderr, exit/signal, start ordinal, and process-tree cleanup. `${workspace}` interpolation is allowed only as the complete prefix of env values and launch argv values; `$$` is a literal `$`; every other `${name}` is `HAR-E003`. Paths never interpolate.
 
-Legacy input is detected only by absence of `schema`. `LegacyScenario::lower` maps `initial_size`, `env`, `keys`, `wait_for`, `expect`, `resize`, and `restart` in source order to schema-1 operations; preserves legacy key names, default 5,000 ms waits, inherited fixture PATH semantics expressed as explicit workspace PATH, and old frame matching. Unknown legacy keys remain errors. Every preexisting scenario must produce the same pass/fail result and terminal assertions. Canonical reports always use schema 1.
+One-time scenario conversion: within this issue, each old-format file's `initial_size`, `env`, `keys`, `wait_for`, `expect`, `resize`, and `restart` entries are rewritten in source order into schema-1 operations — old key names to canonical key ops, default 5,000 ms waits made explicit, inherited fixture PATH semantics expressed as explicit workspace PATH, and frame expectations as `assert-frame`. The conversion is a dev-time rewrite of the checked-in files (a throwaway script may assist but does not ship as a runtime input path). Every converted scenario must produce the same pass/fail result and terminal assertions as its pre-conversion run, proven by a recorded before/after result index; after that proof, the old format has zero readers. Reports always use schema 1.
 
 Bounds are inclusive: input/report/file/captured-stream 1,048,576 bytes each; strings 262,144; depth 16; object members 256; arrays 1,024; frames 2,048; captures 256; processes per capture 32. Redaction replaces every nonempty secret byte sequence in frame cells, streams, env, paths printed in errors, reports, and stderr with `<redacted>` before persistence.
 
@@ -72,7 +74,7 @@ This infrastructure introduces no product screen. Normal, focused, unavailable, 
 | ID | Singular EARS requirement | First failing test/scenario | Exact evidence |
 |---|---|---|---|
 | CW00-01 | WHEN schema-1 input is valid, the runner shall produce one deterministic operation plan. | `harness-schema-all-ops.json` | parser golden plus duplicate/unknown table |
-| CW00-02 | WHEN a legacy scenario loads, the runner shall lower it without changing its observable result. | every existing `dev-docs/tmux-scenarios/*.json` | legacy-to-v1 golden index |
+| CW00-02 | WHEN every converted scenario runs under schema 1, it shall reproduce its pre-conversion pass/fail result and terminal assertions, and the runner shall reject non-schema-1 input with `HAR-E001`. | every converted `dev-docs/tmux-scenarios/*.json` plus one old-format rejection fixture | before/after result index and rejection golden |
 | CW00-03 | WHEN capture executes, the runner shall record separate exact process-boundary fields. | `harness-capture.json` | argv/env/cwd/stdin/stdout/stderr/exit fixture |
 | CW00-04 | WHEN workspace interpolation occurs, the runner shall apply only the specified prefix and escaping rules. | `harness-interpolation.json` | valid, unknown, embedded, and `$$` cases |
 | CW00-05 | WHEN the PTY resizes, the runner shall wait for an exact-size redraw. | `harness-resize-restart.json` | distinct 100x30 and 70x18 frames |
@@ -82,8 +84,8 @@ This infrastructure introduces no product screen. Normal, focused, unavailable, 
 | CW00-09 | WHEN any observation emits, the runner shall redact all declared secrets. | `harness-redaction.json` | scan frames, streams, env, error, report, stderr |
 | CW00-10 | IF any resource is at limit plus one, the runner shall fail before app launch. | `harness-limits.json` | at-limit and plus-one matrix |
 
-Implement RED in the listed scenarios/unit/property tests, GREEN with the smallest synchronous parser/runner, then REFACTOR only after all legacy scenarios pass unchanged.
+Implement RED in the listed scenarios/unit/property tests, GREEN with the smallest synchronous parser/runner, then REFACTOR: after the before/after result index proves equivalence, delete the old-format parsing code and any conversion helper so only the schema-1 path remains.
 
 ## Normative documentation and done
 
-Update `dev-docs/testing/tmux-harness.md` and `dev-docs/RULES.md` with the grammar, legacy adapter, capture/interpolation semantics, containment algorithm, exits, cleanup, redaction, and the rule that feature scenarios use bounded literal synchronization. Done requires every ledger row, all legacy scenarios, and unchanged `make ci-check`; no unsafe, production unwrap/expect, lint allowance, threshold change, unapproved dependency, shell operation, orphan, or secret leak.
+Update `dev-docs/testing/tmux-harness.md` and `dev-docs/RULES.md` with the grammar, capture/interpolation semantics, containment algorithm, exits, cleanup, redaction, the completed one-time conversion, and the rule that feature scenarios use bounded literal synchronization. Done requires every ledger row, every converted scenario green under schema 1, zero remaining old-format readers or scenario files (shim-token scan clean per the epic no-shim policy), and unchanged `make ci-check`; no unsafe, production unwrap/expect, lint allowance, threshold change, unapproved dependency, shell operation, orphan, or secret leak.
