@@ -154,7 +154,11 @@ Planned maximum: 8 changed files and substantially below 1,500 net lines.
 - Slice 1 GREEN: 9 process tests and both native PID tests passed; full
   `make quick-check` passed (2,280 library tests plus all binary/integration and
   doc-test targets).
-- Slice 2 RED/GREEN: pending
+- Slice 2 RED: `cargo test runtime::process_tests` failed on missing macOS
+  parser and command-construction seams.
+- Slice 2 GREEN: 13 process tests passed on macOS, including a same-live-PID
+  fixture queried from UTC, Pacific, and Tokyo parent environments; full
+  `make quick-check` passed with 2,284 library tests.
 - Slice 3 RED/GREEN: pending
 - `make ci-check` exact head: pending
 - Native Windows CI exact head: pending
