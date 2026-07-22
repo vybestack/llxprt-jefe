@@ -163,12 +163,18 @@ impl AppState {
         }
         self.terminal_manager.clear_pending_focus();
         self.record_shell_focus(attached_agent_id);
-        self.terminal_manager.active = false;
-        self.screen_mode = ScreenMode::Dashboard;
-        self.shell_return_target = match pending.origin {
-            ShellFocusOrigin::DashboardF10 => ShellReturnTarget::Dashboard,
-            ShellFocusOrigin::ManagerEnter => ShellReturnTarget::TerminalManager,
-        };
+        match pending.origin {
+            ShellFocusOrigin::DashboardF10 => {
+                self.terminal_manager.active = false;
+                self.screen_mode = ScreenMode::Dashboard;
+                self.shell_return_target = ShellReturnTarget::Dashboard;
+            }
+            ShellFocusOrigin::ManagerEnter => {
+                self.terminal_manager.active = true;
+                self.screen_mode = ScreenMode::DashboardTerminals;
+                self.shell_return_target = ShellReturnTarget::TerminalManager;
+            }
+        }
         self.resume_shell_overlay(attached_agent_id.clone());
         true
     }
@@ -410,6 +416,14 @@ mod tests {
             AgentId("agent-1".into()),
         ));
         assert!(ok);
+        assert_eq!(state.screen_mode, ScreenMode::DashboardTerminals);
+        assert!(state.terminal_manager.active);
+        assert!(state.shell_overlay_active());
+        assert!(state.terminal_focused);
+        assert_eq!(
+            state.shell_return_target,
+            ShellReturnTarget::TerminalManager
+        );
     }
 
     #[test]

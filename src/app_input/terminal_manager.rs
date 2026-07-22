@@ -327,7 +327,7 @@ pub async fn complete_pending_shell_focus(
         &ctx,
         AppEvent::ConfirmShellFocus(attached_agent_id),
     );
-    crate::app_input::shell_overlay::resize_for_active_layout(&ctx, true);
+    crate::app_input::shell_overlay::resize_for_active_layout(&app_state, &ctx);
 }
 
 /// Poll pending focus requests so same-owner `Stable` scheduler outcomes also

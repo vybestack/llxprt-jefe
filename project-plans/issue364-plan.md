@@ -206,7 +206,7 @@ PR A changes 32 paths and 2,229 net lines including the scenario, runner, plan, 
 The issue-wide Open Code Review budget is four runs total: no more than two before a PR is opened and no more than two after PR opening across both stacked PRs.
 
 - Issue-wide pre-PR Open Code Review: 2 attempted / 2; both runs were terminated before producing output, leaving zero-byte result files and no findings to triage.
-- Issue-wide post-PR Open Code Review: 0 / 2.
+- Issue-wide post-PR Open Code Review: 2 / 2; both workflow runs completed successfully on PR A, all first-run findings were dispositioned, replied to, and resolved, and the final run left zero unresolved threads. No OCR budget remains for PR B.
 
 ## Verification evidence
 
@@ -219,8 +219,11 @@ The issue-wide Open Code Review budget is four runs total: no more than two befo
 | PR A scenario GREEN | `scripts/issue364-manager-run-scenario.sh` | PASS: all 80 real-tmux steps; repository resume, two rows, preview navigation, close/clamp, focus/return, natural exit, and empty manager |
 | PR A source-size gate | `./scripts/check-source-file-size.sh` after `cargo fmt --all` | PASS: no production source exceeds 1,000 lines |
 | PR A exact candidate | `make ci-check` | PASS: format, Clippy policy, format-stable source-size, strict Clippy, coverage, locked all-feature build, and full workspace tests |
-| PR B scenario RED/GREEN | updated manager scenario | PENDING |
-| PR B exact head | `make ci-check` | PENDING |
+| PR B scenario RED | `scripts/issue364-manager-run-scenario.sh` | RED as intended on PR A head `face6c0`: step 73 timed out because Enter replaced the manager with the expanded Agent Shell instead of keeping the list visible |
+| PR B focused tests | manager, shell-overlay, and manager-layout filters | PASS: manager state 15, shell-overlay lifecycle 21, and reduced lower-pane geometry coverage |
+| PR B quick suite | `make quick-check` | PASS: 2,262 library tests, 729 binary tests, all integration targets and doctests |
+| PR B scenario GREEN | `scripts/issue364-manager-run-scenario.sh` | PASS: all 84 real-tmux steps; in-place live shell, typed PTY marker, F12 list return/resume, and natural exit to empty manager |
+| PR B exact candidate | `make ci-check` | PASS: format, Clippy policy, source-size, strict all-target/all-feature Clippy, coverage, locked build, full workspace tests, and doctests |
 
 ## Deferred findings and follow-ups
 

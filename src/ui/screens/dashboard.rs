@@ -182,6 +182,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         override_theme: state.is_some_and(|s| s.override_agent_theme),
                         pane_rows: props.terminal_pane_rows,
                         pane_cols: props.terminal_pane_cols,
+                        focused_hint: None,
                     )
                 }
             }
@@ -226,6 +227,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             override_theme: state.is_some_and(|s| s.override_agent_theme),
                             pane_rows: props.terminal_pane_rows,
                             pane_cols: props.terminal_pane_cols,
+                            focused_hint: None,
                         )
                     }
                 }

@@ -79,10 +79,10 @@ impl AppState {
             self.screen_mode = crate::state::ScreenMode::DashboardTerminals;
             self.terminal_manager.active = true;
             self.pane_focus = crate::state::PaneFocus::Agents;
-            self.shell_return_target = crate::state::ShellReturnTarget::Dashboard;
         } else {
             self.pane_focus = previous_pane_focus.unwrap_or(crate::state::PaneFocus::Agents);
         }
+        self.shell_return_target = crate::state::ShellReturnTarget::Dashboard;
         self.reset_shell_terminal_view();
     }
 
@@ -298,6 +298,28 @@ mod tests {
             state.shell_overlay.generation,
             gen_before.wrapping_add(1),
             "hide must bump generation so observers recognize the new state"
+        );
+    }
+
+    #[test]
+    fn manager_shell_hide_returns_to_manager_and_clears_return_target() {
+        let mut state = AppState::default();
+        state.screen_mode = crate::state::ScreenMode::DashboardTerminals;
+        state.terminal_manager.active = true;
+        state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
+        state.resume_shell_overlay(AgentId("agent-1".into()));
+
+        state.hide_shell_overlay();
+
+        assert_eq!(
+            state.screen_mode,
+            crate::state::ScreenMode::DashboardTerminals
+        );
+        assert!(state.terminal_manager.active);
+        assert!(!state.shell_overlay_active());
+        assert_eq!(
+            state.shell_return_target,
+            crate::state::ShellReturnTarget::Dashboard
         );
     }
 

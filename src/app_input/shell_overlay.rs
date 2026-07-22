@@ -90,7 +90,7 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
                 }
                 *state = std::mem::take(&mut *state).apply(AppEvent::CloseShellOverlay);
                 drop(state);
-                resize_for_active_layout(&ctx, false);
+                resize_for_active_layout(&app_state, &ctx);
             }
             Ok(true) => {}
             Err(error) => set_warning(&mut app_state, &error.to_string()),
@@ -167,18 +167,21 @@ pub async fn observe_shell_inventory(mut app_state: AppStateHandle, ctx: SharedC
     }
 }
 
-pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, overlay_active: bool) {
+pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::state::AppState) {
     let Some(ctx_arc) = ctx else {
         return;
     };
     let Ok(mut guard) = ctx_arc.lock() else {
         return;
     };
-    let layout = if overlay_active {
-        jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
-    } else {
-        jefe::layout::compute_pty_layout(cols, rows)
-    };
+    let layout =
+        if state.shell_overlay_active() && state.screen_mode == ScreenMode::DashboardTerminals {
+            jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
+        } else if state.shell_overlay_active() {
+            jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
+        } else {
+            jefe::layout::compute_pty_layout(cols, rows)
+        };
     if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
         warn!(error = %error, "failed to resize shell terminal");
     }
@@ -306,7 +309,7 @@ fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     match open_runtime_shell_window(ctx, &agent_id) {
         Ok(()) => {
             dispatch_app_event(app_state, ctx, AppEvent::OpenShellOverlay);
-            resize_for_active_layout(ctx, true);
+            resize_for_active_layout(app_state, ctx);
         }
         Err(error) => {
             warn!(error = %error, "failed to open shell window");
@@ -355,7 +358,7 @@ fn close_overlay_and_restore(
     match result {
         Ok(()) => {
             dispatch_app_event(app_state, ctx, AppEvent::CloseShellOverlay);
-            resize_for_active_layout(ctx, false);
+            resize_for_active_layout(app_state, ctx);
         }
         Err(error) => {
             warn!(error = %error, "failed to close shell window");
@@ -376,7 +379,7 @@ fn hide_overlay_and_restore(
     match result {
         Ok(()) => {
             dispatch_app_event(app_state, ctx, AppEvent::HideShellOverlay);
-            resize_for_active_layout(ctx, false);
+            resize_for_active_layout(app_state, ctx);
         }
         Err(error) => {
             warn!(error = %error, "failed to hide shell window");
@@ -470,9 +473,10 @@ fn hide_runtime_shell_window(
     guard.runtime.hide_shell_window(agent_id)
 }
 
-pub(super) fn resize_for_active_layout(ctx: &SharedContext, overlay_active: bool) {
+pub(super) fn resize_for_active_layout(app_state: &AppStateHandle, ctx: &SharedContext) {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    resize_terminal(ctx, cols, rows, overlay_active);
+    let state = app_state.read();
+    resize_terminal(ctx, cols, rows, &state);
 }
 
 fn warn_no_selection(app_state: &mut AppStateHandle, action: &str) {

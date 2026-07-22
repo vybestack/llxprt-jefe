@@ -9,6 +9,7 @@
 
 use iocraft::prelude::*;
 
+use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
 use crate::state::project_managed_shell_rows;
 use crate::state::{AppState, ManagedShellRow, ScreenMode};
@@ -19,7 +20,7 @@ use super::super::components::selectable_list::{
     ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
 };
 use super::super::components::{
-    KeybindBar, Sidebar, StatusBar, detail_pane_element, selectable_list_element,
+    KeybindBar, Sidebar, StatusBar, TerminalView, detail_pane_element, selectable_list_element,
 };
 
 /// Props for the Terminal Manager screen.
@@ -31,6 +32,14 @@ pub struct TerminalManagerScreenProps {
     pub colors: Option<ThemeColors>,
     /// Active theme name.
     pub theme_name: String,
+    /// Live snapshot from the single attached viewer.
+    pub terminal_snapshot: Option<TerminalSnapshot>,
+    /// Scrollback history for the live lower-pane terminal.
+    pub history_lines: Vec<String>,
+    /// Inner PTY rows allocated to the lower pane.
+    pub terminal_pane_rows: u16,
+    /// Inner PTY columns allocated to the lower pane.
+    pub terminal_pane_cols: u16,
 }
 
 /// Terminal Manager screen layout — two-column: repos sidebar + shell workspace.
@@ -75,6 +84,7 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
         .map(|s| s.terminal_manager.preview.clone())
         .unwrap_or_default();
     let pending_focus = state.and_then(|s| s.terminal_manager.pending_focus.as_ref());
+    let live_shell_active = state.is_some_and(AppState::shell_overlay_active);
 
     // ── Layout geometry ─────────────────────────────────────────────────────
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
@@ -214,9 +224,28 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
                         })])
                     }
 
-                    // Preview detail (bottom split)
+                    // Static preview or the single live viewer (bottom split)
                     Box(flex_grow: 1.0_f32, width: 100pct) {
-                        #(vec![detail_pane_element(detail_props)])
+                        #(if live_shell_active {
+                            vec![element! {
+                                TerminalView(
+                                    snapshot: props.terminal_snapshot.clone(),
+                                    focused: true,
+                                    title: "Agent Shell".to_owned(),
+                                    colors: colors.clone(),
+                                    selection: selection,
+                                    session_live: true,
+                                    history_lines: props.history_lines.clone(),
+                                    terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
+                                    override_theme: state.is_some_and(|s| s.override_agent_theme),
+                                    pane_rows: props.terminal_pane_rows,
+                                    pane_cols: props.terminal_pane_cols,
+                                    focused_hint: Some("F12 list | F10 close shell".to_owned()),
+                                )
+                            }.into_any()]
+                        } else {
+                            vec![detail_pane_element(detail_props)]
+                        })
                     }
                 }
             }
@@ -224,7 +253,7 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardTerminals, |s| s.screen_mode),
-                terminal_focused: false,
+                terminal_focused: live_shell_active,
                 actions_focus: None,
                 colors: colors.clone(),
             )
