@@ -466,8 +466,8 @@ impl TmuxDriver {
     /// Returns [`TmuxDriverError`] when tmux fails for a reason other than
     /// "no server running".
     pub fn kill_harness_server(&self) -> Result<(), TmuxDriverError> {
-        match run_tmux_capture(&["kill-server"]) {
-            Ok(_) => Ok(()),
+        match run_tmux(&["kill-server"], None) {
+            Ok(()) => Ok(()),
             Err(err) if is_no_server_error(&err) => Ok(()),
             Err(err) => Err(err),
         }

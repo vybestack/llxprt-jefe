@@ -42,6 +42,15 @@ const HANDLED_SIGNALS: &[i32] = &[
 /// harness private socket — and then exits the process so the signal's
 /// termination intent is honored.
 ///
+/// The background thread is intentionally detached: its sole purpose is to
+/// call `std::process::exit` on signal, which terminates the entire process
+/// (including the thread). Joining it during normal shutdown is impossible
+/// because the thread blocks forever waiting for a signal; it only unblocks
+/// when the signal pipe is closed on `Drop`, at which point the thread exits
+/// naturally without producing a value. The `JoinHandle` is therefore
+/// intentionally discarded — it conveys no useful information and would
+/// deadlock if joined before `Drop`.
+///
 /// On `Drop`, the signal pipe is closed so the background thread exits
 /// cleanly and no further signal-triggered cleanup occurs.
 ///
@@ -62,20 +71,31 @@ impl SignalCleanupGuard {
     ///
     /// # Errors
     ///
-    /// Returns `Err` on Unix if signal handler registration fails.
+    /// Returns `Err` on Unix if signal handler registration or thread
+    /// spawn fails.
     #[cfg(unix)]
     pub fn new(driver: TmuxDriver) -> Result<Self, std::io::Error> {
         let mut signals = signal_hook::iterator::Signals::new(HANDLED_SIGNALS.iter().copied())?;
         let handle = signals.handle();
 
         let builder = std::thread::Builder::new().name("harness-signal-cleanup".to_string());
+        // The thread is intentionally detached (see the struct doc comment):
+        // it blocks forever waiting for a signal, then calls process::exit.
+        // The JoinHandle conveys no useful information.
         builder.spawn(move || {
             // Block until a registered signal arrives, then clean up and
             // exit. Since `std::process::exit` terminates the process,
             // only the first signal is handled; subsequent signals are
             // irrelevant (the process is already dying).
             if let Some(sig) = signals.forever().next() {
-                perform_cleanup(&driver);
+                // catch_unwind ensures the thread always reaches
+                // process::exit even if perform_cleanup panics. Without
+                // this, a panic would silently kill the thread and the
+                // process would continue running — defeating the signal's
+                // termination intent.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    perform_cleanup(&driver);
+                }));
                 // Honor the signal's termination intent: exit with the
                 // conventional 128 + signal_number status so callers
                 // (CI, shell scripts) see a signal-death exit code.
@@ -95,7 +115,7 @@ impl SignalCleanupGuard {
     pub fn new(driver: TmuxDriver) -> Result<Self, std::convert::Infallible> {
         // Suppress unused-variable warning; the driver is not needed on
         // Windows (psmux has no persistent server).
-        drop(driver);
+        let _ = &driver;
         Ok(Self {
             _marker: std::marker::PhantomData,
         })
@@ -103,8 +123,9 @@ impl SignalCleanupGuard {
 
     /// Return the number of signal types monitored by this guard.
     ///
-    /// Always 0 on Windows. On Unix, equals the number of signals in
-    /// [`HANDLED_SIGNALS`] (currently 4).
+    /// Intended for diagnostics and test assertions. Always 0 on Windows.
+    /// On Unix, equals the number of signals in [`HANDLED_SIGNALS`]
+    /// (currently 4).
     #[must_use]
     pub fn handler_count(&self) -> usize {
         #[cfg(unix)]

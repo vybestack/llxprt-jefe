@@ -13,7 +13,8 @@
 
 #![cfg(unix)]
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::harness::tmux_driver::TmuxDriver;
@@ -59,7 +60,7 @@ fn handler_count_reflects_registration() {
     assert_eq!(guard2.handler_count(), 4);
 }
 
-// ─── Artifact preservation (no tmux kill required) ──────────────────────
+// ─── Artifact preservation (dedicated socket) ───────────────────────────
 
 /// `kill-server` (the only thing `perform_cleanup` does) never touches the
 /// filesystem — it only kills tmux processes. Artifact directories must
@@ -67,24 +68,20 @@ fn handler_count_reflects_registration() {
 ///
 /// We prove this on a **dedicated socket** to avoid killing the shared
 /// per-process harness socket that concurrent runner tests depend on.
-/// `perform_cleanup` is a one-line wrapper around `kill_harness_server`,
-/// which is itself a one-line `tmux kill-server` on the harness socket.
-/// The filesystem-preserving property of `kill-server` is identical
-/// regardless of which socket it targets.
 #[test]
 fn kill_server_preserves_artifact_files_on_dedicated_socket() {
     let driver = TmuxDriver::new();
     if !driver.is_available() {
         let _ = std::io::Write::write_all(
             &mut std::io::stderr(),
-            b"skipping artifact preservation test: tmux unavailable
-",
+            b"skipping artifact preservation test: tmux unavailable\n",
         );
         return;
     }
 
     let socket = format!("jefe-artifact-{}", unique_suffix());
     let session = format!("artifact-{}", unique_suffix());
+    let _guard = SocketGuard::new(&socket);
     assert!(
         start_session_on_socket(&socket, &session),
         "should start session"
@@ -97,7 +94,7 @@ fn kill_server_preserves_artifact_files_on_dedicated_socket() {
     // kill-server on the dedicated socket — this is the exact operation
     // perform_cleanup performs (just on the harness socket instead).
     kill_server_on_socket(&socket);
-    std::thread::sleep(Duration::from_millis(200));
+    poll_until_dead(&socket, &session);
 
     assert!(
         marker.exists(),
@@ -137,6 +134,10 @@ fn kill_server_on_one_socket_does_not_affect_another() {
     let session_a = format!("iso-a-{}", unique_suffix());
     let session_b = format!("iso-b-{}", unique_suffix());
 
+    // RAII guards ensure both sockets are killed even on panic.
+    let _guard_a = SocketGuard::new(&socket_a);
+    let _guard_b = SocketGuard::new(&socket_b);
+
     // Start sessions on both sockets.
     assert!(
         start_session_on_socket(&socket_a, &session_a),
@@ -159,9 +160,7 @@ fn kill_server_on_one_socket_does_not_affect_another() {
 
     // Kill the server on socket A only.
     kill_server_on_socket(&socket_a);
-
-    // Give tmux a moment to process.
-    std::thread::sleep(Duration::from_millis(200));
+    poll_until_dead(&socket_a, &session_a);
 
     // Session A must be dead (server killed).
     assert!(
@@ -175,9 +174,6 @@ fn kill_server_on_one_socket_does_not_affect_another() {
         session_exists_on_socket(&socket_b, &session_b),
         "session B on a different socket must survive (#375 isolation)"
     );
-
-    // Clean up socket B.
-    kill_server_on_socket(&socket_b);
 }
 
 /// `kill-server` is idempotent: calling it when no server exists does not
@@ -198,6 +194,7 @@ fn kill_server_is_idempotent_on_dedicated_socket() {
     }
 
     let socket = format!("jefe-idem-{}", unique_suffix());
+    let _guard = SocketGuard::new(&socket);
 
     // Kill on a socket that has no server — must be classified as success
     // (either exit 0 or "no server running" stderr).
@@ -213,7 +210,7 @@ fn kill_server_is_idempotent_on_dedicated_socket() {
         "should start session"
     );
     assert!(kill_server_on_socket_is_ok(&socket), "first kill must work");
-    std::thread::sleep(Duration::from_millis(200));
+    poll_until_dead(&socket, &session);
     assert!(
         kill_server_on_socket_is_ok(&socket),
         "second kill on dead server must be idempotent"
@@ -222,10 +219,52 @@ fn kill_server_is_idempotent_on_dedicated_socket() {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-fn unique_suffix() -> u128 {
-    SystemTime::now()
+/// Process-wide counter for unique socket/session names. Combined with
+/// PID and nanosecond timestamp, guarantees uniqueness even under parallel
+/// test execution within the same nanosecond.
+static SUFFIX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a unique suffix combining PID, nanosecond timestamp, and a
+/// monotonic counter to guarantee uniqueness across parallel tests.
+fn unique_suffix() -> String {
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos())
+        .map_or(0, |d| d.as_nanos());
+    let counter = SUFFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{pid}-{nanos}-{counter}")
+}
+
+/// RAII guard that kills a dedicated-socket tmux server on drop, ensuring
+/// cleanup even if the test panics mid-scenario.
+struct SocketGuard {
+    socket: String,
+}
+
+impl SocketGuard {
+    fn new(socket: &str) -> Self {
+        Self {
+            socket: socket.to_string(),
+        }
+    }
+}
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        kill_server_on_socket(&self.socket);
+    }
+}
+
+/// Poll until a session is dead, with a 3-second timeout and 50ms interval.
+/// Replaces fragile fixed sleeps with deterministic polling.
+fn poll_until_dead(socket: &str, session_name: &str) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if !session_exists_on_socket(socket, session_name) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn start_session_on_socket(socket: &str, session_name: &str) -> bool {
@@ -243,6 +282,7 @@ fn start_session_on_socket(socket: &str, session_name: &str) -> bool {
             "sleep",
             "60",
         ])
+        .env("LC_ALL", "C")
         .output();
     matches!(result, Ok(out) if out.status.success())
 }
@@ -258,6 +298,7 @@ fn session_exists_on_socket(socket: &str, session_name: &str) -> bool {
             "-t",
             session_name,
         ])
+        .env("LC_ALL", "C")
         .output();
     matches!(result, Ok(out) if out.status.success())
 }
@@ -269,9 +310,13 @@ fn kill_server_on_socket(socket: &str) {
 /// Returns true if kill-server either succeeds (exit 0) or fails with a
 /// "no server running" message (the idempotent case). This mirrors the
 /// `is_no_server_error` classification in `tmux_driver.rs`.
+///
+/// `LC_ALL=C` is set to ensure tmux emits English-language error messages
+/// regardless of the system locale, so the stderr classification matches.
 fn kill_server_on_socket_is_ok(socket: &str) -> bool {
     let result = std::process::Command::new("tmux")
         .args(["-L", socket, "-f", "/dev/null", "kill-server"])
+        .env("LC_ALL", "C")
         .output();
     match result {
         Ok(out) if out.status.success() => true,
