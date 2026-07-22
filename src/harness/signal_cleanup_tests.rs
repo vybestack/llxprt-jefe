@@ -61,32 +61,54 @@ fn handler_count_reflects_registration() {
 
 // ─── Artifact preservation (no tmux kill required) ──────────────────────
 
-/// `perform_cleanup` never touches the filesystem — it only shells out to
-/// `tmux kill-server`. Artifact directories must survive (A3).
+/// `kill-server` (the only thing `perform_cleanup` does) never touches the
+/// filesystem — it only kills tmux processes. Artifact directories must
+/// survive (A3).
 ///
-/// We verify artifact survival by checking that files exist after
-/// `perform_cleanup`. The function's only side-effect is a tmux shell-out
-/// (which never touches files), but we exercise it to prove the contract.
-/// The tmux call targets the harness socket; when no harness server exists
-/// the call is a no-op, but the filesystem assertion is still valid: no
-/// code path in `perform_cleanup` deletes files.
+/// We prove this on a **dedicated socket** to avoid killing the shared
+/// per-process harness socket that concurrent runner tests depend on.
+/// `perform_cleanup` is a one-line wrapper around `kill_harness_server`,
+/// which is itself a one-line `tmux kill-server` on the harness socket.
+/// The filesystem-preserving property of `kill-server` is identical
+/// regardless of which socket it targets.
 #[test]
-fn perform_cleanup_preserves_artifact_files() {
+fn kill_server_preserves_artifact_files_on_dedicated_socket() {
     let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping artifact preservation test: tmux unavailable
+",
+        );
+        return;
+    }
+
+    let socket = format!("jefe-artifact-{}", unique_suffix());
+    let session = format!("artifact-{}", unique_suffix());
+    assert!(
+        start_session_on_socket(&socket, &session),
+        "should start session"
+    );
+
     let artifact_dir = tempfile::tempdir().value_or_panic("artifact tempdir");
     let marker = artifact_dir.path().join("marker.txt");
     std::fs::write(&marker, "diagnostic data").value_or_panic("write marker");
 
-    // perform_cleanup calls kill_harness_server — a tmux shell-out that
-    // never touches the filesystem.
-    perform_cleanup(&driver);
+    // kill-server on the dedicated socket — this is the exact operation
+    // perform_cleanup performs (just on the harness socket instead).
+    kill_server_on_socket(&socket);
+    std::thread::sleep(Duration::from_millis(200));
 
     assert!(
         marker.exists(),
-        "artifact file must survive signal cleanup (#375)"
+        "artifact file must survive tmux kill-server (#375)"
     );
     let content = std::fs::read_to_string(&marker).value_or_panic("read marker");
     assert_eq!(content, "diagnostic data");
+    assert!(
+        !session_exists_on_socket(&socket, &session),
+        "session must be dead after kill-server"
+    );
 }
 
 // ─── Isolation and idempotency tests (raw tmux on dedicated sockets) ─────
