@@ -8,6 +8,7 @@
 //! project decision (see issue #380 and the CW-00b migration issue #397).
 
 pub mod contract;
+pub mod env;
 pub mod error;
 pub mod fields;
 pub mod interp;
@@ -15,8 +16,11 @@ pub mod json;
 pub mod limits;
 pub mod parse;
 pub mod parse_step;
+pub mod redact;
 pub mod semantic;
 pub mod validate;
+#[cfg(unix)]
+pub mod workspace;
 
 pub use contract::{ScenarioV1, Step};
 pub use error::{HarCode, HarnessError};
