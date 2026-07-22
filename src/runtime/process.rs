@@ -66,7 +66,6 @@ const fn classify_running(expected: ProcessIdentity, actual: ProcessIdentity) ->
     }
     match (expected.started_at, actual.started_at) {
         (Some(expected), Some(actual)) if expected != actual => ProcessLiveness::ReusedPid,
-        (None, Some(_)) => ProcessLiveness::MalformedIdentity,
         (Some(_), None) => ProcessLiveness::ProbeFailure,
         _ => ProcessLiveness::Alive,
     }
@@ -97,8 +96,13 @@ pub fn process_liveness(identity: Option<ProcessIdentity>) -> ProcessLiveness {
     classify_process_observation(Some(identity), probe_process(identity.pid))
 }
 
+/// Return whether a final process classification preserves liveness.
+///
+/// Uncertain access and probe failures fail open; confirmed exit, process
+/// reuse, and malformed expected identity do not establish the target process
+/// as alive.
 #[must_use]
-pub(super) const fn process_liveness_indicates_alive(liveness: ProcessLiveness) -> bool {
+pub const fn process_liveness_indicates_alive(liveness: ProcessLiveness) -> bool {
     matches!(
         liveness,
         ProcessLiveness::Alive | ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure
@@ -115,6 +119,60 @@ pub(super) fn pid_liveness(pid: u32) -> ProcessLiveness {
     }
 }
 
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WindowsProbeStage {
+    Open,
+    Query,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WindowsProbeFailure {
+    AccessDenied,
+    InvalidParameter,
+    Other,
+}
+
+#[cfg(any(windows, test))]
+#[must_use]
+pub(super) const fn classify_windows_failure(
+    stage: WindowsProbeStage,
+    failure: WindowsProbeFailure,
+) -> ProcessObservation {
+    match (stage, failure) {
+        (_, WindowsProbeFailure::AccessDenied) => ProcessObservation::Inaccessible,
+        (WindowsProbeStage::Open, WindowsProbeFailure::InvalidParameter) => {
+            ProcessObservation::Exited
+        }
+        (
+            WindowsProbeStage::Open | WindowsProbeStage::Query,
+            WindowsProbeFailure::InvalidParameter | WindowsProbeFailure::Other,
+        ) => ProcessObservation::ProbeFailed,
+    }
+}
+
+#[cfg(windows)]
+fn windows_probe_failure(error: winsafe::co::ERROR) -> WindowsProbeFailure {
+    use winsafe::co;
+
+    if error == co::ERROR::ACCESS_DENIED {
+        WindowsProbeFailure::AccessDenied
+    } else if error == co::ERROR::INVALID_PARAMETER {
+        WindowsProbeFailure::InvalidParameter
+    } else {
+        WindowsProbeFailure::Other
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn classify_windows_error(
+    stage: WindowsProbeStage,
+    error: winsafe::co::ERROR,
+) -> ProcessObservation {
+    classify_windows_failure(stage, windows_probe_failure(error))
+}
+
 #[cfg(windows)]
 fn probe_process(pid: u32) -> ProcessObservation {
     use winsafe::{HPROCESS, co};
@@ -125,13 +183,7 @@ fn probe_process(pid: u32) -> ProcessObservation {
     let access = co::PROCESS::QUERY_LIMITED_INFORMATION | co::PROCESS::SYNCHRONIZE;
     let process = match HPROCESS::OpenProcess(access, false, pid) {
         Ok(process) => process,
-        Err(error) if error == co::ERROR::ACCESS_DENIED => {
-            return ProcessObservation::Inaccessible;
-        }
-        Err(error) if error == co::ERROR::INVALID_PARAMETER => {
-            return ProcessObservation::Exited;
-        }
-        Err(_) => return ProcessObservation::ProbeFailed,
+        Err(error) => return classify_windows_error(WindowsProbeStage::Open, error),
     };
     match process.WaitForSingleObject(Some(0)) {
         Ok(wait) if wait == co::WAIT::OBJECT_0 => ProcessObservation::Exited,
@@ -142,11 +194,10 @@ fn probe_process(pid: u32) -> ProcessObservation {
                     (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime),
                 ),
             }),
-            Err(error) if error == co::ERROR::ACCESS_DENIED => ProcessObservation::Inaccessible,
-            Err(_) => ProcessObservation::ProbeFailed,
+            Err(error) => classify_windows_error(WindowsProbeStage::Query, error),
         },
-        Err(error) if error == co::ERROR::ACCESS_DENIED => ProcessObservation::Inaccessible,
-        Ok(_) | Err(_) => ProcessObservation::ProbeFailed,
+        Err(error) => classify_windows_error(WindowsProbeStage::Query, error),
+        Ok(_) => ProcessObservation::ProbeFailed,
     }
 }
 

@@ -142,7 +142,9 @@ Planned maximum: 8 changed files and substantially below 1,500 net lines.
 
 ## Review Counters
 
-- Local Open Code Review: 0/2
+- Local Open Code Review: 2/2 attempted; both tool runs were terminated before
+  producing output
+- Independent Rust review: 1 complete
 - Post-PR Open Code Review: 0/2
 - CodeRabbit: not requested until verified PR head is ready
 
@@ -162,16 +164,28 @@ Planned maximum: 8 changed files and substantially below 1,500 net lines.
 - Slice 3 RED: the focused binding test failed to compile when the private
   observation/resolver seam was removed (`E0432`/`E0433`/`E0425`).
 - Slice 3 GREEN: 5 atomic observation tests, all 19 startup tests, and full
-  `make quick-check` passed; `app_init.rs` remains under the 1,000-line hard
-  limit at 997 lines.
-- `make ci-check` exact head: pending
+  `make quick-check` passed; `app_init.rs` remained under the 1,000-line hard
+  limit.
+- Pre-review `make ci-check` passed on `0e523674da8f6f21ea4fca171cc07ac374620cd0`.
+- Review remediation focused tests passed: 14 process tests, 7 atomic
+  binding/application tests, and 10 startup tests.
+- Post-remediation `make quick-check` passed with 2,285 library tests and 727
+  binary tests plus all integration and doc-test targets.
+- Final `make ci-check` exact head: pending
 - Native Windows CI exact head: pending
 - PR conflict and ancestry check: pending
 
 ## Review Triage
 
-No findings yet. Every finding will be recorded as Blocker-Fix,
-In-scope-Fix, Reject, or Defer before remediation.
+| Finding | Disposition | Action |
+|---------|-------------|--------|
+| Legacy macOS tokenless identities became malformed | Blocker-Fix | Tokenless expected identity now accepts the same live PID; fully tokenized mismatches still reject reuse. |
+| Windows test bypassed Win32 error mapping | In-scope-Fix | Extracted a pure stage/error classifier, routed production errors through it, and added native-Windows API-error tests. |
+| Atomic restore lacked application-boundary proof | In-scope-Fix | Added tests that resolve partial fresh observations and verify the resulting `RuntimeBinding`. |
+| Test-only dead-decision model contradicted production | In-scope-Fix | Removed the duplicate helpers/tests and covered the real startup classifier/PID binding path. |
+| Runtime policy documentation did not match all binding checks | In-scope-Fix | Documented binding validation separately and routed startup through the shared recoverability predicate. |
+| PR/Windows readiness remained pending | Reject as code finding | Correct delivery-state observation; retained as a required pending delivery gate. |
+| UTC calendar conversion lacked boundary tests | In-scope-Fix | Added epoch, rollover, leap-century, invalid-date, and pre-epoch fixtures. |
 
 ## Deferred Findings / Follow-ups
 

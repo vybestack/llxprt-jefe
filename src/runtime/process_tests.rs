@@ -4,8 +4,11 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use super::process::classify_windows_error;
 use super::process::{
-    ProcessLiveness, ProcessObservation, capture_process_identity, classify_process_observation,
+    ProcessLiveness, ProcessObservation, WindowsProbeFailure, WindowsProbeStage,
+    capture_process_identity, classify_process_observation, classify_windows_failure,
     process_liveness, process_liveness_indicates_alive,
 };
 #[cfg(unix)]
@@ -65,7 +68,7 @@ fn fail_open_policy_covers_every_final_liveness_state() {
 }
 
 #[test]
-fn windows_access_denied_and_query_failure_remain_fail_open() {
+fn uncertain_process_observations_remain_fail_open() {
     let expected = ProcessIdentity::new(41, 900);
     for observation in [
         ProcessObservation::Inaccessible,
@@ -74,12 +77,55 @@ fn windows_access_denied_and_query_failure_remain_fail_open() {
         let liveness = classify_process_observation(Some(expected), observation);
         assert!(process_liveness_indicates_alive(liveness));
     }
+}
 
-    let reused = classify_process_observation(
-        Some(expected),
-        ProcessObservation::Running(ProcessIdentity::new(41, 901)),
+#[test]
+fn windows_failure_classifier_preserves_error_semantics() {
+    assert_eq!(
+        classify_windows_failure(WindowsProbeStage::Open, WindowsProbeFailure::AccessDenied),
+        ProcessObservation::Inaccessible
     );
-    assert!(!process_liveness_indicates_alive(reused));
+    assert_eq!(
+        classify_windows_failure(
+            WindowsProbeStage::Open,
+            WindowsProbeFailure::InvalidParameter
+        ),
+        ProcessObservation::Exited
+    );
+    assert_eq!(
+        classify_windows_failure(WindowsProbeStage::Query, WindowsProbeFailure::AccessDenied),
+        ProcessObservation::Inaccessible
+    );
+    assert_eq!(
+        classify_windows_failure(
+            WindowsProbeStage::Query,
+            WindowsProbeFailure::InvalidParameter
+        ),
+        ProcessObservation::ProbeFailed
+    );
+    assert_eq!(
+        classify_windows_failure(WindowsProbeStage::Query, WindowsProbeFailure::Other),
+        ProcessObservation::ProbeFailed
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_api_errors_route_through_typed_classifier() {
+    use winsafe::co;
+
+    assert_eq!(
+        classify_windows_error(WindowsProbeStage::Open, co::ERROR::ACCESS_DENIED),
+        ProcessObservation::Inaccessible
+    );
+    assert_eq!(
+        classify_windows_error(WindowsProbeStage::Open, co::ERROR::INVALID_PARAMETER),
+        ProcessObservation::Exited
+    );
+    assert_eq!(
+        classify_windows_error(WindowsProbeStage::Query, co::ERROR::INVALID_PARAMETER),
+        ProcessObservation::ProbeFailed
+    );
 }
 
 #[cfg(unix)]
@@ -120,13 +166,21 @@ fn unix_probe_command_uses_structured_arguments_and_c_locale() {
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_start_time_parser_returns_utc_epoch_and_rejects_malformed_values() {
-    assert_eq!(
-        parse_macos_process_start_time("Tue Jan  2 03:04:05 2024"),
-        Some(1_704_164_645)
-    );
+    for (value, expected) in [
+        ("Thu Jan 1 00:00:00 1970", 0),
+        ("Sat Dec 31 23:59:59 1999", 946_684_799),
+        ("Tue Feb 29 00:00:00 2000", 951_782_400),
+        ("Tue Jan 2 03:04:05 2024", 1_704_164_645),
+        ("Mon Mar 1 00:00:00 2100", 4_107_542_400),
+    ] {
+        assert_eq!(parse_macos_process_start_time(value), Some(expected));
+    }
     for malformed in [
         "",
+        "Wed Dec 31 23:59:59 1969",
         "Tue Jan 2 03:04 2024",
+        "Tue Feb 29 00:00:00 2023",
+        "Mon Feb 29 00:00:00 2100",
         "Tue Feb 30 03:04:05 2024",
         "Tue Jan 2 25:04:05 2024",
         "Nope Jan 2 03:04:05 2024",
@@ -210,7 +264,7 @@ fn macos_identity_capture_fixture() {
 }
 
 #[test]
-fn platform_identity_without_persisted_creation_time_is_malformed() {
+fn legacy_identity_without_persisted_creation_time_remains_alive() {
     let legacy = ProcessIdentity {
         pid: 41,
         started_at: None,
@@ -219,7 +273,7 @@ fn platform_identity_without_persisted_creation_time_is_malformed() {
 
     assert_eq!(
         classify_process_observation(Some(legacy), ProcessObservation::Running(observed)),
-        ProcessLiveness::MalformedIdentity
+        ProcessLiveness::Alive
     );
 }
 

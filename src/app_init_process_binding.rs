@@ -98,4 +98,72 @@ mod tests {
             observation(None, None)
         );
     }
+
+    fn applied_runtime_binding(
+        fresh: ProcessBindingObservation,
+        persisted: ProcessBindingObservation,
+    ) -> jefe::domain::RuntimeBinding {
+        use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+        use jefe::state::AppState;
+
+        let repository_id = RepositoryId("binding-repo".to_owned());
+        let repository = Repository::new(
+            repository_id.clone(),
+            "Binding Repo".to_owned(),
+            "binding-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/binding-repo"),
+        );
+        let mut agent = Agent::new(
+            AgentId("binding-agent".to_owned()),
+            repository_id,
+            "Binding Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/binding-agent"),
+        );
+        agent.status = AgentStatus::Running;
+        let signature = super::super::launch_signature_for_agent(&agent, &repository);
+        let agent_id = agent.id.clone();
+        let resolved = resolve_process_binding(fresh, persisted);
+        let mut state = AppState {
+            agents: vec![agent],
+            repositories: vec![repository],
+            ..AppState::default()
+        };
+
+        super::super::apply_restored_state(
+            &mut state,
+            vec![(agent_id.clone(), signature, resolved.pid, resolved.identity)],
+            Vec::new(),
+            None,
+        );
+        let Some(binding) = state
+            .agents
+            .iter()
+            .find(|agent| agent.id == agent_id)
+            .and_then(|agent| agent.runtime_binding.clone())
+        else {
+            panic!("restored agent must have a runtime binding");
+        };
+        binding
+    }
+
+    #[test]
+    fn fresh_pid_only_is_applied_without_stale_persisted_identity() {
+        let binding = applied_runtime_binding(
+            observation(Some(42), None),
+            observation(Some(41), Some(ProcessIdentity::new(41, 900))),
+        );
+        assert_eq!(binding.pid, Some(42));
+        assert_eq!(binding.process_identity, None);
+    }
+
+    #[test]
+    fn fresh_identity_only_is_applied_as_a_coherent_binding() {
+        let identity = ProcessIdentity::new(42, 901);
+        let binding = applied_runtime_binding(
+            observation(None, Some(identity)),
+            observation(Some(41), Some(ProcessIdentity::new(41, 900))),
+        );
+        assert_eq!(binding.pid, Some(42));
+        assert_eq!(binding.process_identity, Some(identity));
+    }
 }

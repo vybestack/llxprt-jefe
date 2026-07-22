@@ -81,7 +81,7 @@ pub use preflight::{
 };
 pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
-    classify_process_observation, process_liveness,
+    classify_process_observation, process_liveness, process_liveness_indicates_alive,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use shell_window::{

@@ -135,18 +135,24 @@ reconciliation and the local PID-only recovery probe:
 | `ProbeFailure` | keep the agent recoverable | alive (fail open) |
 
 A live multiplexer session remains ground truth during startup even when
-persisted binding metadata is inconsistent. Otherwise, only a confirmed exit,
-PID reuse, or malformed identity can reject the expected process. Permission
+persisted binding metadata is inconsistent. Without a live session, invalid
+session names, launch signatures, or PID/identity pairings are rejected before
+process liveness is considered. For coherent bindings, only a confirmed exit,
+PID reuse, or malformed identity rejects the expected process. Permission
 denial and probe failure are uncertainty, not proof of death.
 
 A PID-only probe has no persisted creation token to compare, so it can produce
 `Alive`, `Dead`, `Inaccessible`, or `ProbeFailure`, but cannot independently
-produce `ReusedPid` or `MalformedIdentity`. It still uses the same final policy
-function as identity-aware startup classification. Unix probes force the C
-locale before interpreting `kill -0` diagnostics; macOS creation tokens come
-from UTC, C-locale `ps` output; Windows retains its native creation `FILETIME`.
+produce `ReusedPid` or `MalformedIdentity`. PID-only and identity-aware startup
+both route their final classifications through the same recoverability policy.
+Unix probes force the C locale before interpreting `kill -0` diagnostics;
+macOS creation tokens come from UTC, C-locale `ps` output; Windows retains its
+native creation `FILETIME`.
 
 During restore, PID and `ProcessIdentity` are selected as one observation. Fresh
 runtime evidence never borrows a missing field from persisted state, and a
 stored identity is only written with its matching PID. Legacy PID-only bindings
-remain readable and stay PID-only until refreshed by the runtime.
+remain readable and are probed by PID until a successful runtime refresh adds a
+platform creation token. Legacy identities with a missing creation token also
+remain compatible: a matching live PID is accepted, and fully tokenized future
+observations resume PID-reuse protection.

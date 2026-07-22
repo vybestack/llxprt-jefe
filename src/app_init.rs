@@ -14,8 +14,8 @@ use jefe::domain::{
 };
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
 use jefe::runtime::{
-    ProcessLiveness, RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager,
-    platform_engine_diagnostic, process_liveness,
+    ProcessLiveness, RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, pid_alive,
+    platform_engine_diagnostic, process_liveness, process_liveness_indicates_alive,
 };
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
@@ -163,14 +163,16 @@ fn classify_startup(
         SessionEvidence::Alive => StartupClassification::Running,
         SessionEvidence::Unavailable => StartupClassification::Recoverable,
         SessionEvidence::Missing if remote => StartupClassification::Stopped,
+        SessionEvidence::Missing if process_liveness_indicates_alive(process) => {
+            StartupClassification::Recoverable
+        }
         SessionEvidence::Missing => match process {
-            ProcessLiveness::Alive => StartupClassification::Recoverable,
             ProcessLiveness::Dead => StartupClassification::Stopped,
             ProcessLiveness::ReusedPid => StartupClassification::Stale,
             ProcessLiveness::MalformedIdentity => StartupClassification::Inconsistent,
-            ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure => {
-                StartupClassification::Recoverable
-            }
+            ProcessLiveness::Alive
+            | ProcessLiveness::Inaccessible
+            | ProcessLiveness::ProbeFailure => StartupClassification::Recoverable,
         },
     }
 }
@@ -187,7 +189,8 @@ fn classify_agent_startup(
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
     } else {
-        process_liveness(
+        process_liveness_for_binding(
+            agent.runtime_binding.as_ref().and_then(|value| value.pid),
             agent
                 .runtime_binding
                 .as_ref()
@@ -195,6 +198,20 @@ fn classify_agent_startup(
         )
     };
     classify_startup(session, binding, signature.remote.enabled, process)
+}
+
+fn process_liveness_for_binding(
+    pid: Option<u32>,
+    process_identity: Option<ProcessIdentity>,
+) -> ProcessLiveness {
+    if process_identity.is_some() {
+        return process_liveness(process_identity);
+    }
+    match pid {
+        Some(pid) if pid_alive(pid) => ProcessLiveness::Alive,
+        Some(_) => ProcessLiveness::Dead,
+        None => ProcessLiveness::MalformedIdentity,
+    }
 }
 
 /// Load persisted state and settings into `app_state` exactly once.
@@ -269,36 +286,6 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     }
 }
 
-/// Pure decision helper: given whether the tmux session exists, whether the
-/// agent is remote, and an optional persisted worker PID, decide whether the
-/// agent is dead.
-///
-/// - A session that still exists is never dead.
-/// - Remote agents (no pane PID available locally) rely solely on the tmux/SSH
-///   session check: if the session is gone, they are dead.
-/// - Local agents with a persisted worker PID consult [`pid_alive`] as a
-///   fallback: if the worker process is still alive (e.g. reparented to
-///   launchd after the jefe tmux server died), the agent is NOT considered
-///   dead and keeps its existing binding for later reclaim.
-///
-/// Factored out of [`reconcile_running_agents`] so the decision logic is
-/// unit-testable without spawning real tmux.
-#[cfg(test)]
-#[must_use]
-fn is_agent_dead(
-    session_exists: bool,
-    remote_enabled: bool,
-    process_identity: Option<ProcessIdentity>,
-) -> bool {
-    if session_exists {
-        return false;
-    }
-    if remote_enabled {
-        return true;
-    }
-    !matches!(process_liveness(process_identity), ProcessLiveness::Alive)
-}
-
 /// Find Running agents whose tmux sessions no longer exist.
 ///
 /// Agents persisted as Running without a backing repository are also stale.
@@ -353,46 +340,6 @@ fn apply_dead_reconciliations(
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
     true
-}
-
-/// Restore decision for a single Running agent's missing-or-present session.
-///
-/// Factored out of [`restore_runtime_sessions`] so the three-way restore
-/// decision is unit-testable without spawning real tmux. Mirrors
-/// [`is_agent_dead`] as the single source of truth for the dead-decision.
-#[cfg(test)]
-#[must_use]
-fn restore_dead_decision(
-    session_exists: bool,
-    remote_enabled: bool,
-    process_identity: Option<ProcessIdentity>,
-) -> RestoreDecision {
-    if session_exists {
-        return RestoreDecision::Revive;
-    }
-    // `session_exists` is always `false` here — the `true` case early-returns
-    // as `Revive` above. The argument is threaded through for clarity and to
-    // keep `is_agent_dead` self-documenting.
-    if is_agent_dead(session_exists, remote_enabled, process_identity) {
-        return RestoreDecision::Dead;
-    }
-    // Session is gone but the local worker PID is still alive: keep the agent
-    // Running with its existing binding and skip the revive/reattach attempt
-    // (active reclaim/re-adoption is deferred per the issue scope).
-    RestoreDecision::SkipOrphan
-}
-
-/// Decision outcome for restoring one Running agent's session.
-#[cfg(test)]
-#[derive(Debug, PartialEq, Eq)]
-enum RestoreDecision {
-    /// Tmux session still exists → reattach/revive.
-    Revive,
-    /// Agent is confirmed dead → mark Dead, clear binding.
-    Dead,
-    /// Local orphan: tmux session gone but worker PID alive → leave Running
-    /// with binding preserved, skip revive.
-    SkipOrphan,
 }
 
 /// Outcome of processing a single agent during [`restore_runtime_sessions`].
@@ -606,11 +553,6 @@ mod tests {
     use super::*;
     use jefe::domain::{AgentKind, Repository, RepositoryId};
 
-    fn current_process_identity() -> ProcessIdentity {
-        jefe::runtime::capture_process_identity(std::process::id())
-            .unwrap_or_else(|error| panic!("capture current process identity: {error}"))
-    }
-
     fn code_puppy_agent_and_repository() -> (Agent, Repository) {
         let repository_id = RepositoryId("repo-model".to_owned());
         let mut repository = Repository::new(
@@ -650,104 +592,20 @@ mod tests {
         assert!(signature.code_puppy_model.is_empty());
     }
 
-    /// Session still exists → never dead, regardless of PID.
     #[test]
-    fn is_agent_dead_false_when_session_exists() {
-        let me = current_process_identity();
-        assert!(!is_agent_dead(true, false, Some(me)));
-        assert!(!is_agent_dead(true, true, None));
-    }
-
-    /// Local agent, session gone, but worker PID alive → NOT dead (PID fallback
-    /// keeps it Running for reclaim).
-    #[test]
-    fn is_agent_dead_false_when_local_worker_pid_alive() {
-        let me = current_process_identity();
-        assert!(!is_agent_dead(false, false, Some(me)));
-    }
-
-    /// Local agent, session gone, worker PID dead → dead.
-    #[test]
-    fn is_agent_dead_true_when_local_worker_pid_dead() {
-        // 2_000_000_000 is within pid_t (i32) range but far above every
-        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
-        // deterministically returns ESRCH (no such process).
-        assert!(is_agent_dead(
-            false,
-            false,
-            Some(ProcessIdentity::new(2_000_000_000, 1))
-        ));
-    }
-
-    /// Local agent, session gone, no PID recorded → dead (no fallback info).
-    #[test]
-    fn is_agent_dead_true_when_local_no_pid() {
-        assert!(is_agent_dead(false, false, None));
-    }
-
-    /// Remote agent, session gone → always dead (no local PID fallback).
-    #[test]
-    fn is_agent_dead_true_when_remote_session_gone() {
-        // Even with a live PID present, remote agents must not use the local
-        // pid_alive check; they rely solely on the tmux/SSH session path.
-        let me = current_process_identity();
-        assert!(is_agent_dead(false, true, Some(me)));
-    }
-
-    // --- restore_dead_decision: end-to-end restore-path behavior ---
-
-    /// Local agent, no tmux session, persisted live PID ⇒ NOT newly Dead
-    /// (kept Running, binding preserved). This is the core issue #121 fix:
-    /// the restore path must not clobber the PID fallback that
-    /// `init_app_state` correctly applied.
-    #[test]
-    fn restore_decision_skips_local_orphan_with_live_pid() {
-        let me = current_process_identity();
+    fn legacy_pid_only_binding_uses_conservative_native_probe() {
+        let pid = std::process::id();
         assert_eq!(
-            restore_dead_decision(false, false, Some(me)),
-            RestoreDecision::SkipOrphan
+            process_liveness_for_binding(Some(pid), None),
+            ProcessLiveness::Alive
         );
-    }
-
-    /// Remote agent, no session ⇒ Dead (no local PID fallback; workers live on
-    /// the remote host).
-    #[test]
-    fn restore_decision_dead_when_remote_no_session() {
-        let me = current_process_identity();
         assert_eq!(
-            restore_dead_decision(false, true, Some(me)),
-            RestoreDecision::Dead
+            process_liveness_for_binding(Some(2_000_000_000), None),
+            ProcessLiveness::Dead
         );
-    }
-
-    /// Local agent, no session, no PID ⇒ Dead.
-    #[test]
-    fn restore_decision_dead_when_local_no_session_no_pid() {
         assert_eq!(
-            restore_dead_decision(false, false, None),
-            RestoreDecision::Dead
-        );
-    }
-
-    /// Local agent, no session, dead/nonexistent PID ⇒ Dead.
-    #[test]
-    fn restore_decision_dead_when_local_no_session_dead_pid() {
-        // 2_000_000_000 is within pid_t (i32) range but far above every
-        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
-        // deterministically returns ESRCH (no such process).
-        assert_eq!(
-            restore_dead_decision(false, false, Some(ProcessIdentity::new(2_000_000_000, 1))),
-            RestoreDecision::Dead
-        );
-    }
-
-    /// Local agent with a live tmux session ⇒ Revive (reattach).
-    #[test]
-    fn restore_decision_revive_when_session_exists() {
-        let me = current_process_identity();
-        assert_eq!(
-            restore_dead_decision(true, false, Some(me)),
-            RestoreDecision::Revive
+            process_liveness_for_binding(None, None),
+            ProcessLiveness::MalformedIdentity
         );
     }
 
