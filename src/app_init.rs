@@ -1,5 +1,7 @@
 //! One-time application startup: state hydration and runtime session restore.
 
+#[path = "app_init_process_binding.rs"]
+mod process_binding;
 #[path = "app_init_shell_reconcile.rs"]
 mod shell_reconcile;
 
@@ -427,8 +429,10 @@ fn restore_one_agent(
     };
     let signature = launch_signature_for_agent(agent, &repository);
     let binding = agent.runtime_binding.as_ref();
-    let pid = binding.and_then(|value| value.pid);
-    let process_identity = binding.and_then(|value| value.process_identity);
+    let persisted_process = process_binding::ProcessBindingObservation::new(
+        binding.and_then(|value| value.pid),
+        binding.and_then(|value| value.process_identity),
+    );
 
     match classify_agent_startup(agent, &signature, runtime) {
         StartupClassification::Stopped
@@ -438,14 +442,16 @@ fn restore_one_agent(
         StartupClassification::Running => {
             match revive_agent_session(agent, &signature, runtime, runtime_warning) {
                 ReviveOutcome::Revived => {
-                    let resolved_pid = runtime.worker_pid(&agent.id).or(pid);
-                    let process_identity = runtime
-                        .worker_process_identity(&agent.id)
-                        .or(process_identity);
+                    let fresh_process = process_binding::ProcessBindingObservation::new(
+                        runtime.worker_pid(&agent.id),
+                        runtime.worker_process_identity(&agent.id),
+                    );
+                    let process =
+                        process_binding::resolve_process_binding(fresh_process, persisted_process);
                     RestoreOneOutcome::Revived {
                         signature: Box::new(signature),
-                        pid: resolved_pid,
-                        process_identity,
+                        pid: process.pid,
+                        process_identity: process.identity,
                     }
                 }
                 ReviveOutcome::Died => RestoreOneOutcome::Dead,

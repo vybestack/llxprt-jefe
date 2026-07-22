@@ -159,7 +159,11 @@ Planned maximum: 8 changed files and substantially below 1,500 net lines.
 - Slice 2 GREEN: 13 process tests passed on macOS, including a same-live-PID
   fixture queried from UTC, Pacific, and Tokyo parent environments; full
   `make quick-check` passed with 2,284 library tests.
-- Slice 3 RED/GREEN: pending
+- Slice 3 RED: the focused binding test failed to compile when the private
+  observation/resolver seam was removed (`E0432`/`E0433`/`E0425`).
+- Slice 3 GREEN: 5 atomic observation tests, all 19 startup tests, and full
+  `make quick-check` passed; `app_init.rs` remains under the 1,000-line hard
+  limit at 997 lines.
 - `make ci-check` exact head: pending
 - Native Windows CI exact head: pending
 - PR conflict and ancestry check: pending
