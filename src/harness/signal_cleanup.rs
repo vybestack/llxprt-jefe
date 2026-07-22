@@ -112,7 +112,6 @@ impl SignalCleanupGuard {
 
     /// Windows no-op constructor.
     #[cfg(not(unix))]
-    #[must_use]
     pub fn new(driver: TmuxDriver) -> Result<Self, std::convert::Infallible> {
         // Suppress unused-variable warning; the driver is not needed on
         // Windows (psmux has no persistent server).
