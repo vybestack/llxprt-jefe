@@ -50,6 +50,11 @@ lru = "0.12"
 # jefe's iocraft pipeline.
 comrak = { version = "0.53", default-features = false }
 
+# Temp files for the issue-rewrite agent handoff (issue #359): the agent writes
+# the rewritten draft to a NamedTempFile so stdout thinking/tool noise cannot
+# pollute the composer.
+tempfile = "3.0"
+
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }
 whoami = "2.1.2"
@@ -64,9 +69,6 @@ required-features = ["psmux-smoke"]
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
-
-[dev-dependencies]
-tempfile = "3.0"
 
 [lints.rust]
 unsafe_code = "forbid"

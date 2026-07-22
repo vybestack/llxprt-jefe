@@ -156,3 +156,46 @@ fn llxprt_npm_backed_wraps_with_exec_package() {
     assert!(args.contains(&"llxprt".to_owned()));
     assert!(args.contains(&"--prompt".to_owned()));
 }
+
+#[test]
+fn read_rewrite_output_file_returns_trimmed_contents() {
+    let dir = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let path = dir.path().join("out.md");
+    std::fs::write(&path, "  Title\nBody  \n").unwrap_or_else(|error| panic!("write: {error}"));
+    let text = super::read_rewrite_output_file(&path, None)
+        .unwrap_or_else(|error| panic!("read: {error}"));
+    assert_eq!(text, "Title\nBody");
+}
+
+#[test]
+fn read_rewrite_output_file_rejects_empty_with_stderr_hint() {
+    let dir = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let path = dir.path().join("empty.md");
+    std::fs::write(&path, "   \n").unwrap_or_else(|error| panic!("write: {error}"));
+    let err = match super::read_rewrite_output_file(&path, Some("model noise")) {
+        Ok(text) => panic!("empty file must fail, got: {text}"),
+        Err(error) => error,
+    };
+    let message = err.to_string();
+    assert!(
+        message.contains("empty rewrite output file"),
+        "message={message}"
+    );
+    assert!(
+        message.contains("model noise"),
+        "stderr hint must surface: {message}"
+    );
+}
+
+#[test]
+fn read_rewrite_output_file_rejects_missing_path() {
+    let path = std::path::Path::new("/tmp/jefe-rewrite-missing-does-not-exist.md");
+    let err = match super::read_rewrite_output_file(path, None) {
+        Ok(text) => panic!("missing file must fail, got: {text}"),
+        Err(error) => error,
+    };
+    assert!(
+        err.to_string().contains("did not write rewrite output"),
+        "message={err}"
+    );
+}

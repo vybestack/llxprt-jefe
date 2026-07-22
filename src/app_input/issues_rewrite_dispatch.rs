@@ -1,10 +1,12 @@
-//! Orchestration for the agent-driven new-issue draft rewrite (issue #214).
+//! Orchestration for the agent-driven new-issue draft rewrite (issue #214 / #359).
 //!
 //! Triggered from the new-issue composer by `Ctrl+R`. Reads the current draft,
 //! resolves the configured default agent for the focused repository, runs that
-//! agent **non-interactively** (single prompt → stdout → exit) so it can study
-//! the repository source and produce a cleaner, plan-like issue, then replaces
-//! the composer draft with the rewritten text for review before submission.
+//! agent **non-interactively** (single prompt → write output file → exit) so it
+//! can study the repository source and produce a cleaner, plan-like issue, then
+//! replaces the composer draft with the rewritten text for review before
+//! submission. The rewritten issue is read from a known temp file so
+//! thinking/tool/session noise on stdout cannot pollute the draft (issue #359).
 //!
 //! The deterministic state transitions live in the reducer
 //! (`state::issues_rewrite_ops`); this module owns only the boundary I/O
@@ -13,6 +15,7 @@
 use jefe::domain::{LaunchSignature, Repository, build_rewrite_instruction};
 use jefe::runtime::run_non_interactive;
 use jefe::state::{AppEvent, AppState, InlineState};
+use tempfile::NamedTempFile;
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, gh_async, launch_signature_for_transient,
@@ -26,24 +29,14 @@ use super::{
 /// `apply_and_persist`.
 pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let context = match rewrite_context(app_state) {
-        Ok(None) => {
-            // No actionable rewrite request (not a NewIssue composer, no draft,
-            // no repo, or already pending). The reducer still consumes the
-            // event as a no-op; nothing to spawn.
-            return;
-        }
+        Ok(None) => return,
         Err(error) => {
-            // A resolvable precondition failed (e.g. the working directory
-            // could not be determined). Surface it as a non-fatal failure so
-            // the draft is preserved and the user is informed.
             apply_and_persist(app_state, ctx, AppEvent::IssueRewriteFailed { error });
             return;
         }
         Ok(Some(context)) => context,
     };
 
-    // Availability guard BEFORE applying the pending flag: a missing agent
-    // runtime must not flip the UI into a waiting state.
     if !super::availability::launch_available_or_error(
         app_state,
         context.signature.agent_kind,
@@ -54,37 +47,49 @@ pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: 
         return;
     }
 
-    // Record the pending state so the UI shows the rewrite is in flight.
     apply_and_persist(app_state, ctx, AppEvent::RequestIssueRewrite);
+    spawn_rewrite_task(app_state, ctx, context);
+}
 
+/// Spawn the non-interactive rewrite on a background task (issue #359).
+fn spawn_rewrite_task(app_state: &AppStateHandle, ctx: &SharedContext, context: RewriteContext) {
     let RewriteContext {
         instruction,
         signature,
+        output_file,
     } = context;
 
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
-        move |mut app_state, ctx| match run_non_interactive(
-            &signature,
-            signature.work_dir.as_path(),
-            &instruction,
-        ) {
-            Ok(text) => {
-                apply_and_persist(
-                    &mut app_state,
-                    &ctx,
-                    AppEvent::IssueRewriteSucceeded { text },
-                );
-            }
-            Err(error) => {
-                apply_and_persist(
-                    &mut app_state,
-                    &ctx,
-                    AppEvent::IssueRewriteFailed {
-                        error: error.to_string(),
-                    },
-                );
+        move |mut app_state, ctx| {
+            // Keep `output_file` alive until after the agent exits and we read
+            // the path (issue #359 temp-file protocol).
+            let output_path = output_file.path().to_path_buf();
+            let result = run_non_interactive(
+                &signature,
+                signature.work_dir.as_path(),
+                &instruction,
+                &output_path,
+            );
+            drop(output_file);
+            match result {
+                Ok(text) => {
+                    apply_and_persist(
+                        &mut app_state,
+                        &ctx,
+                        AppEvent::IssueRewriteSucceeded { text },
+                    );
+                }
+                Err(error) => {
+                    apply_and_persist(
+                        &mut app_state,
+                        &ctx,
+                        AppEvent::IssueRewriteFailed {
+                            error: error.to_string(),
+                        },
+                    );
+                }
             }
         },
         move |mut app_state, ctx, message| {
@@ -103,6 +108,9 @@ pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: 
 struct RewriteContext {
     instruction: String,
     signature: LaunchSignature,
+    /// Agent writes ONLY the rewritten issue here; kept alive across the
+    /// async spawn so the OS does not delete the path early (issue #359).
+    output_file: NamedTempFile,
 }
 
 /// Resolve the rewrite context from the current state.
@@ -152,10 +160,14 @@ fn resolve_rewrite_context_from_state(state: &AppState) -> Result<Option<Rewrite
     } else {
         Some(trimmed_repo)
     };
-    let instruction = build_rewrite_instruction(&draft, github_repo);
+    let output_file = NamedTempFile::new().map_err(|error| {
+        format!("Could not create rewrite output file for the agent rewrite: {error}")
+    })?;
+    let instruction = build_rewrite_instruction(&draft, github_repo, output_file.path());
     Ok(Some(RewriteContext {
         instruction,
         signature,
+        output_file,
     }))
 }
 
