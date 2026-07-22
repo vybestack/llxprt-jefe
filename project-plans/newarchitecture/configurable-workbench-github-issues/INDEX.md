@@ -9,7 +9,7 @@ Each numbered Markdown file is the complete exact GitHub issue body and sole imp
 | `00-epic.md` | Epic: Configurable Workbench v1 | none | paste-ready |
 | `01-deterministic-tui-harness.md` | CW-00: Deterministic real-process TUI harness | none | paste-ready |
 | `02-configuration-state-effects.md` | CW-01: Exact configuration/state migration, offline recovery, and closed effects | deterministic real-process harness | paste-ready after harness capability exists |
-| `03-four-agent-cutover.md` | CW-02: Complete vertical four-agent definition cutover | deterministic harness; schema-2 persistence and closed effects | unchanged; paste-ready subject to its explicit Claude executable evidence gate before implementation RED |
+| `03-four-agent-cutover.md` | CW-02: Complete vertical four-agent definition cutover | deterministic harness; schema-2 persistence and closed effects | paste-ready; runtime compatibility is dynamic per installed release (probe-decided), with a Claude fixture-authoring capture required before implementation RED |
 | `04-action-registry-keymaps.md` | CW-03: Action registry, source-derived default inventory, and single-chord keymaps | deterministic harness; schema-2 configuration and closed effects | unchanged; paste-ready after consumed capabilities exist |
 | `05-screen-descriptors-layout.md` | CW-04: Sole internal screen descriptors and unified layout parity | deterministic harness; action registry | paste-ready after consumed capabilities exist |
 | `06-custom-screens-relationships.md` | CW-05: External custom screens lowered to descriptors and typed relationships | configuration/effects; actions/keymaps; descriptors/layout | paste-ready after consumed capabilities exist |
