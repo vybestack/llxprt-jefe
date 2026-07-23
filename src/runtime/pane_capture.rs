@@ -130,3 +130,16 @@ pub fn pane_pid(session_name: &str) -> Option<u32> {
     }
     parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::capture_pane_lines_args;
+
+    #[test]
+    fn pane_capture_targets_explicit_window() {
+        assert_eq!(
+            capture_pane_lines_args("jefe-owner:0"),
+            ["capture-pane", "-p", "-t", "jefe-owner:0"]
+        );
+    }
+}

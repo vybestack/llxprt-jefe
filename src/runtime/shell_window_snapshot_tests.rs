@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 
+use super::super::RuntimeError;
 use super::super::manager::TmuxRuntimeManager;
-use super::super::*;
 use super::{ShellWindowInputs, shell_window_inputs_for};
 use crate::domain::{AgentId, LaunchSignature};
 use crate::runtime::RuntimeSession;
@@ -217,12 +217,4 @@ fn revalidate_rejects_when_lifecycle_generation_changes() {
         session.lifecycle_generation = session.lifecycle_generation.wrapping_add(1);
     }
     assert!(!inputs.owner_still_matches(&mgr.sessions));
-}
-
-#[test]
-fn dead_preview_capture_targets_agent_window_zero() {
-    assert_eq!(
-        crate::runtime::capture_pane_lines_args("jefe-owner:0"),
-        ["capture-pane", "-p", "-t", "jefe-owner:0"]
-    );
 }

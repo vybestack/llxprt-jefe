@@ -285,7 +285,7 @@ fn select_pending_runtime_shell(
     {
         Ok(SelectOutcome::Selected)
     } else {
-        Ok(SelectOutcome::Stale)
+        Ok(SelectOutcome::Stale(inputs.session_name))
     }
 }
 
@@ -295,9 +295,9 @@ enum SelectOutcome {
     PendingGone,
     /// Select succeeded and the owner is still attached — confirm focus.
     Selected,
-    /// Select succeeded but the attached owner changed while off-lock —
-    /// discard and best-effort compensate by selecting window 0.
-    Stale,
+    /// Select succeeded but the attached owner changed while off-lock. Carries
+    /// the snapshotted session so compensation targets the selected shell.
+    Stale(String),
 }
 
 /// Complete a pending manager focus only after the expected owner is attached
@@ -337,19 +337,18 @@ pub async fn complete_pending_shell_focus(
             return;
         }
     };
-    let SelectOutcome::Selected = outcome else {
-        // PendingGone or Stale: do not confirm focus. On Stale, best-effort
-        // hide the shell to restore the hidden-shell invariant (issue #374).
-        if matches!(outcome, SelectOutcome::Stale) {
+    match outcome {
+        SelectOutcome::PendingGone => return,
+        SelectOutcome::Stale(session_name) => {
             warn!(
                 agent_id = %attached_agent_id.0,
                 "manager: attached owner changed during focus select; discarding"
             );
-            let session_name = RuntimeSession::session_name_for(&attached_agent_id);
             let _ = jefe::runtime::hide_shell_window(&session_name);
+            return;
         }
-        return;
-    };
+        SelectOutcome::Selected => {}
+    }
     let current = app_state.read().terminal_manager.pending_focus.clone();
     if !matches!(
         current.as_ref(),

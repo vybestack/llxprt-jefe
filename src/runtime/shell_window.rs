@@ -40,8 +40,8 @@ pub struct ShellWindowInputs {
     pub session_name: String,
     /// Runtime lifecycle captured with the session identity.
     pub lifecycle_generation: u64,
-    /// Whether the owner's repository is remote. Remote snapshots are rejected
-    /// by `execute_*` because the embedded shell is local-only.
+    /// Whether the owner's repository is remote. Open/select reject remote
+    /// snapshots; close/hide remain available for cleanup and compensation.
     pub remote_enabled: bool,
     /// The owner's working directory, needed only by `execute_open`.
     pub work_dir: std::path::PathBuf,
