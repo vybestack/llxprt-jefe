@@ -310,8 +310,15 @@ impl Workspace {
     /// against the first-observation record.
     fn verify_ancestor(&mut self, prefix: &str) -> Result<(), HarnessError> {
         let absolute = self.root.join(prefix);
-        let handle = open_dir_nofollow(&absolute)
-            .map_err(|err| HarnessError::containment(format!("ancestor '{prefix}': {err}")))?;
+        let handle = open_dir_nofollow(&absolute).map_err(|err| {
+            if err.code == super::error::HarCode::E005
+                && std::fs::symlink_metadata(&absolute).is_ok_and(|metadata| metadata.is_symlink())
+            {
+                HarnessError::containment(format!("ancestor '{prefix}' is a symlink"))
+            } else {
+                err
+            }
+        })?;
         let metadata = handle
             .metadata()
             .map_err(|err| HarnessError::process(format!("stat ancestor '{prefix}': {err}")))?;
@@ -339,10 +346,14 @@ fn open_dir_nofollow(path: &Path) -> Result<File, HarnessError> {
         .custom_flags(O_NOFOLLOW | O_DIRECTORY)
         .open(path)
         .map_err(|err| {
-            HarnessError::containment(format!(
-                "no-follow open of '{}' failed: {err}",
-                path.display()
-            ))
+            if err.raw_os_error() == Some(ELOOP) {
+                HarnessError::containment(format!(
+                    "no-follow open of '{}' failed: {err}",
+                    path.display()
+                ))
+            } else {
+                HarnessError::process(format!("open directory '{}': {err}", path.display()))
+            }
         })
 }
 

@@ -139,6 +139,25 @@ fn symlink_target_write_is_containment_error() {
 }
 
 #[test]
+fn symlink_target_remove_unlinks_only_the_symlink() {
+    let (mut workspace, _cleanup) = create(&empty_spec());
+    let outside = tempfile::tempdir().unwrap_or_else(|err| panic!("tempdir: {err}"));
+    let victim = outside.path().join("victim.txt");
+    std::fs::write(&victim, "safe").unwrap_or_else(|err| panic!("seed victim: {err}"));
+    let link = workspace.root().join("evil");
+    std::os::unix::fs::symlink(&victim, &link).unwrap_or_else(|err| panic!("symlink: {err}"));
+
+    workspace
+        .remove(&rel("evil"))
+        .unwrap_or_else(|err| panic!("removing the symlink should pass: {err}"));
+
+    assert!(!link.exists(), "workspace symlink must be removed");
+    let content =
+        std::fs::read_to_string(&victim).unwrap_or_else(|err| panic!("victim read: {err}"));
+    assert_eq!(content, "safe", "outside victim must be untouched");
+}
+
+#[test]
 fn symlink_ancestor_swap_is_rejected_before_access() {
     let spec = WorkspaceSpec {
         dirs: vec![DirSpec {

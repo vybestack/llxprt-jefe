@@ -24,15 +24,17 @@ pub fn validate(scenario: &ScenarioV1) -> Result<(), HarnessError> {
 
 fn validate_workspace(scenario: &ScenarioV1) -> Result<(), HarnessError> {
     let mut paths = BTreeSet::new();
+    let file_paths: BTreeSet<&str> = scenario
+        .workspace
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
     for dir in &scenario.workspace.dirs {
-        if !paths.insert(dir.path.as_str().to_string()) {
-            return Err(duplicate_path(dir.path.as_str()));
-        }
+        insert_workspace_path(&mut paths, &file_paths, dir.path.as_str())?;
     }
     for file in &scenario.workspace.files {
-        if !paths.insert(file.path.as_str().to_string()) {
-            return Err(duplicate_path(file.path.as_str()));
-        }
+        insert_workspace_path(&mut paths, &file_paths, file.path.as_str())?;
         check_file_size(file.path.as_str(), file.content.bytes().len())?;
     }
     let mut env_names = BTreeSet::new();
@@ -41,6 +43,32 @@ fn validate_workspace(scenario: &ScenarioV1) -> Result<(), HarnessError> {
             return Err(HarnessError::syntax(format!(
                 "scenario.workspace.env: duplicate name '{}'",
                 entry.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn insert_workspace_path(
+    paths: &mut BTreeSet<String>,
+    file_paths: &BTreeSet<&str>,
+    path: &str,
+) -> Result<(), HarnessError> {
+    if !paths.insert(path.to_string()) {
+        return Err(duplicate_path(path));
+    }
+    let mut prefix = String::new();
+    for component in path
+        .split('/')
+        .take(path.split('/').count().saturating_sub(1))
+    {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(component);
+        if file_paths.contains(prefix.as_str()) {
+            return Err(HarnessError::syntax(format!(
+                "scenario.workspace: path '{path}' is nested beneath file '{prefix}'"
             )));
         }
     }

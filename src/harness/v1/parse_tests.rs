@@ -1,6 +1,6 @@
 //! Behavioral tests for schema-1 scenario parsing (issue #380, CW00-01/02/04/10).
 
-use super::super::contract::{FileContent, Modifier, Platform, Step, WaitSource};
+use super::super::contract::{FileContent, Platform, Step, WaitSource};
 use super::super::error::{HarCode, HarnessError};
 use super::parse_scenario_v1;
 
@@ -28,7 +28,7 @@ fn parses_full_scenario_with_every_op() {
             {{"op":"capture","name":"gh","path":"bin/gh","behavior":{{"stdout":"ok","stderr":"","exit_code":0,"stdin_limit":1024,"hang":false,"spawn_child_hang":false}}}},
             {LAUNCH},
             {{"op":"wait","source":"frame","literal":"ready","timeout_ms":5000}},
-            {{"op":"key","key":"F5","modifiers":["control","shift"]}},
+            {{"op":"key","key":"f5","modifiers":[]}},
             {{"op":"text","text":"hello"}},
             {{"op":"resize","size":{{"cols":70,"rows":18}}}},
             {{"op":"assert-frame","contains":["ready"],"absent":["error"]}},
@@ -68,7 +68,7 @@ fn parses_full_scenario_with_every_op() {
     let Step::Key { modifiers, .. } = &scenario.steps[5] else {
         panic!("expected key step");
     };
-    assert_eq!(modifiers, &[Modifier::Control, Modifier::Shift]);
+    assert!(modifiers.is_empty());
     let Step::Wait { source, .. } = &scenario.steps[4] else {
         panic!("expected wait step");
     };
@@ -237,16 +237,48 @@ fn steps_must_be_non_empty_and_bounded() {
     let mut steps: Vec<String> = vec![LAUNCH.to_string()];
     steps.extend(std::iter::repeat_n(
         r#"{"op":"text","text":"x"}"#.to_string(),
-        1024,
+        1023,
     ));
-    let doc = minimal_with_steps(&format!("[{}]", steps.join(",")));
-    let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
+    let at_limit = minimal_with_steps(&format!("[{}]", steps.join(",")));
+    parse(&at_limit).unwrap_or_else(|err| panic!("1024 steps should parse: {err}"));
+    steps.push(r#"{"op":"text","text":"x"}"#.to_string());
+    let over_limit = minimal_with_steps(&format!("[{}]", steps.join(",")));
+    let err = parse(&over_limit)
+        .err()
+        .unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E002);
 }
 
 #[test]
+fn key_steps_are_validated_before_execution() {
+    for key_step in [
+        r#"{"op":"key","key":"f13","modifiers":[]}"#,
+        r#"{"op":"key","key":"enter","modifiers":["control"]}"#,
+    ] {
+        let doc = minimal_with_steps(&format!("[{LAUNCH},{key_step}]"));
+        let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
+        assert_eq!(err.code, HarCode::E001);
+    }
+}
+
+#[test]
+fn configured_file_cannot_be_a_fixture_ancestor() {
+    for nested in [
+        r#""dirs":[{"path":"a/b","mode":448}],"files":[{"path":"a","content":{"utf8":"x"},"mode":420}]"#,
+        r#""dirs":[],"files":[{"path":"a","content":{"utf8":"x"},"mode":420},{"path":"a/b","content":{"utf8":"y"},"mode":420}]"#,
+    ] {
+        let collision =
+            minimal_with_steps(&format!("[{LAUNCH}]")).replace(r#""dirs":[],"files":[]"#, nested);
+        let err = parse(&collision)
+            .err()
+            .unwrap_or_else(|| panic!("nested file path must fail"));
+        assert_eq!(err.code, HarCode::E001);
+    }
+}
+
+#[test]
 fn semantic_rules_enforced() {
-    // Terminal op before launch.
+    // Terminal op without any launch.
     let doc = minimal_with_steps(r#"[{"op":"text","text":"x"},{"op":"finish"}]"#);
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E001);

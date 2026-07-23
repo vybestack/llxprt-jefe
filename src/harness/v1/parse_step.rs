@@ -11,6 +11,7 @@ use super::error::HarnessError;
 use super::fields::{ObjectReader, as_array, as_bool, as_int_in, as_str, bounded_len};
 use super::interp;
 use super::json::JsonValue;
+use super::keys;
 use super::limits::{MAX_ARGV, MAX_BYTES, MAX_MODIFIERS, TIMEOUT_MS_RANGE};
 use super::parse::{parse_content, parse_dir, parse_env_list, parse_file, parse_size};
 use super::validate::{validate_id, validate_rel_path};
@@ -162,6 +163,7 @@ fn parse_key(context: &str, reader: &mut ObjectReader<'_>) -> Result<Step, Harne
         }
         modifiers.push(modifier);
     }
+    keys::encode(&format!("{context}.key"), key, &modifiers)?;
     Ok(Step::Key {
         key: key.to_string(),
         modifiers,
@@ -313,21 +315,7 @@ fn parse_string_list(context: &str, value: &JsonValue) -> Result<Vec<String>, Ha
 }
 
 fn parse_byte_pairs(context: &str, value: &JsonValue) -> Result<Vec<EnvVar>, HarnessError> {
-    let entries = as_array(context, value)?;
-    let mut out = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.iter().enumerate() {
-        let entry_context = format!("{context}[{index}]");
-        let mut reader = ObjectReader::new(&entry_context, entry)?;
-        let name = as_str(&format!("{entry_context}.name"), reader.require("name")?)?.to_string();
-        let value_text =
-            as_str(&format!("{entry_context}.value"), reader.require("value")?)?.to_string();
-        reader.finish()?;
-        out.push(EnvVar {
-            name,
-            value: value_text,
-        });
-    }
-    Ok(out)
+    parse_env_list(context, value)
 }
 
 fn opt_string(
