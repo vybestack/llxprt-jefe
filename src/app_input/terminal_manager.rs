@@ -261,7 +261,7 @@ fn select_pending_runtime_shell(
     let inputs = {
         let guard = ctx.lock().map_err(|_| {
             jefe::runtime::RuntimeError::CapabilityProbeFailed(
-                "runtime context lock unavailable".to_owned(),
+                "runtime context lock unavailable while capturing shell inputs".to_owned(),
             )
         })?;
         if guard.runtime.attached_agent() != Some(owner) {
@@ -277,13 +277,13 @@ fn select_pending_runtime_shell(
     inputs.execute_select()?;
     let guard = ctx.lock().map_err(|_| {
         jefe::runtime::RuntimeError::CapabilityProbeFailed(
-            "runtime context lock unavailable".to_owned(),
+            "runtime context lock unavailable while revalidating shell owner".to_owned(),
         )
     })?;
     if guard.runtime.attached_agent() == Some(owner)
         && guard.runtime.shell_window_owner_matches(&inputs)
     {
-        Ok(SelectOutcome::Selected)
+        Ok(SelectOutcome::Selected(inputs.session_name))
     } else {
         Ok(SelectOutcome::Stale(inputs.session_name))
     }
@@ -293,11 +293,18 @@ fn select_pending_runtime_shell(
 enum SelectOutcome {
     /// Pending focus no longer matches — nothing to confirm.
     PendingGone,
-    /// Select succeeded and the owner is still attached — confirm focus.
-    Selected,
+    /// Select succeeded and the owner is still attached. Carries the
+    /// snapshotted session for compensation if confirmation later goes stale.
+    Selected(String),
     /// Select succeeded but the attached owner changed while off-lock. Carries
     /// the snapshotted session so compensation targets the selected shell.
     Stale(String),
+}
+
+fn compensate_stale_selection(session_name: &str, phase: &'static str) {
+    if let Err(error) = jefe::runtime::hide_shell_window(session_name) {
+        warn!(session_name, error = %error, phase, "manager: stale selection compensation failed");
+    }
 }
 
 /// Complete a pending manager focus only after the expected owner is attached
@@ -337,18 +344,18 @@ pub async fn complete_pending_shell_focus(
             return;
         }
     };
-    match outcome {
+    let selected_session_name = match outcome {
         SelectOutcome::PendingGone => return,
         SelectOutcome::Stale(session_name) => {
             warn!(
                 agent_id = %attached_agent_id.0,
                 "manager: attached owner changed during focus select; discarding"
             );
-            let _ = jefe::runtime::hide_shell_window(&session_name);
+            compensate_stale_selection(&session_name, "owner revalidation");
             return;
         }
-        SelectOutcome::Selected => {}
-    }
+        SelectOutcome::Selected(session_name) => session_name,
+    };
     let current = app_state.read().terminal_manager.pending_focus.clone();
     if !matches!(
         current.as_ref(),
@@ -356,8 +363,7 @@ pub async fn complete_pending_shell_focus(
             if value.agent_id == attached_agent_id
                 && value.generation == pending.generation
     ) {
-        let session_name = RuntimeSession::session_name_for(&attached_agent_id);
-        let _ = jefe::runtime::hide_shell_window(&session_name);
+        compensate_stale_selection(&selected_session_name, "pending focus changed");
         return;
     }
     dispatch_app_event(

@@ -124,8 +124,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // hidden shells against the multiplexer off the input/render path.
     hooks.use_future({
         let app_state = app_state;
-        let ctx = ctx.clone();
-        async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state, ctx).await }
+        async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state).await }
     });
     hooks.use_future({
         let app_state = app_state;
@@ -205,26 +204,19 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             .map(|(identity, lines)| (identity.agent_id, lines))
                             .collect();
                     let mut state = app_state.write();
-                    let current_bindings: std::collections::HashMap<_, _> = state
-                        .agents
-                        .iter()
-                        .map(|agent| {
-                            let identity = agent.runtime_binding.as_ref().map_or((None, 0), |binding| {
-                                (
-                                    Some(binding.session_name.clone()),
-                                    binding.lifecycle_generation,
-                                )
-                            });
-                            (agent.id.clone(), identity)
-                        })
-                        .collect();
                     let mut changed = false;
                     for identity in &dead_identities {
-                        let binding_matches = current_bindings
-                            .get(&identity.agent_id)
-                            .is_some_and(|(session_name, lifecycle_generation)| {
-                                session_name.as_deref() == identity.binding_session_name.as_deref()
-                                    && *lifecycle_generation == identity.lifecycle_generation
+                        let binding_matches = state
+                            .agents
+                            .iter()
+                            .find(|agent| agent.id == identity.agent_id)
+                            .is_some_and(|agent| {
+                                agent.runtime_binding.as_ref().is_some_and(|binding| {
+                                    Some(binding.session_name.as_str())
+                                        == identity.binding_session_name.as_deref()
+                                        && binding.lifecycle_generation
+                                            == identity.lifecycle_generation
+                                })
                             });
                         if !binding_matches {
                             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
@@ -913,9 +905,9 @@ pub fn wants_live_snapshot_pub(status: AgentStatus) -> bool {
 
 /// Capture terminal output for the currently selected agent if available.
 ///
-/// Dead agents read their preview from the runtime-only `dead_preview` cache
-/// populated once by the off-lock liveness worker (issue #374 S4), so the
-/// render path never shells out to tmux per-frame for crash text.
+/// Dead agents read their preview from an in-memory cache within `AppState`,
+/// populated once by the off-lock liveness worker (issue #374 S4) and excluded
+/// from persistence, so rendering never shells out to tmux per frame.
 pub fn capture_terminal_snapshot(
     ctx: Option<&CtxArc>,
     snapshot: &AppState,

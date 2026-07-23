@@ -32,6 +32,9 @@ pub fn is_pty_dirty(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> bool {
 
 /// Capture frozen pane previews for newly dead local agents without holding
 /// `AppContext` (issue #374).
+///
+/// Runtime sessions dedicate window 0 to the owning agent; embedded shells use
+/// the separately named `jefe-shell` window, so dead-agent capture targets `:0`.
 pub async fn capture_dead_previews(
     targets: Vec<LivenessIdentity>,
 ) -> Vec<(LivenessIdentity, Vec<String>)> {

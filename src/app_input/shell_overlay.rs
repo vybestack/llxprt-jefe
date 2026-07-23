@@ -102,7 +102,7 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
 ///
 /// Probe failures (`Err`) retain entries and retry — a transient error never
 /// removes inventory or marks an agent Dead (issue #361 invariant).
-pub async fn observe_shell_inventory(mut app_state: AppStateHandle, _ctx: SharedContext) {
+pub async fn observe_shell_inventory(mut app_state: AppStateHandle) {
     loop {
         // Slow cadence (~2s) so the multiplexer is not hammered and the
         // executor stays free for input/render (issue #361 invariant).
@@ -305,10 +305,10 @@ fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             }
             Ok(false) => {
                 warn!(agent_id = %agent_id.0, "open shell: attached owner changed while off-lock; discarding");
-                let _ = jefe::runtime::hide_shell_window(&inputs.session_name);
+                compensate_open_shell(&inputs.session_name, "stale-result compensation failed");
             }
             Err(error) => {
-                let _ = jefe::runtime::hide_shell_window(&inputs.session_name);
+                compensate_open_shell(&inputs.session_name, "revalidation compensation failed");
                 warn!(error = %error, "open shell: unable to revalidate owner");
                 set_warning(app_state, &error.to_string());
             }
@@ -347,6 +347,12 @@ fn open_external_terminal(app_state: &mut AppStateHandle, _ctx: &SharedContext) 
         Err(ExternalTerminalError::SpawnFailed(msg)) => {
             set_warning(app_state, &msg);
         }
+    }
+}
+
+fn compensate_open_shell(session_name: &str, phase: &'static str) {
+    if let Err(error) = jefe::runtime::hide_shell_window(session_name) {
+        warn!(session_name, error = %error, phase, "open shell: compensation failed");
     }
 }
 
