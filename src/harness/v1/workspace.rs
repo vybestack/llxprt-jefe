@@ -154,9 +154,7 @@ impl Workspace {
         let metadata = handle
             .metadata()
             .map_err(|err| HarnessError::process(format!("stat '{}': {err}", dir.path.as_str())))?;
-        self.identities
-            .insert(dir.path.as_str().to_string(), Identity::of(&metadata));
-        Ok(())
+        self.remember_identity(&dir.path, Identity::of(&metadata))
     }
 
     /// Apply a `write` operation: create or replace the file with the
@@ -261,6 +259,23 @@ impl Workspace {
             ));
         }
         Ok(())
+    }
+    fn remember_identity(
+        &mut self,
+        path: &RelPath,
+        identity: Identity,
+    ) -> Result<(), HarnessError> {
+        match self.identities.get(path.as_str()) {
+            Some(recorded) if *recorded != identity => Err(HarnessError::containment(format!(
+                "directory '{}' physical identity changed",
+                path.as_str()
+            ))),
+            Some(_) => Ok(()),
+            None => {
+                self.identities.insert(path.as_str().to_string(), identity);
+                Ok(())
+            }
+        }
     }
 
     /// Open one ancestor with a no-follow handle and verify its identity

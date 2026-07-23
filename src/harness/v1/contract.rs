@@ -114,6 +114,7 @@ impl RelPath {
         Self(value)
     }
 
+    #[cfg(unix)]
     pub(super) fn derived(value: String) -> Self {
         Self(value)
     }
