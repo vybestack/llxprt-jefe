@@ -13,8 +13,11 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+#[cfg(unix)]
 use jefe::harness::v1::contract::Platform;
+#[cfg(unix)]
 use jefe::harness::v1::parse_scenario_v1;
+#[cfg(unix)]
 use jefe::harness::v1::redact::Redactor;
 #[cfg(unix)]
 use jefe::harness::v1::run;
@@ -114,6 +117,7 @@ fn default_shim_path() -> Result<PathBuf, String> {
     Ok(dir.join("jefe-capture-shim"))
 }
 
+#[cfg(unix)]
 fn execute(config: &CliConfig) -> ExitCode {
     let bytes = match std::fs::read(&config.scenario) {
         Ok(bytes) => bytes,
