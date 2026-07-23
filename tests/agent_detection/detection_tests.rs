@@ -94,8 +94,7 @@ fn detect_requires_executable_permission() {
     ));
     std::fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("create temp dir: {error}"));
     let path = dir.join("llxprt");
-    std::fs::write(&path, b"#!/bin/sh\n")
-        .unwrap_or_else(|error| panic!("write binary: {error}"));
+    std::fs::write(&path, b"#!/bin/sh\n").unwrap_or_else(|error| panic!("write binary: {error}"));
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
         .unwrap_or_else(|error| panic!("set non-executable permissions: {error}"));
 

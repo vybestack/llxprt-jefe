@@ -28,23 +28,18 @@ use super::{AppStateHandle, SharedContext, dispatch_app_event};
 /// lock. Clears the shell inventory afterward so the cleanup is observable.
 /// Failures are logged by the runtime boundary and also returned for any
 /// caller that wants to surface them.
-pub fn shutdown_all_shells(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-) -> Vec<jefe::runtime::RuntimeError> {
+pub fn shutdown_all_shells(app_state: &mut AppStateHandle) -> Vec<jefe::runtime::RuntimeError> {
     // Snapshot every shell owner (visible + hidden) so the visible shell is
     // closed exactly once here and not separately by cleanup_active_shell.
     let owners = app_state.read().shell_window_owners();
     if owners.is_empty() {
         return Vec::new();
     }
-    let Some(ctx_arc) = ctx.as_ref() else {
-        return Vec::new();
-    };
-    let failures = if let Ok(mut guard) = ctx_arc.lock() {
-        guard.runtime.close_all_shell_windows()
-    } else {
-        Vec::new()
+    // Observe + close run without an AppContext guard (issue #374). These are
+    // stateless multiplexer operations that need no manager in-memory state.
+    let failures = match jefe::runtime::observe_shell_window_sessions() {
+        Ok(session_names) => jefe::runtime::close_all_shell_windows(&session_names),
+        Err(error) => vec![error],
     };
     // Clear the runtime inventory so the cleanup is observable. The visible
     // overlay is also gone after this process exits, so clearing is safe.
@@ -69,17 +64,10 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
         let Some((agent_id, generation)) = observed else {
             continue;
         };
-        let Some(ctx_arc) = ctx.clone() else {
-            continue;
-        };
-        let queried_agent = agent_id.clone();
-        let result = smol::unblock(move || {
-            let guard = ctx_arc.lock().map_err(|_| {
-                RuntimeError::CapabilityProbeFailed("runtime context lock unavailable".to_owned())
-            })?;
-            guard.runtime.shell_window_exists(&queried_agent)
-        })
-        .await;
+        // Snapshot the session name under a short lock, then release it so the
+        // multiplexer subprocess runs without an AppContext guard (issue #374).
+        let session_name = RuntimeSession::session_name_for(&agent_id);
+        let result = smol::unblock(move || jefe::runtime::shell_window_exists(&session_name)).await;
         match result {
             Ok(false) => {
                 let mut state = app_state.write();
@@ -90,7 +78,7 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
                 }
                 *state = std::mem::take(&mut *state).apply(AppEvent::CloseShellOverlay);
                 drop(state);
-                resize_for_active_layout(&ctx, false);
+                resize_for_active_layout(&app_state, &ctx);
             }
             Ok(true) => {}
             Err(error) => set_warning(&mut app_state, &error.to_string()),
@@ -110,7 +98,7 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
 ///
 /// Probe failures (`Err`) retain entries and retry — a transient error never
 /// removes inventory or marks an agent Dead (issue #361 invariant).
-pub async fn observe_shell_inventory(mut app_state: AppStateHandle, ctx: SharedContext) {
+pub async fn observe_shell_inventory(mut app_state: AppStateHandle) {
     loop {
         // Slow cadence (~2s) so the multiplexer is not hammered and the
         // executor stays free for input/render (issue #361 invariant).
@@ -129,16 +117,10 @@ pub async fn observe_shell_inventory(mut app_state: AppStateHandle, ctx: SharedC
         if candidates.is_empty() {
             continue;
         }
-        let Some(ctx_arc) = ctx.clone() else {
-            continue;
-        };
-        // Offload the batched multiplexer query to a background OS thread so
-        // the smol executor can keep processing input/render (issue #361).
-        let observed = smol::unblock(move || -> Result<Vec<String>, RuntimeError> {
-            let guard = ctx_arc.lock().map_err(|_| {
-                RuntimeError::CapabilityProbeFailed("runtime context lock unavailable".to_owned())
-            })?;
-            guard.runtime.observe_shell_window_sessions()
+        // The batched multiplexer query runs without an AppContext guard
+        // (issue #374): it is a stateless observe that needs no manager state.
+        let observed = smol::unblock(|| -> Result<Vec<String>, RuntimeError> {
+            jefe::runtime::observe_shell_window_sessions()
         })
         .await;
         match observed {
@@ -167,18 +149,21 @@ pub async fn observe_shell_inventory(mut app_state: AppStateHandle, ctx: SharedC
     }
 }
 
-pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, overlay_active: bool) {
+pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::state::AppState) {
     let Some(ctx_arc) = ctx else {
         return;
     };
     let Ok(mut guard) = ctx_arc.lock() else {
         return;
     };
-    let layout = if overlay_active {
-        jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
-    } else {
-        jefe::layout::compute_pty_layout(cols, rows)
-    };
+    let layout =
+        if state.shell_overlay_active() && state.screen_mode == ScreenMode::DashboardTerminals {
+            jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
+        } else if state.shell_overlay_active() {
+            jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
+        } else {
+            jefe::layout::compute_pty_layout(cols, rows)
+        };
     if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
         warn!(error = %error, "failed to resize shell terminal");
     }
@@ -267,38 +252,63 @@ pub fn handle_shell_shortcut_key(
 /// runtime `open_shell_window` is create-or-select so it never duplicates,
 /// and the inventory records the owner after success.
 fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let resumable = {
+        let state = app_state.read();
+        state
+            .selected_repository()
+            .and_then(|repository| jefe::state::resolve_repository_shell(&state, &repository.id))
+    };
+    if let Some(agent_id) = resumable {
+        let repository_id = app_state
+            .read()
+            .repository_for_agent(&agent_id)
+            .map(|repository| repository.id.clone());
+        let Some(repository_id) = repository_id else {
+            set_warning(app_state, "Shell owner repository is unavailable.");
+            return;
+        };
+        super::terminal_manager::select_agent_for_focus(app_state, ctx, &repository_id, &agent_id);
+        dispatch_app_event(
+            app_state,
+            ctx,
+            AppEvent::RequestShellFocus {
+                agent_id,
+                origin: jefe::state::ShellFocusOrigin::DashboardF10,
+            },
+        );
+        return;
+    }
+
     let snapshot = read_dashboard_agent(app_state);
     let Some((agent_id, _work_dir)) = snapshot else {
         warn_no_selection(app_state, "open an embedded shell");
         return;
     };
-
-    // Idempotency: if the overlay is already active for this agent, no-op.
-    let (already_active, was_hidden) = {
-        let state = app_state.read();
-        (
-            state.shell_overlay_agent_id() == Some(&agent_id),
-            state.has_shell_window(&agent_id),
-        )
-    };
-    if already_active {
+    if app_state.read().shell_overlay_agent_id() == Some(&agent_id) {
         return;
     }
 
-    // Call the runtime to open/resume the shell window before transitioning
-    // state. open_shell_window is create-or-select: it selects an existing
-    // jefe-shell window if present, otherwise creates one.
-    let result = open_runtime_shell_window(ctx, &agent_id);
-    match result {
-        Ok(()) => {
-            let event = if was_hidden {
-                AppEvent::ResumeShellOverlay(agent_id)
-            } else {
-                AppEvent::OpenShellOverlay
-            };
-            dispatch_app_event(app_state, ctx, event);
-            resize_for_active_layout(ctx, true);
-        }
+    // The open subprocess runs off-lock (issue #374 S2). Snapshot real
+    // session_name/work_dir/remote from the manager under a short lock,
+    // verify the owner is attached, release the lock, run the subprocess,
+    // then reacquire AppContext and revalidate the attached owner before
+    // dispatching the success transition.
+    match open_runtime_shell_window(ctx, &agent_id) {
+        Ok(inputs) => match owner_still_attached(ctx, &inputs) {
+            Ok(true) => {
+                dispatch_app_event(app_state, ctx, AppEvent::OpenShellOverlay);
+                resize_for_active_layout(app_state, ctx);
+            }
+            Ok(false) => {
+                warn!(agent_id = %agent_id.0, "open shell: attached owner changed while off-lock; discarding");
+                compensate_open_shell(&inputs.session_name, "stale-result compensation failed");
+            }
+            Err(error) => {
+                compensate_open_shell(&inputs.session_name, "revalidation compensation failed");
+                warn!(error = %error, "open shell: unable to revalidate owner");
+                set_warning(app_state, &error.to_string());
+            }
+        },
         Err(error) => {
             warn!(error = %error, "failed to open shell window");
             set_warning(app_state, &error.to_string());
@@ -336,18 +346,36 @@ fn open_external_terminal(app_state: &mut AppStateHandle, _ctx: &SharedContext) 
     }
 }
 
+fn compensate_open_shell(session_name: &str, phase: &'static str) {
+    if let Err(error) = jefe::runtime::hide_shell_window(session_name) {
+        warn!(session_name, error = %error, phase, "open shell: compensation failed");
+    }
+}
+
 /// Close the shell overlay, kill the temporary window, and restore the dashboard.
+///
+/// The close subprocess runs off-lock (issue #374 S2). The decision seam
+/// revalidates the visible owner/generation after the subprocess: a stale
+/// result is discarded (the overlay was already closed/changed) and a
+/// matching result applies the transition. Failure ordering is preserved.
 fn close_overlay_and_restore(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &jefe::domain::AgentId,
 ) {
-    let result = close_runtime_shell_window(ctx, agent_id);
-    match result {
-        Ok(()) => {
-            dispatch_app_event(app_state, ctx, AppEvent::CloseShellOverlay);
-            resize_for_active_layout(ctx, false);
-        }
+    let overlay_generation = app_state.read().shell_overlay.generation;
+    match close_runtime_shell_window(ctx, agent_id) {
+        Ok(inputs) => match owner_still_attached(ctx, &inputs) {
+            Ok(true) if overlay_still_matches(app_state, agent_id, overlay_generation) => {
+                dispatch_app_event(app_state, ctx, AppEvent::CloseShellOverlay);
+                resize_for_active_layout(app_state, ctx);
+            }
+            Ok(_) => warn!(agent_id = %agent_id.0, "close shell: stale completion discarded"),
+            Err(error) => {
+                warn!(error = %error, "close shell: unable to revalidate owner");
+                set_warning(app_state, &error.to_string());
+            }
+        },
         Err(error) => {
             warn!(error = %error, "failed to close shell window");
             set_warning(app_state, &error.to_string());
@@ -356,19 +384,27 @@ fn close_overlay_and_restore(
 }
 
 /// Hide the shell overlay by selecting window 0, leaving the shell alive
-/// (issue #361 PR A). Runtime side effect (select-window 0) runs before the
-/// state transition; on failure the overlay stays visible and warns.
+/// (issue #361 PR A). Runtime side effect (select-window 0) runs off-lock
+/// before the state transition (issue #374 S2); on failure the overlay stays
+/// visible and warns.
 fn hide_overlay_and_restore(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &jefe::domain::AgentId,
 ) {
-    let result = hide_runtime_shell_window(ctx, agent_id);
-    match result {
-        Ok(()) => {
-            dispatch_app_event(app_state, ctx, AppEvent::HideShellOverlay);
-            resize_for_active_layout(ctx, false);
-        }
+    let overlay_generation = app_state.read().shell_overlay.generation;
+    match hide_runtime_shell_window(ctx, agent_id) {
+        Ok(inputs) => match owner_still_attached(ctx, &inputs) {
+            Ok(true) if overlay_still_matches(app_state, agent_id, overlay_generation) => {
+                dispatch_app_event(app_state, ctx, AppEvent::HideShellOverlay);
+                resize_for_active_layout(app_state, ctx);
+            }
+            Ok(_) => warn!(agent_id = %agent_id.0, "hide shell: stale completion discarded"),
+            Err(error) => {
+                warn!(error = %error, "hide shell: unable to revalidate owner");
+                set_warning(app_state, &error.to_string());
+            }
+        },
         Err(error) => {
             warn!(error = %error, "failed to hide shell window");
             set_warning(app_state, &error.to_string());
@@ -382,6 +418,16 @@ fn read_dashboard_agent(
     app_state: &AppStateHandle,
 ) -> Option<(jefe::domain::AgentId, std::path::PathBuf)> {
     read_local_agent(app_state, true)
+}
+
+fn overlay_still_matches(
+    app_state: &AppStateHandle,
+    agent_id: &jefe::domain::AgentId,
+    generation: u64,
+) -> bool {
+    let state = app_state.read();
+    state.shell_overlay.agent_id.as_ref() == Some(agent_id)
+        && state.shell_overlay.generation == generation
 }
 
 fn read_local_agent(
@@ -405,65 +451,96 @@ fn read_local_agent(
     Some(selected)
 }
 
+/// Snapshot the owner's shell-window inputs under a short lock, verify the
+/// owner is attached, release the lock, then run the open subprocess without
+/// an AppContext guard (issue #374 S2). Returns the snapshot inputs alongside
+/// the subprocess result so the caller can revalidate ownership afterwards.
 fn open_runtime_shell_window(
     ctx: &SharedContext,
     agent_id: &jefe::domain::AgentId,
-) -> Result<(), RuntimeError> {
+) -> Result<jefe::runtime::ShellWindowInputs, RuntimeError> {
     let Some(ctx_arc) = ctx.as_ref() else {
         return Err(RuntimeError::SpawnFailed(
             "runtime context unavailable".into(),
         ));
     };
-    let Ok(mut guard) = ctx_arc.lock() else {
-        return Err(RuntimeError::SpawnFailed(
-            "runtime context lock unavailable".into(),
-        ));
+    let inputs = {
+        let guard = ctx_arc
+            .lock()
+            .map_err(|_| RuntimeError::SpawnFailed("runtime context lock unavailable".into()))?;
+        if guard.runtime.attached_agent() != Some(agent_id) {
+            return Err(RuntimeError::SpawnFailed(
+                "wait for the selected agent terminal to attach before opening its shell".into(),
+            ));
+        }
+        guard
+            .runtime
+            .shell_window_inputs(agent_id)
+            .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?
     };
-    if guard.runtime.attached_agent() != Some(agent_id) {
-        return Err(RuntimeError::SpawnFailed(
-            "wait for the selected agent terminal to attach before opening its shell".into(),
-        ));
-    }
-    guard.runtime.open_shell_window(agent_id)
+    inputs.execute_open()?;
+    Ok(inputs)
 }
 
+/// Reacquire AppContext and validate that the attached owner still matches
+/// the snapshot inputs (issue #374 S2 stale-owner guard for open/select).
+/// Returns `false` on lock failure or owner mismatch.
+fn owner_still_attached(
+    ctx: &SharedContext,
+    inputs: &jefe::runtime::ShellWindowInputs,
+) -> Result<bool, RuntimeError> {
+    let ctx_arc = ctx
+        .as_ref()
+        .ok_or_else(|| RuntimeError::SpawnFailed("runtime context unavailable".into()))?;
+    let guard = ctx_arc
+        .lock()
+        .map_err(|_| RuntimeError::SpawnFailed("runtime context lock unavailable".into()))?;
+    Ok(guard.runtime.attached_agent() == Some(&inputs.owner)
+        && guard.runtime.shell_window_owner_matches(inputs))
+}
+
+/// Snapshot the owner's session name under a short lock, release, then run
+/// the close subprocess without an AppContext guard (issue #374 S2).
 fn close_runtime_shell_window(
     ctx: &SharedContext,
     agent_id: &jefe::domain::AgentId,
-) -> Result<(), RuntimeError> {
-    let Some(ctx_arc) = ctx.as_ref() else {
-        return Err(RuntimeError::SpawnFailed(
-            "runtime context unavailable".into(),
-        ));
-    };
-    let Ok(mut guard) = ctx_arc.lock() else {
-        return Err(RuntimeError::SpawnFailed(
-            "runtime context lock unavailable".into(),
-        ));
-    };
-    guard.runtime.close_shell_window(agent_id)
+) -> Result<jefe::runtime::ShellWindowInputs, RuntimeError> {
+    let ctx_arc = ctx
+        .as_ref()
+        .ok_or_else(|| RuntimeError::SpawnFailed("runtime context unavailable".into()))?;
+    let inputs = ctx_arc
+        .lock()
+        .map_err(|_| RuntimeError::SpawnFailed("runtime context lock unavailable".into()))?
+        .runtime
+        .shell_window_inputs(agent_id)
+        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+    inputs.execute_close()?;
+    Ok(inputs)
 }
 
+/// Snapshot the owner's session name, release, then run the hide subprocess
+/// (select window 0) without an AppContext guard (issue #374 S2).
 fn hide_runtime_shell_window(
     ctx: &SharedContext,
     agent_id: &jefe::domain::AgentId,
-) -> Result<(), RuntimeError> {
-    let Some(ctx_arc) = ctx.as_ref() else {
-        return Err(RuntimeError::SpawnFailed(
-            "runtime context unavailable".into(),
-        ));
-    };
-    let Ok(mut guard) = ctx_arc.lock() else {
-        return Err(RuntimeError::SpawnFailed(
-            "runtime context lock unavailable".into(),
-        ));
-    };
-    guard.runtime.hide_shell_window(agent_id)
+) -> Result<jefe::runtime::ShellWindowInputs, RuntimeError> {
+    let ctx_arc = ctx
+        .as_ref()
+        .ok_or_else(|| RuntimeError::SpawnFailed("runtime context unavailable".into()))?;
+    let inputs = ctx_arc
+        .lock()
+        .map_err(|_| RuntimeError::SpawnFailed("runtime context lock unavailable".into()))?
+        .runtime
+        .shell_window_inputs(agent_id)
+        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+    inputs.execute_hide()?;
+    Ok(inputs)
 }
 
-fn resize_for_active_layout(ctx: &SharedContext, overlay_active: bool) {
+pub(super) fn resize_for_active_layout(app_state: &AppStateHandle, ctx: &SharedContext) {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    resize_terminal(ctx, cols, rows, overlay_active);
+    let state = app_state.read();
+    resize_terminal(ctx, cols, rows, &state);
 }
 
 fn warn_no_selection(app_state: &mut AppStateHandle, action: &str) {

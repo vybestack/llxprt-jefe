@@ -10,7 +10,7 @@ use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
     AgentFormFocus, AppEvent, AppState, AuthDialogPhase, ConfirmFocus, ModalState, PaneFocus,
-    RepositoryFormFocus,
+    RepositoryFormFocus, ScreenMode,
 };
 use jefe::theme::ThemeManager;
 
@@ -291,6 +291,29 @@ pub fn handle_mode_form_key(
     }
 
     true
+}
+
+pub(super) fn handle_theme_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> super::normal::KeyHandling {
+    if key_event.code != KeyCode::F(9) || screen_mode != ScreenMode::Dashboard {
+        return super::normal::KeyHandling::Unhandled;
+    }
+    let event = if let Some(ctx_arc) = ctx
+        && let Ok(ctx_guard) = ctx_arc.lock()
+    {
+        AppEvent::OpenThemePicker {
+            available_themes: ctx_guard.theme_manager.themes_with_names(),
+            active_slug: ctx_guard.theme_manager.active_theme().slug.clone(),
+        }
+    } else {
+        return super::normal::KeyHandling::Unhandled;
+    };
+    apply_and_persist(app_state, ctx, event);
+    super::normal::KeyHandling::Handled(None)
 }
 
 /// Handle keys while the theme picker modal is open.

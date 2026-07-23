@@ -27,43 +27,16 @@ const LOCAL_TMUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 /// `check_session_alive` reports false while `pid_alive` reports true — letting
 /// jefe recognize the worker is recoverable rather than marking the agent Dead.
 ///
-/// Uses `kill -0` on Unix and the native process-identity probe on Windows.
+/// Uses the typed process observation service on every platform. Only a
+/// confirmed exit returns false; inaccessible and failed probes fail open.
 /// Local-only: remote agents stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
-    pid_alive_on_platform(pid)
-}
-
-#[cfg(unix)]
-fn pid_alive_on_platform(pid: u32) -> bool {
-    match std::process::Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .output()
-    {
-        Ok(output) => output.status.success(),
-        Err(e) => {
-            // Fail-open: this is a recovery safety net whose whole purpose is
-            // to avoid marking live workers Dead. If we can't even run `kill`,
-            // assume the worker is still alive rather than risk losing it.
-            tracing::warn!(error = %e, pid, "failed to spawn kill -0; assuming worker alive");
-            true
-        }
+    let liveness = super::process::pid_liveness(pid);
+    if liveness == super::process::ProcessLiveness::ProbeFailure {
+        tracing::warn!(pid, "PID liveness probe failed; assuming worker alive");
     }
-}
-
-#[cfg(windows)]
-fn pid_alive_on_platform(pid: u32) -> bool {
-    super::process::capture_process_identity(pid).is_ok()
-}
-
-#[cfg(not(any(unix, windows)))]
-fn pid_alive_on_platform(pid: u32) -> bool {
-    tracing::warn!(
-        pid,
-        "PID liveness is unsupported on this platform; assuming worker alive"
-    );
-    true
+    super::process::process_liveness_indicates_alive(liveness)
 }
 
 /// Result of probing one persistent multiplexer session.

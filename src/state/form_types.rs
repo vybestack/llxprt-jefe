@@ -212,9 +212,7 @@ impl RepositoryFormFocus {
             Self::DefaultCodePuppyYolo => Self::DefaultCodePuppyVersion,
             Self::DefaultCodePuppyVersion => Self::DefaultLlxprtMode,
             Self::DefaultLlxprtMode => Self::DefaultLlxprtVersion,
-            Self::DefaultLlxprtVersion => Self::TransientAgentDir,
-            Self::TransientAgentDir => Self::TransientMaxConcurrent,
-            Self::TransientMaxConcurrent => Self::GitHubRepo,
+            Self::DefaultLlxprtVersion => Self::GitHubRepo,
             Self::GitHubRepo => Self::IssuePrRepo,
             Self::IssuePrRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
@@ -224,7 +222,9 @@ impl RepositoryFormFocus {
             Self::IdentityFile => Self::SshOptions,
             Self::SshOptions => Self::RunAsUser,
             Self::RunAsUser => Self::SetupEnvDefault,
-            Self::SetupEnvDefault => Self::Name,
+            Self::SetupEnvDefault => Self::TransientAgentDir,
+            Self::TransientAgentDir => Self::TransientMaxConcurrent,
+            Self::TransientMaxConcurrent => Self::Name,
         }
     }
 
@@ -232,7 +232,7 @@ impl RepositoryFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::SetupEnvDefault,
+            Self::Name => Self::TransientMaxConcurrent,
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
@@ -241,9 +241,7 @@ impl RepositoryFormFocus {
             Self::DefaultCodePuppyVersion => Self::DefaultCodePuppyYolo,
             Self::DefaultLlxprtMode => Self::DefaultCodePuppyVersion,
             Self::DefaultLlxprtVersion => Self::DefaultLlxprtMode,
-            Self::TransientAgentDir => Self::DefaultLlxprtVersion,
-            Self::TransientMaxConcurrent => Self::TransientAgentDir,
-            Self::GitHubRepo => Self::TransientMaxConcurrent,
+            Self::GitHubRepo => Self::DefaultLlxprtVersion,
             Self::IssuePrRepo => Self::GitHubRepo,
             Self::RemoteEnabled => Self::IssuePrRepo,
             Self::LoginUser => Self::RemoteEnabled,
@@ -253,6 +251,8 @@ impl RepositoryFormFocus {
             Self::SshOptions => Self::IdentityFile,
             Self::RunAsUser => Self::SshOptions,
             Self::SetupEnvDefault => Self::RunAsUser,
+            Self::TransientAgentDir => Self::SetupEnvDefault,
+            Self::TransientMaxConcurrent => Self::TransientAgentDir,
         }
     }
 }

@@ -1,0 +1,30 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 2000,
+    "initial_wait_ms": 1500,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "expect": "GitHub Repo" },
+    { "key": "Tab" },
+    { "waitFor": "Base Dir         [▏]" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "waitFor": "GitHub Repo     [▏]" },
+    { "keys": ["a","c","m","e","/","w","i","d","g","e","t","s"] },
+    { "waitFor": "GitHub Repo     [acme/widgets▏]" },
+    { "capture": "repo-github-field-focus" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

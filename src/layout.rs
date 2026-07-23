@@ -314,6 +314,29 @@ pub fn compute_shell_overlay_pty_layout(term_cols: u16, term_rows: u16) -> PtyLa
     }
 }
 
+/// Compute PTY geometry for the live Terminal Manager lower pane.
+#[must_use]
+pub fn compute_terminal_manager_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
+    let (render_cols, render_rows) =
+        effective_render_size_inner(term_cols, term_rows, is_fullscreen_enabled());
+    let (list_rows, detail_rows) = actions_pane_rows(usize::from(render_rows), false, false);
+    let terminal_slot_rows = u16::try_from(detail_rows).unwrap_or(u16::MAX);
+    let workspace_cols = render_cols.saturating_sub(LEFT_COL_WIDTH);
+
+    PtyLayout {
+        pty_rows: terminal_slot_rows
+            .saturating_sub(TERMINAL_WIDGET_CHROME_ROWS)
+            .max(2),
+        pty_cols: workspace_cols
+            .saturating_sub(TERMINAL_WIDGET_CHROME_COLS)
+            .max(2),
+        pane_col0: LEFT_COL_WIDTH.saturating_add(1),
+        pane_row0: 1u16
+            .saturating_add(u16::try_from(list_rows).unwrap_or(u16::MAX))
+            .saturating_add(2),
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Issues-mode detail-pane layout
 // -----------------------------------------------------------------------------

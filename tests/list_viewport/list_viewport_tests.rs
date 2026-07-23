@@ -1,8 +1,8 @@
+use jefe::list_viewport::ContentRows;
 use jefe::list_viewport::{
     BorderRows, ListGeometry, ListMove, ListViewport, PaddingRows, PageItemCount, PaneRows,
     RowsPerItem, TitleRows, fit_text_to_width, move_selection,
 };
-use jefe::list_viewport::ContentRows;
 use unicode_width::UnicodeWidthStr;
 
 #[test]

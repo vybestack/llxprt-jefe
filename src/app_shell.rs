@@ -124,8 +124,22 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // hidden shells against the multiplexer off the input/render path.
     hooks.use_future({
         let app_state = app_state;
+        async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state).await }
+    });
+    hooks.use_future({
+        let app_state = app_state;
         let ctx = ctx.clone();
-        async move { crate::app_input::shell_overlay::observe_shell_inventory(app_state, ctx).await }
+        async move {
+            crate::app_input::terminal_manager::observe_terminal_manager_preview(app_state, ctx)
+                .await;
+        }
+    });
+    hooks.use_future({
+        let app_state = app_state;
+        let ctx = ctx.clone();
+        async move {
+            crate::app_input::terminal_manager::observe_pending_shell_focus(app_state, ctx).await;
+        }
     });
 
     // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
@@ -183,72 +197,73 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         count = dead_identities.len(),
                         "liveness poll found dead agents"
                     );
-                    // Issue #301 Phase 4: stale-result protection. Before
-                    // marking an agent dead, verify the agent's current
-                    // binding session name and lifecycle generation still
-                    // match the liveness snapshot. A mismatch means the
-                    // agent was rebound/restarted after the check was
-                    // dispatched; skip it.
+                    let mut dead_previews: std::collections::HashMap<_, _> =
+                        crate::app_shell_workers::capture_dead_previews(dead_identities.clone())
+                            .await
+                            .into_iter()
+                            .map(|(identity, lines)| (identity.agent_id, lines))
+                            .collect();
                     let mut state = app_state.write();
-                    // Build a lookup map from agent_id → (session_name, gen)
-                    // from the current state to avoid O(n*m) scan for each
-                    // identity (issue #301 review feedback).
-                    let current_bindings: std::collections::HashMap<
-                        &AgentId,
-                        (Option<&String>, u64),
-                    > = state
-                        .agents
-                        .iter()
-                        .map(|a| {
-                            let session = a.runtime_binding.as_ref().map(|b| &b.session_name);
-                            let lifecycle_gen = a
-                                .runtime_binding
-                                .as_ref()
-                                .map_or(0, |b| b.lifecycle_generation);
-                            (&a.id, (session, lifecycle_gen))
-                        })
-                        .collect();
-                    let mut to_apply: Vec<AgentId> = Vec::new();
-                    for identity in &dead_identities {
-                        let Some(&(current_session, current_gen)) =
-                            current_bindings.get(&identity.agent_id)
-                        else {
-                            // Agent removed from state since the check — skip.
+                    let binding_matches = {
+                        let current_bindings: std::collections::HashMap<_, _> = state
+                            .agents
+                            .iter()
+                            .filter_map(|agent| {
+                                agent.runtime_binding.as_ref().map(|binding| {
+                                    (
+                                        &agent.id,
+                                        (
+                                            binding.session_name.as_str(),
+                                            binding.lifecycle_generation,
+                                        ),
+                                    )
+                                })
+                            })
+                            .collect();
+                        dead_identities
+                            .iter()
+                            .map(|identity| {
+                                current_bindings.get(&identity.agent_id).is_some_and(
+                                    |(session_name, generation)| {
+                                        Some(*session_name)
+                                            == identity.binding_session_name.as_deref()
+                                            && *generation == identity.lifecycle_generation
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let mut changed = false;
+                    for (identity, binding_matches) in
+                        dead_identities.iter().zip(binding_matches)
+                    {
+                        if !binding_matches {
+                            debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
                             continue;
-                        };
-                        let session_matches =
-                            current_session == identity.binding_session_name.as_ref();
-                        let gen_matches = current_gen == identity.lifecycle_generation;
-                        if session_matches && gen_matches {
-                            to_apply.push(identity.agent_id.clone());
-                        } else {
-                            debug!(
-                                agent_id = %identity.agent_id.0,
-                                checked_session = ?identity.binding_session_name,
-                                current_session = ?current_session,
-                                checked_gen = identity.lifecycle_generation,
-                                current_gen,
-                                "liveness: stale result after rebind/restart; skipping"
-                            );
                         }
-                    }
-                    for agent_id in &to_apply {
+                        let preview = dead_previews.remove(&identity.agent_id);
                         *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
-                            agent_id.clone(),
+                            identity.agent_id.clone(),
                             AgentStatus::Dead,
                         ));
-                        if let Some(agent) =
-                            state.agents.iter_mut().find(|agent| &agent.id == agent_id)
+                        if let Some(agent) = state
+                            .agents
+                            .iter_mut()
+                            .find(|agent| agent.id == identity.agent_id)
                         {
                             agent.runtime_binding = None;
                         }
+                        if let Some(lines) = preview {
+                            state.store_dead_preview(identity.agent_id.clone(), lines);
+                        }
+                        changed = true;
                     }
-                    if to_apply.is_empty() {
-                        drop(state);
-                    } else {
+                    if changed {
                         let persisted = to_persisted_state(&state);
                         drop(state);
                         persist_state(&ctx, &persisted);
+                    } else {
+                        drop(state);
                     }
                 }
             }
@@ -328,6 +343,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             scheduler.set_desired(None);
                             scheduler.mark_attached(None);
                         }
+                        crate::app_input::terminal_manager::on_shell_attach_failed(
+                            &mut app_state,
+                            &agent_id,
+                        );
                         apply_attach_failure(&mut app_state, &agent_id);
                         let persisted = {
                             let state = app_state.read();
@@ -387,7 +406,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         // and hidden) exactly once, best-effort, without killing agent
         // sessions (issue #361 PR A). Replaces the prior separate
         // cleanup_active_shell call so the visible shell is not closed twice.
-        crate::app_input::shell_overlay::shutdown_all_shells(&mut app_state, &ctx);
+        crate::app_input::shell_overlay::shutdown_all_shells(&mut app_state);
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
         crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());
@@ -482,7 +501,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // requests a background capture via the `CaptureHandle` and reads the
     // runtime's `HistoryCache` directly (non-blocking `get`). The background
     // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
+    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard
+        || (snapshot.screen_mode == ScreenMode::DashboardTerminals
+            && snapshot.shell_overlay_active())
+    {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
         Vec::new()
@@ -494,7 +516,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-    let pty_layout = if snapshot.shell_overlay_active() {
+    let pty_layout = if snapshot.shell_overlay_active()
+        && snapshot.screen_mode == ScreenMode::DashboardTerminals
+    {
+        jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
+    } else if snapshot.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
     } else {
         compute_pty_layout(term_cols, term_rows)
@@ -557,13 +583,8 @@ fn handle_terminal_event(
         TerminalEvent::Resize(cols, rows) => {
             crate::mouse_routing::clear_selection(app_state);
             synchronize_actions_geometry(app_state, cols, rows);
-            let overlay_active = app_state.read().shell_overlay_active();
-            crate::app_input::shell_overlay::resize_terminal(
-                &ctx.cloned(),
-                cols,
-                rows,
-                overlay_active,
-            );
+            let state = app_state.read();
+            crate::app_input::shell_overlay::resize_terminal(&ctx.cloned(), cols, rows, &state);
         }
         TerminalEvent::FullscreenMouse(mouse_event) => {
             crate::mouse_routing::handle_fullscreen_mouse(ctx, app_state, mouse_event);
@@ -902,6 +923,10 @@ pub fn wants_live_snapshot_pub(status: AgentStatus) -> bool {
 }
 
 /// Capture terminal output for the currently selected agent if available.
+///
+/// Dead agents read their preview from an in-memory cache within `AppState`,
+/// populated once by the off-lock liveness worker (issue #374 S4) and excluded
+/// from persistence, so rendering never shells out to tmux per frame.
 pub fn capture_terminal_snapshot(
     ctx: Option<&CtxArc>,
     snapshot: &AppState,
@@ -923,21 +948,25 @@ pub fn capture_terminal_snapshot(
         return None;
     }
 
-    // `try_lock` keeps the render cycle non-blocking: when a background attach
-    // holds the ctx mutex, this frame simply returns None and the next frame
-    // picks up the snapshot.
-    let ctx_arc = ctx?;
-    let ctx_guard = ctx_arc.try_lock().ok()?;
     match selected_agent.status {
-        AgentStatus::Running => selected_running_agent_id
-            .as_ref()
-            .filter(|id| ctx_guard.runtime.attached_agent() == Some(*id))
-            .and_then(|_| ctx_guard.runtime.snapshot()),
+        AgentStatus::Running => {
+            // `try_lock` keeps the render cycle non-blocking: when a background
+            // attach holds the ctx mutex, this frame simply returns None and
+            // the next frame picks up the snapshot.
+            let ctx_arc = ctx?;
+            let ctx_guard = ctx_arc.try_lock().ok()?;
+            selected_running_agent_id
+                .as_ref()
+                .filter(|id| ctx_guard.runtime.attached_agent() == Some(*id))
+                .and_then(|_| ctx_guard.runtime.snapshot())
+        }
         AgentStatus::Dead => selected_agent_id.as_ref().and_then(|agent_id| {
             snapshot
                 .repository_for_agent(agent_id)
-                .filter(|repository| !repository.remote.enabled)
-                .and_then(|_| ctx_guard.runtime.capture_session_output(agent_id))
+                .filter(|repository| !repository.remote.enabled)?;
+            snapshot
+                .dead_preview(agent_id)
+                .map(jefe::runtime::snapshot_from_lines)
         }),
         _ => None,
     }

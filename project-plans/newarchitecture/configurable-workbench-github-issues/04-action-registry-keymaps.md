@@ -115,9 +115,9 @@ Serialized override example:
 
 `jefe explain binding CHORD [--context ID]` performs no TUI/provider/probe/write. It prints normalized chord, searched contexts in order, winner, availability/reason, shadows, and provenance. Exit is 0 resolved, 2 invalid/unresolved, and 64 usage.
 
-## Harness translation and capture compatibility
+## Harness key translation and capture
 
-The harness schema-legacy adapter translates existing `send_key` spellings to canonical `Chord` without changing old scenario bytes. macOS Option events normalize to `Alt`; Shift-Tab normalizes to `BackTab`; uppercase characters preserve their scalar and explicit Shift provenance; function/named keys preserve names. Capture reports both original platform event and canonical chord, then the single resolution (`action`, `unavailable`, `forward`, or `unbound`). PTY capture asserts exact encoded bytes separately, so registry migration cannot turn forwarded input into actions. Mouse capture records frame sequence, cell coordinate, resolved layout hit target, and emitted action ID. Existing scenario expected frames remain unchanged unless the issue explicitly adds the Keys UI.
+Harness schema-1 `key` operation spellings translate to canonical `Chord` in the runner. macOS Option events normalize to `Alt`; Shift-Tab normalizes to `BackTab`; uppercase characters preserve their scalar and explicit Shift provenance; function/named keys preserve names. Capture reports both original platform event and canonical chord, then the single resolution (`action`, `unavailable`, `forward`, or `unbound`). PTY capture asserts exact encoded bytes separately, so registry migration cannot turn forwarded input into actions. Mouse capture records frame sequence, cell coordinate, resolved layout hit target, and emitted action ID. Existing converted scenario expected frames remain unchanged unless the issue explicitly adds the Keys UI.
 
 ## UI state mocks
 
@@ -197,16 +197,16 @@ The harness schema-legacy adapter translates existing `send_key` spellings to ca
 | CW03-09 | WHEN mouse activation occurs, Jefe shall emit the action ID from the resolved hit target. | `mouse-action-consistency.json` | `mouse_action_capture` | frame/cell/hit/action tuples for each current clickable surface |
 | CW03-10 | IF effective bindings exceed 2,048 or chords exceed eight, Jefe shall reject at the owning path. | `keymap-resource-bounds.json` | `keymap_bounds` | exact 8/9 and 2048/2049 fixtures |
 
-RED commits scenarios/fixtures first. GREEN routes every surface through one resolver. REFACTOR removes duplicate shortcut/help/footer maps only after parity.
+RED commits scenarios/fixtures first. GREEN routes every surface through one resolver. REFACTOR deletes the duplicate shortcut/help/footer maps and every pre-registry dispatch table only after parity — none survives feature-complete as a fallback or compatibility path.
 
 ## Normative documentation updated
 
 * `dev-docs/standards/architecture.md`: action registry dependency direction and one-resolution invariant.
 * `dev-docs/standards/display-and-ui.md`: replace static keybind authority with shared resolved action projections and exact protected terminal behavior.
 * `dev-docs/standards/testing-and-quality.md`: inventory completeness guard, platform translation captures, and mouse/PTY parity.
-* `dev-docs/testing/tmux-harness.md`: legacy key translation, original/canonical/resolution capture fields.
+* `dev-docs/testing/tmux-harness.md`: key translation, original/canonical/resolution capture fields.
 * `docs/technical-overview.md`: action composition, availability, dispatch, and explain flow.
 
 ## Definition of done
 
-All ten criteria and exact inventory rows pass; no source dispatch lacks a golden row; dispatch/Help/footer/menu/editor agree; protected recovery remains reachable; no arbitrary shell, new dependency, generic payload, UI I/O, lint suppression, unsafe, unwrap/expect, or quality-gate weakening exists. Run unchanged `make ci-check`.
+All ten criteria and exact inventory rows pass; no source dispatch lacks a golden row; dispatch/Help/footer/menu/editor agree; protected recovery remains reachable; superseded dispatch/help/footer maps are deleted with the shim-token scan clean per the epic no-shim policy; no arbitrary shell, new dependency, generic payload, UI I/O, lint suppression, unsafe, unwrap/expect, or quality-gate weakening exists. Run unchanged `make ci-check`.

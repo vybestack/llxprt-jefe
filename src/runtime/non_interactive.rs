@@ -1,14 +1,15 @@
-//! Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
+//! Non-interactive (single-prompt) agent execution (issue #214 / #359).
 //!
 //! Used to ask the configured default agent to rewrite an issue draft. Unlike
 //! the interactive tmux-pane launch in [`super::commands`], this runs the agent
-//! with its `-p`/`--prompt` print mode: it answers one prompt, prints the
-//! response to stdout, and exits. No tmux session is created.
+//! with its `-p`/`--prompt` print mode. The rewritten issue is read from a
+//! known temp file so thinking/tool/session noise on stdout cannot pollute the
+//! draft (issue #359). Stdout/stderr are used only for failure diagnostics.
 //!
 //! Two halves:
 //! - [`non_interactive_argv`]: pure argv/target construction (unit-tested).
 //! - [`run_non_interactive`]: the I/O boundary (resolves the binary, runs it
-//!   with a bounded timeout, captures and trims stdout).
+//!   with a bounded timeout, reads and trims the output file).
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -140,35 +141,50 @@ fn stderr_excerpt(stderr: &[u8]) -> Option<String> {
     }
 }
 
+/// Read and validate the rewrite output file written by the agent (issue #359).
+///
+/// Pure enough for unit tests: no process spawn. Returns trimmed UTF-8 text or
+/// a diagnostic that may include `stderr_hint` when the file is missing/empty.
+fn read_rewrite_output_file(
+    output_path: &Path,
+    stderr_hint: Option<&str>,
+) -> Result<String, RuntimeError> {
+    let with_hint = |base: &str| match stderr_hint.filter(|s| !s.is_empty()) {
+        Some(stderr) => format!("{base}; stderr: {stderr}"),
+        None => base.to_owned(),
+    };
+    let text = std::fs::read_to_string(output_path).map_err(|error| {
+        RuntimeError::RemoteExecutionFailed(with_hint(&format!(
+            "agent did not write rewrite output to {}: {error}",
+            output_path.display()
+        )))
+    })?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(RuntimeError::RemoteExecutionFailed(with_hint(
+            "agent wrote an empty rewrite output file",
+        )));
+    }
+    Ok(trimmed.to_owned())
+}
+
 /// Run the configured default agent non-interactively in `work_dir`, feeding
-/// it `instruction` via `--prompt`, and return the captured, trimmed stdout.
+/// it `instruction` via `--prompt`, then return the rewritten issue text from
+/// `output_path` (issue #359 temp-file protocol).
 ///
 /// Local execution only: non-interactive remote capture requires dedicated
 /// SSH plumbing and is out of scope for issue #214.
 ///
-/// # Why a direct subprocess, not the secure launch-plan flow
-///
-/// The interactive agent launch (`commands.rs`) routes through
-/// `write_launch_plan`/`run_launch_plan` because it must spawn the agent into
-/// a tmux/psmux pane with argv scrubbing and `TMUX` env cleanup. That boundary
-/// returns only an `ExitStatus` — it cannot capture the agent's stdout, which
-/// is the whole point of a non-interactive rewrite. This path therefore builds
-/// a foreground capture subprocess via `command_for_executable` (the same
-/// resolver/wrapper logic, minus the pane-launch serialization) and pipes
-/// stdout/stderr through `run_command_capture_with_timeout`. The `TMUX` env
-/// scrub in the launch-plan exists so a child pane does not inherit the parent
-/// multiplexer; a non-interactive `--prompt` run ignores multiplexers, so the
-/// scrub does not apply here.
-///
 /// # Errors
 ///
 /// Returns a [`RuntimeError`] when the binary cannot be resolved, the process
-/// cannot be spawned, it times out, or it exits non-zero / produces empty
-/// output.
+/// cannot be spawned, it times out, exits non-zero, or the output file is
+/// missing/empty.
 pub fn run_non_interactive(
     signature: &LaunchSignature,
     work_dir: &Path,
     instruction: &str,
+    output_path: &Path,
 ) -> Result<String, RuntimeError> {
     let (target, args) = non_interactive_argv(signature, instruction);
     let executable = AgentExecutableResolver::current()
@@ -196,34 +212,19 @@ pub fn run_non_interactive(
         NON_INTERACTIVE_TIMEOUT,
         "agent rewrite (non-interactive)",
     )?;
+    let stderr_hint = stderr_excerpt(&output.stderr);
     if !output.status.success() {
         let status = output
             .status
             .code()
             .map_or_else(|| "signal".to_owned(), |c| c.to_string());
-        let detail = match stderr_excerpt(&output.stderr) {
+        let detail = match &stderr_hint {
             Some(stderr) => format!("agent exited with status {status}: {stderr}"),
             None => format!("agent exited with status {status}"),
         };
         return Err(RuntimeError::RemoteExecutionFailed(detail));
     }
-    let Ok(stdout) = String::from_utf8(output.stdout) else {
-        let detail = match stderr_excerpt(&output.stderr) {
-            Some(stderr) => format!("agent produced non-UTF-8 output; stderr: {stderr}"),
-            None => "agent produced non-UTF-8 output that could not be used as an issue draft"
-                .to_owned(),
-        };
-        return Err(RuntimeError::RemoteExecutionFailed(detail));
-    };
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        let detail = match stderr_excerpt(&output.stderr) {
-            Some(stderr) => format!("agent produced no output; stderr: {stderr}"),
-            None => "agent produced no output".to_owned(),
-        };
-        return Err(RuntimeError::RemoteExecutionFailed(detail));
-    }
-    Ok(trimmed.to_owned())
+    read_rewrite_output_file(output_path, stderr_hint.as_deref())
 }
 
 #[cfg(test)]

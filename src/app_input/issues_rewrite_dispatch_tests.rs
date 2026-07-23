@@ -100,6 +100,12 @@ fn resolves_instruction_and_signature_from_draft_and_repo() {
         "instruction must reference the github repo: {}",
         ctx.instruction
     );
+    assert!(
+        ctx.instruction
+            .contains(ctx.output_file.path().to_string_lossy().as_ref()),
+        "instruction must name the temp-file output path (issue #359): {}",
+        ctx.instruction
+    );
     assert_eq!(ctx.signature.agent_kind, AgentKind::Llxprt);
 }
 

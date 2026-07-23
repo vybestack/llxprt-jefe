@@ -727,8 +727,9 @@ pub enum AgentOrigin {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessIdentity {
     pub pid: u32,
-    /// Platform process creation discriminator. Windows exposes this as the
-    /// process creation FILETIME; `None` supports legacy/Unix bindings.
+    /// Platform process creation discriminator. Windows stores creation
+    /// FILETIME, Linux stores `/proc` start ticks, and macOS stores UTC epoch
+    /// seconds. `None` supports legacy and unavailable platform evidence.
     #[serde(default)]
     pub started_at: Option<u64>,
 }

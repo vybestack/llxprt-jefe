@@ -215,6 +215,15 @@ impl RuntimeManager for StubRuntimeManager {
         Ok(())
     }
 
+    fn select_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        if !self.sessions.iter().any(|s| &s.agent_id == agent_id)
+            || !self.open_shell_windows.contains(agent_id)
+        {
+            return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+        }
+        Ok(())
+    }
+
     fn close_shell_window(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         if !self.sessions.iter().any(|s| &s.agent_id == agent_id) {
             return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
@@ -333,6 +342,23 @@ mod tests {
             stub.shell_window_exists(&a)
                 .unwrap_or_else(|e| panic!("observe shell: {e}"))
         );
+    }
+
+    #[test]
+    fn stub_select_shell_window_never_creates_a_missing_shell() {
+        let agent = AgentId("a".into());
+        let mut stub = stub_with_session(&agent);
+
+        assert!(stub.select_shell_window(&agent).is_err());
+        assert!(
+            !stub
+                .shell_window_exists(&agent)
+                .unwrap_or_else(|error| panic!("observe shell: {error}"))
+        );
+        stub.open_shell_window(&agent)
+            .unwrap_or_else(|error| panic!("open shell: {error}"));
+        stub.select_shell_window(&agent)
+            .unwrap_or_else(|error| panic!("select shell: {error}"));
     }
 
     #[test]

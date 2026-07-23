@@ -279,6 +279,9 @@ pub enum ScreenMode {
     DashboardPullRequests,
     DashboardActions,
     DashboardErrors,
+    /// Terminal Manager screen (issue #361 PR B). Lists every runtime
+    /// inventory shell and shows a throttled read-only preview.
+    DashboardTerminals,
 }
 
 /// Pane focus within a view.
@@ -454,6 +457,20 @@ pub struct AppState {
     /// pane while preserving the repository sidebar and outer bars.
     /// Runtime-only — never persisted.
     pub shell_overlay: ShellOverlayState,
+
+    /// Terminal Manager screen state (issue #361 PR B). Runtime-only — never
+    /// persisted. Inventory/manager/return state live here.
+    pub terminal_manager: super::TerminalManagerState,
+
+    /// Where a focused shell should return when hidden/closed/exited (issue
+    /// #361 PR B). Set when entering a shell from the manager so F12/F10/natural
+    /// exit restore the manager; Dashboard-entered shells keep Dashboard.
+    pub shell_return_target: super::ShellReturnTarget,
+
+    /// Runtime-only cache of dead-agent pane previews (issue #374 S4).
+    /// Populated once by the off-lock liveness worker; read by the pure render
+    /// projection. Never persisted.
+    pub dead_preview: super::DeadAgentPreviewCache,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

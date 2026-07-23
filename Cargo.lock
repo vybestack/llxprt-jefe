@@ -661,7 +661,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jefe"
-version = "0.0.29"
+version = "0.0.32"
 dependencies = [
  "alacritty_terminal",
  "comrak",
@@ -672,6 +672,7 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
+ "signal-hook",
  "smol",
  "taffy",
  "tempfile",

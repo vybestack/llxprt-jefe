@@ -8,7 +8,7 @@ Deliver one path/document/migration/writer authority and a minimal typed effect 
 
 | Source/symbol | Current responsibility | Required ownership/parity |
 |---|---|---|
-| `src/persistence/mod.rs::{Settings,State,SETTINGS_SCHEMA_VERSION,STATE_SCHEMA_VERSION}` | schema-1 DTO/load/save | facade over schema-2 document/state authorities; preserve schema-1 effective values |
+| `src/persistence/mod.rs::{Settings,State,SETTINGS_SCHEMA_VERSION,STATE_SCHEMA_VERSION}` | schema-1 DTO/load/save | replaced by the schema-2 document/state authorities; schema-1 types survive only inside the one-way migration module and are deleted from every other path at feature-complete — no facade, re-export, or dual load path |
 | `src/persistence/tests.rs` | persistence tests | retain every old golden and add migration/lossless/write-phase matrices |
 | `src/app_init.rs` and `src/startup.rs` | startup path/load | consume `ResolvedPaths` and provider-free diagnostics; never select paths independently |
 | `src/cli.rs` and `src/main.rs` | command dispatch | own exact recovery syntax/exits below without TUI/provider startup |
@@ -98,8 +98,8 @@ No TUI is introduced. Normal, focused, unavailable, dirty, and small-terminal st
 | CW01-11 | IF completion identity is stale, Jefe shall leave current state byte-equivalent. | generation property and old-correlation fixture |
 | CW01-12 | IF every bound is exceeded by one, Jefe shall reject at the owning parser. | depth/map/array/file/string/path/diagnostic matrix |
 
-RED adds these fixtures first; GREEN adds owners; REFACTOR removes old selectors/writers and under-borrow effects only after parity.
+RED adds these fixtures first; GREEN adds owners; REFACTOR deletes the old selectors/writers, schema-1 load/save paths outside the migration module, and under-borrow effects only after parity — per the epic no-shim policy, no facade or dual path survives feature-complete.
 
 ## Normative documentation and done
 
-Update `dev-docs/standards/persistence-and-runtime.md` with path precedence, physical identity, schemas, migration, writer phases, effects ordering, stale completion, and recovery exits; update `dev-docs/RULES.md` with lossless/no-reader-write and provider-free recovery requirements. Done requires old persistence tests plus every ledger row and unchanged `make ci-check`; no new dependency, unsafe, production unwrap/expect, shell command, secret leak, threshold or lint suppression.
+Update `dev-docs/standards/persistence-and-runtime.md` with path precedence, physical identity, schemas, migration, writer phases, effects ordering, stale completion, and recovery exits; update `dev-docs/RULES.md` with lossless/no-reader-write and provider-free recovery requirements. Done requires old persistence tests plus every ledger row, schema-1 types absent outside the one-way migration module (shim-token scan clean per the epic no-shim policy), and unchanged `make ci-check`; no new dependency, unsafe, production unwrap/expect, shell command, secret leak, threshold or lint suppression.

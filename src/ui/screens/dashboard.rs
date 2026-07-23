@@ -145,12 +145,12 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     // Shell overlay (issue #222): when active, the terminal expands to fill
     // the area between sidebar and right edge (no agent list, no preview).
     let shell_overlay_active = state.is_some_and(AppState::shell_overlay_active);
-    // Whether the selected agent owns a hidden shell F10 can resume
-    // (issue #361 PR A). Only relevant when the overlay is not visible.
+    // Whether the selected repository has a Running-owner shell F10 can resume.
     let shell_resume_available = state.is_some_and(|s| {
         !s.shell_overlay_active()
-            && s.selected_agent()
-                .is_some_and(|agent| s.has_shell_window(&agent.id))
+            && s.selected_repository().is_some_and(|repository| {
+                crate::state::resolve_repository_shell(s, &repository.id).is_some()
+            })
     });
     let overlay_terminal_rows = render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT);
     let terminal_snapshot = state
@@ -182,6 +182,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         override_theme: state.is_some_and(|s| s.override_agent_theme),
                         pane_rows: props.terminal_pane_rows,
                         pane_cols: props.terminal_pane_cols,
+                        focused_hint: None,
                     )
                 }
             }
@@ -226,6 +227,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             override_theme: state.is_some_and(|s| s.override_agent_theme),
                             pane_rows: props.terminal_pane_rows,
                             pane_cols: props.terminal_pane_cols,
+                            focused_hint: None,
                         )
                     }
                 }

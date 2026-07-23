@@ -68,6 +68,27 @@ fn split_layout_saturates_at_tiny_render_sizes() {
 }
 
 #[test]
+fn terminal_manager_pty_layout_matches_lower_workspace_pane() {
+    let layout = compute_terminal_manager_pty_layout(120, 40);
+    let (_, render_rows) = effective_render_size(120, 40);
+    let (list_rows, detail_rows) = actions_pane_rows(usize::from(render_rows), false, false);
+
+    assert_eq!(
+        layout.pty_cols,
+        120 - LEFT_COL_WIDTH - TERMINAL_WIDGET_CHROME_COLS
+    );
+    assert_eq!(
+        layout.pty_rows,
+        u16::try_from(detail_rows).unwrap_or(u16::MAX) - TERMINAL_WIDGET_CHROME_ROWS
+    );
+    assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);
+    assert_eq!(
+        layout.pane_row0,
+        u16::try_from(list_rows).unwrap_or(u16::MAX) + 3
+    );
+}
+
+#[test]
 fn compute_pty_layout_pane_origin() {
     let layout = compute_pty_layout_for_test(120, 40, true);
     assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);

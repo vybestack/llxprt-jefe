@@ -8,8 +8,8 @@ use crate::state::AppEvent;
 
 use super::{
     ActionsMessage, AppMessage, ErrorsMessage, IssuesMessage, ModalMessage, PersistenceMessage,
-    PullRequestsMessage, RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage,
-    UiNavigationMessage,
+    PullRequestsMessage, RepositoryAgentMessage, RuntimeMessage, SystemMessage,
+    TerminalManagerMessage, ThemeMessage, UiNavigationMessage,
 };
 
 fn ui(message: UiNavigationMessage) -> AppMessage {
@@ -211,6 +211,8 @@ impl AppMessage {
             Self::Actions(ActionsMessage::from_app_event(event))
         } else if Self::is_errors_event(&event) {
             Self::Errors(ErrorsMessage::from_app_event(event))
+        } else if Self::is_terminal_manager_event(&event) {
+            Self::TerminalManager(TerminalManagerMessage::from_app_event(event))
         } else {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
@@ -242,6 +244,25 @@ impl AppMessage {
                 | AppEvent::ErrorsScrollDetailPageUp
                 | AppEvent::ErrorsScrollDetailPageDown
                 | AppEvent::ErrorsClearAll
+        )
+    }
+
+    /// Whether the event belongs to the terminal-manager domain (issue #361
+    /// PR B).
+    fn is_terminal_manager_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::EnterTerminalManagerMode
+                | AppEvent::ExitTerminalManagerMode
+                | AppEvent::TerminalManagerNavigateUp
+                | AppEvent::TerminalManagerNavigateDown
+                | AppEvent::TerminalManagerNavigateHome
+                | AppEvent::TerminalManagerNavigateEnd
+                | AppEvent::RequestShellFocus { .. }
+                | AppEvent::ConfirmShellFocus(_)
+                | AppEvent::FailShellFocus
+                | AppEvent::ShellPreviewResult { .. }
+                | AppEvent::ShellClosed(_)
         )
     }
 
@@ -454,6 +475,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::PullRequests(message) => message.into(),
             AppMessage::Actions(message) => message.into(),
             AppMessage::Errors(message) => message.into(),
+            AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
         }
     }

@@ -25,6 +25,12 @@ pub fn capture_session_output(
 
     let lines = commands::capture_pane_lines(&session.session_name)?;
 
+    Some(snapshot_from_lines(&lines))
+}
+
+/// Project plain pane lines into an unstyled terminal snapshot.
+#[must_use]
+pub fn snapshot_from_lines(lines: &[String]) -> TerminalSnapshot {
     let rows = lines.len();
     let cols = lines
         .iter()
@@ -33,7 +39,7 @@ pub fn capture_session_output(
         .unwrap_or(0);
 
     if rows == 0 || cols == 0 {
-        return Some(TerminalSnapshot::default());
+        return TerminalSnapshot::default();
     }
 
     let default_style = TerminalCellStyle {
@@ -43,7 +49,6 @@ pub fn capture_session_output(
         dim: false,
         underline: false,
     };
-
     let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
     for (r, line) in lines.iter().enumerate() {
         for (c, ch) in line.chars().enumerate() {
@@ -54,8 +59,7 @@ pub fn capture_session_output(
             };
         }
     }
-
-    Some(snapshot)
+    snapshot
 }
 
 /// Retrieve retained scrollback history lines for the currently attached

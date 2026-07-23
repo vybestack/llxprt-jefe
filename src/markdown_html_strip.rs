@@ -7,6 +7,11 @@
 //! to the screen, while `markdown_render` owns the comrak AST traversal.
 //! The two are one logical pipeline; `markdown_render_tests.rs` covers both
 //! through the public `render_markdown_lines` entry point.
+//!
+//! This module is `pub` so the `tests/markdown_html_strip` integration target
+//! can exercise it outside the lib harness (issue #307). It is not a stable
+//! external API — treat it as crate-internal surface for tests and
+//! `markdown_render`.
 
 /// Strip a raw HTML fragment down to its visible text.
 ///

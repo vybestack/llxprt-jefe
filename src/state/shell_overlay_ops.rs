@@ -45,23 +45,11 @@ impl AppState {
         self.reset_shell_terminal_view();
     }
 
-    /// Deactivate the shell overlay, restoring normal dashboard state.
+    /// Deactivate the shell overlay, restoring its launch surface.
     pub fn close_shell_overlay(&mut self) {
-        if self.shell_overlay.agent_id.is_some() {
-            // Remove from inventory only after the runtime close succeeded;
-            // the runtime boundary calls this after a successful close, so the
-            // inventory entry is dropped here (issue #361).
-            if let Some(agent_id) = self.shell_overlay.agent_id.clone() {
-                self.shell_overlay.inventory.remove(&agent_id);
-            }
-            self.shell_overlay.agent_id = None;
-            self.terminal_focused = false;
-            self.pane_focus = self
-                .shell_overlay
-                .previous_pane_focus
-                .take()
-                .unwrap_or(crate::state::PaneFocus::Agents);
-            self.reset_shell_terminal_view();
+        if let Some(agent_id) = self.shell_overlay.agent_id.take() {
+            self.shell_overlay.inventory.remove(&agent_id);
+            self.restore_after_shell_overlay();
         }
     }
 
@@ -74,20 +62,27 @@ impl AppState {
     /// runtime boundary is responsible for selecting agent window 0 before
     /// invoking this; this reducer performs no I/O.
     pub fn hide_shell_overlay(&mut self) {
-        let Some(agent_id) = self.shell_overlay.agent_id.clone() else {
+        if self.shell_overlay.agent_id.is_none() {
             return;
-        };
+        }
         // Inventory entry persists: the shell window is alive, just hidden.
-        let _ = agent_id;
-        self.shell_overlay.agent_id = None;
         self.shell_overlay.generation = self.shell_overlay.generation.wrapping_add(1);
+        self.restore_after_shell_overlay();
+    }
+
+    fn restore_after_shell_overlay(&mut self) {
+        self.shell_overlay.agent_id = None;
         self.terminal_focused = false;
         self.dashboard_grab = None;
-        self.pane_focus = self
-            .shell_overlay
-            .previous_pane_focus
-            .take()
-            .unwrap_or(crate::state::PaneFocus::Agents);
+        let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
+        if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
+            self.screen_mode = crate::state::ScreenMode::DashboardTerminals;
+            self.terminal_manager.active = true;
+            self.pane_focus = crate::state::PaneFocus::Agents;
+        } else {
+            self.pane_focus = previous_pane_focus.unwrap_or(crate::state::PaneFocus::Agents);
+        }
+        self.shell_return_target = crate::state::ShellReturnTarget::Dashboard;
         self.reset_shell_terminal_view();
     }
 
@@ -137,6 +132,15 @@ impl AppState {
     #[must_use]
     pub fn shell_window_owners(&self) -> Vec<AgentId> {
         self.shell_overlay.inventory.to_vec()
+    }
+
+    #[must_use]
+    pub fn shell_focus_ordinal(&self, agent_id: &AgentId) -> u64 {
+        self.shell_overlay.inventory.focus_ordinal(agent_id)
+    }
+
+    pub fn record_shell_focus(&mut self, agent_id: &AgentId) {
+        self.shell_overlay.inventory.record_focus(agent_id);
     }
 
     /// Replace the entire shell inventory from runtime ground truth
@@ -216,6 +220,26 @@ mod tests {
     }
 
     #[test]
+    fn manager_restore_consumes_previous_focus_and_return_target() {
+        let mut state = AppState::default();
+        state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
+        state.open_shell_overlay(AgentId("agent-1".into()));
+
+        state.hide_shell_overlay();
+
+        assert_eq!(
+            state.screen_mode,
+            crate::state::ScreenMode::DashboardTerminals
+        );
+        assert!(state.terminal_manager.active);
+        assert_eq!(state.shell_overlay.previous_pane_focus, None);
+        assert_eq!(
+            state.shell_return_target,
+            crate::state::ShellReturnTarget::Dashboard
+        );
+    }
+
+    #[test]
     fn close_shell_overlay_is_idempotent_when_not_active() {
         let mut state = AppState::default();
         // Closing when not active should not panic.
@@ -274,6 +298,28 @@ mod tests {
             state.shell_overlay.generation,
             gen_before.wrapping_add(1),
             "hide must bump generation so observers recognize the new state"
+        );
+    }
+
+    #[test]
+    fn manager_shell_hide_returns_to_manager_and_clears_return_target() {
+        let mut state = AppState::default();
+        state.screen_mode = crate::state::ScreenMode::DashboardTerminals;
+        state.terminal_manager.active = true;
+        state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
+        state.resume_shell_overlay(AgentId("agent-1".into()));
+
+        state.hide_shell_overlay();
+
+        assert_eq!(
+            state.screen_mode,
+            crate::state::ScreenMode::DashboardTerminals
+        );
+        assert!(state.terminal_manager.active);
+        assert!(!state.shell_overlay_active());
+        assert_eq!(
+            state.shell_return_target,
+            crate::state::ShellReturnTarget::Dashboard
         );
     }
 

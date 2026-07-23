@@ -114,6 +114,13 @@ pub struct CommentsResponse {
 }
 
 const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+
+/// Comma-separated `--json` field list for `gh issue view`.
+///
+/// Uses camelCase `stateReason` (issue #358); `gh` rejects snake_case
+/// `state_reason`. Public for `tests/github_client` regressions (issue #307).
+pub const ISSUE_DETAIL_JSON_FIELDS: &str = "number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id";
+
 /// Default page size for the PR list GraphQL search query.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
@@ -236,7 +243,7 @@ impl GhClient {
                 &format!("{owner}/{repo}"),
                 &number.to_string(),
                 "--json",
-                "number,title,state,state_reason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
+                ISSUE_DETAIL_JSON_FIELDS,
             ])
             .output()
             .map_err(|e| {

@@ -63,6 +63,8 @@ pub struct TerminalViewProps {
     /// whole retained history (issue #198 follow-up).
     pub pane_rows: usize,
     pub pane_cols: usize,
+    /// Focused-mode hint for the owning shell surface.
+    pub focused_hint: Option<String>,
 }
 
 /// Empty-state message for the terminal pane when no snapshot is available.
@@ -90,7 +92,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
     };
 
     let focus_hint = if props.focused {
-        "F12 hide shell"
+        props.focused_hint.as_deref().unwrap_or("F12 hide shell")
     } else {
         "F12/t to focus"
     };

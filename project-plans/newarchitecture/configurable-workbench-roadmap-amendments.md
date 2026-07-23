@@ -1,5 +1,7 @@
 # Configurable Workbench Roadmap — Binding Amendments
 
+> **Superseded:** the canonical issue bodies live in `configurable-workbench-github-issues/`, which carries the binding **no-shim policy**. This document's prescriptions of "LLxprt legacy adapter", "compatibility adapter" remote behavior, or any runtime shim kept alive across issues are void: superseded code is deleted at each capability's feature-complete, and the only permitted bridge is the one-way persistence schema migration.
+
 These amendments are normative for `configurable-workbench-issue-roadmap.md` and resolve its sequencing/scope ambiguities.
 
 ## 1. Epic remains functional
