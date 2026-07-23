@@ -69,6 +69,13 @@ fn handle_line(line: &str, run_sequence: &mut u64) -> bool {
                 &parts.map(str::to_string).collect::<Vec<_>>(),
             );
         }
+        Some("spawn") => {
+            *run_sequence += 1;
+            spawn_command(
+                *run_sequence,
+                &parts.map(str::to_string).collect::<Vec<_>>(),
+            );
+        }
         Some("write") => {
             let args: Vec<String> = parts.map(str::to_string).collect();
             write_file(&args);
@@ -107,6 +114,23 @@ fn run_command(sequence: u64, args: &[String]) {
                 print_line(&format!("RUN[{sequence}] ERR {line}"));
             }
         }
+        Err(err) => print_line(&format!("RUN[{sequence}] ERROR: {err}")),
+    }
+}
+
+fn spawn_command(sequence: u64, args: &[String]) {
+    let Some(program) = args.first() else {
+        print_line(&format!("RUN[{sequence}] ERROR: missing program"));
+        return;
+    };
+    match std::process::Command::new(program)
+        .args(&args[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+    {
+        Ok(child) => print_line(&format!("RUN[{sequence}] STARTED {}", child.id())),
         Err(err) => print_line(&format!("RUN[{sequence}] ERROR: {err}")),
     }
 }

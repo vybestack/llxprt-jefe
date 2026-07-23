@@ -15,7 +15,7 @@
       "name": "slow-tool",
       "path": "bin/slow-tool",
       "behavior": {
-        "stdout": "",
+        "stdout": "CAPTURE STARTED\n",
         "stderr": "",
         "exit_code": 0,
         "stdin_limit": 0,
@@ -25,7 +25,8 @@
     },
     { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
     { "op": "wait", "source": "frame", "literal": "PROBE READY", "timeout_ms": 15000 },
-    { "op": "text", "text": "run slow-tool\n" },
+    { "op": "text", "text": "spawn slow-tool\n" },
+    { "op": "wait", "source": "frame", "literal": "CAPTURE STARTED", "timeout_ms": 15000 },
     {
       "op": "wait",
       "source": "frame",
