@@ -138,7 +138,7 @@ pub fn record_terminated_signals(
                     "decode capture start record '{name}' #{ordinal}: {err}"
                 ))
             })?;
-            if record.signal.is_none() && !process_exists(record.pid)? {
+            if record.signal.is_none() && !process_exists(record.pid)? && !done.exists() {
                 record.signal = Some(signal);
                 write_record_atomic(&start, &record).map_err(|err| {
                     HarnessError::process(format!(
