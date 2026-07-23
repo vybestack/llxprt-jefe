@@ -81,8 +81,8 @@ fn missing_schema_is_rejected_before_anything_else() {
     // adapter and no fallback.
     let legacy = r#"{"config":{"cols":80,"rows":24},"steps":[]}"#;
     let err = parse(legacy).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
-    assert!(err.detail.contains("schema"), "{}", err.detail);
+    assert_eq!(err.code(), HarCode::E001);
+    assert!(err.detail().contains("schema"), "{}", err.detail());
     assert_eq!(err.exit_code(), 2);
 }
 
@@ -98,7 +98,7 @@ fn wrong_schema_values_are_e001() {
         let err = parse(&doc)
             .err()
             .unwrap_or_else(|| panic!("{schema} must fail"));
-        assert_eq!(err.code, HarCode::E001, "{schema}");
+        assert_eq!(err.code(), HarCode::E001, "{schema}");
     }
 }
 
@@ -119,8 +119,8 @@ fn unknown_fields_are_rejected_everywhere() {
         let err = parse(doc)
             .err()
             .unwrap_or_else(|| panic!("must fail: {doc}"));
-        assert_eq!(err.code, HarCode::E001, "{doc}");
-        assert!(err.detail.contains("unknown field"), "{}", err.detail);
+        assert_eq!(err.code(), HarCode::E001, "{doc}");
+        assert!(err.detail().contains("unknown field"), "{}", err.detail());
     }
 }
 
@@ -129,8 +129,8 @@ fn duplicate_keys_are_e001() {
     let doc = minimal_with_steps(&format!("[{LAUNCH}]"))
         .replace("\"name\":\"t\"", "\"name\":\"t\",\"name\":\"u\"");
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
-    assert!(err.detail.contains("duplicate"), "{}", err.detail);
+    assert_eq!(err.code(), HarCode::E001);
+    assert!(err.detail().contains("duplicate"), "{}", err.detail());
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn terminal_bounds_at_limit_and_plus_one() {
         let err = parse(&doc)
             .err()
             .unwrap_or_else(|| panic!("{field} must fail"));
-        assert_eq!(err.code, HarCode::E002, "{field}");
+        assert_eq!(err.code(), HarCode::E002, "{field}");
     }
 }
 
@@ -171,7 +171,7 @@ fn timeout_bounds_enforced() {
         let err = parse(&build(timeout))
             .err()
             .unwrap_or_else(|| panic!("must fail"));
-        assert_eq!(err.code, HarCode::E002, "{timeout}");
+        assert_eq!(err.code(), HarCode::E002, "{timeout}");
     }
 }
 
@@ -179,7 +179,7 @@ fn timeout_bounds_enforced() {
 fn workspace_mode_must_be_448() {
     let doc = minimal_with_steps(&format!("[{LAUNCH}]")).replace("\"mode\":448", "\"mode\":493");
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn file_modes_are_constrained() {
         let err = parse(&build(mode))
             .err()
             .unwrap_or_else(|| panic!("must fail"));
-        assert_eq!(err.code, HarCode::E001, "mode {mode}");
+        assert_eq!(err.code(), HarCode::E001, "mode {mode}");
     }
 }
 
@@ -212,7 +212,7 @@ fn base64_content_decodes_and_malformed_fails() {
     assert_eq!(file.content, FileContent::Base64(b"hi".to_vec()));
     let bad = good.replace("aGk=", "aGk");
     let err = parse(&bad).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
 }
 
 #[test]
@@ -220,12 +220,12 @@ fn interpolation_violations_fail_at_parse_time() {
     let doc =
         minimal_with_steps(r#"[{"op":"launch","argv":["${home}/app"],"env":[],"cwd":"work"}]"#);
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E003);
+    assert_eq!(err.code(), HarCode::E003);
     let env_doc = minimal_with_steps(
         r#"[{"op":"launch","argv":["app"],"env":[{"name":"X","value":"a${workspace}"}],"cwd":"work"}]"#,
     );
     let err = parse(&env_doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E003);
+    assert_eq!(err.code(), HarCode::E003);
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn steps_must_be_non_empty_and_bounded() {
     let err = parse(&minimal_with_steps("[]"))
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     let mut steps: Vec<String> = vec![LAUNCH.to_string()];
     steps.extend(std::iter::repeat_n(
         r#"{"op":"text","text":"x"}"#.to_string(),
@@ -246,7 +246,7 @@ fn steps_must_be_non_empty_and_bounded() {
     let err = parse(&over_limit)
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn key_steps_are_validated_before_execution() {
     ] {
         let doc = minimal_with_steps(&format!("[{LAUNCH},{key_step}]"));
         let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-        assert_eq!(err.code, HarCode::E001);
+        assert_eq!(err.code(), HarCode::E001);
     }
 }
 
@@ -272,7 +272,7 @@ fn configured_file_cannot_be_a_fixture_ancestor() {
         let err = parse(&collision)
             .err()
             .unwrap_or_else(|| panic!("nested file path must fail"));
-        assert_eq!(err.code, HarCode::E001);
+        assert_eq!(err.code(), HarCode::E001);
     }
 }
 
@@ -281,30 +281,30 @@ fn semantic_rules_enforced() {
     // Terminal op without any launch.
     let doc = minimal_with_steps(r#"[{"op":"text","text":"x"},{"op":"finish"}]"#);
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // Duplicate capture name.
     let dup = minimal_with_steps(&format!(
         r#"[{{"op":"capture","name":"gh","path":"a","behavior":{{"stdout":"","stderr":"","exit_code":0,"stdin_limit":0,"hang":false,"spawn_child_hang":false}}}},
             {{"op":"capture","name":"gh","path":"b","behavior":{{"stdout":"","stderr":"","exit_code":0,"stdin_limit":0,"hang":false,"spawn_child_hang":false}}}},{LAUNCH}]"#
     ));
     let err = parse(&dup).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // assert-capture against unregistered name.
     let unreg = minimal_with_steps(&format!(
         r#"[{LAUNCH},{{"op":"assert-capture","capture":{{"name":"gh","invocation":1,"argv":[],"env":[],"cwd":"/w"}}}}]"#
     ));
     let err = parse(&unreg).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // Steps after finish.
     let after = minimal_with_steps(&format!(
         r#"[{LAUNCH},{{"op":"finish"}},{{"op":"text","text":"x"}}]"#
     ));
     let err = parse(&after).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // Second launch.
     let twice = minimal_with_steps(&format!("[{LAUNCH},{LAUNCH}]"));
     let err = parse(&twice).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // Duplicate workspace paths.
     let dup_paths = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
         "\"dirs\":[]",
@@ -313,14 +313,14 @@ fn semantic_rules_enforced() {
     let err = parse(&dup_paths)
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     // Duplicate workspace env names.
     let dup_env = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
         "\"env\":[]",
         r#""env":[{"name":"A","value":"1"},{"name":"A","value":"2"}]"#,
     );
     let err = parse(&dup_env).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
 
     // Capture executable and behavior paths cannot overwrite fixtures.
     for fixture_path in ["bin/gh", "bin/gh.capture.json"] {
@@ -336,7 +336,7 @@ fn semantic_rules_enforced() {
         let err = parse(&collision)
             .err()
             .unwrap_or_else(|| panic!("capture collision must fail"));
-        assert_eq!(err.code, HarCode::E001, "{fixture_path}");
+        assert_eq!(err.code(), HarCode::E001, "{fixture_path}");
     }
 }
 
@@ -353,5 +353,17 @@ fn secret_rules_apply() {
     let doc =
         minimal_with_steps(&format!("[{LAUNCH}]")).replace("\"secrets\":[]", "\"secrets\":[\"\"]");
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
+}
+
+#[test]
+fn secret_count_is_bounded_during_parsing() {
+    let secrets = (0..65)
+        .map(|index| format!(r#""secret-{index}""#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let doc = minimal_with_steps(&format!("[{LAUNCH}]"))
+        .replace("\"secrets\":[]", &format!("\"secrets\":[{secrets}]"));
+    let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
+    assert_eq!(err.code(), HarCode::E002);
 }

@@ -28,12 +28,14 @@ use super::workspace::Workspace;
 const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The outcome of a run: the report plus the overall error, if any.
+#[derive(Debug)]
 pub struct RunOutcome {
     pub report: Report,
     pub error: Option<HarnessError>,
 }
 
 /// Configuration for a run.
+#[derive(Debug, Clone)]
 pub struct RunnerConfig {
     /// The capture shim fixture binary.
     pub shim_binary: PathBuf,
@@ -77,9 +79,7 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
     };
     let run_error = state.install_binaries().err().or_else(|| state.execute());
     let capture_error = state.load_capture_reports();
-    if let Some(err) = &capture_error
-        && run_error.is_some()
-    {
+    if let Some(err) = &capture_error {
         state.report.steps.push(StepResult {
             index: scenario.steps.len(),
             op: "load-captures".to_string(),

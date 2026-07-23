@@ -103,7 +103,7 @@ mod tests {
         let err = build("/ws", &[var("BAD", "${workspace}/a:${workspace}/b")], &[])
             .err()
             .unwrap_or_else(|| panic!("must fail"));
-        assert_eq!(err.code, super::super::error::HarCode::E003);
+        assert_eq!(err.code(), super::super::error::HarCode::E003);
     }
 
     #[test]
@@ -111,6 +111,6 @@ mod tests {
         let err = build("/ws", &[var("BAD", "x${workspace}")], &[])
             .err()
             .unwrap_or_else(|| panic!("must fail"));
-        assert_eq!(err.code, super::super::error::HarCode::E003);
+        assert_eq!(err.code(), super::super::error::HarCode::E003);
     }
 }

@@ -311,7 +311,7 @@ impl Workspace {
     fn verify_ancestor(&mut self, prefix: &str) -> Result<(), HarnessError> {
         let absolute = self.root.join(prefix);
         let handle = open_dir_nofollow(&absolute).map_err(|err| {
-            if err.code == super::error::HarCode::E005
+            if err.code() == super::error::HarCode::E005
                 && std::fs::symlink_metadata(&absolute).is_ok_and(|metadata| metadata.is_symlink())
             {
                 HarnessError::containment(format!("ancestor '{prefix}' is a symlink"))

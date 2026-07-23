@@ -227,7 +227,7 @@ fn wait_timeout_escalates_and_reaps_hanging_process_tree() {
         .error
         .as_ref()
         .unwrap_or_else(|| panic!("wait must time out"));
-    assert!(err.timeout, "timeout flag must map to exit 124");
+    assert!(err.is_timeout(), "timeout flag must map to exit 124");
     assert_eq!(err.exit_code(), 124);
     assert_eq!(outcome.report.status, "failed");
     // CW00-08: the shim (child) and its hanging grandchild are both gone.
@@ -345,7 +345,7 @@ fn failure_stops_later_steps_and_retains_workspace() {
         .error
         .as_ref()
         .unwrap_or_else(|| panic!("assertion must fail"));
-    assert_eq!(err.code, HarCode::E006);
+    assert_eq!(err.code(), HarCode::E006);
     assert_eq!(err.exit_code(), 4);
     // Later steps did not run.
     let after = std::path::Path::new(&outcome.report.workspace).join("work/after.txt");

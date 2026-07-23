@@ -240,14 +240,14 @@ fn parse_expectation(context: &str, value: &JsonValue) -> Result<CaptureExpectat
     let stdin = opt_string(&mut reader, context, "stdin")?;
     let stdout = opt_string(&mut reader, context, "stdout")?;
     let stderr = opt_string(&mut reader, context, "stderr")?;
-    let exit_code = match reader.opt("exit_code") {
+    let exit_code = match reader.opt("exit_code")? {
         Some(value) => Some(
             u8::try_from(as_int_in(&format!("{context}.exit_code"), value, (0, 255))?)
                 .map_err(|_| HarnessError::limit(format!("{context}.exit_code: out of range")))?,
         ),
         None => None,
     };
-    let signal = match reader.opt("signal") {
+    let signal = match reader.opt("signal")? {
         Some(JsonValue::Int(raw)) => Some(
             i32::try_from(*raw)
                 .map_err(|_| HarnessError::limit(format!("{context}.signal: out of range")))?,
@@ -282,11 +282,11 @@ fn parse_assert_file(context: &str, reader: &mut ObjectReader<'_>) -> Result<Ste
         file_reader.require("path")?,
     )?;
     let path = validate_rel_path(&format!("{file_context}.path"), raw_path)?;
-    let exists = match file_reader.opt("exists") {
+    let exists = match file_reader.opt("exists")? {
         Some(value) => as_bool(&format!("{file_context}.exists"), value)?,
         None => true,
     };
-    let body = match file_reader.opt("content") {
+    let body = match file_reader.opt("content")? {
         Some(value) => Some(parse_content(&format!("{file_context}.content"), value)?),
         None => None,
     };
@@ -323,7 +323,7 @@ fn opt_string(
     context: &str,
     field: &str,
 ) -> Result<Option<String>, HarnessError> {
-    match reader.opt(field) {
+    match reader.opt(field)? {
         Some(value) => Ok(Some(
             as_str(&format!("{context}.{field}"), value)?.to_string(),
         )),

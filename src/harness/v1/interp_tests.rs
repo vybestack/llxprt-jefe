@@ -41,7 +41,7 @@ fn embedded_workspace_reference_is_e003() {
         let err = validate_value("f", value)
             .err()
             .unwrap_or_else(|| panic!("{value:?} must fail"));
-        assert_eq!(err.code, HarCode::E003, "{value:?}");
+        assert_eq!(err.code(), HarCode::E003, "{value:?}");
         assert_eq!(err.exit_code(), 2, "{value:?}");
     }
 }
@@ -52,7 +52,7 @@ fn unknown_name_is_e003() {
         let err = validate_value("f", value)
             .err()
             .unwrap_or_else(|| panic!("{value:?} must fail"));
-        assert_eq!(err.code, HarCode::E003, "{value:?}");
+        assert_eq!(err.code(), HarCode::E003, "{value:?}");
     }
 }
 
@@ -62,7 +62,7 @@ fn bare_and_unterminated_dollar_are_e003() {
         let err = validate_value("f", value)
             .err()
             .unwrap_or_else(|| panic!("{value:?} must fail"));
-        assert_eq!(err.code, HarCode::E003, "{value:?}");
+        assert_eq!(err.code(), HarCode::E003, "{value:?}");
     }
 }
 

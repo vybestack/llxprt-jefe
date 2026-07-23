@@ -26,26 +26,20 @@ use jefe::harness::v1::runner::RunnerConfig;
 
 #[cfg(not(unix))]
 fn main() -> ExitCode {
-    write_stderr(
+    emit_stderr(
         "HAR-E005: the schema-1 harness requires a Unix PTY (macOS/Linux)
 ",
-    );
-    ExitCode::from(4)
+        4,
+    )
 }
 
 #[cfg(unix)]
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(&args) {
-        Ok(Command::Help) => {
-            write_stdout(&format!("{}\n", usage()));
-            ExitCode::SUCCESS
-        }
+        Ok(Command::Help) => emit_stdout(&format!("{}\n", usage()), 0),
         Ok(Command::Run(config)) => execute(&config),
-        Err(message) => {
-            write_stderr(&format!("HAR-E001: {message}\n\n{}\n", usage()));
-            ExitCode::from(2)
-        }
+        Err(message) => emit_stderr(&format!("HAR-E001: {message}\n\n{}\n", usage()), 2),
     }
 }
 
@@ -122,23 +116,24 @@ fn execute(config: &CliConfig) -> ExitCode {
     let bytes = match std::fs::read(&config.scenario) {
         Ok(bytes) => bytes,
         Err(err) => {
-            write_stderr(&format!(
-                "HAR-E005: read scenario '{}': {err}\n",
-                config.scenario.display()
-            ));
-            return ExitCode::from(4);
+            return emit_stderr(
+                &format!(
+                    "HAR-E005: read scenario '{}': {err}\n",
+                    config.scenario.display()
+                ),
+                4,
+            );
         }
     };
     let scenario = match parse_scenario_v1(&bytes) {
         Ok(scenario) => scenario,
-        Err(err) => {
-            write_stderr(&format!("{err}\n"));
-            return ExitCode::from(err.exit_code());
-        }
+        Err(err) => return emit_stderr(&format!("{err}\n"), err.exit_code()),
     };
     if Platform::current() != Some(scenario.platform) {
-        write_stderr("HAR-E005: scenario targets another platform; skipping is not success\n");
-        return ExitCode::from(4);
+        return emit_stderr(
+            "HAR-E005: scenario targets another platform; skipping is not success\n",
+            4,
+        );
     }
     let redactor = Redactor::new(&scenario.secrets);
     let outcome = run(
@@ -148,20 +143,22 @@ fn execute(config: &CliConfig) -> ExitCode {
             installs: config.installs.clone(),
         },
     );
-    match outcome.report.to_redacted_json(&redactor) {
-        Ok(rendered) => write_stdout(&format!("{rendered}\n")),
+    let rendered = match outcome.report.to_redacted_json(&redactor) {
+        Ok(rendered) => rendered,
         Err(err) => {
             let (detail, _) = redactor.redact(&err.to_string());
-            write_stderr(&format!("{detail}\n"));
-            return ExitCode::from(err.exit_code());
+            return emit_stderr(&format!("{detail}\n"), err.exit_code());
         }
+    };
+    if let Err(err) = write_stdout(&format!("{rendered}\n")) {
+        let (detail, _) = redactor.redact(&format!("HAR-E005: write report: {err}"));
+        return emit_stderr(&format!("{detail}\n"), 4);
     }
     match outcome.error {
         None => ExitCode::SUCCESS,
         Some(err) => {
             let (detail, _) = redactor.redact(&err.to_string());
-            write_stderr(&format!("{detail}\n"));
-            ExitCode::from(err.exit_code())
+            emit_stderr(&format!("{detail}\n"), err.exit_code())
         }
     }
 }
@@ -184,10 +181,32 @@ Exit codes: 0 success, 2 validation, 4 I/O/process/assertion, 124 timeout."
         .to_string()
 }
 
-fn write_stdout(message: &str) {
-    let _ = std::io::stdout().write_all(message.as_bytes());
+fn emit_stdout(message: &str, success_code: u8) -> ExitCode {
+    match write_stdout(message) {
+        Ok(()) => ExitCode::from(success_code),
+        Err(err) => emit_stderr(
+            &format!(
+                "HAR-E005: write stdout: {err}
+"
+            ),
+            4,
+        ),
+    }
 }
 
-fn write_stderr(message: &str) {
-    let _ = std::io::stderr().write_all(message.as_bytes());
+fn emit_stderr(message: &str, exit_code: u8) -> ExitCode {
+    let _ = write_stderr(message);
+    ExitCode::from(exit_code)
+}
+
+fn write_stdout(message: &str) -> std::io::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(message.as_bytes())?;
+    stdout.flush()
+}
+
+fn write_stderr(message: &str) -> std::io::Result<()> {
+    let mut stderr = std::io::stderr().lock();
+    stderr.write_all(message.as_bytes())?;
+    stderr.flush()
 }

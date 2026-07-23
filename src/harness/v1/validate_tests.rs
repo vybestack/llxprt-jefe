@@ -18,7 +18,7 @@ fn rejects_forbidden_path_shapes() {
         let err = validate_rel_path("f", path)
             .err()
             .unwrap_or_else(|| panic!("{path:?} must fail"));
-        assert_eq!(err.code, HarCode::E001, "{path:?}");
+        assert_eq!(err.code(), HarCode::E001, "{path:?}");
     }
 }
 
@@ -31,7 +31,7 @@ fn path_length_at_limit_passes_and_plus_one_is_e002() {
     let err = validate_rel_path("f", &over)
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn env_name_regex_enforced() {
         let err = validate_env_name("f", name)
             .err()
             .unwrap_or_else(|| panic!("{name:?} must fail"));
-        assert_eq!(err.code, HarCode::E001, "{name:?}");
+        assert_eq!(err.code(), HarCode::E001, "{name:?}");
     }
     let at_limit = "A".repeat(128);
     validate_env_name("f", &at_limit).unwrap_or_else(|err| panic!("should pass: {err}"));
@@ -60,7 +60,7 @@ fn capture_ids_are_closed() {
         let err = validate_id("f", id)
             .err()
             .unwrap_or_else(|| panic!("{id:?} must fail"));
-        assert_eq!(err.code, HarCode::E001, "{id:?}");
+        assert_eq!(err.code(), HarCode::E001, "{id:?}");
     }
     validate_id("f", &"a".repeat(64)).unwrap_or_else(|err| panic!("should pass: {err}"));
     assert!(validate_id("f", &"a".repeat(65)).is_err());
@@ -76,14 +76,14 @@ fn secrets_reject_empty_and_over_count() {
         validate_secrets(&over)
             .err()
             .unwrap_or_else(|| panic!("must fail"))
-            .code,
+            .code(),
         HarCode::E002
     );
     assert_eq!(
         validate_secrets(&[String::new()])
             .err()
             .unwrap_or_else(|| panic!("must fail"))
-            .code,
+            .code(),
         HarCode::E001
     );
 }
@@ -123,7 +123,7 @@ fn base64_rejects_malformed_input() {
         let err = decode_base64("f", bad)
             .err()
             .unwrap_or_else(|| panic!("{bad:?} must fail"));
-        assert_eq!(err.code, HarCode::E001, "{bad:?}");
+        assert_eq!(err.code(), HarCode::E001, "{bad:?}");
     }
 }
 
@@ -132,5 +132,5 @@ fn base64_interior_padding_rejected() {
     let err = decode_base64("f", "QQ==QUJD")
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
 }

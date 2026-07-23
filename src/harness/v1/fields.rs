@@ -33,19 +33,31 @@ impl<'a> ObjectReader<'a> {
     }
 
     /// Take an optional field.
-    pub fn opt(&mut self, name: &str) -> Option<&'a JsonValue> {
-        let index = self.members.iter().position(|(key, _)| key == name)?;
+    ///
+    /// # Errors
+    ///
+    /// `HAR-E001` when the caller attempts to consume the field twice.
+    pub fn opt(&mut self, name: &str) -> Result<Option<&'a JsonValue>, HarnessError> {
+        let Some(index) = self.members.iter().position(|(key, _)| key == name) else {
+            return Ok(None);
+        };
+        if self.taken[index] {
+            return Err(HarnessError::syntax(format!(
+                "{}: field '{name}' was consumed more than once",
+                self.context
+            )));
+        }
         self.taken[index] = true;
-        Some(&self.members[index].1)
+        Ok(Some(&self.members[index].1))
     }
 
     /// Take a required field.
     ///
     /// # Errors
     ///
-    /// `HAR-E001` when the field is absent.
+    /// `HAR-E001` when the field is absent or has already been consumed.
     pub fn require(&mut self, name: &str) -> Result<&'a JsonValue, HarnessError> {
-        self.opt(name).ok_or_else(|| {
+        self.opt(name)?.ok_or_else(|| {
             HarnessError::syntax(format!("{}: missing required field '{name}'", self.context))
         })
     }
@@ -154,4 +166,28 @@ pub fn bounded_len(context: &str, len: usize, max: usize) -> Result<(), HarnessE
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::error::HarCode;
+    use super::{JsonValue, ObjectReader};
+
+    #[test]
+    fn optional_field_cannot_be_consumed_twice() {
+        let value = JsonValue::Object(vec![("field".to_string(), JsonValue::Null)]);
+        let mut reader = ObjectReader::new("object", &value)
+            .unwrap_or_else(|err| panic!("reader should construct: {err}"));
+        assert!(
+            reader
+                .opt("field")
+                .unwrap_or_else(|err| panic!("first read should pass: {err}"))
+                .is_some()
+        );
+        let err = reader
+            .opt("field")
+            .err()
+            .unwrap_or_else(|| panic!("second read must fail"));
+        assert_eq!(err.code(), HarCode::E001);
+    }
 }

@@ -151,7 +151,7 @@ mod tests {
             let err = encode("f", key, &modifiers)
                 .err()
                 .unwrap_or_else(|| panic!("{key:?} must fail"));
-            assert_eq!(err.code, HarCode::E001, "{key:?}");
+            assert_eq!(err.code(), HarCode::E001, "{key:?}");
         }
     }
 }

@@ -22,7 +22,7 @@ fn rejects_duplicate_keys_as_e001() {
     let err = parse(r#"{"a":1,"a":2}"#)
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
     assert_eq!(err.exit_code(), 2);
 }
 
@@ -32,7 +32,7 @@ fn rejects_non_integer_numbers_as_e001() {
         let err = parse(doc)
             .err()
             .unwrap_or_else(|| panic!("must fail: {doc}"));
-        assert_eq!(err.code, HarCode::E001, "{doc}");
+        assert_eq!(err.code(), HarCode::E001, "{doc}");
     }
 }
 
@@ -42,7 +42,7 @@ fn rejects_trailing_data_and_syntax_errors() {
         let err = parse(doc)
             .err()
             .unwrap_or_else(|| panic!("must fail: {doc}"));
-        assert_eq!(err.code, HarCode::E001, "{doc}");
+        assert_eq!(err.code(), HarCode::E001, "{doc}");
     }
 }
 
@@ -51,7 +51,7 @@ fn rejects_invalid_utf8_input() {
     let err = parse_json(&[b'{', 0xFF, b'}'])
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E001);
+    assert_eq!(err.code(), HarCode::E001);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn depth_at_limit_parses_and_plus_one_is_e002() {
     parse(&at_limit).unwrap_or_else(|err| panic!("at-limit should parse: {err}"));
     let over = format!("{}1{}", "[".repeat(17), "]".repeat(17));
     let err = parse(&over).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
     assert_eq!(err.exit_code(), 2);
 }
 
@@ -75,7 +75,7 @@ fn object_members_at_limit_parse_and_plus_one_is_e002() {
     let err = parse(&build(257))
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn array_elements_at_limit_parse_and_plus_one_is_e002() {
     let err = parse(&build(1025))
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn input_bytes_over_limit_is_e002() {
     doc.push_str(&"a".repeat(1_048_576));
     doc.push_str("\"]");
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn string_over_limit_is_e002() {
     doc.push_str(&"a".repeat(262_145));
     doc.push('"');
     let err = parse(&doc).err().unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn rejects_unpaired_surrogates_and_bad_escapes() {
         let err = parse(doc)
             .err()
             .unwrap_or_else(|| panic!("must fail: {doc}"));
-        assert_eq!(err.code, HarCode::E001, "{doc}");
+        assert_eq!(err.code(), HarCode::E001, "{doc}");
     }
 }
 

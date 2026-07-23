@@ -185,9 +185,14 @@ fn check_capture(
         )));
     }
     for reserved in [path.to_string(), format!("{path}{BEHAVIOR_SUFFIX}")] {
-        if scan.occupied_paths.contains(&reserved) || !scan.capture_paths.insert(reserved.clone()) {
+        if scan.occupied_paths.contains(&reserved) {
             return Err(HarnessError::syntax(format!(
                 "steps[{index}]: capture path '{reserved}' conflicts with fixture content"
+            )));
+        }
+        if !scan.capture_paths.insert(reserved.clone()) {
+            return Err(HarnessError::syntax(format!(
+                "steps[{index}]: duplicate capture path '{reserved}'"
             )));
         }
     }

@@ -194,6 +194,6 @@ mod tests {
             .to_redacted_json(&Redactor::new(&[]))
             .err()
             .unwrap_or_else(|| panic!("oversized report should fail"));
-        assert_eq!(err.code.label(), "HAR-E002");
+        assert_eq!(err.code().label(), "HAR-E002");
     }
 }

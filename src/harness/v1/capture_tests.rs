@@ -74,14 +74,14 @@ fn unlisted_env_pairs_are_permitted_listed_must_match() {
     check_expectation(&[record(1)], &exp, "/ws")
         .unwrap_or_else(|err| panic!("subset should pass: {err}"));
     let mut exp = expectation();
-    exp.env.push(crate::harness::v1::contract::EnvVar {
+    exp.env.push(EnvVar {
         name: "MISSING".to_string(),
         value: "x".to_string(),
     });
     let err = check_expectation(&[record(1)], &exp, "/ws")
         .err()
         .unwrap_or_else(|| panic!("missing listed pair must fail"));
-    assert_eq!(err.code, HarCode::E006);
+    assert_eq!(err.code(), HarCode::E006);
 }
 
 type Mutation = fn(&mut CaptureExpectation);
@@ -106,8 +106,8 @@ fn each_field_mismatch_is_e006() {
         let err = check_expectation(&[record(1)], &exp, "/ws")
             .err()
             .unwrap_or_else(|| panic!("{field} mismatch must fail"));
-        assert_eq!(err.code, HarCode::E006, "{field}");
-        assert!(err.detail.contains(field), "{field}: {}", err.detail);
+        assert_eq!(err.code(), HarCode::E006, "{field}");
+        assert!(err.detail().contains(field), "{field}: {}", err.detail());
     }
 }
 
@@ -118,7 +118,7 @@ fn missing_invocation_is_e006() {
     let err = check_expectation(&[record(1)], &exp, "/ws")
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E006);
+    assert_eq!(err.code(), HarCode::E006);
 }
 
 #[test]
@@ -143,8 +143,12 @@ fn incomplete_record_fails_exit_code_expectation() {
     let err = check_expectation(&[rec], &expectation(), "/ws")
         .err()
         .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code, HarCode::E006);
-    assert!(err.detail.contains("did not complete"), "{}", err.detail);
+    assert_eq!(err.code(), HarCode::E006);
+    assert!(
+        err.detail().contains("did not complete"),
+        "{}",
+        err.detail()
+    );
 }
 
 #[test]
@@ -163,8 +167,8 @@ fn signal_expectation_compares_exactly() {
     let err = check_expectation(&[rec], &exp, "/ws")
         .err()
         .unwrap_or_else(|| panic!("wrong signal must fail"));
-    assert_eq!(err.code, HarCode::E006);
-    assert!(err.detail.contains("expected 9, recorded Some(15)"));
+    assert_eq!(err.code(), HarCode::E006);
+    assert!(err.detail().contains("expected 9, recorded Some(15)"));
 }
 
 #[test]
@@ -175,5 +179,5 @@ fn normal_exit_does_not_satisfy_signal_expectation() {
     let err = check_expectation(&[record(1)], &exp, "/ws")
         .err()
         .unwrap_or_else(|| panic!("normal exit must not satisfy a signal"));
-    assert_eq!(err.code, HarCode::E006);
+    assert_eq!(err.code(), HarCode::E006);
 }

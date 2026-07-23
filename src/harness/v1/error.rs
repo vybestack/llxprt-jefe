@@ -45,9 +45,9 @@ impl HarCode {
 /// (`HAR-E005`) but must map to exit 124 rather than 4.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessError {
-    pub code: HarCode,
-    pub detail: String,
-    pub timeout: bool,
+    code: HarCode,
+    detail: String,
+    timeout: bool,
 }
 
 impl HarnessError {
@@ -110,6 +110,24 @@ impl HarnessError {
             detail: detail.into(),
             timeout: true,
         }
+    }
+
+    /// The stable diagnostic code.
+    #[must_use]
+    pub const fn code(&self) -> HarCode {
+        self.code
+    }
+
+    /// The redactable diagnostic detail.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+
+    /// Whether this process failure maps to the timeout exit code.
+    #[must_use]
+    pub const fn is_timeout(&self) -> bool {
+        self.timeout
     }
 
     /// Map this failure to the contract exit code.

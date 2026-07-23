@@ -12,7 +12,9 @@ use super::contract::{
 use super::error::HarnessError;
 use super::fields::{ObjectReader, as_array, as_int_in, as_str, bounded_len};
 use super::json::{JsonValue, parse_json};
-use super::limits::{COLS_RANGE, MAX_ENV, MAX_STEPS, MAX_WORKSPACE_ENTRIES, ROWS_RANGE};
+use super::limits::{
+    COLS_RANGE, MAX_ENV, MAX_SECRETS, MAX_STEPS, MAX_WORKSPACE_ENTRIES, ROWS_RANGE,
+};
 use super::parse_step::parse_step;
 use super::semantic;
 use super::validate::{decode_base64, validate_env_name, validate_rel_path, validate_secrets};
@@ -60,7 +62,7 @@ pub fn parse_scenario_v1(input: &[u8]) -> Result<ScenarioV1, HarnessError> {
 /// The schema gate: `schema` must be present and exactly the integer 1.
 /// There is no other accepted input format and no fallback.
 fn check_schema(reader: &mut ObjectReader<'_>) -> Result<(), HarnessError> {
-    let Some(value) = reader.opt("schema") else {
+    let Some(value) = reader.opt("schema")? else {
         return Err(HarnessError::syntax(
             "scenario: missing required field 'schema' (schema-1 input is the only accepted format)",
         ));
@@ -190,8 +192,8 @@ pub(super) fn parse_file(context: &str, value: &JsonValue) -> Result<FileSpec, H
 /// Parse a `{utf8: string}` or `{base64: string}` content object.
 pub(super) fn parse_content(context: &str, value: &JsonValue) -> Result<FileContent, HarnessError> {
     let mut reader = ObjectReader::new(context, value)?;
-    let utf8 = reader.opt("utf8");
-    let base64 = reader.opt("base64");
+    let utf8 = reader.opt("utf8")?;
+    let base64 = reader.opt("base64")?;
     reader.finish()?;
     match (utf8, base64) {
         (Some(text), None) => Ok(FileContent::Utf8(
@@ -235,6 +237,7 @@ pub(super) fn parse_env_list(
 
 fn parse_secret_list(value: &JsonValue) -> Result<Vec<String>, HarnessError> {
     let entries = as_array("scenario.secrets", value)?;
+    bounded_len("scenario.secrets", entries.len(), MAX_SECRETS)?;
     let mut secrets = Vec::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
         secrets.push(as_str(&format!("scenario.secrets[{index}]"), entry)?.to_string());

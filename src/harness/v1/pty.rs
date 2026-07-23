@@ -367,7 +367,9 @@ impl Drop for PtySession {
             let _ = signal_group(pgid, "-KILL");
         }
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        if self.exit.is_none() {
+            let _ = self.child.wait();
+        }
     }
 }
 

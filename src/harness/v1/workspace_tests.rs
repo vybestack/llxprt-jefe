@@ -132,7 +132,7 @@ fn symlink_target_write_is_containment_error() {
         })
         .err()
         .unwrap_or_else(|| panic!("write through symlink must fail"));
-    assert_eq!(err.code, HarCode::E004);
+    assert_eq!(err.code(), HarCode::E004);
     let content =
         std::fs::read_to_string(&victim).unwrap_or_else(|err| panic!("victim read: {err}"));
     assert_eq!(content, "safe", "victim file must be untouched");
@@ -182,7 +182,7 @@ fn symlink_ancestor_swap_is_rejected_before_access() {
         })
         .err()
         .unwrap_or_else(|| panic!("write through swapped ancestor must fail"));
-    assert_eq!(err.code, HarCode::E004);
+    assert_eq!(err.code(), HarCode::E004);
     assert!(
         !outside.path().join("leak.txt").exists(),
         "no file may appear outside the workspace"
@@ -213,7 +213,7 @@ fn replaced_ancestor_directory_identity_is_rejected() {
         })
         .err()
         .unwrap_or_else(|| panic!("write below replaced ancestor must fail"));
-    assert_eq!(err.code, HarCode::E004);
+    assert_eq!(err.code(), HarCode::E004);
 }
 
 #[test]

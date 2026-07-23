@@ -57,8 +57,16 @@ fn run() -> Result<u8, String> {
         record.child_pid = Some(spawn_hang_child()?);
     }
     write_record(&records_dir, ordinal, "start", &record)?;
-    let _ = std::io::stdout().write_all(behavior.stdout.as_bytes());
-    let _ = std::io::stderr().write_all(behavior.stderr.as_bytes());
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(behavior.stdout.as_bytes())
+        .and_then(|()| stdout.flush())
+        .map_err(|err| format!("write stdout: {err}"))?;
+    let mut stderr = std::io::stderr().lock();
+    stderr
+        .write_all(behavior.stderr.as_bytes())
+        .and_then(|()| stderr.flush())
+        .map_err(|err| format!("write stderr: {err}"))?;
     if behavior.hang {
         hang_forever();
     }

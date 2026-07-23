@@ -123,7 +123,7 @@ fn containment_fixture_rejects_symlink_swapped_ancestor() {
         .error
         .as_ref()
         .unwrap_or_else(|| panic!("containment violation must fail the run"));
-    assert_eq!(err.code, HarCode::E004);
+    assert_eq!(err.code(), HarCode::E004);
     assert_eq!(err.exit_code(), 4);
     assert_eq!(outcome.report.status, "failed");
     // The write through the swapped ancestor must never have happened.
@@ -141,7 +141,7 @@ fn timeout_fixture_exits_124_and_reaps_the_tree() {
         .error
         .as_ref()
         .unwrap_or_else(|| panic!("wait must time out"));
-    assert!(err.timeout, "timeout must be marked for exit 124");
+    assert!(err.is_timeout(), "timeout must be marked for exit 124");
     assert_eq!(err.exit_code(), 124);
     let capture = outcome
         .report
@@ -189,6 +189,6 @@ fn limits_fixture_fails_validation_before_any_launch() {
     let err = parse_scenario_v1(json.as_bytes())
         .err()
         .unwrap_or_else(|| panic!("cols over limit must fail validation"));
-    assert_eq!(err.code, HarCode::E002);
+    assert_eq!(err.code(), HarCode::E002);
     assert_eq!(err.exit_code(), 2);
 }
