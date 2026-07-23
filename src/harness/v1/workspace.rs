@@ -65,6 +65,9 @@ pub struct Workspace {
     _root_handle: File,
     /// First-observation identity per relative directory path.
     identities: BTreeMap<String, Identity>,
+    /// Keep observed directories open so a removed inode cannot be reused
+    /// while its recorded identity is still authoritative.
+    ancestor_handles: BTreeMap<String, File>,
 }
 
 impl Workspace {
@@ -96,6 +99,7 @@ impl Workspace {
             _root_handle: root_handle,
             root,
             identities: BTreeMap::new(),
+            ancestor_handles: BTreeMap::new(),
         };
         for name in ENV_DIRS {
             let path = RelPath::derived((*name).to_string());
@@ -154,7 +158,7 @@ impl Workspace {
         let metadata = handle
             .metadata()
             .map_err(|err| HarnessError::process(format!("stat '{}': {err}", dir.path.as_str())))?;
-        self.remember_identity(&dir.path, Identity::of(&metadata))
+        self.remember_identity(&dir.path, Identity::of(&metadata), handle)
     }
 
     /// Apply a `write` operation: create or replace the file with the
@@ -202,6 +206,8 @@ impl Workspace {
         result.map_err(|err| HarnessError::process(format!("remove '{}': {err}", rel.as_str())))?;
         let prefix = format!("{}/", rel.as_str());
         self.identities
+            .retain(|path, _| path != rel.as_str() && !path.starts_with(&prefix));
+        self.ancestor_handles
             .retain(|path, _| path != rel.as_str() && !path.starts_with(&prefix));
         Ok(())
     }
@@ -264,6 +270,7 @@ impl Workspace {
         &mut self,
         path: &RelPath,
         identity: Identity,
+        handle: File,
     ) -> Result<(), HarnessError> {
         match self.identities.get(path.as_str()) {
             Some(recorded) if *recorded != identity => Err(HarnessError::containment(format!(
@@ -272,7 +279,9 @@ impl Workspace {
             ))),
             Some(_) => Ok(()),
             None => {
-                self.identities.insert(path.as_str().to_string(), identity);
+                let key = path.as_str().to_string();
+                self.identities.insert(key.clone(), identity);
+                self.ancestor_handles.insert(key, handle);
                 Ok(())
             }
         }
@@ -294,7 +303,9 @@ impl Workspace {
             ))),
             Some(_) => Ok(()),
             None => {
-                self.identities.insert(prefix.to_string(), identity);
+                let key = prefix.to_string();
+                self.identities.insert(key.clone(), identity);
+                self.ancestor_handles.insert(key, handle);
                 Ok(())
             }
         }
