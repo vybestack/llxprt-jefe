@@ -20,7 +20,8 @@ fn record(ordinal: u64) -> CaptureRecord {
         stdin: "body".to_string(),
         stdout: "out".to_string(),
         stderr: "err".to_string(),
-        exit_code: 0,
+        exit_code: Some(0),
+        signal: None,
         completed: true,
     }
 }
@@ -131,7 +132,7 @@ fn optional_fields_skip_comparison_when_absent() {
     rec.stdin = "different".to_string();
     rec.stdout = "different".to_string();
     rec.stderr = "different".to_string();
-    rec.exit_code = 42;
+    rec.exit_code = Some(42);
     check_expectation(&[rec], &exp, "/ws").unwrap_or_else(|err| panic!("should pass: {err}"));
 }
 
@@ -144,4 +145,35 @@ fn incomplete_record_fails_exit_code_expectation() {
         .unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E006);
     assert!(err.detail.contains("did not complete"), "{}", err.detail);
+}
+
+#[test]
+fn signal_expectation_compares_exactly() {
+    let mut rec = record(1);
+    rec.completed = false;
+    rec.exit_code = None;
+    rec.signal = Some(15);
+    let mut exp = expectation();
+    exp.exit_code = None;
+    exp.signal = Some(15);
+    check_expectation(&[rec.clone()], &exp, "/ws")
+        .unwrap_or_else(|err| panic!("matching signal should pass: {err}"));
+
+    exp.signal = Some(9);
+    let err = check_expectation(&[rec], &exp, "/ws")
+        .err()
+        .unwrap_or_else(|| panic!("wrong signal must fail"));
+    assert_eq!(err.code, HarCode::E006);
+    assert!(err.detail.contains("expected 9, recorded Some(15)"));
+}
+
+#[test]
+fn normal_exit_does_not_satisfy_signal_expectation() {
+    let mut exp = expectation();
+    exp.exit_code = None;
+    exp.signal = Some(15);
+    let err = check_expectation(&[record(1)], &exp, "/ws")
+        .err()
+        .unwrap_or_else(|| panic!("normal exit must not satisfy a signal"));
+    assert_eq!(err.code, HarCode::E006);
 }

@@ -187,7 +187,7 @@ fn capture_records_exact_process_boundary_fields() {
     let record = &capture.invocations[0];
     assert_eq!(record.ordinal, 1);
     assert!(record.completed);
-    assert_eq!(record.exit_code, 0);
+    assert_eq!(record.exit_code, Some(0));
     // argv[0] is the shim path; the arguments are exact.
     assert!(record.argv[0].ends_with("gh"), "{:?}", record.argv);
     assert_eq!(&record.argv[1..], ["pr", "view"]);
@@ -239,6 +239,12 @@ fn wait_timeout_escalates_and_reaps_hanging_process_tree() {
         .unwrap_or_else(|| panic!("capture must be reported"));
     let record = &capture.invocations[0];
     assert!(!record.completed, "hanging shim cannot have completed");
+    assert_eq!(
+        record.signal,
+        Some(15),
+        "TERM phase must record the exact terminating signal"
+    );
+    assert_eq!(record.exit_code, None);
     for pid in [Some(record.pid), record.child_pid].into_iter().flatten() {
         assert!(
             !process_exists(pid),
@@ -300,6 +306,27 @@ fn secrets_are_redacted_in_report_and_frames() {
         "secret leaked into the report"
     );
     assert!(rendered.contains("<redacted>"));
+    cleanup(&outcome);
+}
+
+#[test]
+fn materialization_failure_reports_retained_workspace() {
+    let probe = bin_path("jefe-harness-probe");
+    let json = format!(
+        r#"{{"schema":1,"name":"materialize-failure","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[],"files":[{{"path":"bin","content":{{"utf8":"conflict"}},"mode":420}}],"env":[]}},
+            "steps":[{{"op":"launch","argv":["{}"],"env":[],"cwd":"bin"}}],"secrets":[]}}"#,
+        current_platform(),
+        probe.display()
+    );
+    let outcome = run_scenario(&json);
+    assert!(outcome.error.is_some(), "materialization must fail");
+    assert!(!outcome.report.workspace.is_empty());
+    assert!(
+        std::path::Path::new(&outcome.report.workspace).is_dir(),
+        "allocated workspace must be retained and reported"
+    );
     cleanup(&outcome);
 }
 

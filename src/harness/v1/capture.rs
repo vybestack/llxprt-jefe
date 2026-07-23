@@ -8,7 +8,9 @@
 //! with the configured code. This module owns the shared DTOs, the runner
 //! side of registration, and `assert-capture` evaluation.
 
+use std::io::Write;
 use std::path::Path;
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 
@@ -57,9 +59,119 @@ pub struct CaptureRecord {
     pub stdin: String,
     pub stdout: String,
     pub stderr: String,
-    pub exit_code: u8,
+    pub exit_code: Option<u8>,
+    pub signal: Option<i32>,
     /// False when only the start record exists (the shim hung or was killed).
     pub completed: bool,
+}
+
+/// Publish a JSON record atomically in its destination directory.
+///
+/// # Errors
+///
+/// Returns a descriptive I/O or serialization failure.
+pub fn write_record_atomic(path: &Path, record: &CaptureRecord) -> Result<(), String> {
+    let serialized = serde_json::to_vec(record).map_err(|err| format!("encode record: {err}"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("record path '{}' has no parent", path.display()))?;
+    for attempt in 0..8u8 {
+        let temporary = parent.join(format!(
+            ".{}.{}.{}.tmp",
+            path.file_name()
+                .map(|name| name.to_string_lossy())
+                .unwrap_or_default(),
+            std::process::id(),
+            attempt
+        ));
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("create record temporary: {err}")),
+        };
+        let result = file
+            .write_all(&serialized)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| std::fs::rename(&temporary, path));
+        if let Err(err) = result {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!("publish record: {err}"));
+        }
+        return Ok(());
+    }
+    Err("allocate record temporary: all bounded names exist".to_string())
+}
+
+/// Record the signal that ended each incomplete capture process which is no
+/// longer alive after one cleanup escalation phase.
+///
+/// # Errors
+///
+/// `HAR-E005` when a record cannot be read, decoded, or atomically updated.
+pub fn record_terminated_signals(
+    workspace: &Path,
+    names: &[String],
+    signal: i32,
+) -> Result<(), HarnessError> {
+    for name in names {
+        let dir = workspace.join(RECORDS_DIR).join(name);
+        for ordinal in 1..=(MAX_PROCESSES_PER_CAPTURE as u64) {
+            let done = dir.join(format!("{ordinal}.json"));
+            let start = dir.join(format!("{ordinal}.start.json"));
+            if done.exists() {
+                continue;
+            }
+            if !start.exists() {
+                break;
+            }
+            let bytes = std::fs::read(&start).map_err(|err| {
+                HarnessError::process(format!(
+                    "read capture start record '{name}' #{ordinal}: {err}"
+                ))
+            })?;
+            let mut record: CaptureRecord = serde_json::from_slice(&bytes).map_err(|err| {
+                HarnessError::process(format!(
+                    "decode capture start record '{name}' #{ordinal}: {err}"
+                ))
+            })?;
+            if record.signal.is_none() && !process_exists(record.pid)? {
+                record.signal = Some(signal);
+                write_record_atomic(&start, &record).map_err(|err| {
+                    HarnessError::process(format!(
+                        "update capture start record '{name}' #{ordinal}: {err}"
+                    ))
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn process_exists(pid: u32) -> Result<bool, HarnessError> {
+    for candidate in ["/bin/kill", "/usr/bin/kill"] {
+        match std::process::Command::new(candidate)
+            .args(["-0", "--", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        {
+            Ok(status) => return Ok(status.success()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(HarnessError::process(format!(
+                    "inspect capture process {pid}: {err}"
+                )));
+            }
+        }
+    }
+    Err(HarnessError::process(
+        "no fixed-path kill executable found".to_string(),
+    ))
 }
 
 /// Register a capture: materialize the shim at `path`, write its behavior
@@ -310,19 +422,21 @@ fn check_exit(
                 "invocation did not complete",
             ));
         }
-        if record.exit_code != code {
+        if record.exit_code != Some(code) {
             return Err(mismatch(
                 expectation,
                 "exit_code",
-                &format!("expected {code}, recorded {}", record.exit_code),
+                &format!("expected {code}, recorded {:?}", record.exit_code),
             ));
         }
     }
-    if expectation.signal.is_some() && record.completed {
+    if let Some(signal) = expectation.signal
+        && record.signal != Some(signal)
+    {
         return Err(mismatch(
             expectation,
             "signal",
-            "invocation completed normally",
+            &format!("expected {signal}, recorded {:?}", record.signal),
         ));
     }
     Ok(())

@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use jefe::harness::v1::capture::{
     BEHAVIOR_SUFFIX, CaptureRecord, EXHAUSTED_EXIT, HANG_CHILD_ENV, HANG_CHILD_ROLE,
-    ShimBehaviorFile,
+    ShimBehaviorFile, write_record_atomic,
 };
 use jefe::harness::v1::limits::MAX_PROCESSES_PER_CAPTURE;
 
@@ -49,7 +49,8 @@ fn run() -> Result<u8, String> {
         stdin,
         stdout: behavior.stdout.clone(),
         stderr: behavior.stderr.clone(),
-        exit_code: behavior.exit_code,
+        exit_code: None,
+        signal: None,
         completed: false,
     };
     if behavior.spawn_child_hang {
@@ -62,6 +63,7 @@ fn run() -> Result<u8, String> {
         hang_forever();
     }
     record.completed = true;
+    record.exit_code = Some(behavior.exit_code);
     write_record(&records_dir, ordinal, "done", &record)?;
     Ok(behavior.exit_code)
 }
@@ -140,14 +142,12 @@ fn write_record(
     stage: &str,
     record: &CaptureRecord,
 ) -> Result<(), String> {
-    let serialized = serde_json::to_vec(record).map_err(|err| format!("encode record: {err}"))?;
     let file_name = if stage == "done" {
         format!("{ordinal}.json")
     } else {
         format!("{ordinal}.start.json")
     };
-    std::fs::write(records_dir.join(file_name), serialized)
-        .map_err(|err| format!("write record: {err}"))
+    write_record_atomic(&records_dir.join(file_name), record)
 }
 
 fn hang_forever() -> ! {

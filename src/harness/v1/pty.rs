@@ -273,33 +273,58 @@ impl PtySession {
     ///
     /// `HAR-E007` when descendants survive the final window.
     pub fn stop(&mut self) -> Result<ProcessExit, HarnessError> {
-        let result = self.stop_inner();
+        self.stop_observed(|_| Ok(()))
+    }
+
+    /// Stop the process group and invoke `observer` after each signal phase.
+    /// This lets boundary owners persist exact descendant termination signals
+    /// after the affected processes are no longer alive.
+    ///
+    /// # Errors
+    ///
+    /// Propagates cleanup and observer failures after preserving group cleanup.
+    pub fn stop_observed<F>(&mut self, mut observer: F) -> Result<ProcessExit, HarnessError>
+    where
+        F: FnMut(i32) -> Result<(), HarnessError>,
+    {
+        let result = self.stop_inner(&mut observer);
         if result.is_ok() {
             self.stopped = true;
         }
         result
     }
 
-    fn stop_inner(&mut self) -> Result<ProcessExit, HarnessError> {
+    fn stop_inner<F>(&mut self, observer: &mut F) -> Result<ProcessExit, HarnessError>
+    where
+        F: FnMut(i32) -> Result<(), HarnessError>,
+    {
         let group = self.process_group();
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-TERM");
         }
-        if let Some(exit) = self.await_group_exit(group)? {
-            return Ok(exit);
+        let term_exit = self.await_group_exit(group)?;
+        let mut observer_error = observer(15).err();
+        if let Some(exit) = term_exit {
+            return observer_error.map_or(Ok(exit), Err);
         }
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-KILL");
         }
-        if let Some(exit) = self.await_group_exit(group)? {
-            return Ok(exit);
+        let kill_exit = self.await_group_exit(group)?;
+        if let Err(err) = observer(9)
+            && observer_error.is_none()
+        {
+            observer_error = Some(err);
+        }
+        if let Some(exit) = kill_exit {
+            return observer_error.map_or(Ok(exit), Err);
         }
         if let Some(exit) = self.await_group_exit(group)? {
-            return Ok(exit);
+            return observer_error.map_or(Ok(exit), Err);
         }
-        Err(HarnessError::cleanup(
-            "process group survived TERM/KILL escalation".to_string(),
-        ))
+        Err(observer_error.unwrap_or_else(|| {
+            HarnessError::cleanup("process group survived TERM/KILL escalation".to_string())
+        }))
     }
 
     /// One bounded escalation phase: reap the direct child and poll for the

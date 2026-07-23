@@ -10,10 +10,19 @@
 pub const REDACTED: &str = "<redacted>";
 
 /// A compiled redactor over the scenario's declared secrets.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Redactor {
     /// Longest-first so an overlapping longer secret wins deterministically.
     secrets: Vec<String>,
+}
+
+impl std::fmt::Debug for Redactor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Redactor")
+            .field("secret_count", &self.secrets.len())
+            .finish()
+    }
 }
 
 impl Redactor {
@@ -117,5 +126,13 @@ mod tests {
         let (out, count) = redactor.redact_bytes(&bytes);
         assert!(out.contains(REDACTED), "{out}");
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn debug_does_not_expose_secret_values() {
+        let redactor = Redactor::new(&["never-print-me".to_string()]);
+        let rendered = format!("{redactor:?}");
+        assert!(!rendered.contains("never-print-me"));
+        assert!(rendered.contains("secret_count: 1"));
     }
 }

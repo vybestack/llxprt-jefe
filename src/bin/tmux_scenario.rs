@@ -27,7 +27,7 @@ use jefe::harness::v1::runner::RunnerConfig;
 #[cfg(not(unix))]
 fn main() -> ExitCode {
     write_stderr(
-        "HAR-E005: the schema-1 harness requires a Unix PTY (macos/linux)
+        "HAR-E005: the schema-1 harness requires a Unix PTY (macOS/Linux)
 ",
     );
     ExitCode::from(4)

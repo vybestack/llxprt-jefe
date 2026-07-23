@@ -47,7 +47,7 @@ pub struct RunnerConfig {
 /// the first failure and its exit mapping.
 #[must_use]
 pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
-    let workspace = match Workspace::create(&scenario.workspace) {
+    let mut workspace = match Workspace::allocate() {
         Ok(workspace) => workspace,
         Err(err) => {
             let mut report = Report::new(&scenario.name, "");
@@ -59,6 +59,14 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         }
     };
     let root = workspace.root().to_string_lossy().into_owned();
+    if let Err(err) = workspace.materialize(&scenario.workspace) {
+        let mut report = Report::new(&scenario.name, &root);
+        report.status = "failed".to_string();
+        return RunOutcome {
+            report,
+            error: Some(err),
+        };
+    }
     let mut state = RunState {
         scenario,
         config,
@@ -346,7 +354,7 @@ impl RunState<'_> {
             .session
             .take()
             .ok_or_else(|| HarnessError::process("no application to restart".to_string()))?;
-        session.stop()?;
+        self.stop_session(&mut session)?;
         drop(session);
         let launch = self
             .scenario
@@ -365,9 +373,15 @@ impl RunState<'_> {
         let Some(mut session) = self.session.take() else {
             return Ok(());
         };
-        let exit = session.stop()?;
+        let exit = self.stop_session(&mut session)?;
         self.record_exit(exit);
         Ok(())
+    }
+
+    fn stop_session(&self, session: &mut PtySession) -> Result<ProcessExit, HarnessError> {
+        let root = self.workspace.root().to_path_buf();
+        let names = self.capture_names.clone();
+        session.stop_observed(|signal| capture::record_terminated_signals(&root, &names, signal))
     }
 
     fn record_exit(&mut self, exit: ProcessExit) {
@@ -392,7 +406,7 @@ impl RunState<'_> {
     /// error), keep the workspace, and keep the bounded report.
     fn cleanup_after_failure(&mut self) {
         if let Some(mut session) = self.session.take() {
-            match session.stop() {
+            match self.stop_session(&mut session) {
                 Ok(exit) => self.record_exit(exit),
                 Err(err) => {
                     self.report.steps.push(StepResult {

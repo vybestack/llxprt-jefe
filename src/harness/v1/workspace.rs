@@ -71,13 +71,13 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// Create a unique mode-0700 workspace, its deterministic env dirs, and
-    /// materialize the scenario fixtures in declaration order.
+    /// Allocate a unique mode-0700 workspace root without materializing
+    /// scenario fixtures.
     ///
     /// # Errors
     ///
     /// `HAR-E005` for I/O failures, `HAR-E004` for containment violations.
-    pub fn create(spec: &WorkspaceSpec) -> Result<Self, HarnessError> {
+    pub fn allocate() -> Result<Self, HarnessError> {
         let root = unique_root()?;
         DirBuilder::new()
             .mode(0o700)
@@ -94,23 +94,42 @@ impl Workspace {
         let root_metadata = root_handle
             .metadata()
             .map_err(|err| HarnessError::process(format!("stat workspace root: {err}")))?;
-        let mut workspace = Self {
+        Ok(Self {
             root_identity: Identity::of(&root_metadata),
             _root_handle: root_handle,
             root,
             identities: BTreeMap::new(),
             ancestor_handles: BTreeMap::new(),
-        };
+        })
+    }
+
+    /// Materialize deterministic environment directories and scenario fixtures.
+    ///
+    /// # Errors
+    ///
+    /// `HAR-E005` for I/O failures, `HAR-E004` for containment violations.
+    pub fn materialize(&mut self, spec: &WorkspaceSpec) -> Result<(), HarnessError> {
         for name in ENV_DIRS {
             let path = RelPath::derived((*name).to_string());
-            workspace.mkdir(&DirSpec { path, mode: 0o700 })?;
+            self.mkdir(&DirSpec { path, mode: 0o700 })?;
         }
         for dir in &spec.dirs {
-            workspace.mkdir(dir)?;
+            self.mkdir(dir)?;
         }
         for file in &spec.files {
-            workspace.write_file(file)?;
+            self.write_file(file)?;
         }
+        Ok(())
+    }
+
+    /// Create and fully materialize a workspace from the scenario declaration.
+    ///
+    /// # Errors
+    ///
+    /// `HAR-E005` for I/O failures, `HAR-E004` for containment violations.
+    pub fn create(spec: &WorkspaceSpec) -> Result<Self, HarnessError> {
+        let mut workspace = Self::allocate()?;
+        workspace.materialize(spec)?;
         Ok(workspace)
     }
 

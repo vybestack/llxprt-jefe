@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use super::capture::BEHAVIOR_SUFFIX;
 use super::contract::{ScenarioV1, Step};
 use super::error::HarnessError;
 use super::limits::{MAX_BYTES, MAX_CAPTURES};
@@ -50,12 +51,27 @@ fn validate_workspace(scenario: &ScenarioV1) -> Result<(), HarnessError> {
 struct StepScan {
     capture_names: BTreeSet<String>,
     capture_paths: BTreeSet<String>,
+    occupied_paths: BTreeSet<String>,
     launched: bool,
     finished: bool,
 }
 
 fn validate_steps(scenario: &ScenarioV1) -> Result<(), HarnessError> {
     let mut scan = StepScan::default();
+    scan.occupied_paths.extend(
+        scenario
+            .workspace
+            .dirs
+            .iter()
+            .map(|dir| dir.path.as_str().to_string()),
+    );
+    scan.occupied_paths.extend(
+        scenario
+            .workspace
+            .files
+            .iter()
+            .map(|file| file.path.as_str().to_string()),
+    );
     for (index, step) in scenario.steps.iter().enumerate() {
         if scan.finished {
             return Err(HarnessError::syntax(format!(
@@ -70,7 +86,23 @@ fn validate_steps(scenario: &ScenarioV1) -> Result<(), HarnessError> {
 fn check_step(scan: &mut StepScan, index: usize, step: &Step) -> Result<(), HarnessError> {
     match step {
         Step::Capture { name, path, .. } => check_capture(scan, index, name, path.as_str()),
-        Step::Write { file } => check_file_size(file.path.as_str(), file.content.bytes().len()),
+        Step::Write { file } => {
+            check_mutation_collision(scan, index, file.path.as_str())?;
+            scan.occupied_paths.insert(file.path.as_str().to_string());
+            check_file_size(file.path.as_str(), file.content.bytes().len())
+        }
+        Step::Mkdir { dir } => {
+            check_mutation_collision(scan, index, dir.path.as_str())?;
+            scan.occupied_paths.insert(dir.path.as_str().to_string());
+            Ok(())
+        }
+        Step::Remove { path } => {
+            check_mutation_collision(scan, index, path.as_str())?;
+            let prefix = format!("{}/", path.as_str());
+            scan.occupied_paths
+                .retain(|entry| entry != path.as_str() && !entry.starts_with(&prefix));
+            Ok(())
+        }
         Step::Launch { .. } => {
             if scan.launched {
                 return Err(HarnessError::syntax(format!(
@@ -109,7 +141,7 @@ fn check_step(scan: &mut StepScan, index: usize, step: &Step) -> Result<(), Harn
             scan.finished = true;
             Ok(())
         }
-        Step::Mkdir { .. } | Step::Remove { .. } | Step::AssertFile { .. } => Ok(()),
+        Step::AssertFile { .. } => Ok(()),
     }
 }
 
@@ -124,14 +156,30 @@ fn check_capture(
             "steps[{index}]: duplicate capture name '{name}'"
         )));
     }
-    if !scan.capture_paths.insert(path.to_string()) {
-        return Err(HarnessError::syntax(format!(
-            "steps[{index}]: duplicate capture path '{path}'"
-        )));
+    for reserved in [path.to_string(), format!("{path}{BEHAVIOR_SUFFIX}")] {
+        if scan.occupied_paths.contains(&reserved) || !scan.capture_paths.insert(reserved.clone()) {
+            return Err(HarnessError::syntax(format!(
+                "steps[{index}]: capture path '{reserved}' conflicts with fixture content"
+            )));
+        }
     }
     if scan.capture_names.len() > MAX_CAPTURES {
         return Err(HarnessError::limit(format!(
             "steps[{index}]: captures exceed {MAX_CAPTURES}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_mutation_collision(scan: &StepScan, index: usize, path: &str) -> Result<(), HarnessError> {
+    let prefix = format!("{path}/");
+    if scan
+        .capture_paths
+        .iter()
+        .any(|reserved| reserved == path || reserved.starts_with(&prefix))
+    {
+        return Err(HarnessError::syntax(format!(
+            "steps[{index}]: mutation path '{path}' conflicts with a capture reservation"
         )));
     }
     Ok(())

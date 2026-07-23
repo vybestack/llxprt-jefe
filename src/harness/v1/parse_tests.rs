@@ -289,6 +289,23 @@ fn semantic_rules_enforced() {
     );
     let err = parse(&dup_env).err().unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code, HarCode::E001);
+
+    // Capture executable and behavior paths cannot overwrite fixtures.
+    for fixture_path in ["bin/gh", "bin/gh.capture.json"] {
+        let collision = minimal_with_steps(&format!(
+            r#"[{{"op":"capture","name":"gh","path":"bin/gh","behavior":{{"stdout":"","stderr":"","exit_code":0,"stdin_limit":0,"hang":false,"spawn_child_hang":false}}}},{LAUNCH}]"#
+        ))
+        .replace(
+            r#""files":[]"#,
+            &format!(
+                r#""files":[{{"path":"{fixture_path}","content":{{"utf8":"keep"}},"mode":420}}]"#
+            ),
+        );
+        let err = parse(&collision)
+            .err()
+            .unwrap_or_else(|| panic!("capture collision must fail"));
+        assert_eq!(err.code, HarCode::E001, "{fixture_path}");
+    }
 }
 
 #[test]
