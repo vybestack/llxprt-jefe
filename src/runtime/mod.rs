@@ -48,9 +48,10 @@ pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
     validate_code_puppy_launch,
 };
-pub use commands::build_remote_attach_plan;
+pub use capture_ops::snapshot_from_lines;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
+pub use commands::{build_remote_attach_plan, capture_pane_lines};
 pub use errors::RuntimeError;
 pub use external_terminal::{
     DesktopPlatform, ExternalTerminalError, ExternalTerminalPlan, build_external_terminal_plan,
@@ -81,12 +82,13 @@ pub use preflight::{
 };
 pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
-    classify_process_observation, process_liveness,
+    classify_process_observation, process_liveness, process_liveness_indicates_alive,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use shell_window::{
-    SHELL_WINDOW_NAME, capture_shell_preview, close_shell_window, hide_shell_window,
-    open_shell_window, shell_window_exists,
+    SHELL_WINDOW_NAME, ShellWindowInputs, capture_shell_preview, close_all_shell_windows,
+    close_shell_window, hide_shell_window, observe_shell_window_sessions, open_shell_window,
+    shell_window_exists,
 };
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
@@ -94,7 +96,7 @@ pub use stub_manager::StubRuntimeManager;
 /// Issue #301 Phase 2: re-export history cache types and pane capture for
 /// the async capture worker in `app_shell`.
 pub use manager::history_cache::{HistoryCache, strip_trailing_rows};
-pub use pane_capture::capture_pane_history;
+pub use pane_capture::{capture_pane_history, capture_pane_lines_result};
 
 #[cfg(test)]
 #[path = "agent_executable_tests.rs"]

@@ -3,7 +3,6 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-003
 //! Pseudocode reference: component-001 lines 01-12
-
 mod actions_job_ops;
 mod actions_load_ops;
 #[cfg(test)]
@@ -15,6 +14,7 @@ mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
+mod dead_preview_ops;
 mod errors_ops;
 mod errors_types;
 mod events;
@@ -58,6 +58,7 @@ mod shell_overlay_ops;
 mod shortcut_ops;
 mod terminal_manager_ops;
 mod terminal_manager_types;
+pub use dead_preview_ops::DeadAgentPreviewCache;
 pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub use shell_focus_resolution::resolve_repository_shell;
@@ -79,8 +80,13 @@ pub use terminal_manager_types::{
     TerminalManagerState, status_label_for,
 };
 pub use types::*;
-/// Default row jump for list and detail page navigation without a measured viewport.
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
+use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::list_viewport::ListMove;
+use crate::messages::{
+    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
+    UiNavigationMessage,
+};
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
     is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
@@ -88,17 +94,7 @@ pub use form_projection::{
 };
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
-use crate::list_viewport::ListMove;
-use crate::messages::{
-    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
-    UiNavigationMessage,
-};
-
-// Re-exported so sibling inline-cursor modules and tests can keep using
-// `super::inline_cursor_vertical` after the helper moved into `util`.
 pub use util::inline_cursor_vertical;
-
 impl AppState {
     /// Reset terminal scrollback state to defaults (fix #4). Called from
     /// every path that changes the selected agent or repository.
@@ -669,12 +665,14 @@ impl AppState {
                 // shell window is gone. Natural AgentStatusChanged->Dead is
                 // NOT touched here; natural death keeps shell close-only.
                 self.remove_shell_window(&agent_id);
+                self.clear_dead_preview(&agent_id);
             }
             RuntimeMessage::AgentStatusChanged(agent_id, status) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = status;
                     if status == AgentStatus::Running {
                         self.sticky_dead_agent_ids.remove(&agent_id);
+                        self.clear_dead_preview(&agent_id);
                     }
                     // Reset scroll state when selected agent's status changes
                     // (fix #6).
@@ -689,6 +687,7 @@ impl AppState {
                 {
                     agent.status = AgentStatus::Running;
                     self.sticky_dead_agent_ids.remove(&agent_id);
+                    self.clear_dead_preview(&agent_id);
                 }
             }
             // RestartAgent handles the edge case where apply_and_persist is
@@ -701,6 +700,7 @@ impl AppState {
                     && agent.runtime_binding.is_some()
                 {
                     agent.status = AgentStatus::Running;
+                    self.clear_dead_preview(&agent_id);
                 }
             }
         }

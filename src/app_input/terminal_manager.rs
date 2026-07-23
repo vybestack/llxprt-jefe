@@ -254,23 +254,60 @@ fn select_pending_runtime_shell(
     ctx: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
     owner: &AgentId,
     generation: u64,
-) -> Result<bool, jefe::runtime::RuntimeError> {
+) -> Result<SelectOutcome, jefe::runtime::RuntimeError> {
     if !pending_focus_matches(state, owner, generation) {
-        return Ok(false);
+        return Ok(SelectOutcome::PendingGone);
     }
-    let mut guard = ctx.lock().map_err(|_| {
+    let inputs = {
+        let guard = ctx.lock().map_err(|_| {
+            jefe::runtime::RuntimeError::CapabilityProbeFailed(
+                "runtime context lock unavailable while capturing shell inputs".to_owned(),
+            )
+        })?;
+        if guard.runtime.attached_agent() != Some(owner) {
+            return Err(jefe::runtime::RuntimeError::SessionNotFound(
+                owner.0.clone(),
+            ));
+        }
+        guard
+            .runtime
+            .shell_window_inputs(owner)
+            .ok_or_else(|| jefe::runtime::RuntimeError::SessionNotFound(owner.0.clone()))?
+    };
+    // Selecting the snapshotted multiplexer session mutates only external tmux/
+    // psmux state. It intentionally runs without AppContext, then the manager
+    // owner and lifecycle generation are revalidated under the short lock.
+    inputs.execute_select()?;
+    let guard = ctx.lock().map_err(|_| {
         jefe::runtime::RuntimeError::CapabilityProbeFailed(
-            "runtime context lock unavailable".to_owned(),
+            "runtime context lock unavailable while revalidating shell owner".to_owned(),
         )
     })?;
-    if guard.runtime.attached_agent() != Some(owner) {
-        return Err(jefe::runtime::RuntimeError::SessionNotFound(
-            owner.0.clone(),
-        ));
+    if guard.runtime.attached_agent() == Some(owner)
+        && guard.runtime.shell_window_owner_matches(&inputs)
+    {
+        Ok(SelectOutcome::Selected(inputs.session_name))
+    } else {
+        Ok(SelectOutcome::Stale(inputs.session_name))
     }
-    guard.runtime.select_shell_window(owner)?;
-    drop(guard);
-    Ok(true)
+}
+
+/// Outcome of an off-lock select-existing shell operation (issue #374 S5).
+enum SelectOutcome {
+    /// Pending focus no longer matches — nothing to confirm.
+    PendingGone,
+    /// Select succeeded and the owner is still attached. Carries the
+    /// snapshotted session for compensation if confirmation later goes stale.
+    Selected(String),
+    /// Select succeeded but the attached owner changed while off-lock. Carries
+    /// the snapshotted session so compensation targets the selected shell.
+    Stale(String),
+}
+
+fn compensate_stale_selection(session_name: &str, phase: &'static str) {
+    if let Err(error) = jefe::runtime::hide_shell_window(session_name) {
+        warn!(session_name, error = %error, phase, "manager: stale selection compensation failed");
+    }
 }
 
 /// Complete a pending manager focus only after the expected owner is attached
@@ -302,17 +339,26 @@ pub async fn complete_pending_shell_focus(
         select_pending_runtime_shell(&state_for_guard, &ctx_clone, &owner, pending_generation)
     })
     .await;
-    let selected = match result {
-        Ok(selected) => selected,
+    let outcome = match result {
+        Ok(outcome) => outcome,
         Err(error) => {
             warn!(agent_id = %attached_agent_id.0, error = %error, "manager: focus shell failed");
             on_shell_attach_failed(&mut app_state, &attached_agent_id);
             return;
         }
     };
-    if !selected {
-        return;
-    }
+    let selected_session_name = match outcome {
+        SelectOutcome::PendingGone => return,
+        SelectOutcome::Stale(session_name) => {
+            warn!(
+                agent_id = %attached_agent_id.0,
+                "manager: attached owner changed during focus select; discarding"
+            );
+            compensate_stale_selection(&session_name, "owner revalidation");
+            return;
+        }
+        SelectOutcome::Selected(session_name) => session_name,
+    };
     let current = app_state.read().terminal_manager.pending_focus.clone();
     if !matches!(
         current.as_ref(),
@@ -320,6 +366,7 @@ pub async fn complete_pending_shell_focus(
             if value.agent_id == attached_agent_id
                 && value.generation == pending.generation
     ) {
+        compensate_stale_selection(&selected_session_name, "pending focus changed");
         return;
     }
     dispatch_app_event(

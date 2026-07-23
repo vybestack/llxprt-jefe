@@ -672,6 +672,7 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
+ "signal-hook",
  "smol",
  "taffy",
  "tempfile",

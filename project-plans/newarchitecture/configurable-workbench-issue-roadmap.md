@@ -1,5 +1,7 @@
 # Configurable Workbench: Epic and Implementation Issues
 
+> **Superseded:** the canonical, maintained issue bodies live in `configurable-workbench-github-issues/` (see its `INDEX.md`), which also carries the binding **no-shim policy**: no backward-compatibility shim, legacy adapter, facade, or dual code path survives a capability's feature-complete — the only permitted bridge is the one-way persistence schema migration. Where this document mentions compatibility adapters or legacy lowering kept alive at runtime, the issue-folder bodies override it.
+
 ## Status, execution rules, and epic
 
 This is the implementation-ready configurable-workbench v1 roadmap. Product/public behavior is exactly `configurable-workbench-specification.md` and `configurable-workbench-public-contracts.md`; this document assigns delivery, RED-first proof, and ownership. `MUST`/`MUST NOT` are binding.
