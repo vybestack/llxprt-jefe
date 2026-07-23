@@ -145,6 +145,13 @@ fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, 
     }
 }
 
+/// Explicit windowed/fullscreen render sizing for integration tests (issue #307).
+#[doc(hidden)]
+#[must_use]
+pub fn effective_render_size_for_windowed(cols: u16, rows: u16, windowed: bool) -> (u16, u16) {
+    effective_render_size_inner(cols, rows, !windowed)
+}
+
 #[must_use]
 pub fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
@@ -245,6 +252,17 @@ fn compute_pty_layout_inner(term_cols: u16, term_rows: u16, fullscreen: bool) ->
         pane_col0,
         pane_row0,
     }
+}
+
+/// Explicit windowed/fullscreen PTY layout for integration tests (issue #307).
+#[doc(hidden)]
+#[must_use]
+pub fn compute_pty_layout_for_windowed(
+    term_cols: u16,
+    term_rows: u16,
+    windowed: bool,
+) -> PtyLayout {
+    compute_pty_layout_inner(term_cols, term_rows, !windowed)
 }
 
 /// Compute PTY viewport size and its origin within the fullscreen render grid.
@@ -811,7 +829,3 @@ pub fn reveal_range_scroll_offset(
     let anchor_bottom = item_end.saturating_sub(viewport_rows.saturating_sub(1));
     anchor_bottom.min(item_start)
 }
-
-#[cfg(test)]
-#[path = "layout_tests.rs"]
-mod tests;

@@ -9,11 +9,11 @@
 //! @requirement REQ-PR-005
 //! @pseudocode component-002 lines 1-200
 
-use crate::domain::{
+use jefe::domain::{
     IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequest,
     PullRequestDetail,
 };
-use crate::github::{
+use jefe::github::{
     GhClient, GhError, PrSendPayload, build_pr_comments_query, categorize_error,
     parse_check_status, parse_checks_rollup, parse_comments_json, parse_created_comment_json,
     parse_pr_check, parse_pr_review, parse_pr_state, parse_pull_request_detail_json,
@@ -185,13 +185,13 @@ fn sample_pr_detail() -> PullRequestDetail {
             conclusion: "SUCCESS".to_string(),
             url: Some("https://github.com/owner/repo/runs/1".to_string()),
         }],
-        comments: crate::domain::PaginatedList::from_loaded(
-            crate::domain::CommentDetailIdentity {
-                scope_repo_id: crate::domain::RepositoryId::default(),
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
                 number: 42,
             },
             vec![],
-            crate::domain::PageToken::from_cursor(None, false),
+            jefe::domain::PageToken::from_cursor(None, false),
         ),
         mergeable: Some(true),
         merge_state_status: Some("MERGEABLE".to_string()),
@@ -742,7 +742,7 @@ fn test_parsed_pr_comments_are_identity_free_before_reducer_rebind() {
         );
         assert_eq!(
             detail.comments.next_page(),
-            &crate::domain::PageToken::Done,
+            &jefe::domain::PageToken::Done,
             "continuation is exhausted until list_pr_comments populates comments"
         );
         assert!(detail.comments.identity().is_none());

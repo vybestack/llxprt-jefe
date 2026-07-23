@@ -7,6 +7,11 @@
 //! to the screen, while `markdown_render` owns the comrak AST traversal.
 //! The two are one logical pipeline; `markdown_render_tests.rs` covers both
 //! through the public `render_markdown_lines` entry point.
+//!
+//! This module is `pub` so the `tests/markdown_html_strip` integration target
+//! can exercise it outside the lib harness (issue #307). It is not a stable
+//! external API — treat it as crate-internal surface for tests and
+//! `markdown_render`.
 
 /// Strip a raw HTML fragment down to its visible text.
 ///
@@ -26,6 +31,7 @@
 /// The output may contain `\n` (one per block boundary); callers MUST split on
 /// `\n` before emitting screen lines (see [`MarkdownRenderer::render_html_block`]
 /// and [`InlineLines::push_str`], which both split on `\n`).
+#[must_use]
 pub fn strip_html_to_text(html: &str) -> String {
     let bytes = html.as_bytes();
     let mut out = String::with_capacity(html.len());
@@ -253,11 +259,13 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
     }
 }
 
-/// True when `haystack` (already lowercased) contains a real opening tag —
+/// True when `haystack` (already lowercased) contains a real opening tag.
+///
 /// `needle` is the literal `<name` prefix (e.g. `"<summary"`) — followed by
 /// whitespace, `>`, or `/`, rather than a mere substring like
 /// `<summary-widget>` or prose mentioning `<detailsish`. Taking the prefixed
 /// needle as a static literal avoids a per-call `String` allocation.
+#[must_use]
 pub fn contains_open_tag(haystack: &str, needle: &str) -> bool {
     // The lowercased-haystack precondition is enforced in debug builds so a
     // future mixed-case caller fails fast instead of silently missing tags.
@@ -409,7 +417,3 @@ fn decode_entity(entity: &str) -> Option<String> {
     }
     Some(c.to_string())
 }
-
-#[cfg(test)]
-#[path = "markdown_html_strip_tests.rs"]
-mod tests;

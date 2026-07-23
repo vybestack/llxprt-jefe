@@ -1,7 +1,7 @@
 //! GitHub issue filter argument and parser coverage split out of github/tests.rs.
 
-use crate::domain::{IssueFilter, IssueFilterState};
-use crate::github::{build_list_issues_args, parse_issue_search_json};
+use jefe::domain::{IssueFilter, IssueFilterState};
+use jefe::github::{build_list_issues_args, parse_issue_search_json};
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -26,7 +26,7 @@ fn test_issue_search_args_include_supported_extended_filter_terms() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -53,7 +53,7 @@ fn test_issue_type_repository_args_include_concrete_supported_filters() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, Some("cursor"), 20);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, Some("cursor"), 20);
     let query = args
         .windows(2)
         .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
@@ -97,7 +97,7 @@ fn test_issue_search_args_handle_case_insensitive_any_none_sentinels() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -118,7 +118,7 @@ fn test_issue_search_args_skip_any_for_author_type_and_module() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -140,7 +140,7 @@ fn test_issue_search_args_skip_any_for_mentioned_and_updated() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -160,7 +160,7 @@ fn test_issue_search_args_preserve_literal_any_query_text() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -263,7 +263,7 @@ fn test_issue_search_args_do_not_duplicate_module_label_filter() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
 
     let query = args
         .windows(2)
@@ -346,7 +346,7 @@ fn test_issue_search_args_preserve_module_none_as_manual_text() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| {
@@ -365,7 +365,7 @@ fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
@@ -389,7 +389,7 @@ fn issue_query_fields(query_arg: &str) -> Vec<&str> {
 #[test]
 fn issue_search_args_omit_body_for_fast_first_paint() {
     let args =
-        crate::github::build_issue_search_args("owner", "repo", &IssueFilter::default(), None, 30);
+        jefe::github::build_issue_search_args("owner", "repo", &IssueFilter::default(), None, 30);
     let query_arg = args
         .iter()
         .find(|arg| arg.starts_with("query="))
@@ -399,7 +399,7 @@ fn issue_search_args_omit_body_for_fast_first_paint() {
     assert!(fields.contains(&"title"));
     assert!(!fields.contains(&"body"));
 
-    let paged_args = crate::github::build_issue_search_args(
+    let paged_args = jefe::github::build_issue_search_args(
         "owner",
         "repo",
         &IssueFilter::default(),

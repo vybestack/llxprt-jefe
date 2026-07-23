@@ -8,11 +8,11 @@
 //! @requirement REQ-PR-005
 //! @pseudocode component-002 lines 1-200
 
-use crate::domain::{
+use jefe::domain::{
     ChecksFilter, PrCheckStatus, PrFilter, PrFilterState, PrReviewState, PrState,
     ReviewDecisionFilter,
 };
-use crate::github::{build_pr_search_args, build_pr_search_query, parse_pull_requests_json};
+use jefe::github::{build_pr_search_args, build_pr_search_query, parse_pull_requests_json};
 
 /// Test-only result extension mirroring the one in `github/tests.rs`.
 ///

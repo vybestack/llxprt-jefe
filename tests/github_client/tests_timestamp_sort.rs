@@ -1,9 +1,9 @@
 //! Behavioral coverage for RFC 3339 timestamp sorting (issue #336).
 
-use crate::domain::{
+use jefe::domain::{
     Issue, IssueState, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequest,
 };
-use crate::github::{sort_issues, sort_pr_reviews, sort_pull_requests};
+use jefe::github::{sort_issues, sort_pr_reviews, sort_pull_requests};
 
 fn issue(number: u64, updated_at: &str) -> Issue {
     Issue {

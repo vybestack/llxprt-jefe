@@ -34,9 +34,30 @@ written before a failing test for the behavior it implements.
 | Layer                  | What it verifies                                          | Where                         |
 |------------------------|-----------------------------------------------------------|-------------------------------|
 | Unit                   | Pure logic: state transitions, parsing, normalization, projection functions. | `#[cfg(test)] mod tests` in the module, plus `tests/core/` |
-| Integration            | Module boundaries (runtime orchestration, persistence contracts, event-to-message conversion, reducer dispatch). | `tests/core/`, `tests/integration/` |
+| Integration            | Module boundaries (runtime orchestration, persistence contracts, event-to-message conversion, reducer dispatch). | `tests/core/`, `tests/integration/`, and focused `tests/*.rs` targets (e.g. `git_info`, `github_client`, `selection`) when the lib test budget is tight |
 | Regression             | Bug fixes must include a regression test.                 | alongside the fix             |
 | TUI harness scenarios  | Real-TTY end-to-end behavior (focus, geometry, alternate-screen, exit). | `dev-docs/testing/tmux-harness.md` + `dev-docs/tmux-scenarios/` |
+
+### Per-target test registration budget (issue #307)
+
+Clippy's `large_stack_arrays` lint builds a stack array of every test function
+pointer registered on each test target. Each target has a **hard ceiling of
+2048** registrations and a **soft budget of ≤1900** so new tests can land
+without immediately hitting the lint.
+
+| Target kind | Examples | Budget |
+|-------------|----------|--------|
+| Lib unit tests | `cargo test --lib` | soft ≤1900, hard 2048 |
+| Bin unit tests | `cargo test --bin jefe` | soft ≤1900, hard 2048 |
+| Integration targets | each `tests/*.rs` file | soft ≤1900, hard 2048 |
+
+When the lib target is near the soft budget, prefer a new coherent integration
+target (`tests/<area>.rs` with `#[path]` submodules and `jefe::` imports) over
+adding more `#[path]` registrations in `src/lib.rs`. See `tests/git_info.rs` and
+`tests/github_client.rs` for the established pattern.
+
+Do **not** raise the threshold or add lint suppressions — split suites instead
+(issue #307).
 
 ### What tests must verify
 

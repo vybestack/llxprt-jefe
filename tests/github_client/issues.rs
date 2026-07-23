@@ -1,5 +1,5 @@
-use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
-use crate::github::{
+use jefe::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
+use jefe::github::{
     GhClient, GhError, ISSUE_DETAIL_JSON_FIELDS, build_assign_issue_args, build_list_issues_args,
     build_viewer_login_args, categorize_error, parse_comments_json, parse_created_comment_json,
     parse_issue_detail_json, parse_issue_search_json, parse_issues_json, parse_viewer_login,
@@ -326,7 +326,7 @@ fn test_parsed_issue_comments_are_identity_free_before_reducer_rebind() {
     let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
 
     assert!(!detail.comments.has_more());
-    assert_eq!(detail.comments.next_page(), &crate::domain::PageToken::Done);
+    assert_eq!(detail.comments.next_page(), &jefe::domain::PageToken::Done);
     assert!(detail.comments.identity().is_none());
 }
 
@@ -593,13 +593,13 @@ fn test_build_send_payload_with_comment() {
         milestone: Some("v1.0".to_string()),
         body: "Issue body".to_string(),
         external_url: "https://github.com/owner/repo/issues/17".to_string(),
-        comments: crate::domain::PaginatedList::from_loaded(
-            crate::domain::CommentDetailIdentity {
-                scope_repo_id: crate::domain::RepositoryId::default(),
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
                 number: 17,
             },
             vec![],
-            crate::domain::PageToken::from_cursor(None, false),
+            jefe::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
         state_reason: None,
@@ -650,13 +650,13 @@ fn test_build_send_payload_without_comment() {
         milestone: None,
         body: "Another body".to_string(),
         external_url: "https://github.com/owner/repo/issues/5".to_string(),
-        comments: crate::domain::PaginatedList::from_loaded(
-            crate::domain::CommentDetailIdentity {
-                scope_repo_id: crate::domain::RepositoryId::default(),
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
                 number: 5,
             },
             vec![],
-            crate::domain::PageToken::from_cursor(None, false),
+            jefe::domain::PageToken::from_cursor(None, false),
         ),
         issue_type_name: None,
         state_reason: None,
@@ -767,7 +767,7 @@ fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
         ..IssueFilter::default()
     };
 
-    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let args = jefe::github::build_issue_search_args("owner", "repo", &filter, None, 30);
     let query = args
         .windows(2)
         .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
