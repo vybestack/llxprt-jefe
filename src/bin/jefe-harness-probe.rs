@@ -90,6 +90,7 @@ fn run_command(sequence: u64, args: &[String]) {
     };
     let output = std::process::Command::new(program)
         .args(&args[1..])
+        .stdin(std::process::Stdio::null())
         .output();
     match output {
         Ok(output) => {
@@ -100,6 +101,10 @@ fn run_command(sequence: u64, args: &[String]) {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 print_line(&format!("RUN[{sequence}] OUT {line}"));
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            for line in stderr.lines() {
+                print_line(&format!("RUN[{sequence}] ERR {line}"));
             }
         }
         Err(err) => print_line(&format!("RUN[{sequence}] ERROR: {err}")),
@@ -117,9 +122,9 @@ fn write_file(args: &[String]) {
     }
 }
 
-/// Poll the terminal size via the COLUMNS/LINES fallback and `stty size` on
-/// the controlling terminal. `stty` is a fixed-path POSIX tool; the harness
-/// gives the probe a real PTY so `stty size` reflects resize immediately.
+/// Poll the terminal size via `stty size` on the controlling terminal, with a
+/// fixed default when `stty` is unavailable. `stty` is a fixed-path POSIX tool;
+/// the harness gives the probe a real PTY so `stty size` reflects resize immediately.
 fn terminal_size() -> (u16, u16) {
     for candidate in ["/bin/stty", "/usr/bin/stty"] {
         if !std::path::Path::new(candidate).exists() {

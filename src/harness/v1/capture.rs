@@ -76,7 +76,7 @@ pub fn register(
     path: &RelPath,
     behavior: &CaptureBehavior,
 ) -> Result<(), HarnessError> {
-    let records_rel = RelPath(format!("{RECORDS_DIR}/{name}"));
+    let records_rel = RelPath::derived(format!("{RECORDS_DIR}/{name}"));
     ensure_records_dirs(workspace, name)?;
     let records_dir = workspace.root().join(records_rel.as_str());
     let target = workspace.resolve(path)?;
@@ -104,14 +104,14 @@ pub fn register(
 #[cfg(unix)]
 fn ensure_records_dirs(workspace: &mut Workspace, name: &str) -> Result<(), HarnessError> {
     use super::contract::DirSpec;
-    let base = RelPath(RECORDS_DIR.to_string());
+    let base = RelPath::derived(RECORDS_DIR.to_string());
     if !workspace.exists(&base)? {
         workspace.mkdir(&DirSpec {
             path: base,
             mode: 0o700,
         })?;
     }
-    let capture_dir = RelPath(format!("{RECORDS_DIR}/{name}"));
+    let capture_dir = RelPath::derived(format!("{RECORDS_DIR}/{name}"));
     if !workspace.exists(&capture_dir)? {
         workspace.mkdir(&DirSpec {
             path: capture_dir,

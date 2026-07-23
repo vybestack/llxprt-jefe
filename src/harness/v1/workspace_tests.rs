@@ -15,7 +15,8 @@ fn empty_spec() -> WorkspaceSpec {
 }
 
 fn rel(path: &str) -> RelPath {
-    RelPath(path.to_string())
+    super::super::validate::validate_rel_path("test path", path)
+        .unwrap_or_else(|err| panic!("valid test path: {err}"))
 }
 
 struct Cleanup(std::path::PathBuf);

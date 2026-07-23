@@ -45,7 +45,7 @@ pub fn validate_rel_path(field: &str, raw: &str) -> Result<RelPath, HarnessError
             )));
         }
     }
-    Ok(RelPath(raw.to_string()))
+    Ok(RelPath::validated(raw.to_string()))
 }
 
 /// Validate an env name against `[A-Z_][A-Z0-9_]{0,127}`.

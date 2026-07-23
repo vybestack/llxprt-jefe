@@ -95,11 +95,14 @@ impl PtySession {
         cwd: &Path,
         size: Size,
     ) -> Result<Self, HarnessError> {
+        let (program, arguments) = argv
+            .split_first()
+            .ok_or_else(|| HarnessError::process("launch argv is empty".to_string()))?;
         let pair = native_pty_system()
             .openpty(pty_size(size))
             .map_err(|err| HarnessError::process(format!("openpty: {err}")))?;
-        let mut command = CommandBuilder::new(&argv[0]);
-        command.args(&argv[1..]);
+        let mut command = CommandBuilder::new(program);
+        command.args(arguments);
         command.env_clear();
         for (name, value) in env {
             command.env(name, value);
@@ -108,7 +111,7 @@ impl PtySession {
         let child = pair
             .slave
             .spawn_command(command)
-            .map_err(|err| HarnessError::process(format!("spawn '{}': {err}", argv[0])))?;
+            .map_err(|err| HarnessError::process(format!("spawn '{program}': {err}")))?;
         let reader = pair
             .master
             .try_clone_reader()
@@ -176,12 +179,16 @@ impl PtySession {
     }
 
     /// Current rendered frame as trimmed text rows.
-    #[must_use]
-    pub fn frame_lines(&self) -> Vec<String> {
-        let Ok(term) = self.term.lock() else {
-            return Vec::new();
-        };
-        render_lines(&term, self.size)
+    ///
+    /// # Errors
+    ///
+    /// `HAR-E005` when the terminal model lock is poisoned.
+    pub fn frame_lines(&self) -> Result<Vec<String>, HarnessError> {
+        let term = self
+            .term
+            .lock()
+            .map_err(|_| HarnessError::process("terminal model lock poisoned".to_string()))?;
+        Ok(render_lines(&term, self.size))
     }
 
     /// Current terminal size.
@@ -191,12 +198,16 @@ impl PtySession {
     }
 
     /// Lossy text view of the merged output stream (bounded at 1 MiB).
-    #[must_use]
-    pub fn stream_text(&self) -> String {
-        self.stream
+    ///
+    /// # Errors
+    ///
+    /// `HAR-E005` when the stream lock is poisoned.
+    pub fn stream_text(&self) -> Result<String, HarnessError> {
+        let bytes = self
+            .stream
             .lock()
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-            .unwrap_or_default()
+            .map_err(|_| HarnessError::process("PTY stream lock poisoned".to_string()))?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     /// Output generation counter; advances on every PTY read.
@@ -220,12 +231,15 @@ impl PtySession {
         self.master
             .resize(pty_size(size))
             .map_err(|err| HarnessError::process(format!("pty resize: {err}")))?;
-        if let Ok(mut term) = self.term.lock() {
-            term.resize(HarnessDimensions {
-                cols: size.cols as usize,
-                rows: size.rows as usize,
-            });
-        }
+        let mut term = self
+            .term
+            .lock()
+            .map_err(|_| HarnessError::process("terminal model lock poisoned".to_string()))?;
+        term.resize(HarnessDimensions {
+            cols: size.cols as usize,
+            rows: size.rows as usize,
+        });
+        drop(term);
         self.size = size;
         Ok(())
     }
@@ -259,7 +273,14 @@ impl PtySession {
     ///
     /// `HAR-E007` when descendants survive the final window.
     pub fn stop(&mut self) -> Result<ProcessExit, HarnessError> {
-        self.stopped = true;
+        let result = self.stop_inner();
+        if result.is_ok() {
+            self.stopped = true;
+        }
+        result
+    }
+
+    fn stop_inner(&mut self) -> Result<ProcessExit, HarnessError> {
         let group = self.process_group();
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-TERM");

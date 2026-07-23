@@ -67,12 +67,16 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         capture_names: Vec::new(),
         report: Report::new(&scenario.name, &root),
     };
-    let error = state.install_binaries().err().or_else(|| state.execute());
-    let mut report = state.finalize();
+    let run_error = state.install_binaries().err().or_else(|| state.execute());
+    let capture_error = state.load_capture_reports();
+    let error = run_error.or(capture_error);
     if error.is_some() {
-        report.status = "failed".to_string();
+        state.report.status = "failed".to_string();
     }
-    RunOutcome { report, error }
+    RunOutcome {
+        report: state.report,
+        error,
+    }
 }
 
 struct RunState<'a> {
@@ -90,7 +94,7 @@ impl RunState<'_> {
     fn install_binaries(&mut self) -> Result<(), HarnessError> {
         use super::contract::RelPath;
         for (name, source) in &self.config.installs {
-            let target_rel = RelPath(format!("bin/{name}"));
+            let target_rel = RelPath::derived(format!("bin/{name}"));
             let target = self.workspace.resolve(&target_rel)?;
             std::fs::copy(source, &target).map_err(|err| {
                 HarnessError::process(format!("install '{name}' into workspace: {err}"))
@@ -203,16 +207,19 @@ impl RunState<'_> {
 
     fn resize(&mut self, size: Size) -> Result<(), HarnessError> {
         let session = self.session_mut()?;
+        let generation = session.generation();
         session.resize(size)?;
-        // Acknowledge only after a frame reports the exact dimensions: the
-        // terminal model resizes synchronously, and the app must repaint, so
-        // wait for a fresh generation and matching grid.
+        // Acknowledge only after the app emits fresh output following resize.
+        // The terminal model itself has exact typed dimensions; rendered rows
+        // are intentionally right-trimmed and therefore need not be `cols`
+        // characters wide.
         let deadline = Instant::now() + RESIZE_ACK_TIMEOUT;
         loop {
             let session = self.session_mut()?;
-            let lines = session.frame_lines();
-            if lines.len() == size.rows as usize
-                && lines.iter().all(|line| line.len() <= size.cols as usize)
+            let lines = session.frame_lines()?;
+            if session.generation() > generation
+                && session.size() == size
+                && lines.len() == size.rows as usize
             {
                 let frame = Frame {
                     cols: size.cols,
@@ -243,19 +250,19 @@ impl RunState<'_> {
             let session = self.session_mut()?;
             let found = match source {
                 WaitSource::Frame => session
-                    .frame_lines()
+                    .frame_lines()?
                     .iter()
                     .any(|line| line.contains(literal)),
                 // One real PTY merges the app's stdout and stderr; both
                 // sources scan the merged byte stream by contract.
-                WaitSource::Stdout | WaitSource::Stderr => session.stream_text().contains(literal),
+                WaitSource::Stdout | WaitSource::Stderr => session.stream_text()?.contains(literal),
             };
             if found {
-                self.record_frame();
+                self.record_frame()?;
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                self.record_frame();
+                self.record_frame()?;
                 return Err(HarnessError::wait_timeout(format!(
                     "literal '{literal}' not observed within {timeout_ms} ms"
                 )));
@@ -265,8 +272,8 @@ impl RunState<'_> {
     }
 
     fn assert_frame(&mut self, contains: &[String], absent: &[String]) -> Result<(), HarnessError> {
-        let lines = self.session_mut()?.frame_lines();
-        self.record_frame();
+        let lines = self.session_mut()?.frame_lines()?;
+        self.record_frame()?;
         for needle in contains {
             if !lines.iter().any(|line| line.contains(needle.as_str())) {
                 return Err(HarnessError::assertion(format!(
@@ -351,15 +358,16 @@ impl RunState<'_> {
         });
     }
 
-    fn record_frame(&mut self) {
+    fn record_frame(&mut self) -> Result<(), HarnessError> {
         if let Some(session) = &self.session {
             let size = session.size();
             self.report.push_frame(Frame {
                 cols: size.cols,
                 rows: size.rows,
-                lines: session.frame_lines(),
+                lines: session.frame_lines()?,
             });
         }
+        Ok(())
     }
 
     /// On failure: stop the app (best effort, preserving the original
@@ -380,16 +388,17 @@ impl RunState<'_> {
         }
     }
 
-    fn finalize(mut self) -> Report {
+    fn load_capture_reports(&mut self) -> Option<HarnessError> {
         for name in &self.capture_names {
-            let invocations =
-                capture::load_records(self.workspace.root(), name).unwrap_or_default();
-            self.report.captures.push(CaptureReport {
-                name: name.clone(),
-                invocations,
-            });
+            match capture::load_records(self.workspace.root(), name) {
+                Ok(invocations) => self.report.captures.push(CaptureReport {
+                    name: name.clone(),
+                    invocations,
+                }),
+                Err(err) => return Some(err),
+            }
         }
-        self.report
+        None
     }
 }
 

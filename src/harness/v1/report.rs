@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use super::capture::CaptureRecord;
 use super::error::HarnessError;
-use super::limits::MAX_FRAMES;
+use super::limits::{MAX_BYTES, MAX_FRAMES};
 use super::redact::Redactor;
 
 /// A captured terminal frame.
@@ -103,6 +103,7 @@ impl Report {
             }
         }
         for capture in &mut redacted.captures {
+            apply(&mut capture.name);
             for record in &mut capture.invocations {
                 apply(&mut record.cwd);
                 apply(&mut record.stdin);
@@ -123,15 +124,22 @@ impl Report {
             }
         }
         redacted.redaction_count = self.redaction_count + count;
-        serde_json::to_string_pretty(&redacted)
-            .map_err(|err| HarnessError::process(format!("encode report: {err}")))
+        let encoded = serde_json::to_string_pretty(&redacted)
+            .map_err(|err| HarnessError::process(format!("encode report: {err}")))?;
+        if encoded.len() > MAX_BYTES {
+            return Err(HarnessError::limit(format!(
+                "report is {} bytes (max {MAX_BYTES})",
+                encoded.len()
+            )));
+        }
+        Ok(encoded)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::redact::Redactor;
-    use super::{Frame, Report, StepResult};
+    use super::{CaptureReport, Frame, Report, StepResult};
 
     #[test]
     fn redacts_every_report_field_and_counts() {
@@ -147,13 +155,17 @@ mod tests {
             rows: 1,
             lines: vec!["say hunter2 twice hunter2".to_string()],
         });
+        report.captures.push(CaptureReport {
+            name: "tool-hunter2".to_string(),
+            invocations: Vec::new(),
+        });
         let redactor = Redactor::new(&["hunter2".to_string()]);
         let json = report
             .to_redacted_json(&redactor)
             .unwrap_or_else(|err| panic!("should encode: {err}"));
         assert!(!json.contains("hunter2"), "secret leaked: {json}");
         assert!(json.contains("<redacted>"));
-        assert!(json.contains("\"redaction_count\": 5"), "{json}");
+        assert!(json.contains("\"redaction_count\": 6"), "{json}");
         assert!(json.contains("\"schema\": 1"));
     }
 
@@ -168,5 +180,20 @@ mod tests {
             });
         }
         assert_eq!(report.frames.len(), super::super::limits::MAX_FRAMES);
+    }
+
+    #[test]
+    fn report_limit_is_enforced_after_serialization() {
+        let mut report = Report::new("s", "/w");
+        report.push_frame(Frame {
+            cols: 1,
+            rows: 1,
+            lines: vec!["x".repeat(super::super::limits::MAX_BYTES)],
+        });
+        let err = report
+            .to_redacted_json(&Redactor::new(&[]))
+            .err()
+            .unwrap_or_else(|| panic!("oversized report should fail"));
+        assert_eq!(err.code.label(), "HAR-E002");
     }
 }

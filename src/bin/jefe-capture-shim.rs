@@ -45,7 +45,7 @@ fn run() -> Result<u8, String> {
         child_pid: None,
         argv: std::env::args().collect(),
         env: sorted_env(),
-        cwd: current_dir_string(),
+        cwd: current_dir_string()?,
         stdin,
         stdout: behavior.stdout.clone(),
         stderr: behavior.stderr.clone(),
@@ -116,10 +116,10 @@ fn sorted_env() -> Vec<(String, String)> {
     pairs
 }
 
-fn current_dir_string() -> String {
+fn current_dir_string() -> Result<String, String> {
     std::env::current_dir()
         .map(|dir| dir.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_err(|err| format!("current_dir: {err}"))
 }
 
 fn spawn_hang_child() -> Result<u32, String> {

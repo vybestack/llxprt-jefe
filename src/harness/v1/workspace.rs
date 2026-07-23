@@ -60,8 +60,6 @@ impl Identity {
 pub struct Workspace {
     root: PathBuf,
     root_identity: Identity,
-    /// Held open for the whole run so the root's original identity is pinned.
-    _root_handle: File,
     /// First-observation identity per relative directory path.
     identities: BTreeMap<String, Identity>,
 }
@@ -92,12 +90,11 @@ impl Workspace {
             .map_err(|err| HarnessError::process(format!("stat workspace root: {err}")))?;
         let mut workspace = Self {
             root_identity: Identity::of(&root_metadata),
-            _root_handle: root_handle,
             root,
             identities: BTreeMap::new(),
         };
         for name in ENV_DIRS {
-            let path = RelPath((*name).to_string());
+            let path = RelPath::derived((*name).to_string());
             workspace.mkdir(&DirSpec { path, mode: 0o700 })?;
         }
         for dir in &spec.dirs {

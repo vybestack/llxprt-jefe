@@ -95,13 +95,27 @@ pub struct EnvVar {
 
 /// A validated workspace-relative path: UTF-8, 1..=4096 bytes, `/` separated,
 /// no root/prefix, empty, `.`, `..`, NUL, or backslash component.
+///
+/// The inner value is private so callers cannot bypass [`validate_rel_path`].
+/// Internal derived paths use [`RelPath::derived`] only after composing
+/// already-validated capture/install identifiers with fixed safe prefixes.
+///
+/// [`validate_rel_path`]: super::validate::validate_rel_path
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RelPath(pub String);
+pub struct RelPath(String);
 
 impl RelPath {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub(super) fn validated(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(super) fn derived(value: String) -> Self {
+        Self(value)
     }
 }
 

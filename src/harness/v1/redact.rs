@@ -34,13 +34,23 @@ impl Redactor {
     /// and the number of replacements.
     #[must_use]
     pub fn redact(&self, text: &str) -> (String, u64) {
-        let mut out = text.to_string();
+        let mut out = String::with_capacity(text.len());
         let mut count = 0u64;
-        for secret in &self.secrets {
-            let occurrences = out.matches(secret.as_str()).count() as u64;
-            if occurrences > 0 {
-                out = out.replace(secret.as_str(), REDACTED);
-                count += occurrences;
+        let mut offset = 0usize;
+        while offset < text.len() {
+            let remaining = &text[offset..];
+            if let Some(secret) = self
+                .secrets
+                .iter()
+                .find(|secret| remaining.starts_with(secret.as_str()))
+            {
+                out.push_str(REDACTED);
+                offset += secret.len();
+                count += 1;
+            } else {
+                let ch = remaining.chars().next().unwrap_or_default();
+                out.push(ch);
+                offset += ch.len_utf8();
             }
         }
         (out, count)
@@ -72,6 +82,14 @@ mod tests {
         let redactor = Redactor::new(&["token".to_string(), "token-extended".to_string()]);
         let (out, count) = redactor.redact("token-extended and token");
         assert_eq!(out, format!("{REDACTED} and {REDACTED}"));
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn secrets_cannot_rewrite_the_replacement_token() {
+        let redactor = Redactor::new(&["hunter2".to_string(), "redacted".to_string()]);
+        let (out, count) = redactor.redact("hunter2 redacted");
+        assert_eq!(out, format!("{REDACTED} {REDACTED}"));
         assert_eq!(count, 2);
     }
 
