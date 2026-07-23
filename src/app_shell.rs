@@ -198,7 +198,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         count = dead_identities.len(),
                         "liveness poll found dead agents"
                     );
-                    let dead_previews: std::collections::HashMap<_, _> =
+                    let mut dead_previews: std::collections::HashMap<_, _> =
                         crate::app_shell_workers::capture_dead_previews(dead_identities.clone())
                             .await
                             .into_iter()
@@ -230,7 +230,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
                             continue;
                         }
-                        let preview = dead_previews.get(&identity.agent_id).cloned();
+                        let preview = dead_previews.remove(&identity.agent_id);
                         *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
                             identity.agent_id.clone(),
                             AgentStatus::Dead,

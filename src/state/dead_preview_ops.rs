@@ -16,11 +16,11 @@ use crate::state::AppState;
 /// agent is confirmed dead, and read by the pure render projection. Cleared
 /// on revival, restart, or deletion.
 #[derive(Debug, Clone, Default)]
-pub struct DeadAgentPreview {
+pub struct DeadAgentPreviewCache {
     previews: HashMap<AgentId, Vec<String>>,
 }
 
-impl DeadAgentPreview {
+impl DeadAgentPreviewCache {
     /// Whether the cache holds no previews.
     #[must_use]
     pub fn is_empty(&self) -> bool {

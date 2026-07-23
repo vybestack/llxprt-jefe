@@ -470,7 +470,7 @@ pub struct AppState {
     /// Runtime-only cache of dead-agent pane previews (issue #374 S4).
     /// Populated once by the off-lock liveness worker; read by the pure render
     /// projection. Never persisted.
-    pub dead_preview: super::DeadAgentPreview,
+    pub dead_preview: super::DeadAgentPreviewCache,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

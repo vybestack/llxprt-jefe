@@ -339,7 +339,7 @@ pub async fn complete_pending_shell_focus(
     };
     let SelectOutcome::Selected = outcome else {
         // PendingGone or Stale: do not confirm focus. On Stale, best-effort
-        // select window 0 to restore the hidden-shell invariant (issue #374).
+        // hide the shell to restore the hidden-shell invariant (issue #374).
         if matches!(outcome, SelectOutcome::Stale) {
             warn!(
                 agent_id = %attached_agent_id.0,

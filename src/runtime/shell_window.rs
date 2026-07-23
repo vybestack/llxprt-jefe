@@ -73,8 +73,8 @@ impl ShellWindowInputs {
         select_shell_window(&self.session_name)
     }
 
-    /// Close (kill) the shell window off-lock. No owner restriction: the
-    /// session-name-free close path tolerates dead owners.
+    /// Close (kill) the shell window off-lock after its tracked session was
+    /// snapshotted. The operation itself does not require the owner to be live.
     pub fn execute_close(&self) -> Result<(), RuntimeError> {
         close_shell_window(&self.session_name)
     }

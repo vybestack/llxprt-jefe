@@ -58,7 +58,7 @@ mod shell_overlay_ops;
 mod shortcut_ops;
 mod terminal_manager_ops;
 mod terminal_manager_types;
-pub use dead_preview_ops::DeadAgentPreview;
+pub use dead_preview_ops::DeadAgentPreviewCache;
 pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub use shell_focus_resolution::resolve_repository_shell;
