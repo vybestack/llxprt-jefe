@@ -872,3 +872,11 @@ mod transient_persistence_tests;
 #[cfg(test)]
 #[path = "transient_launch_options_tests.rs"]
 mod transient_launch_options_tests;
+
+#[cfg(test)]
+#[path = "pty_passthrough_tests.rs"]
+mod pty_passthrough_tests;
+
+#[cfg(test)]
+#[path = "split_mode_key_tests.rs"]
+mod split_mode_key_tests;

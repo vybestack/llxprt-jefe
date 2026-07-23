@@ -623,6 +623,13 @@ mod key_tests {
         assert_eq!(key_to_bytes(&key, false), Some(vec![0x03]));
     }
 
+    #[test]
+    fn ctrl_caps_c_maps_to_etx_byte() {
+        let key = key_event(KeyCode::Char('C'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('C'), Some(0x03));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x03]));
+    }
+
     /// A Ctrl-X Ctrl-B chord encodes to the two raw bytes `0x18 0x02` in
     /// order, matching what Code Puppy's `command_runner` listens for.
     #[test]

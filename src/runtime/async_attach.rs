@@ -12,6 +12,15 @@ use super::manager::{AttachInputs, TmuxRuntimeManager};
 use crate::domain::AgentId;
 
 impl TmuxRuntimeManager {
+    /// Test-only: mark an agent as attached without spawning a viewer.
+    ///
+    /// Used by binary-crate key-routing tests (issue #333) that cannot reach
+    /// `pub(crate)` fields. Not for production attach/detach paths.
+    #[doc(hidden)]
+    pub fn set_attached_agent_id_for_test(&mut self, agent_id: Option<AgentId>) {
+        self.attached_agent_id = agent_id;
+    }
+
     /// Read cached history for `(agent_id, generation)`.
     #[must_use]
     pub fn history_cache_get(&self, agent_id: &AgentId, generation: u64) -> Option<&Vec<String>> {
