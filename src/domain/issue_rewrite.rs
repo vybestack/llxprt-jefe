@@ -54,4 +54,3 @@ pub fn build_rewrite_instruction(
     out.push_str(draft.trim_end());
     out
 }
-
