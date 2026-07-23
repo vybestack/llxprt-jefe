@@ -60,6 +60,9 @@ impl Identity {
 pub struct Workspace {
     root: PathBuf,
     root_identity: Identity,
+    /// Keep the root inode open for the workspace lifetime. Identity checks
+    /// still reopen the path so replacement is detected before each operation.
+    _root_handle: File,
     /// First-observation identity per relative directory path.
     identities: BTreeMap<String, Identity>,
 }
@@ -90,6 +93,7 @@ impl Workspace {
             .map_err(|err| HarnessError::process(format!("stat workspace root: {err}")))?;
         let mut workspace = Self {
             root_identity: Identity::of(&root_metadata),
+            _root_handle: root_handle,
             root,
             identities: BTreeMap::new(),
         };

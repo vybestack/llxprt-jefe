@@ -69,6 +69,16 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
     };
     let run_error = state.install_binaries().err().or_else(|| state.execute());
     let capture_error = state.load_capture_reports();
+    if let Some(err) = &capture_error
+        && run_error.is_some()
+    {
+        state.report.steps.push(StepResult {
+            index: scenario.steps.len(),
+            op: "load-captures".to_string(),
+            status: "failed".to_string(),
+            error: Some(err.to_string()),
+        });
+    }
     let error = run_error.or(capture_error);
     if error.is_some() {
         state.report.status = "failed".to_string();
@@ -262,10 +272,18 @@ impl RunState<'_> {
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                self.record_frame()?;
-                return Err(HarnessError::wait_timeout(format!(
+                let timeout = HarnessError::wait_timeout(format!(
                     "literal '{literal}' not observed within {timeout_ms} ms"
-                )));
+                ));
+                if let Err(frame_error) = self.record_frame() {
+                    self.report.steps.push(StepResult {
+                        index: self.scenario.steps.len(),
+                        op: "record-timeout-frame".to_string(),
+                        status: "failed".to_string(),
+                        error: Some(frame_error.to_string()),
+                    });
+                }
+                return Err(timeout);
             }
             std::thread::sleep(POLL_INTERVAL);
         }
