@@ -9,7 +9,7 @@ use super::commands::tmux_command;
 
 /// Build the plain pane-capture argv for an explicit multiplexer target.
 #[must_use]
-pub fn capture_pane_lines_args(target: &str) -> Vec<String> {
+fn capture_pane_lines_args(target: &str) -> Vec<String> {
     vec![
         "capture-pane".to_owned(),
         "-p".to_owned(),

@@ -241,9 +241,9 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         .unwrap_or_default()
 }
 
-/// Try to read cached history lines for the attached session without a
-/// multiplexer subprocess, returning `None` on contention, no attached
-/// session, or a cold cache miss (issue #374 S3).
+/// Try to read cached history geometry for the attached session without a
+/// multiplexer subprocess. Contention, no attachment, and a cold cache all
+/// return `None` so mouse routing preserves its prior geometry (issue #374 S3).
 ///
 /// Unlike [`capture_history_from_cache`], this preserves prior geometry on a
 /// cold miss: callers (mouse scroll/selection geometry) can return early

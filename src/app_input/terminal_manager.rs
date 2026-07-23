@@ -274,6 +274,9 @@ fn select_pending_runtime_shell(
             .shell_window_inputs(owner)
             .ok_or_else(|| jefe::runtime::RuntimeError::SessionNotFound(owner.0.clone()))?
     };
+    // Selecting the snapshotted multiplexer session mutates only external tmux/
+    // psmux state. It intentionally runs without AppContext, then the manager
+    // owner and lifecycle generation are revalidated under the short lock.
     inputs.execute_select()?;
     let guard = ctx.lock().map_err(|_| {
         jefe::runtime::RuntimeError::CapabilityProbeFailed(

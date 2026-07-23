@@ -387,7 +387,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         // and hidden) exactly once, best-effort, without killing agent
         // sessions (issue #361 PR A). Replaces the prior separate
         // cleanup_active_shell call so the visible shell is not closed twice.
-        crate::app_input::shell_overlay::shutdown_all_shells(&mut app_state, &ctx);
+        crate::app_input::shell_overlay::shutdown_all_shells(&mut app_state);
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
         crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());

@@ -96,7 +96,7 @@ pub use stub_manager::StubRuntimeManager;
 /// Issue #301 Phase 2: re-export history cache types and pane capture for
 /// the async capture worker in `app_shell`.
 pub use manager::history_cache::{HistoryCache, strip_trailing_rows};
-pub use pane_capture::{capture_pane_history, capture_pane_lines_args, capture_pane_lines_result};
+pub use pane_capture::{capture_pane_history, capture_pane_lines_result};
 
 #[cfg(test)]
 #[path = "agent_executable_tests.rs"]

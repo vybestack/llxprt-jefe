@@ -28,10 +28,7 @@ use super::{AppStateHandle, SharedContext, dispatch_app_event};
 /// lock. Clears the shell inventory afterward so the cleanup is observable.
 /// Failures are logged by the runtime boundary and also returned for any
 /// caller that wants to surface them.
-pub fn shutdown_all_shells(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-) -> Vec<jefe::runtime::RuntimeError> {
+pub fn shutdown_all_shells(app_state: &mut AppStateHandle) -> Vec<jefe::runtime::RuntimeError> {
     // Snapshot every shell owner (visible + hidden) so the visible shell is
     // closed exactly once here and not separately by cleanup_active_shell.
     let owners = app_state.read().shell_window_owners();
@@ -40,7 +37,6 @@ pub fn shutdown_all_shells(
     }
     // Observe + close run without an AppContext guard (issue #374). These are
     // stateless multiplexer operations that need no manager in-memory state.
-    let _ = ctx; // retained for API compatibility; no lock is taken.
     let failures = match jefe::runtime::observe_shell_window_sessions() {
         Ok(session_names) => jefe::runtime::close_all_shell_windows(&session_names),
         Err(error) => vec![error],
