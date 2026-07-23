@@ -204,20 +204,39 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             .map(|(identity, lines)| (identity.agent_id, lines))
                             .collect();
                     let mut state = app_state.write();
-                    let mut changed = false;
-                    for identity in &dead_identities {
-                        let binding_matches = state
+                    let binding_matches = {
+                        let current_bindings: std::collections::HashMap<_, _> = state
                             .agents
                             .iter()
-                            .find(|agent| agent.id == identity.agent_id)
-                            .is_some_and(|agent| {
-                                agent.runtime_binding.as_ref().is_some_and(|binding| {
-                                    Some(binding.session_name.as_str())
-                                        == identity.binding_session_name.as_deref()
-                                        && binding.lifecycle_generation
-                                            == identity.lifecycle_generation
+                            .filter_map(|agent| {
+                                agent.runtime_binding.as_ref().map(|binding| {
+                                    (
+                                        &agent.id,
+                                        (
+                                            binding.session_name.as_str(),
+                                            binding.lifecycle_generation,
+                                        ),
+                                    )
                                 })
-                            });
+                            })
+                            .collect();
+                        dead_identities
+                            .iter()
+                            .map(|identity| {
+                                current_bindings.get(&identity.agent_id).is_some_and(
+                                    |(session_name, generation)| {
+                                        Some(*session_name)
+                                            == identity.binding_session_name.as_deref()
+                                            && *generation == identity.lifecycle_generation
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let mut changed = false;
+                    for (identity, binding_matches) in
+                        dead_identities.iter().zip(binding_matches)
+                    {
                         if !binding_matches {
                             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
                             continue;
