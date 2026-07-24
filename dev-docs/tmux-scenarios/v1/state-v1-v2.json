@@ -34,7 +34,7 @@
       "op": "assert-file",
       "file": {
         "path": "config/state.json",
-        "content": { "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selected_repository_index\": null,\n  \"selected_agent_index\": null\n}\n" }
+        "content": { "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": null,\n    \"agent_id\": null,\n    \"screen_id\": null\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n" }
       }
     },
     { "op": "finish" }

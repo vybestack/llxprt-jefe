@@ -17,11 +17,14 @@ mod effective;
 mod tests;
 use crate::config_owners::builtin_owner_catalog;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
-use crate::persistence::migration::{migrate_settings, migrate_state};
+use crate::persistence::migration::{format_migrated_settings, migrate_settings, migrate_state};
 use crate::persistence::paths::{
     InspectedSource, PathCandidate, PathEnvironment, PathError, PathProvenance,
     PathResolutionRequest, PhysicalFileKey, PhysicalIdentity, Platform, ResolvedFile,
     ResolvedPaths, SourceValidity, decide_import, physical_identity, resolve_from,
+};
+use crate::persistence::writer::{
+    AtomicWrite, BackupPolicy, DraftBytes, ExpectedHash, Freshness, write,
 };
 
 /// Fully rendered recovery result consumed by the process entry point.
@@ -99,6 +102,85 @@ pub fn run_show_effective(config_dir: Option<&Path>, provenance: bool) -> Recove
     }
 }
 
+/// Format active settings owners without rewriting dormant syntax.
+#[must_use]
+pub fn run_format(config_dir: Option<&Path>, check: bool, migrate: bool) -> RecoveryOutput {
+    let paths = match resolve_recovery_paths(config_dir) {
+        Ok(paths) => paths,
+        Err(output) => return output,
+    };
+    let Some(bytes) = (match read_optional(&paths.settings.path) {
+        Ok(bytes) => bytes,
+        Err(output) => return output,
+    }) else {
+        return RecoveryOutput::success(String::new());
+    };
+    let catalog = match builtin_owner_catalog() {
+        Ok(catalog) => catalog,
+        Err(error) => return RecoveryOutput::failure(contract_failure(error)),
+    };
+    let migration = match migrate_settings(&bytes, &catalog) {
+        Ok(migration) => migration,
+        Err(diagnostics) => return RecoveryOutput::diagnostics(diagnostics, 2),
+    };
+    if migration.was_migrated() && !migrate {
+        return RecoveryOutput::success(String::new());
+    }
+    let candidate = match format_migrated_settings(&migration, &catalog) {
+        Ok(candidate) => candidate,
+        Err(diagnostics) => return RecoveryOutput::diagnostics(diagnostics, 2),
+    };
+    if candidate == bytes {
+        return RecoveryOutput::success(String::new());
+    }
+    if check {
+        return RecoveryOutput::diagnostics(vec![format_drift_diagnostic(&paths.settings.path)], 2);
+    }
+    write_settings_candidate(&paths.settings.path, &migration, candidate)
+}
+
+/// Migrate a selected schema-1 state document through the atomic writer.
+#[must_use]
+pub fn run_migrate_state(config_dir: Option<&Path>) -> RecoveryOutput {
+    let paths = match resolve_recovery_paths(config_dir) {
+        Ok(paths) => paths,
+        Err(output) => return output,
+    };
+    if let Err(error) = inspect_file_import_decision(&paths.state) {
+        return RecoveryOutput::failure(error);
+    }
+    let Some(bytes) = (match read_optional(&paths.state.path) {
+        Ok(bytes) => bytes,
+        Err(output) => return output,
+    }) else {
+        return RecoveryOutput::success(String::new());
+    };
+    let migration = match migrate_state(&bytes) {
+        Ok(migration) => migration,
+        Err(diagnostics) => return RecoveryOutput::diagnostics(diagnostics, 2),
+    };
+    if !migration.was_migrated() {
+        return RecoveryOutput::success(String::new());
+    }
+    let candidate = match migration.to_canonical_json() {
+        Ok(candidate) => candidate,
+        Err(error) => {
+            return RecoveryOutput::diagnostics(vec![state_serialization_error(error)], 4);
+        }
+    };
+    let operation = AtomicWrite {
+        target: paths.state.path,
+        draft: DraftBytes::new(candidate),
+        expected: ExpectedHash::Present(crate::persistence::sha256::Sha256::digest(&bytes)),
+        revision: migration.state().revision,
+        backup: BackupPolicy::RetainSchema1,
+    };
+    match write(operation, |_| Freshness::Current) {
+        Ok(_) => RecoveryOutput::success("state_schema = 2".to_owned()),
+        Err(error) => RecoveryOutput::diagnostics(vec![error.diagnostic().clone()], 4),
+    }
+}
+
 /// Execute the configured editor as argv without invoking a shell.
 #[must_use]
 pub fn run_edit(config_dir: Option<&Path>) -> RecoveryOutput {
@@ -107,7 +189,7 @@ pub fn run_edit(config_dir: Option<&Path>) -> RecoveryOutput {
         Err(output) => return output,
     };
     match editor::execute(&paths.settings.path) {
-        Ok(()) => RecoveryOutput::success(String::new()),
+        Ok(()) => RecoveryOutput::success("editor completed".to_owned()),
         Err(error) => {
             RecoveryOutput::failure(recovery_error(paths.settings.path, &error.to_string()))
         }
@@ -412,6 +494,52 @@ fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, RecoveryOutput> {
             &format!("cannot read selected document: {error}"),
         ))),
     }
+}
+
+fn write_settings_candidate(
+    path: &Path,
+    migration: &crate::persistence::migration::SettingsMigration,
+    candidate: Vec<u8>,
+) -> RecoveryOutput {
+    let operation = AtomicWrite {
+        target: path.to_path_buf(),
+        draft: DraftBytes::new(candidate),
+        expected: ExpectedHash::Present(migration.document().sha256()),
+        revision: 0,
+        backup: if migration.was_migrated() {
+            BackupPolicy::RetainSchema1
+        } else {
+            BackupPolicy::None
+        },
+    };
+    match write(operation, |_| Freshness::Current) {
+        Ok(_) => RecoveryOutput::success("settings formatted".to_owned()),
+        Err(error) => RecoveryOutput::diagnostics(vec![error.diagnostic().clone()], 4),
+    }
+}
+
+fn format_drift_diagnostic(path: &Path) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E002,
+        Severity::Error,
+        DiagnosticPath::new(path.to_string_lossy()),
+        None,
+        "run jefe config format to canonicalize active owned settings",
+    );
+    "active owned settings formatting differs".clone_into(&mut diagnostic.redacted_detail);
+    diagnostic
+}
+
+fn state_serialization_error(error: serde_json::Error) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E104,
+        Severity::Error,
+        DiagnosticPath::new("/state"),
+        None,
+        "validate state values before retrying migration",
+    );
+    diagnostic.redacted_detail = format!("cannot serialize migrated state: {error}");
+    diagnostic
 }
 
 fn display_path(path: &Path) -> String {

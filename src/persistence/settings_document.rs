@@ -1,6 +1,6 @@
 //! Lossless settings document retaining original bytes and a semantic overlay.
 
-use crate::domain::ByteSpan;
+use crate::domain::{ByteSpan, Id, OwnerCatalog, OwnerKind};
 
 use super::diagnostic::{
     ARRAY_LIMIT, CfgCode, Diagnostic, DiagnosticPath, FILE_LIMIT, MAP_LIMIT, NESTING_LIMIT,
@@ -102,11 +102,34 @@ impl SettingsDocument {
     }
 
     /// Publish only active known owners into the closed typed settings model.
-    pub fn publish(
-        &self,
-        catalog: &crate::domain::OwnerCatalog,
-    ) -> Result<PublishedSettings, Vec<Diagnostic>> {
+    pub fn publish(&self, catalog: &OwnerCatalog) -> Result<PublishedSettings, Vec<Diagnostic>> {
         publish(self, catalog)
+    }
+
+    /// Canonicalize active owned assignments while preserving every other byte.
+    pub fn format_owned(&self, catalog: &OwnerCatalog) -> Result<Vec<u8>, Vec<Diagnostic>> {
+        self.publish(catalog)?;
+        let mut patches = Vec::new();
+        for node in &self.syntax.nodes {
+            if owned_assignment(&node.path, self.semantic(), catalog) {
+                let Some(value) = value_at_path(self.semantic(), &node.path) else {
+                    continue;
+                };
+                let key = trim_ascii(self.span_bytes(node.key_span));
+                let mut replacement = Vec::with_capacity(key.len() + 3 + value.to_string().len());
+                replacement.extend_from_slice(key);
+                replacement.extend_from_slice(b" = ");
+                replacement.extend_from_slice(value.to_string().as_bytes());
+                patches.push((
+                    ByteSpan::new(node.key_span.start, node.value_span.end),
+                    replacement,
+                ));
+            }
+        }
+        let candidate = apply_patches(&self.original, patches);
+        let validated = Self::parse(&candidate).map_err(|diagnostic| vec![*diagnostic])?;
+        validated.publish(catalog)?;
+        Ok(candidate)
     }
 
     /// Borrow the semantic TOML tree used by the closed settings publisher.
@@ -130,6 +153,99 @@ impl SettingsDocument {
             .then_some(table.span)
         })
     }
+
+    pub(super) fn syntax_nodes(&self) -> &[SyntaxNode] {
+        &self.syntax.nodes
+    }
+
+    pub(super) fn table_nodes(&self) -> &[super::settings_syntax::TableNode] {
+        &self.syntax.tables
+    }
+}
+
+fn owned_assignment(path: &[String], semantic: &toml::Value, catalog: &OwnerCatalog) -> bool {
+    match path {
+        [root] if root == "settings_schema" => true,
+        [root, field]
+            if root == "appearance"
+                && matches!(field.as_str(), "theme" | "override_agent_theme") =>
+        {
+            true
+        }
+        [root, field]
+            if root == "workbench"
+                && matches!(
+                    field.as_str(),
+                    "initial_screen" | "enabled_screens" | "screen_order"
+                ) =>
+        {
+            true
+        }
+        [root, field] if root == "workbench" && field == "layout_overrides" => {
+            all_table_owners_known(semantic, path, catalog, OwnerKind::Screen)
+        }
+        [root, field, owner, ..] if root == "workbench" && field == "layout_overrides" => {
+            owner_is(catalog, owner, OwnerKind::Screen)
+        }
+        [root, owner, ..] if root == "agents" => owner_is(catalog, owner, OwnerKind::Agent),
+        [root, owner, ..] if root == "plugins" => owner_is(catalog, owner, OwnerKind::Plugin),
+        [root, owner, ..] if root == "keymap" => known_owner(catalog, owner),
+        _ => false,
+    }
+}
+
+fn owner_is(catalog: &OwnerCatalog, text: &str, kind: OwnerKind) -> bool {
+    Id::parse(text)
+        .ok()
+        .and_then(|id| catalog.get(&id))
+        .is_some_and(|owner| owner.kind == kind)
+}
+
+fn known_owner(catalog: &OwnerCatalog, text: &str) -> bool {
+    Id::parse(text)
+        .ok()
+        .and_then(|id| catalog.get(&id))
+        .is_some()
+}
+
+fn all_table_owners_known(
+    semantic: &toml::Value,
+    path: &[String],
+    catalog: &OwnerCatalog,
+    kind: OwnerKind,
+) -> bool {
+    value_at_path(semantic, path)
+        .and_then(toml::Value::as_table)
+        .is_some_and(|owners| owners.keys().all(|owner| owner_is(catalog, owner, kind)))
+}
+
+fn value_at_path<'a>(value: &'a toml::Value, path: &[String]) -> Option<&'a toml::Value> {
+    path.iter()
+        .try_fold(value, |current, key| current.as_table()?.get(key))
+}
+
+pub(super) fn apply_patches(original: &[u8], mut patches: Vec<(ByteSpan, Vec<u8>)>) -> Vec<u8> {
+    patches.sort_by_key(|(span, _)| std::cmp::Reverse((span.start, span.end)));
+    let mut candidate = original.to_vec();
+    for (span, replacement) in patches {
+        let (Ok(start), Ok(end)) = (usize::try_from(span.start), usize::try_from(span.end)) else {
+            continue;
+        };
+        if start <= end && end <= candidate.len() {
+            candidate.splice(start..end, replacement);
+        }
+    }
+    candidate
+}
+
+fn trim_ascii(mut bytes: &[u8]) -> &[u8] {
+    while bytes.first().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[1..];
+    }
+    while bytes.last().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[..bytes.len() - 1];
+    }
+    bytes
 }
 
 fn validate_value(value: &toml::Value, depth: usize, path: &str) -> Result<(), Box<Diagnostic>> {

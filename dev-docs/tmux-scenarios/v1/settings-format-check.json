@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "name": "settings-format-check",
+  "platform": "macos",
+  "terminal": { "cols": 110, "rows": 34 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "config", "mode": 448 }, { "path": "work", "mode": 448 }],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema=2\n\n[appearance]\ntheme='green-screen' # owned comment\n\n[agents.\"future.agent\"]\nenabled   = true # dormant bytes\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "format", "--check", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "CFG-E002",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema=2\n\n[appearance]\ntheme='green-screen' # owned comment\n\n[agents.\"future.agent\"]\nenabled   = true # dormant bytes\n"
+        }
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

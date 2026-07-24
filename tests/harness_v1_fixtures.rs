@@ -185,6 +185,66 @@ fn settings_edit_fixture_executes_configured_editor_as_argv() {
 }
 
 #[test]
+fn settings_format_check_fixture_detects_drift_without_writing() {
+    let outcome = run_fixture("settings-format-check.json");
+    assert_passed("settings-format-check", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(2)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn settings_format_fixture_preserves_dormant_bytes() {
+    let outcome = run_fixture("settings-lossless-save.json");
+    assert_passed("settings-lossless-save", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn settings_format_migrate_fixture_writes_schema2_losslessly() {
+    let outcome = run_fixture("settings-format-migrate.json");
+    assert_passed("settings-format-migrate", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn state_migrate_fixture_writes_schema2_atomically() {
+    let outcome = run_fixture("state-v1-v2.json");
+    assert_passed("state-v1-v2", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
 fn capture_fixture_records_exact_boundary_fields() {
     let outcome = run_fixture("harness-capture.json");
     assert_passed("harness-capture", &outcome);

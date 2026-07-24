@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "name": "settings-format-migrate",
+  "platform": "macos",
+  "terminal": { "cols": 110, "rows": 34 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "config", "mode": 448 }, { "path": "work", "mode": 448 }],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "# preserve this heading\nschema_version = 1\ntheme = 'green-screen' # preserve quoting\noverride_agent_theme = true\n\n[future.owner]\nquoted = \"untouched\"\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "format", "--migrate", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "settings formatted",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "# preserve this heading\nsettings_schema = 2\n\n[appearance]\ntheme = \"green-screen\" # preserve quoting\noverride_agent_theme = true\n\n[extensions.schema1.future.owner]\nquoted = \"untouched\"\n"
+        }
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

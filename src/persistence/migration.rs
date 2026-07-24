@@ -15,7 +15,7 @@ mod settings;
 #[path = "migration_values.rs"]
 mod values;
 
-pub use settings::{SettingsMigration, migrate_settings};
+pub use settings::{SettingsMigration, format_migrated_settings, migrate_settings};
 
 use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,

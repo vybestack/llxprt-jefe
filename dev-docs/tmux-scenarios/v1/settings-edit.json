@@ -43,7 +43,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "EDITOR CALLED",
+      "literal": "editor completed",
       "timeout_ms": 15000
     },
     {

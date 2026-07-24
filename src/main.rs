@@ -146,6 +146,12 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
         Some(jefe::cli::ConfigCommand::Edit) => {
             Some(jefe::recovery::run_edit(cli_args.config_dir.as_deref()))
         }
+        Some(jefe::cli::ConfigCommand::Format { check, migrate }) => Some(
+            jefe::recovery::run_format(cli_args.config_dir.as_deref(), check, migrate),
+        ),
+        Some(jefe::cli::ConfigCommand::MigrateState) => Some(jefe::recovery::run_migrate_state(
+            cli_args.config_dir.as_deref(),
+        )),
         _ => None,
     };
     let Some(output) = output else {

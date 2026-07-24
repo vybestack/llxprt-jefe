@@ -1,6 +1,6 @@
 //! One-way schema-1 settings reader over the lossless document authority.
 
-use crate::domain::OwnerCatalog;
+use crate::domain::{ByteSpan, OwnerCatalog};
 
 use super::super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use super::super::settings_document::{PublishedSettings, SettingsDocument};
@@ -55,6 +55,145 @@ pub fn migrate_settings(
         });
     }
     migrate_schema1(document)
+}
+
+/// Build a complete schema-2 settings candidate while preserving dormant syntax.
+pub fn format_migrated_settings(
+    migration: &SettingsMigration,
+    catalog: &OwnerCatalog,
+) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    if !migration.was_migrated() {
+        return migration.document.format_owned(catalog);
+    }
+    let candidate = schema1_format_candidate(migration)?;
+    let validated = migrate_settings(&candidate, catalog)?;
+    if validated.was_migrated() {
+        return Err(vec![settings_error(
+            CfgCode::E102,
+            "/settings_schema",
+            "formatted settings candidate did not become schema 2",
+        )]);
+    }
+    Ok(candidate)
+}
+
+fn schema1_format_candidate(migration: &SettingsMigration) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    let document = migration.document();
+    let schema = required_node(document, &["schema_version"])?;
+    let theme = required_node(document, &["theme"])?;
+    let override_node = document.node(&["override_agent_theme"]);
+    let mut replacement = schema2_known_block(migration, schema, theme, override_node)?;
+    let mut patches = Vec::new();
+    for node in document
+        .syntax_nodes()
+        .iter()
+        .filter(|node| node.path.len() == 1)
+    {
+        if node.path[0] == "schema_version" {
+            patches.push((node.statement_span, replacement.clone()));
+            replacement.clear();
+        } else {
+            patches.push((node.statement_span, Vec::new()));
+        }
+    }
+    for table in document.table_nodes() {
+        patches.push((
+            table.span,
+            prefixed_extension_header(document.span_bytes(table.span)),
+        ));
+    }
+    Ok(super::super::settings_document::apply_patches(
+        document.original_bytes(),
+        patches,
+    ))
+}
+
+fn schema2_known_block(
+    migration: &SettingsMigration,
+    schema: &super::super::settings_syntax::SyntaxNode,
+    theme: &super::super::settings_syntax::SyntaxNode,
+    override_node: Option<&super::super::settings_syntax::SyntaxNode>,
+) -> Result<Vec<u8>, Vec<Diagnostic>> {
+    let document = migration.document();
+    let Some(theme_value) = migration.published().appearance.theme.as_ref() else {
+        return Err(vec![settings_error(
+            CfgCode::E003,
+            "/theme",
+            "theme is missing",
+        )]);
+    };
+    let override_value = migration
+        .published()
+        .appearance
+        .override_agent_theme
+        .unwrap_or(false);
+    let mut block = b"settings_schema = 2".to_vec();
+    block.extend_from_slice(statement_suffix(document, schema));
+    block.extend_from_slice(b"\n[appearance]\ntheme = ");
+    block.extend_from_slice(
+        toml::Value::String(theme_value.clone())
+            .to_string()
+            .as_bytes(),
+    );
+    block.extend_from_slice(statement_suffix(document, theme));
+    block.extend_from_slice(b"override_agent_theme = ");
+    block.extend_from_slice(override_value.to_string().as_bytes());
+    if let Some(node) = override_node {
+        block.extend_from_slice(statement_suffix(document, node));
+    } else {
+        block.push(b'\n');
+    }
+    append_root_extensions(document, &mut block);
+    Ok(block)
+}
+
+fn append_root_extensions(document: &SettingsDocument, block: &mut Vec<u8>) {
+    let unknown = document.syntax_nodes().iter().filter(|node| {
+        node.path.len() == 1
+            && !matches!(
+                node.path[0].as_str(),
+                "schema_version" | "theme" | "override_agent_theme"
+            )
+    });
+    let mut statements = unknown.peekable();
+    if statements.peek().is_some() {
+        block.extend_from_slice(b"\n[extensions.schema1]\n");
+        for node in statements {
+            block.extend_from_slice(document.span_bytes(node.statement_span));
+        }
+    }
+}
+
+fn required_node<'a>(
+    document: &'a SettingsDocument,
+    path: &[&str],
+) -> Result<&'a super::super::settings_syntax::SyntaxNode, Vec<Diagnostic>> {
+    document.node(path).ok_or_else(|| {
+        vec![settings_error(
+            CfgCode::E002,
+            &format!("/{}", path.join("/")),
+            "required schema-1 syntax node is missing",
+        )]
+    })
+}
+
+fn statement_suffix<'a>(
+    document: &'a SettingsDocument,
+    node: &super::super::settings_syntax::SyntaxNode,
+) -> &'a [u8] {
+    document.span_bytes(ByteSpan::new(node.value_span.end, node.statement_span.end))
+}
+
+fn prefixed_extension_header(header: &[u8]) -> Vec<u8> {
+    let prefix = if header.starts_with(b"[[") {
+        b"[[extensions.schema1.".as_slice()
+    } else {
+        b"[extensions.schema1.".as_slice()
+    };
+    let offset = if header.starts_with(b"[[") { 2 } else { 1 };
+    let mut prefixed = prefix.to_vec();
+    prefixed.extend_from_slice(header.get(offset..).unwrap_or_default());
+    prefixed
 }
 
 fn migrate_schema1(document: SettingsDocument) -> Result<SettingsMigration, Vec<Diagnostic>> {
