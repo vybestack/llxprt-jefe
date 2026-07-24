@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::domain::OwnerCatalog;
+#[path = "recovery_effective.rs"]
+mod effective;
+
+use crate::config_owners::builtin_owner_catalog;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::migration::{migrate_settings, migrate_state};
 use crate::persistence::paths::{
@@ -60,6 +63,34 @@ pub fn run_path(config_dir: Option<&Path>) -> RecoveryOutput {
     }
 }
 
+/// Render redacted effective settings without writing or starting services.
+#[must_use]
+pub fn run_show_effective(config_dir: Option<&Path>, provenance: bool) -> RecoveryOutput {
+    let paths = match resolve_recovery_paths(config_dir) {
+        Ok(paths) => paths,
+        Err(output) => return output,
+    };
+    let Some(bytes) = (match read_optional(&paths.settings.path) {
+        Ok(bytes) => bytes,
+        Err(output) => return output,
+    }) else {
+        return RecoveryOutput::success("settings_schema = 2\n".to_owned());
+    };
+    let catalog = match builtin_owner_catalog() {
+        Ok(catalog) => catalog,
+        Err(error) => return RecoveryOutput::failure(contract_failure(error)),
+    };
+    let migration = match migrate_settings(&bytes, &catalog) {
+        Ok(migration) => migration,
+        Err(diagnostics) => return RecoveryOutput::diagnostics(diagnostics, 2),
+    };
+    let selected_path = display_path(&paths.settings.path);
+    match effective::render(&migration, &selected_path, provenance) {
+        Ok(stdout) => RecoveryOutput::success(stdout),
+        Err(error) => RecoveryOutput::failure(recovery_error(paths.settings.path, &error)),
+    }
+}
+
 /// Parse settings and state statically without writing or starting services.
 #[must_use]
 pub fn run_validate(config_dir: Option<&Path>) -> RecoveryOutput {
@@ -98,6 +129,7 @@ fn resolve_recovery_paths(config_dir: Option<&Path>) -> Result<ResolvedPaths, Re
 
 #[derive(Debug, Serialize)]
 struct PathReport {
+    schema: u8,
     settings: FileReport,
     state: FileReport,
     definitions: String,
@@ -108,6 +140,7 @@ struct PathReport {
 impl PathReport {
     fn build(paths: &ResolvedPaths) -> Result<Self, PathError> {
         Ok(Self {
+            schema: 1,
             settings: FileReport::build(&paths.settings)?,
             state: FileReport::build(&paths.state)?,
             definitions: display_path(&paths.definitions),
@@ -223,7 +256,9 @@ fn validate_settings(path: &Path) -> Result<DocumentReport, RecoveryOutput> {
     let Some(bytes) = read_optional(path)? else {
         return Ok(missing_document(path));
     };
-    let migration = migrate_settings(&bytes, &OwnerCatalog::default())
+    let catalog = builtin_owner_catalog()
+        .map_err(|error| RecoveryOutput::failure(contract_failure(error)))?;
+    let migration = migrate_settings(&bytes, &catalog)
         .map_err(|diagnostics| RecoveryOutput::diagnostics(diagnostics, 2))?;
     let published = migration.published();
     Ok(DocumentReport {
@@ -315,6 +350,13 @@ fn current_directory_failure(error: &std::io::Error) -> RecoveryOutput {
         PathBuf::from("/"),
         &format!("cannot read current directory: {error}"),
     ))
+}
+
+fn contract_failure(error: crate::domain::ConfigContractError) -> PathError {
+    recovery_error(
+        PathBuf::from("/"),
+        &format!("built-in owner catalog is invalid: {error}"),
+    )
 }
 
 fn recovery_error(path: PathBuf, detail: &str) -> PathError {

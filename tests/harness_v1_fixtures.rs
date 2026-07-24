@@ -132,6 +132,28 @@ fn settings_schema1_validate_fixture_preserves_source_bytes() {
 }
 
 #[test]
+fn settings_show_effective_fixture_redacts_secrets_and_skips_providers() {
+    let outcome = run_fixture("settings-show-effective.json");
+    assert_passed("settings-show-effective", &outcome);
+    let capture = outcome
+        .report
+        .captures
+        .iter()
+        .find(|capture| capture.name == "gh")
+        .unwrap_or_else(|| panic!("gh capture must be reported"));
+    assert!(capture.invocations.is_empty(), "recovery must not start gh");
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
 fn capture_fixture_records_exact_boundary_fields() {
     let outcome = run_fixture("harness-capture.json");
     assert_passed("harness-capture", &outcome);

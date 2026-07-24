@@ -12,6 +12,8 @@ pub mod agent_detection;
 pub mod cli;
 /// OSC 52 clipboard writer with tmux / GNU screen passthrough.
 pub mod clipboard;
+/// Static descriptors for configuration owners built into this executable.
+pub mod config_owners;
 /// Resolved dashboard Git display data shared by rendering and selection copy.
 pub mod dashboard_git_info;
 pub mod domain;
