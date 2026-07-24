@@ -121,6 +121,24 @@ pub struct PathError {
     pub exit_code: u8,
 }
 
+/// Resolve selected files and source candidates from the current process context.
+pub fn resolve(config_dir: Option<&Path>) -> Result<ResolvedPaths, PathError> {
+    let current_dir = std::env::current_dir().map_err(|error| {
+        path_error(
+            CfgCode::E001,
+            2,
+            Path::new("."),
+            &format!("cannot resolve current directory: {error}"),
+        )
+    })?;
+    let request = PathResolutionRequest {
+        config_dir: config_dir.map(Path::to_path_buf),
+        platform: Platform::current(),
+        current_dir,
+    };
+    resolve_from(&request, &PathEnvironment::capture())
+}
+
 /// Resolve selected files and source candidates without touching the filesystem.
 pub fn resolve_from(
     request: &PathResolutionRequest,

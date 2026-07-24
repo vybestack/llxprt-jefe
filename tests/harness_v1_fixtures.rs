@@ -245,6 +245,21 @@ fn state_migrate_fixture_writes_schema2_atomically() {
 }
 
 #[test]
+fn startup_malformed_state_fixture_blocks_before_tui_without_writing() {
+    let outcome = run_fixture("startup-malformed-state.json");
+    assert_passed("startup-malformed-state", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(2)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
 fn capture_fixture_records_exact_boundary_fields() {
     let outcome = run_fixture("harness-capture.json");
     assert_passed("harness-capture", &outcome);

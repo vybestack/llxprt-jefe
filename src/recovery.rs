@@ -19,9 +19,8 @@ use crate::config_owners::builtin_owner_catalog;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::migration::{format_migrated_settings, migrate_settings, migrate_state};
 use crate::persistence::paths::{
-    InspectedSource, PathCandidate, PathEnvironment, PathError, PathProvenance,
-    PathResolutionRequest, PhysicalFileKey, PhysicalIdentity, Platform, ResolvedFile,
-    ResolvedPaths, SourceValidity, decide_import, physical_identity, resolve_from,
+    InspectedSource, PathCandidate, PathError, PathProvenance, PhysicalFileKey, PhysicalIdentity,
+    ResolvedFile, ResolvedPaths, SourceValidity, decide_import, physical_identity, resolve,
 };
 use crate::persistence::writer::{
     AtomicWrite, BackupPolicy, DraftBytes, ExpectedHash, Freshness, write,
@@ -298,13 +297,7 @@ fn path_read_error(path: &Path, detail: &str) -> PathError {
 }
 
 fn resolve_recovery_paths(config_dir: Option<&Path>) -> Result<ResolvedPaths, RecoveryOutput> {
-    let current_dir = std::env::current_dir().map_err(|error| current_directory_failure(&error))?;
-    let request = PathResolutionRequest {
-        config_dir: config_dir.map(Path::to_path_buf),
-        platform: Platform::current(),
-        current_dir,
-    };
-    resolve_from(&request, &PathEnvironment::capture()).map_err(RecoveryOutput::failure)
+    resolve(config_dir).map_err(RecoveryOutput::failure)
 }
 
 #[derive(Debug, Serialize)]
@@ -569,13 +562,6 @@ fn render_diagnostics(diagnostics: &[Diagnostic]) -> String {
         Ok(rendered) => rendered,
         Err(_) => "[{\"code\":\"CFG-E104\",\"severity\":\"error\",\"path\":\"/\",\"span\":null,\"owner\":null,\"owner_version\":null,\"provenance\":[],\"correction\":\"retry recovery after correcting the output failure\",\"redacted_detail\":\"cannot render recovery diagnostics\"}]".to_owned(),
     }
-}
-
-fn current_directory_failure(error: &std::io::Error) -> RecoveryOutput {
-    RecoveryOutput::failure(recovery_error(
-        PathBuf::from("/"),
-        &format!("cannot read current directory: {error}"),
-    ))
 }
 
 fn contract_failure(error: crate::domain::ConfigContractError) -> PathError {
