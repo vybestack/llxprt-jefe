@@ -32,7 +32,12 @@ mod settings_document_tests;
 #[path = "state_v2_tests.rs"]
 mod state_v2_tests;
 
+#[cfg(test)]
+#[path = "migration_tests.rs"]
+mod migration_tests;
+
 pub mod diagnostic;
+pub mod migration;
 pub mod paths;
 pub mod settings_document;
 mod settings_publish;

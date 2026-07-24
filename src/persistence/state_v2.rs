@@ -230,7 +230,11 @@ fn validate_signature_versions(state: &StateV2, diagnostics: &mut Vec<Diagnostic
     }
 }
 
-fn validate_json_bounds(value: &Value, depth: usize, path: &str) -> Result<(), Vec<Diagnostic>> {
+pub(super) fn validate_json_bounds(
+    value: &Value,
+    depth: usize,
+    path: &str,
+) -> Result<(), Vec<Diagnostic>> {
     if depth > NESTING_LIMIT {
         return Err(vec![limit_diagnostic(
             path_or_root(path),

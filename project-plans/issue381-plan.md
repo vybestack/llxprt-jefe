@@ -194,6 +194,8 @@ The user explicitly directed one PR and approved its hard-budget exceedance. The
 | 2026-07-24 | S3 publication GREEN | 9 focused settings tests pass, proving closed roots, known-owner field checks, dormant unknown owners/extensions, recursive typed-map merge, and leaf provenance; `make quick-check` passes (2,413 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the recorded pre-existing Rust 1.97 findings |
 | 2026-07-24 | S4 strict StateV2 RED | Added the `state-v1-v2.json` fixture and 5 strict-wire tests; focused compilation failed because `persistence::state_v2::StateDocument` did not exist |
 | 2026-07-24 | S4 strict StateV2 GREEN | 5 focused tests pass for exact schema-2 round-trip, global duplicate-key rejection, unknown fields, schema/location discipline, unique IDs/references, and parser-owned bounds; `make quick-check` passes (2,418 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the recorded pre-existing Rust 1.97 findings |
+| 2026-07-24 | S5 schema-1 migration RED | Added migration tests before production code; focused compilation failed because `persistence::migration` did not exist |
+| 2026-07-24 | S5 schema-1 migration GREEN | 7 focused tests pass for full local/remote typed migration, deterministic collision ordinals and fixed hash vectors, dormant raw values, repaired selection warnings, duplicate-key rejection, repeat determinism, and schema-2 semantic no-op; `make quick-check` passes (2,425 library tests passed, 1 ignored, plus every integration/doc target). Slice-local Clippy findings are fixed; full library Clippy reaches only the 4 recorded pre-existing Rust 1.97 findings |
 
 ## Verification and delivery gates
 
