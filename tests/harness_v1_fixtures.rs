@@ -154,6 +154,21 @@ fn settings_show_effective_fixture_redacts_secrets_and_skips_providers() {
 }
 
 #[test]
+fn settings_edit_fixture_executes_configured_editor_as_argv() {
+    let outcome = run_fixture("settings-edit.json");
+    assert_passed("settings-edit", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
 fn capture_fixture_records_exact_boundary_fields() {
     let outcome = run_fixture("harness-capture.json");
     assert_passed("harness-capture", &outcome);

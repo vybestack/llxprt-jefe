@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+#[path = "recovery_editor.rs"]
+mod editor;
 #[path = "recovery_effective.rs"]
 mod effective;
 
@@ -88,6 +90,21 @@ pub fn run_show_effective(config_dir: Option<&Path>, provenance: bool) -> Recove
     match effective::render(&migration, &selected_path, provenance) {
         Ok(stdout) => RecoveryOutput::success(stdout),
         Err(error) => RecoveryOutput::failure(recovery_error(paths.settings.path, &error)),
+    }
+}
+
+/// Execute the configured editor as argv without invoking a shell.
+#[must_use]
+pub fn run_edit(config_dir: Option<&Path>) -> RecoveryOutput {
+    let paths = match resolve_recovery_paths(config_dir) {
+        Ok(paths) => paths,
+        Err(output) => return output,
+    };
+    match editor::execute(&paths.settings.path) {
+        Ok(()) => RecoveryOutput::success(String::new()),
+        Err(error) => {
+            RecoveryOutput::failure(recovery_error(paths.settings.path, &error.to_string()))
+        }
     }
 }
 

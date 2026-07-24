@@ -143,6 +143,9 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
         Some(jefe::cli::ConfigCommand::ShowEffective { provenance }) => Some(
             jefe::recovery::run_show_effective(cli_args.config_dir.as_deref(), provenance),
         ),
+        Some(jefe::cli::ConfigCommand::Edit) => {
+            Some(jefe::recovery::run_edit(cli_args.config_dir.as_deref()))
+        }
         _ => None,
     };
     let Some(output) = output else {
