@@ -7,6 +7,23 @@
 
 use std::path::PathBuf;
 
+/// Provider-free configuration recovery operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigCommand {
+    /// Print resolved persistence paths and provenance.
+    Path,
+    /// Parse and statically validate configuration documents.
+    Validate,
+    /// Print redacted effective configuration.
+    ShowEffective { provenance: bool },
+    /// Open the settings document in the configured editor.
+    Edit,
+    /// Check or rewrite owned settings syntax.
+    Format { check: bool, migrate: bool },
+    /// Migrate/import state through the atomic writer.
+    MigrateState,
+}
+
 /// Parsed command-line arguments.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CliArgs {
@@ -16,6 +33,8 @@ pub struct CliArgs {
     pub help: bool,
     /// Explicit config directory from `--config <dir>` / `-c <dir>`.
     pub config_dir: Option<PathBuf>,
+    /// Provider-free recovery command, when selected.
+    pub command: Option<ConfigCommand>,
 }
 
 /// Error produced while parsing command-line arguments.
@@ -23,14 +42,25 @@ pub struct CliArgs {
 pub enum CliError {
     /// A flag that expects a value was given none.
     MissingValue(String),
+    /// A command that expects an operand was given none.
+    MissingOperand(String),
     /// An unrecognized argument was encountered.
     UnknownArgument(String),
+}
+
+impl CliError {
+    /// Return the standard command-line usage error exit code.
+    #[must_use]
+    pub const fn exit_code(&self) -> u8 {
+        64
+    }
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingValue(flag) => write!(f, "{flag} requires a path argument"),
+            Self::MissingOperand(command) => write!(f, "{command} requires a command operand"),
             Self::UnknownArgument(arg) => write!(f, "unknown argument: {arg}"),
         }
     }
@@ -69,37 +99,86 @@ where
         match arg.as_str() {
             "--version" | "-V" => result.version = true,
             "--help" | "-h" => result.help = true,
-            "--config" | "-c" => {
-                let value = iter
-                    .next()
-                    .ok_or_else(|| CliError::MissingValue(arg.clone()))?;
-                // Reject empty values and flag-like tokens (e.g. a following
-                // `--help`) so they aren't silently swallowed as a directory.
-                if value.is_empty() || value.starts_with('-') {
-                    return Err(CliError::MissingValue(arg.clone()));
-                }
-                result.config_dir = Some(PathBuf::from(value));
-            }
-            other => {
-                // Support `--config=<dir>` / `-c=<dir>` forms.
-                if let Some(value) = other
-                    .strip_prefix("--config=")
-                    .or_else(|| other.strip_prefix("-c="))
-                {
-                    if value.is_empty() {
-                        return Err(CliError::MissingValue(
-                            other.split('=').next().unwrap_or(other).to_string(),
-                        ));
-                    }
-                    result.config_dir = Some(PathBuf::from(value));
-                } else {
-                    return Err(CliError::UnknownArgument(other.to_string()));
-                }
-            }
+            "--config" | "-c" => set_config_value(&mut result, &arg, iter.next())?,
+            "config" => parse_config_command(&mut result, &mut iter)?,
+            other => parse_config_equals(&mut result, other)?,
         }
     }
 
     Ok(result)
+}
+
+fn set_config_value(
+    result: &mut CliArgs,
+    flag: &str,
+    value: Option<String>,
+) -> Result<(), CliError> {
+    let value = value.ok_or_else(|| CliError::MissingValue(flag.to_owned()))?;
+    if value.is_empty() || value.starts_with('-') {
+        return Err(CliError::MissingValue(flag.to_owned()));
+    }
+    result.config_dir = Some(PathBuf::from(value));
+    Ok(())
+}
+
+fn parse_config_equals(result: &mut CliArgs, argument: &str) -> Result<(), CliError> {
+    let Some(value) = argument
+        .strip_prefix("--config=")
+        .or_else(|| argument.strip_prefix("-c="))
+    else {
+        return Err(CliError::UnknownArgument(argument.to_owned()));
+    };
+    if value.is_empty() {
+        let flag = argument.split('=').next().unwrap_or(argument);
+        return Err(CliError::MissingValue(flag.to_owned()));
+    }
+    result.config_dir = Some(PathBuf::from(value));
+    Ok(())
+}
+
+#[derive(Default)]
+struct RecoveryFlags {
+    provenance: bool,
+    check: bool,
+    migrate: bool,
+}
+
+fn parse_config_command(
+    result: &mut CliArgs,
+    iter: &mut impl Iterator<Item = String>,
+) -> Result<(), CliError> {
+    let name = iter
+        .next()
+        .ok_or_else(|| CliError::MissingOperand("config".to_owned()))?;
+    let mut flags = RecoveryFlags::default();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--config" | "-c" => set_config_value(result, &argument, iter.next())?,
+            "--provenance" if name == "show-effective" => flags.provenance = true,
+            "--check" if name == "format" => flags.check = true,
+            "--migrate" if name == "format" => flags.migrate = true,
+            other => parse_config_equals(result, other)?,
+        }
+    }
+    result.command = Some(config_command(&name, flags)?);
+    Ok(())
+}
+
+fn config_command(name: &str, flags: RecoveryFlags) -> Result<ConfigCommand, CliError> {
+    match name {
+        "path" => Ok(ConfigCommand::Path),
+        "validate" => Ok(ConfigCommand::Validate),
+        "show-effective" => Ok(ConfigCommand::ShowEffective {
+            provenance: flags.provenance,
+        }),
+        "edit" => Ok(ConfigCommand::Edit),
+        "format" => Ok(ConfigCommand::Format {
+            check: flags.check,
+            migrate: flags.migrate,
+        }),
+        "migrate-state" => Ok(ConfigCommand::MigrateState),
+        other => Err(CliError::UnknownArgument(other.to_owned())),
+    }
 }
 
 #[cfg(test)]
@@ -222,5 +301,55 @@ mod tests {
     fn later_config_overrides_earlier() {
         let parsed = parse(&["-c", "/tmp/a", "-c", "/tmp/b"]).value_or_panic("parse");
         assert_eq!(parsed.config_dir, Some(PathBuf::from("/tmp/b")));
+    }
+
+    #[test]
+    fn config_recovery_commands_parse_with_only_their_owned_flags() {
+        let path =
+            parse(&["config", "path", "--config", "/tmp/recovery"]).value_or_panic("path command");
+        assert_eq!(path.config_dir, Some(PathBuf::from("/tmp/recovery")));
+        assert_eq!(path.command, Some(ConfigCommand::Path));
+
+        let effective = parse(&["config", "show-effective", "--provenance"])
+            .value_or_panic("effective command");
+        assert_eq!(
+            effective.command,
+            Some(ConfigCommand::ShowEffective { provenance: true })
+        );
+
+        let format =
+            parse(&["config", "format", "--check", "--migrate"]).value_or_panic("format command");
+        assert_eq!(
+            format.command,
+            Some(ConfigCommand::Format {
+                check: true,
+                migrate: true,
+            })
+        );
+
+        for (name, expected) in [
+            ("validate", ConfigCommand::Validate),
+            ("edit", ConfigCommand::Edit),
+            ("migrate-state", ConfigCommand::MigrateState),
+        ] {
+            assert_eq!(
+                parse(&["config", name]).value_or_panic(name).command,
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn config_recovery_rejects_missing_command_and_foreign_flags_with_exit_64() {
+        for args in [
+            vec!["config"],
+            vec!["config", "path", "--check"],
+            vec!["config", "validate", "--provenance"],
+            vec!["config", "format", "--provenance"],
+            vec!["config", "unknown"],
+        ] {
+            let error = parse(&args).error_or_panic("invalid recovery syntax");
+            assert_eq!(error.exit_code(), 64, "args: {args:?}");
+        }
     }
 }

@@ -52,7 +52,7 @@ fn parse_cli_or_exit() -> Option<jefe::cli::CliArgs> {
         Ok(args) => handle_parsed_cli_args(args),
         Err(e) => {
             write_cli_error(&e);
-            std::process::exit(2);
+            std::process::exit(i32::from(e.exit_code()));
         }
     }
 }
