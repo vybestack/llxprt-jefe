@@ -46,10 +46,13 @@ fn run_fixture(name: &str) -> RunOutcome {
         .unwrap_or_else(|err| panic!("{name} should parse: {err}"));
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
-        installs: vec![(
-            "jefe-harness-probe".to_string(),
-            bin_path("jefe-harness-probe"),
-        )],
+        installs: vec![
+            (
+                "jefe-harness-probe".to_string(),
+                bin_path("jefe-harness-probe"),
+            ),
+            ("jefe".to_string(), bin_path("jefe")),
+        ],
     };
     run(&scenario, &config)
 }
@@ -73,6 +76,58 @@ fn assert_passed(name: &str, outcome: &RunOutcome) {
 fn schema_all_ops_fixture_passes() {
     let outcome = run_fixture("harness-schema-all-ops.json");
     assert_passed("harness-schema-all-ops", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn config_path_fixture_runs_the_real_provider_free_binary() {
+    let outcome = run_fixture("config-path-precedence.json");
+    assert_passed("config-path-precedence", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn config_provider_free_fixture_starts_no_captured_provider() {
+    let outcome = run_fixture("config-provider-free.json");
+    assert_passed("config-provider-free", &outcome);
+    let capture = outcome
+        .report
+        .captures
+        .iter()
+        .find(|capture| capture.name == "gh")
+        .unwrap_or_else(|| panic!("gh capture must be reported"));
+    assert!(capture.invocations.is_empty(), "recovery must not start gh");
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn settings_schema1_validate_fixture_preserves_source_bytes() {
+    let outcome = run_fixture("settings-v1-lossless.json");
+    assert_passed("settings-v1-lossless", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(0)
+    );
     cleanup(&outcome);
 }
 

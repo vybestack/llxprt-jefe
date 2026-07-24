@@ -10,8 +10,12 @@ use serde_json::{Value, json};
 
 #[path = "migration_schema1.rs"]
 mod schema1;
+#[path = "migration_settings.rs"]
+mod settings;
 #[path = "migration_values.rs"]
 mod values;
+
+pub use settings::{SettingsMigration, migrate_settings};
 
 use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,

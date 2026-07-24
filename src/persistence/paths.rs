@@ -428,6 +428,12 @@ impl PhysicalIdentity {
         &self.canonical_path
     }
 
+    /// Return the platform-native key when the selected leaf exists.
+    #[must_use]
+    pub const fn file_key(&self) -> Option<PhysicalFileKey> {
+        self.file_key
+    }
+
     /// Compare aliases by file key where available, otherwise canonical path.
     #[must_use]
     pub fn equivalent(&self, other: &Self) -> bool {

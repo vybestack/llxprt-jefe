@@ -76,6 +76,17 @@ fn write_stdout_line(message: &str) {
     let _ = writeln!(handle, "{message}");
 }
 
+fn write_recovery_output(output: &jefe::recovery::RecoveryOutput) {
+    if !output.stdout.is_empty() {
+        write_stdout_line(&output.stdout);
+    }
+    if !output.stderr.is_empty() {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "{}", output.stderr);
+    }
+}
+
 fn write_cli_error(error: &jefe::cli::CliError) {
     let stderr = std::io::stderr();
     let mut handle = stderr.lock();
@@ -121,11 +132,34 @@ fn run_internal_agent_launch_if_requested() {
     }
 }
 
+fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
+    let output = match cli_args.command {
+        Some(jefe::cli::ConfigCommand::Path) => {
+            Some(jefe::recovery::run_path(cli_args.config_dir.as_deref()))
+        }
+        Some(jefe::cli::ConfigCommand::Validate) => {
+            Some(jefe::recovery::run_validate(cli_args.config_dir.as_deref()))
+        }
+        _ => None,
+    };
+    let Some(output) = output else {
+        return false;
+    };
+    write_recovery_output(&output);
+    if output.exit_code != 0 {
+        std::process::exit(i32::from(output.exit_code));
+    }
+    true
+}
+
 fn main() {
     run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
     };
+    if dispatch_recovery_command(&cli_args) {
+        return;
+    }
 
     // Initialize structured logging (no-op if JEFE_LOG_FILE is unset).
     jefe::logging::init();

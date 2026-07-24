@@ -34,6 +34,8 @@ pub mod persistence;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
+/// Provider-free configuration recovery command boundary.
+pub mod recovery;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;
