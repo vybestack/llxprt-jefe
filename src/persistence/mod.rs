@@ -28,12 +28,18 @@ mod paths_tests;
 #[path = "settings_document_tests.rs"]
 mod settings_document_tests;
 
+#[cfg(test)]
+#[path = "state_v2_tests.rs"]
+mod state_v2_tests;
+
 pub mod diagnostic;
 pub mod paths;
 pub mod settings_document;
 mod settings_publish;
 mod settings_syntax;
 pub mod sha256;
+mod state_json;
+pub mod state_v2;
 
 /// Persistence errors.
 #[derive(Debug, Clone)]

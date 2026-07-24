@@ -22,6 +22,14 @@ pub use config_contract::{
     TypedMap, TypedValue,
 };
 
+mod state_contract;
+pub use state_contract::{
+    AgentDefaults, AgentRecord, DormantRecord, LastKnownRuntime, LaunchSignatureV1,
+    LocalRepositoryLocation, Preferences, RemoteRepositoryLocation, RepositoryLocation,
+    RepositoryRecord, RuntimeRecord, STATE_SCHEMA_V2, Selection, Sha256Digest, StateContractError,
+    StateV2,
+};
+
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;
