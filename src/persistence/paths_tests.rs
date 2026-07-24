@@ -6,8 +6,10 @@ use std::path::PathBuf;
 use super::diagnostic::CfgCode;
 use super::paths::{
     ImportDecision, InspectedSource, PathEnvironment, PathProvenance, PathResolutionRequest,
-    Platform, SourceValidity, decide_import, physical_identity, resolve_from,
+    Platform, SourceValidity, decide_import, import_state_source, physical_identity, resolve_from,
 };
+use super::state_v2::StateDocument;
+use super::writer::WriteOutcome;
 
 #[test]
 fn explicit_config_isolated_override_ignores_all_path_environment() {
@@ -215,6 +217,98 @@ fn import_decision_deduplicates_aliases_and_rejects_distinct_ambiguity() {
         .err()
         .unwrap_or_else(|| panic!("distinct sources must be ambiguous"));
     assert_eq!(error.exit_code, 3);
+}
+
+#[test]
+fn import_migrates_atomically_and_retains_physically_distinct_source() {
+    let Ok(root) = tempfile::tempdir() else {
+        panic!("temporary root must be created");
+    };
+    let source = root.path().join("historical/state.json");
+    let target = root.path().join("current/state.json");
+    let source_bytes = minimal_schema1_state();
+    assert!(
+        source
+            .parent()
+            .is_some_and(|parent| std::fs::create_dir_all(parent).is_ok())
+            && std::fs::write(&source, &source_bytes).is_ok(),
+        "source fixture must be created"
+    );
+
+    let outcome = import_state_source(&source, &target)
+        .unwrap_or_else(|error| panic!("valid source must import: {error:?}"));
+
+    assert!(matches!(
+        outcome,
+        WriteOutcome::Authoritative { revision: 1, .. }
+    ));
+    assert_eq!(std::fs::read(&source).unwrap_or_default(), source_bytes);
+    let target_bytes = std::fs::read(&target).unwrap_or_default();
+    let document = StateDocument::parse(&target_bytes)
+        .unwrap_or_else(|diagnostics| panic!("target must be schema 2: {diagnostics:?}"));
+
+    assert_eq!(document.state().revision, 1);
+    assert_ne!(target_bytes, source_bytes);
+}
+
+#[test]
+fn malformed_import_reports_cfg_e103_and_leaves_target_absent() {
+    let Ok(root) = tempfile::tempdir() else {
+        panic!("temporary root must be created");
+    };
+    let source = root.path().join("historical/state.json");
+    let target = root.path().join("current/state.json");
+    assert!(
+        source
+            .parent()
+            .is_some_and(|parent| std::fs::create_dir_all(parent).is_ok())
+            && std::fs::write(&source, b"{not json").is_ok(),
+        "malformed source fixture must be created"
+    );
+
+    let error = import_state_source(&source, &target)
+        .err()
+        .unwrap_or_else(|| panic!("malformed source must fail"));
+
+    assert_eq!(error.exit_code(), 2);
+    assert_eq!(
+        error.diagnostic().map(|item| item.code),
+        Some(CfgCode::E103)
+    );
+    assert!(!target.exists());
+    assert_eq!(std::fs::read(&source).unwrap_or_default(), b"{not json");
+}
+
+#[test]
+fn retained_schema1_backups_are_not_source_candidates() {
+    let environment = PathEnvironment {
+        home: Some(OsString::from("/home/alice")),
+        ..PathEnvironment::default()
+    };
+    let request = PathResolutionRequest {
+        config_dir: None,
+        platform: Platform::Linux,
+        current_dir: PathBuf::from("/work"),
+    };
+    let paths = resolve_from(&request, &environment)
+        .unwrap_or_else(|error| panic!("Linux paths must resolve: {error:?}"));
+
+    assert_eq!(paths.state.sources.len(), 1);
+    assert!(paths.state.sources.iter().all(|candidate| {
+        !candidate.path.to_string_lossy().contains(".schema1.")
+            && candidate.path.extension().and_then(std::ffi::OsStr::to_str) != Some("bak")
+    }));
+}
+
+fn minimal_schema1_state() -> Vec<u8> {
+    br#"{
+  "schema_version": 1,
+  "repositories": [],
+  "agents": [],
+  "selected_repository_index": null,
+  "selected_agent_index": null
+}"#
+    .to_vec()
 }
 
 fn inspected(path: &std::path::Path, validity: SourceValidity) -> InspectedSource {

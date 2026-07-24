@@ -5,6 +5,10 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, PATH_LIMIT, Severity};
+use super::migration::migrate_state;
+use super::writer::{
+    AtomicWrite, BackupPolicy, DraftBytes, ExpectedHash, Freshness, WriteError, WriteOutcome,
+};
 
 /// Platform whose standard configuration locations should be resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -604,6 +608,85 @@ pub fn decide_import(
             &first.path,
             "multiple distinct sources",
         )),
+    }
+}
+
+/// Failure while reading, migrating, serializing, or writing an import.
+#[derive(Debug)]
+pub enum StateImportError {
+    /// Static source or serialization diagnostics with their recovery exit.
+    Diagnostics {
+        diagnostics: Vec<Diagnostic>,
+        exit_code: u8,
+    },
+    /// Atomic writer failure retaining the immutable schema-2 draft.
+    Write(WriteError),
+}
+
+impl StateImportError {
+    /// Return the recovery command exit code.
+    #[must_use]
+    pub const fn exit_code(&self) -> u8 {
+        match self {
+            Self::Diagnostics { exit_code, .. } => *exit_code,
+            Self::Write(_) => 4,
+        }
+    }
+
+    /// Borrow the primary typed diagnostic.
+    #[must_use]
+    pub fn diagnostic(&self) -> Option<&Diagnostic> {
+        match self {
+            Self::Diagnostics { diagnostics, .. } => diagnostics.first(),
+            Self::Write(error) => Some(error.diagnostic()),
+        }
+    }
+}
+
+/// Import one physically distinct state source into an absent selected target.
+///
+/// The source is read and migrated entirely in memory, then the schema-2
+/// candidate is installed through the sole atomic writer authority. The source
+/// remains byte-for-byte unchanged and no schema-1 backup is created because it
+/// is not the selected authority being replaced.
+pub fn import_state_source(source: &Path, target: &Path) -> Result<WriteOutcome, StateImportError> {
+    let source_bytes = std::fs::read(source)
+        .map_err(|error| import_diagnostic(source, CfgCode::E104, 4, error.to_string()))?;
+    let migrated =
+        migrate_state(&source_bytes).map_err(|diagnostics| StateImportError::Diagnostics {
+            diagnostics,
+            exit_code: 2,
+        })?;
+    let draft = migrated
+        .to_canonical_json()
+        .map_err(|error| import_diagnostic(source, CfgCode::E104, 4, error.to_string()))?;
+    let operation = AtomicWrite {
+        target: target.to_path_buf(),
+        draft: DraftBytes::new(draft),
+        expected: ExpectedHash::Absent,
+        revision: migrated.state().revision,
+        backup: BackupPolicy::None,
+    };
+    super::writer::write(operation, |_| Freshness::Current).map_err(StateImportError::Write)
+}
+
+fn import_diagnostic(
+    path: &Path,
+    code: CfgCode,
+    exit_code: u8,
+    detail: String,
+) -> StateImportError {
+    let mut diagnostic = Diagnostic::new(
+        code,
+        Severity::Error,
+        DiagnosticPath::new(path.to_string_lossy()),
+        None,
+        "retain the source and retry the explicit state migration",
+    );
+    diagnostic.redacted_detail = detail;
+    StateImportError::Diagnostics {
+        diagnostics: vec![diagnostic],
+        exit_code,
     }
 }
 

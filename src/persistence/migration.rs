@@ -59,6 +59,13 @@ impl StateMigration {
     pub const fn was_migrated(&self) -> bool {
         self.migrated
     }
+
+    /// Serialize the validated current state in canonical durable form.
+    pub fn to_canonical_json(&self) -> Result<Vec<u8>, serde_json::Error> {
+        let mut encoded = serde_json::to_vec_pretty(&self.state)?;
+        encoded.push(b'\n');
+        Ok(encoded)
+    }
 }
 
 /// Parse strict schema 2 or migrate strict schema 1 entirely in memory.
