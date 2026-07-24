@@ -292,54 +292,6 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
     );
 }
 
-#[test]
-fn to_persisted_state_carries_hide_idle_toggle() {
-    let state = AppState {
-        hide_idle_repositories: true,
-        ..AppState::default()
-    };
-
-    let persisted = to_persisted_state(&state);
-    assert!(persisted.hide_idle_repositories);
-}
-
-#[test]
-fn to_persisted_state_carries_pane_focus_and_terminal_focused() {
-    let state = AppState {
-        pane_focus: PaneFocus::Terminal,
-        terminal_focused: true,
-        ..AppState::default()
-    };
-
-    let persisted = to_persisted_state(&state);
-    assert_eq!(persisted.pane_focus, "terminal");
-    assert!(persisted.terminal_focused);
-}
-
-#[test]
-fn pane_focus_round_trip_all_variants() {
-    for focus in [
-        PaneFocus::Repositories,
-        PaneFocus::Agents,
-        PaneFocus::Terminal,
-    ] {
-        let s = pane_focus_to_persisted(focus);
-        assert_eq!(
-            pane_focus_from_persisted(&s),
-            focus,
-            "round-trip for {focus:?}"
-        );
-    }
-}
-
-#[test]
-fn pane_focus_from_persisted_unknown_defaults_to_repositories() {
-    // Older state files written before this field existed have "" or an
-    // unrecognized value; both must fall back to Repositories.
-    assert_eq!(pane_focus_from_persisted(""), PaneFocus::Repositories);
-    assert_eq!(pane_focus_from_persisted("bogus"), PaneFocus::Repositories);
-}
-
 /// to_persisted_state must EXCLUDE all prs_state data — no PR key appears in
 /// the serialized JSON.
 ///

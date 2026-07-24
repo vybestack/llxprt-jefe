@@ -50,13 +50,24 @@ impl Dimensions for HarnessDimensions {
     }
 }
 
-/// Event sink that deliberately ignores terminal events: the harness must
-/// not forward clipboard or other side effects to the host.
-#[derive(Clone, Copy, Debug)]
-struct HarnessListener;
+/// Event sink for the embedded terminal model. Identity/mode query responses
+/// (`Event::PtyWrite`, e.g. DA1 and kitty keyboard-protocol replies) are
+/// written back to the app's input: real TUIs block their input pipeline on
+/// those responses during raw-mode setup. Every other event (clipboard,
+/// bells, ...) is deliberately dropped so no side effect reaches the host.
+struct HarnessListener {
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+}
 
 impl EventListener for HarnessListener {
-    fn send_event(&self, _event: TermEvent) {}
+    fn send_event(&self, event: TermEvent) {
+        if let TermEvent::PtyWrite(text) = event
+            && let Ok(mut writer) = self.writer.lock()
+        {
+            let _ = writer.write_all(text.as_bytes());
+            let _ = writer.flush();
+        }
+    }
 }
 
 /// How the app-under-test exited.
@@ -68,7 +79,7 @@ pub struct ProcessExit {
 /// A live PTY session holding the app-under-test.
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn PtyChild + Send + Sync>,
     term: Arc<Mutex<Term<HarnessListener>>>,
     stream: Arc<Mutex<Vec<u8>>>,
@@ -130,13 +141,16 @@ impl PtySession {
         reader: Box<dyn Read + Send>,
         size: Size,
     ) -> Self {
+        let writer = Arc::new(Mutex::new(writer));
         let term = Arc::new(Mutex::new(Term::new(
             TermConfig::default(),
             &HarnessDimensions {
                 cols: size.cols as usize,
                 rows: size.rows as usize,
             },
-            HarnessListener,
+            HarnessListener {
+                writer: Arc::clone(&writer),
+            },
         )));
         let stream = Arc::new(Mutex::new(Vec::new()));
         let generation = Arc::new(AtomicU64::new(0));
@@ -170,11 +184,15 @@ impl PtySession {
     ///
     /// # Errors
     ///
-    /// `HAR-E005` on write failure.
+    /// `HAR-E005` on write failure or when the writer lock is poisoned.
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), HarnessError> {
-        self.writer
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| HarnessError::process("PTY writer lock poisoned".to_string()))?;
+        writer
             .write_all(bytes)
-            .and_then(|()| self.writer.flush())
+            .and_then(|()| writer.flush())
             .map_err(|err| HarnessError::process(format!("pty write: {err}")))
     }
 
@@ -467,3 +485,7 @@ fn signal_group(pgid: i32, signal: &str) -> Result<bool, HarnessError> {
 fn group_alive(pgid: i32) -> Result<bool, HarnessError> {
     signal_group(pgid, "-0")
 }
+
+#[cfg(test)]
+#[path = "pty_tests.rs"]
+mod pty_tests;

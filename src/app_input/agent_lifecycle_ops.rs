@@ -1,6 +1,12 @@
 //! Agent kill / restart dispatch — extracted from `mod.rs` to keep
 //! that file under the 1000-line source-file-size hard limit.
 //!
+//! Kill flows follow the bounded-transition contract (issue #381): the
+//! reducer commits the `KillAgent` state change and stages a typed
+//! `RuntimeEffect::KillSession`; only after every state guard is released
+//! does the root executor run the effect and route its typed completion back
+//! through the reducer.
+//!
 //! All functions are `pub(super)` so the parent `app_input` module can call
 //! them from [`dispatch_app_message`] without exposing them outside the
 //! crate boundary.
@@ -8,7 +14,11 @@
 use std::time::Duration;
 
 use jefe::domain::AgentId;
-use jefe::runtime::RuntimeManager;
+use jefe::domain::effects::IssuedEffect;
+use jefe::messages::AppMessage;
+use jefe::services::effect_executor::run_effects;
+use jefe::services::runtime_effect_adapter::RuntimeEffectAdapter;
+use jefe::state::transition;
 use tracing::warn;
 
 use super::availability;
@@ -21,27 +31,66 @@ pub(super) fn dispatch_kill_agent(
     ctx: &SharedContext,
     agent_id: AgentId,
 ) {
-    if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-        warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
-        persist_error_message(app_state, ctx, error);
-        return;
-    }
+    let effects = commit_kill_and_persist(app_state, ctx, agent_id);
+    execute_runtime_effects(app_state, ctx, effects);
+}
 
+/// Commit the kill transition, persist the committed state, and return the
+/// staged effects. All state guards are released before this returns.
+fn commit_kill_and_persist(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: AgentId,
+) -> Vec<IssuedEffect> {
     let mut state = app_state.write();
-    jefe::state::transition::commit_pure_site(&mut state, (AppEvent::KillAgent(agent_id)).into());
+    let effects = transition::commit_in_place(&mut state, (AppEvent::KillAgent(agent_id)).into());
     state.terminal_focused = false;
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+    effects
 }
 
-pub(super) fn kill_runtime_agent(ctx: &SharedContext, agent_id: &AgentId) -> Result<(), String> {
+/// Execute committed effects through the root runtime adapter, routing each
+/// typed completion back through the reducer. Returns `true` when every
+/// delivered completion succeeded.
+///
+/// The state guard is only re-borrowed inside completion delivery — never
+/// while the adapter is executing.
+pub(super) fn execute_runtime_effects(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    effects: Vec<IssuedEffect>,
+) -> bool {
+    if effects.is_empty() {
+        return true;
+    }
     let Some(ctx_arc) = ctx else {
-        return Ok(());
+        let mut state = app_state.write();
+        transition::reject_unexecuted_effects(&mut state, effects);
+        return false;
     };
     match ctx_arc.lock() {
-        Ok(mut ctx_guard) => ctx_guard.runtime.kill(agent_id).map_err(|e| e.to_string()),
-        Err(error) => Err(format!("application context lock poisoned: {error}")),
+        Ok(mut ctx_guard) => {
+            let mut adapter = RuntimeEffectAdapter {
+                runtime: &mut ctx_guard.runtime,
+            };
+            let mut any_failed = false;
+            run_effects(effects, &mut adapter, |completion| {
+                any_failed |= completion.error().is_some();
+                let mut state = app_state.write();
+                transition::commit_in_place(
+                    &mut state,
+                    AppMessage::EffectCompletion(Box::new(completion)),
+                )
+            });
+            !any_failed
+        }
+        Err(error) => {
+            let mut state = app_state.write();
+            state.error_message = Some(format!("application context lock poisoned: {error}"));
+            false
+        }
     }
 }
 
@@ -92,23 +141,10 @@ pub(super) fn dispatch_restart_agent(
     }
 
     if agent_is_running {
-        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
-            persist_error_message(app_state, ctx, error);
+        let effects = commit_kill_and_persist(app_state, ctx, agent_id.clone());
+        if !execute_runtime_effects(app_state, ctx, effects) {
+            warn!(agent_id = %agent_id.0, "restart: kill effect failed");
             return;
-        }
-
-        // Apply kill state transition so the UI reflects the kill immediately.
-        {
-            let mut state = app_state.write();
-            jefe::state::transition::commit_pure_site(
-                &mut state,
-                (AppEvent::KillAgent(agent_id.clone())).into(),
-            );
-            state.terminal_focused = false;
-            let persisted = to_persisted_state(&state);
-            drop(state);
-            persist_state(ctx, &persisted);
         }
 
         // Wait for session teardown before relaunching (issue says 1-2s).

@@ -9,15 +9,18 @@
 
 use crate::domain::Id;
 pub use crate::domain::effects::MAX_TRANSITION_EFFECTS;
-use crate::domain::effects::{Correlation, CorrelationId, Effect, RetryPolicy, SemanticKey};
+use crate::domain::effects::{
+    Correlation, CorrelationId, Effect, IssuedEffect, RetryPolicy, SemanticKey,
+};
 
 use super::AppState;
 
-/// One committed reducer step: the next state plus ordered post-commit effects.
+/// One committed reducer step: the next state plus ordered post-commit
+/// effects, each carrying the exact correlation registered before commit.
 #[derive(Debug, Clone)]
 pub struct Transition {
     pub next_state: AppState,
-    pub effects: Vec<Effect>,
+    pub effects: Vec<IssuedEffect>,
 }
 
 /// Commit a reducer transition in place and return its staged post-commit
@@ -27,7 +30,10 @@ pub struct Transition {
 /// untouched state is reinstalled with a typed CFG-E008 error message and no
 /// effects are returned — the transition never committed, so nothing may
 /// execute.
-pub fn commit_in_place(slot: &mut AppState, message: crate::messages::AppMessage) -> Vec<Effect> {
+pub fn commit_in_place(
+    slot: &mut AppState,
+    message: crate::messages::AppMessage,
+) -> Vec<IssuedEffect> {
     match std::mem::take(slot).apply_message(message) {
         Ok(transition) => {
             *slot = transition.next_state;
@@ -60,11 +66,11 @@ pub fn commit_pure_site(slot: &mut AppState, message: crate::messages::AppMessag
 ///
 /// The effects are not executed and not silently dropped: each one is
 /// reported through the state error channel so the violation is observable.
-pub fn reject_unexecuted_effects(slot: &mut AppState, staged: Vec<Effect>) {
-    if let Some(effect) = staged.first() {
+pub fn reject_unexecuted_effects(slot: &mut AppState, staged: Vec<IssuedEffect>) {
+    if let Some(issued) = staged.first() {
         slot.error_message = Some(format!(
             "staged {:?} effect reached a pure apply site and was not executed",
-            effect.family()
+            issued.effect.family()
         ));
     }
 }
@@ -78,6 +84,13 @@ pub fn reject_unexecuted_effects(slot: &mut AppState, staged: Vec<Effect>) {
 pub trait TransitionExt {
     /// Return the committed next state, panicking on error or staged effects.
     fn committed_pure(self) -> AppState;
+
+    /// Return the committed next state, explicitly discarding staged effects.
+    ///
+    /// Test-only acknowledgment for sites that exercise the state semantics
+    /// of an effect-staging message without executing its effects. Production
+    /// code must never discard staged effects.
+    fn committed_discarding_effects(self) -> AppState;
 }
 
 impl TransitionExt for Result<Transition, TransitionError> {
@@ -93,6 +106,13 @@ impl TransitionExt for Result<Transition, TransitionError> {
             Err(error) => panic!("transition must commit: {error}"),
         }
     }
+
+    fn committed_discarding_effects(self) -> AppState {
+        match self {
+            Ok(transition) => transition.next_state,
+            Err(error) => panic!("transition must commit: {error}"),
+        }
+    }
 }
 
 impl Transition {
@@ -102,7 +122,7 @@ impl Transition {
     ///
     /// Returns [`TransitionError::EffectLimitExceeded`] with the untouched
     /// state when more than [`MAX_TRANSITION_EFFECTS`] effects are supplied.
-    pub fn new(next_state: AppState, effects: Vec<Effect>) -> Result<Self, TransitionError> {
+    pub fn new(next_state: AppState, effects: Vec<IssuedEffect>) -> Result<Self, TransitionError> {
         if effects.len() > MAX_TRANSITION_EFFECTS {
             return Err(TransitionError::EffectLimitExceeded {
                 state: Box::new(next_state),
@@ -164,7 +184,7 @@ pub struct EffectLedger {
     pub activation_generation: u64,
     /// Effects staged by reducer handlers during the current message; drained
     /// into the committed [`Transition`] by `apply_message`.
-    pub(crate) staged: Vec<Effect>,
+    pub(crate) staged: Vec<IssuedEffect>,
 }
 
 impl EffectLedger {
@@ -281,7 +301,11 @@ impl AppState {
         retry: RetryPolicy,
     ) -> Result<Correlation, EffectLedgerError> {
         let correlation = self.pending_effects.register(owner, semantic_key, retry)?;
-        self.pending_effects.staged.push(effect);
+        self.pending_effects.staged.push(IssuedEffect {
+            effect,
+            correlation: correlation.clone(),
+            retry,
+        });
         Ok(correlation)
     }
 

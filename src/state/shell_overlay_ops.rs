@@ -448,11 +448,17 @@ mod tests {
         state.record_shell_window(agent_id.clone());
         assert!(state.has_shell_window(&agent_id));
 
-        state = state
-            .apply_message(AppMessage::Runtime(RuntimeMessage::KillAgent(
-                agent_id.clone(),
-            )))
-            .committed_pure();
+        // KillAgent stages a bounded KillSession post-commit effect
+        // (issue #381), so destructure the transition instead of the
+        // pure-commit helper.
+        let transition = match state.apply_message(AppMessage::Runtime(RuntimeMessage::KillAgent(
+            agent_id.clone(),
+        ))) {
+            Ok(transition) => transition,
+            Err(error) => panic!("kill must commit: {error}"),
+        };
+        assert_eq!(transition.effects.len(), 1);
+        state = transition.next_state;
 
         assert!(
             !state.has_shell_window(&agent_id),

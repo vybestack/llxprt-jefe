@@ -422,7 +422,7 @@ fn kill_agent_in_active_only_mode_stays_visible() {
 
     let killed = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     // The agent is Dead but should still be in the visible set (sticky).
     let repo_id = RepositoryId("r1".into());
@@ -467,7 +467,7 @@ fn navigate_after_kill_filters_dead_agent() {
 
     let killed = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     // Navigate down — this should clear the sticky list.
     let after_nav = killed.apply(AppEvent::NavigateDown).committed_pure();
@@ -501,7 +501,7 @@ fn kill_last_running_agent_keeps_repo_visible() {
     // Kill the only running agent in r1.
     let killed = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     // r1 should still be visible because of the sticky dead agent.
     let visible_repos = killed.visible_repository_indices();
@@ -570,7 +570,7 @@ fn kill_with_filter_off_then_toggle_on_keeps_sticky() {
     // Kill while filter is OFF — sticky list should still be populated.
     let killed = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     // Toggle filter ON — this is a display toggle, NOT navigation; sticky persists.
     let toggled = killed
@@ -616,10 +616,10 @@ fn multiple_kills_all_sticky() {
 
     let killed_a = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
     let killed_b = killed_a
         .apply(AppEvent::KillAgent(AgentId("a2".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = killed_b.visible_agents_for_repository(&repo_id);
@@ -661,7 +661,7 @@ fn sticky_cleared_on_select_repository() {
 
     let killed = state
         .apply(AppEvent::KillAgent(AgentId("a1".into())))
-        .committed_pure();
+        .committed_discarding_effects();
 
     // SelectRepository is a navigation message — clears sticky.
     let after_select = killed.apply(AppEvent::SelectRepository(0)).committed_pure();

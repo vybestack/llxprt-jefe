@@ -50,6 +50,9 @@ mod prs_nav_ops;
 mod prs_ops;
 mod prs_property_ops;
 mod prs_thread_ops;
+/// Runtime-domain reducer handlers + effect-completion application
+/// (issue #381).
+mod runtime_ops;
 pub mod scrollback_ops;
 mod selectors;
 mod shell_focus_resolution;
@@ -86,11 +89,10 @@ pub use terminal_manager_types::{
 };
 pub use types::*;
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
-use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
 use crate::messages::{
-    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
-    UiNavigationMessage,
+    AppMessage, MessageRoute, PersistenceMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
 };
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
@@ -353,6 +355,9 @@ impl AppState {
             AppMessage::TerminalManager(message) => {
                 let handled = self.apply_terminal_manager_message(message);
                 debug_assert!(handled, "unhandled terminal manager message");
+            }
+            AppMessage::EffectCompletion(completion) => {
+                self.apply_effect_completion_message(*completion);
             }
         }
 
@@ -679,59 +684,6 @@ impl AppState {
             }
         }
     }
-    fn apply_runtime_message(&mut self, message: RuntimeMessage) {
-        match message {
-            RuntimeMessage::KillAgent(agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
-                    agent.status = AgentStatus::Dead;
-                    agent.runtime_binding = None;
-                    self.sticky_dead_agent_ids.insert(agent_id.clone());
-                }
-                // Immediate shell-inventory cleanup on explicit kill (issue
-                // #361 PR A): the session is being torn down, so any tracked
-                // shell window is gone. Natural AgentStatusChanged->Dead is
-                // NOT touched here; natural death keeps shell close-only.
-                self.remove_shell_window(&agent_id);
-                self.clear_dead_preview(&agent_id);
-            }
-            RuntimeMessage::AgentStatusChanged(agent_id, status) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
-                    agent.status = status;
-                    if status == AgentStatus::Running {
-                        self.sticky_dead_agent_ids.remove(&agent_id);
-                        self.clear_dead_preview(&agent_id);
-                    }
-                    // Reset scroll state when selected agent's status changes
-                    // (fix #6).
-                    if self.selected_agent().is_some_and(|a| a.id == agent_id) {
-                        self.reset_terminal_scrollback();
-                    }
-                }
-            }
-            RuntimeMessage::RelaunchAgent(agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
-                    && agent.runtime_binding.is_some()
-                {
-                    agent.status = AgentStatus::Running;
-                    self.sticky_dead_agent_ids.remove(&agent_id);
-                    self.clear_dead_preview(&agent_id);
-                }
-            }
-            // RestartAgent handles the edge case where apply_and_persist is
-            // called with RestartAgent directly (not via dispatch). The normal
-            // path goes through dispatch_restart_agent which applies Kill then
-            // Relaunch separately. Here we clear sticky and set Running.
-            RuntimeMessage::RestartAgent(agent_id) => {
-                self.sticky_dead_agent_ids.remove(&agent_id);
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
-                    && agent.runtime_binding.is_some()
-                {
-                    agent.status = AgentStatus::Running;
-                    self.clear_dead_preview(&agent_id);
-                }
-            }
-        }
-    }
 
     fn apply_persistence_message(&mut self, message: PersistenceMessage) {
         match message {
@@ -947,8 +899,17 @@ mod issues_tests_detail_content;
 #[path = "issues_tests_detail_flow.rs"]
 mod issues_tests_detail_flow;
 #[cfg(test)]
+#[path = "issues_tests_detail_nav.rs"]
+mod issues_tests_detail_nav;
+#[cfg(test)]
+#[path = "issues_tests_esc.rs"]
+mod issues_tests_esc;
+#[cfg(test)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
+#[cfg(test)]
+#[path = "issues_tests_inline_cursor.rs"]
+mod issues_tests_inline_cursor;
 #[cfg(test)]
 #[path = "issues_tests_mutations.rs"]
 mod issues_tests_mutations;

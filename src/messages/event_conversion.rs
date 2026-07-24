@@ -19,6 +19,7 @@ fn ui(message: UiNavigationMessage) -> AppMessage {
 impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
+            AppEvent::EffectCompletion(completion) => Self::EffectCompletion(completion),
             AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
             AppEvent::NavigateDown => Self::UiNavigation(UiNavigationMessage::NavigateDown),
             AppEvent::NavigatePageUp(page) => ui(UiNavigationMessage::NavigatePageUp(page)),
@@ -477,6 +478,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::Errors(message) => message.into(),
             AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
+            AppMessage::EffectCompletion(completion) => Self::EffectCompletion(completion),
         }
     }
 }

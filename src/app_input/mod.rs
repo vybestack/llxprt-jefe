@@ -828,6 +828,10 @@ use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_restart_agent};
 mod tests;
 
 #[cfg(test)]
+#[path = "persist_projection_tests.rs"]
+mod persist_projection_tests;
+
+#[cfg(test)]
 #[path = "issue_send_modal_tests.rs"]
 mod issue_send_modal_tests;
 #[cfg(test)]

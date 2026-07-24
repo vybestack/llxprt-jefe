@@ -9,7 +9,7 @@
 
 use std::num::NonZeroU8;
 
-use super::{Id, StateV2};
+use super::{AgentId, Id, StateV2};
 
 /// Maximum ordered effects (including completion-produced follow-ups) that
 /// one committed transition may carry.
@@ -199,7 +199,10 @@ pub enum PersistenceResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeEffect {
     /// Check whether the agent's runtime session is currently alive.
-    CheckAgentLiveness { agent_id: Id, session_id: String },
+    CheckAgentLiveness {
+        agent_id: AgentId,
+        session_id: String,
+    },
 }
 
 /// Agent probe completion payloads.
@@ -211,9 +214,9 @@ pub enum ProbeResponse {
 /// Local runtime session operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEffect {
-    AttachSession { agent_id: Id },
-    KillSession { agent_id: Id },
-    RelaunchSession { agent_id: Id },
+    AttachSession { agent_id: AgentId },
+    KillSession { agent_id: AgentId },
+    RelaunchSession { agent_id: AgentId },
 }
 
 /// Runtime completion payloads.
@@ -314,6 +317,82 @@ impl Effect {
             Self::Provider(_) => EffectFamily::Provider,
             Self::ClipboardUrl(_) => EffectFamily::ClipboardUrl,
             Self::Timer(_) => EffectFamily::Timer,
+        }
+    }
+}
+
+/// One closed response payload per effect family.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectResponse {
+    Persistence(PersistenceResponse),
+    AgentProbe(ProbeResponse),
+    Runtime(RuntimeResponse),
+    GitHub(GitHubResponse),
+    SshTmux(SshTmuxResponse),
+    Provider(ProviderResponse),
+    ClipboardUrl(ClipboardUrlResponse),
+    Timer(TimerResponse),
+}
+
+impl EffectResponse {
+    /// Report the closed family this response belongs to.
+    #[must_use]
+    pub const fn family(&self) -> EffectFamily {
+        match self {
+            Self::Persistence(_) => EffectFamily::Persistence,
+            Self::AgentProbe(_) => EffectFamily::AgentProbe,
+            Self::Runtime(_) => EffectFamily::Runtime,
+            Self::GitHub(_) => EffectFamily::GitHub,
+            Self::SshTmux(_) => EffectFamily::SshTmux,
+            Self::Provider(_) => EffectFamily::Provider,
+            Self::ClipboardUrl(_) => EffectFamily::ClipboardUrl,
+            Self::Timer(_) => EffectFamily::Timer,
+        }
+    }
+}
+
+/// One committed effect paired with its exact correlation and retry policy.
+///
+/// This is the executor's input: the correlation was registered in the
+/// pending ledger before commit, so the later completion can be matched
+/// exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssuedEffect {
+    pub effect: Effect,
+    pub correlation: Correlation,
+    pub retry: RetryPolicy,
+}
+
+/// Typed completion for one issued effect across all families.
+///
+/// The response family always equals the correlation's semantic-key family;
+/// the executor converts any family mismatch into a typed validation error
+/// before delivery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectCompletion {
+    pub correlation: Correlation,
+    pub result: Result<EffectResponse, EffectError>,
+}
+
+impl EffectCompletion {
+    /// The exact pending identity this completion answers.
+    #[must_use]
+    pub const fn correlation(&self) -> &Correlation {
+        &self.correlation
+    }
+
+    /// The effect family of this completion.
+    #[must_use]
+    pub const fn family(&self) -> EffectFamily {
+        self.correlation.semantic_key.family()
+    }
+
+    /// The typed error, when the effect failed.
+    #[must_use]
+    pub const fn error(&self) -> Option<&EffectError> {
+        match &self.result {
+            Ok(_) => None,
+            Err(error) => Some(error),
         }
     }
 }

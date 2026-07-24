@@ -572,7 +572,7 @@ fn kill_agent_sets_status_to_dead() {
 
     let next = state
         .apply(AppEvent::KillAgent(agent_id.clone()))
-        .committed_pure();
+        .committed_discarding_effects();
 
     let agent = next
         .agents

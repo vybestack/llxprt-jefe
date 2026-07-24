@@ -219,9 +219,11 @@ fn typed_kill_agent_clears_runtime_binding() {
         ..AppState::default()
     };
 
+    // KillAgent stages a bounded KillSession post-commit effect (issue #381);
+    // this contract only asserts the committed state half.
     let next = state
         .apply_message(AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)))
-        .committed_pure();
+        .committed_discarding_effects();
 
     assert_eq!(next.agents[0].status, AgentStatus::Dead);
     assert!(next.agents[0].runtime_binding.is_none());

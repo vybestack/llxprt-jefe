@@ -50,6 +50,8 @@ pub enum MessageDomain {
     /// Terminal-manager domain (issue #361 PR B).
     TerminalManager,
     System,
+    /// Typed post-commit effect completions (issue #381 CW01-11).
+    Effects,
 }
 
 /// A resolved message route.
@@ -869,6 +871,10 @@ pub enum AppMessage {
     /// Terminal-manager domain (issue #361 PR B).
     TerminalManager(TerminalManagerMessage),
     System(SystemMessage),
+    /// A typed completion for a previously staged post-commit effect
+    /// (issue #381 CW01-11). Applies only on an exact five-field
+    /// correlation match; stale completions are byte-equivalent no-ops.
+    EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
 }
 
 impl AppMessage {
@@ -889,6 +895,7 @@ impl AppMessage {
             Self::Errors(_) => MessageDomain::Errors,
             Self::TerminalManager(_) => MessageDomain::TerminalManager,
             Self::System(_) => MessageDomain::System,
+            Self::EffectCompletion(_) => MessageDomain::Effects,
         }
     }
 
@@ -917,6 +924,7 @@ impl AppMessage {
             Self::Errors(message) => message.name(),
             Self::TerminalManager(message) => message.name(),
             Self::System(message) => message.name(),
+            Self::EffectCompletion(_) => "EffectCompletion",
         }
     }
 }

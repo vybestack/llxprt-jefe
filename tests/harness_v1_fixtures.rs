@@ -259,6 +259,17 @@ fn startup_malformed_state_fixture_blocks_before_tui_without_writing() {
     cleanup(&outcome);
 }
 
+/// Issue #381 CW01-10: a reducer-staged `RuntimeEffect::KillSession` runs
+/// only after the transition commits and state guards are released; its typed
+/// failure completion is delivered back through the reducer and surfaces on
+/// the errors screen.
+#[test]
+fn effect_after_commit_fixture_delivers_typed_runtime_completion() {
+    let outcome = run_fixture("effect-after-commit.json");
+    assert_passed("effect-after-commit", &outcome);
+    cleanup(&outcome);
+}
+
 #[test]
 fn capture_fixture_records_exact_boundary_fields() {
     let outcome = run_fixture("harness-capture.json");

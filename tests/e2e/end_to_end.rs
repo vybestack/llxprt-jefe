@@ -278,7 +278,7 @@ fn agent_lifecycle_state_transitions() {
     // Kill agent
     state = state
         .apply(AppEvent::KillAgent(agent_id.clone()))
-        .committed_pure();
+        .committed_discarding_effects();
     assert_eq!(state.agents[0].status, AgentStatus::Dead);
 }
 
