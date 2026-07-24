@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "name": "config-path-precedence",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "isolated", "mode": 448 }],
+    "files": [],
+    "env": [
+      { "name": "JEFE_SETTINGS_PATH", "value": "" },
+      { "name": "JEFE_STATE_PATH", "value": "" }
+    ]
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "path", "--config", "${workspace}/isolated"],
+      "env": [],
+      "cwd": "."
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "settings.toml",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["settings.toml", "state.json", "definitions", "plugins", "themes"],
+      "absent": ["unknown argument", "provider", "tmux"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

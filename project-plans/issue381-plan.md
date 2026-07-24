@@ -185,9 +185,11 @@ The user explicitly directed one PR and approved its hard-budget exceedance. The
 | 2026-07-24 | Automated issue-plan suggestion proposes a permanent schema-1 facade | Rejected: contradicts binding issue body/no-shim amendment |
 | 2026-07-24 | S1 RED | `cargo test --lib contract_tests` failed with unresolved closed value, diagnostic, and SHA-256 contracts as intended |
 | 2026-07-24 | S1 GREEN | 8 focused contract tests pass; `make quick-check` passes (2,396 library tests passed, 1 ignored, plus all integration/doc targets). Full Clippy is currently blocked by pre-existing Rust 1.97 `manual_is_multiple_of` findings in `src/runtime/process.rs` and `src/harness/v1/validate.rs`; S1-specific Clippy findings were fixed without suppression |
-| 2026-07-24 | S2 RED | `cargo test --lib persistence::paths_tests` failed because the single path authority did not exist |
+| 2026-07-24 | S2 RED | `cargo test --lib persistence::paths_tests` failed because the single path authority did not exist; the canonical `config-path-precedence.json` and `config-ambiguity.json` real-process fixtures were added before recovery CLI implementation |
 | 2026-07-24 | S2 GREEN | 8 focused precedence/physical-identity/import-decision tests pass; `make quick-check` passes (2,404 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the same pre-existing Rust 1.97 findings after all S2 findings are fixed |
 | 2026-07-24 | S2 commit size | Path authority plus cross-platform decision matrix is about 800 net lines in three files | Accepted as one inseparable green behavior; still below the 15-file commit target and issue-wide one-PR exception |
+| 2026-07-24 | S3 syntax RED | `cargo test --lib persistence::settings_document_tests` failed because the lossless settings document authority did not exist; `settings-v1-lossless.json` was added first |
+| 2026-07-24 | S3 syntax GREEN | 5 focused original-byte/span/comment/quoting/syntax/bound tests pass; `make quick-check` passes (2,409 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the recorded pre-existing Rust 1.97 findings after all S3 findings are fixed |
 
 ## Verification and delivery gates
 

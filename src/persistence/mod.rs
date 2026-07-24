@@ -24,8 +24,14 @@ mod contract_tests;
 #[path = "paths_tests.rs"]
 mod paths_tests;
 
+#[cfg(test)]
+#[path = "settings_document_tests.rs"]
+mod settings_document_tests;
+
 pub mod diagnostic;
 pub mod paths;
+pub mod settings_document;
+mod settings_syntax;
 pub mod sha256;
 
 /// Persistence errors.
