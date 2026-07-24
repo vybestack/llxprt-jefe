@@ -12,13 +12,16 @@ mod editor;
 #[path = "recovery_effective.rs"]
 mod effective;
 
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;
 use crate::config_owners::builtin_owner_catalog;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::migration::{migrate_settings, migrate_state};
 use crate::persistence::paths::{
-    PathCandidate, PathEnvironment, PathError, PathProvenance, PathResolutionRequest,
-    PhysicalFileKey, PhysicalIdentity, Platform, ResolvedFile, ResolvedPaths, physical_identity,
-    resolve_from,
+    InspectedSource, PathCandidate, PathEnvironment, PathError, PathProvenance,
+    PathResolutionRequest, PhysicalFileKey, PhysicalIdentity, Platform, ResolvedFile,
+    ResolvedPaths, SourceValidity, decide_import, physical_identity, resolve_from,
 };
 
 /// Fully rendered recovery result consumed by the process entry point.
@@ -59,6 +62,9 @@ pub fn run_path(config_dir: Option<&Path>) -> RecoveryOutput {
         Ok(paths) => paths,
         Err(output) => return output,
     };
+    if let Err(error) = inspect_file_import_decision(&paths.state) {
+        return RecoveryOutput::failure(error);
+    }
     match PathReport::build(&paths).and_then(render_json) {
         Ok(stdout) => RecoveryOutput::success(stdout),
         Err(error) => RecoveryOutput::failure(error),
@@ -123,6 +129,7 @@ pub fn run_validate(config_dir: Option<&Path>) -> RecoveryOutput {
         Ok(report) => report,
         Err(output) => return output,
     };
+
     match render_validation(ValidationReport {
         schema: 1,
         settings,
@@ -131,6 +138,80 @@ pub fn run_validate(config_dir: Option<&Path>) -> RecoveryOutput {
     }) {
         Ok(stdout) => RecoveryOutput::success(stdout),
         Err(error) => RecoveryOutput::failure(error),
+    }
+}
+
+fn inspect_file_import_decision(file: &ResolvedFile) -> Result<(), PathError> {
+    let target = existing_identity(&file.path)?;
+    let sources = inspect_sources(&file.sources)?;
+    inspect_import_decision(target.as_ref(), &sources)
+}
+
+fn inspect_import_decision(
+    target: Option<&PhysicalIdentity>,
+    sources: &[InspectedSource],
+) -> Result<(), PathError> {
+    decide_import(target.is_some(), target, sources).map(|_| ())
+}
+
+fn existing_identity(path: &Path) -> Result<Option<PhysicalIdentity>, PathError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => physical_identity(path).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(path_read_error(
+            path,
+            &format!("cannot inspect selected path: {error}"),
+        )),
+    }
+}
+
+fn inspect_sources(sources: &[PathCandidate]) -> Result<Vec<InspectedSource>, PathError> {
+    let mut inspected = Vec::new();
+    for source in sources {
+        let Some(bytes) = read_existing(&source.path)? else {
+            continue;
+        };
+        let identity = physical_identity(&source.path)?;
+        let validity = match migrate_state(&bytes) {
+            Ok(_) => SourceValidity::Valid,
+            Err(diagnostics) => SourceValidity::Malformed(
+                diagnostics
+                    .first()
+                    .map_or(CfgCode::E103, |diagnostic| diagnostic.code),
+            ),
+        };
+        inspected.push(InspectedSource::new(
+            source.path.clone(),
+            identity,
+            validity,
+        ));
+    }
+    Ok(inspected)
+}
+
+fn read_existing(path: &Path) -> Result<Option<Vec<u8>>, PathError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(path_read_error(
+            path,
+            &format!("cannot read source: {error}"),
+        )),
+    }
+}
+
+fn path_read_error(path: &Path, detail: &str) -> PathError {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E001,
+        Severity::Error,
+        DiagnosticPath::new(path.to_string_lossy()),
+        None,
+        "correct the path permissions and retry recovery",
+    );
+    detail.clone_into(&mut diagnostic.redacted_detail);
+    PathError {
+        diagnostic: Box::new(diagnostic),
+        exit_code: 2,
     }
 }
 

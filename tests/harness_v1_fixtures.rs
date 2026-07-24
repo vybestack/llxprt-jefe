@@ -153,6 +153,22 @@ fn settings_show_effective_fixture_redacts_secrets_and_skips_providers() {
     cleanup(&outcome);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn config_ambiguity_fixture_exits_three_without_writes() {
+    let outcome = run_fixture("config-ambiguity.json");
+    assert_passed("config-ambiguity", &outcome);
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(3)
+    );
+    cleanup(&outcome);
+}
+
 #[test]
 fn settings_edit_fixture_executes_configured_editor_as_argv() {
     let outcome = run_fixture("settings-edit.json");

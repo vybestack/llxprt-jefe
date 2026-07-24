@@ -1,13 +1,14 @@
 {
   "schema": 1,
   "name": "config-ambiguity",
-  "platform": "macos",
+  "platform": "linux",
   "terminal": { "cols": 100, "rows": 30 },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "jefe-state", "mode": 448 },
-      { "path": "legacy-data/jefe", "mode": 448 }
+      { "path": "legacy-data", "mode": 448 },
+      { "path": "legacy-data/jefe", "mode": 448 },
+      { "path": "work", "mode": 448 }
     ],
     "files": [
       {
@@ -22,6 +23,8 @@
       }
     ],
     "env": [
+      { "name": "HOME", "value": "${workspace}/home" },
+      { "name": "XDG_STATE_HOME", "value": "${workspace}/jefe-state" },
       { "name": "XDG_DATA_HOME", "value": "${workspace}/legacy-data" }
     ]
   },
@@ -30,7 +33,7 @@
       "op": "launch",
       "argv": ["jefe", "config", "path"],
       "env": [],
-      "cwd": "."
+      "cwd": "work"
     },
     {
       "op": "wait",
