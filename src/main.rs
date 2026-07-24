@@ -211,30 +211,31 @@ fn main() {
 fn build_persist_fn(
     config_dir: Option<&std::path::Path>,
 ) -> jefe::services::persist_worker::PersistFn {
-    use jefe::persistence::PersistenceManager;
     let manager =
         jefe::startup::build_persistence(config_dir).map(|m| Arc::new(std::sync::Mutex::new(m)));
     match manager {
         Ok(m) => {
             let manager = Arc::clone(&m);
             Arc::new(
-                move |state: &jefe::persistence::State| match manager.lock() {
-                    Ok(mgr) => mgr
-                        .save_state(state)
-                        .map_err(|e: jefe::persistence::PersistenceError| e.to_string()),
-                    Err(poisoned) => {
-                        tracing::warn!("persist worker: mutex poisoned; recovering");
-                        poisoned
-                            .into_inner()
-                            .save_state(state)
-                            .map_err(|e| e.to_string())
-                    }
+                move |state: &jefe::persistence::State, generation, freshness| {
+                    let result = match manager.lock() {
+                        Ok(mgr) => mgr.save_state_revisioned(state, generation, freshness),
+                        Err(poisoned) => {
+                            tracing::warn!("persist worker: mutex poisoned; recovering");
+                            poisoned
+                                .into_inner()
+                                .save_state_revisioned(state, generation, freshness)
+                        }
+                    };
+                    result.map_err(|error| error.to_string())
                 },
             )
         }
         Err(e) => {
             tracing::warn!(error = %e, "persist worker: build_persistence failed; durable writes disabled");
-            Arc::new(|_: &jefe::persistence::State| Ok(()))
+            Arc::new(|_: &jefe::persistence::State, _, _| {
+                Ok(jefe::services::persist_worker::PersistResult::Authoritative)
+            })
         }
     }
 }

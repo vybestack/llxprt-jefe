@@ -91,8 +91,12 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         // clear_pending_if only clears if the generation still matches,
         // preserving any newer snapshot (issue #301 review feedback).
         handle.clear_pending_if(generation);
+        let freshness_handle = handle.clone();
         let result = smol::unblock(move || {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| persist_fn(&state))) {
+            let freshness = move |revision| freshness_handle.freshness(revision);
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                persist_fn(&state, generation, &freshness)
+            })) {
                 Ok(inner) => inner,
                 Err(payload) => {
                     let msg = payload
@@ -106,13 +110,19 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         })
         .await;
         match result {
-            Ok(()) => {
+            Ok(jefe::services::persist_worker::PersistResult::Authoritative) => {
                 if !handle.commit(generation) {
                     debug!(
                         generation,
-                        "persist commit rejected (newer snapshot already committed)"
+                        "persisted generation was superseded after replacement"
                     );
                 }
+            }
+            Ok(jefe::services::persist_worker::PersistResult::Stale) => {
+                debug!(
+                    generation,
+                    "stale persistence candidate was not made authoritative"
+                );
             }
             Err(e) => {
                 warn!(error = %e, generation, "background persist failed; not committing generation");

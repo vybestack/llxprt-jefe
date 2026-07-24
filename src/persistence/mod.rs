@@ -35,6 +35,9 @@ mod state_v2_tests;
 #[cfg(test)]
 #[path = "migration_tests.rs"]
 mod migration_tests;
+#[cfg(test)]
+#[path = "writer_tests.rs"]
+mod writer_tests;
 
 pub mod diagnostic;
 pub mod migration;
@@ -45,6 +48,7 @@ mod settings_syntax;
 pub mod sha256;
 mod state_json;
 pub mod state_v2;
+pub mod writer;
 
 /// Persistence errors.
 #[derive(Debug, Clone)]
@@ -633,41 +637,66 @@ impl FilePersistenceManager {
     ) -> Result<(), PersistenceError> {
         let content = toml::to_string_pretty(settings)
             .map_err(|e| PersistenceError::SerializeError(format!("serialize settings: {e}")))?;
-        Self::atomic_write(path, &content)
+        Self::write_bytes(path, content.into_bytes(), 0, |_| {
+            writer::Freshness::Current
+        })
+        .map(|_| ())
     }
 
-    /// Atomic write: write to a uniquely-named temp file, then rename.
-    ///
-    /// Uses a process-suffix on the temp file name so concurrent instances
-    /// (e.g. two Jefe processes sharing a config dir) cannot collide on the
-    /// same temp path (issue #301 review).
-    fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), PersistenceError> {
-        use std::fs;
-        use std::io::Write;
+    /// Persist a scheduled state revision with freshness checked at replacement.
+    pub fn save_state_revisioned(
+        &self,
+        state: &State,
+        revision: u64,
+        freshness: &crate::services::persist_worker::FreshnessFn,
+    ) -> Result<crate::services::persist_worker::PersistResult, PersistenceError> {
+        let bytes = serde_json::to_vec_pretty(state)
+            .map_err(|e| PersistenceError::SerializeError(format!("serialize state: {e}")))?;
+        Self::write_bytes(&self.paths.state_path, bytes, revision, freshness).map(|outcome| {
+            match outcome {
+                writer::WriteOutcome::Authoritative { .. } => {
+                    crate::services::persist_worker::PersistResult::Authoritative
+                }
+                writer::WriteOutcome::Stale { .. } => {
+                    crate::services::persist_worker::PersistResult::Stale
+                }
+            }
+        })
+    }
 
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| PersistenceError::IoError(format!("create dir: {e}")))?;
-        }
-
-        // Write to a uniquely-named temp file to avoid collisions when
-        // multiple Jefe instances share the same config directory.
-        let pid = std::process::id();
-        let temp_path = path.with_extension(format!("tmp.{pid}"));
-        let mut file = fs::File::create(&temp_path)
-            .map_err(|e| PersistenceError::IoError(format!("create temp: {e}")))?;
-        file.write_all(content.as_bytes())
-            .map_err(|e| PersistenceError::IoError(format!("write temp: {e}")))?;
-        file.sync_all()
-            .map_err(|e| PersistenceError::IoError(format!("sync temp: {e}")))?;
-        drop(file);
-
-        // Atomic rename
-        fs::rename(&temp_path, path)
-            .map_err(|e| PersistenceError::IoError(format!("rename: {e}")))?;
-
-        Ok(())
+    fn write_bytes<F>(
+        path: &std::path::Path,
+        bytes: Vec<u8>,
+        revision: u64,
+        freshness: F,
+    ) -> Result<writer::WriteOutcome, PersistenceError>
+    where
+        F: FnOnce(u64) -> writer::Freshness,
+    {
+        let expected = match std::fs::read(path) {
+            Ok(current) => writer::ExpectedHash::Present(sha256::Sha256::digest(&current)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                writer::ExpectedHash::Absent
+            }
+            Err(error) => return Err(PersistenceError::IoError(format!("read target: {error}"))),
+        };
+        writer::write(
+            writer::AtomicWrite {
+                target: path.to_path_buf(),
+                draft: writer::DraftBytes::new(bytes),
+                expected,
+                revision,
+                backup: writer::BackupPolicy::None,
+            },
+            freshness,
+        )
+        .map_err(|error| {
+            PersistenceError::IoError(format!(
+                "{}: {}",
+                error.diagnostic().code.as_str(),
+                error.diagnostic().redacted_detail
+            ))
+        })
     }
 }
 
@@ -717,17 +746,12 @@ impl PersistenceManager for FilePersistenceManager {
     }
 
     fn save_settings(&self, settings: &Settings) -> Result<(), PersistenceError> {
-        let content = toml::to_string_pretty(settings)
-            .map_err(|e| PersistenceError::SerializeError(format!("serialize settings: {e}")))?;
-
-        Self::atomic_write(&self.paths.settings_path, &content)
+        Self::save_settings_to(settings, &self.paths.settings_path)
     }
 
     fn save_state(&self, state: &State) -> Result<(), PersistenceError> {
-        let content = serde_json::to_string_pretty(state)
-            .map_err(|e| PersistenceError::SerializeError(format!("serialize state: {e}")))?;
-
-        Self::atomic_write(&self.paths.state_path, &content)
+        self.save_state_revisioned(state, 0, &|_| writer::Freshness::Current)
+            .map(|_| ())
     }
 
     fn settings_path(&self) -> PathBuf {

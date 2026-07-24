@@ -18,13 +18,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::persistence::State as PersistedState;
+use crate::persistence::writer::Freshness;
+
+/// Result of a revision-gated persistence attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistResult {
+    /// The candidate became the durable authority.
+    Authoritative,
+    /// A newer scheduled revision superseded the candidate before replacement.
+    Stale,
+}
+
+/// Revision freshness callback invoked at the durable replacement boundary.
+pub type FreshnessFn = dyn Fn(u64) -> Freshness + Send + Sync;
 
 /// Function type for the durable write boundary.
 ///
-/// Takes the snapshot to persist and returns `Ok(())` on success or an error
-/// string on failure. The actual I/O stays in `persistence/`; this abstraction
-/// lets the worker be tested with controllable doubles.
-pub type PersistFn = Arc<dyn Fn(&PersistedState) -> Result<(), String> + Send + Sync>;
+/// The function receives the scheduled generation and must invoke `freshness`
+/// immediately before making bytes authoritative.
+pub type PersistFn =
+    Arc<dyn Fn(&PersistedState, u64, &FreshnessFn) -> Result<PersistResult, String> + Send + Sync>;
 
 /// Pending persistence request: the latest snapshot plus its schedule
 /// generation.
@@ -126,6 +139,18 @@ impl PersistHandle {
         Some((snapshot, pending.generation))
     }
 
+    /// Check whether a scheduled generation is still the newest unapplied work.
+    #[must_use]
+    pub fn freshness(&self, generation: u64) -> Freshness {
+        let scheduled = self.inner.schedule_generation.load(Ordering::SeqCst);
+        let applied = self.inner.applied_generation.load(Ordering::SeqCst);
+        if scheduled == generation && applied < generation {
+            Freshness::Current
+        } else {
+            Freshness::Stale
+        }
+    }
+
     /// Record that a write at `generation` has been applied.
     ///
     /// Returns `true` if the write was committed, `false` if it was stale
@@ -216,11 +241,16 @@ impl PersistHandle {
         let Some((snapshot, generation)) = self.take_pending() else {
             return;
         };
-        if let Err(e) = (self.inner.persist_fn)(&snapshot) {
-            tracing::warn!(error = %e, "shutdown persist failed");
+        let freshness_handle = self.clone();
+        let freshness = move |revision| freshness_handle.freshness(revision);
+        match (self.inner.persist_fn)(&snapshot, generation, &freshness) {
+            Ok(PersistResult::Authoritative) => {
+                let _ = self.commit(generation);
+            }
+            Ok(PersistResult::Stale) => {}
+            Err(error) => tracing::warn!(error = %error, "shutdown persist failed"),
         }
         self.clear_pending_if(generation);
-        let _ = self.commit(generation);
     }
 }
 
@@ -247,13 +277,16 @@ mod tests {
             Arc::new(Mutex::new(PersistedState::default_with_version()));
         let count_clone = Arc::clone(&count);
         let last_clone = Arc::clone(&last);
-        let f: PersistFn = Arc::new(move |state: &PersistedState| {
+        let f: PersistFn = Arc::new(move |state: &PersistedState, generation, freshness| {
+            if freshness(generation) == Freshness::Stale {
+                return Ok(PersistResult::Stale);
+            }
             count_clone.fetch_add(1, Ordering::SeqCst);
             let Ok(mut guard) = last_clone.lock() else {
                 return Err("lock poisoned".to_string());
             };
             *guard = state.clone();
-            Ok(())
+            Ok(PersistResult::Authoritative)
         });
         (f, count, last)
     }
@@ -282,8 +315,12 @@ mod tests {
         assert!(handle.commit(2), "gen 2 is the newest and should commit");
         assert_eq!(handle.applied_generation(), 2);
 
-        let persist_result = (handle.persist_fn())(&state_b);
-        assert!(persist_result.is_ok(), "persist should succeed");
+        let persist_result = (handle.persist_fn())(&state_b, 2, &|_| Freshness::Current);
+        assert_eq!(
+            persist_result,
+            Ok(PersistResult::Authoritative),
+            "persist should succeed"
+        );
         let Ok(durable_guard) = last.lock() else {
             panic!("lock poisoned");
         };
@@ -333,7 +370,7 @@ mod tests {
     fn persist_worker_reports_failure_without_blocking() {
         let fail_count = Arc::new(AtomicUsize::new(0));
         let fail_clone = Arc::clone(&fail_count);
-        let f: PersistFn = Arc::new(move |_state: &PersistedState| {
+        let f: PersistFn = Arc::new(move |_state: &PersistedState, _generation, _freshness| {
             fail_clone.fetch_add(1, Ordering::SeqCst);
             Err("disk full".to_string())
         });
@@ -347,7 +384,7 @@ mod tests {
         );
 
         let (snapshot, generation) = require_pending(&handle);
-        let result = (handle.persist_fn())(&snapshot);
+        let result = (handle.persist_fn())(&snapshot, generation, &|_| Freshness::Current);
         assert!(result.is_err(), "persist should fail");
 
         let _ = handle.commit(generation);

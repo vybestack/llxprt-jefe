@@ -111,38 +111,26 @@ fn string_array_map_and_depth_bounds_are_rejected_by_one() {
     assert_eq!(diagnostic.code, CfgCode::E008);
 }
 
-#[test]
-fn publisher_merges_known_owner_defaults_and_records_leaf_provenance() {
+fn known_agent_catalog() -> (crate::domain::OwnerCatalog, crate::domain::Id) {
     use std::collections::{BTreeMap, BTreeSet};
 
     use crate::domain::{
-        CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, ProvenanceKind, TypedValue,
+        CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, TypedValue,
     };
 
-    let Ok(owner_id) = Id::parse("core.llxprt") else {
-        panic!("owner id fixture must be valid");
-    };
-    let Ok(profile) = Id::parse("profile") else {
-        panic!("profile id fixture must be valid");
-    };
-    let Ok(nested) = Id::parse("nested") else {
-        panic!("nested id fixture must be valid");
-    };
-    let Ok(left) = Id::parse("left") else {
-        panic!("left id fixture must be valid");
-    };
-    let Ok(right) = Id::parse("right") else {
-        panic!("right id fixture must be valid");
-    };
+    let owner_id = Id::parse("core.llxprt").unwrap_or_else(|error| panic!("owner id: {error:?}"));
+    let profile = Id::parse("profile").unwrap_or_else(|error| panic!("profile id: {error:?}"));
+    let nested = Id::parse("nested").unwrap_or_else(|error| panic!("nested id: {error:?}"));
+    let left = Id::parse("left").unwrap_or_else(|error| panic!("left id: {error:?}"));
+    let right = Id::parse("right").unwrap_or_else(|error| panic!("right id: {error:?}"));
     let mut nested_defaults = BTreeMap::new();
-    nested_defaults.insert(left.clone(), TypedValue::Integer(1));
-    nested_defaults.insert(right.clone(), TypedValue::Integer(2));
+    nested_defaults.insert(left, TypedValue::Integer(1));
+    nested_defaults.insert(right, TypedValue::Integer(2));
     let mut defaults = BTreeMap::new();
-    defaults.insert(profile.clone(), TypedValue::String("default".to_owned()));
-    defaults.insert(nested.clone(), TypedValue::Map(nested_defaults));
-    let Ok(version) = CanonicalSemver::parse("1.0.0") else {
-        panic!("version fixture must be valid");
-    };
+    defaults.insert(profile, TypedValue::String("default".to_owned()));
+    defaults.insert(nested, TypedValue::Map(nested_defaults));
+    let version = CanonicalSemver::parse("1.0.0")
+        .unwrap_or_else(|error| panic!("version fixture: {error:?}"));
     let mut catalog = OwnerCatalog::default();
     assert!(
         catalog
@@ -155,6 +143,18 @@ fn publisher_merges_known_owner_defaults_and_records_leaf_provenance() {
             })
             .is_ok()
     );
+    (catalog, owner_id)
+}
+
+#[test]
+fn publisher_merges_known_owner_defaults_and_records_leaf_provenance() {
+    use crate::domain::{Id, ProvenanceKind, TypedValue};
+
+    let (catalog, owner_id) = known_agent_catalog();
+    let profile = Id::parse("profile").unwrap_or_else(|error| panic!("profile id: {error:?}"));
+    let nested = Id::parse("nested").unwrap_or_else(|error| panic!("nested id: {error:?}"));
+    let left = Id::parse("left").unwrap_or_else(|error| panic!("left id: {error:?}"));
+    let right = Id::parse("right").unwrap_or_else(|error| panic!("right id: {error:?}"));
     let source = br#"settings_schema = 2
 [agents."core.llxprt"]
 enabled = true
@@ -239,7 +239,7 @@ fn publisher_rejects_unknown_fields_for_active_known_owner() {
                 owner_id,
                 version,
                 kind: OwnerKind::Agent,
-                defaults: Default::default(),
+                defaults: std::collections::BTreeMap::default(),
                 secret_paths: BTreeSet::new(),
             })
             .is_ok()
@@ -258,9 +258,8 @@ unknown = true
     assert_eq!(diagnostics[0].code, CfgCode::E005);
 }
 
-#[test]
-fn publisher_validates_all_closed_roots_and_rejects_unknown_root() {
-    use std::collections::BTreeSet;
+fn screen_plugin_catalog() -> crate::domain::OwnerCatalog {
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::domain::{CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind};
 
@@ -269,24 +268,27 @@ fn publisher_validates_all_closed_roots_and_rejects_unknown_root() {
         ("core.dashboard", OwnerKind::Screen),
         ("vendor.plugin", OwnerKind::Plugin),
     ] {
-        let Ok(owner_id) = Id::parse(name) else {
-            panic!("owner fixture must be valid");
-        };
-        let Ok(version) = CanonicalSemver::parse("1.2.3") else {
-            panic!("version fixture must be valid");
-        };
+        let owner_id = Id::parse(name).unwrap_or_else(|error| panic!("owner fixture: {error:?}"));
+        let version = CanonicalSemver::parse("1.2.3")
+            .unwrap_or_else(|error| panic!("version fixture: {error:?}"));
         assert!(
             catalog
                 .insert(OwnerDescriptor {
                     owner_id,
                     version,
                     kind,
-                    defaults: Default::default(),
+                    defaults: BTreeMap::default(),
                     secret_paths: BTreeSet::new(),
                 })
                 .is_ok()
         );
     }
+    catalog
+}
+
+#[test]
+fn publisher_validates_all_closed_roots_and_rejects_unknown_root() {
+    let catalog = screen_plugin_catalog();
     let source = br#"settings_schema = 2
 [appearance]
 theme = "green-screen"

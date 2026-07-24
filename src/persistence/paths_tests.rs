@@ -173,9 +173,10 @@ fn existing_hardlink_aliases_share_physical_identity() {
     };
     let original = root.path().join("state.json");
     let alias = root.path().join("state-alias.json");
-    if std::fs::write(&original, b"{}").is_err() || std::fs::hard_link(&original, &alias).is_err() {
-        panic!("hardlink fixture must be created");
-    }
+    assert!(
+        std::fs::write(&original, b"{}").is_ok() && std::fs::hard_link(&original, &alias).is_ok(),
+        "hardlink fixture must be created"
+    );
     let (Ok(original), Ok(alias)) = (physical_identity(&original), physical_identity(&alias))
     else {
         panic!("existing files must resolve physical identity");
