@@ -11,6 +11,17 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "config_contract_tests.rs"]
+mod config_contract_tests;
+
+mod config_contract;
+pub use config_contract::{
+    ByteSpan, CanonicalDateTime, CanonicalDecimal, CanonicalSemver, ConfigContractError, Id,
+    OwnerCatalog, OwnerDescriptor, OwnerKind, ProvenanceKind, ProvenanceOrigin, SecretRef,
+    TypedMap, TypedValue,
+};
+
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;
