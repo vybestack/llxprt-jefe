@@ -20,7 +20,12 @@ use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 #[path = "contract_tests.rs"]
 mod contract_tests;
 
+#[cfg(test)]
+#[path = "paths_tests.rs"]
+mod paths_tests;
+
 pub mod diagnostic;
+pub mod paths;
 pub mod sha256;
 
 /// Persistence errors.
