@@ -31,6 +31,7 @@ mod settings_document_tests;
 pub mod diagnostic;
 pub mod paths;
 pub mod settings_document;
+mod settings_publish;
 mod settings_syntax;
 pub mod sha256;
 

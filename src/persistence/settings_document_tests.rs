@@ -110,3 +110,218 @@ fn string_array_map_and_depth_bounds_are_rejected_by_one() {
         .unwrap_or_else(|| panic!("depth over limit must fail"));
     assert_eq!(diagnostic.code, CfgCode::E008);
 }
+
+#[test]
+fn publisher_merges_known_owner_defaults_and_records_leaf_provenance() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use crate::domain::{
+        CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, ProvenanceKind, TypedValue,
+    };
+
+    let Ok(owner_id) = Id::parse("core.llxprt") else {
+        panic!("owner id fixture must be valid");
+    };
+    let Ok(profile) = Id::parse("profile") else {
+        panic!("profile id fixture must be valid");
+    };
+    let Ok(nested) = Id::parse("nested") else {
+        panic!("nested id fixture must be valid");
+    };
+    let Ok(left) = Id::parse("left") else {
+        panic!("left id fixture must be valid");
+    };
+    let Ok(right) = Id::parse("right") else {
+        panic!("right id fixture must be valid");
+    };
+    let mut nested_defaults = BTreeMap::new();
+    nested_defaults.insert(left.clone(), TypedValue::Integer(1));
+    nested_defaults.insert(right.clone(), TypedValue::Integer(2));
+    let mut defaults = BTreeMap::new();
+    defaults.insert(profile.clone(), TypedValue::String("default".to_owned()));
+    defaults.insert(nested.clone(), TypedValue::Map(nested_defaults));
+    let Ok(version) = CanonicalSemver::parse("1.0.0") else {
+        panic!("version fixture must be valid");
+    };
+    let mut catalog = OwnerCatalog::default();
+    assert!(
+        catalog
+            .insert(OwnerDescriptor {
+                owner_id: owner_id.clone(),
+                version,
+                kind: OwnerKind::Agent,
+                defaults,
+                secret_paths: BTreeSet::new(),
+            })
+            .is_ok()
+    );
+    let source = br#"settings_schema = 2
+[agents."core.llxprt"]
+enabled = true
+repository_defaults = { profile = "custom", nested = { left = 9 } }
+"#;
+    let Ok(document) = SettingsDocument::parse(source) else {
+        panic!("settings fixture must parse");
+    };
+    let Ok(published) = document.publish(&catalog) else {
+        panic!("known owner must publish");
+    };
+    let Some(agent) = published.agents.get(&owner_id) else {
+        panic!("known agent owner must be present");
+    };
+    assert_eq!(agent.enabled, Some(true));
+    assert_eq!(
+        agent.values.get(&profile),
+        Some(&TypedValue::String("custom".to_owned()))
+    );
+    let Some(TypedValue::Map(nested_values)) = agent.values.get(&nested) else {
+        panic!("nested defaults must stay typed");
+    };
+    assert_eq!(nested_values.get(&left), Some(&TypedValue::Integer(9)));
+    assert_eq!(nested_values.get(&right), Some(&TypedValue::Integer(2)));
+    let origins = agent.origins(&[profile]);
+    assert_eq!(origins.len(), 2);
+    assert_eq!(origins[0].kind, ProvenanceKind::BuiltInDefault);
+    assert_eq!(origins[1].kind, ProvenanceKind::SelectedDocument);
+}
+
+#[test]
+fn publisher_keeps_unknown_owners_and_extensions_dormant() {
+    use crate::domain::OwnerCatalog;
+
+    let source = br#"settings_schema = 2
+[agents."future.agent"]
+enabled = true
+future_field = "untouched"
+[extensions."future.plugin"]
+secret_material = "never-published"
+"#;
+    let Ok(document) = SettingsDocument::parse(source) else {
+        panic!("settings fixture must parse");
+    };
+    let Ok(published) = document.publish(&OwnerCatalog::default()) else {
+        panic!("unknown owners must remain dormant rather than fail");
+    };
+    assert!(published.agents.is_empty());
+    assert!(published.plugins.is_empty());
+    assert_eq!(published.dormant.len(), 2);
+    assert!(
+        published
+            .dormant
+            .iter()
+            .any(|entry| entry.path == ["agents", "future.agent"])
+    );
+    assert!(
+        published
+            .dormant
+            .iter()
+            .any(|entry| entry.path == ["extensions"])
+    );
+    assert_eq!(document.original_bytes(), source);
+}
+
+#[test]
+fn publisher_rejects_unknown_fields_for_active_known_owner() {
+    use std::collections::BTreeSet;
+
+    use crate::domain::{CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind};
+
+    let Ok(owner_id) = Id::parse("core.llxprt") else {
+        panic!("owner id fixture must be valid");
+    };
+    let Ok(version) = CanonicalSemver::parse("1.0.0") else {
+        panic!("version fixture must be valid");
+    };
+    let mut catalog = OwnerCatalog::default();
+    assert!(
+        catalog
+            .insert(OwnerDescriptor {
+                owner_id,
+                version,
+                kind: OwnerKind::Agent,
+                defaults: Default::default(),
+                secret_paths: BTreeSet::new(),
+            })
+            .is_ok()
+    );
+    let source = br#"settings_schema = 2
+[agents."core.llxprt"]
+unknown = true
+"#;
+    let Ok(document) = SettingsDocument::parse(source) else {
+        panic!("settings fixture must parse syntactically");
+    };
+    let diagnostics = document
+        .publish(&catalog)
+        .err()
+        .unwrap_or_else(|| panic!("active owner unknown field must fail"));
+    assert_eq!(diagnostics[0].code, CfgCode::E005);
+}
+
+#[test]
+fn publisher_validates_all_closed_roots_and_rejects_unknown_root() {
+    use std::collections::BTreeSet;
+
+    use crate::domain::{CanonicalSemver, Id, OwnerCatalog, OwnerDescriptor, OwnerKind};
+
+    let mut catalog = OwnerCatalog::default();
+    for (name, kind) in [
+        ("core.dashboard", OwnerKind::Screen),
+        ("vendor.plugin", OwnerKind::Plugin),
+    ] {
+        let Ok(owner_id) = Id::parse(name) else {
+            panic!("owner fixture must be valid");
+        };
+        let Ok(version) = CanonicalSemver::parse("1.2.3") else {
+            panic!("version fixture must be valid");
+        };
+        assert!(
+            catalog
+                .insert(OwnerDescriptor {
+                    owner_id,
+                    version,
+                    kind,
+                    defaults: Default::default(),
+                    secret_paths: BTreeSet::new(),
+                })
+                .is_ok()
+        );
+    }
+    let source = br#"settings_schema = 2
+[appearance]
+theme = "green-screen"
+override_agent_theme = true
+[workbench]
+initial_screen = "core.dashboard"
+enabled_screens = ["core.dashboard"]
+screen_order = ["core.dashboard"]
+[workbench.layout_overrides."core.dashboard"]
+width = 80
+[keymap."core.dashboard"]
+open = ["g", "d"]
+[plugins."vendor.plugin"]
+enabled = true
+version = "1.2.3"
+config = { retries = 3, credential = { secret_ref = "github.token" } }
+"#;
+    let Ok(document) = SettingsDocument::parse(source) else {
+        panic!("settings fixture must parse");
+    };
+    let Ok(published) = document.publish(&catalog) else {
+        panic!("closed settings roots must publish");
+    };
+    assert_eq!(published.appearance.theme.as_deref(), Some("green-screen"));
+    assert_eq!(published.workbench.enabled_screens.len(), 1);
+    assert_eq!(published.keymap.len(), 1);
+    assert_eq!(published.plugins.len(), 1);
+
+    let unknown = b"settings_schema = 2\n[unknown]\nvalue = true\n";
+    let Ok(document) = SettingsDocument::parse(unknown) else {
+        panic!("unknown-root fixture must parse syntactically");
+    };
+    let diagnostics = document
+        .publish(&catalog)
+        .err()
+        .unwrap_or_else(|| panic!("unknown root must fail"));
+    assert_eq!(diagnostics[0].code, CfgCode::E005);
+}

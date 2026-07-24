@@ -190,6 +190,8 @@ The user explicitly directed one PR and approved its hard-budget exceedance. The
 | 2026-07-24 | S2 commit size | Path authority plus cross-platform decision matrix is about 800 net lines in three files | Accepted as one inseparable green behavior; still below the 15-file commit target and issue-wide one-PR exception |
 | 2026-07-24 | S3 syntax RED | `cargo test --lib persistence::settings_document_tests` failed because the lossless settings document authority did not exist; `settings-v1-lossless.json` was added first |
 | 2026-07-24 | S3 syntax GREEN | 5 focused original-byte/span/comment/quoting/syntax/bound tests pass; `make quick-check` passes (2,409 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the recorded pre-existing Rust 1.97 findings after all S3 findings are fixed |
+| 2026-07-24 | S3 publication RED | 4 schema-2 publisher tests failed to compile because `SettingsDocument::publish` did not exist |
+| 2026-07-24 | S3 publication GREEN | 9 focused settings tests pass, proving closed roots, known-owner field checks, dormant unknown owners/extensions, recursive typed-map merge, and leaf provenance; `make quick-check` passes (2,413 library tests passed, 1 ignored, plus every integration/doc target). Full Clippy reaches only the recorded pre-existing Rust 1.97 findings |
 
 ## Verification and delivery gates
 

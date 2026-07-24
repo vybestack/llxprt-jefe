@@ -6,8 +6,13 @@ use super::diagnostic::{
     ARRAY_LIMIT, CfgCode, Diagnostic, DiagnosticPath, FILE_LIMIT, MAP_LIMIT, NESTING_LIMIT,
     STRING_LIMIT, Severity,
 };
+use super::settings_publish::publish;
 use super::settings_syntax::{SyntaxNode, SyntaxOverlay};
 use super::sha256::Sha256;
+
+pub use super::settings_publish::{
+    DormantSettings, PublishedAppearance, PublishedOwner, PublishedSettings, PublishedWorkbench,
+};
 
 /// Parsed settings document whose original bytes are the formatting authority.
 #[derive(Debug, Clone)]
@@ -96,10 +101,34 @@ impl SettingsDocument {
         &self.syntax.comments
     }
 
+    /// Publish only active known owners into the closed typed settings model.
+    pub fn publish(
+        &self,
+        catalog: &crate::domain::OwnerCatalog,
+    ) -> Result<PublishedSettings, Vec<Diagnostic>> {
+        publish(self, catalog)
+    }
+
     /// Borrow the semantic TOML tree used by the closed settings publisher.
     #[must_use]
-    pub fn semantic(&self) -> &toml::Value {
+    pub(super) fn semantic(&self) -> &toml::Value {
         &self.semantic
+    }
+
+    pub(super) fn assignment_span(&self, path: &[&str]) -> Option<ByteSpan> {
+        self.node(path).map(|node| node.value_span)
+    }
+
+    pub(super) fn table_span(&self, path: &[&str]) -> Option<ByteSpan> {
+        self.syntax.tables.iter().find_map(|table| {
+            (table.path.len() == path.len()
+                && table
+                    .path
+                    .iter()
+                    .zip(path)
+                    .all(|(left, right)| left == right))
+            .then_some(table.span)
+        })
     }
 }
 
