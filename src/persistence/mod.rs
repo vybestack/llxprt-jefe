@@ -16,6 +16,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 
+#[cfg(test)]
+#[path = "contract_tests.rs"]
+mod contract_tests;
+
+pub mod diagnostic;
+pub mod sha256;
+
 /// Persistence errors.
 #[derive(Debug, Clone)]
 pub enum PersistenceError {
