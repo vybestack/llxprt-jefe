@@ -24,6 +24,7 @@ use crate::domain::{
     PullRequestDetail, Repository, RepositoryId,
 };
 use crate::pr_detail_content::build_pr_detail_content;
+use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, ScreenMode};
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::{pr_list_status_message, pr_list_visible_rows};
@@ -689,7 +690,9 @@ fn test_pr_detail_overflow_derived_from_rendered_length_not_heuristic() {
 
     let mut new_state = state;
     for _ in 0..200 {
-        new_state = new_state.apply(AppEvent::PrScrollDetailDown);
+        new_state = new_state
+            .apply(AppEvent::PrScrollDetailDown)
+            .committed_pure();
     }
 
     assert_eq!(
@@ -755,7 +758,9 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
 
     let mut new_state = state;
     for _ in 0..200 {
-        new_state = new_state.apply(AppEvent::PrScrollDetailDown);
+        new_state = new_state
+            .apply(AppEvent::PrScrollDetailDown)
+            .committed_pure();
     }
 
     assert_eq!(
@@ -819,7 +824,7 @@ fn test_pr_detail_viewport_uses_prop_height_not_terminal_size() {
     state_small.prs_state.detail_scroll_offset = 0;
     let mut s = state_small;
     for _ in 0..200 {
-        s = s.apply(AppEvent::PrScrollDetailDown);
+        s = s.apply(AppEvent::PrScrollDetailDown).committed_pure();
     }
 
     // Large viewport state.
@@ -829,7 +834,7 @@ fn test_pr_detail_viewport_uses_prop_height_not_terminal_size() {
     state_large.prs_state.detail_scroll_offset = 0;
     let mut l = state_large;
     for _ in 0..200 {
-        l = l.apply(AppEvent::PrScrollDetailDown);
+        l = l.apply(AppEvent::PrScrollDetailDown).committed_pure();
     }
 
     assert_eq!(

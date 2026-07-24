@@ -660,9 +660,13 @@ pub(super) fn launch_pr_agent(
             );
         }
         Err(error) => {
-            *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed {
-                error: error.to_string(),
-            });
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                AppEvent::PrSendToAgentFailed {
+                    error: error.to_string(),
+                }
+                .into(),
+            );
         }
     }
     let persisted = to_persisted_state(&state);
@@ -734,7 +738,10 @@ pub(super) fn apply_pr_send_to_agent_failed(
     error: String,
 ) {
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed { error });
+    jefe::state::transition::commit_pure_site(
+        &mut state,
+        (AppEvent::PrSendToAgentFailed { error }).into(),
+    );
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);

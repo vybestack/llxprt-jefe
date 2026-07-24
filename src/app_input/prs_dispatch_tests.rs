@@ -13,6 +13,7 @@ use super::prs_dispatch::{
     selected_pr_still_matches,
 };
 use jefe::domain::{Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, PullRequestsState, ScreenMode};
 use std::path::PathBuf;
 
@@ -121,7 +122,7 @@ fn test_open_in_browser_invalid_slug_surfaces_error_not_silent() {
 
     // The reducer surfaces a visible error from PrOpenInBrowserFailed
     // (observable state, NOT a silent no-op).
-    let after = state.apply(event);
+    let after = state.apply(event).committed_pure();
     assert!(
         after.prs_state.error.is_some() || after.prs_state.draft_notice.is_some(),
         "PrOpenInBrowserFailed must surface a visible error/notice (got error={:?}, notice={:?})",

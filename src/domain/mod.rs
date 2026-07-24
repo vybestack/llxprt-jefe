@@ -30,6 +30,12 @@ pub use state_contract::{
     StateV2,
 };
 
+/// Closed post-commit effect contract shared by reducer and root shell.
+pub mod effects;
+#[cfg(test)]
+#[path = "effects_tests.rs"]
+mod effects_tests;
+
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;

@@ -242,10 +242,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             continue;
                         }
                         let preview = dead_previews.remove(&identity.agent_id);
-                        *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
-                            identity.agent_id.clone(),
-                            AgentStatus::Dead,
-                        ));
+                        jefe::state::transition::commit_pure_site(
+                            &mut state,
+                            AppEvent::AgentStatusChanged(
+                                identity.agent_id.clone(),
+                                AgentStatus::Dead,
+                            )
+                            .into(),
+                        );
                         if let Some(agent) = state
                             .agents
                             .iter_mut()
@@ -678,7 +682,7 @@ fn paste_to_form(
 ) {
     let mut state = app_state.write();
     for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
-        *state = std::mem::take(&mut *state).apply(AppEvent::FormChar(ch));
+        jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FormChar(ch)).into());
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -695,9 +699,12 @@ fn paste_to_issues_inline(
     let mut state = app_state.write();
     for ch in pasted_text.chars().filter(|ch| *ch != '\r') {
         if ch == '\n' {
-            *state = std::mem::take(&mut *state).apply(AppEvent::InlineNewline);
+            jefe::state::transition::commit_pure_site(&mut state, (AppEvent::InlineNewline).into());
         } else {
-            *state = std::mem::take(&mut *state).apply(AppEvent::InlineChar(ch));
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::InlineChar(ch)).into(),
+            );
         }
     }
     let persisted = to_persisted_state(&state);
@@ -719,7 +726,10 @@ fn paste_to_issues_search(
     if !filtered.is_empty() {
         let mut query = state.issues_state.search_query.clone();
         query.push_str(&filtered);
-        *state = std::mem::take(&mut *state).apply(AppEvent::SetSearchQuery { query });
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            (AppEvent::SetSearchQuery { query }).into(),
+        );
     }
     drop(state);
     suppress_next_enter.set(PasteEnterSuppression::new());

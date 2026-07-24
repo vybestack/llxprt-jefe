@@ -28,7 +28,7 @@ pub(super) fn dispatch_kill_agent(
     }
 
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
+    jefe::state::transition::commit_pure_site(&mut state, (AppEvent::KillAgent(agent_id)).into());
     state.terminal_focused = false;
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -101,7 +101,10 @@ pub(super) fn dispatch_restart_agent(
         // Apply kill state transition so the UI reflects the kill immediately.
         {
             let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::KillAgent(agent_id.clone())).into(),
+            );
             state.terminal_focused = false;
             let persisted = to_persisted_state(&state);
             drop(state);

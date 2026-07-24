@@ -49,7 +49,10 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
 
     if state.terminal_focused {
         state.pane_focus = PaneFocus::Agents;
-        *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            (AppEvent::ToggleTerminalFocus).into(),
+        );
     } else {
         let selected_running_agent_id = state
             .selected_agent()
@@ -58,7 +61,10 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
 
         if selected_running_agent_id.is_some() {
             state.pane_focus = PaneFocus::Terminal;
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::ToggleTerminalFocus).into(),
+            );
         } else {
             state.pane_focus = PaneFocus::Agents;
             state.terminal_focused = false;

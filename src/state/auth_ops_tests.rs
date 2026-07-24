@@ -6,13 +6,14 @@
 use super::AppState;
 use super::events::AppEvent;
 use super::types::{AuthDialogPhase, AuthDialogState, ModalState};
+use crate::state::transition::TransitionExt;
 
 #[test]
 fn open_auth_dialog_from_no_modal_sets_awaiting_code() {
     let state = AppState::default();
     assert!(matches!(state.modal, ModalState::None));
 
-    let next = state.apply(AppEvent::OpenAuthDialog);
+    let next = state.apply(AppEvent::OpenAuthDialog).committed_pure();
     match &next.modal {
         ModalState::Auth { state } => assert!(
             matches!(state.phase, AuthDialogPhase::AwaitingCode),
@@ -24,11 +25,15 @@ fn open_auth_dialog_from_no_modal_sets_awaiting_code() {
 
 #[test]
 fn auth_code_received_transitions_to_confirming_with_code_and_url() {
-    let state = AppState::default().apply(AppEvent::OpenAuthDialog);
-    let next = state.apply(AppEvent::AuthCodeReceived {
-        code: "7701-C5F6".to_string(),
-        url: "https://github.com/login/device".to_string(),
-    });
+    let state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure();
+    let next = state
+        .apply(AppEvent::AuthCodeReceived {
+            code: "7701-C5F6".to_string(),
+            url: "https://github.com/login/device".to_string(),
+        })
+        .committed_pure();
     match &next.modal {
         ModalState::Auth { state } => match &state.phase {
             AuthDialogPhase::Confirming { code, url } => {
@@ -43,10 +48,14 @@ fn auth_code_received_transitions_to_confirming_with_code_and_url() {
 
 #[test]
 fn auth_failed_from_awaiting_transitions_to_failed_with_retry() {
-    let state = AppState::default().apply(AppEvent::OpenAuthDialog);
-    let next = state.apply(AppEvent::AuthFailed {
-        error: "the device code expired".to_string(),
-    });
+    let state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure();
+    let next = state
+        .apply(AppEvent::AuthFailed {
+            error: "the device code expired".to_string(),
+        })
+        .committed_pure();
     match &next.modal {
         ModalState::Auth { state } => match &state.phase {
             AuthDialogPhase::Failed { error, can_retry } => {
@@ -63,10 +72,12 @@ fn auth_failed_from_awaiting_transitions_to_failed_with_retry() {
 fn auth_retry_from_failed_returns_to_awaiting_code() {
     let state = AppState::default()
         .apply(AppEvent::OpenAuthDialog)
+        .committed_pure()
         .apply(AppEvent::AuthFailed {
             error: "network".to_string(),
-        });
-    let next = state.apply(AppEvent::AuthRetry);
+        })
+        .committed_pure();
+    let next = state.apply(AppEvent::AuthRetry).committed_pure();
     match &next.modal {
         ModalState::Auth { state } => assert!(
             matches!(state.phase, AuthDialogPhase::AwaitingCode),
@@ -79,22 +90,25 @@ fn auth_retry_from_failed_returns_to_awaiting_code() {
 #[test]
 fn auth_retry_clears_stale_error_message() {
     // A retried flow should start with a clean error slate (issue #244 OCR).
-    let mut state = AppState::default().apply(AppEvent::OpenAuthDialog);
+    let mut state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure();
     state.error_message = Some("stale".to_string());
-    let next = state.apply(AppEvent::AuthRetry);
+    let next = state.apply(AppEvent::AuthRetry).committed_pure();
     assert_eq!(next.error_message, None);
 }
 
 #[test]
 fn auth_succeeded_from_confirming_closes_modal() {
-    let state =
-        AppState::default()
-            .apply(AppEvent::OpenAuthDialog)
-            .apply(AppEvent::AuthCodeReceived {
-                code: "1234-5678".to_string(),
-                url: "https://github.com/login/device".to_string(),
-            });
-    let next = state.apply(AppEvent::AuthSucceeded);
+    let state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure()
+        .apply(AppEvent::AuthCodeReceived {
+            code: "1234-5678".to_string(),
+            url: "https://github.com/login/device".to_string(),
+        })
+        .committed_pure();
+    let next = state.apply(AppEvent::AuthSucceeded).committed_pure();
     assert!(
         matches!(next.modal, ModalState::None),
         "success must close the modal"
@@ -106,16 +120,19 @@ fn auth_failed_from_confirming_transitions_to_failed_with_retry() {
     // The code was shown (Confirming) but then expired or was denied while gh
     // was still running (gh exits non-zero). The dialog must NOT stick in
     // Confirming — it must surface a retryable failure (issue #244 review #1).
-    let state =
-        AppState::default()
-            .apply(AppEvent::OpenAuthDialog)
-            .apply(AppEvent::AuthCodeReceived {
-                code: "1234-5678".to_string(),
-                url: "https://github.com/login/device".to_string(),
-            });
-    let next = state.apply(AppEvent::AuthFailed {
-        error: "the device code has expired".to_string(),
-    });
+    let state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure()
+        .apply(AppEvent::AuthCodeReceived {
+            code: "1234-5678".to_string(),
+            url: "https://github.com/login/device".to_string(),
+        })
+        .committed_pure();
+    let next = state
+        .apply(AppEvent::AuthFailed {
+            error: "the device code has expired".to_string(),
+        })
+        .committed_pure();
     match &next.modal {
         ModalState::Auth { state } => match &state.phase {
             AuthDialogPhase::Failed { error, can_retry } => {
@@ -130,8 +147,10 @@ fn auth_failed_from_confirming_transitions_to_failed_with_retry() {
 
 #[test]
 fn auth_cancelled_closes_modal_and_sets_actionable_message() {
-    let state = AppState::default().apply(AppEvent::OpenAuthDialog);
-    let next = state.apply(AppEvent::AuthCancelled);
+    let state = AppState::default()
+        .apply(AppEvent::OpenAuthDialog)
+        .committed_pure();
+    let next = state.apply(AppEvent::AuthCancelled).committed_pure();
     assert!(
         matches!(next.modal, ModalState::None),
         "cancel must close the modal"
@@ -155,15 +174,19 @@ fn auth_failed_then_succeeded_closes_modal() {
     // Expired code → retry → new code → success.
     let state = AppState::default()
         .apply(AppEvent::OpenAuthDialog)
+        .committed_pure()
         .apply(AppEvent::AuthFailed {
             error: "expired".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::AuthRetry)
+        .committed_pure()
         .apply(AppEvent::AuthCodeReceived {
             code: "ABCD-EFGH".to_string(),
             url: "https://github.com/login/device".to_string(),
-        });
-    let next = state.apply(AppEvent::AuthSucceeded);
+        })
+        .committed_pure();
+    let next = state.apply(AppEvent::AuthSucceeded).committed_pure();
     assert!(matches!(next.modal, ModalState::None));
 }
 
@@ -177,7 +200,7 @@ fn open_auth_dialog_does_not_clobber_existing_form_modal() {
         modal: ModalState::Help,
         ..AppState::default()
     };
-    let next = state.apply(AppEvent::OpenAuthDialog);
+    let next = state.apply(AppEvent::OpenAuthDialog).committed_pure();
     assert!(
         matches!(next.modal, ModalState::Help),
         "OpenAuthDialog must not replace an existing modal"
@@ -189,16 +212,20 @@ fn auth_code_received_ignored_when_no_auth_modal() {
     // Stray late-arriving code events must not corrupt state when the modal
     // has already been closed.
     let state = AppState::default();
-    let next = state.apply(AppEvent::AuthCodeReceived {
-        code: "0000-0000".to_string(),
-        url: "https://github.com/login/device".to_string(),
-    });
+    let next = state
+        .apply(AppEvent::AuthCodeReceived {
+            code: "0000-0000".to_string(),
+            url: "https://github.com/login/device".to_string(),
+        })
+        .committed_pure();
     assert!(matches!(next.modal, ModalState::None));
 }
 
 #[test]
 fn auth_succeeded_ignored_when_no_auth_modal() {
-    let next = AppState::default().apply(AppEvent::AuthSucceeded);
+    let next = AppState::default()
+        .apply(AppEvent::AuthSucceeded)
+        .committed_pure();
     assert!(matches!(next.modal, ModalState::None));
 }
 

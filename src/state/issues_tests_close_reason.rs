@@ -7,6 +7,7 @@
 //! updates issue state.
 
 use crate::domain::{CloseReason, Issue, IssueDetail, IssueState, RepositoryId};
+use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState, IssueFocus};
 
 fn issues_state_with_list(repo_id: &str) -> AppState {
@@ -60,7 +61,7 @@ fn navigate_to_duplicate(state: AppState) -> AppState {
     };
     let mut s = state;
     for _ in 0..dup_index {
-        s = s.apply(AppEvent::CloseReasonNavigateDown);
+        s = s.apply(AppEvent::CloseReasonNavigateDown).committed_pure();
     }
     s
 }
@@ -76,7 +77,7 @@ fn navigate_to_completed(state: AppState) -> AppState {
     };
     let mut s = state;
     for _ in 0..completed_index {
-        s = s.apply(AppEvent::CloseReasonNavigateDown);
+        s = s.apply(AppEvent::CloseReasonNavigateDown).committed_pure();
     }
     s
 }
@@ -86,7 +87,9 @@ fn navigate_to_completed(state: AppState) -> AppState {
 #[test]
 fn open_close_reason_chooser_when_issue_focused_and_open() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_some(),
         "chooser should open when issue is focused and open"
@@ -106,7 +109,9 @@ fn open_close_reason_chooser_blocked_when_already_closed() {
     let mut issues = state.issues_state.list.items().to_vec();
     issues[0].state = IssueState::Closed;
     state.issues_state.list.replace_items(issues);
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser must NOT open for already-closed issue"
@@ -124,7 +129,9 @@ fn open_close_reason_chooser_blocked_when_delete_confirm_active() {
         issue_number: 1,
         awaiting_confirmation: false,
     });
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser must NOT open when another overlay is active"
@@ -135,7 +142,9 @@ fn open_close_reason_chooser_blocked_when_delete_confirm_active() {
 fn open_close_reason_chooser_blocked_when_no_issue_focused() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.list.set_selected_index(None);
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser must NOT open when no issue is focused"
@@ -147,8 +156,12 @@ fn open_close_reason_chooser_blocked_when_no_issue_focused() {
 #[test]
 fn navigate_down_moves_selection() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
-    let state = state.apply(AppEvent::CloseReasonNavigateDown);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateDown)
+        .committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -158,8 +171,12 @@ fn navigate_down_moves_selection() {
 #[test]
 fn navigate_up_clamps_at_first() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
-    let state = state.apply(AppEvent::CloseReasonNavigateUp);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateUp)
+        .committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -172,12 +189,22 @@ fn navigate_up_clamps_at_first() {
 #[test]
 fn navigate_down_clamps_at_last() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     // Navigate down past the last item (CLOSE_REASONS has 4 items)
-    let state = state.apply(AppEvent::CloseReasonNavigateDown);
-    let state = state.apply(AppEvent::CloseReasonNavigateDown);
-    let state = state.apply(AppEvent::CloseReasonNavigateDown);
-    let state = state.apply(AppEvent::CloseReasonNavigateDown);
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateDown)
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateDown)
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateDown)
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonNavigateDown)
+        .committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -193,10 +220,12 @@ fn navigate_down_clamps_at_last() {
 #[test]
 fn select_non_duplicate_arms_confirmation() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     // Navigate to Completed by computed index (robust to CLOSE_REASONS order).
     let state = navigate_to_completed(state);
-    let state = state.apply(AppEvent::CloseReasonSelect);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -213,11 +242,13 @@ fn select_non_duplicate_arms_confirmation() {
 #[test]
 fn select_duplicate_enters_search_sub_state() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     // Navigate to Duplicate by computed index (robust to CLOSE_REASONS order).
     let state = navigate_to_duplicate(state);
     // Select Duplicate
-    let state = state.apply(AppEvent::CloseReasonSelect);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -245,11 +276,15 @@ fn select_duplicate_enters_search_sub_state() {
 #[test]
 fn duplicate_search_char_updates_query() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     let state = navigate_to_duplicate(state);
-    let state = state.apply(AppEvent::CloseReasonSelect);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
     // Type '3' (matches issue #3 by number-prefix).
-    let state = state.apply(AppEvent::CloseReasonDuplicateSearchChar('3'));
+    let state = state
+        .apply(AppEvent::CloseReasonDuplicateSearchChar('3'))
+        .committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -262,11 +297,17 @@ fn duplicate_search_char_updates_query() {
 #[test]
 fn duplicate_search_backspace_removes_last_char() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     let state = navigate_to_duplicate(state);
-    let state = state.apply(AppEvent::CloseReasonSelect);
-    let state = state.apply(AppEvent::CloseReasonDuplicateSearchChar('3'));
-    let state = state.apply(AppEvent::CloseReasonDuplicateSearchBackspace);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonDuplicateSearchChar('3'))
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::CloseReasonDuplicateSearchBackspace)
+        .committed_pure();
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");
     };
@@ -281,9 +322,11 @@ fn duplicate_search_backspace_removes_last_char() {
 #[test]
 fn confirm_completed_sets_close_mutation_pending_with_reason() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
-    let state = state.apply(AppEvent::CloseReasonSelect);
-    let state = state.apply(AppEvent::CloseReasonConfirm);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
+    let state = state.apply(AppEvent::CloseReasonConfirm).committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser should be cleared after confirm"
@@ -306,10 +349,12 @@ fn confirm_completed_sets_close_mutation_pending_with_reason() {
 #[test]
 fn confirm_duplicate_sets_pending_with_reason_and_duplicate_of() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     let state = navigate_to_duplicate(state);
-    let state = state.apply(AppEvent::CloseReasonSelect);
-    let state = state.apply(AppEvent::CloseReasonConfirm);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
+    let state = state.apply(AppEvent::CloseReasonConfirm).committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser should be cleared after confirm"
@@ -345,10 +390,12 @@ fn confirm_duplicate_with_no_target_preserves_chooser_and_blocks_mutation() {
         .cloned()
         .collect::<Vec<_>>();
     state.issues_state.list.replace_items(only_one);
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     let state = navigate_to_duplicate(state);
-    let state = state.apply(AppEvent::CloseReasonSelect);
-    let state = state.apply(AppEvent::CloseReasonConfirm);
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
+    let state = state.apply(AppEvent::CloseReasonConfirm).committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_some(),
         "chooser should be preserved when no duplicate target is available"
@@ -364,12 +411,14 @@ fn confirm_duplicate_with_no_target_preserves_chooser_and_blocks_mutation() {
 #[test]
 fn cancel_clears_chooser() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_some(),
         "chooser should be open"
     );
-    let state = state.apply(AppEvent::CloseReasonCancel);
+    let state = state.apply(AppEvent::CloseReasonCancel).committed_pure();
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
         "chooser should be cleared after cancel"
@@ -381,9 +430,11 @@ fn cancel_clears_chooser() {
 #[test]
 fn issue_closed_with_reason_updates_issue_state() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenCloseReasonChooser);
-    let state = state.apply(AppEvent::CloseReasonSelect);
-    let state = state.apply(AppEvent::CloseReasonConfirm);
+    let state = state
+        .apply(AppEvent::OpenCloseReasonChooser)
+        .committed_pure();
+    let state = state.apply(AppEvent::CloseReasonSelect).committed_pure();
+    let state = state.apply(AppEvent::CloseReasonConfirm).committed_pure();
     let mutation_id = state
         .issues_state
         .close_mutation_pending
@@ -400,13 +451,15 @@ fn issue_closed_with_reason_updates_issue_state() {
         panic!("scope should exist");
     };
 
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: scope,
-        issue_number: 1,
-        mutation_id,
-        close_reason: Some(CloseReason::Completed),
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: scope,
+            issue_number: 1,
+            mutation_id,
+            close_reason: Some(CloseReason::Completed),
+            duplicate_of: None,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "pending should be cleared after IssueClosed"
@@ -504,13 +557,15 @@ fn issue_closed_with_reason_sets_optimistic_state_reason() {
         close_reason: Some(CloseReason::NotPlanned),
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: scope,
-        issue_number: 1,
-        mutation_id: 42,
-        close_reason: Some(CloseReason::NotPlanned),
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: scope,
+            issue_number: 1,
+            mutation_id: 42,
+            close_reason: Some(CloseReason::NotPlanned),
+            duplicate_of: None,
+        })
+        .committed_pure();
     let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
     assert!(
         list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::NotPlanned)),
@@ -537,13 +592,15 @@ fn issue_closed_duplicate_sets_optimistic_duplicate_reason() {
         close_reason: Some(CloseReason::Duplicate),
         duplicate_of: Some(2),
     });
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 42,
-        close_reason: Some(CloseReason::Duplicate),
-        duplicate_of: Some(2),
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 42,
+            close_reason: Some(CloseReason::Duplicate),
+            duplicate_of: Some(2),
+        })
+        .committed_pure();
     let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
     assert!(
         list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Duplicate)),
@@ -562,13 +619,15 @@ fn issue_closed_duplicate_sets_optimistic_duplicate_reason() {
         close_reason: Some(CloseReason::Duplicate),
         duplicate_of: Some(2),
     });
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: scope,
-        issue_number: 1,
-        mutation_id: 43,
-        close_reason: Some(CloseReason::Duplicate),
-        duplicate_of: Some(2),
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: scope,
+            issue_number: 1,
+            mutation_id: 43,
+            close_reason: Some(CloseReason::Duplicate),
+            duplicate_of: Some(2),
+        })
+        .committed_pure();
     let detail = state.issues_state.issue_detail.as_ref();
     assert!(
         detail.is_some_and(|d| d.state_reason == Some(IssueStateReason::Duplicate)),
@@ -591,13 +650,15 @@ fn issue_closed_plain_close_defaults_to_completed_reason() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 42,
-        close_reason: None,
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 42,
+            close_reason: None,
+            duplicate_of: None,
+        })
+        .committed_pure();
     let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
     assert!(
         list_issue.is_some_and(|i| i.state_reason == Some(IssueStateReason::Completed)),

@@ -16,6 +16,7 @@ use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::persistence::{
     FilePersistenceManager, PersistenceManager, PersistencePaths, Settings, State,
 };
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{FileThemeManager, ThemeManager};
 use std::path::PathBuf;
@@ -73,21 +74,21 @@ fn full_navigation_workflow() {
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
     // Cycle through panes
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Agents);
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Terminal);
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
     // Enter split mode
-    state = state.apply(AppEvent::EnterSplitMode);
+    state = state.apply(AppEvent::EnterSplitMode).committed_pure();
     assert_eq!(state.screen_mode, ScreenMode::Split);
 
     // Exit split mode
-    state = state.apply(AppEvent::ExitSplitMode);
+    state = state.apply(AppEvent::ExitSplitMode).committed_pure();
     assert_eq!(state.screen_mode, ScreenMode::Dashboard);
 }
 
@@ -96,27 +97,27 @@ fn full_modal_workflow() {
     let (mut state, _, _) = create_test_environment();
 
     // Open help
-    state = state.apply(AppEvent::OpenHelp);
+    state = state.apply(AppEvent::OpenHelp).committed_pure();
     assert_eq!(state.modal, ModalState::Help);
 
     // Close help
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(state.modal, ModalState::None);
 
     // Open search
-    state = state.apply(AppEvent::OpenSearch);
+    state = state.apply(AppEvent::OpenSearch).committed_pure();
     assert!(matches!(state.modal, ModalState::Search { .. }));
 
     // Close search
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(state.modal, ModalState::None);
 
     // Open new repository form
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     assert!(matches!(state.modal, ModalState::NewRepository { .. }));
 
     // Close form
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
 
@@ -128,16 +129,16 @@ fn full_terminal_focus_workflow() {
     assert!(!state.terminal_focused);
 
     // Toggle focus on
-    state = state.apply(AppEvent::ToggleTerminalFocus);
+    state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(state.terminal_focused);
 
     // Navigation should be blocked
     let original = state.selected_agent_index;
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
     assert_eq!(state.selected_agent_index, original, "Navigation blocked");
 
     // Toggle focus off
-    state = state.apply(AppEvent::ToggleTerminalFocus);
+    state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(!state.terminal_focused);
 
     // Navigation should work again
@@ -266,14 +267,18 @@ fn agent_lifecycle_state_transitions() {
     assert_eq!(state.agents[0].status, AgentStatus::Queued);
 
     // Mark as running
-    state = state.apply(AppEvent::AgentStatusChanged(
-        agent_id.clone(),
-        AgentStatus::Running,
-    ));
+    state = state
+        .apply(AppEvent::AgentStatusChanged(
+            agent_id.clone(),
+            AgentStatus::Running,
+        ))
+        .committed_pure();
     assert_eq!(state.agents[0].status, AgentStatus::Running);
 
     // Kill agent
-    state = state.apply(AppEvent::KillAgent(agent_id.clone()));
+    state = state
+        .apply(AppEvent::KillAgent(agent_id.clone()))
+        .committed_pure();
     assert_eq!(state.agents[0].status, AgentStatus::Dead);
 }
 
@@ -286,7 +291,9 @@ fn error_messages_flow_through_state() {
     let (mut state, _, _) = create_test_environment();
 
     // Persistence error
-    state = state.apply(AppEvent::PersistenceLoadFailed("File not found".into()));
+    state = state
+        .apply(AppEvent::PersistenceLoadFailed("File not found".into()))
+        .committed_pure();
     assert!(state.error_message.is_some());
     assert!(
         state
@@ -297,7 +304,7 @@ fn error_messages_flow_through_state() {
     );
 
     // Clear error
-    state = state.apply(AppEvent::ClearError);
+    state = state.apply(AppEvent::ClearError).committed_pure();
     assert!(state.error_message.is_none());
 }
 
@@ -306,13 +313,15 @@ fn warning_messages_flow_through_state() {
     let (mut state, _, _) = create_test_environment();
 
     // Theme warning
-    state = state.apply(AppEvent::ThemeResolveFailed(
-        "Theme 'dracula' not found".into(),
-    ));
+    state = state
+        .apply(AppEvent::ThemeResolveFailed(
+            "Theme 'dracula' not found".into(),
+        ))
+        .committed_pure();
     assert!(state.warning_message.is_some());
 
     // Clear warning
-    state = state.apply(AppEvent::ClearWarning);
+    state = state.apply(AppEvent::ClearWarning).committed_pure();
     assert!(state.warning_message.is_none());
 }
 
@@ -326,11 +335,11 @@ fn state_transitions_never_panic() {
 
     // Apply many events rapidly - should never panic
     for _ in 0..100 {
-        state = state.apply(AppEvent::NavigateDown);
-        state = state.apply(AppEvent::NavigateUp);
-        state = state.apply(AppEvent::CyclePaneFocus);
-        state = state.apply(AppEvent::ToggleTerminalFocus);
-        state = state.apply(AppEvent::ToggleTerminalFocus);
+        state = state.apply(AppEvent::NavigateDown).committed_pure();
+        state = state.apply(AppEvent::NavigateUp).committed_pure();
+        state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
+        state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
+        state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     }
 
     // State should still be valid
@@ -346,7 +355,7 @@ fn out_of_bounds_navigation_is_safe() {
 
     // Navigate way past end
     for _ in 0..100 {
-        state = state.apply(AppEvent::NavigateDown);
+        state = state.apply(AppEvent::NavigateDown).committed_pure();
     }
 
     // Selection should be clamped to valid range
@@ -356,7 +365,7 @@ fn out_of_bounds_navigation_is_safe() {
 
     // Navigate way past beginning
     for _ in 0..100 {
-        state = state.apply(AppEvent::NavigateUp);
+        state = state.apply(AppEvent::NavigateUp).committed_pure();
     }
 
     // Selection should still be valid

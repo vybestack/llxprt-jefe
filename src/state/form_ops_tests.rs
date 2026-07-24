@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::{Agent, RemoteRepositorySettings, Repository, RepositoryId};
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{ModalState, ScreenMode};
 
 fn seed_repository() -> Repository {
@@ -38,7 +39,9 @@ fn open_new_agent_initializes_llxprt_debug_blank() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
@@ -55,7 +58,9 @@ fn open_new_agent_copies_repository_code_puppy_model() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, cursor, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
@@ -80,7 +85,9 @@ fn open_new_agent_defaults_to_repo_kind_when_installed() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
@@ -102,7 +109,9 @@ fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed(
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
@@ -129,7 +138,9 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
@@ -145,7 +156,9 @@ fn llxprt_debug_is_trimmed_when_creating_agent() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
     };
@@ -153,7 +166,7 @@ fn llxprt_debug_is_trimmed_when_creating_agent() {
     fields.work_dir = "/tmp/agent-one".to_owned();
     fields.llxprt_debug = "   trace=1   ".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     let Some(created) = state.agents.last() else {
         panic!("agent should be created");
     };
@@ -167,7 +180,9 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
     };
@@ -175,7 +190,7 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
     fields.work_dir = "/tmp/agent-two".to_owned();
     fields.llxprt_debug = "   ".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     let Some(created) = state.agents.last() else {
         panic!("agent should be created");
     };
@@ -191,7 +206,9 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
     };
@@ -215,7 +232,9 @@ fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
     };
@@ -427,29 +446,29 @@ fn repository_checkbox_toggle_updates_remote_fields() {
         repositories: vec![seed_repository()],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
-    state = state.apply(AppEvent::FormNextField); // Name → BaseDir
-    state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
-    state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → DefaultLlxprtMode
-    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtMode → DefaultLlxprtVersion
-    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → GitHubRepo
-    state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
-    state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
-    state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
-    state = state.apply(AppEvent::FormNextField); // RemoteEnabled → LoginUser
-    state = state.apply(AppEvent::FormChar('u'));
-    state = state.apply(AppEvent::FormChar('b'));
-    state = state.apply(AppEvent::FormNextField); // LoginUser → Host
-    state = state.apply(AppEvent::FormChar('1'));
-    state = state.apply(AppEvent::FormChar('.'));
-    state = state.apply(AppEvent::FormNextField); // Host → SshPort
-    state = state.apply(AppEvent::FormNextField); // SshPort → IdentityFile
-    state = state.apply(AppEvent::FormNextField); // IdentityFile → SshOptions
-    state = state.apply(AppEvent::FormNextField); // SshOptions → RunAsUser
-    state = state.apply(AppEvent::FormChar('a'));
-    state = state.apply(AppEvent::FormNextField); // RunAsUser → SetupEnvDefault
-    state = state.apply(AppEvent::FormToggleCheckbox); // toggle setup_env_default
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // BaseDir → DefaultProfile
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultAgentKind → DefaultLlxprtMode
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultLlxprtMode → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultLlxprtVersion → GitHubRepo
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // GitHubRepo → IssuePrRepo
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // IssuePrRepo → RemoteEnabled
+    state = state.apply(AppEvent::FormToggleCheckbox).committed_pure(); // toggle remote_enabled
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // RemoteEnabled → LoginUser
+    state = state.apply(AppEvent::FormChar('u')).committed_pure();
+    state = state.apply(AppEvent::FormChar('b')).committed_pure();
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // LoginUser → Host
+    state = state.apply(AppEvent::FormChar('1')).committed_pure();
+    state = state.apply(AppEvent::FormChar('.')).committed_pure();
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // Host → SshPort
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // SshPort → IdentityFile
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // IdentityFile → SshOptions
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // SshOptions → RunAsUser
+    state = state.apply(AppEvent::FormChar('a')).committed_pure();
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // RunAsUser → SetupEnvDefault
+    state = state.apply(AppEvent::FormToggleCheckbox).committed_pure(); // toggle setup_env_default
 
     let ModalState::NewRepository {
         fields,
@@ -750,15 +769,17 @@ fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
-        "repo-1".to_owned(),
-    )));
+    state = state
+        .apply(AppEvent::OpenEditRepository(RepositoryId(
+            "repo-1".to_owned(),
+        )))
+        .committed_pure();
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("expected edit-repository modal");
     };
     fields.github_repo = "owner/repo/extra".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(state.repositories[0].github_repo, "owner/existing");
     assert!(matches!(state.modal, ModalState::EditRepository { .. }));
@@ -776,15 +797,17 @@ fn submit_edit_repository_closes_modal_when_github_repo_valid() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
-        "repo-1".to_owned(),
-    )));
+    state = state
+        .apply(AppEvent::OpenEditRepository(RepositoryId(
+            "repo-1".to_owned(),
+        )))
+        .committed_pure();
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("expected edit-repository modal");
     };
     fields.github_repo = "owner/new".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(state.repositories[0].github_repo, "owner/new");
     assert!(matches!(state.modal, ModalState::None));

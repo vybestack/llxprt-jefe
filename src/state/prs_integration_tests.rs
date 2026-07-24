@@ -26,6 +26,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
+use crate::state::transition::TransitionExt;
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,7 +142,7 @@ pub(super) fn dashboard_state() -> AppState {
 /// @pseudocode component-001 lines 66-76,209-223
 fn active_prs_state_with_list() -> AppState {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     let scope = RepositoryId("repo-1".to_string());
     let filter = state.prs_state.committed_filter.clone();
     let request_id = begin_pr_list_reload(&mut state, "repo-1", filter);
@@ -168,7 +169,7 @@ pub(super) trait ApplyInPlace {
 impl ApplyInPlace for AppState {
     fn apply_in_place(&mut self, event: AppEvent) {
         let old = std::mem::take(self);
-        *self = old.apply(event);
+        *self = old.apply(event).committed_pure();
     }
 }
 
@@ -575,7 +576,7 @@ fn it_exit_restores_prior_dashboard_focus() {
 fn it_stale_response_discarded_after_repo_switch() {
     let mut state = dashboard_state();
     state.pane_focus = PaneFocus::Agents;
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     state.prs_state.pr_focus = PrFocus::RepoList;
 
     // Navigate down to repo-2 (scope switch resets the list).
@@ -630,7 +631,7 @@ fn it_stale_response_discarded_after_repo_switch() {
 #[test]
 fn it_not_authenticated_shows_auth_error() {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     let filter = state.prs_state.committed_filter.clone();
     let request_id = begin_pr_list_reload(&mut state, "repo-1", filter);
     assert!(
@@ -680,7 +681,7 @@ fn it_not_authenticated_shows_auth_error() {
 #[test]
 fn it_empty_pr_list_shows_empty_state() {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     // Seed a non-empty list so the empty-result clearing is observable.
     state.prs_state.list.replace_items(vec![make_test_pr(42)]);
     state.prs_state.list.set_selected_index(Some(0));
@@ -737,10 +738,10 @@ fn it_dashboard_and_issues_modes_unaffected() {
 
     // Issues mode regression.
     let state2 = dashboard_state();
-    let entered = state2.apply(AppEvent::EnterIssuesMode);
+    let entered = state2.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(entered.screen_mode, ScreenMode::DashboardIssues);
     assert!(entered.issues_state.active);
-    let exited = entered.apply(AppEvent::ExitIssuesMode);
+    let exited = entered.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(exited.screen_mode, ScreenMode::Dashboard);
     assert!(!exited.issues_state.active);
 

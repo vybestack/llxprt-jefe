@@ -93,7 +93,7 @@ pub fn synchronize_actions_geometry(
         content_width: geometry.content_width,
     };
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(event);
+    jefe::state::transition::commit_pure_site(&mut state, (event).into());
 }
 
 fn synchronize_current_actions_geometry(app_state: &mut AppStateHandle) {

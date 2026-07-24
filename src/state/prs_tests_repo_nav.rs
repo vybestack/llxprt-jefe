@@ -8,6 +8,7 @@
 use crate::domain::{PrCheckStatus, PrState, PullRequest, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
 
 /// Helper: PR-mode state with multiple repositories.
@@ -61,15 +62,15 @@ fn test_cycle_focus_repo_to_list_to_detail_and_wrap() {
     state.prs_state.pr_focus = PrFocus::RepoList;
 
     // RepoList → PrList
-    let state = state.apply(AppEvent::PrCycleFocus);
+    let state = state.apply(AppEvent::PrCycleFocus).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrList);
 
     // PrList → PrDetail
-    let state = state.apply(AppEvent::PrCycleFocus);
+    let state = state.apply(AppEvent::PrCycleFocus).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrDetail);
 
     // PrDetail → RepoList (wrap)
-    let state = state.apply(AppEvent::PrCycleFocus);
+    let state = state.apply(AppEvent::PrCycleFocus).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::RepoList);
 }
 
@@ -83,13 +84,13 @@ fn test_cycle_focus_reverse() {
     let mut state = prs_mode_state();
     state.prs_state.pr_focus = PrFocus::RepoList;
 
-    let state = state.apply(AppEvent::PrCycleFocusReverse);
+    let state = state.apply(AppEvent::PrCycleFocusReverse).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrDetail);
 
-    let state = state.apply(AppEvent::PrCycleFocusReverse);
+    let state = state.apply(AppEvent::PrCycleFocusReverse).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrList);
 
-    let state = state.apply(AppEvent::PrCycleFocusReverse);
+    let state = state.apply(AppEvent::PrCycleFocusReverse).committed_pure();
     assert_eq!(state.prs_state.pr_focus, PrFocus::RepoList);
 }
 
@@ -108,24 +109,24 @@ fn test_navigate_repo_in_prs_mode_changes_selection_independent_of_pane_focus() 
     state.pane_focus = PaneFocus::Agents;
 
     // Down should move to repo index 1 even though pane_focus is Agents.
-    let state = state.apply(AppEvent::PrNavigateDown);
+    let state = state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
 
     // Down again to repo index 2.
-    let state = state.apply(AppEvent::PrNavigateDown);
+    let state = state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(2));
 
     // Down at bottom stays.
-    let state = state.apply(AppEvent::PrNavigateDown);
+    let state = state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(2));
 
     // Up moves back.
-    let state = state.apply(AppEvent::PrNavigateUp);
+    let state = state.apply(AppEvent::PrNavigateUp).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
 
     // Up at top stays.
-    let state = state.apply(AppEvent::PrNavigateUp);
-    let state = state.apply(AppEvent::PrNavigateUp);
+    let state = state.apply(AppEvent::PrNavigateUp).committed_pure();
+    let state = state.apply(AppEvent::PrNavigateUp).committed_pure();
     assert_eq!(state.selected_repository_index, Some(0));
 }
 
@@ -149,7 +150,7 @@ fn test_repo_scope_change_resets_pr_list_detail_and_pending() {
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
 
-    let new_state = state.apply(AppEvent::PrNavigateDown);
+    let new_state = state.apply(AppEvent::PrNavigateDown).committed_pure();
 
     assert_eq!(new_state.selected_repository_index, Some(1));
     assert!(
@@ -191,7 +192,7 @@ fn test_select_repository_resets_pr_scope() {
     state.prs_state.list.set_selected_index(Some(1));
 
     // Select a different repository via the UiNavigation message path.
-    let new_state = state.apply(AppEvent::SelectRepository(1));
+    let new_state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
 
     assert_eq!(new_state.selected_repository_index, Some(1));
     assert!(
@@ -219,7 +220,7 @@ fn test_navigate_repo_down_from_none_selects_first_visible() {
     // No repo selected.
     state.selected_repository_index = None;
 
-    let new_state = state.apply(AppEvent::PrNavigateDown);
+    let new_state = state.apply(AppEvent::PrNavigateDown).committed_pure();
 
     assert_eq!(
         new_state.selected_repository_index,

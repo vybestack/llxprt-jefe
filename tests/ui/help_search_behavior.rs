@@ -8,6 +8,7 @@
 //! Acceptance criteria from: analysis/search-help-acceptance-contract.md
 
 use jefe::domain::{Agent, AgentId, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ModalState, ScreenMode};
 use std::path::PathBuf;
 
@@ -68,7 +69,7 @@ fn question_mark_opens_help() {
     let mut state = create_search_test_state();
     state.modal = ModalState::None;
 
-    state = state.apply(AppEvent::OpenHelp);
+    state = state.apply(AppEvent::OpenHelp).committed_pure();
 
     assert_eq!(state.modal, ModalState::Help);
 }
@@ -78,7 +79,7 @@ fn help_closes_on_close_modal() {
     let mut state = create_search_test_state();
     state.modal = ModalState::Help;
 
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
 
     assert_eq!(state.modal, ModalState::None);
 }
@@ -93,7 +94,7 @@ fn slash_opens_search_mode() {
     let mut state = create_search_test_state();
     state.modal = ModalState::None;
 
-    state = state.apply(AppEvent::OpenSearch);
+    state = state.apply(AppEvent::OpenSearch).committed_pure();
 
     assert!(matches!(state.modal, ModalState::Search { .. }));
 }
@@ -105,7 +106,7 @@ fn search_esc_clears_and_closes() {
         query: "some query".into(),
     };
 
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
 
     assert_eq!(state.modal, ModalState::None);
 }
@@ -159,7 +160,7 @@ fn search_works_in_dashboard_mode() {
     let mut state = create_search_test_state();
     state.screen_mode = ScreenMode::Dashboard;
 
-    state = state.apply(AppEvent::OpenSearch);
+    state = state.apply(AppEvent::OpenSearch).committed_pure();
 
     assert!(matches!(state.modal, ModalState::Search { .. }));
 }
@@ -169,7 +170,7 @@ fn search_works_in_split_mode() {
     let mut state = create_search_test_state();
     state.screen_mode = ScreenMode::Split;
 
-    state = state.apply(AppEvent::OpenSearch);
+    state = state.apply(AppEvent::OpenSearch).committed_pure();
 
     assert!(matches!(state.modal, ModalState::Search { .. }));
 }

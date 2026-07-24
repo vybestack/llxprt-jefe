@@ -66,6 +66,11 @@ pub use shell_inventory_ops::ShellInventory;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;
+/// Bounded reducer transitions and pending effect correlations (issue #381).
+pub mod transition;
+#[cfg(test)]
+#[path = "transition_tests.rs"]
+mod transition_tests;
 mod types;
 mod util;
 pub use errors_types::{ErrorsFocus, ErrorsState};
@@ -264,20 +269,43 @@ impl AppState {
             .position(|global_idx| *global_idx == selected_global)
     }
 
-    /// Apply an event to produce the next state.
-    #[must_use]
-    pub fn apply(self, event: AppEvent) -> Self {
+    /// Apply an event, committing a bounded transition (issue #381 CW01-10).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`transition::TransitionError`] when the reducer stages more
+    /// than [`transition::MAX_TRANSITION_EFFECTS`] ordered effects.
+    pub fn apply(
+        self,
+        event: AppEvent,
+    ) -> Result<transition::Transition, transition::TransitionError> {
         self.apply_message(event.into())
     }
 
-    /// Apply a routed domain message to produce the next state.
+    /// Apply a routed domain message, committing a bounded transition.
     ///
-    /// State transitions are deterministic per REQ-TECH-003.
+    /// State transitions are deterministic per REQ-TECH-003. The committed
+    /// [`transition::Transition`] carries the next state plus at most
+    /// [`transition::MAX_TRANSITION_EFFECTS`] ordered post-commit effects;
+    /// adapters are never executed while the state is borrowed.
     /// @plan PLAN-20260216-FIRSTVERSION-V1.P05
     /// @requirement REQ-TECH-003
     /// @pseudocode component-001 lines 13-33
-    #[must_use]
-    pub fn apply_message(mut self, message: AppMessage) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`transition::TransitionError`] when the reducer stages more
+    /// than the bounded effect count.
+    pub fn apply_message(
+        mut self,
+        message: AppMessage,
+    ) -> Result<transition::Transition, transition::TransitionError> {
+        self.reduce_message(message);
+        let effects = std::mem::take(&mut self.pending_effects.staged);
+        transition::Transition::new(self, effects)
+    }
+
+    fn reduce_message(&mut self, message: AppMessage) {
         let route = message.route();
         trace!(
             message_domain = ?route.domain,
@@ -294,7 +322,7 @@ impl AppState {
                 message = route.name,
                 "blocked navigation message (terminal_focused=true)"
             );
-            return self;
+            return;
         }
 
         match message {
@@ -329,7 +357,6 @@ impl AppState {
         }
 
         self.finalize_message(route);
-        self
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {

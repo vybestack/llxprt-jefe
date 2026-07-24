@@ -223,7 +223,7 @@ pub async fn observe_terminal_manager_preview(mut app_state: AppStateHandle, ctx
             lines,
         };
         let mut state = app_state.write();
-        *state = std::mem::take(&mut *state).apply(event);
+        jefe::state::transition::commit_pure_site(&mut state, (event).into());
         drop(state);
     }
 }
@@ -416,7 +416,7 @@ pub fn on_shell_attach_failed(app_state: &mut AppStateHandle, failed_agent_id: &
         return;
     }
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::FailShellFocus);
+    jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FailShellFocus).into());
     state.warning_message = Some(format!(
         "Failed to focus shell for agent {}.",
         failed_agent_id.0

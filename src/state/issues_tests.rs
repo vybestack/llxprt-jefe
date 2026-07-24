@@ -82,6 +82,7 @@ fn state_with_repo(repo_id: &str) -> AppState {
 }
 
 use super::issues_test_fixtures::begin_issue_list_reload;
+use crate::state::transition::TransitionExt;
 
 /// Test 1: EnterIssuesMode sets screen mode, activates issues state, and focuses issue list.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
@@ -90,7 +91,7 @@ use super::issues_test_fixtures::begin_issue_list_reload;
 #[test]
 fn test_enter_issues_mode_sets_screen_mode() {
     let state = AppState::default();
-    let new_state = state.apply(AppEvent::EnterIssuesMode);
+    let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(new_state.screen_mode, ScreenMode::DashboardIssues);
     assert!(new_state.issues_state.active);
     assert_eq!(new_state.issues_state.issue_focus, IssueFocus::IssueList);
@@ -109,7 +110,7 @@ fn test_enter_issues_mode_saves_prior_focus() {
         ..AppState::default()
     };
 
-    let new_state = state.apply(AppEvent::EnterIssuesMode);
+    let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(new_state.issues_state.prior_agent_focus.is_some());
     let saved = new_state
         .issues_state
@@ -157,7 +158,7 @@ fn test_exit_issues_mode_restores_focus() {
         PathBuf::from("/tmp/agent2"),
     ));
 
-    let new_state = state.apply(AppEvent::ExitIssuesMode);
+    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(new_state.screen_mode, ScreenMode::Dashboard);
     assert_eq!(new_state.pane_focus, PaneFocus::Agents);
     assert_eq!(new_state.selected_agent_index, Some(1));
@@ -199,7 +200,7 @@ fn test_exit_issues_mode_fallback_when_target_gone() {
         PathBuf::from("/tmp/agent2"),
     ));
 
-    let new_state = state.apply(AppEvent::ExitIssuesMode);
+    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(new_state.pane_focus, PaneFocus::Agents);
     // Should fall back to Some(0) or None
     assert!(new_state.selected_agent_index == Some(0) || new_state.selected_agent_index.is_none());
@@ -219,7 +220,7 @@ fn test_exit_issues_mode_discards_draft_with_notice() {
         cursor: 5,
     };
 
-    let new_state = state.apply(AppEvent::ExitIssuesMode);
+    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(new_state.issues_state.inline_state, InlineState::None);
     assert!(new_state.issues_state.draft_notice.is_some());
     let notice = new_state
@@ -240,15 +241,15 @@ fn test_issues_cycle_focus_tab() {
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
     // Cycle: RepoList -> IssueList
-    let state = state.apply(AppEvent::IssuesCycleFocus);
+    let state = state.apply(AppEvent::IssuesCycleFocus).committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
     // Cycle: IssueList -> IssueDetail
-    let state = state.apply(AppEvent::IssuesCycleFocus);
+    let state = state.apply(AppEvent::IssuesCycleFocus).committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueDetail);
 
     // Cycle: IssueDetail -> RepoList
-    let state = state.apply(AppEvent::IssuesCycleFocus);
+    let state = state.apply(AppEvent::IssuesCycleFocus).committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::RepoList);
 }
 
@@ -263,15 +264,21 @@ fn test_issues_cycle_focus_shift_tab() {
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
     // Reverse cycle: RepoList -> IssueDetail
-    let state = state.apply(AppEvent::IssuesCycleFocusReverse);
+    let state = state
+        .apply(AppEvent::IssuesCycleFocusReverse)
+        .committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueDetail);
 
     // Reverse cycle: IssueDetail -> IssueList
-    let state = state.apply(AppEvent::IssuesCycleFocusReverse);
+    let state = state
+        .apply(AppEvent::IssuesCycleFocusReverse)
+        .committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
     // Reverse cycle: IssueList -> RepoList
-    let state = state.apply(AppEvent::IssuesCycleFocusReverse);
+    let state = state
+        .apply(AppEvent::IssuesCycleFocusReverse)
+        .committed_pure();
     assert_eq!(state.issues_state.issue_focus, IssueFocus::RepoList);
 }
 
@@ -293,7 +300,7 @@ fn test_issues_navigate_up_in_issue_list() {
     ]);
     state.issues_state.list.set_selected_index(Some(3));
 
-    let new_state = state.apply(AppEvent::IssuesNavigateUp);
+    let new_state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
     assert_eq!(new_state.issues_state.selected_issue_index(), Some(2));
 }
 
@@ -313,7 +320,7 @@ fn test_issues_navigate_up_clamps_at_zero() {
     ]);
     state.issues_state.list.set_selected_index(Some(0));
 
-    let new_state = state.apply(AppEvent::IssuesNavigateUp);
+    let new_state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
     assert_eq!(new_state.issues_state.selected_issue_index(), Some(0));
 }
 
@@ -335,7 +342,7 @@ fn test_issues_navigate_down_in_issue_list() {
     ]);
     state.issues_state.list.set_selected_index(Some(2));
 
-    let new_state = state.apply(AppEvent::IssuesNavigateDown);
+    let new_state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(new_state.issues_state.selected_issue_index(), Some(3));
 }
 
@@ -359,14 +366,16 @@ fn test_issue_list_loaded_selects_first() {
 
     let issues = vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)];
 
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: issues.clone(),
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: issues.clone(),
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.selected_issue_index(), Some(0));
     assert!(!new_state.issues_state.list_loading());
@@ -393,14 +402,16 @@ fn test_issue_list_loaded_empty() {
     state.issues_state.loading.comments = true;
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: vec![],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: vec![],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.selected_issue_index(), None);
     assert!(new_state.issues_state.issue_detail.is_none());
@@ -426,14 +437,16 @@ fn test_issue_list_loaded_stale_scope_discarded() {
     let _request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
     // Try to load issues for wrong repo
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-WRONG".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id: 0,
-        issues: vec![make_test_issue(1)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-WRONG".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
+            issues: vec![make_test_issue(1)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // State should be unchanged (stale scope discarded)
     assert!(new_state.issues_state.issues().is_empty());
@@ -453,14 +466,16 @@ fn test_issue_list_loaded_stale_filter_discarded() {
 
     let mut stale_filter = state.issues_state.committed_filter.clone();
     stale_filter.query_text = "old".to_string();
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(stale_filter),
-        request_id: 0,
-        issues: vec![make_test_issue(1)],
-        cursor: Some("old-cursor".to_string()),
-        has_more: true,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(stale_filter),
+            request_id: 0,
+            issues: vec![make_test_issue(1)],
+            cursor: Some("old-cursor".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.issues()[0].number, 99);
     assert!(new_state.issues_state.list_loading());
@@ -479,14 +494,16 @@ fn test_issue_list_loaded_stale_request_id_discarded() {
     let filter = state.issues_state.committed_filter.clone();
     state.mark_issue_list_reload_loading(RepositoryId("repo-1".to_string()), filter.clone(), 2);
 
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(filter),
-        request_id: 1,
-        issues: vec![make_test_issue(1)],
-        cursor: Some("old-cursor".to_string()),
-        has_more: true,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(filter),
+            request_id: 1,
+            issues: vec![make_test_issue(1)],
+            cursor: Some("old-cursor".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.issues()[0].number, 99);
     assert!(new_state.issues_state.list_loading());
@@ -505,13 +522,15 @@ fn test_issue_list_load_failed_stale_request_id_discarded() {
     let filter = state.issues_state.committed_filter.clone();
     state.mark_issue_list_reload_loading(RepositoryId("repo-1".to_string()), filter.clone(), 2);
 
-    let new_state = state.apply(AppEvent::IssueListLoadFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(filter),
-        request_id: 1,
-        request_cursor: None,
-        error: "old failure".to_string(),
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoadFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(filter),
+            request_id: 1,
+            request_cursor: None,
+            error: "old failure".to_string(),
+        })
+        .committed_pure();
 
     assert!(new_state.issues_state.list_loading());
     assert_eq!(
@@ -537,12 +556,14 @@ fn test_issue_detail_loaded_stale_selection_discarded() {
     let mut stale_detail = make_test_detail(vec![]);
     stale_detail.number = 1;
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 2);
-    let new_state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        request_id: 0,
-        detail: Box::new(stale_detail),
-    });
+    let new_state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            request_id: 0,
+            detail: Box::new(stale_detail),
+        })
+        .committed_pure();
 
     let loaded = new_state
         .issues_state
@@ -573,14 +594,16 @@ fn test_issue_list_page_loaded_appends() {
     // load for that continuation. A page load only fires after a reload set
     // `next_page`, so this mirrors the real lifecycle.
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
-    let mut new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
-        cursor: Some("page2".to_string()),
-        has_more: true,
-    });
+    let mut new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
+            cursor: Some("page2".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
     new_state.issues_state.list.set_selected_index(Some(1));
     let page_request_id = {
         let Ok(id) = new_state.issues_state.list.next_request_id() else {
@@ -593,15 +616,17 @@ fn test_issue_list_page_loaded_appends() {
         id.get()
     };
 
-    let result = new_state.apply(AppEvent::IssueListPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id: page_request_id,
-        request_cursor: Some("page2".to_string()),
-        issues: vec![make_test_issue(4), make_test_issue(5)],
-        cursor: None,
-        has_more: false,
-    });
+    let result = new_state
+        .apply(AppEvent::IssueListPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: page_request_id,
+            request_cursor: Some("page2".to_string()),
+            issues: vec![make_test_issue(4), make_test_issue(5)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(result.issues_state.issues().len(), 5);
     assert_eq!(result.issues_state.selected_issue_index(), Some(1)); // Unchanged
@@ -633,15 +658,17 @@ fn test_issue_list_page_loaded_stale_filter_discarded() {
         query_text: "old filter".to_string(),
         ..IssueFilter::default()
     };
-    let new_state = state.apply(AppEvent::IssueListPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(stale_filter),
-        request_id: 0,
-        request_cursor: Some("old-cursor".to_string()),
-        issues: vec![make_test_issue(2)],
-        cursor: Some("old-cursor".to_string()),
-        has_more: true,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(stale_filter),
+            request_id: 0,
+            request_cursor: Some("old-cursor".to_string()),
+            issues: vec![make_test_issue(2)],
+            cursor: Some("old-cursor".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.issues().len(), 1);
     assert_eq!(
@@ -672,15 +699,17 @@ fn test_issue_list_page_loaded_stale_cursor_discarded() {
         Some("current-cursor".to_string()),
     );
 
-    let new_state = state.apply(AppEvent::IssueListPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id: 0,
-        request_cursor: Some("stale-cursor".to_string()),
-        issues: vec![make_test_issue(2)],
-        cursor: Some("next-stale-cursor".to_string()),
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
+            request_cursor: Some("stale-cursor".to_string()),
+            issues: vec![make_test_issue(2)],
+            cursor: Some("next-stale-cursor".to_string()),
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(new_state.issues_state.issues().len(), 1);
     assert_eq!(new_state.issues_state.issues()[0].number, 1);
@@ -700,12 +729,14 @@ fn test_issue_detail_loaded_while_list_empty_is_discarded() {
     state.issues_state.issue_detail = None;
 
     let stale_detail = make_test_detail(vec![]);
-    let new_state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: stale_detail.number,
-        request_id: 0,
-        detail: Box::new(stale_detail),
-    });
+    let new_state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: stale_detail.number,
+            request_id: 0,
+            detail: Box::new(stale_detail),
+        })
+        .committed_pure();
 
     assert!(new_state.issues_state.issue_detail.is_none());
     assert!(new_state.issues_state.loading.detail);
@@ -742,28 +773,36 @@ fn test_detail_subfocus_tab_with_comments() {
     state.issues_state.issue_detail = Some(detail);
 
     // Body -> Comment(0)
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::Comment(0)
     );
 
     // Comment(0) -> Comment(1)
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::Comment(1)
     );
 
     // Comment(1) -> NewComment
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::NewComment
     );
 
     // NewComment -> Body
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(state.issues_state.detail_subfocus, DetailSubfocus::Body);
 }
 
@@ -806,14 +845,18 @@ fn test_detail_subfocus_tab_no_comments() {
     });
 
     // Body -> NewComment (skip comments since there are none)
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::NewComment
     );
 
     // NewComment -> Body
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     assert_eq!(state.issues_state.detail_subfocus, DetailSubfocus::Body);
 }
 
@@ -830,7 +873,7 @@ fn test_esc_cancels_inline_editor() {
         cursor: 5,
     };
 
-    let new_state = state.apply(AppEvent::InlineCancelOrEsc);
+    let new_state = state.apply(AppEvent::InlineCancelOrEsc).committed_pure();
     assert_eq!(new_state.issues_state.inline_state, InlineState::None);
 }
 
@@ -844,7 +887,7 @@ fn test_esc_cancels_agent_chooser() {
     state.issues_state.agent_chooser = Some(AgentChooserState::default());
     state.issues_state.inline_state = InlineState::None;
 
-    let new_state = state.apply(AppEvent::AgentChooserCancel);
+    let new_state = state.apply(AppEvent::AgentChooserCancel).committed_pure();
     assert!(new_state.issues_state.agent_chooser.is_none());
 }
 
@@ -860,7 +903,7 @@ fn test_esc_clears_nonempty_search() {
     state.issues_state.inline_state = InlineState::None;
     state.issues_state.agent_chooser = None;
 
-    let new_state = state.apply(AppEvent::ClearSearch);
+    let new_state = state.apply(AppEvent::ClearSearch).committed_pure();
     assert!(new_state.issues_state.search_query.is_empty());
     assert!(new_state.issues_state.search_input_focused);
 }
@@ -875,7 +918,7 @@ fn test_esc_blurs_empty_search() {
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = String::new();
 
-    let new_state = state.apply(AppEvent::BlurSearchInput);
+    let new_state = state.apply(AppEvent::BlurSearchInput).committed_pure();
     assert!(!new_state.issues_state.search_input_focused);
 }
 
@@ -888,7 +931,7 @@ fn test_esc_closes_filter_controls() {
     let mut state = dashboard_issues_state();
     state.issues_state.filter_ui.controls_open = true;
 
-    let new_state = state.apply(AppEvent::CloseFilterControls);
+    let new_state = state.apply(AppEvent::CloseFilterControls).committed_pure();
     assert!(!new_state.issues_state.filter_ui.controls_open);
 }
 
@@ -905,7 +948,7 @@ fn test_esc_exits_issues_mode() {
     state.issues_state.filter_ui.controls_open = false;
     state.issues_state.search_input_focused = false;
 
-    let new_state = state.apply(AppEvent::ExitIssuesMode);
+    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(new_state.screen_mode, ScreenMode::Dashboard);
 }
 
@@ -925,9 +968,11 @@ fn test_inline_exclusivity_blocks_second_control() {
     };
 
     // Try to open Editor while Composer is active
-    let new_state = state.apply(AppEvent::OpenInlineEditor {
-        target: EditorTarget::IssueBody,
-    });
+    let new_state = state
+        .apply(AppEvent::OpenInlineEditor {
+            target: EditorTarget::IssueBody,
+        })
+        .committed_pure();
 
     // Should still be Composer, not changed to Editor
     assert!(
@@ -962,14 +1007,16 @@ fn test_stale_scope_list_loaded_discarded() {
     let _request_id = begin_issue_list_reload(&mut state, "repo-A", IssueFilter::default());
 
     // Load issues for wrong repo "repo-B"
-    let new_state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-B".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id: 0,
-        issues: vec![make_test_issue(1)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-B".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
+            issues: vec![make_test_issue(1)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // Issues list should remain unchanged
     assert!(new_state.issues_state.issues().is_empty());

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, LaunchSignature, RemoteRepositorySettings, RepositoryId};
 use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
 fn make_agent(id: &str, repo_id: &str) -> Agent {
@@ -59,7 +60,7 @@ fn terminal_unfocused_by_default() {
 #[test]
 fn toggle_terminal_focus_enables_focus() {
     let state = AppState::default();
-    let state = state.apply(AppEvent::ToggleTerminalFocus);
+    let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(
         state.terminal_focused,
         "terminal should be focused after toggle"
@@ -69,8 +70,8 @@ fn toggle_terminal_focus_enables_focus() {
 #[test]
 fn toggle_terminal_focus_twice_disables_focus() {
     let state = AppState::default();
-    let state = state.apply(AppEvent::ToggleTerminalFocus);
-    let state = state.apply(AppEvent::ToggleTerminalFocus);
+    let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
+    let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(
         !state.terminal_focused,
         "terminal should be unfocused after two toggles"
@@ -160,13 +161,13 @@ fn pane_focus_can_reach_terminal() {
     let state = AppState::default();
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
-    let state = state.apply(AppEvent::CyclePaneFocus);
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Agents);
 
-    let state = state.apply(AppEvent::CyclePaneFocus);
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Terminal);
 
-    let state = state.apply(AppEvent::CyclePaneFocus);
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 }
 
@@ -176,8 +177,8 @@ fn terminal_focus_is_independent_of_pane_focus() {
     let state = AppState::default();
 
     // Cycle to Terminal pane
-    let state = state.apply(AppEvent::CyclePaneFocus);
-    let state = state.apply(AppEvent::CyclePaneFocus);
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Terminal);
     assert!(
         !state.terminal_focused,
@@ -185,14 +186,14 @@ fn terminal_focus_is_independent_of_pane_focus() {
     );
 
     // Toggle terminal focus
-    let state = state.apply(AppEvent::ToggleTerminalFocus);
+    let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(
         state.terminal_focused,
         "terminal_focused should now be true"
     );
 
     // Cycle away from Terminal pane
-    let state = state.apply(AppEvent::CyclePaneFocus);
+    let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
     assert!(
         state.terminal_focused,

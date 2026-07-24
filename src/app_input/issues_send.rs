@@ -535,9 +535,13 @@ pub(super) fn launch_issue_agent(
             process_identity,
         ),
         Err(error) => {
-            *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-                error: error.to_string(),
-            });
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                AppEvent::SendToAgentFailed {
+                    error: error.to_string(),
+                }
+                .into(),
+            );
         }
     }
     let persisted = to_persisted_state(&state);
@@ -636,7 +640,10 @@ pub(super) fn apply_send_to_agent_failed(
     error: String,
 ) {
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed { error });
+    jefe::state::transition::commit_pure_site(
+        &mut state,
+        (AppEvent::SendToAgentFailed { error }).into(),
+    );
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);

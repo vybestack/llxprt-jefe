@@ -5,6 +5,7 @@ use crate::domain::{
 };
 use crate::state::{AgentChooserState, AppEvent, AppState};
 
+use crate::state::transition::TransitionExt;
 use std::path::PathBuf;
 
 trait PanicOption<T> {
@@ -167,7 +168,9 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
     // Navigate down within bounds, asserting each intermediate step.
     let mut state = AppState::default();
     state.issues_state.agent_chooser = Some(chooser);
-    state = state.apply(AppEvent::AgentChooserNavigateDown); // 0 -> 1
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure(); // 0 -> 1
     assert_eq!(
         state
             .issues_state
@@ -177,7 +180,9 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
             .selected_index,
         1
     );
-    state = state.apply(AppEvent::AgentChooserNavigateDown); // 1 -> 2
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure(); // 1 -> 2
     assert_eq!(
         state
             .issues_state
@@ -187,7 +192,9 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
             .selected_index,
         2
     );
-    state = state.apply(AppEvent::AgentChooserNavigateDown); // 2 -> clamped at 2
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure(); // 2 -> clamped at 2
     let chooser = state
         .issues_state
         .agent_chooser
@@ -212,7 +219,9 @@ fn agent_chooser_navigation_bounds_without_transient_slot() {
     let mut state = AppState::default();
     state.issues_state.agent_chooser = Some(chooser);
     // Without transient slot, max index is agents.len() - 1 = 1.
-    state = state.apply(AppEvent::AgentChooserNavigateDown); // 0 -> 1
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure(); // 0 -> 1
     assert_eq!(
         state
             .issues_state
@@ -222,7 +231,9 @@ fn agent_chooser_navigation_bounds_without_transient_slot() {
             .selected_index,
         1
     );
-    state = state.apply(AppEvent::AgentChooserNavigateDown); // 1 -> clamped at 1
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure(); // 1 -> clamped at 1
     assert_eq!(
         state
             .issues_state
@@ -249,7 +260,9 @@ fn agent_chooser_navigation_up_from_transient_slot() {
     let mut state = AppState::default();
     state.issues_state.agent_chooser = Some(chooser);
     // Navigate up: transient slot (2) -> agent a2 (1).
-    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    state = state
+        .apply(AppEvent::AgentChooserNavigateUp)
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -260,7 +273,9 @@ fn agent_chooser_navigation_up_from_transient_slot() {
         "up from transient slot must land on the last agent"
     );
     // Navigate up again: agent a2 (1) -> agent a1 (0).
-    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    state = state
+        .apply(AppEvent::AgentChooserNavigateUp)
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -271,7 +286,9 @@ fn agent_chooser_navigation_up_from_transient_slot() {
         "up from agent a2 must land on agent a1"
     );
     // Navigate up past 0: clamps at 0.
-    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    state = state
+        .apply(AppEvent::AgentChooserNavigateUp)
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -283,7 +300,9 @@ fn agent_chooser_navigation_up_from_transient_slot() {
 #[test]
 fn transient_agent_queued_event_sets_draft_notice() {
     let mut state = AppState::default();
-    state = state.apply(AppEvent::TransientAgentQueued { queue_position: 2 });
+    state = state
+        .apply(AppEvent::TransientAgentQueued { queue_position: 2 })
+        .committed_pure();
     assert!(state.issues_state.draft_notice.is_some());
     assert!(
         state
@@ -298,6 +317,8 @@ fn transient_agent_queued_event_sets_draft_notice() {
 fn transient_agent_dequeued_event_clears_draft_notice() {
     let mut state = AppState::default();
     state.issues_state.draft_notice = Some("queued".to_string());
-    state = state.apply(AppEvent::TransientAgentDequeued);
+    state = state
+        .apply(AppEvent::TransientAgentDequeued)
+        .committed_pure();
     assert!(state.issues_state.draft_notice.is_none());
 }

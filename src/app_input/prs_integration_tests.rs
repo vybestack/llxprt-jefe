@@ -38,6 +38,7 @@ use super::{
     AppStateHandle, SharedContext, normal, prs, prs_comments_dispatch, prs_dispatch,
     prs_list_dispatch,
 };
+use jefe::state::transition::TransitionExt;
 
 /// Build a `KeyEvent` for a press of the given code (no modifiers).
 ///
@@ -99,7 +100,7 @@ pub(super) fn active_prs_state() -> AppState {
     state
 }
 
-/// In-place apply helper to avoid the `let state = state.apply(...)` dance in
+/// In-place apply helper to avoid the `let state = state.apply(...).committed_pure()` dance in
 /// multi-step test scenarios.
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
@@ -111,7 +112,7 @@ pub(super) trait ApplyInPlace {
 impl ApplyInPlace for AppState {
     fn apply_in_place(&mut self, event: AppEvent) {
         let owned = std::mem::take(self);
-        *self = owned.apply(event);
+        *self = owned.apply(event).committed_pure();
     }
 }
 // ═════════════════════════════════════════════════════════════════════════
@@ -146,7 +147,7 @@ fn it_enter_prs_mode_from_dashboard_loads_list() {
     );
 
     // Apply the reducer: loading.list=true, active=true, pr_focus=PrList.
-    let mut state = dashboard.apply(AppEvent::EnterPrsMode);
+    let mut state = dashboard.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(state.prs_state.active);
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrList);
     // Simulate the dispatch layer marking the list reload as loading.

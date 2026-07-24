@@ -591,7 +591,10 @@ fn prepare_terminal_focus_state(app_state: &mut AppStateHandle) -> Option<AgentI
         state.pane_focus = PaneFocus::Terminal;
         state.dashboard_grab = None;
         if !state.terminal_focused {
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::ToggleTerminalFocus).into(),
+            );
         }
     } else {
         state.pane_focus = PaneFocus::Agents;

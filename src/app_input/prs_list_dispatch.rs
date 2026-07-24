@@ -328,7 +328,7 @@ fn persist_pr_list_loaded(
             has_more: response.has_more,
         }
     };
-    *state = std::mem::take(&mut *state).apply(event);
+    jefe::state::transition::commit_pure_site(&mut state, (event).into());
     drop(state);
     if should_preview {
         prs_dispatch::preview_pr_from_list(app_state);

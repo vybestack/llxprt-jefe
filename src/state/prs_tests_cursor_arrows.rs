@@ -15,6 +15,7 @@
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::InlineState;
 
 /// Extract the active (text, cursor) pair from the inline composer/editor so
@@ -41,7 +42,7 @@ fn composer_text_cursor(state: &AppState) -> (String, usize) {
 /// @pseudocode component-001 lines 44-50
 fn type_into_composer(mut state: AppState, text: &str) -> AppState {
     for ch in text.chars() {
-        state = state.apply(AppEvent::PrInlineChar(ch));
+        state = state.apply(AppEvent::PrInlineChar(ch)).committed_pure();
     }
     state
 }
@@ -57,7 +58,9 @@ fn type_into_composer(mut state: AppState, text: &str) -> AppState {
 fn cursor_up_moves_to_previous_line_preserving_column() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // "abcd\nefgh" — cursor lands after 'h' (byte 9).
     let state = type_into_composer(state, "abcd\nefgh");
     let (text, cursor) = composer_text_cursor(&state);
@@ -65,7 +68,7 @@ fn cursor_up_moves_to_previous_line_preserving_column() {
     assert_eq!(cursor, "abcd\nefgh".len());
 
     // CursorUp: from col 4 on line 2 -> col 4 on line 1 (after 'd').
-    let state = state.apply(AppEvent::PrInlineCursorUp);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 4,
@@ -82,11 +85,13 @@ fn cursor_up_moves_to_previous_line_preserving_column() {
 fn cursor_down_moves_to_next_line_preserving_column() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abcd\nefgh");
     // Move up first, then down.
-    let state = state.apply(AppEvent::PrInlineCursorUp);
-    let state = state.apply(AppEvent::PrInlineCursorDown);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorDown).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 9,
@@ -106,12 +111,14 @@ fn cursor_down_moves_to_next_line_preserving_column() {
 fn cursor_up_on_first_line_is_noop() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abcd\nefgh");
     // Walk to the end, then Up twice: first to line 1 (byte 4), then Up again
     // on the first line — a no-op (caret stays at byte 4).
-    let state = state.apply(AppEvent::PrInlineCursorUp);
-    let state = state.apply(AppEvent::PrInlineCursorUp);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 4,
@@ -128,12 +135,14 @@ fn cursor_up_on_first_line_is_noop() {
 fn cursor_down_on_last_line_goes_to_end() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abcd\nefgh");
     // Move up to line 1, then down twice: back to line 2, then to end.
-    let state = state.apply(AppEvent::PrInlineCursorUp);
-    let state = state.apply(AppEvent::PrInlineCursorDown);
-    let state = state.apply(AppEvent::PrInlineCursorDown);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorDown).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorDown).committed_pure();
     let (text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor,
@@ -152,10 +161,12 @@ fn cursor_down_on_last_line_goes_to_end() {
 fn cursor_up_clamps_column_on_shorter_previous_line() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // Line 1 = "ab", line 2 = "cdefgh" — caret at col 6 on line 2.
     let state = type_into_composer(state, "ab\ncdefgh");
-    let state = state.apply(AppEvent::PrInlineCursorUp);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     // Previous line "ab" has length 2, so clamp col 6 -> byte 2.
     assert_eq!(
@@ -175,11 +186,13 @@ fn cursor_up_clamps_column_on_shorter_previous_line() {
 fn forward_delete_removes_char_at_cursor() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abc");
     // Cursor is at end (byte 3). Move left once -> byte 2 (on 'c').
-    let state = state.apply(AppEvent::PrInlineCursorLeft);
-    let state = state.apply(AppEvent::PrInlineDelete);
+    let state = state.apply(AppEvent::PrInlineCursorLeft).committed_pure();
+    let state = state.apply(AppEvent::PrInlineDelete).committed_pure();
     let (text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         text, "ab",
@@ -197,10 +210,12 @@ fn forward_delete_removes_char_at_cursor() {
 fn forward_delete_at_end_is_noop() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abc");
     // Cursor is at end (byte 3); Delete must not change anything.
-    let state = state.apply(AppEvent::PrInlineDelete);
+    let state = state.apply(AppEvent::PrInlineDelete).committed_pure();
     let (text, cursor) = composer_text_cursor(&state);
     assert_eq!(text, "abc");
     assert_eq!(cursor, 3);
@@ -219,7 +234,9 @@ fn forward_delete_at_end_is_noop() {
 fn cursor_up_down_preserve_column_on_tall_composer() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // Build a tall multi-line composer.
     let state = type_into_composer(state, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff");
     // Caret sits at the end of the last line ("ffff", byte 24).
@@ -227,7 +244,7 @@ fn cursor_up_down_preserve_column_on_tall_composer() {
     assert_eq!(cursor, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff".len());
 
     // CursorUp from col 4 on the last line -> col 4 on the previous line.
-    let state = state.apply(AppEvent::PrInlineCursorUp);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor,
@@ -236,7 +253,7 @@ fn cursor_up_down_preserve_column_on_tall_composer() {
     );
 
     // CursorDown returns to the last line at col 4 (end of "ffff").
-    let state = state.apply(AppEvent::PrInlineCursorDown);
+    let state = state.apply(AppEvent::PrInlineCursorDown).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor,
@@ -274,7 +291,9 @@ fn cursor_up_down_preserve_column_on_tall_composer() {
 fn new_comment_composer_content_cursor_is_none() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "hello\nworld");
 
     let detail = state
@@ -306,7 +325,9 @@ fn new_comment_composer_content_cursor_is_none() {
 fn typing_in_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.prs_state.detail_scroll_offset;
 
     // Type many lines — the document scroll offset must stay exactly where
@@ -328,12 +349,14 @@ fn typing_in_composer_does_not_mutate_detail_scroll_offset() {
 fn arrowing_in_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.prs_state.detail_scroll_offset;
 
     let mut state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
     for _ in 0..7 {
-        state = state.apply(AppEvent::PrInlineCursorUp);
+        state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
     }
     assert_eq!(
         state.prs_state.detail_scroll_offset, offset_after_open,
@@ -350,12 +373,14 @@ fn arrowing_in_composer_does_not_mutate_detail_scroll_offset() {
 fn backspacing_in_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.prs_state.detail_scroll_offset;
 
     let mut state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
     for _ in 0.."l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8".len() {
-        state = state.apply(AppEvent::PrInlineBackspace);
+        state = state.apply(AppEvent::PrInlineBackspace).committed_pure();
     }
     assert_eq!(
         state.prs_state.detail_scroll_offset, offset_after_open,
@@ -377,7 +402,9 @@ fn text_box_view_keeps_caret_visible_with_stale_document_offset() {
 
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let mut state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // Force an intentionally stale document scroll offset after open, so it
     // genuinely diverges from where the reducer placed the view.
     state.prs_state.detail_scroll_offset = 0;
@@ -405,7 +432,9 @@ fn text_box_view_shows_current_text_and_caret_for_tall_draft() {
 
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
 
     let (text, byte_cursor) = composer_text_cursor(&state);

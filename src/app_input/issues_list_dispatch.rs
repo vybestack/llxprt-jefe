@@ -343,7 +343,7 @@ fn persist_issue_list_loaded(
             has_more: response.has_more,
         }
     };
-    *state = std::mem::take(&mut *state).apply(event);
+    jefe::state::transition::commit_pure_site(&mut state, (event).into());
     drop(state);
     if should_preview {
         issues_dispatch::preview_issue_from_list(app_state);

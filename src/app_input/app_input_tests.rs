@@ -8,6 +8,7 @@ use jefe::domain::{
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::domain::{IssueDetail, IssueState};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 
 pub(super) trait TestResultExt<T> {
@@ -476,7 +477,7 @@ fn test_to_persisted_state_excludes_prs_state() {
 /// Exercises the dispatch path's synchronous reducer portion (the same
 /// `apply_and_persist(PrOpenInBrowser)` that the `mod.rs` dispatch arm runs
 /// BEFORE calling `dispatch_pr_open_in_browser`). Since `AppStateHandle`
-/// cannot be constructed in unit tests, we apply through `state.apply()` —
+/// cannot be constructed in unit tests, we apply through `state.apply().committed_pure()` —
 /// the exact reducer transition the dispatch runs synchronously before spawn.
 /// The `pr_open_in_browser_info_from_state` call proves the dispatch would
 /// resolve a valid info (proceed to spawn), and the notice proves the
@@ -506,7 +507,7 @@ fn test_open_in_browser_sets_opening_notice_through_dispatch() {
 
     // The dispatch arm runs apply_and_persist(PrOpenInBrowser) BEFORE the spawn.
     // Exercise that exact reducer transition.
-    let after = state.apply(AppEvent::PrOpenInBrowser);
+    let after = state.apply(AppEvent::PrOpenInBrowser).committed_pure();
 
     let notice = after
         .prs_state
@@ -564,7 +565,7 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
 
     // Apply the handler-emitted event through the reducer (observable state).
     let event = event.unwrap_or_else(|| panic!("handler must emit an event for 'o' key"));
-    let after = state.apply(event);
+    let after = state.apply(event).committed_pure();
 
     let notice = after
         .prs_state
@@ -659,7 +660,7 @@ fn state_for_pr_agent_chooser_confirm(
 /// `AppStateHandle` cannot be constructed in unit tests, the test replicates
 /// the EXACT dispatch sequence on raw `AppState`:
 /// (1) `pr_send_info_from_state` reads send info,
-/// (2) `state.apply(PrAgentChooserConfirm)` closes the chooser (reducer-before-side-effect).
+/// (2) `state.apply(PrAgentChooserConfirm).committed_pure()` closes the chooser (reducer-before-side-effect).
 /// The `ctx` is `None` so `launch_pr_agent` would be guarded (no real spawn).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -691,7 +692,9 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
 
     // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) — this runs
     // BEFORE launch in the real dispatch.
-    let after_confirm = state.apply(AppEvent::PrAgentChooserConfirm);
+    let after_confirm = state
+        .apply(AppEvent::PrAgentChooserConfirm)
+        .committed_pure();
     assert!(
         after_confirm.prs_state.agent_chooser.is_none(),
         "PrAgentChooserConfirm must close the agent chooser BEFORE side effects"
@@ -721,7 +724,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
 ///
 /// Since `AppStateHandle` cannot be constructed in unit tests, this replicates
 /// the EXACT dispatch sequence on raw `AppState`: a non-blank composer is open,
-/// then `state.apply(PrInlineSubmit)` runs the same reducer transition the
+/// then `state.apply(PrInlineSubmit).committed_pure()` runs the same reducer transition the
 /// dispatch arm performs, and the test asserts the resulting state satisfies
 /// the mutation precondition (composer preserved + `mutation_pending` set).
 ///
@@ -747,7 +750,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
 
     // The dispatch arm runs apply_and_persist(PrInlineSubmit) BEFORE the
     // mutation helper. Exercise that exact reducer transition.
-    let after = state.apply(AppEvent::PrInlineSubmit);
+    let after = state.apply(AppEvent::PrInlineSubmit).committed_pure();
 
     // The reducer set mutation_pending — this is the marker that
     // resolve_pr_inline_submit requires to reach create_pr_comment. Without the

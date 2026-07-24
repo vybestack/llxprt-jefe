@@ -148,7 +148,10 @@ use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::JumpToAgentByShortcut(slot));
+    jefe::state::transition::commit_pure_site(
+        &mut state,
+        (AppEvent::JumpToAgentByShortcut(slot)).into(),
+    );
 
     let selected_running_agent_id = state
         .selected_agent()
@@ -158,7 +161,10 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     if let Some(agent_id) = selected_running_agent_id {
         state.pane_focus = PaneFocus::Terminal;
         if !state.terminal_focused {
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::ToggleTerminalFocus).into(),
+            );
         }
         drop(state);
 
@@ -338,7 +344,7 @@ fn agent_and_signature(
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     let settled_refresh = SettledRefresh::from_event(&evt);
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(evt);
+    jefe::state::transition::commit_pure_site(&mut state, (evt).into());
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
@@ -575,7 +581,7 @@ pub fn dispatch_terminal_scroll(
 ) {
     refresh_terminal_scroll_geometry(app_state, ctx);
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(evt);
+    jefe::state::transition::commit_pure_site(&mut state, (evt).into());
 }
 
 /// Try to intercept a scrollback-control key while the terminal is focused
@@ -735,7 +741,7 @@ pub fn dispatch_app_message(
         }
         AppMessage::TerminalManager(message) => {
             let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::from(message));
+            jefe::state::transition::commit_pure_site(&mut state, (AppEvent::from(message)).into());
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }

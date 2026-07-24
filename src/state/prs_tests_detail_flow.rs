@@ -15,6 +15,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{PrFocus, ScreenMode};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
+use crate::state::transition::TransitionExt;
 
 /// Helper: PR-mode state with a selected repo.
 fn prs_mode_state(repo_id: &str) -> AppState {
@@ -102,14 +103,16 @@ fn test_list_loaded_renders_all_rows_including_first_and_last() {
     let prs: Vec<PullRequest> = (1u64..=10).map(make_test_pr).collect();
     let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
 
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id,
-        pull_requests: prs,
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id,
+            pull_requests: prs,
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // All 10 rows present (no dropped rows — #54).
     assert_eq!(
@@ -135,14 +138,16 @@ fn test_list_loaded_discards_stale_scope_or_request_id() {
     state.prs_state.list.replace_items(vec![make_test_pr(99)]);
 
     // Stale scope.
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-WRONG".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 0,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-WRONG".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 0,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
     assert_eq!(
         new_state.prs_state.pull_requests().len(),
         1,
@@ -172,14 +177,16 @@ fn test_list_loaded_discards_mismatched_request_id() {
     state.mark_pr_list_reload_loading(RepositoryId("repo-1".to_string()), PrFilter::default(), 100);
 
     // Dispatch PrListLoaded with a DIFFERENT request_id = R2 (=200), same scope.
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 200,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 200,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // The stale-request-id payload must be DISCARDED: list NOT replaced/updated.
     assert_eq!(
@@ -215,14 +222,16 @@ fn test_list_page_loaded_appends_without_reordering() {
     // so the subsequent page begin has a matching next_page token.
     let filter = state.prs_state.committed_filter.clone();
     let request_id = begin_pr_list_reload(&mut state, "repo-1", filter.clone());
-    state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: std::boxed::Box::new(filter),
-        request_id,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)],
-        cursor: Some("cursor-1".to_string()),
-        has_more: true,
-    });
+    state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: std::boxed::Box::new(filter),
+            request_id,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)],
+            cursor: Some("cursor-1".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
     state.prs_state.list.set_selected_index(Some(1));
     // Begin a page load for cursor-1.
     let page_request_id = state
@@ -235,13 +244,15 @@ fn test_list_page_loaded_appends_without_reordering() {
         crate::domain::ListRequestId::from_raw(page_request_id),
     );
 
-    let new_state = state.apply(AppEvent::PrListPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        request_id: page_request_id,
-        pull_requests: vec![make_test_pr(4), make_test_pr(5)],
-        cursor: Some("cursor-2".to_string()),
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            request_id: page_request_id,
+            pull_requests: vec![make_test_pr(4), make_test_pr(5)],
+            cursor: Some("cursor-2".to_string()),
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.pull_requests().len(),
@@ -273,15 +284,15 @@ fn test_list_navigation_keeps_selection_in_bounds() {
     state.prs_state.list.set_selected_index(Some(0));
 
     // Down advances.
-    let new_state = state.apply(AppEvent::PrNavigateDown);
+    let new_state = state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(new_state.prs_state.selected_pr_index(), Some(1));
 
     // Down to last.
-    let new_state = new_state.apply(AppEvent::PrNavigateDown);
+    let new_state = new_state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(new_state.prs_state.selected_pr_index(), Some(2));
 
     // Down at bottom clamps.
-    let new_state = new_state.apply(AppEvent::PrNavigateDown);
+    let new_state = new_state.apply(AppEvent::PrNavigateDown).committed_pure();
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
         Some(2),
@@ -289,12 +300,12 @@ fn test_list_navigation_keeps_selection_in_bounds() {
     );
 
     // Up decrements.
-    let new_state = new_state.apply(AppEvent::PrNavigateUp);
+    let new_state = new_state.apply(AppEvent::PrNavigateUp).committed_pure();
     assert_eq!(new_state.prs_state.selected_pr_index(), Some(1));
 
     // Up at top clamps.
-    let new_state = new_state.apply(AppEvent::PrNavigateUp);
-    let new_state = new_state.apply(AppEvent::PrNavigateUp);
+    let new_state = new_state.apply(AppEvent::PrNavigateUp).committed_pure();
+    let new_state = new_state.apply(AppEvent::PrNavigateUp).committed_pure();
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
         Some(0),
@@ -337,14 +348,16 @@ fn test_comments_page_loaded_appends_older_stable_order() {
         )
         .unwrap_or_else(|| panic!("comment page should start"));
 
-    let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id,
-        comments: vec![appended],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrCommentsPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id,
+            comments: vec![appended],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     let loaded = new_state
         .prs_state
@@ -371,20 +384,22 @@ fn test_comments_page_loaded_without_detail_preserves_unrelated_state() {
     state.prs_state.loading.comments = true;
     state.prs_state.error = Some("current transition".to_string());
 
-    let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id: 0,
-        comments: vec![IssueComment {
-            comment_id: 60,
-            author_login: "bob".to_string(),
-            created_at: "2024-01-06T00:00:00Z".to_string(),
-            edited_at: None,
-            body: "appended".to_string(),
-        }],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrCommentsPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id: 0,
+            comments: vec![IssueComment {
+                comment_id: 60,
+                author_login: "bob".to_string(),
+                created_at: "2024-01-06T00:00:00Z".to_string(),
+                edited_at: None,
+                body: "appended".to_string(),
+            }],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(new_state.prs_state.loading.comments);
     assert_eq!(
@@ -423,20 +438,22 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
         )
         .unwrap_or_else(|| panic!("comment page should start"));
 
-    let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id,
-        comments: vec![IssueComment {
-            comment_id: 60,
-            author_login: "bob".to_string(),
-            created_at: "2024-01-06T00:00:00Z".to_string(),
-            edited_at: None,
-            body: "appended".to_string(),
-        }],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrCommentsPageLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id,
+            comments: vec![IssueComment {
+                comment_id: 60,
+                author_login: "bob".to_string(),
+                created_at: "2024-01-06T00:00:00Z".to_string(),
+                edited_at: None,
+                body: "appended".to_string(),
+            }],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     let loaded = new_state
         .prs_state
@@ -471,12 +488,14 @@ fn test_stale_comments_page_failure_after_detail_reassignment_does_not_override_
     };
     assert_ne!(stale_request_id, current_request_id);
 
-    let state = state.apply(AppEvent::PrCommentsPageFailed {
-        scope_repo_id: repo_id,
-        pr_number: 1,
-        request_id: stale_request_id,
-        error: "stale page failed".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrCommentsPageFailed {
+            scope_repo_id: repo_id,
+            pr_number: 1,
+            request_id: stale_request_id,
+            error: "stale page failed".to_string(),
+        })
+        .committed_pure();
 
     assert!(state.prs_state.error.is_none());
     assert!(state.prs_state.loading.comments);
@@ -496,11 +515,13 @@ fn test_current_comments_dispatch_failure_surfaces_and_clears_orphaned_loading()
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
     state.prs_state.loading.comments = true;
 
-    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
-        scope_repo_id: repo_id,
-        pr_number: 1,
-        error: "repository unavailable".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: repo_id,
+            pr_number: 1,
+            error: "repository unavailable".to_string(),
+        })
+        .committed_pure();
 
     assert_eq!(
         state.prs_state.error.as_deref(),
@@ -516,11 +537,13 @@ fn test_stale_comments_dispatch_failure_is_ignored() {
     state.prs_state.loading.comments = true;
     state.prs_state.error = Some("current error".to_string());
 
-    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        error: "stale dispatch".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            error: "stale dispatch".to_string(),
+        })
+        .committed_pure();
 
     assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
     assert!(state.prs_state.loading.comments);
@@ -533,11 +556,13 @@ fn test_stale_scope_comments_dispatch_failure_is_ignored() {
     state.prs_state.loading.comments = true;
     state.prs_state.error = Some("current error".to_string());
 
-    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
-        scope_repo_id: RepositoryId("repo-2".to_string()),
-        pr_number: 1,
-        error: "stale scope dispatch".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: RepositoryId("repo-2".to_string()),
+            pr_number: 1,
+            error: "stale scope dispatch".to_string(),
+        })
+        .committed_pure();
 
     assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
     assert!(state.prs_state.loading.comments);
@@ -552,11 +577,13 @@ fn test_comments_dispatch_failure_does_not_override_pending_request() {
         panic!("comment page should start");
     };
 
-    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
-        scope_repo_id: repo_id,
-        pr_number: 1,
-        error: "uncorrelated dispatch".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: repo_id,
+            pr_number: 1,
+            error: "uncorrelated dispatch".to_string(),
+        })
+        .committed_pure();
 
     assert!(state.prs_state.error.is_none());
     assert!(state.prs_state.loading.comments);
@@ -592,15 +619,17 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
     // Use request_id from the reload so the guard passes (matches scope + filter).
     state.prs_state.committed_filter = PrFilter::default();
 
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id,
-        // Non-empty list that does NOT contain #99.
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id,
+            // Non-empty list that does NOT contain #99.
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.pr_detail.is_none(),
@@ -644,7 +673,7 @@ fn esc_from_pr_detail_during_loading_refocuses_list() {
     });
 
     // Apply RefocusPrList (what Esc emits from PrDetail focus).
-    let new_state = state.apply(AppEvent::RefocusPrList);
+    let new_state = state.apply(AppEvent::RefocusPrList).committed_pure();
     assert_eq!(
         new_state.prs_state.pr_focus,
         PrFocus::PrList,
@@ -675,13 +704,15 @@ fn stale_detail_result_after_refocus_is_ignored() {
         request_id: 41,
     });
 
-    let state = state.apply(AppEvent::RefocusPrList);
-    let new_state = state.apply(AppEvent::PrDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id: 41,
-        detail: Box::new(make_test_pr_detail(1, vec![])),
-    });
+    let state = state.apply(AppEvent::RefocusPrList).committed_pure();
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id: 41,
+            detail: Box::new(make_test_pr_detail(1, vec![])),
+        })
+        .committed_pure();
 
     assert_eq!(new_state.prs_state.pr_focus, PrFocus::PrList);
     assert!(

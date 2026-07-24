@@ -10,6 +10,7 @@ use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::{IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{ComposerTarget, InlineState, PrDetailSubfocus};
 
 /// Helper: a test comment.
@@ -33,7 +34,9 @@ fn make_comment(id: u64, author: &str) -> IssueComment {
 fn test_open_comment_composer_sets_subfocus_newcomment() {
     let state = prs_state_with_detail("repo-1", 1);
 
-    let new_state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let new_state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
 
     assert!(
         matches!(
@@ -83,12 +86,14 @@ fn test_comment_created_appends_and_marks_follow_viewport() {
         .comments
         .replace_items(vec![existing]);
 
-    let new_state = state.apply(AppEvent::PrCommentCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        mutation_id: 1,
-        comment: make_comment(101, "bob"),
-    });
+    let new_state = state
+        .apply(AppEvent::PrCommentCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            mutation_id: 1,
+            comment: make_comment(101, "bob"),
+        })
+        .committed_pure();
 
     let detail = new_state
         .prs_state
@@ -146,12 +151,14 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
     });
     state.prs_state.next_mutation_id = 2;
 
-    let new_state = state.apply(AppEvent::PrCommentCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        mutation_id: 1,
-        comment: make_comment(101, "bob"),
-    });
+    let new_state = state
+        .apply(AppEvent::PrCommentCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            mutation_id: 1,
+            comment: make_comment(101, "bob"),
+        })
+        .committed_pure();
 
     let detail = new_state
         .prs_state
@@ -240,9 +247,11 @@ fn prs_chooser(state: &AppState) -> &crate::state::types::AgentChooserState {
 fn test_agent_chooser_open_navigate_confirm_cancel() {
     let state = prs_state_with_two_chooser_agents("repo-1");
 
-    let state = state.apply(AppEvent::PrOpenAgentChooser {
-        metadata: pr_chooser_metadata(),
-    });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser {
+            metadata: pr_chooser_metadata(),
+        })
+        .committed_pure();
     assert!(
         state.prs_state.agent_chooser.is_some(),
         "agent_chooser must open"
@@ -250,17 +259,21 @@ fn test_agent_chooser_open_navigate_confirm_cancel() {
 
     let state = navigate_down_and_back(state);
 
-    let state = state.apply(AppEvent::PrAgentChooserConfirm);
+    let state = state
+        .apply(AppEvent::PrAgentChooserConfirm)
+        .committed_pure();
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "agent_chooser must close on confirm"
     );
 
-    let state = state.apply(AppEvent::PrOpenAgentChooser {
-        metadata: pr_chooser_metadata(),
-    });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser {
+            metadata: pr_chooser_metadata(),
+        })
+        .committed_pure();
     assert!(state.prs_state.agent_chooser.is_some());
-    let state = state.apply(AppEvent::PrAgentChooserCancel);
+    let state = state.apply(AppEvent::PrAgentChooserCancel).committed_pure();
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "agent_chooser must close on cancel"
@@ -269,9 +282,13 @@ fn test_agent_chooser_open_navigate_confirm_cancel() {
 
 /// Navigate down to index1, then back up to index0, asserting each step.
 fn navigate_down_and_back(state: AppState) -> AppState {
-    let state = state.apply(AppEvent::PrAgentChooserNavigateDown);
+    let state = state
+        .apply(AppEvent::PrAgentChooserNavigateDown)
+        .committed_pure();
     assert_eq!(prs_chooser(&state).selected_index, 1);
-    let state = state.apply(AppEvent::PrAgentChooserNavigateUp);
+    let state = state
+        .apply(AppEvent::PrAgentChooserNavigateUp)
+        .committed_pure();
     assert_eq!(prs_chooser(&state).selected_index, 0);
     state
 }
@@ -314,7 +331,9 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
     let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
         crate::domain::AgentId("idle-agent".to_string()),
     )];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -329,7 +348,9 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
     // Before fix: NavigateDown would bound by self.agents.len() (6) and
     // advance selected_index to 1, which is past the chooser list. After fix:
     // the bound is chooser.agents.len() (1), so selected_index stays at 0.
-    let state = state.apply(AppEvent::PrAgentChooserNavigateDown);
+    let state = state
+        .apply(AppEvent::PrAgentChooserNavigateDown)
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -340,7 +361,7 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
         "selected_index must not advance past the last chooser agent"
     );
     // Confirm the chooser is still usable (no out-of-bounds panic on confirm).
-    let state = state.apply(AppEvent::PrAgentChooserCancel);
+    let state = state.apply(AppEvent::PrAgentChooserCancel).committed_pure();
     assert!(state.prs_state.agent_chooser.is_none());
 }
 
@@ -418,7 +439,9 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
     // Populate the sections the stale heuristic ignored: reviews + checks.
     populate_full_detail_sections(&mut state);
 
-    let new_state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let new_state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
 
     let detail = new_state
         .prs_state
@@ -477,7 +500,7 @@ fn test_esc_closes_composer_while_mutation_pending() {
         target: ComposerTarget::NewComment,
     });
 
-    let new_state = state.apply(AppEvent::PrInlineCancelOrEsc);
+    let new_state = state.apply(AppEvent::PrInlineCancelOrEsc).committed_pure();
 
     assert_eq!(
         new_state.prs_state.inline_state,
@@ -556,7 +579,7 @@ fn test_submit_no_repo_selected_surfaces_error_and_closes_composer() {
     };
     state.prs_state.mutation_pending = None;
 
-    let new_state = state.apply(AppEvent::PrInlineSubmit);
+    let new_state = state.apply(AppEvent::PrInlineSubmit).committed_pure();
 
     assert_eq!(
         new_state.prs_state.inline_state,
@@ -592,7 +615,7 @@ fn test_submit_from_editor_does_not_create_newcomment_mutation() {
     };
     state.prs_state.mutation_pending = None;
 
-    let new_state = state.apply(AppEvent::PrInlineSubmit);
+    let new_state = state.apply(AppEvent::PrInlineSubmit).committed_pure();
 
     assert!(
         new_state
@@ -659,7 +682,9 @@ fn test_open_reply_composer_reveals_target_reply_anchor() {
     }
     state.prs_state.detail_subfocus = PrDetailSubfocus::Comment(0);
 
-    let state = state.apply(AppEvent::PrOpenReplyComposer { comment_index: 0 });
+    let state = state
+        .apply(AppEvent::PrOpenReplyComposer { comment_index: 0 })
+        .committed_pure();
     let detail = state
         .prs_state
         .pr_detail
@@ -719,7 +744,9 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
     state.prs_state.detail_viewport_rows = 5;
 
     // Open the composer — this scrolls to the rendered bottom (#56).
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let mut state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.prs_state.detail_scroll_offset;
     assert!(
         offset_after_open > 0,
@@ -728,7 +755,7 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
 
     // Type several characters — the reducer must NOT touch detail_scroll_offset.
     for ch in "hello world".chars() {
-        state = state.apply(AppEvent::PrInlineChar(ch));
+        state = state.apply(AppEvent::PrInlineChar(ch)).committed_pure();
     }
 
     assert_eq!(

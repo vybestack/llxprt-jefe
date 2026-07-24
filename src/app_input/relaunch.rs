@@ -149,7 +149,7 @@ fn persist_relaunch_success(
             process_identity,
         );
     }
-    *state = std::mem::take(state).apply(relaunch_event);
+    jefe::state::transition::commit_pure_site(state, (relaunch_event).into());
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
@@ -168,7 +168,7 @@ pub(super) fn persist_relaunch_failure(
     relaunch_event: AppEvent,
     error: &RuntimeError,
 ) {
-    *state = std::mem::take(state).apply(relaunch_event);
+    jefe::state::transition::commit_pure_site(state, (relaunch_event).into());
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
     state.error_message = Some(error.to_string());

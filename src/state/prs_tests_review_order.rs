@@ -15,6 +15,7 @@ use crate::state::types::{InlineState, PrDetailSubfocus};
 
 use super::prs_nav_ops::pr_detail_subfocus_order;
 use super::prs_tests_detail::prs_mode_state;
+use crate::state::transition::TransitionExt;
 
 fn make_test_pr_detail(number: u64) -> PullRequestDetail {
     PullRequestDetail {
@@ -249,12 +250,14 @@ fn resolve_targets_flat_thread_index_after_newest_first_reorder() {
         request_id: 1,
     });
 
-    let state = state.apply(AppEvent::PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        is_resolved: true,
-        request_id: 1,
-    });
+    let state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            is_resolved: true,
+            request_id: 1,
+        })
+        .committed_pure();
     let detail = state
         .prs_state
         .pr_detail

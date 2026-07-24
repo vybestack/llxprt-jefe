@@ -17,6 +17,7 @@ use jefe::domain::{
     AgentChooserEntry, AgentId, AgentKind, ChecksFilter, ChooserRuntimeConfig, ReviewDecisionFilter,
 };
 use jefe::input::{InputMode, input_mode_for_state};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenMode,
 };
@@ -471,7 +472,7 @@ fn test_filter_field_cycling_wraps_through_all_eight_fields() {
     for expected in 1..=8 {
         let event = resolve_prs_key_event(&state, &key(KeyCode::Tab));
         assert!(matches!(event, Some(AppEvent::PrFilterNavigateNext)));
-        state = state.apply(AppEvent::PrFilterNavigateNext);
+        state = state.apply(AppEvent::PrFilterNavigateNext).committed_pure();
         assert_eq!(
             state.prs_state.filter_ui.field_index,
             expected % 8,
@@ -481,7 +482,7 @@ fn test_filter_field_cycling_wraps_through_all_eight_fields() {
     // Reverse+wrap: from 0, Shift+Tab wraps to 7.
     let event = resolve_prs_key_event(&state, &key(KeyCode::BackTab));
     assert!(matches!(event, Some(AppEvent::PrFilterNavigatePrev)));
-    state = state.apply(AppEvent::PrFilterNavigatePrev);
+    state = state.apply(AppEvent::PrFilterNavigatePrev).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 7);
 }
 
@@ -496,27 +497,27 @@ fn test_space_cycles_review_decision_filter_draft_state() {
     let event = resolve_prs_key_event(&state, &key(KeyCode::Char(' ')));
     assert!(matches!(event, Some(AppEvent::PrCycleReviewFilter)));
     // Reducer cycles Any -> Approved -> ChangesRequested -> ReviewRequired -> None -> Any.
-    let mut s = state.apply(AppEvent::PrCycleReviewFilter);
+    let mut s = state.apply(AppEvent::PrCycleReviewFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.review_decision,
         ReviewDecisionFilter::Approved
     );
-    s = s.apply(AppEvent::PrCycleReviewFilter);
+    s = s.apply(AppEvent::PrCycleReviewFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.review_decision,
         ReviewDecisionFilter::ChangesRequested
     );
-    s = s.apply(AppEvent::PrCycleReviewFilter);
+    s = s.apply(AppEvent::PrCycleReviewFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.review_decision,
         ReviewDecisionFilter::ReviewRequired
     );
-    s = s.apply(AppEvent::PrCycleReviewFilter);
+    s = s.apply(AppEvent::PrCycleReviewFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.review_decision,
         ReviewDecisionFilter::None
     );
-    s = s.apply(AppEvent::PrCycleReviewFilter);
+    s = s.apply(AppEvent::PrCycleReviewFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.review_decision,
         ReviewDecisionFilter::Any
@@ -534,22 +535,22 @@ fn test_space_cycles_checks_status_filter_draft_state() {
     let event = resolve_prs_key_event(&state, &key(KeyCode::Char(' ')));
     assert!(matches!(event, Some(AppEvent::PrCycleChecksFilter)));
     // Reducer cycles Any -> Success -> Failing -> Pending -> Any.
-    let mut s = state.apply(AppEvent::PrCycleChecksFilter);
+    let mut s = state.apply(AppEvent::PrCycleChecksFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.checks_status,
         ChecksFilter::Success
     );
-    s = s.apply(AppEvent::PrCycleChecksFilter);
+    s = s.apply(AppEvent::PrCycleChecksFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.checks_status,
         ChecksFilter::Failing
     );
-    s = s.apply(AppEvent::PrCycleChecksFilter);
+    s = s.apply(AppEvent::PrCycleChecksFilter).committed_pure();
     assert_eq!(
         s.prs_state.draft_filter.checks_status,
         ChecksFilter::Pending
     );
-    s = s.apply(AppEvent::PrCycleChecksFilter);
+    s = s.apply(AppEvent::PrCycleChecksFilter).committed_pure();
     assert_eq!(s.prs_state.draft_filter.checks_status, ChecksFilter::Any);
 }
 
@@ -617,8 +618,8 @@ fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
     ));
     state.selected_repository_index = Some(0);
     // Cycle review + checks draft fields first.
-    state = state.apply(AppEvent::PrCycleReviewFilter);
-    state = state.apply(AppEvent::PrCycleChecksFilter);
+    state = state.apply(AppEvent::PrCycleReviewFilter).committed_pure();
+    state = state.apply(AppEvent::PrCycleChecksFilter).committed_pure();
     let event = resolve_prs_key_event(&state, &key(KeyCode::Enter));
     assert!(matches!(event, Some(AppEvent::PrApplyFilter)));
     // committed_filter should reflect the draft after apply.
@@ -628,7 +629,7 @@ fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
         "pre-apply committed must differ from draft"
     );
     let draft_review = state.prs_state.draft_filter.review_decision;
-    let after = state.apply(AppEvent::PrApplyFilter);
+    let after = state.apply(AppEvent::PrApplyFilter).committed_pure();
     assert_eq!(
         after.prs_state.committed_filter.review_decision, draft_review,
         "apply must copy draft -> committed"
@@ -735,7 +736,9 @@ fn test_c_on_review_or_check_emits_show_notice_not_none() {
         Some(AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment))
     ));
     // Reducer must surface a non-blocking draft_notice.
-    let after = review.apply(AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment));
+    let after = review
+        .apply(AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment))
+        .committed_pure();
     assert!(
         after.prs_state.draft_notice.is_some(),
         "PrShowNotice must populate draft_notice"
@@ -766,9 +769,11 @@ fn test_r_replies_only_on_comment_subfocus() {
             ReadOnlyHintKind::ReadOnlyReplyOnComment
         ))
     ));
-    let after = body.apply(AppEvent::PrShowNotice(
-        ReadOnlyHintKind::ReadOnlyReplyOnComment,
-    ));
+    let after = body
+        .apply(AppEvent::PrShowNotice(
+            ReadOnlyHintKind::ReadOnlyReplyOnComment,
+        ))
+        .committed_pure();
     assert!(after.prs_state.draft_notice.is_some());
 }
 
@@ -788,9 +793,11 @@ fn test_e_on_pr_detail_emits_show_notice_not_none() {
             ReadOnlyHintKind::ReadOnlyNotEditable
         ))
     ));
-    let after = state.apply(AppEvent::PrShowNotice(
-        ReadOnlyHintKind::ReadOnlyNotEditable,
-    ));
+    let after = state
+        .apply(AppEvent::PrShowNotice(
+            ReadOnlyHintKind::ReadOnlyNotEditable,
+        ))
+        .committed_pure();
     assert!(after.prs_state.draft_notice.is_some());
 }
 

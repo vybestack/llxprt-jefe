@@ -9,6 +9,7 @@ use super::resolve_rewrite_context_from_state;
 use jefe::domain::{AgentKind, Repository, RepositoryId};
 use jefe::state::AppEvent;
 use jefe::state::AppState;
+use jefe::state::transition::TransitionExt;
 use jefe::state::{ComposerTarget, InlineState};
 use std::path::PathBuf;
 
@@ -24,7 +25,7 @@ fn base_state() -> AppState {
     repo.github_repo = "owner/repo".to_string();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    state.apply(AppEvent::EnterIssuesMode)
+    state.apply(AppEvent::EnterIssuesMode).committed_pure()
 }
 
 fn with_new_issue_draft(state: AppState, text: &str) -> AppState {

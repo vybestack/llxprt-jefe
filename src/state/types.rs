@@ -471,6 +471,11 @@ pub struct AppState {
     /// Populated once by the off-lock liveness worker; read by the pure render
     /// projection. Never persisted.
     pub dead_preview: super::DeadAgentPreviewCache,
+
+    /// Bounded pending post-commit effect correlations plus the generation
+    /// counters stale completions are validated against (issue #381).
+    /// Runtime-only — never persisted; no handle/closure/queue lives here.
+    pub pending_effects: super::transition::EffectLedger,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

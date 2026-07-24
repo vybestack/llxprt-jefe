@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::transition::TransitionExt;
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -922,16 +923,16 @@ fn verify_mode_entry_restore(loaded: &State) {
     };
 
     // repo-1 → Closed.
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::Closed)
     );
 
     // repo-2 → All (no leakage from repo-1).
-    let state = state.apply(AppEvent::ExitIssuesMode);
-    let state = state.apply(AppEvent::SelectRepository(1));
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
+    let state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::All)
@@ -971,7 +972,7 @@ fn restart_hydration_legacy_state_gives_open_defaults_on_mode_entry() {
         ..AppState::default()
     };
 
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::Open)
