@@ -38,6 +38,16 @@ written before a failing test for the behavior it implements.
 | Regression             | Bug fixes must include a regression test.                 | alongside the fix             |
 | TUI harness scenarios  | Real-TTY end-to-end behavior (focus, geometry, alternate-screen, exit). | `dev-docs/testing/tmux-harness.md` + `dev-docs/tmux-scenarios/` |
 
+New harness scenarios use the schema-1 contract (`dev-docs/tmux-scenarios/v1/`,
+run by `tmux_scenario`): closed grammar, contained workspace, deterministic
+environment, capture shims, secret redaction, and bounded literal `wait`
+synchronization — never sleeps or unbounded polling. Legacy adapters,
+compatibility shims, or dual-format detection are prohibited; pre-schema
+scenarios migrate forward (issue #397). See the "Schema-1 deterministic
+real-process harness" section of
+[`tmux-harness.md`](../testing/tmux-harness.md) for the grammar, `HAR-E001` -
+`HAR-E007` diagnostics, exit codes, limits, containment, and redaction rules.
+
 ### What tests must verify
 
 - Behavior (inputs -> outputs).

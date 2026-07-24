@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "harness-resize-restart",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 493 }],
+    "files": [],
+    "env": []
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY 100x30",
+      "timeout_ms": 15000
+    },
+    { "op": "assert-frame", "contains": ["PROBE READY 100x30"], "absent": [] },
+    { "op": "text", "text": "write durable.txt survives-restart\n" },
+    { "op": "wait", "source": "frame", "literal": "WROTE durable.txt", "timeout_ms": 15000 },
+    { "op": "resize", "size": { "cols": 70, "rows": 18 } },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY 70x18",
+      "timeout_ms": 15000
+    },
+    { "op": "assert-frame", "contains": ["PROBE READY 70x18"], "absent": [] },
+    { "op": "restart" },
+    { "op": "wait", "source": "frame", "literal": "PROBE READY", "timeout_ms": 15000 },
+    {
+      "op": "assert-file",
+      "file": { "path": "work/durable.txt", "content": { "utf8": "survives-restart" } }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

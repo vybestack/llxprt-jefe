@@ -340,3 +340,145 @@ Remote availability probing (issue #184 defects 2-4) is covered by
 `remote_probe_tests.rs` — the pure classifier/planner seam tests prove
 unavailable remote means no prep/prompt operation without needing a live SSH
 connection.
+
+## Schema-1 deterministic real-process harness (issue #380)
+
+Everything above documents the pre-schema harness, which stays supported
+only until issue #397 migrates the shipped scenarios forward and deletes it.
+New scenarios must use the schema-1 contract below, executed by the
+`tmux_scenario` binary. Schema 1 is the only input `tmux_scenario`
+accepts: a missing or wrong `schema` field is `HAR-E001`. Building a legacy
+adapter, lowering pass, compatibility shim, or dual-format detection is
+prohibited.
+
+### Ownership
+
+| Source | Responsibility |
+|---|---|
+| `src/harness/v1/parse.rs` + `parse_step.rs` | strict schema-1 parsing (duplicate-key and unknown-field rejection, decimal integers) |
+| `src/harness/v1/validate.rs` + `semantic.rs` | bounds, path/env/id grammar, step-sequencing rules |
+| `src/harness/v1/error.rs` | `HAR-E001..E007` taxonomy and exit-code mapping |
+| `src/harness/v1/workspace.rs` | mode-0700 unique workspace, materialization, no-follow containment |
+| `src/harness/v1/env.rs` | deterministic empty-base environment |
+| `src/harness/v1/interp.rs` | `${workspace}` interpolation |
+| `src/harness/v1/capture.rs` + `src/bin/jefe-capture-shim.rs` | capture shims and process-boundary records |
+| `src/harness/v1/pty.rs` | real PTY launch, process group, frames, resize, escalating teardown (the issue's `tmux.rs` responsibility row lives here) |
+| `src/harness/v1/runner.rs` | synchronous operation state machine |
+| `src/harness/v1/report.rs` + `redact.rs` | deterministic redacted report |
+| `src/bin/tmux_scenario.rs` | entry point, one report on stdout, exit codes |
+
+### Grammar
+
+All JSON objects reject duplicate and unknown keys. Integers are decimal
+JSON integers (no fractions, exponents, or leading zeros).
+
+```text
+Scenario={schema:1,name:NonEmpty,platform:"macos"|"linux",terminal:Size,
+ workspace:Workspace,steps:[Step;1..1024],secrets:[NonEmpty;0..64]}
+Size={cols:1..500,rows:1..200}
+Workspace={mode:448,dirs:[Dir;0..256],files:[File;0..256],env:[Env;0..256]}
+Dir={path:RelativePath,mode:448|493}
+File={path:RelativePath,content:{utf8:string}|{base64:string},mode:384|420|448|493}
+Env={name:EnvName,value:string}
+Step={op:"write",file:File}|{op:"mkdir",dir:Dir}|{op:"remove",path:RelativePath}|
+ {op:"capture",name:Id,path:RelativePath,behavior:CaptureBehavior}|
+ {op:"launch",argv:[string;0..64],env:[Env;0..256],cwd:RelativePath}|
+ {op:"key",key:string,modifiers:["alt"|"control"|"shift";0..3]}|
+ {op:"text",text:string}|{op:"resize",size:Size}|
+ {op:"wait",source:"frame"|"stdout"|"stderr",literal:NonEmpty,timeout_ms:1..30000}|
+ {op:"assert-frame",contains:[string],absent:[string]}|
+ {op:"assert-capture",capture:CaptureExpectation}|{op:"assert-file",file:FileExpectation}|
+ {op:"restart"}|{op:"finish"}
+```
+
+Closed sub-definitions the grammar references:
+
+- `RelativePath`: UTF-8, 1-4096 bytes, `/` separated, no root/prefix,
+  empty, `.`, `..`, NUL, or backslash component. Paths never interpolate.
+- `EnvName`: `[A-Z_][A-Z0-9_]{0,127}`.
+- `Id` (capture names): 1-64 bytes of `[A-Za-z0-9._-]`, not `.` or `..`.
+- `CaptureBehavior`: `{stdout, stderr, exit_code:0..255,
+  stdin_limit:0..1048576, hang:bool, spawn_child_hang:bool}`.
+- `CaptureExpectation`: `{name:Id, invocation:1.., argv:[string],
+  env:[Env], cwd:string, stdin?, stdout?, stderr?, exit_code?:0..255,
+  signal?:int}`. Recorded argv/env/cwd values whose bytes begin with the
+  workspace root are normalized to the `${workspace}` token before
+  comparison. Env pairs listed must match exactly by name; deterministic
+  base variables not listed are permitted.
+- `FileExpectation`: `{path:RelativePath, exists?:bool (default true),
+  content?:{utf8|base64}}`; `content` requires `exists` true.
+- In a real PTY the app's stdout and stderr share one stream: `wait`
+  sources `stdout` and `stderr` both scan the merged PTY byte stream,
+  while `frame` scans rendered screen rows.
+
+### Bounds
+
+Inclusive, validated before any launch: input/report/file/captured-stream
+1,048,576 bytes each; strings 262,144; depth 16; object members 256;
+arrays 1,024; frames 2,048; captures 256; processes per capture 32. A
+value at limit plus one is `HAR-E002`.
+
+### Environment and interpolation
+
+The runner starts from an empty environment and injects only scenario env
+plus deterministic `HOME`, `PATH`, `TMPDIR`, `JEFE_CONFIG_DIR`,
+`JEFE_STATE_DIR`, `JEFE_PLUGIN_DIR`, `LANG=C.UTF-8`, and
+`TERM=xterm-256color`, all rooted in the workspace. `${workspace}`
+interpolation is allowed only as the complete prefix of env values and
+launch argv values; `$$` is a literal `$`; every other `${name}`, embedded
+reference, or bare `$` is `HAR-E003`. Launch argv[0] resolves against the
+explicit PATH only — never the host PATH — or as an absolute path.
+
+### Containment
+
+Before every open, mutation, capture, and launch the runner resolves each
+existing ancestor with O_NOFOLLOW directory handles and verifies its
+physical identity (device and inode) matches the identity recorded when
+the ancestor was created or first verified below the workspace root. A
+symlink ancestor, an identity change, or an escape is `HAR-E004`; there is
+no check-then-follow path.
+
+### Execution, restart, and cleanup
+
+Steps run synchronously in order. Waits are bounded literal matches. A
+resize is acknowledged only after a frame reports the exact requested
+dimensions. `restart` terminates and reaps the old process group, then
+relaunches in the same workspace: durable files survive; processes, PTY
+buffers, and frames do not. `finish` (and every failure path) performs a
+graceful stop then escalates TERM -> KILL -> verify at 2 s per phase,
+always reaping the entire process group; survivors are `HAR-E007`. Any
+failure stops later steps, performs the same cleanup, retains the
+workspace and a bounded report, and permits a fresh run.
+
+### Capture shims
+
+A `capture` op materializes the `jefe-capture-shim` fixture at the given
+workspace path with its behavior file beside it. Each invocation claims a
+start ordinal (at most 32 per capture) and records raw argv, sorted env
+byte pairs, cwd, bounded stdin, separate stdout/stderr, and exit or
+incompleteness. `assert-capture` compares one recorded invocation against
+the expectation; the first mismatching field is `HAR-E006`.
+
+### Diagnostics, exits, and redaction
+
+`HAR-E001` syntax/duplicate/unknown, `HAR-E002` limit, `HAR-E003`
+interpolation, `HAR-E004` containment/race, `HAR-E005` process/PTY,
+`HAR-E006` assertion, `HAR-E007` cleanup. Exit codes: validation 2,
+I/O/process/assertion 4, timeout 124, success 0. Redaction replaces every
+nonempty declared secret byte sequence with `<redacted>` in frames,
+streams, env, error text, the report, and stderr before anything is
+persisted or printed, and reports the replacement count.
+
+### Rule for feature scenarios
+
+Feature scenarios must synchronize with bounded literal `wait` operations
+— never sleeps, never unbounded polling. Ledger fixtures live under
+`dev-docs/tmux-scenarios/v1/` and run in CI through
+`tests/harness_v1_fixtures.rs`; run one locally with:
+
+```bash
+cargo build --bins
+target/debug/tmux_scenario \
+  --scenario dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json \
+  --install jefe-harness-probe=target/debug/jefe-harness-probe
+```
