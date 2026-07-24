@@ -1,0 +1,211 @@
+# Issue 381 delivery plan — CW-01: exact configuration/state migration, offline recovery, and closed effects
+
+- GitHub: https://github.com/vybestack/llxprt-jefe/issues/381
+- Branch: `issue381`
+- Base: `origin/main` at `5a44d9e`
+- Review counters: general reviewer cycles 0/2 total; OCR cycles 0/2 total
+- Status: **approved for RED implementation**
+- Delivery shape: one PR; the user explicitly approved exceeding the 40-file / 2,500-line hard scope budget for this issue. The vertical slices below are green commits inside that PR, not stacked PRs.
+- Review boundary: each review type is capped at two review → classify → remediate cycles for the entire effort. Reviews may not expand the accepted behavior, subsystem, abstraction, or cleanup scope.
+- Behavioral authority: issue body plus the binding no-shim amendment in the issue comments. No other issue or planning document supplies behavior.
+
+## Baseline and readiness finding
+
+The branch was created from current `origin/main` with a clean worktree. Current ownership is materially different from the requested end state:
+
+- `src/persistence/mod.rs` is a 715-line schema-1 path/DTO/read/write authority; `src/persistence/tests.rs` is already 985 lines.
+- `AppState::apply_message` returns `AppState`, while the public `apply(AppEvent)` path has more than 1,200 uses across roughly 80 source/test files. Direct `apply_message` uses are much smaller, but leaving an effect-dropping event path requires an explicit contract decision.
+- `src/state/mod.rs`, `src/app_shell.rs`, `src/messages.rs`, and `src/app_input/mod.rs` are all close to the 1,000-line source limit, so new ownership must be extracted rather than appended.
+- The current TOML dependency parses semantic values but cannot preserve comments, quoting, ordering, and untouched bytes during edits.
+- The existing persistence worker coalesces scheduled snapshots, but it can write an older snapshot before learning that a newer revision exists; it is not yet the requested pre-authority newest-revision gate.
+- The issue crosses persistence, domain/application contracts, reducer state, composition, CLI/startup, process execution, tests/harness, and normative documentation. A single PR will exceed 40 files or 2,500 net lines; the user explicitly approved that exceedance and directed one PR, so the work remains bounded by the accepted matrix and green commit slices rather than separate PRs.
+
+## Approved decision register
+
+The user approved D2, D4–D6, and the clean no-shim architecture in D8; delegated D3 and D7 to the best typed architecture; confirmed that D1 must use only operating-system-standard directories unless explicitly overridden; required retained schema-1 backups; and approved one PR above the normal hard scope budget.
+
+### D1 — Path candidates, historical sources, and platforms
+
+**Gap:** the target precedence is exact, but the set and ordering of “legacy source(s)” is not defined. Windows defaults and physical identity are also absent while cross-platform gates may not be weakened.
+
+**Proposed decision:**
+
+1. `--config DIR` is an isolation boundary: it selects the five paths named in the issue and has **no external source candidates**. All `JEFE_*` path/directory variables and platform defaults are ignored for both target and source discovery.
+2. Without `--config`, explicit `JEFE_*_PATH`/`JEFE_*_DIR` values are intentional user overrides. When they are absent, use only the operating-system-standard locations named by the issue—never `.jefe`, a current-working-directory path, or another invented home-directory location.
+3. The sole historical default that differs from the standard target is the current Linux state location under `${XDG_DATA_HOME:-$HOME/.local/share}/jefe/state.json`. Treat it only as a one-way schema-1 migration source for the standard `${XDG_STATE_HOME:-$HOME/.local/state}/jefe/state.json` target. Existing aliases on macOS/Windows deduplicate physically. No other guessed historical locations are scanned.
+4. If a target exists, discovery of any distinct source returns exit 3 without modifying either file. If a target is absent, sources are physically deduplicated; any malformed source returns exit 2, otherwise more than one valid source returns exit 3, one source is copied atomically and retained, and none yields an empty in-memory candidate.
+5. Empty/non-Unicode path variables, missing required home/default roots, paths over 4,096 encoded bytes, and unusable path forms produce `CFG-E001` before file access. `--config` may occur in the command position shown by the issue or before `config`; a second occurrence is a usage error (64), not last-wins.
+6. Defaults are exact OS conventions: macOS `~/Library/Application Support/jefe`, Linux XDG config/state directories with the issue’s standard fallbacks, Windows `%APPDATA%\jefe` for settings and `%LOCALAPPDATA%\jefe` for state. Existing-file identity uses platform-native file identity. An unavailable standard root fails `CFG-E001`; it never falls back to `.jefe`.
+7. Without `--config`, `definitions`, `plugins`, and `themes` are siblings of the selected settings file. They are resolved but not read by CW-01.
+
+### D2 — Physical identity when directories are absent
+
+**Gap:** a first-run platform directory may not exist, while the issue defines a missing leaf in terms of a canonical parent and separately says reads never write.
+
+**Proposed decision:** resolve the nearest existing ancestor without creating directories, canonicalize it, append normalized non-`..` suffix components plus the basename, and retain ancestor identity for a pre-access recheck. Existing leaves use canonical path and platform file identity. Symlink aliases deduplicate; a changed ancestor/leaf identity fails `CFG-E001` before access. Writers alone may create the selected parent with user-only permissions. This is intentionally stronger than creating directories during resolution.
+
+### D3 — Closed value, owner, merge, provenance, and secret contracts
+
+**Gap:** `TypedMap`, active owners, layout-tree values, provenance origins, merge layers, and secret classification are not defined. These choices determine both TOML and JSON wire formats.
+
+**Proposed decision:**
+
+1. `TypedMap` is a `BTreeMap<Id, TypedValue>`. `TypedValue` is a closed tagged sum: string, bool, signed integer, float represented by its canonical finite decimal text, datetime text, list, map, and secret reference. It is externally tagged in JSON and represented by native TOML scalar/array/table syntax in settings. Null, arbitrary JSON, non-finite numbers, and untyped objects are rejected.
+2. A secret reference contains only an identifier; secret material is never accepted in a published typed value. Dormant unknown-owner syntax is never published or rendered by `show-effective`; it is represented as `<dormant-redacted>` in output/provenance. This makes the no-secret guarantee structural rather than key-name heuristic based.
+3. Add an I/O-free `OwnerCatalog` contract in the domain/application boundary. Normal startup supplies the built-in core screen and agent descriptors already supported by the executable; recovery uses only those static descriptors and reports every unavailable plugin/extension owner as skipped. CW-01 does not discover or start providers/plugins to construct the catalog.
+4. Owner tables use quoted IDs: `[agents."core.llxprt"]`, `[plugins."vendor.name"]`, and `[keymap."owner.id"]`. Keymap action leaves are IDs mapped to non-empty chord arrays. `workbench.layout_overrides` is `BTreeMap<Id, TypedMap>`; known owners validate their map, unknown owner entries remain dormant.
+5. Effective settings merge exactly two ordered layers in CW-01: descriptor defaults, then the selected document. Maps merge recursively; the issue-listed replacement nodes replace wholly; reset is a programmatic edit that removes the selected-document node and reveals the lower layer. No repository-local or ambient layer is introduced.
+6. Provenance origins are typed records `{kind: BuiltInDefault|SelectedDocument, canonical_path?, span?}`. Each effective leaf records at most 16 origins in merge order. Overflow is `CFG-E008`; origins are not silently truncated.
+7. TOML acceptance follows TOML 1.0 as accepted by the existing `toml` crate. A companion lossless scanner must map every accepted owned syntax node to byte spans; a semantic document the scanner cannot map safely is `CFG-E002`, never a lossy rewrite. `settings_schema` is a required special top-level key in addition to the six allowed roots. Canonical semver means SemVer 2.0.0, implemented without a dependency.
+8. Bound counting is UTF-8 bytes for strings/IDs/paths, entries per individual map/array, root container at nesting depth 1, and diagnostics/provenance/effects are rejected on item `limit + 1` rather than truncated.
+
+### D4 — State-v2 wire format and complete schema-1 mapping
+
+**Gap:** enum tagging, stable-ID inputs, collision ordering, hash inputs, remote identity, unknown-record attachment, revision ownership, and placement of schema-1 `user_preferences` are undefined. The published StateV2 shape has no field capable of preserving per-repository user preferences without overloading `agent_defaults`.
+
+**Proposed decision:**
+
+1. All StateV2 names are the snake_case names shown by the issue. Location is an exactly-one-key object: `{ "local_path": "..." }` or `{ "remote_target": "..." }`. SHA-256 is 64 lowercase hexadecimal characters.
+2. Local repository identity is the D2 normalized physical/lexical path. Remote identity is the canonical SSH target tuple `(login_user, host lowercase, explicit/default port, run_as_user, normalized remote base_dir)` serialized with length-prefixed fields, not a shell string.
+3. Preserve source vector order. Repository IDs are `repo.<sha256>` over canonical repository identity plus a zero-based collision ordinal among equal identities. Agent IDs are `agent.<sha256>` over repository ID, the legacy agent ID when non-empty (otherwise normalized name/work-dir identity), and a zero-based collision ordinal. Full digests are used.
+4. `definition_hash` hashes canonical bytes for the normalized core type ID plus built-in definition version; `typed_value_hash` hashes canonical tagged TypedMap JSON; `target_fingerprint` hashes the canonical repository identity plus canonical agent work target. All canonical hash input encoders are length-prefixed and tested with fixed vectors; diagnostics expose only the resulting digest, never input values.
+5. Repository `agent_defaults.values` contains every schema-1 repository product field not represented by StateV2’s first-class fields. Agent `values` similarly contains every persistent schema-1 agent product field not represented first-class. Runtime status maps to `last_known`; session ID is retained; PID/process evidence is not persisted in the new runtime block unless the issue schema is amended.
+6. **Schema amendment needed:** add `repository_preferences: {RepositoryId: TypedMap}` to `Preferences`, so current `UserPreferences` remains typed without misusing agent defaults or dormant records. If the published StateV2 shape must remain byte-for-byte closed, the only honest alternatives are approved data loss or an explicit dormant encoding; neither satisfies “all product values remain typed.”
+7. Unknown root/repository/agent fields from schema 1 become separate dormant records whose `kind` identifies the owning record class and field path; `stable_id` is the migrated owner ID when available, otherwise `dormant.<sha256>`. Raw JSON is preserved exactly as a parsed JSON value; duplicate JSON keys are rejected before migration.
+8. Schema-1 migration sets revision to 1. Schema-2 input retains its revision unchanged and is a semantic no-op. Thereafter the composition root allocates one monotonically increasing revision for each scheduled durable candidate; retries retain the same revision.
+
+### D5 — Writer authority and retained draft
+
+**Gap:** the location/form of an “exportable draft,” temp cleanup, first-run parent creation, and cross-platform atomic replacement are not fixed.
+
+**Approved decision:** the complete serialized candidate is the retained draft and is returned in the typed conflict/write error as immutable bytes; conflict handling never writes a second draft file. Before any schema-1 target is replaced by schema 2, the writer creates and syncs a sibling content-addressed backup named `<filename>.schema1.<sha256>.bak` with user-only permissions. An existing byte-identical backup is reused; a conflicting file at that exact backup path is `CFG-E104` and blocks replacement. A physically separate imported source is also retained. Backups are recovery artifacts only and are never read by normal startup or selected by a compatibility branch. The writer creates only the selected parent when needed, creates a unique `create_new` same-directory temp with user-only permissions, removes only its own temp after pre-rename failure, and never removes a source, backup, or selected target. Unix uses rename replacement and parent-directory sync; Windows uses the existing safe Windows API for atomic replacement and flushes every supported handle. A revision freshness callback is checked immediately before rename; stale work removes its temp and reports a non-authoritative completion, not a write error.
+
+### D6 — Recovery syntax, output, formatting, and editor
+
+**Gap:** exact output records, format-check semantics, editor source/argv parsing, and several exit mappings are unspecified.
+
+**Proposed decision:**
+
+1. Path/validate diagnostics use deterministic pretty JSON on stdout with schema `1`; diagnostics use the issue’s sorted typed shape. `show-effective` emits canonical redacted TOML; `--provenance` appends a comment-only provenance section with canonical paths and spans. Errors also render the same redacted diagnostics to stderr.
+2. Exit 0 is success/current formatting; 2 is path/parse/schema/type/ownership/reference/limit/format-drift failure; 3 is physical source ambiguity; 4 is editor/process/write/conflict failure; 64 is command syntax. `CFG-E007` and `CFG-E104` map to 4.
+3. `format --check` parses and computes the owned-node patch without writing; required changes return 2. Plain `format` canonicalizes only active owned nodes and leaves dormant/untouched bytes intact. `--migrate` additionally commits schema-1 settings as schema 2. Without `--migrate`, schema-1 settings are validated/migrated only in memory and not written.
+4. Editor argv is selected from `JEFE_EDITOR`, then `VISUAL`, then `EDITOR`. The value is parsed by a dependency-free quote/escape parser with no expansion, substitution, globbing, redirection, or shell invocation; argv element 0 is passed to `Command::new` and the selected settings path is appended as the final argument. Empty/malformed/missing configuration exits 4. Windows parsing follows CommandLineToArgvW-compatible quoting via the existing Windows dependency.
+5. Recovery dispatch occurs after the internal agent-launch sentinel but before logging, terminal-size reads, manager construction, async runtime, TUI, provider, probe, network, tmux, or PTY initialization. Malformed normal-startup state exits 2 and prints exact `jefe config validate ...` and `jefe config migrate-state ...` argv guidance without modifying bytes.
+
+### D7 — Closed effect payloads and execution semantics
+
+**Gap:** the eight payload/response enums, `EffectError`, retry/follow-up ordering, correlation storage, stale identity fields, persistence candidate ownership, and whether the existing `apply(AppEvent)` path may discard effects are undefined.
+
+**Proposed decision:**
+
+1. Add I/O-free request/response enums for each family in a lower application-contract module. Every operation is a named variant with explicit domain fields; there is no arbitrary argv, byte/JSON payload, callback, adapter type, or service handle. The initial operation set is limited to adapter operations already invoked by current composition paths; adding an operation absent from that inventory is a scope stop.
+2. `EffectError` is `{kind: Validation|Unavailable|Io|Conflict|Rejected, retryable: bool, redacted_detail: String}`. Only variants statically classified as idempotent queries may carry `RetryPolicy::IdempotentQuery`; a checked constructor enforces total attempts 1..=3.
+3. `Completion<T>` is represented in `AppMessage` by one closed completion variant per effect family/response enum. A completion applies only when all five correlation fields, including `correlation_id`, match the pending record for its semantic key. Pending correlations and owner/screen/activation generations live as bounded typed state records, not a queue.
+4. Effects execute serially in transition order after the next state is committed and all `HookState`/context guards are dropped. A terminal effect failure delivers its completion and execution continues to the next original effect. Completion-produced follow-ups append after the original batch; the combined follow-up count is capped at 64. Timer effects are shell-owned scheduled wakeups; scheduler handles never enter state.
+5. Persistence effects contain a typed durable candidate produced by a pure projection before commit plus revision and expected hash. To preserve the dependency DAG, the durable DTO contract must move to the lower application/domain boundary while `src/persistence/state_v2.rs` owns strict wire parsing/serialization around it. This updates the source inventory rather than duplicating the DTO.
+6. `AppState::apply_message` returns `Result<Transition, TransitionError>` so the effect bound can be enforced. `apply(AppEvent)` must also return `Result<Transition, TransitionError>`; all callers are migrated. Keeping a `Self`-returning helper would silently drop effects and is prohibited as a facade. This is the clean choice but expands the effect slice across many test files.
+7. The executor may reuse a shell-owned bounded worker for persistence, but the current generation check must move before authority-changing rename. No queue, worker handle, service, or adapter enters `AppState`.
+
+### D8 — No-shim amendment boundary
+
+**Gap:** the amendment names `AgentKind`, `ScreenMode`, old harness parsing, and registry maps, but the issue body supplies no replacement descriptors or acceptance evidence for deleting them.
+
+**Approved decision:** a replacement is complete only when its superseded implementation, old/new selector branch, aliases, re-exports, and compatibility delegates are deleted. Schema-1 settings/state code survives only in the one-way migration reader. It creates current values and a durable backup; normal startup and runtime never select a schema-1 or “bug-compatible” mode. Existing symbols such as `AgentKind`, `ScreenMode`, the non-v1 harness, or dispatch/help/footer/geometry maps are deleted in this issue if and only if an accepted CW-01 owner/descriptor/effect implementation actually supersedes them; in that case parity tests are added before deletion and no duplicate authority remains. Unrelated symbols that CW-01 does not replace are not renamed or copied merely to satisfy token scanning.
+
+Temporary dual ownership is permitted only inside the issue branch between a RED commit and its convergence commit. The one feature-complete PR may not retain a schema-1 facade, old loader/writer, effect-dropping transition path, dead implementation, or old/new runtime selector.
+
+## Acceptance matrix
+
+D1–D8 are accepted with the OS-standard-path, retained-backup, clean-replacement, one-PR, and bounded-review clarifications recorded above.
+
+| Row | Actor / launch path | Inputs and boundaries | Platform / target | Observable success | Observable failure and diagnostic | Side effects before failure | Persistence / compatibility | Behavioral evidence |
+|---|---|---|---|---|---|---|---|---|
+| CW01-01 | resolver used by normal startup and `config path` | every precedence combination; empty/non-Unicode/overlong env; existing/missing/symlink aliases | macOS, Linux, Windows compile/native identity; local paths only | one `ResolvedPaths` result with canonical identity/provenance and deduplicated aliases | `CFG-E001`, exit 2; no guessed fallback | none | no read creates directories | `config-path-precedence.json`; unit platform/env/identity matrix |
+| CW01-02 | startup import and `migrate-state` | absent target; exactly one valid distinct source; every writer phase | local filesystem | byte-for-byte source import is atomic and source retained; explicit migration writes schema 2 only | malformed source `CFG-E103`/2; write `CFG-E104`/4 | own temp only; cleaned on failure | target changes only at rename | `config-legacy-import.json`; captured phase/fault matrix |
+| CW01-03 | path decision used by startup/recovery | target plus source; two source aliases; byte-equal and byte-different sources | macOS/Linux plus Windows unit identity | aliases deduplicate | distinct ambiguity `CFG-E001`, exit 3 | reads/metadata only | no target/source modification | `config-ambiguity.json`; before/after byte assertions |
+| CW01-04 | selected-settings reader | schema 1, schema 2, known/unknown owners, comments/quotes/order, merge/reset | local document; recovery catalog has no providers | effective schema-2 candidate and byte/token/provenance preservation without write | syntax/schema/type/ownership/limit diagnostics, exit 2 | none | schema-1 syntax retained until explicit save/migrate | `settings-v1-lossless.json`; token/owner/merge/reset goldens |
+| CW01-05 | state migration | complete current schema-1 repository/agent/preference/runtime data; duplicates; invalid indices; aliases | local and remote repository identities | complete typed StateV2, stable IDs/hashes, valid ID references, unknown liveness, dormant unknowns | duplicate/malformed `CFG-E103`; invalid references `CFG-E006`; repair `CFG-W004` | none | no index and no secret persisted; source bytes unchanged | `state-v1-v2.json`; full-field local/remote/collision golden |
+| CW01-06 | state migration dispatcher | same schema-2 candidate applied repeatedly | all targets | semantically identical StateV2 and unchanged revision | malformed v2 rejected, never remigrated | none | no write | deterministic/property-style idempotence test |
+| CW01-07 | settings/state writer | expected hash match; one owned edit; every phase failure; stale revision | Unix + native Windows replacement tests | only edited syntax paths differ; mode/sync/rename protocol completes; newest revision authoritative | `CFG-E104`/4 or stale completion; target remains authoritative | own temp only before rename | retained source/target and returned immutable draft | `settings-lossless-save.json`; writer phase matrix; revision race test |
+| CW01-08 | writer conflict path | target bytes changed after read, including same semantics/different bytes | local filesystem | conflict returned with exportable candidate bytes | `CFG-E007`, exit 4 | reread only; no temp/rename | disk and draft bytes unchanged | `settings-hash-conflict.json`; exact byte assertions |
+| CW01-09 | all six `jefe config` commands | valid/malformed/ambiguous config; hanging provider executable in PATH; unknown/missing args | macOS/Linux real-process; Windows parser/process unit coverage | exact output/exit contract; zero provider/TUI/probe/network/tmux/PTY capture | sorted redacted diagnostics; syntax exit 64 | only `edit`, non-check format, and migrate-state perform listed effects | reads never write; writes use authority | `config-provider-free.json`; four required CLI goldens; argv capture |
+| CW01-10 | reducer plus root shell | each of eight named effect families; 64 and 65 effects; lock-checking adapter; success/failure/follow-up | local/remote operation DTOs; platform adapters | bounded transition commits, releases guards, executes serially, delivers typed completions | transition limit error; typed effect failure completion | no adapter before commit/release | persistence checks revision before rename | `effect-after-commit.json`; all-variant dispatch and 64/65 unit matrix |
+| CW01-11 | completion reducer | exact correlation; each one-field mismatch; superseded generation/key | all effect families | exact completion applies once | stale/duplicate completion leaves serialized state byte-equivalent | none for stale completion | no persisted mutation/revision increment | generation/correlation property matrix and stale fixture |
+| CW01-12 | owning path/TOML/JSON/effect parsers | every limit at N and N+1, including nested containers and aggregate diagnostics | all platforms where representation differs | N accepted | N+1 `CFG-E008`, exit 2 before downstream work | none | no write/truncation | bounds table tests plus `harness-limits`-style real-process fixture |
+
+## Explicit non-goals
+
+- No dependency, manifest, workflow, quality-threshold, lint-suppression, unsafe, shell-command, or `.llxprt/` change.
+- No SQLite/database, daemon, network configuration service, plugin/provider startup, or repository-local settings layer.
+- No TUI screen or TUI visual state; CLI-only goldens satisfy the issue.
+- No broad migration of existing imperative side effects beyond the named effect operations accepted in D7; unrelated orchestration remains unchanged unless an accepted effect row directly replaces it.
+- No deletion/replacement of `AgentKind`, `ScreenMode`, non-v1 harness parsing, or unrelated dispatch/help/footer/geometry maps unless D8 is rejected and the matrix/scope is explicitly expanded.
+- No permanent facade, alias, re-export, compatibility flag, schema-1 loader/writer outside migration, or effect-dropping reducer entry point.
+- No speculative cleanup after accepted rows and exact-head gates are complete.
+
+## Vertical commit slices in the single PR
+
+The user explicitly directed one PR and approved its hard-budget exceedance. The issue still proceeds through bounded, independently green commit slices so RED/GREEN evidence and scope remain auditable. Crossing the overall file/line threshold no longer triggers another approval request; behavior outside this matrix, an unplanned subsystem/public abstraction, dependency/tooling changes, or unrelated cleanup still does.
+
+| Slice / commit | Rows | Owner and integration boundary | Expected paths | RED evidence | GREEN criterion | Slice non-goals / stop gates |
+|---|---|---|---|---|---|---|
+| S1 contracts/diagnostics/hash | CW01-12 foundation | lower domain/application contracts; pure code | new `src/domain/config_*` or approved contract module; `src/persistence/diagnostic.rs`; hash module; focused tests; `src/lib.rs` wiring | ID/hash/diagnostic/bound vectors fail | exact typed values, diagnostics, bounds, semver, SHA vectors pass | no I/O/parser/CLI; stop if contract needs generic JSON |
+| S2 paths/identity/import decision | CW01-01,03; CW01-02 decision only | persistence path authority | `src/persistence/paths.rs`, path tests, minimal `persistence/mod.rs` wiring, v1 scenario fixture | precedence/alias/ambiguity scenarios fail | pure decision/identity matrix passes without read-created dirs | no target write; stop for unlisted historical path or platform API |
+| S3 lossless syntax/settings read | CW01-04,12 | settings document authority | `settings_document.rs` plus cohesive scanner submodules/tests; settings fixture | token/comment/owner/limit goldens fail | schema1/2 read/migrate-in-memory and dormant-byte preservation pass | no save/format; stop if accepted TOML cannot be safely spanned within budget |
+| S4 state-v2 strict wire | CW01-05,06,12 | state wire authority around lower durable DTO | `state_v2.rs`, strict JSON visitor/tests, state fixture | duplicate/unknown/reference/bounds/idempotence tests fail | exact v2 parse/serialize/validation passes | no schema1 migration or app integration |
+| S5 schema-1 migration | CW01-04,05,06 | one-way migration only | `migration.rs` plus schema1-private submodules/tests; domain mapping tests | full-field/collision/preferences/hash goldens fail | complete deterministic migration passes; schema1 symbols private to migration | no runtime facade; stop if StateV2 preference shape remains unresolved |
+| S6 writer/import | CW01-02,07,08 | persistence writer boundary and current worker integration | `writer.rs` plus platform helpers/tests; `services/persist_worker.rs`; import scenario fixtures | phase/conflict/stale-revision tests fail | atomic phases, conflict, retained draft, import, newest-authority pass | no recovery CLI; stop if a platform cannot provide required atomic replacement safely |
+| S7 recovery CLI/startup | CW01-01–09,12 integration | CLI dispatch before composition; startup consumes `ResolvedPaths` | `cli.rs`, new recovery handler modules, `main.rs`, `startup.rs`, `app_init.rs`, harness fixtures/tests | command/provider-free/malformed-startup goldens fail | all six commands and normal startup obey exact outputs/exits/side effects | no TUI/provider changes; stop if output/editor contract changes |
+| S8 effect contracts/reducer | CW01-10,11 reducer half | lower effect DTOs + deterministic reducer | effect contract modules, `messages.rs` extracted submodules, `state/mod.rs` extracted reducer modules, direct tests | bounds/correlation/completion tests fail | `apply_message` and `apply` return bounded transitions; stale completion is byte-no-op | no adapter execution; stop if payload inventory requires a new operation/subsystem |
+| S9 effect executor/composition | CW01-10,11 end-to-end | root composition and existing adapters | new `app_shell_effects.rs`/executor modules, `app_shell.rs`, affected `app_input/*`, focused tests/scenario | lock-held/all-variant/order/retry/revision scenario fails | commit-release-execute-complete pipeline passes all variants | no unrelated side-effect rewrite; stop if slice exceeds budget—split by executor family before coding |
+| S10 convergence/docs | all done criteria | delete superseded authority and document final contract | `persistence/mod.rs`, consumers/tests, `dev-docs/standards/persistence-and-runtime.md`, `dev-docs/RULES.md`, architecture docs only if DAG changes | shim/symbol scan and old-golden parity expose leftovers | one schema2 authority, schema1 only in migration, docs exact, all old/new evidence green | no optional cleanup; no permanent dual path |
+
+## Expected path inventory by layer
+
+- Persistence: `src/persistence/{paths,settings_document,state_v2,migration,writer,diagnostic}.rs` plus cohesive private parser/platform test modules; `src/persistence/mod.rs`; `src/persistence/tests.rs` must be split before adding tests because it is already near the source limit.
+- Domain/application contract: explicit ID, TypedValue/TypedMap, durable-state DTO, owner catalog, correlation/effect request/response/error/retry/transition modules; exact location depends on D7’s DAG decision and must be reflected in the normative architecture doc.
+- Reducer/messages: `src/state/mod.rs` and extracted modules; `src/messages.rs`, `src/messages/event_conversion.rs`, and extracted modules; all `apply`/`apply_message` callers required by D7.
+- Composition/adapters: `src/app_shell.rs`, new root-owned effect executor modules, bounded affected `src/app_input/*`, `src/services/persist_worker.rs`.
+- CLI/startup: `src/cli.rs`, `src/main.rs`, `src/startup.rs`, `src/app_init.rs`, new provider-free recovery handler modules.
+- Harness/tests: the nine named issue fixtures under `dev-docs/tmux-scenarios/v1/`, `tests/harness_v1_fixtures.rs`, focused integration tests, migrated/split persistence tests, unchanged prior goldens.
+- Documentation: `dev-docs/standards/persistence-and-runtime.md`, `dev-docs/RULES.md`; architecture standards only for an approved effect/DAG contract change.
+
+## Scope ledger
+
+| Date | Discovery | Disposition |
+|---|---|---|
+| 2026-07-24 | Single-PR implementation necessarily exceeds the 40-file / 2,500-line hard stop and crosses more than three layers/routes | User explicitly approved one PR and the hard-budget exceedance; use ten green commit slices inside it |
+| 2026-07-24 | Issue does not define source inventory for historical files | Accepted D1: OS-standard targets only unless explicitly overridden; old Linux data-state path is migration-only |
+| 2026-07-24 | Missing first-run parent conflicts with no-reader-write physical identity wording | Accepted D2 nearest-existing-ancestor identity |
+| 2026-07-24 | TypedMap/owner/provenance/secret contracts are absent | User delegated D3; accepted the strongest closed typed contract |
+| 2026-07-24 | Published StateV2 cannot preserve existing per-repository preferences as typed product values | Accepted D4.6 typed preferences amendment; every schema-1 disk conversion retains a content-addressed backup |
+| 2026-07-24 | Eight effect families lack closed request/response/error semantics, and preserving `apply -> Self` would drop effects | User delegated D7; accepted the clean typed transition architecture with no effect-dropping API |
+| 2026-07-24 | No-shim amendment names types/subsystems that may become superseded during CW-01 | Accepted D8: delete every implementation actually superseded by CW-01 after parity; retain no old/new branch or bug-compatibility mode |
+| 2026-07-24 | Unbounded review loops can prevent completion and invite scope growth | User capped general reviewer and OCR review/remediation cycles at two each for the entire effort; findings cannot authorize scope expansion |
+| 2026-07-24 | Automated issue-plan suggestion proposes a permanent schema-1 facade | Rejected: contradicts binding issue body/no-shim amendment |
+| 2026-07-24 | S1 RED | `cargo test --lib contract_tests` failed with unresolved closed value, diagnostic, and SHA-256 contracts as intended |
+| 2026-07-24 | S1 GREEN | 8 focused contract tests pass; `make quick-check` passes (2,396 library tests passed, 1 ignored, plus all integration/doc targets). Full Clippy is currently blocked by pre-existing Rust 1.97 `manual_is_multiple_of` findings in `src/runtime/process.rs` and `src/harness/v1/validate.rs`; S1-specific Clippy findings were fixed without suppression |
+
+## Verification and delivery gates
+
+Per RED/GREEN slice:
+
+1. Add the smallest behavioral fixture/test first and capture the expected failure.
+2. Run focused tests, then `make quick-check` before the green commit.
+3. Before each pushed green checkpoint, run `make ci-check` without changing its gates.
+4. Fetch `origin/main`, check contract-set drift, verify ancestry, and pause under the canonical drift rules.
+5. Keep each commit near 15 files / 800 net lines; explain any inseparable larger commit in this ledger.
+6. Spend at most two general-review cycles and two OCR cycles total for the entire issue. A cycle is review → classify → remediate. Every finding is Blocker-Fix, In-scope-Fix, Reject, or Defer; reviewer suggestions never expand the matrix. After cycle two, use targeted deterministic evidence rather than another review run.
+7. The final candidate must pass the issue’s exact shim/symbol scan, all prior persistence goldens, every CW01 fixture/matrix, native cross-platform CI, and full `make ci-check` at exact HEAD.
+8. The one PR must remain conflict-free with correct ancestry and use an issue-linked title that closes #381.
+
+## Approval gate result
+
+Approved by the user on 2026-07-24:
+
+- D1–D8 with OS-standard default paths, `--config` isolation, schema-1-to-2 migration with durable backups, no runtime compatibility mode, and deletion of every implementation actually superseded by CW-01.
+- D3 and D7 internal details delegated to the strongest typed architecture.
+- One PR, explicitly approved above the normal hard file/line budget, delivered through ten green commit slices.
+- Maximum two general-review/remediation cycles and two OCR/remediation cycles total; reviews cannot expand scope.
+
+RED implementation may proceed. Any later stop is limited to behavior outside the accepted matrix, a genuinely unplanned subsystem/public abstraction, dependency/workflow/quality changes, unrelated refactoring, or a blocked mandatory verification gate.
