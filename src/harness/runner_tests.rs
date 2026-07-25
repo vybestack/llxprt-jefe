@@ -329,6 +329,8 @@ fn timeout_failure_uses_failing_step_context() {
             assert_eq!(failure.step_index, 1);
             assert_eq!(failure.step_kind, "waitForExit");
             assert!(failure.reason.contains("timeout"));
+            // #396: a timeout self-diagnoses with budget and elapsed timing.
+            assert!(failure.reason.contains("budget=") && failure.reason.contains("elapsed="));
         }
         other => panic!("unexpected error: {other:?}"),
     }

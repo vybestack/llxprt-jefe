@@ -668,6 +668,8 @@ impl AppState {
             AppEvent::PrInlineCursorRight => PrInlineMsg::CursorRight,
             AppEvent::PrInlineCursorUp => PrInlineMsg::CursorUp,
             AppEvent::PrInlineCursorDown => PrInlineMsg::CursorDown,
+            AppEvent::PrInlineCursorHome => PrInlineMsg::CursorHome,
+            AppEvent::PrInlineCursorEnd => PrInlineMsg::CursorEnd,
             AppEvent::PrInlineSubmit => PrInlineMsg::Submit,
             AppEvent::PrInlineCancelOrEsc => PrInlineMsg::CancelOrEsc,
             _ => return false,

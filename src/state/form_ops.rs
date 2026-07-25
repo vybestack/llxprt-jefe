@@ -797,6 +797,11 @@ impl AppState {
                 }
                 self.error_message = None;
                 if let Some(repo) = Self::create_repository_from_fields(&fields) {
+                    // Issue #404: a freshly created repo has no agents, so under
+                    // active-only mode it would vanish immediately. Record it as
+                    // sticky so it stays visible until the user navigates away —
+                    // mirroring the sticky-dead-agent behavior (issue #116).
+                    self.sticky_empty_repository_ids.insert(repo.id.clone());
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
                     self.modal = ModalState::None;

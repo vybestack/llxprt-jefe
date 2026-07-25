@@ -24,7 +24,9 @@ impl AppState {
             | AppEvent::PrPropertyEditorTitleBackspace
             | AppEvent::PrPropertyEditorTitleDelete
             | AppEvent::PrPropertyEditorTitleCursorLeft
-            | AppEvent::PrPropertyEditorTitleCursorRight => self.apply_pr_property_editor_ui(event),
+            | AppEvent::PrPropertyEditorTitleCursorRight
+            | AppEvent::PrPropertyEditorTitleCursorHome
+            | AppEvent::PrPropertyEditorTitleCursorEnd => self.apply_pr_property_editor_ui(event),
             AppEvent::PrPropertyEditorOptionsLoaded { .. }
             | AppEvent::PrPropertyEditorOptionsFailed { .. }
             | AppEvent::PrPropertyEditSucceeded { .. }
@@ -82,6 +84,14 @@ impl AppState {
             }
             AppEvent::PrPropertyEditorTitleCursorRight => {
                 self.pr_property_title_cursor_right();
+                true
+            }
+            AppEvent::PrPropertyEditorTitleCursorHome => {
+                self.pr_property_title_cursor_home();
+                true
+            }
+            AppEvent::PrPropertyEditorTitleCursorEnd => {
+                self.pr_property_title_cursor_end();
                 true
             }
             _ => false,
@@ -354,6 +364,22 @@ impl AppState {
                 .next()
                 .map_or(0, char::len_utf8);
             editor.title_cursor += next;
+        }
+    }
+
+    fn pr_property_title_cursor_home(&mut self) {
+        if let Some(editor) = &mut self.prs_state.property_editor
+            && editor.kind == PrPropertyKind::Title
+        {
+            editor.title_cursor = 0;
+        }
+    }
+
+    fn pr_property_title_cursor_end(&mut self) {
+        if let Some(editor) = &mut self.prs_state.property_editor
+            && editor.kind == PrPropertyKind::Title
+        {
+            editor.title_cursor = editor.title_text.len();
         }
     }
 

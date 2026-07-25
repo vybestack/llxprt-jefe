@@ -26,6 +26,7 @@ pub mod list_viewport;
 pub mod local_command;
 pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
+#[doc(hidden)]
 pub mod markdown_html_strip;
 /// Plain-text markdown rendering for the detail panes (issue #155).
 pub mod markdown_render;

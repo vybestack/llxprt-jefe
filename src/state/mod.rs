@@ -21,6 +21,7 @@ mod events;
 mod form_build;
 mod form_cursor;
 mod form_delete_helpers;
+mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
@@ -100,6 +101,7 @@ pub use terminal_manager_types::{
     TerminalManagerState, status_label_for,
 };
 pub use types::*;
+pub use util::{inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical};
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
@@ -112,8 +114,6 @@ pub use form_projection::{
     next_visible_repository_focus, prev_visible_focus, prev_visible_repository_focus,
 };
 use tracing::{debug, trace};
-
-pub use util::inline_cursor_vertical;
 impl AppState {
     /// Reset terminal scrollback state to defaults (fix #4). Called from
     /// every path that changes the selected agent or repository.
@@ -122,26 +122,22 @@ impl AppState {
         self.terminal_viewport_rows = 0;
         self.terminal_total_lines = 0;
     }
-
     #[must_use]
     pub fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
-
     #[must_use]
     pub fn repository_by_id(&self, repository_id: &RepositoryId) -> Option<&Repository> {
         self.repositories
             .iter()
             .find(|repo| &repo.id == repository_id)
     }
-
     #[must_use]
     pub fn repository_for_agent(&self, agent_id: &AgentId) -> Option<&Repository> {
         let agent = self.agents.iter().find(|agent| &agent.id == agent_id)?;
         self.repository_by_id(&agent.repository_id)
     }
-
     fn remember_selected_agent_for_current_repo(&mut self) {
         let selected_repo_id = self.selected_repository_id().cloned();
         let selected_agent_id = self.selected_agent().map(|agent| agent.id.clone());
@@ -451,6 +447,7 @@ impl AppState {
         );
         if changes_selection {
             self.sticky_dead_agent_ids.clear();
+            self.sticky_empty_repository_ids.clear();
             self.dashboard_grab = None;
         }
     }
@@ -765,7 +762,6 @@ impl AppState {
             }
         }
     }
-
     fn apply_system_message(&mut self, message: SystemMessage) {
         match message {
             SystemMessage::ClearError => self.error_message = None,
@@ -778,7 +774,6 @@ impl AppState {
             auth => self.apply_auth_message(auth),
         }
     }
-
     fn handle_navigate_up(&mut self) {
         match self.pane_focus {
             PaneFocus::Repositories => {
@@ -796,13 +791,11 @@ impl AppState {
                     self.selected_agent_index = None;
                     return;
                 };
-
                 let visible_indices = self.agent_indices_for_repository(&repository_id);
                 if visible_indices.is_empty() {
                     self.selected_agent_index = None;
                     return;
                 }
-
                 let selected_local = self.selected_agent_index.and_then(|selected_idx| {
                     visible_indices
                         .iter()
@@ -846,13 +839,11 @@ impl AppState {
                     self.selected_agent_index = None;
                     return;
                 };
-
                 let visible_indices = self.agent_indices_for_repository(&repository_id);
                 if visible_indices.is_empty() {
                     self.selected_agent_index = None;
                     return;
                 }
-
                 let selected_local = self.selected_agent_index.and_then(|selected_idx| {
                     visible_indices
                         .iter()
@@ -877,6 +868,7 @@ impl AppState {
         }
     }
 }
+
 #[cfg(test)]
 #[path = "auth_ops_tests.rs"]
 mod auth_ops_tests;
@@ -884,6 +876,12 @@ mod auth_ops_tests;
 mod confirm_focus_tests;
 #[cfg(test)]
 mod errors_tests;
+#[cfg(test)]
+#[path = "form_home_end_tests.rs"]
+mod form_home_end_tests;
+#[cfg(test)]
+#[path = "issues_tests_home_end.rs"]
+mod issues_home_end_tests;
 #[cfg(test)]
 mod issues_test_fixtures;
 #[cfg(test)]

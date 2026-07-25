@@ -673,3 +673,232 @@ fn sticky_cleared_on_select_repository() {
         "SelectRepository should clear sticky and filter out the dead agent"
     );
 }
+
+// =============================================================================
+// Sticky empty-repository visibility (issue #404)
+//
+// When hide_idle_repositories is ON and the user creates a new repository
+// (which has no agents), the new repo should remain visible until ANY UI
+// navigation occurs — mirroring the sticky-dead-agent behavior (issue #116).
+// Without this, the freshly created repo disappears immediately because it
+// has no running agents.
+// =============================================================================
+
+/// Drive the real New Repository form submit path: open the modal, type a
+/// name, submit. Returns the state after submit with the new repo appended.
+fn submit_new_repository(mut state: AppState, name: &str) -> AppState {
+    state = state.apply(AppEvent::OpenNewRepository);
+    for c in name.chars() {
+        state = state.apply(AppEvent::FormChar(c));
+    }
+    state.apply(AppEvent::SubmitForm)
+}
+
+/// Test 1 (A1): With hide_idle_repositories=true, submit the New Repository
+/// form. The new repo has no agents, but it must remain visible and be the
+/// selected repository so the user lands on it.
+#[test]
+fn new_repository_stays_visible_when_active_only_on() {
+    // Start with one repo that has a running agent so active-only is useful.
+    let mut state = AppState {
+        repositories: vec![repository("r1")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: true,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    let after = submit_new_repository(state, "NewRepo");
+
+    // The new repo is the last one pushed.
+    let new_repo_idx = after.repositories.len() - 1;
+    let visible_repos = after.visible_repository_indices();
+    assert!(
+        visible_repos.contains(&new_repo_idx),
+        "newly created empty repo must remain visible under active-only mode (issue #404)"
+    );
+
+    // And it should be the selected repository (form submit selects it).
+    assert_eq!(
+        after.selected_repository_index,
+        Some(new_repo_idx),
+        "new repo should be selected after submit"
+    );
+}
+
+/// Test 2 (A2): After creating a sticky empty repo, navigating away should
+/// clear the sticky set and the empty repo should be filtered out.
+#[test]
+fn navigate_after_new_repo_filters_empty_repo() {
+    let mut state = AppState {
+        repositories: vec![repository("r1"), repository("r2")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: true,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    let created = submit_new_repository(state, "NewRepo");
+    let new_repo_idx = created.repositories.len() - 1;
+    assert!(created.visible_repository_indices().contains(&new_repo_idx));
+
+    // Navigate down — clears sticky, empty new repo should be filtered out.
+    let after_nav = created.apply(AppEvent::NavigateDown);
+    let visible_after = after_nav.visible_repository_indices();
+    assert!(
+        !visible_after.contains(&new_repo_idx),
+        "after navigation, the empty new repo should be filtered out"
+    );
+}
+
+/// Test 3 (A3): Create the repo while the filter is OFF, then toggle the
+/// filter ON. Toggling is a display change, not navigation, so the sticky
+/// set must persist and the empty repo stays visible.
+#[test]
+fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
+    let mut state = AppState {
+        repositories: vec![repository("r1")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: false,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    // Create while filter OFF.
+    let created = submit_new_repository(state, "NewRepo");
+    let new_repo_idx = created.repositories.len() - 1;
+
+    // Toggle filter ON — must NOT clear sticky.
+    let toggled = created.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(toggled.hide_idle_repositories);
+    assert!(
+        toggled.visible_repository_indices().contains(&new_repo_idx),
+        "toggling filter ON should NOT clear sticky — empty new repo stays visible"
+    );
+
+    // Now navigate — sticky clears, empty repo filtered out.
+    let navigated = toggled.apply(AppEvent::NavigateDown);
+    assert!(
+        !navigated
+            .visible_repository_indices()
+            .contains(&new_repo_idx),
+        "after navigation, sticky is cleared and empty new repo is filtered out"
+    );
+}
+
+/// Test 4 (A4): SelectRepository (even to the same index) is a navigation
+/// message and must clear the sticky set.
+#[test]
+fn sticky_cleared_on_select_repository_after_new_repo() {
+    let mut state = AppState {
+        repositories: vec![repository("r1")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: true,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    let created = submit_new_repository(state, "NewRepo");
+    let new_repo_idx = created.repositories.len() - 1;
+
+    // SelectRepository is navigation — clears sticky.
+    let after_select = created.apply(AppEvent::SelectRepository(new_repo_idx));
+    assert!(
+        !after_select
+            .visible_repository_indices()
+            .contains(&new_repo_idx),
+        "SelectRepository should clear sticky and filter out the empty new repo"
+    );
+}
+
+/// Test 5 (A5): Create multiple empty repos in succession. All should be
+/// sticky until navigation clears them.
+#[test]
+fn multiple_new_repos_all_sticky() {
+    let mut state = AppState {
+        repositories: vec![repository("r1")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: true,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    let first = submit_new_repository(state, "NewOne");
+    let first_idx = first.repositories.len() - 1;
+    let second = submit_new_repository(first, "NewTwo");
+    let second_idx = second.repositories.len() - 1;
+
+    let visible = second.visible_repository_indices();
+    assert!(
+        visible.contains(&first_idx),
+        "first new repo should be sticky-visible"
+    );
+    assert!(
+        visible.contains(&second_idx),
+        "second new repo should be sticky-visible"
+    );
+
+    // Navigate away — both filtered out (only r1 with its running agent remains).
+    let after_nav = second.apply(AppEvent::NavigateDown);
+    let visible_after = after_nav.visible_repository_indices();
+    assert!(
+        !visible_after.contains(&first_idx) && !visible_after.contains(&second_idx),
+        "after navigation, both empty new repos should be filtered out"
+    );
+}
+
+/// Test 6 (A6): The new-repo sticky mechanism must not interfere with the
+/// existing sticky-dead-agent behavior. Kill an agent (sticky-dead), then
+/// create a new repo (sticky-empty). Both stickies must hold until nav.
+#[test]
+fn new_repo_sticky_coexists_with_sticky_dead_agent() {
+    let mut state = AppState {
+        repositories: vec![repository("r1")],
+        agents: vec![running_agent("a1", "Agent One", "r1")],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        hide_idle_repositories: true,
+        ..AppState::default()
+    };
+    state.normalize_selection_indices();
+
+    // Kill the agent (sticky-dead keeps r1 visible).
+    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    // Create a new empty repo (sticky-empty keeps it visible).
+    let created = submit_new_repository(killed, "NewRepo");
+    let new_repo_idx = created.repositories.len() - 1;
+
+    let visible = created.visible_repository_indices();
+    assert!(
+        visible.contains(&0),
+        "r1 should remain visible via sticky-dead-agent"
+    );
+    assert!(
+        visible.contains(&new_repo_idx),
+        "new empty repo should be visible via sticky-empty-repo"
+    );
+
+    // Navigate — both stickies clear. r1 has a dead agent, new repo is empty.
+    let after_nav = created.apply(AppEvent::NavigateDown);
+    let visible_after = after_nav.visible_repository_indices();
+    assert!(
+        visible_after.is_empty(),
+        "after navigation, both stickies clear and no repo has a running agent"
+    );
+}

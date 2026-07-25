@@ -4,6 +4,7 @@
     "rows": 25,
     "history_limit": 2000,
     "initial_wait_ms": 100,
+    "wait_timeout_ms": 30000,
     "assert_mode": "strict"
   },
   "steps": [

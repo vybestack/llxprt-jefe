@@ -349,6 +349,12 @@ pub struct AppState {
     /// mode until the user navigates away. Runtime-only — not persisted.
     pub sticky_dead_agent_ids: std::collections::HashSet<crate::domain::AgentId>,
 
+    /// Repository IDs that were just created (and therefore have no agents)
+    /// and should remain visible in active-only mode until the user navigates
+    /// away. Mirrors `sticky_dead_agent_ids` (issue #116) for the new-repo
+    /// case (issue #404). Runtime-only — not persisted.
+    pub sticky_empty_repository_ids: std::collections::HashSet<RepositoryId>,
+
     // Modal/form state
     pub modal: ModalState,
 

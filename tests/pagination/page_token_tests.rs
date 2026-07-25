@@ -33,6 +33,12 @@ fn rest_page_without_more_yields_done() {
 }
 
 #[test]
+fn rest_page_max_with_more_yields_done() {
+    let token = PageToken::after_page(u32::MAX, true);
+    assert_eq!(token, PageToken::Done);
+}
+
+#[test]
 fn has_more_true_only_for_non_done() {
     assert!(PageToken::Cursor("x".to_string()).has_more());
     assert!(PageToken::PageNumber(5).has_more());
@@ -40,8 +46,10 @@ fn has_more_true_only_for_non_done() {
 }
 
 #[test]
-fn list_request_id_default_is_zero() {
-    assert_eq!(ListRequestId::default().get(), 0);
+fn list_request_id_default_matches_raw_zero_and_increments() {
+    let zero = ListRequestId::from_raw(0);
+    assert_eq!(ListRequestId::default(), zero);
+    assert_eq!(zero.checked_next(), Some(ListRequestId::from_raw(1)));
 }
 
 #[test]

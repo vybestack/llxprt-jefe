@@ -71,6 +71,8 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormDelete => Self::Modal(ModalMessage::FormDelete),
             AppEvent::FormMoveCursorLeft => Self::Modal(ModalMessage::FormMoveCursorLeft),
             AppEvent::FormMoveCursorRight => Self::Modal(ModalMessage::FormMoveCursorRight),
+            AppEvent::FormMoveCursorStart => Self::Modal(ModalMessage::FormMoveCursorStart),
+            AppEvent::FormMoveCursorEnd => Self::Modal(ModalMessage::FormMoveCursorEnd),
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
@@ -386,6 +388,8 @@ impl AppMessage {
                 | AppEvent::InlineCursorRight
                 | AppEvent::InlineCursorUp
                 | AppEvent::InlineCursorDown
+                | AppEvent::InlineCursorHome
+                | AppEvent::InlineCursorEnd
                 | AppEvent::InlineSubmit
                 | AppEvent::InlineCancelOrEsc
                 | AppEvent::RequestIssueRewrite
@@ -440,6 +444,8 @@ impl AppMessage {
                 | AppEvent::IssuePropertyEditorTitleDelete
                 | AppEvent::IssuePropertyEditorTitleCursorLeft
                 | AppEvent::IssuePropertyEditorTitleCursorRight
+                | AppEvent::IssuePropertyEditorTitleCursorHome
+                | AppEvent::IssuePropertyEditorTitleCursorEnd
                 | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
                 | AppEvent::IssuePropertyEditorOptionsFailed { .. }
                 | AppEvent::IssuePropertyEditSucceeded { .. }
@@ -538,6 +544,8 @@ impl From<ModalMessage> for AppEvent {
             ModalMessage::FormDelete => Self::FormDelete,
             ModalMessage::FormMoveCursorLeft => Self::FormMoveCursorLeft,
             ModalMessage::FormMoveCursorRight => Self::FormMoveCursorRight,
+            ModalMessage::FormMoveCursorStart => Self::FormMoveCursorStart,
+            ModalMessage::FormMoveCursorEnd => Self::FormMoveCursorEnd,
             ModalMessage::FormNextField => Self::FormNextField,
             ModalMessage::FormPrevField => Self::FormPrevField,
             ModalMessage::FormToggleCheckbox => Self::FormToggleCheckbox,

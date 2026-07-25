@@ -251,6 +251,8 @@ impl IssuesMessage {
             | AppEvent::InlineCursorRight
             | AppEvent::InlineCursorUp
             | AppEvent::InlineCursorDown
+            | AppEvent::InlineCursorHome
+            | AppEvent::InlineCursorEnd
             | AppEvent::InlineSubmit
             | AppEvent::InlineCancelOrEsc
             | AppEvent::RequestIssueRewrite
@@ -303,6 +305,8 @@ impl IssuesMessage {
             AppEvent::InlineCursorRight => Self::InlineCursorRight,
             AppEvent::InlineCursorUp => Self::InlineCursorUp,
             AppEvent::InlineCursorDown => Self::InlineCursorDown,
+            AppEvent::InlineCursorHome => Self::InlineCursorHome,
+            AppEvent::InlineCursorEnd => Self::InlineCursorEnd,
             AppEvent::InlineSubmit => Self::InlineSubmit,
             AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
             AppEvent::RequestIssueRewrite => Self::RequestIssueRewrite,
@@ -667,6 +671,8 @@ impl IssuesMessage {
             | Self::InlineCursorRight
             | Self::InlineCursorUp
             | Self::InlineCursorDown
+            | Self::InlineCursorHome
+            | Self::InlineCursorEnd
             | Self::InlineSubmit
             | Self::InlineCancelOrEsc
             | Self::RequestIssueRewrite
@@ -717,6 +723,8 @@ impl IssuesMessage {
             Self::InlineCursorRight => AppEvent::InlineCursorRight,
             Self::InlineCursorUp => AppEvent::InlineCursorUp,
             Self::InlineCursorDown => AppEvent::InlineCursorDown,
+            Self::InlineCursorHome => AppEvent::InlineCursorHome,
+            Self::InlineCursorEnd => AppEvent::InlineCursorEnd,
             Self::InlineSubmit => AppEvent::InlineSubmit,
             Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
             Self::RequestIssueRewrite => AppEvent::RequestIssueRewrite,

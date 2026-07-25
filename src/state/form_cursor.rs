@@ -3,7 +3,9 @@ use super::types::{
     RepositoryFormFocus, WorkflowDispatchFormCursor, WorkflowDispatchFormFields,
     WorkflowDispatchFormFocus,
 };
-use super::util::{insert_char_at, move_cursor_left, move_cursor_right};
+use super::util::{
+    insert_char_at, move_cursor_end, move_cursor_left, move_cursor_right, move_cursor_start,
+};
 
 fn insert_repository_char(value: &mut String, cursor: &mut usize, c: char) {
     *cursor = insert_char_at(value, *cursor, c);
@@ -292,6 +294,150 @@ pub(super) fn move_workflow_dispatch_field_cursor_right(
     }
 }
 
+pub(super) fn move_repository_field_cursor_start(
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {}
+        RepositoryFormFocus::Name => cursor.name = move_cursor_start(),
+        RepositoryFormFocus::BaseDir => cursor.base_dir = move_cursor_start(),
+        RepositoryFormFocus::DefaultProfile => cursor.default_profile = move_cursor_start(),
+        RepositoryFormFocus::DefaultCodePuppyModel => {
+            cursor.default_code_puppy_model = move_cursor_start();
+        }
+        RepositoryFormFocus::DefaultCodePuppyVersion => {
+            cursor.default_code_puppy_version = move_cursor_start();
+        }
+        RepositoryFormFocus::DefaultLlxprtMode => cursor.default_llxprt_mode = move_cursor_start(),
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_start();
+        }
+        RepositoryFormFocus::GitHubRepo => cursor.github_repo = move_cursor_start(),
+        RepositoryFormFocus::IssuePrRepo => cursor.github_issue_pr_repo = move_cursor_start(),
+        RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_start(),
+        RepositoryFormFocus::Host => cursor.host = move_cursor_start(),
+        RepositoryFormFocus::SshPort => cursor.ssh_port = move_cursor_start(),
+        RepositoryFormFocus::IdentityFile => cursor.identity_file = move_cursor_start(),
+        RepositoryFormFocus::SshOptions => cursor.ssh_options = move_cursor_start(),
+        RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_start(),
+        RepositoryFormFocus::TransientAgentDir => cursor.transient_agent_dir = move_cursor_start(),
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_start();
+        }
+    }
+}
+
+pub(super) fn move_repository_field_cursor_end(
+    fields: &RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {}
+        RepositoryFormFocus::Name => cursor.name = move_cursor_end(&fields.name),
+        RepositoryFormFocus::BaseDir => cursor.base_dir = move_cursor_end(&fields.base_dir),
+        RepositoryFormFocus::DefaultProfile => {
+            cursor.default_profile = move_cursor_end(&fields.default_profile);
+        }
+        RepositoryFormFocus::DefaultCodePuppyModel => {
+            cursor.default_code_puppy_model = move_cursor_end(&fields.default_code_puppy_model);
+        }
+        RepositoryFormFocus::DefaultCodePuppyVersion => {
+            cursor.default_code_puppy_version = move_cursor_end(&fields.default_code_puppy_version);
+        }
+        RepositoryFormFocus::DefaultLlxprtMode => {
+            cursor.default_llxprt_mode = move_cursor_end(&fields.default_llxprt_mode);
+        }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_end(&fields.default_llxprt_version);
+        }
+        RepositoryFormFocus::GitHubRepo => {
+            cursor.github_repo = move_cursor_end(&fields.github_repo);
+        }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo = move_cursor_end(&fields.github_issue_pr_repo);
+        }
+        RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_end(&fields.login_user),
+        RepositoryFormFocus::Host => cursor.host = move_cursor_end(&fields.host),
+        RepositoryFormFocus::SshPort => cursor.ssh_port = move_cursor_end(&fields.ssh_port),
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_end(&fields.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_end(&fields.ssh_options);
+        }
+        RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_end(&fields.run_as_user),
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir = move_cursor_end(&fields.transient_agent_dir);
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_end(&fields.transient_max_concurrent);
+        }
+    }
+}
+
+pub(super) fn move_agent_field_cursor_start(cursor: &mut AgentFormCursor, focus: AgentFormFocus) {
+    match focus {
+        AgentFormFocus::Shortcut
+        | AgentFormFocus::AgentKind
+        | AgentFormFocus::CodePuppyYolo
+        | AgentFormFocus::CodePuppyQuickResume
+        | AgentFormFocus::PassContinue
+        | AgentFormFocus::Sandbox
+        | AgentFormFocus::SandboxEngine => {}
+        AgentFormFocus::Name => cursor.name = move_cursor_start(),
+        AgentFormFocus::Description => cursor.description = move_cursor_start(),
+        AgentFormFocus::WorkDir => cursor.work_dir = move_cursor_start(),
+        AgentFormFocus::Profile => cursor.profile = move_cursor_start(),
+        AgentFormFocus::CodePuppyModel => cursor.code_puppy_model = move_cursor_start(),
+        AgentFormFocus::CodePuppyVersion => cursor.code_puppy_version = move_cursor_start(),
+        AgentFormFocus::Mode => cursor.mode = move_cursor_start(),
+        AgentFormFocus::LlxprtVersion => cursor.llxprt_version = move_cursor_start(),
+        AgentFormFocus::LlxprtDebug => cursor.llxprt_debug = move_cursor_start(),
+        AgentFormFocus::SandboxFlags => cursor.sandbox_flags = move_cursor_start(),
+    }
+}
+
+pub(super) fn move_agent_field_cursor_end(
+    fields: &AgentFormFields,
+    cursor: &mut AgentFormCursor,
+    focus: AgentFormFocus,
+) {
+    match focus {
+        AgentFormFocus::Shortcut
+        | AgentFormFocus::AgentKind
+        | AgentFormFocus::CodePuppyYolo
+        | AgentFormFocus::CodePuppyQuickResume
+        | AgentFormFocus::PassContinue
+        | AgentFormFocus::Sandbox
+        | AgentFormFocus::SandboxEngine => {}
+        AgentFormFocus::Name => cursor.name = move_cursor_end(&fields.name),
+        AgentFormFocus::Description => cursor.description = move_cursor_end(&fields.description),
+        AgentFormFocus::WorkDir => cursor.work_dir = move_cursor_end(&fields.work_dir),
+        AgentFormFocus::Profile => cursor.profile = move_cursor_end(&fields.profile),
+        AgentFormFocus::CodePuppyModel => {
+            cursor.code_puppy_model = move_cursor_end(&fields.code_puppy_model);
+        }
+        AgentFormFocus::CodePuppyVersion => {
+            cursor.code_puppy_version = move_cursor_end(&fields.code_puppy_version);
+        }
+        AgentFormFocus::Mode => cursor.mode = move_cursor_end(&fields.mode),
+        AgentFormFocus::LlxprtVersion => {
+            cursor.llxprt_version = move_cursor_end(&fields.llxprt_version);
+        }
+        AgentFormFocus::LlxprtDebug => cursor.llxprt_debug = move_cursor_end(&fields.llxprt_debug),
+        AgentFormFocus::SandboxFlags => {
+            cursor.sandbox_flags = move_cursor_end(&fields.sandbox_flags);
+        }
+    }
+}
 pub(super) fn move_repository_field_cursor_left(
     cursor: &mut RepositoryFormCursor,
     focus: RepositoryFormFocus,

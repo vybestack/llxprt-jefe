@@ -16,7 +16,7 @@
 
 use super::{
     AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind,
-    inline_cursor_vertical,
+    inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical,
 };
 use crate::messages::PrInlineMsg;
 
@@ -308,6 +308,20 @@ impl AppState {
             PrInlineMsg::CursorRight => {
                 Self::pr_move_inline_cursor_right(&mut self.prs_state.inline_state);
             }
+            PrInlineMsg::CursorHome => {
+                if let Some((text, cursor)) =
+                    Self::pr_active_inline_text(&mut self.prs_state.inline_state)
+                {
+                    inline_cursor_line_start(text, cursor);
+                }
+            }
+            PrInlineMsg::CursorEnd => {
+                if let Some((text, cursor)) =
+                    Self::pr_active_inline_text(&mut self.prs_state.inline_state)
+                {
+                    inline_cursor_line_end(text, cursor);
+                }
+            }
             PrInlineMsg::Submit => {
                 self.pr_inline_submit();
             }
@@ -357,6 +371,8 @@ impl AppState {
                 | PrInlineMsg::CursorRight
                 | PrInlineMsg::CursorUp
                 | PrInlineMsg::CursorDown
+                | PrInlineMsg::CursorHome
+                | PrInlineMsg::CursorEnd
         )
     }
 

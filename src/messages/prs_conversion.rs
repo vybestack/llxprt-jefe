@@ -329,6 +329,8 @@ impl PullRequestsMessage {
             AppEvent::PrInlineCursorRight => Self::Inline(PrInlineMsg::CursorRight),
             AppEvent::PrInlineCursorUp => Self::Inline(PrInlineMsg::CursorUp),
             AppEvent::PrInlineCursorDown => Self::Inline(PrInlineMsg::CursorDown),
+            AppEvent::PrInlineCursorHome => Self::Inline(PrInlineMsg::CursorHome),
+            AppEvent::PrInlineCursorEnd => Self::Inline(PrInlineMsg::CursorEnd),
             AppEvent::PrInlineSubmit => Self::Inline(PrInlineMsg::Submit),
             AppEvent::PrInlineCancelOrEsc => Self::Inline(PrInlineMsg::CancelOrEsc),
             other => Self::from_app_event_mutation_and_agent(other),
@@ -458,27 +460,37 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
-            AppEvent::PrOpenPropertyEditor { .. }
-            | AppEvent::PrPropertyEditorNavigateUp
-            | AppEvent::PrPropertyEditorNavigateDown
-            | AppEvent::PrPropertyEditorToggle
-            | AppEvent::PrPropertyEditorConfirm
-            | AppEvent::PrPropertyEditorCancel
-            | AppEvent::PrPropertyEditorTitleChar(_)
-            | AppEvent::PrPropertyEditorTitleBackspace
-            | AppEvent::PrPropertyEditorTitleDelete
-            | AppEvent::PrPropertyEditorTitleCursorLeft
-            | AppEvent::PrPropertyEditorTitleCursorRight
-            | AppEvent::PrPropertyEditorOptionsLoaded { .. }
-            | AppEvent::PrPropertyEditorOptionsFailed { .. }
-            | AppEvent::PrPropertyEditSucceeded { .. }
-            | AppEvent::PrPostMutationRefreshStarted
-            | AppEvent::PrPropertyEditFailed { .. }
-            | AppEvent::PrPropertyEditorValidationError { .. } => {
-                Self::from_app_event_property(event)
+            property if Self::is_pr_property_app_event(&property) => {
+                Self::from_app_event_property(property)
             }
             _ => unreachable!("non-PR AppEvent routed to PR converter"),
         }
+    }
+
+    /// Whether an `AppEvent` is a PR property-editor event.
+    fn is_pr_property_app_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::PrOpenPropertyEditor { .. }
+                | AppEvent::PrPropertyEditorNavigateUp
+                | AppEvent::PrPropertyEditorNavigateDown
+                | AppEvent::PrPropertyEditorToggle
+                | AppEvent::PrPropertyEditorConfirm
+                | AppEvent::PrPropertyEditorCancel
+                | AppEvent::PrPropertyEditorTitleChar(_)
+                | AppEvent::PrPropertyEditorTitleBackspace
+                | AppEvent::PrPropertyEditorTitleDelete
+                | AppEvent::PrPropertyEditorTitleCursorLeft
+                | AppEvent::PrPropertyEditorTitleCursorRight
+                | AppEvent::PrPropertyEditorTitleCursorHome
+                | AppEvent::PrPropertyEditorTitleCursorEnd
+                | AppEvent::PrPropertyEditorOptionsLoaded { .. }
+                | AppEvent::PrPropertyEditorOptionsFailed { .. }
+                | AppEvent::PrPropertyEditSucceeded { .. }
+                | AppEvent::PrPostMutationRefreshStarted
+                | AppEvent::PrPropertyEditFailed { .. }
+                | AppEvent::PrPropertyEditorValidationError { .. }
+        )
     }
 
     /// Convert this PR-domain message back into the [`AppEvent`].
@@ -789,6 +801,8 @@ impl PullRequestsMessage {
             Self::Inline(PrInlineMsg::CursorRight) => AppEvent::PrInlineCursorRight,
             Self::Inline(PrInlineMsg::CursorUp) => AppEvent::PrInlineCursorUp,
             Self::Inline(PrInlineMsg::CursorDown) => AppEvent::PrInlineCursorDown,
+            Self::Inline(PrInlineMsg::CursorHome) => AppEvent::PrInlineCursorHome,
+            Self::Inline(PrInlineMsg::CursorEnd) => AppEvent::PrInlineCursorEnd,
             Self::Inline(PrInlineMsg::Submit) => AppEvent::PrInlineSubmit,
             Self::Inline(PrInlineMsg::CancelOrEsc) => AppEvent::PrInlineCancelOrEsc,
             other => other.into_app_event_mutation_and_agent(),
@@ -929,6 +943,8 @@ impl PullRequestsMessage {
             | Self::PropertyEditorTitleDelete
             | Self::PropertyEditorTitleCursorLeft
             | Self::PropertyEditorTitleCursorRight
+            | Self::PropertyEditorTitleCursorHome
+            | Self::PropertyEditorTitleCursorEnd
             | Self::PropertyEditorOptionsLoaded { .. }
             | Self::PropertyEditorOptionsFailed { .. }
             | Self::PropertyEditSucceeded { .. }

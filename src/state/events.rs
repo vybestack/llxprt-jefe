@@ -71,6 +71,8 @@ pub enum AppEvent {
     FormDelete,
     FormMoveCursorLeft,
     FormMoveCursorRight,
+    FormMoveCursorStart,
+    FormMoveCursorEnd,
     FormNextField,
     FormPrevField,
     FormToggleCheckbox,
@@ -298,6 +300,12 @@ pub enum AppEvent {
     InlineCursorRight,
     InlineCursorUp,
     InlineCursorDown,
+    /// Move the inline composer/editor caret to the start of the current
+    /// logical line (Home key, issue #406).
+    InlineCursorHome,
+    /// Move the inline composer/editor caret to the end of the current
+    /// logical line (End key, issue #406).
+    InlineCursorEnd,
     InlineSubmit,
     InlineCancelOrEsc,
     /// Ask the configured default agent to rewrite the current new-issue
@@ -549,6 +557,12 @@ pub enum AppEvent {
     PrInlineCursorRight,
     PrInlineCursorUp,
     PrInlineCursorDown,
+    /// Move the PR composer/editor caret to the start of the current logical
+    /// line (Home key, issue #406).
+    PrInlineCursorHome,
+    /// Move the PR composer/editor caret to the end of the current logical
+    /// line (End key, issue #406).
+    PrInlineCursorEnd,
     PrInlineSubmit,
     PrInlineCancelOrEsc,
     PrCommentCreated {
@@ -790,6 +804,8 @@ pub enum AppEvent {
     IssuePropertyEditorTitleDelete,
     IssuePropertyEditorTitleCursorLeft,
     IssuePropertyEditorTitleCursorRight,
+    IssuePropertyEditorTitleCursorHome,
+    IssuePropertyEditorTitleCursorEnd,
     IssuePropertyEditorOptionsLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -841,6 +857,8 @@ pub enum AppEvent {
     PrPropertyEditorTitleDelete,
     PrPropertyEditorTitleCursorLeft,
     PrPropertyEditorTitleCursorRight,
+    PrPropertyEditorTitleCursorHome,
+    PrPropertyEditorTitleCursorEnd,
     PrPropertyEditorOptionsLoaded {
         scope_repo_id: RepositoryId,
         pr_number: u64,

@@ -285,6 +285,8 @@ pub fn handle_mode_form_key(
         KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
         KeyCode::Left => Some(AppEvent::FormMoveCursorLeft),
         KeyCode::Right => Some(AppEvent::FormMoveCursorRight),
+        KeyCode::Home => Some(AppEvent::FormMoveCursorStart),
+        KeyCode::End => Some(AppEvent::FormMoveCursorEnd),
         KeyCode::Backspace => Some(AppEvent::FormBackspace),
         KeyCode::Delete => Some(AppEvent::FormDelete),
         KeyCode::Char(' ') => handle_form_space(app_state, ctx),
