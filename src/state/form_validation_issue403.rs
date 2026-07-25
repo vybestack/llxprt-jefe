@@ -64,6 +64,7 @@ impl AppState {
         agents: &[crate::domain::Agent],
     ) -> Result<(), String> {
         let new_name = fields.name.trim().to_lowercase();
+        let new_name_display = fields.name.trim().to_owned();
         let new_work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir);
         for agent in agents {
             if Some(&agent.id) == exclude_id {
@@ -74,8 +75,7 @@ impl AppState {
             }
             if !new_name.is_empty() && agent.name.trim().to_lowercase() == new_name {
                 return Err(format!(
-                    "An agent named '{}' already exists in this repository",
-                    fields.name.trim()
+                    "An agent named '{new_name_display}' already exists in this repository"
                 ));
             }
             if let Some(ref new_dir) = new_work_dir
@@ -94,6 +94,13 @@ impl AppState {
 /// Whether a version string contains internal whitespace after trimming
 /// surrounding whitespace. Used for pre-submit validation so the user gets
 /// an inline error instead of silent sanitization (issue #403).
+///
+/// Returns `true` when the trimmed value still contains whitespace
+/// characters — i.e., there is embedded whitespace between non-whitespace
+/// content. Surrounding-only whitespace (which `normalize`/`strip_internal_whitespace`
+/// will remove) does **not** trigger this check, so `" nightly "` is accepted.
+/// A whitespace-only string (`"   "`) trims to empty and is left to required-
+/// field validation.
 pub(super) fn has_internal_whitespace(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.is_empty() {

@@ -204,7 +204,11 @@ pub fn code_puppy_uvx_from_spec(version: &str) -> Option<String> {
     if sanitized.is_empty() {
         return None;
     }
-    if is_version_sentinel(&sanitized) {
+    // After stripping embedded whitespace, the compound sentinel "latest nightly"
+    // becomes "latestnightly" — reconstruct the spaced form so sentinel detection
+    // still recognizes it (matches the npm path's sentinel_with_spaces handling).
+    let sentinel_form = sentinel_with_spaces(&sanitized);
+    if is_version_sentinel(&sentinel_form) {
         return Some(CODE_PUPPY_PACKAGE.to_owned());
     }
     Some(format!("{CODE_PUPPY_PACKAGE}=={sanitized}"))
