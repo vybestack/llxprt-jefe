@@ -407,6 +407,7 @@ impl AppState {
         );
         if changes_selection {
             self.sticky_dead_agent_ids.clear();
+            self.sticky_empty_repository_ids.clear();
             self.dashboard_grab = None;
         }
     }
