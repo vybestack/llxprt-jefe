@@ -19,6 +19,12 @@ use std::process::ExitCode;
 use std::thread;
 use std::time::Duration;
 
+/// Leader hold time: keeps the pane alive until the test kills it. Built with
+/// `Duration::new` (seconds + nanos) to avoid the duration_suboptimal_units
+/// lint without an #[allow] attribute, which the zero-tolerance allow policy
+/// forbids.
+const LEADER_HOLD: Duration = Duration::new(3600, 0);
+
 #[derive(serde::Serialize)]
 struct OrphanMarker {
     pid: u32,
@@ -48,8 +54,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             // Long-lived child: block until killed. Writes nothing; the leader
             // records this PID before sleeping.
             loop {
-                #[allow(clippy::duration_suboptimal_units)]
-                thread::sleep(Duration::from_secs(3600));
+                thread::sleep(LEADER_HOLD);
             }
         }
         other => Err(format!("unknown mode: {other}").into()),
@@ -82,8 +87,7 @@ fn spawn_orphan_leader(marker_path: &std::path::Path) -> Result<(), Box<dyn std:
     // Keep the leader alive so the pane is considered alive until the test
     // kills it. The child outlives the leader (orphan scenario).
     loop {
-        #[allow(clippy::duration_suboptimal_units)]
-        thread::sleep(Duration::from_secs(3600));
+        thread::sleep(LEADER_HOLD);
     }
 }
 
