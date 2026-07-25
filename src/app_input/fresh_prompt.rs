@@ -42,7 +42,10 @@ const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
     "complexity, source-size, safety, coverage, cross-platform, or CI requirements."
 );
 
-fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_content: &str) -> String {
+pub(super) fn fresh_prompt_instruction(
+    prompt_kind: FreshPromptKind,
+    prompt_content: &str,
+) -> String {
     let truncated = truncate_prompt_content(prompt_content);
     let label = prompt_kind.label();
     let base = format!("Read and work on the following GitHub {label}.\n\n{truncated}");
@@ -54,16 +57,84 @@ fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_content: &str) 
 
 /// Maximum prompt content length (in bytes) before truncation.
 ///
+/// Maximum prompt content length (in bytes) before truncation.
+///
 /// Cross-platform safe bound that stays well under the smallest OS
 /// command-line length limit (Windows CreateProcess: ~32 KB). The
 /// `ISSUE_DELIVERY_WORKFLOW` appendix adds ~1.5 KB for issues.
-const MAX_PROMPT_CONTENT_BYTES: usize = 24_000;
+///
+/// Note: the binding constraint on Unix is **tmux's pane-command limit**
+/// (~16,340 bytes on tmux 3.x), not the OS `ARG_MAX`. Prompt content that
+/// exceeds [`PROMPT_COMPACTION_THRESHOLD_BYTES`] is compacted to a preview +
+/// `gh` fetch reference well before this ceiling, so truncation is a
+/// last-resort safety net only (issue #409).
+pub(super) const MAX_PROMPT_CONTENT_BYTES: usize = 24_000;
+
+/// Prompt content length (in bytes) above which the body is compacted to a
+/// short preview + `gh issue/pr view --comments` fetch reference instead of
+/// being inlined verbatim.
+///
+/// Sized so that the compacted prompt — including metadata, base prompt, the
+/// `ISSUE_DELIVERY_WORKFLOW` appendix (~1.5 KB for issues), and the
+/// instruction framing — stays comfortably under tmux's pane-command limit
+/// (~16,340 bytes). Measured on tmux 3.7b: 16,330 bytes OK, 16,340 TOO LONG.
+///
+/// The agent runs in a checked-out git repo with `gh` available and
+/// authenticated, so it can fetch the full live issue/PR content itself —
+/// strictly better than a truncated copy (issue #409).
+pub(super) const PROMPT_COMPACTION_THRESHOLD_BYTES: usize = 10_000;
+
+/// Maximum number of bytes of preview content to show before the fetch
+/// reference in a compacted prompt.
+const COMPACTION_PREVIEW_BYTES: usize = 2_000;
+
+/// Compact prompt content that exceeds [`PROMPT_COMPACTION_THRESHOLD_BYTES`]
+/// to a short preview + a `gh` fetch instruction, so the full prompt stays
+/// within tmux's pane-command length limit.
+///
+/// The agent runs `gh` natively in the checked-out repo, so the `fetch_command`
+/// tells it exactly how to retrieve the full, live content. Content at or
+/// below the threshold passes through unchanged.
+///
+/// The `fetch_command` should be the exact shell command the agent should run,
+/// e.g. `gh issue view 42 --repo owner/repo --comments` or
+/// `gh pr view 42 --repo owner/repo --comments`.
+#[must_use]
+pub(super) fn compact_prompt_content(content: &str, fetch_command: &str) -> String {
+    if content.len() <= PROMPT_COMPACTION_THRESHOLD_BYTES {
+        return content.to_owned();
+    }
+    // Find the last char boundary at or before the preview limit.
+    let mut preview_end = COMPACTION_PREVIEW_BYTES.min(content.len());
+    while preview_end > 0 && !content.is_char_boundary(preview_end) {
+        preview_end -= 1;
+    }
+    let preview = &content[..preview_end];
+    let omitted = content.len().saturating_sub(preview_end);
+    format!(
+        "{preview}
+
+\
+         [... {omitted} more bytes omitted — run the command below to fetch the full content ...]
+
+\
+         Fetch the full content with: {fetch_command}
+
+\
+         This compact reference was generated because the original content exceeded the \
+         command-line length limit."
+    )
+}
 
 /// Truncate prompt content if it exceeds the byte budget.
 ///
 /// Truncation adds a visible `[... truncated ...]` marker so the agent knows
 /// the content was cut. The cut happens at a character boundary to avoid
 /// splitting multi-byte UTF-8.
+///
+/// This is a last-resort safety net: normal prompts are compacted by
+/// [`compact_prompt_content`] at the formatter layer (issue #409) well before
+/// this ceiling is reached.
 fn truncate_prompt_content(content: &str) -> String {
     if content.len() <= MAX_PROMPT_CONTENT_BYTES {
         return content.to_owned();
