@@ -48,7 +48,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             // Long-lived child: block until killed. Writes nothing; the leader
             // records this PID before sleeping.
             loop {
-                thread::sleep(Duration::from_hours(1));
+                #[allow(clippy::duration_suboptimal_units)]
+                thread::sleep(Duration::from_secs(3600));
             }
         }
         other => Err(format!("unknown mode: {other}").into()),
@@ -81,7 +82,8 @@ fn spawn_orphan_leader(marker_path: &std::path::Path) -> Result<(), Box<dyn std:
     // Keep the leader alive so the pane is considered alive until the test
     // kills it. The child outlives the leader (orphan scenario).
     loop {
-        thread::sleep(Duration::from_hours(1));
+        #[allow(clippy::duration_suboptimal_units)]
+        thread::sleep(Duration::from_secs(3600));
     }
 }
 
