@@ -54,7 +54,7 @@ fn recovery_from_missing_state_file() {
     let mgr = FilePersistenceManager::with_paths(paths);
 
     // Should return defaults, not error
-    let state = mgr.load_state();
+    let state = mgr.load_schema1_state();
     assert!(state.is_ok());
 
     let state = state.test_unwrap("test unwrap");
@@ -108,7 +108,7 @@ fn recovery_from_corrupted_state_file() {
     let mgr = FilePersistenceManager::with_paths(paths);
 
     // Should error on corrupt file
-    let result = mgr.load_state();
+    let result = mgr.load_schema1_state();
     assert!(result.is_err());
 
     // Cleanup
@@ -210,7 +210,7 @@ fn startup_recovery_fresh_install() {
     assert_eq!(theme_mgr.active_theme().slug, "green-screen");
 
     // Step 3: Load state (defaults)
-    let state = mgr.load_state().test_unwrap("defaults");
+    let state = mgr.load_schema1_state().test_unwrap("defaults");
     assert!(state.repositories.is_empty());
 
     // Fresh install is fully operational with defaults
@@ -253,7 +253,7 @@ fn startup_recovery_corrupt_settings_valid_state() {
     assert!(mgr.load_settings().is_err());
 
     // State load succeeds
-    let state = mgr.load_state().test_unwrap("valid state");
+    let state = mgr.load_schema1_state().test_unwrap("valid state");
     assert_eq!(state.selected_repository_index, Some(5));
 
     // Cleanup

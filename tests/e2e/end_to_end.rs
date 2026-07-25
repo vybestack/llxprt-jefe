@@ -190,9 +190,11 @@ fn persistence_roundtrip_preserves_state() {
 
     // Save and reload
     persistence
-        .save_state(&persisted_state)
+        .save_schema1_state(&persisted_state)
         .test_unwrap("save should work");
-    let loaded = persistence.load_state().test_unwrap("load should work");
+    let loaded = persistence
+        .load_schema1_state()
+        .test_unwrap("load should work");
 
     assert_eq!(loaded.repositories.len(), 1);
     assert_eq!(loaded.agents.len(), 1);

@@ -510,7 +510,7 @@ fn guarded_real_dashboard_lists_window_fixture_rows() {
 
 fn seed_dashboard_list_state(config_dir: &std::path::Path) {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+    use crate::persistence::{FilePersistenceManager, PersistencePaths, State};
 
     let repositories: Vec<Repository> = (0..25)
         .map(|index| {
@@ -545,7 +545,7 @@ fn seed_dashboard_list_state(config_dir: &std::path::Path) {
         state_path: config_dir.join("state.json"),
     });
     persistence
-        .save_state(&persisted_state)
+        .save_schema1_state(&persisted_state)
         .unwrap_or_else(|error| panic!("save dashboard fixture state: {error:?}"));
 }
 /// Rapid triple-`q` (`qqq`) quits the app — behavioral proof of the quit
@@ -660,7 +660,7 @@ fn seed_sticky_agent_state(
     agent_session: &str,
 ) {
     use crate::domain::{Agent, AgentStatus, Repository, RepositoryId};
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+    use crate::persistence::{FilePersistenceManager, PersistencePaths, State};
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("testrepo".into()),
@@ -693,7 +693,7 @@ fn seed_sticky_agent_state(
         state_path: config_dir.join("state.json"),
     });
     persistence
-        .save_state(&persisted_state)
+        .save_schema1_state(&persisted_state)
         .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
@@ -951,14 +951,14 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
 
 #[cfg(unix)]
 fn save_seeded_state(config_dir: &std::path::Path, state: &crate::persistence::State) {
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths};
+    use crate::persistence::{FilePersistenceManager, PersistencePaths};
 
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
     FilePersistenceManager::with_paths(paths)
-        .save_state(state)
+        .save_schema1_state(state)
         .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 

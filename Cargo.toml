@@ -67,6 +67,16 @@ signal-hook = "0.3"
 
 [features]
 psmux-smoke = []
+# Exposes typed schema-1 fixture helpers to integration tests. Production code
+# never writes schema 1, so these helpers are not part of the shipping API.
+schema1-fixtures = []
+
+# Integration tests in tests/ link the library as an external crate, so they
+# cannot see #[cfg(test)] items. Depending on ourselves with the fixture
+# feature enables it for test targets only, keeping it out of the shipping
+# build without forcing every test invocation to pass --features.
+[dev-dependencies]
+jefe = { path = ".", features = ["schema1-fixtures"] }
 
 [[bin]]
 name = "jefe-psmux-smoke-fixture"

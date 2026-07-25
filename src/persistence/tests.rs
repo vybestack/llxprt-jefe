@@ -111,7 +111,9 @@ fn file_persistence_returns_defaults_when_missing() {
     let settings = mgr.load_settings().value_or_panic("should load defaults");
     assert_eq!(settings.theme, "green-screen");
 
-    let state = mgr.load_state().value_or_panic("should load defaults");
+    let state = mgr
+        .load_schema1_state()
+        .value_or_panic("should load defaults");
     assert!(state.repositories.is_empty());
 
     let _ = std::fs::remove_dir_all(&temp);
@@ -219,8 +221,8 @@ fn file_persistence_roundtrip_state() {
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    mgr.save_state(&state).value_or_panic("should save");
-    let loaded = mgr.load_state().value_or_panic("should load");
+    mgr.save_schema1_state(&state).value_or_panic("should save");
+    let loaded = mgr.load_schema1_state().value_or_panic("should load");
 
     assert_eq!(loaded.selected_repository_index, Some(2));
     assert!(loaded.hide_idle_repositories);
@@ -252,8 +254,8 @@ fn file_persistence_roundtrip_pane_focus_and_terminal_focused() {
         terminal_focused: true,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    mgr.save_state(&state).value_or_panic("should save");
-    let loaded = mgr.load_state().value_or_panic("should load");
+    mgr.save_schema1_state(&state).value_or_panic("should save");
+    let loaded = mgr.load_schema1_state().value_or_panic("should load");
 
     assert_eq!(loaded.pane_focus, "terminal");
     assert!(loaded.terminal_focused);
@@ -336,8 +338,9 @@ fn test_issue_base_prompt_state_round_trip() {
     };
     let mgr = FilePersistenceManager::with_paths(paths);
 
-    mgr.save_state(&state).value_or_panic("should save state");
-    let loaded = mgr.load_state().value_or_panic("should load state");
+    mgr.save_schema1_state(&state)
+        .value_or_panic("should save state");
+    let loaded = mgr.load_schema1_state().value_or_panic("should load state");
 
     assert_eq!(loaded.repositories.len(), 1);
     assert_eq!(
@@ -901,8 +904,9 @@ fn save_load_roundtrip(persisted: &State, label: &str) -> State {
     };
     let mgr = FilePersistenceManager::with_paths(paths);
 
-    mgr.save_state(persisted).value_or_panic("should save");
-    let loaded = mgr.load_state().value_or_panic("should load");
+    mgr.save_schema1_state(persisted)
+        .value_or_panic("should save");
+    let loaded = mgr.load_schema1_state().value_or_panic("should load");
 
     let _ = std::fs::remove_dir_all(&temp);
     loaded

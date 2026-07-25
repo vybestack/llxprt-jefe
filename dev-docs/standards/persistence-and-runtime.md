@@ -79,6 +79,18 @@ to reach disk.
   the legacy bytes stay authoritative until a save replaces them, and that
   replacement first retains the originals in a content-addressed sibling
   because the one-way migration is otherwise unrecoverable.
+- **Identity is stable across migration.** An agent's tmux session name is
+  derived from its id, so rewriting ids orphans live sessions: startup liveness
+  looks for a session that no longer exists and demotes a healthy running agent
+  to dead. Migration therefore preserves any id that is already a valid
+  identifier and mints one only when the source id cannot be reused. Because
+  schema-1 ids carry no uniqueness guarantee, the first claimant keeps its id
+  and later duplicates fall back to the minted, collision-disambiguated form.
+- **Legacy writing is test-only.** Production never writes schema 1. The typed
+  schema-1 helpers exist behind the `schema1-fixtures` feature so tests can
+  author legacy input through the real serialized shape; hand-written JSON
+  fixtures silently omit fields and have already hidden a defect that made
+  jefe refuse to start on state files it wrote itself.
 
 ### What is not persisted
 

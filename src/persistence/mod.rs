@@ -566,14 +566,8 @@ pub trait PersistenceManager {
     /// Load settings from disk (or defaults if missing/invalid).
     fn load_settings(&self) -> Result<Settings, PersistenceError>;
 
-    /// Load state from disk (or defaults if missing/invalid).
-    fn load_state(&self) -> Result<State, PersistenceError>;
-
     /// Save settings atomically.
     fn save_settings(&self, settings: &Settings) -> Result<(), PersistenceError>;
-
-    /// Save state atomically.
-    fn save_state(&self, state: &State) -> Result<(), PersistenceError>;
 
     /// Return the path where settings are stored.
     fn settings_path(&self) -> PathBuf;
@@ -601,17 +595,7 @@ impl PersistenceManager for StubPersistenceManager {
         Ok(Settings::default_with_version())
     }
 
-    fn load_state(&self) -> Result<State, PersistenceError> {
-        // Stub: returns defaults
-        Ok(State::default_with_version())
-    }
-
     fn save_settings(&self, _settings: &Settings) -> Result<(), PersistenceError> {
-        // Stub: no-op
-        Ok(())
-    }
-
-    fn save_state(&self, _state: &State) -> Result<(), PersistenceError> {
         // Stub: no-op
         Ok(())
     }
@@ -674,24 +658,39 @@ impl FilePersistenceManager {
     }
 
     /// Persist a scheduled state revision with freshness checked at replacement.
-    pub fn save_state_revisioned(
-        &self,
-        state: &State,
-        revision: u64,
-        freshness: &crate::services::persist_worker::FreshnessFn,
-    ) -> Result<crate::services::persist_worker::PersistResult, PersistenceError> {
+    /// Write a schema-1 document, for tests that need legacy input on disk.
+    ///
+    /// Production never writes schema 1: saves go through
+    /// [`Self::save_state_v2_revisioned`] and reads go through
+    /// [`Self::load_durable_state`], which migrates legacy documents in
+    /// memory. This helper exists so migration and restore tests can author
+    /// legacy fixtures through the typed schema-1 shape instead of
+    /// hand-written JSON, which silently omits fields and hides real
+    /// serialization defects.
+    #[cfg(any(test, feature = "schema1-fixtures"))]
+    pub fn save_schema1_state(&self, state: &State) -> Result<(), PersistenceError> {
         let bytes = serde_json::to_vec_pretty(state)
             .map_err(|e| PersistenceError::SerializeError(format!("serialize state: {e}")))?;
-        Self::write_bytes(&self.paths.state_path, bytes, revision, freshness).map(|outcome| {
-            match outcome {
-                writer::WriteOutcome::Authoritative { .. } => {
-                    crate::services::persist_worker::PersistResult::Authoritative
-                }
-                writer::WriteOutcome::Stale { .. } => {
-                    crate::services::persist_worker::PersistResult::Stale
-                }
-            }
+        Self::write_bytes(&self.paths.state_path, bytes, 0, |_| {
+            writer::Freshness::Current
         })
+        .map(drop)
+    }
+
+    /// Read a schema-1 document verbatim, for tests asserting legacy bytes.
+    ///
+    /// Production reads go through [`Self::load_durable_state`]; this performs
+    /// no migration and returns the legacy shape exactly as stored.
+    #[cfg(any(test, feature = "schema1-fixtures"))]
+    pub fn load_schema1_state(&self) -> Result<State, PersistenceError> {
+        let path = &self.paths.state_path;
+        if !path.exists() {
+            return Ok(State::default_with_version());
+        }
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PersistenceError::IoError(format!("read state: {e}")))?;
+        serde_json::from_str(&content)
+            .map_err(|e| PersistenceError::ParseError(format!("parse state: {e}")))
     }
 
     /// Restore runtime state from the durable document.
@@ -890,32 +889,8 @@ impl PersistenceManager for FilePersistenceManager {
         Ok(settings)
     }
 
-    fn load_state(&self) -> Result<State, PersistenceError> {
-        use std::fs;
-
-        let path = &self.paths.state_path;
-
-        // If file doesn't exist, return defaults
-        if !path.exists() {
-            return Ok(State::default_with_version());
-        }
-
-        let content = fs::read_to_string(path)
-            .map_err(|e| PersistenceError::IoError(format!("read state: {e}")))?;
-
-        let state: State = serde_json::from_str(&content)
-            .map_err(|e| PersistenceError::ParseError(format!("parse state: {e}")))?;
-
-        Ok(state)
-    }
-
     fn save_settings(&self, settings: &Settings) -> Result<(), PersistenceError> {
         Self::save_settings_to(settings, &self.paths.settings_path)
-    }
-
-    fn save_state(&self, state: &State) -> Result<(), PersistenceError> {
-        self.save_state_revisioned(state, 0, &|_| writer::Freshness::Current)
-            .map(|_| ())
     }
 
     fn settings_path(&self) -> PathBuf {
