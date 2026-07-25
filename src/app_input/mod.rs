@@ -873,6 +873,11 @@ mod transient_persistence_tests;
 #[path = "transient_launch_options_tests.rs"]
 mod transient_launch_options_tests;
 
+// Issue #409: prompt compaction (large issue/PR bodies → gh fetch reference).
+#[cfg(test)]
+#[path = "prompt_compaction_tests.rs"]
+mod prompt_compaction_tests;
+
 #[cfg(test)]
 #[path = "pty_passthrough_tests.rs"]
 mod pty_passthrough_tests;
