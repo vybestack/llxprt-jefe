@@ -213,6 +213,7 @@ fn confirm_delete_agent(
     id: AgentId,
     delete_work_dir: bool,
 ) {
+    reap_orphan_before_delete(app_state, ctx, &id);
     kill_agent_before_delete(ctx, &id);
 
     let mut state = app_state.write();
@@ -262,6 +263,22 @@ fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
             "could not kill runtime session before delete"
         );
     }
+}
+
+/// Best-effort reap of any validated orphan worker before deletion (issue #332,
+/// AC16). Reads the agent's recorded worker identities and reaps them alongside
+/// the stale session, all non-fatal — cleanup failures never block record
+/// removal, which `delete_selected_agent` performs regardless.
+fn reap_orphan_before_delete(app_state: &AppStateHandle, ctx: &SharedContext, agent_id: &AgentId) {
+    let _ = (ctx, agent_id); // ctx reserved for future session-name resolution.
+    let state = app_state.read();
+    let Some(agent) = state.agents.iter().find(|agent| &agent.id == agent_id) else {
+        return;
+    };
+    let Some(binding) = agent.runtime_binding.as_ref() else {
+        return;
+    };
+    jefe::runtime::reap_orphan_session(&binding.worker_identities, &binding.session_name);
 }
 
 pub fn handle_mode_form_key(

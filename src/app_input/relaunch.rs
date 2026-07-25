@@ -72,6 +72,16 @@ fn relaunch_runtime_session(
         .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
     drop(state_ro);
 
+    // Relaunch guard (issue #332): if a validated orphan worker descendant is
+    // still alive, spawning now would create a duplicate --continue worker.
+    // Best-effort reap first; if a validated orphan survives, block relaunch
+    // with a user-facing error instead of spawning.
+    if let Some(binding) = agent.runtime_binding.as_ref() {
+        if relaunch_blocked_by_orphan(agent_id, &binding.worker_identities) {
+            return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
+        }
+    }
+
     spawn_relaunch_session(
         &mut ctx_guard.runtime,
         agent_id,
@@ -106,6 +116,41 @@ pub(super) fn attach_relaunched_session<R: RuntimeManager>(
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
     runtime.attach(agent_id)
+}
+
+/// Whether relaunch must be blocked because a validated orphan worker is still
+/// alive (issue #332, AC14/AC15).
+///
+/// Attempts a best-effort reap of the recorded worker identities first; only if
+/// a validated descendant survives the reap does this return `true`. An empty
+/// identity list, or one where no anchor is validated-alive, returns `false`.
+pub(super) fn relaunch_blocked_by_orphan(
+    agent_id: &AgentId,
+    worker_identities: &[jefe::domain::ProcessIdentity],
+) -> bool {
+    use jefe::runtime::{descendant_still_matches_anchor, reap_orphan_tree};
+    if worker_identities.is_empty() {
+        return false;
+    }
+    let any_alive = worker_identities
+        .iter()
+        .any(|identity| descendant_still_matches_anchor(*identity));
+    if !any_alive {
+        return false;
+    }
+    // Best-effort reap, then re-check: block only if a validated orphan
+    // genuinely survived the reap attempt.
+    let _ = reap_orphan_tree(worker_identities);
+    let still_alive = worker_identities
+        .iter()
+        .any(|identity| descendant_still_matches_anchor(*identity));
+    if still_alive {
+        warn!(
+            agent_id = %agent_id.0,
+            "relaunch blocked: validated orphan worker still alive after reap attempt"
+        );
+    }
+    still_alive
 }
 
 fn persist_relaunch_result(

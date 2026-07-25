@@ -5,7 +5,8 @@ use jefe::runtime::{
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
 use super::relaunch::{
-    attach_relaunched_session, persist_relaunch_failure, spawn_relaunch_session,
+    attach_relaunched_session, persist_relaunch_failure, relaunch_blocked_by_orphan,
+    spawn_relaunch_session,
 };
 use super::tests::{sample_agent, sample_signature};
 
@@ -93,4 +94,31 @@ fn attach_failure_is_preserved_as_distinct_relaunch_diagnostic() {
     );
     assert_eq!(state.agents[0].status, AgentStatus::Dead);
     assert!(state.agents[0].runtime_binding.is_none());
+}
+
+#[test]
+fn relaunch_not_blocked_when_no_worker_identities_recorded() {
+    // AC15: an agent with no recorded worker identities never blocks relaunch.
+    let agent_id = AgentId("no-orphan".to_owned());
+    assert!(!relaunch_blocked_by_orphan(&agent_id, &[]));
+}
+
+#[test]
+fn relaunch_not_blocked_when_recorded_anchor_is_not_alive() {
+    // A recorded anchor whose PID is no longer alive (exited or recycled) must
+    // not block relaunch — there is no validated orphan to reap. Uses a PID
+    // that does not exist so descendant_still_matches_anchor returns false.
+    let agent_id = AgentId("dead-orphan".to_owned());
+    let bogus = jefe::domain::ProcessIdentity::new(u32::MAX, 1);
+    assert!(!relaunch_blocked_by_orphan(&agent_id, &[bogus]));
+}
+
+#[test]
+fn orphan_blocked_error_is_user_facing() {
+    // AC14: the OrphanBlocked variant renders a user-facing message.
+    let agent_id = AgentId("blocked".to_owned());
+    let error = RuntimeError::OrphanBlocked(agent_id);
+    let message = error.to_string();
+    assert!(message.contains("blocked"));
+    assert!(message.contains("orphan"));
 }
