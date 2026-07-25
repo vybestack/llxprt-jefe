@@ -9,7 +9,7 @@
 use crate::domain::{IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::{ComposerTarget, InlineState};
+use crate::state::types::InlineState;
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -85,12 +85,12 @@ fn move_cursor_left(state: AppState, steps: usize) -> AppState {
     s
 }
 
-fn composer_text_cursor(state: &AppState) -> (String, usize) {
+fn inline_text_cursor(state: &AppState) -> (String, usize) {
     match &state.issues_state.inline_state {
         InlineState::Composer { text, cursor, .. } | InlineState::Editor { text, cursor, .. } => {
             (text.clone(), *cursor)
         }
-        InlineState::None => panic!("expected an active composer/editor"),
+        InlineState::None => panic!("expected an active composer or editor"),
     }
 }
 
@@ -103,7 +103,7 @@ fn home_on_single_line_moves_to_start() {
     let state = type_into_composer(state, "abcdef");
     // Caret at end (byte 6); Home must jump to byte 0.
     let state = state.apply(AppEvent::InlineCursorHome);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 0,
         "Home must move the caret to byte 0 on a single line"
@@ -120,7 +120,7 @@ fn end_on_single_line_moves_to_end() {
     // Walk back to the middle, then End must return to the end.
     let state = move_cursor_left(state, 3);
     let state = state.apply(AppEvent::InlineCursorEnd);
-    let (text, cursor) = composer_text_cursor(&state);
+    let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, text.len(), "End must move the caret to text.len()");
 }
 
@@ -135,7 +135,7 @@ fn home_on_multiline_moves_to_current_line_start() {
     let state = type_into_composer(state, "abcd\nefgh");
     // Home must move to byte 5 (start of "efgh"), NOT byte 0.
     let state = state.apply(AppEvent::InlineCursorHome);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 5,
         "Home must move to the start of the current line (byte 5), not the document start"
@@ -155,7 +155,7 @@ fn end_on_multiline_moves_to_current_line_end() {
     // "abcd"), NOT byte 9.
     let state = state.apply(AppEvent::InlineCursorUp);
     let state = state.apply(AppEvent::InlineCursorEnd);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 4,
         "End must move to the end of the current line (byte 4), not the document end"
@@ -173,11 +173,11 @@ fn home_end_are_utf8_safe() {
     let state = type_into_composer(state, "héllo");
     // Caret at byte 6; Home -> 0.
     let state = state.apply(AppEvent::InlineCursorHome);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, 0, "Home on multibyte text must land on byte 0");
     // End -> byte length (6).
     let state = state.apply(AppEvent::InlineCursorEnd);
-    let (text, cursor) = composer_text_cursor(&state);
+    let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor,
         text.len(),
@@ -193,7 +193,7 @@ fn home_on_empty_composer_is_noop() {
     let state = state_with_loaded_detail(&repo_id, 42);
     let state = open_new_comment_composer(state);
     let state = state.apply(AppEvent::InlineCursorHome);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, 0, "Home on an empty composer must be a no-op");
 }
 
@@ -203,29 +203,30 @@ fn home_on_empty_composer_is_noop() {
 fn home_end_work_in_inline_editor() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = state_with_loaded_detail(&repo_id, 42);
-    // Open the inline editor for the issue body, then type to extend the text.
+    // Directly construct an Editor state for the issue body so Home/End can be
+    // exercised without dispatching an OpenInlineEditor event.
+    let body = "line1\nline2".to_string();
     state.issues_state.inline_state = InlineState::Editor {
         target: crate::state::types::EditorTarget::IssueBody,
-        text: "line1\nline2".to_string(),
-        cursor: 11, // end of text
+        text: body.clone(),
+        cursor: body.len(),
     };
     let state = state.apply(AppEvent::InlineCursorHome);
-    let (_text, cursor) = composer_text_cursor(&state);
+    let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
-        cursor, 6,
-        "Home in the editor must move to the start of the current line (byte 6)"
+        cursor,
+        "line1\n".len(),
+        "Home in the editor must move to the start of the current line"
     );
     let state = state.apply(AppEvent::InlineCursorEnd);
-    let (text, cursor) = composer_text_cursor(&state);
+    let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor,
         text.len(),
         "End in the editor must move to the end of the current line"
     );
-    // Confirm the composer target type is preserved (Editor, not Composer).
     assert!(matches!(
         state.issues_state.inline_state,
         InlineState::Editor { .. }
     ));
-    let _ = ComposerTarget::NewComment; // silence unused-import if Editor path changes
 }

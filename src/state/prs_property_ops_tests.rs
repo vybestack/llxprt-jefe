@@ -146,6 +146,11 @@ fn title_home_moves_to_start() {
     for _ in 0..title_len {
         state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
     }
+    assert_eq!(
+        require_pr_editor(&state).title_cursor,
+        title_len,
+        "cursor must be at the end after walking right"
+    );
     state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
@@ -180,6 +185,11 @@ fn title_home_end_utf8_safe() {
     for _ in 0..title_len {
         state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
     }
+    assert_eq!(
+        require_pr_editor(&state).title_cursor,
+        title_len,
+        "cursor must be at the byte length after walking right on multibyte text"
+    );
     state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
     let editor = require_pr_editor(&state);
     assert_eq!(

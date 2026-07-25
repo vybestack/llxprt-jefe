@@ -145,14 +145,16 @@ pub fn inline_cursor_line_start(text: &str, cursor: &mut usize) {
 /// (issue #406).
 ///
 /// The end is the byte just before the next newline, or `text.len()` when the
-/// line is the last one. UTF-8 safe: `cursor` is floored to a char boundary.
+/// line is the last one. UTF-8 safe: `cursor` is floored to a char boundary,
+/// and the resulting `line_end` is also floored so the invariant holds even if
+/// the line-end calculation is ever extended to non-newline delimiters.
 pub fn inline_cursor_line_end(text: &str, cursor: &mut usize) {
     let clamped = floor_to_char_boundary(text, *cursor);
     let newline = char::from(0x0Au8);
     let line_end = text[clamped..]
         .find(newline)
         .map_or(text.len(), |p| clamped + p);
-    *cursor = line_end;
+    *cursor = floor_to_char_boundary(text, line_end);
 }
 
 /// Walk `idx` down to the nearest UTF-8 char boundary at or before `idx`.

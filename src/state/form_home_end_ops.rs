@@ -60,9 +60,9 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => crate::state::form_cursor::move_workflow_dispatch_field_cursor_end(
-                fields, cursor, *focus,
-            ),
+            } => {
+                crate::state::form_workflow_dispatch::move_cursor_field_end(fields, cursor, *focus);
+            }
             _ => {}
         }
     }

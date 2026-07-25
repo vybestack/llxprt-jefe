@@ -438,19 +438,6 @@ pub(super) fn move_agent_field_cursor_end(
         }
     }
 }
-
-pub(super) fn move_workflow_dispatch_field_cursor_end(
-    fields: &WorkflowDispatchFormFields,
-    cursor: &mut WorkflowDispatchFormCursor,
-    focus: WorkflowDispatchFormFocus,
-) {
-    match focus {
-        WorkflowDispatchFormFocus::RefName => cursor.ref_name = move_cursor_end(&fields.ref_name),
-        WorkflowDispatchFormFocus::Inputs => cursor.inputs = move_cursor_end(&fields.inputs),
-        WorkflowDispatchFormFocus::Submit | WorkflowDispatchFormFocus::Cancel => {}
-    }
-}
-
 pub(super) fn move_repository_field_cursor_left(
     cursor: &mut RepositoryFormCursor,
     focus: RepositoryFormFocus,

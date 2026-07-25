@@ -50,6 +50,12 @@ fn form_home_moves_agent_name_cursor_to_start() {
     // Walk the cursor into the middle.
     let state = state.apply(AppEvent::FormMoveCursorLeft);
     let state = state.apply(AppEvent::FormMoveCursorLeft);
+    // After two left-moves the cursor should be at 3 (middle of "hello").
+    assert_eq!(
+        agent_name_cursor(&state),
+        3,
+        "cursor should be at char 3 after two left-moves"
+    );
     // Home -> 0.
     let state = state.apply(AppEvent::FormMoveCursorStart);
     assert_eq!(
