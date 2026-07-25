@@ -1,5 +1,7 @@
-﻿//! One-time application startup: state hydration and runtime session restore.
+//! One-time application startup: state hydration and runtime session restore.
 
+#[path = "app_init_orphan_reconcile.rs"]
+mod orphan_reconcile;
 #[path = "app_init_process_binding.rs"]
 mod process_binding;
 #[path = "app_init_shell_reconcile.rs"]
@@ -84,7 +86,7 @@ fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
     true
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SessionEvidence {
+pub(super) enum SessionEvidence {
     Alive,
     Missing,
     Unavailable,
@@ -101,14 +103,14 @@ impl From<jefe::runtime::SessionLiveness> for SessionEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BindingEvidence {
+pub(super) enum BindingEvidence {
     Coherent,
     Legacy,
     Inconsistent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StartupClassification {
+pub(super) enum StartupClassification {
     Running,
     Stopped,
     Stale,
@@ -144,7 +146,7 @@ fn binding_evidence(
 }
 
 #[must_use]
-fn classify_startup(
+pub(super) fn classify_startup(
     session: SessionEvidence,
     binding: BindingEvidence,
     remote: bool,
@@ -211,7 +213,7 @@ fn classify_agent_startup(
                 .and_then(|value| value.process_identity),
         )
     };
-    let orphan = orphan_evidence(
+    let orphan = orphan_reconcile::orphan_evidence(
         session,
         signature.remote.enabled,
         agent
@@ -220,41 +222,6 @@ fn classify_agent_startup(
             .map(|value| &value.worker_identities),
     );
     classify_startup(session, binding, signature.remote.enabled, process, orphan)
-}
-
-/// Compute orphan evidence for startup classification (issue #332).
-fn orphan_evidence(
-    session: SessionEvidence,
-    remote: bool,
-    worker_identities: Option<&Vec<ProcessIdentity>>,
-) -> jefe::runtime::OrphanClassification {
-    use jefe::runtime::{OrphanClassification as Oc, PaneLiveness};
-
-    if remote {
-        return Oc::NoOrphan;
-    }
-    let identities = worker_identities.map(Vec::as_slice).unwrap_or(&[]);
-    if identities.is_empty() {
-        return Oc::NoOrphan;
-    }
-    let pane = match session {
-        SessionEvidence::Alive => PaneLiveness::Alive,
-        SessionEvidence::Missing => PaneLiveness::Dead,
-        SessionEvidence::Unavailable => PaneLiveness::Unavailable,
-    };
-    let observed: Vec<jefe::runtime::ObservedDescendant> = identities
-        .iter()
-        .map(|identity| jefe::runtime::ObservedDescendant {
-            recorded: *identity,
-            liveness: if jefe::runtime::descendant_still_matches_anchor(*identity) {
-                jefe::runtime::ProcessLiveness::Alive
-            } else {
-                jefe::runtime::ProcessLiveness::Dead
-            },
-        })
-        .collect();
-    let session_exists = session != SessionEvidence::Missing;
-    jefe::runtime::classify_orphan_state(pane, session_exists, &observed)
 }
 
 fn process_liveness_for_binding(
@@ -371,7 +338,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
                 // (issue #332): reap the orphan tree and remove the stale
                 // session before marking Dead. Best-effort, agent-scoped,
                 // warn-don't-fail â€” probe/kill failures never abort startup.
-                reap_orphaned_agent(agent);
+                orphan_reconcile::reap_orphaned_agent(agent);
                 dead_ids.push(agent.id.clone());
             }
             class
@@ -388,18 +355,6 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
         }
     }
     dead_ids
-}
-
-/// Best-effort reap of a dead-launcher orphan: terminate the validated worker
-/// descendant tree and remove the stale multiplexer session (issue #332).
-///
-/// All failures are logged and swallowed inside [`reap_orphan_session`] so
-/// startup is never aborted by a reap/kill error.
-fn reap_orphaned_agent(agent: &Agent) {
-    let Some(binding) = agent.runtime_binding.as_ref() else {
-        return;
-    };
-    jefe::runtime::reap_orphan_session(&binding.worker_identities, &binding.session_name);
 }
 
 /// Mark reconciled dead agents Dead and rebuild indices when needed.
@@ -837,75 +792,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
-    fn dead_pane_with_orphans_is_orphaned_not_recoverable() {
-        // AC10: session missing/dead + validated live descendants must route to
-        // Orphaned, NOT Recoverable, so the caller reaps instead of leaving the
-        // worker stranded (issue #332).
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                BindingEvidence::Coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::DeadPaneWithOrphans,
-            ),
-            StartupClassification::Orphaned
-        );
-        // Also when the session exists but the pane is dead.
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Unavailable,
-                BindingEvidence::Coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::DeadPaneWithOrphans,
-            ),
-            StartupClassification::Orphaned
-        );
-    }
-
-    #[test]
-    fn alive_pane_with_orphan_evidence_stays_running() {
-        // AC11: a genuinely live/attachable session is never an orphan, even if
-        // orphan evidence is present (#323/#324/#326 behavior preserved).
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                BindingEvidence::Coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::DeadPaneWithOrphans,
-            ),
-            StartupClassification::Running
-        );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                BindingEvidence::Coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Running
-        );
-    }
-
-    #[test]
-    fn dead_pane_without_orphans_is_not_orphaned() {
-        // A dead pane with no surviving orphans must not take the Orphaned path.
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                BindingEvidence::Coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::DeadPaneNoWorker,
-            ),
-            StartupClassification::Recoverable
-        );
-    }
-
     fn missing_session_with_inconsistent_binding_still_inconsistent() {
         // Negative case: without a live session there is nothing to rescue,
         // so the Inconsistent classification is preserved (existing behavior).
