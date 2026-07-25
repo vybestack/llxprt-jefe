@@ -88,12 +88,23 @@ pub fn delete_selected_agent(
     if delete_work_dir
         && !repository_remote_enabled
         && removed_agent.work_dir.exists()
+        && !work_dir_shared_by_sibling(state, &removed_agent)
         && let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir)
     {
         warn!(
             error = %e,
             work_dir = %removed_agent.work_dir.display(),
             "could not remove work directory"
+        );
+    }
+    if delete_work_dir
+        && !repository_remote_enabled
+        && removed_agent.work_dir.exists()
+        && work_dir_shared_by_sibling(state, &removed_agent)
+    {
+        warn!(
+            work_dir = %removed_agent.work_dir.display(),
+            "skipping work directory removal: another agent shares this directory"
         );
     }
 
@@ -114,6 +125,17 @@ pub fn delete_selected_agent(
     state.normalize_selection_indices();
 
     Some(removed_agent.id)
+}
+
+/// Whether another agent in the same repository shares the removed agent's
+/// work directory. Used to guard against destructive `remove_dir_all` when
+/// two agents collided on the same work directory (issue #403 Bug 4).
+fn work_dir_shared_by_sibling(state: &AppState, removed: &crate::domain::Agent) -> bool {
+    state.agents.iter().any(|agent| {
+        agent.id != removed.id
+            && agent.repository_id == removed.repository_id
+            && crate::services::local_paths_equivalent(&agent.work_dir, &removed.work_dir)
+    })
 }
 
 #[cfg(test)]
@@ -251,5 +273,94 @@ mod tests {
 
         assert!(!state.has_shell_window(&agent_a));
         assert!(!state.has_shell_window(&agent_b));
+    }
+
+    #[test]
+    fn delete_selected_agent_preserves_shared_work_dir() {
+        // Two agents share the same work directory (issue #403 Bug 1/4).
+        // Deleting one with delete_work_dir=true must NOT remove the
+        // directory because the other agent still depends on it.
+        let repo_id = RepositoryId("repo-shared".into());
+        let agent_a = AgentId("agent-shared-a".into());
+        let agent_b = AgentId("agent-shared-b".into());
+
+        let tmp_dir = std::env::temp_dir().join("jefe-test-shared-workdir");
+        if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
+            panic!("create temp dir: {err}");
+        }
+
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Shared Repo".into(),
+            "shared-repo".into(),
+            PathBuf::from("/tmp/shared-repo"),
+        );
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+
+        for id in [&agent_a, &agent_b] {
+            let mut agent =
+                Agent::new(id.clone(), repo_id.clone(), "Agent".into(), tmp_dir.clone());
+            agent.status = crate::domain::AgentStatus::Running;
+            state.agents.push(agent);
+        }
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_a, true);
+
+        assert_eq!(removed, Some(agent_a));
+        assert_eq!(state.agents.len(), 1, "agent B should remain");
+        assert!(
+            tmp_dir.exists(),
+            "shared work directory must not be removed when another agent uses it"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn delete_selected_agent_removes_sole_owner_work_dir() {
+        // A sole-owner agent's work directory should be removed when
+        // delete_work_dir is true.
+        let repo_id = RepositoryId("repo-sole".into());
+        let agent_id = AgentId("agent-sole".into());
+
+        let tmp_dir = std::env::temp_dir().join("jefe-test-sole-workdir");
+        if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
+            panic!("create temp dir: {err}");
+        }
+
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Sole Repo".into(),
+            "sole-repo".into(),
+            PathBuf::from("/tmp/sole-repo"),
+        );
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+
+        let mut agent = Agent::new(
+            agent_id.clone(),
+            repo_id.clone(),
+            "Agent".into(),
+            tmp_dir.clone(),
+        );
+        agent.status = crate::domain::AgentStatus::Running;
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_id, true);
+
+        assert_eq!(removed, Some(agent_id));
+        assert!(
+            !tmp_dir.exists(),
+            "sole-owner work directory should be removed"
+        );
     }
 }
