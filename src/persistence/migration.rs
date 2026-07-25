@@ -173,12 +173,25 @@ fn migrate_repositories(
     dormant: &mut Vec<DormantRecord>,
 ) -> Result<Vec<MigratedRepository>, Vec<Diagnostic>> {
     let mut collisions = BTreeMap::<String, u64>::new();
+    let mut claimed_ids = BTreeSet::<Id>::new();
     let mut repositories = Vec::with_capacity(sources.len());
     for source in sources {
         let identity = repository_identity(&source)?;
         let ordinal = collisions.entry(identity.clone()).or_default();
         let ordinal_text = ordinal.to_string();
-        let id = stable_id("repo", &[&identity, &ordinal_text]).map_err(malformed_vec)?;
+        // Preserve an already-valid id so references that key off it (agents,
+        // remembered selections, per-repository preferences) stay intact. A
+        // duplicate schema-1 id still has to be disambiguated, so only the
+        // first claimant keeps it.
+        let reusable = Id::parse(&source.id)
+            .ok()
+            .filter(|id| !claimed_ids.contains(id));
+        let id = if let Some(id) = reusable {
+            claimed_ids.insert(id.clone());
+            id
+        } else {
+            stable_id("repo", &[&identity, &ordinal_text]).map_err(malformed_vec)?
+        };
         *ordinal += 1;
         let values = repository_values(&source).map_err(malformed_vec)?;
         let type_id = type_id(source.default_agent_kind.as_deref()).map_err(malformed_vec)?;
@@ -273,6 +286,7 @@ fn migrate_agents(
     dormant: &mut Vec<DormantRecord>,
 ) -> Result<Vec<MigratedAgent>, Vec<Diagnostic>> {
     let mut collisions = BTreeMap::<(String, String), u64>::new();
+    let mut claimed_ids = BTreeSet::<Id>::new();
     let mut agents = Vec::with_capacity(sources.len());
     for source in sources {
         let repository = resolve_repository(&source.repository_id, repositories)?;
@@ -281,15 +295,29 @@ fn migrate_agents(
         let key = (repository.record.id.to_string(), source_identity.clone());
         let ordinal = collisions.entry(key).or_default();
         let ordinal_text = ordinal.to_string();
-        let id = stable_id(
-            "agent",
-            &[
-                repository.record.id.as_str(),
-                &source_identity,
-                &ordinal_text,
-            ],
-        )
-        .map_err(malformed_vec)?;
+        // A running agent's tmux session name is derived from its id, so an id
+        // that is already a valid identifier must survive migration untouched;
+        // minting a new one would orphan the live session and demote a healthy
+        // agent to Dead on the next start. Schema-1 ids are not guaranteed
+        // unique, so only the first claimant keeps its id and any later
+        // duplicate falls back to a minted, collision-disambiguated id.
+        let reusable = Id::parse(&source.id)
+            .ok()
+            .filter(|id| !claimed_ids.contains(id));
+        let id = if let Some(id) = reusable {
+            claimed_ids.insert(id.clone());
+            id
+        } else {
+            stable_id(
+                "agent",
+                &[
+                    repository.record.id.as_str(),
+                    &source_identity,
+                    &ordinal_text,
+                ],
+            )
+            .map_err(malformed_vec)?
+        };
         *ordinal += 1;
         let record = migrate_agent_record(&source, repository, &work_target, id.clone())?;
         record_unknowns("schema1.agent", Some(&id), source.unknown, dormant)?;

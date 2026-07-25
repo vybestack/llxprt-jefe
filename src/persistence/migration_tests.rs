@@ -257,7 +257,7 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     let source = serde_json::to_vec(&json!({
         "schema_version": 1,
         "repositories": [{
-            "id": "remote",
+            "id": "Remote Repo",
             "name": "Remote",
             "slug": "remote",
             "base_dir": "/srv/project",
@@ -269,12 +269,12 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
                 "port": 2222,
                 "run_as_user": "runner"
             },
-            "agent_ids": ["agent"]
+            "agent_ids": ["Agent One"]
         }],
         "agents": [{
-            "id": "agent",
+            "id": "Agent One",
             "display_id": "A",
-            "repository_id": "remote",
+            "repository_id": "Remote Repo",
             "name": "Agent",
             "description": "",
             "work_dir": "/srv/project/work",
@@ -302,7 +302,7 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.id.as_str(),
-        "agent.f6c2c9886351227b08ccd5c2aee572a03589e7de5d2d7838cb3fa948abb62d25"
+        "agent.dd89951a73af6fea961078bbe54ee58ded798508e64f2e5a4980d724b8239d70"
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),

@@ -154,6 +154,57 @@ fn schema1_null_optional_flags_are_migrated() {
     assert_eq!(restored.repositories.len(), 1);
 }
 
+/// Migration preserves an agent id that is already a valid identifier.
+///
+/// The tmux session name of a running agent is derived from its id, so minting
+/// a new id would silently orphan the live session: startup liveness would look
+/// for a session that does not exist and demote a healthy agent to Dead.
+#[test]
+fn migration_preserves_valid_agent_and_repository_ids() {
+    let temp = tempfile::tempdir().value_or_panic("temporary state root");
+    let work_dir = temp.path().join("repo");
+    std::fs::create_dir_all(&work_dir).value_or_panic("repository directory");
+    let dir = work_dir.display();
+    let document = format!(
+        r#"{{
+  "schema_version": 1,
+  "repositories": [
+    {{
+      "id": "repo-1",
+      "name": "Example",
+      "slug": "example",
+      "base_dir": "{dir}",
+      "agent_ids": []
+    }}
+  ],
+  "agents": [
+    {{
+      "id": "agent-1",
+      "display_id": "a1",
+      "repository_id": "repo-1",
+      "name": "worker",
+      "work_dir": "{dir}"
+    }}
+  ],
+  "selected_repository_index": 0,
+  "selected_agent_index": 0,
+  "hide_idle_repositories": false,
+  "last_selected_agent_by_repo": [],
+  "pane_focus": "agents",
+  "terminal_focused": false
+}}"#
+    );
+    std::fs::write(temp.path().join("state.json"), document)
+        .value_or_panic("write schema-1 document");
+
+    let restored = manager(temp.path())
+        .load_durable_state()
+        .value_or_panic("schema-1 state should migrate on read");
+
+    assert_eq!(restored.agents[0].id.0, "agent-1");
+    assert_eq!(restored.repositories[0].id.0, "repo-1");
+}
+
 /// Reading never rewrites the file: migration is a pure in-memory read, so the
 /// legacy bytes stay untouched until a save makes a schema-2 document
 /// authoritative.
