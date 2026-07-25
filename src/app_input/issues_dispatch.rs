@@ -583,9 +583,19 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
         let _ = writeln!(out, "**Assignees:** {}", payload.issue_assignees.join(", "));
     }
     let _ = writeln!(out);
+
+    // Build the gh fetch command once for compaction of large bodies/comments
+    // (issue #409): the agent runs in the checked-out repo with gh available.
+    let fetch_cmd = format!(
+        "gh issue view {} --repo {} --comments",
+        payload.issue_number, payload.repository
+    );
+
     let _ = writeln!(out, "## Body");
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", payload.issue_body);
+    let compacted_body =
+        super::fresh_prompt::compact_prompt_content(&payload.issue_body, &fetch_cmd);
+    let _ = writeln!(out, "{compacted_body}");
 
     if let Some(comment) = &payload.focused_comment {
         let _ = writeln!(out);
@@ -595,7 +605,8 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
             let _ = writeln!(out, "## Focused Comment");
         }
         let _ = writeln!(out);
-        let _ = writeln!(out, "{comment}");
+        let compacted_comment = super::fresh_prompt::compact_prompt_content(comment, &fetch_cmd);
+        let _ = writeln!(out, "{compacted_comment}");
     }
 
     if !payload.issue_base_prompt.is_empty() {

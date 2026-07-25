@@ -450,13 +450,22 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
         let _ = writeln!(out, "**Checks:** {}", payload.check_summary.join(", "));
     }
     let _ = writeln!(out);
+
+    // Build the gh fetch command once for compaction of large bodies/comments
+    // (issue #409): the agent runs in the checked-out repo with gh available.
+    let fetch_cmd = format!(
+        "gh pr view {} --repo {} --comments",
+        payload.pr_number, payload.repository
+    );
+
     // The PR body is UNTRUSTED (authored by an arbitrary GitHub user). Wrap it
     // in clear BEGIN/END delimiters so a malicious body containing fake
     // `## Instructions` headings or code fences cannot escape into the real
     // Instructions section or impersonate prompt directives (MED-7).
     let _ = writeln!(out, "## Body");
     let _ = writeln!(out);
-    write_untrusted_block(&mut out, "PR BODY", &payload.pr_body);
+    let compacted_body = super::fresh_prompt::compact_prompt_content(&payload.pr_body, &fetch_cmd);
+    write_untrusted_block(&mut out, "PR BODY", &compacted_body);
 
     if let Some(comment) = &payload.focused_comment {
         let _ = writeln!(out);
@@ -468,7 +477,8 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
         let _ = writeln!(out);
         // The focused comment is also UNTRUSTED user content — fence it so it
         // cannot inject prompt instructions (MED-7).
-        write_untrusted_block(&mut out, "COMMENT", comment);
+        let compacted_comment = super::fresh_prompt::compact_prompt_content(comment, &fetch_cmd);
+        write_untrusted_block(&mut out, "COMMENT", &compacted_comment);
     }
 
     if !payload.pr_base_prompt.is_empty() {

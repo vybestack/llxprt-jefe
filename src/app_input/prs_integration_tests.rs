@@ -916,7 +916,7 @@ fn test_pr_merged_clears_pending_and_marks_merged() {
 /// @requirement issue #128
 #[test]
 fn test_background_refresh_function_exists_and_checks_screen_mode() {
-    let _: fn(&mut AppStateHandle, &SharedContext) =
+    let _: fn(&mut AppStateHandle, &SharedContext, bool) =
         crate::app_input::request_pr_background_refresh;
 }
 
@@ -928,32 +928,69 @@ fn test_background_refresh_function_exists_and_checks_screen_mode() {
 /// @requirement issue #128
 #[test]
 fn test_background_refresh_skips_when_detail_load_in_flight() {
-    use super::prs_orchestration::should_background_refresh;
+    use super::prs_orchestration::{BackgroundRefreshGuard, should_background_refresh};
     use jefe::state::ScreenMode;
     let pr_view = ScreenMode::DashboardPullRequests;
     // No in-flight loads → should refresh.
     assert!(
-        should_background_refresh(pr_view, false, false, false),
+        should_background_refresh(BackgroundRefreshGuard {
+            screen_mode: pr_view,
+            list_reload_pending: false,
+            detail_pending: false,
+            is_idle: false,
+        }),
         "should refresh when PR view is open and nothing is in flight"
     );
     // Detail load in flight → must NOT refresh (clobber guard).
     assert!(
-        !should_background_refresh(pr_view, false, false, true),
+        !should_background_refresh(BackgroundRefreshGuard {
+            screen_mode: pr_view,
+            list_reload_pending: false,
+            detail_pending: true,
+            is_idle: false,
+        }),
         "must NOT refresh when a detail load is in flight"
     );
     // List reload pending → must NOT refresh.
     assert!(
-        !should_background_refresh(pr_view, true, false, false),
+        !should_background_refresh(BackgroundRefreshGuard {
+            screen_mode: pr_view,
+            list_reload_pending: true,
+            detail_pending: false,
+            is_idle: false,
+        }),
         "must NOT refresh when a list reload is pending"
-    );
-    // List page pending → must NOT refresh.
-    assert!(
-        !should_background_refresh(pr_view, false, true, false),
-        "must NOT refresh when a list page load is pending"
     );
     // Not on the PR view → must NOT refresh.
     assert!(
-        !should_background_refresh(ScreenMode::Dashboard, false, false, false),
+        !should_background_refresh(BackgroundRefreshGuard {
+            screen_mode: ScreenMode::Dashboard,
+            list_reload_pending: false,
+            detail_pending: false,
+            is_idle: false,
+        }),
         "must NOT refresh when not on the PR view"
+    );
+}
+
+/// Idle user (no keyboard/mouse/paste input for the idle threshold) must
+/// not background-refresh, to conserve the GraphQL rate-limit budget (#411).
+#[test]
+fn test_background_refresh_skips_when_idle() {
+    use super::prs_orchestration::{BackgroundRefreshGuard, should_background_refresh};
+    use jefe::state::ScreenMode;
+    let guard = |is_idle| BackgroundRefreshGuard {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        list_reload_pending: false,
+        detail_pending: false,
+        is_idle,
+    };
+    assert!(
+        should_background_refresh(guard(false)),
+        "active user should refresh"
+    );
+    assert!(
+        !should_background_refresh(guard(true)),
+        "idle user must not refresh"
     );
 }

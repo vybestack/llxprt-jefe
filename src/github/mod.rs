@@ -120,7 +120,7 @@ const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
 /// Uses the camelCase spelling `stateReason` because the `gh` CLI expects
 /// camelCase field names in `--json` output (issue #358). The snake_case
 /// `state_reason` is the REST API shape and causes `Unknown JSON field` errors.
-pub(crate) const ISSUE_DETAIL_JSON_FIELDS: &str = "number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id";
+pub const ISSUE_DETAIL_JSON_FIELDS: &str = "number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id";
 
 /// Default page size for the PR list GraphQL search query.
 ///
@@ -837,7 +837,7 @@ impl Default for GhClient {
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
 /// `Review`. Each thread carries the id of its parent review, so threads are
 /// attached to their parent review (or the first review as fallback).
-pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+pub fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
     if threads.is_empty() || reviews.is_empty() {
         return;
     }
