@@ -223,7 +223,7 @@ fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
     let ctx_guard = ctx_arc.lock().ok()?;
     Some(ctx_guard.gh_client)
 }
-pub use persist_focus::{durable_save_request, pane_focus_from_persisted, schedule_durable_save};
+pub use persist_focus::{durable_save_request, schedule_durable_save};
 
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,

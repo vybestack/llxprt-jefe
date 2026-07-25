@@ -78,9 +78,17 @@ fn assert_agent_migration(state: &crate::domain::StateV2) {
         Some("jefe-agent-a")
     );
     assert_eq!(state.agents[0].runtime.invocation_generation, 9);
+    // A schema-1 agent recorded as Running is carried across as Running, so
+    // startup reconciliation still checks it against live sessions instead of
+    // silently forgetting it was launched.
     assert_eq!(
         state.agents[0].runtime.last_known,
-        LastKnownRuntime::Unknown
+        LastKnownRuntime::Running
+    );
+    assert_eq!(
+        state.agents[1].runtime.last_known,
+        LastKnownRuntime::Unknown,
+        "a queued agent was never launched"
     );
     assert_eq!(
         state.agents[0].values.get(&id("runtime-binding")),

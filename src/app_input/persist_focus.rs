@@ -1,28 +1,12 @@
-//! Persistence helpers: state serialization and pane-focus conversion.
+//! Persistence helpers: staging and scheduling durable saves.
 //!
-//! `pane_focus_from_persisted` bridges the state-layer
-//! `PaneFocus` enum and the string form stored in the persisted `State` DTO. They
-//! live in the app-shell layer (not in `persistence/`) because the persistence
-//! module is restricted to `domain/` dependencies and cannot reference
-//! `state::PaneFocus`. See issue #160.
+//! These live in the app-shell layer because scheduling a write needs the
+//! shared context, which neither `state/` nor `persistence/` may depend on.
 
 use jefe::services::persist_worker::PersistRequest;
-use jefe::state::{AppState, PaneFocus};
+use jefe::state::AppState;
 
 use super::SharedContext;
-
-/// Parse a persisted pane-focus string back into `PaneFocus`.
-///
-/// Unknown or empty strings (e.g. older state files written before this field
-/// existed) fall back to `Repositories`, matching the pre-existing default.
-#[must_use]
-pub fn pane_focus_from_persisted(value: &str) -> PaneFocus {
-    match value {
-        "agents" => PaneFocus::Agents,
-        "terminal" => PaneFocus::Terminal,
-        _ => PaneFocus::Repositories,
-    }
-}
 
 /// Persist the current state to disk via the shared context's persistence
 /// manager.

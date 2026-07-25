@@ -12,7 +12,7 @@ use jefe::domain::{
     Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, ProcessIdentity,
     SandboxEngine,
 };
-use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
+use jefe::persistence::{PersistenceManager, Settings};
 use jefe::runtime::{
     ProcessLiveness, RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, pid_alive,
     platform_engine_diagnostic, process_liveness, process_liveness_indicates_alive,
@@ -213,10 +213,13 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         Settings::default_with_version()
     });
 
-    let persisted = ctx_guard.persistence.load_state().unwrap_or_else(|e| {
-        warn!(error = %e, "could not load state, using defaults");
-        PersistedState::default_with_version()
-    });
+    let persisted = ctx_guard
+        .persistence
+        .load_durable_state()
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "could not load state, using defaults");
+            jefe::state::durable_projection::RestoredState::default()
+        });
 
     let mut state = app_state.write();
     state.repositories = persisted.repositories;
@@ -226,12 +229,16 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
     state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
+    // The durable revision read from disk is the watermark later saves build
+    // on, so an acknowledged write can be told apart from one that lost a race.
+    state.durable_revision = persisted.revision;
+    state.dormant_records = persisted.dormant_records;
     // Restore the persisted pane focus and terminal-focus so an explicitly
     // focused view survives restart (issue #160). `terminal_focused` is only
     // meaningful when the terminal pane is active, so clamp an inconsistent
     // persisted pair (terminal_focused=true but pane != Terminal) back to false;
     // the per-keypress defensive guard in app_shell would clear it anyway.
-    state.pane_focus = crate::app_input::pane_focus_from_persisted(&persisted.pane_focus);
+    state.pane_focus = persisted.pane_focus;
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.user_preferences = persisted.user_preferences;

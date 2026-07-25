@@ -34,7 +34,7 @@ const DEFINITION_VERSION: &str = "1";
 /// Deliberately not an [`AppState`]: restoring never fabricates unrelated
 /// runtime state (modals, screens, caches). The caller assigns these fields
 /// onto the state it owns.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RestoredState {
     /// Durable revision the document carried.
     pub revision: u64,

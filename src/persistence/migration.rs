@@ -341,9 +341,22 @@ fn migrate_agent_record(
         runtime: RuntimeRecord {
             session_id,
             invocation_generation,
-            last_known: LastKnownRuntime::Unknown,
+            last_known: last_known_runtime(source.status.as_ref()),
         },
     })
+}
+
+/// Carry the schema-1 lifecycle status across as last-known runtime.
+///
+/// Only launched states are meaningful: `Running` keeps the agent eligible for
+/// startup reconciliation against live sessions, `Dead` records a session that
+/// ended, and everything else was never launched.
+fn last_known_runtime(status: Option<&Value>) -> LastKnownRuntime {
+    match status.and_then(Value::as_str) {
+        Some("Running") => LastKnownRuntime::Running,
+        Some("Dead") => LastKnownRuntime::Stopped,
+        _ => LastKnownRuntime::Unknown,
+    }
 }
 
 fn agent_values(source: &Schema1Agent) -> Result<TypedMap, String> {

@@ -29,6 +29,9 @@ mod paths_tests;
 mod settings_document_tests;
 
 #[cfg(test)]
+#[path = "state_v2_read_tests.rs"]
+mod state_v2_read_tests;
+#[cfg(test)]
 #[path = "state_v2_write_tests.rs"]
 mod state_v2_write_tests;
 
@@ -535,6 +538,29 @@ fn platform_default_state_dir() -> PathBuf {
     dirs::data_local_dir().map_or_else(|| PathBuf::from(".jefe"), |p| p.join("jefe"))
 }
 
+/// An empty schema-2 document, used when no durable state exists yet.
+fn empty_durable_state() -> crate::domain::StateV2 {
+    crate::domain::StateV2 {
+        state_schema: crate::domain::STATE_SCHEMA_V2,
+        revision: 0,
+        repositories: Vec::new(),
+        agents: Vec::new(),
+        selection: crate::domain::Selection {
+            repository_id: None,
+            agent_id: None,
+            screen_id: None,
+        },
+        last_selected_agent_by_repo: std::collections::BTreeMap::new(),
+        preferences: crate::domain::Preferences {
+            hide_idle_repositories: false,
+            pane_focus: "repositories".to_owned(),
+            terminal_focused: false,
+            repository_preferences: std::collections::BTreeMap::new(),
+        },
+        dormant_records: Vec::new(),
+    }
+}
+
 /// Persistence manager trait.
 pub trait PersistenceManager {
     /// Load settings from disk (or defaults if missing/invalid).
@@ -668,10 +694,44 @@ impl FilePersistenceManager {
         })
     }
 
+    /// Restore runtime state from the durable document.
+    ///
+    /// This is the single startup read path: schema-2 documents load directly
+    /// and schema-1 documents are migrated in memory. Reading never writes, so
+    /// the legacy bytes stay authoritative until a save replaces them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PersistenceError`] when the document cannot be read, cannot be
+    /// migrated, or describes state the runtime cannot represent.
+    pub fn load_durable_state(
+        &self,
+    ) -> Result<crate::state::durable_projection::RestoredState, PersistenceError> {
+        let path = &self.paths.state_path;
+        if !path.exists() {
+            return crate::state::durable_restore::from_durable_state(&empty_durable_state())
+                .map_err(|error| PersistenceError::ParseError(error.to_string()));
+        }
+
+        let bytes = std::fs::read(path)
+            .map_err(|e| PersistenceError::IoError(format!("read state: {e}")))?;
+        let migration = migration::migrate_state(&bytes).map_err(|diagnostics| {
+            PersistenceError::ParseError(format!(
+                "parse state: {}",
+                diagnostics.first().map_or_else(
+                    || "invalid state document".to_owned(),
+                    |d| d.redacted_detail.clone()
+                )
+            ))
+        })?;
+        crate::state::durable_restore::from_durable_state(migration.state())
+            .map_err(|error| PersistenceError::ParseError(error.to_string()))
+    }
+
     /// Persist a projected schema-2 candidate as the durable authority.
     ///
     /// Writes the same canonical encoding the migration reader produces, so a
-    /// saved document reloads without migration. When the authority currently
+    /// saved document reloads without migration. When the document
     /// on disk is still schema 1, the original bytes are retained in a
     /// content-addressed sibling before replacement — the one-way migration is
     /// otherwise unrecoverable.

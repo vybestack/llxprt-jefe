@@ -126,10 +126,8 @@ fn pane_focus_round_trips_through_the_durable_candidate() {
         };
         let request = durable_save_request(&mut state)
             .unwrap_or_else(|| panic!("durable projection should stage a candidate"));
-        assert_eq!(
-            pane_focus_from_persisted(&request.candidate.preferences.pane_focus),
-            focus,
-            "round-trip for {focus:?}"
-        );
+        let restored = jefe::state::durable_restore::from_durable_state(request.candidate.as_ref())
+            .unwrap_or_else(|error| panic!("candidate must restore: {error}"));
+        assert_eq!(restored.pane_focus, focus, "round-trip for {focus:?}");
     }
 }
