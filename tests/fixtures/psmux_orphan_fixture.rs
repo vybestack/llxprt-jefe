@@ -75,7 +75,7 @@ fn spawn_orphan_leader(marker_path: &std::path::Path) -> Result<(), Box<dyn std:
     }
     let child = child.spawn()?;
     let pid = child.id();
-    let started_at = capture_process_identity::start_time(pid);
+    let started_at = start_time(pid);
     let marker = OrphanMarker { pid, started_at };
     fs::write(marker_path, serde_json::to_vec(&marker)?)?;
     // Keep the leader alive so the pane is considered alive until the test
@@ -86,18 +86,16 @@ fn spawn_orphan_leader(marker_path: &std::path::Path) -> Result<(), Box<dyn std:
 }
 
 // Minimal creation-time capture for the marker, isolated to this fixture.
-mod capture_process_identity {
-    #[cfg(windows)]
-    fn start_time(pid: u32) -> Option<u64> {
-        use winsafe::{HPROCESS, co};
-        let access = co::PROCESS::QUERY_LIMITED_INFORMATION;
-        let process = HPROCESS::OpenProcess(access, false, pid).ok()?;
-        let (creation, _, _, _) = process.GetProcessTimes().ok()?;
-        Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
-    }
+#[cfg(windows)]
+fn start_time(pid: u32) -> Option<u64> {
+    use winsafe::{HPROCESS, co};
+    let access = co::PROCESS::QUERY_LIMITED_INFORMATION;
+    let process = HPROCESS::OpenProcess(access, false, pid).ok()?;
+    let (creation, _, _, _) = process.GetProcessTimes().ok()?;
+    Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
 
-    #[cfg(not(windows))]
-    pub(super) fn start_time(_pid: u32) -> Option<u64> {
-        None
-    }
+#[cfg(not(windows))]
+fn start_time(_pid: u32) -> Option<u64> {
+    None
 }
