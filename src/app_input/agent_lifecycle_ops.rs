@@ -90,6 +90,10 @@ pub(super) fn execute_runtime_effects(
         Err(error) => {
             let mut state = app_state.write();
             state.error_message = Some(format!("application context lock poisoned: {error}"));
+            // The effects committed with this transition can no longer run, so
+            // surface them the same way the missing-context path does instead
+            // of leaving them staged.
+            transition::reject_unexecuted_effects(&mut state, effects);
             false
         }
     }

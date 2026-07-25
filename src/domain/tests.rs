@@ -728,3 +728,32 @@ fn semver_accepts_hyphens_inside_the_prerelease() {
         "a repeated build separator stays invalid"
     );
 }
+
+/// The durable contract only accepts canonical digests. Deserialization must
+/// enforce the same rule as `parse`, otherwise a malformed launch signature
+/// enters schema-2 documents through the strict parser (issue #381).
+#[test]
+fn digests_reject_non_canonical_text_when_deserialized() {
+    use crate::domain::Sha256Digest;
+
+    for malformed in [
+        "\"not-a-digest\"",
+        "\"ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"",
+        "\"abc\"",
+    ] {
+        let decoded: Result<Sha256Digest, _> = serde_json::from_str(malformed);
+        assert!(
+            decoded.is_err(),
+            "{malformed} is not a canonical digest and must be refused"
+        );
+    }
+
+    let canonical = "\"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"";
+    let decoded: Sha256Digest =
+        serde_json::from_str(canonical).value_or_panic("a canonical digest");
+    assert_eq!(
+        serde_json::to_string(&decoded).value_or_panic("re-encode the digest"),
+        canonical,
+        "a canonical digest round-trips unchanged"
+    );
+}

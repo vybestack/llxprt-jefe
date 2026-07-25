@@ -90,9 +90,22 @@ pub struct LaunchSignatureV1 {
 }
 
 /// Canonical lowercase SHA-256 digest used by durable contracts.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct Sha256Digest(String);
+
+impl<'de> Deserialize<'de> for Sha256Digest {
+    /// Decode through [`Sha256Digest::parse`] so reading a document applies the
+    /// same rule as constructing one: a transparent derive would accept any
+    /// string and let a malformed digest into a launch signature.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
 
 impl Sha256Digest {
     /// Parse exactly 64 lowercase hexadecimal characters.
