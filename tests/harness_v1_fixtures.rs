@@ -66,10 +66,47 @@ fn cleanup(outcome: &RunOutcome) {
 fn assert_passed(name: &str, outcome: &RunOutcome) {
     assert!(
         outcome.error.is_none(),
-        "{name} should pass: {:?}",
-        outcome.error
+        "{name} should pass: {:?}{}",
+        outcome.error,
+        rendered_output(outcome)
     );
-    assert_eq!(outcome.report.status, "passed", "{name}");
+    assert_eq!(
+        outcome.report.status,
+        "passed",
+        "{name}{}",
+        rendered_output(outcome)
+    );
+}
+
+/// Render captured terminal output so a failing fixture reports the binary's
+/// own diagnostic instead of only an unexplained exit code.
+fn rendered_output(outcome: &RunOutcome) -> String {
+    use std::fmt::Write as _;
+
+    let mut rendered = String::from("\n--- captured frames ---");
+    for frame in &outcome.report.frames {
+        let _ = write!(rendered, "\n{frame:?}");
+    }
+    for step in &outcome.report.steps {
+        if let Some(error) = &step.error {
+            let _ = write!(rendered, "\nstep {} ({}): {error}", step.index, step.op);
+        }
+    }
+    rendered
+}
+
+/// Assert an expected process exit code, reporting captured output on mismatch.
+fn assert_exit_code(name: &str, outcome: &RunOutcome, expected: u32) {
+    assert_eq!(
+        outcome
+            .report
+            .app_exit
+            .as_ref()
+            .and_then(|exit| exit.exit_code),
+        Some(expected),
+        "{name} exit code{}",
+        rendered_output(outcome)
+    );
 }
 
 #[test]
@@ -83,14 +120,7 @@ fn schema_all_ops_fixture_passes() {
 fn config_path_fixture_runs_the_real_provider_free_binary() {
     let outcome = run_fixture("config-path-precedence.json");
     assert_passed("config-path-precedence", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("config-path-precedence", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -105,14 +135,7 @@ fn config_provider_free_fixture_starts_no_captured_provider() {
         .find(|capture| capture.name == "gh")
         .unwrap_or_else(|| panic!("gh capture must be reported"));
     assert!(capture.invocations.is_empty(), "recovery must not start gh");
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("config-provider-free", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -120,14 +143,7 @@ fn config_provider_free_fixture_starts_no_captured_provider() {
 fn settings_schema1_validate_fixture_preserves_source_bytes() {
     let outcome = run_fixture("settings-v1-lossless.json");
     assert_passed("settings-v1-lossless", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("settings-v1-lossless", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -142,14 +158,7 @@ fn settings_show_effective_fixture_redacts_secrets_and_skips_providers() {
         .find(|capture| capture.name == "gh")
         .unwrap_or_else(|| panic!("gh capture must be reported"));
     assert!(capture.invocations.is_empty(), "recovery must not start gh");
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("settings-show-effective", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -158,14 +167,7 @@ fn settings_show_effective_fixture_redacts_secrets_and_skips_providers() {
 fn config_ambiguity_fixture_exits_three_without_writes() {
     let outcome = run_fixture("config-ambiguity.json");
     assert_passed("config-ambiguity", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(3)
-    );
+    assert_exit_code("config-ambiguity", &outcome, 3);
     cleanup(&outcome);
 }
 
@@ -173,14 +175,7 @@ fn config_ambiguity_fixture_exits_three_without_writes() {
 fn settings_edit_fixture_executes_configured_editor_as_argv() {
     let outcome = run_fixture("settings-edit.json");
     assert_passed("settings-edit", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("settings-edit", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -188,14 +183,7 @@ fn settings_edit_fixture_executes_configured_editor_as_argv() {
 fn settings_format_check_fixture_detects_drift_without_writing() {
     let outcome = run_fixture("settings-format-check.json");
     assert_passed("settings-format-check", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(2)
-    );
+    assert_exit_code("settings-format-check", &outcome, 2);
     cleanup(&outcome);
 }
 
@@ -203,14 +191,7 @@ fn settings_format_check_fixture_detects_drift_without_writing() {
 fn settings_format_fixture_preserves_dormant_bytes() {
     let outcome = run_fixture("settings-lossless-save.json");
     assert_passed("settings-lossless-save", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("settings-lossless-save", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -218,14 +199,7 @@ fn settings_format_fixture_preserves_dormant_bytes() {
 fn settings_format_migrate_fixture_writes_schema2_losslessly() {
     let outcome = run_fixture("settings-format-migrate.json");
     assert_passed("settings-format-migrate", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("settings-format-migrate", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -233,14 +207,7 @@ fn settings_format_migrate_fixture_writes_schema2_losslessly() {
 fn state_migrate_fixture_writes_schema2_atomically() {
     let outcome = run_fixture("state-v1-v2.json");
     assert_passed("state-v1-v2", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(0)
-    );
+    assert_exit_code("state-v1-v2", &outcome, 0);
     cleanup(&outcome);
 }
 
@@ -248,14 +215,7 @@ fn state_migrate_fixture_writes_schema2_atomically() {
 fn startup_malformed_state_fixture_blocks_before_tui_without_writing() {
     let outcome = run_fixture("startup-malformed-state.json");
     assert_passed("startup-malformed-state", &outcome);
-    assert_eq!(
-        outcome
-            .report
-            .app_exit
-            .as_ref()
-            .and_then(|exit| exit.exit_code),
-        Some(2)
-    );
+    assert_exit_code("startup-malformed-state", &outcome, 2);
     cleanup(&outcome);
 }
 
