@@ -154,7 +154,7 @@ live-session startup reconciliation (#323/#326) and healthy-session switching (#
 ## Review Counters
 
 - OCR pre-PR: 0/2
-- OCR post-PR: 0/2
+- OCR post-PR: 2/2 (run #1 against stale SHA `425dd7f` — infra error, no findings; run #2 against `59431c8` — 22 findings, all triaged: In-scope-Fix encoding/correctness fixed in `303b3df`, Reject/Defer for remainder)
 
 ## Verification Evidence
 
@@ -164,6 +164,32 @@ live-session startup reconciliation (#323/#326) and healthy-session switching (#
 - **Slice 4 (relaunch guard + delete cleanup):** `cargo test --bin jefe relaunch` → 7 passed (+3 new: not_blocked_no_identities, not_blocked_dead_anchor, orphan_blocked_error_user_facing); `cargo test --lib delete_selected_agent` → 3 passed (incl. new `delete_selected_agent_tolerates_bogus_work_dir` AC17). Final lib+bin: 2084 + 754 passed.
 - **Slice 5 (real-psmux regression):** `JEFE_REQUIRE_PSMUX=1 cargo test --features psmux-smoke --test psmux_orphan_reap --test psmux_smoke` → 2 + 12 passed on native Windows 11 / psmux 3.3.6. Proves dead-pane-with-orphans classifies `DeadPaneWithOrphans`, the validated detached descendant is reaped, the target session is removed, and a bystander session/process survives.
 - **Final gates:** `cargo fmt --all -- --check` clean (0 diffs). `cargo clippy --workspace --all-targets --all-features` → only the pre-existing `validate.rs:114` error (confirmed on `main`); issue332 code is clippy-clean.
+
+### CI gates on PR #416 head `303b3df` (all required gates green)
+
+| Gate | Status |
+|---|---|
+| Format (rustfmt) | [OK] pass |
+| Clippy allow policy | [OK] pass |
+| Lint (clippy) | [OK] pass |
+| Complexity checks | [OK] pass |
+| Source file length checks | [OK] pass |
+| Build | [OK] pass |
+| Test | [OK] pass |
+| Coverage gate (≥30%) | [OK] pass |
+| Native Windows (MSVC + psmux) | [OK] pass (real-psmux regressions ran on native Windows) |
+
+PR is MERGEABLE, no conflicts.
+
+### OCR finding triage (commit `303b3df`)
+
+- **In-scope-Fix**: 5 files with BOM+mojibake (encoding regression from editor) — restored from main, re-applied only `worker_identities` field.
+- **In-scope-Fix**: `classify_orphan_state` returns `NoOrphan` for `PaneLiveness::Unavailable` (unreachable multiplexer must not trigger reaping).
+- **In-scope-Fix**: `reap_validated` (Windows taskkill + Unix kill) checks exit-status success before counting a reap.
+- **In-scope-Fix**: `reap_orphan_before_delete` removed misleading `let _ = (ctx, agent_id)` tuple.
+- **Defer**: manager.rs Unix `/proc` spawn cost (Unix recovery is non-goal).
+- **Defer**: psmux test `which_psmux` version check (gating sufficient).
+- **Reject**: fixture marker_path validation + magic-number creation flags (test-harness context).
 
 ## Open Questions for User (require decision before implementation)
 
