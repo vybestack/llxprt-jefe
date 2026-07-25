@@ -573,7 +573,7 @@ fn default_open_pr_filter() -> PrFilter {
 ///
 /// All remembered selections are scoped per-repository so filter/merge
 /// choices made in one repo never leak into another. Persisted as part of
-/// `persistence::State` and restored on startup.
+/// the durable state document and restored on startup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoPreferences {
     /// Last committed issue-list filter (state defaults to Open on first use).

@@ -293,7 +293,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
     );
 }
 
-/// to_persisted_state must EXCLUDE all prs_state data — no PR key appears in
+/// The durable projection must EXCLUDE all prs_state data — no PR key appears in
 /// the serialized JSON.
 ///
 /// Build a PullRequest populated with non-default data.

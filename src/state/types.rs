@@ -377,8 +377,9 @@ pub struct AppState {
     /// Per-repository remembered user preferences (issue #163).
     ///
     /// Runtime copy of the persisted DTO — mirror of
-    /// `persistence::State.user_preferences`. The reducer reads/writes this
-    /// in memory; the app-shell persists it via `to_persisted_state`.
+    /// the durable document's `preferences.repository_preferences`. The reducer
+    /// reads/writes this in memory; it reaches disk through the durable
+    /// projection like every other persisted field.
     pub user_preferences: crate::domain::UserPreferences,
 
     /// Revision of the durable schema-2 document this state was loaded from

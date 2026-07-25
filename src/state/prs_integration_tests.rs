@@ -6,7 +6,7 @@
 //! regression, and the full PR-list pagination/lazy-load/staleness-discard
 //! guard. (Checkpoints 10 — Esc precedence — and 17 — persisted-state
 //! exclusion — live in `src/app_input/prs_integration_tests.rs`, where the
-//! real `prs::resolve_prs_key_event` and `to_persisted_state` are reachable.)
+//! real `prs::resolve_prs_key_event` and the durable projection are reachable.)
 //!
 //! @plan PLAN-20260624-PR-MODE.P15
 //! @requirement REQ-PR-005

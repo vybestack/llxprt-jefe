@@ -228,7 +228,7 @@ fn it_esc_precedence_unwinds_then_exits() {
 /// Build an AppState with an ACTIVE, populated `prs_state` AND realistic
 /// persisted fields (repositories, agents, selected indices,
 /// hide_idle_repositories, last_selected_agent_by_repo), so the REAL
-/// `to_persisted_state` mapper has non-trivial persisted data to copy while PR
+/// durable projection has non-trivial persisted data to copy while PR
 /// data is simultaneously present (and must be excluded).
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
@@ -335,8 +335,8 @@ fn assert_persisted_fields_match_source(persisted: &jefe::domain::StateV2, state
 }
 
 /// Checkpoint 17 (NFR-003): the REAL production mapper
-/// `to_persisted_state(&state)` (`src/app_input/mod.rs`, the same fn the
-/// sibling unit test `app_input_tests::test_to_persisted_state_excludes_prs_state`
+/// `durable_save_request(&mut state)` (`src/app_input/persist_focus.rs`, the
+/// same path the sibling unit test `app_input_tests::durable_candidate_excludes_prs_state`
 /// exercises) must carry ONLY the persisted fields (schema_version,
 /// repositories, agents, selected_repository_index, selected_agent_index,
 /// hide_idle_repositories, last_selected_agent_by_repo) and NEVER any
