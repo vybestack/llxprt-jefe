@@ -141,64 +141,98 @@ fn reap_removes_validated_orphan_and_only_target_session() {
     let mut namespace = PsmuxNamespace::new("orphan-reap");
     let work_dir = tempfile::tempdir().expect("create work dir");
     let marker_path = work_dir.path().join("orphan-marker.json");
-
-    // Launch the orphan-leader fixture as a detached psmux session. The leader
-    // spawns a long-lived child (the simulated orphan worker) and records its
-    // PID identity to the marker file.
     let session = "orphan-target";
-    namespace
-        .run(&[
+    let bystander = "orphan-bystander";
+
+    launch_fixture(&mut namespace, session, &work_dir, &marker_path);
+    launch_fixture(&mut namespace, bystander, &work_dir, &marker_path);
+
+    let marker = wait_for_marker(&marker_path).expect("orphan marker written");
+    let orphan_identity = jefe::runtime::capture_process_identity(marker.pid)
+        .expect("orphan child alive for identity capture");
+    let observed = vec![jefe::runtime::ObservedDescendant::alive(orphan_identity)];
+
+    assert!(process_alive(marker.pid), "orphan child alive before reap");
+    assert!(namespace.session_exists(session));
+    assert!(namespace.session_exists(bystander));
+
+    kill_pane_leader(&mut namespace, session);
+    assert!(
+        process_alive(marker.pid),
+        "orphan child must survive leader kill (the orphan scenario)"
+    );
+
+    assert_eq!(
+        jefe::runtime::classify_orphan_state(PaneLiveness::Dead, true, &observed),
+        OrphanClassification::DeadPaneWithOrphans,
+        "dead pane with a validated live descendant must classify as Orphaned"
+    );
+
+    jefe::runtime::reap_orphan_tree(&[orphan_identity])
+        .expect("reap of a validated orphan should succeed");
+    namespace.run_quiet(&["kill-session", "-t", session]);
+
+    assert!(
+        !process_alive(marker.pid),
+        "validated orphan PID {} must be terminated by the reap",
+        marker.pid
+    );
+    assert!(!namespace.session_exists(session), "target session removed");
+    assert!(
+        namespace.session_exists(bystander),
+        "bystander session must not be touched by the reap"
+    );
+}
+
+/// Launch a fixture session. Targets (`*target`) run `--orphan-leader` with a
+/// marker path; bystanders run `--orphan-child`.
+fn launch_fixture(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    work_dir: &tempfile::TempDir,
+    marker_path: &Path,
+) {
+    let leader = session.contains("target");
+    let cwd = work_dir.path().to_string_lossy().into_owned();
+    let marker = marker_path.to_string_lossy().into_owned();
+    let args: Vec<OsString> = if leader {
+        [
             "new-session",
             "-d",
             "-s",
             session,
             "-c",
-            &work_dir.path().to_string_lossy(),
+            &cwd,
             FIXTURE,
             "--orphan-leader",
-            &marker_path.to_string_lossy(),
-        ])
-        .unwrap_or_else(|error| panic!("launch orphan fixture: {error}"));
-
-    // Create a bystander session in the SAME namespace to prove the reap does
-    // not remove unrelated sessions.
-    let bystander = "orphan-bystander";
-    namespace
-        .run(&[
+            &marker,
+        ]
+        .iter()
+        .map(|s| OsString::from(*s))
+        .collect()
+    } else {
+        [
             "new-session",
             "-d",
             "-s",
-            bystander,
+            session,
             "-c",
-            &work_dir.path().to_string_lossy(),
+            &cwd,
             FIXTURE,
             "--orphan-child",
-        ])
-        .unwrap_or_else(|error| panic!("launch bystander fixture: {error}"));
+        ]
+        .iter()
+        .map(|s| OsString::from(*s))
+        .collect()
+    };
+    let refs: Vec<&str> = args.iter().map(|s| s.to_str().expect("utf8")).collect();
+    namespace
+        .run(&refs)
+        .unwrap_or_else(|error| panic!("launch {session}: {error}"));
+}
 
-    // Wait for the leader to record the orphan child PID.
-    let marker = wait_for_marker(&marker_path).unwrap_or_else(|error| {
-        panic!("orphan marker not written: {error}");
-    });
-    // Capture the validated identity from THIS process (the same probe path
-    // Jefe uses) rather than trusting the fixture's start_time formatting.
-    // This is the anchor that reap_orphan_tree will validate against.
-    let orphan_identity = jefe::runtime::capture_process_identity(marker.pid)
-        .expect("orphan child must be alive to capture its identity");
-    let observed = vec![jefe::runtime::ObservedDescendant::alive(orphan_identity)];
-
-    // Sanity: the orphan child is alive before the kill.
-    assert!(
-        process_alive(marker.pid),
-        "orphan child PID {} should be alive before reap",
-        marker.pid
-    );
-    assert!(namespace.session_exists(session));
-    assert!(namespace.session_exists(bystander));
-
-    // Simulate the dead-pane-with-orphans state: kill the pane leader's process
-    // (the fixture leader) while leaving the child alive. We kill via taskkill
-    // on the leader's tree root by killing the session's pane pid.
+/// Kill the pane leader of `session` to simulate the dead-pane state.
+fn kill_pane_leader(namespace: &mut PsmuxNamespace, session: &str) {
     let leader_pid = namespace
         .run(&["display-message", "-p", "-t", session, "#{pane_pid}"])
         .map(|output| {
@@ -213,47 +247,7 @@ fn reap_removes_validated_orphan_and_only_target_session() {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    // Give psmux a moment to mark the pane dead.
     thread::sleep(Duration::from_millis(400));
-
-    // The orphan child must still be alive after the leader died — this is the
-    // core orphan scenario (dead leader, surviving descendant).
-    assert!(
-        process_alive(marker.pid),
-        "orphan child must survive the leader kill (the orphan scenario)"
-    );
-
-    // Classify + reap exactly as Jefe's startup path would.
-    let classification = jefe::runtime::classify_orphan_state(PaneLiveness::Dead, true, &observed);
-    assert_eq!(
-        classification,
-        OrphanClassification::DeadPaneWithOrphans,
-        "dead pane with a validated live descendant must classify as Orphaned"
-    );
-
-    // The production reap terminates the validated orphan tree. (Session
-    // removal in production routes through jefe's private socket; in this
-    // isolated namespace we kill the session directly to model the same
-    // best-effort step that reap_orphan_session performs.)
-    let _ = jefe::runtime::reap_orphan_tree(&[orphan_identity])
-        .expect("reap of a validated orphan should succeed");
-    namespace.run_quiet(&["kill-session", "-t", session]);
-
-    // The orphan descendant must be gone.
-    assert!(
-        !process_alive(marker.pid),
-        "validated orphan PID {} must be terminated by the reap",
-        marker.pid
-    );
-    // The target session must be gone, but the bystander must survive.
-    assert!(
-        !namespace.session_exists(session),
-        "target session must be removed by reap_orphan_session"
-    );
-    assert!(
-        namespace.session_exists(bystander),
-        "bystander session must not be touched by the reap"
-    );
 }
 
 #[test]

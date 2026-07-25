@@ -666,14 +666,10 @@ impl TmuxRuntimeManager {
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
-        // On Windows/psmux the pane PID is the launcher, not the real worker;
-        // enumerate the launch tree so a dead-launcher orphan can still be
-        // reaped PID-reuse-safely later (issue #332). Best-effort: a probe
-        // failure simply yields no anchors, leaving liveness to fall back to
-        // the single-PID path.
-        session.worker_identities = captured_pid
-            .filter(|pid| *pid != 0)
-            .map_or_else(Vec::new, super::orphan::enumerate_descendants);
+        // Enumerate the launch tree so a dead-launcher orphan can be reaped
+        // PID-reuse-safely later (issue #332). Best-effort: probe failure
+        // yields no anchors, leaving liveness to the single-PID fallback.
+        session.worker_identities = super::orphan::capture_worker_identities(captured_pid);
         session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 

@@ -650,56 +650,45 @@ mod tests {
 
     #[test]
     fn startup_classification_covers_required_lifecycle_states() {
-        let coherent = BindingEvidence::Coherent;
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                coherent,
-                false,
-                ProcessLiveness::Dead,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Running
+        use jefe::runtime::OrphanClassification as Oc;
+        // Local helper: fix remote=false and orphan=NoOrphan so each row is a
+        // compact (session, binding, process) -> expected assertion.
+        let cls = |session, process, expected| {
+            assert_eq!(
+                classify_startup(
+                    session,
+                    BindingEvidence::Coherent,
+                    false,
+                    process,
+                    Oc::NoOrphan
+                ),
+                expected
+            )
+        };
+        cls(
+            SessionEvidence::Alive,
+            ProcessLiveness::Dead,
+            StartupClassification::Running,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::Dead,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Stopped
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::Dead,
+            StartupClassification::Stopped,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::ReusedPid,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Stale
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::ReusedPid,
+            StartupClassification::Stale,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                coherent,
-                false,
-                ProcessLiveness::ReusedPid,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Stale
+        cls(
+            SessionEvidence::Alive,
+            ProcessLiveness::ReusedPid,
+            StartupClassification::Stale,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Recoverable
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::Alive,
+            StartupClassification::Recoverable,
         );
         assert_eq!(
             classify_startup(
@@ -707,7 +696,7 @@ mod tests {
                 BindingEvidence::Inconsistent,
                 false,
                 ProcessLiveness::Alive,
-                jefe::runtime::OrphanClassification::NoOrphan,
+                Oc::NoOrphan,
             ),
             StartupClassification::Inconsistent
         );

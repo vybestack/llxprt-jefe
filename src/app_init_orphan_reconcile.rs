@@ -6,7 +6,9 @@
 
 use jefe::domain::{Agent, ProcessIdentity};
 
-use crate::app_init::{BindingEvidence, SessionEvidence};
+#[cfg(test)]
+use crate::app_init::BindingEvidence;
+use crate::app_init::SessionEvidence;
 
 /// Compute orphan evidence for startup classification (issue #332).
 pub(super) fn orphan_evidence(

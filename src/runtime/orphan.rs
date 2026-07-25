@@ -367,6 +367,16 @@ pub fn enumerate_descendants(root: u32) -> Vec<ProcessIdentity> {
     platform_probes::enumerate_descendants(root)
 }
 
+/// Capture the worker descendant tree for a launcher PID, returning an empty
+/// vec for `None`/zero PIDs. Convenience wrapper for spawn/reattach paths
+/// (issue #332).
+#[must_use]
+pub fn capture_worker_identities(launcher_pid: Option<u32>) -> Vec<ProcessIdentity> {
+    launcher_pid
+        .filter(|pid| *pid != 0)
+        .map_or_else(Vec::new, enumerate_descendants)
+}
+
 /// Confirm a recorded anchor's PID still matches its original identity
 /// (PID-reuse guard) using the shared probe path.
 #[must_use]
