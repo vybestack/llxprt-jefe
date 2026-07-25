@@ -19,7 +19,9 @@ use jefe::state::{
     AppEvent, AppState, ManagedShellRow, ScreenMode, ShellFocusOrigin, project_managed_shell_rows,
 };
 
-use super::{AppStateHandle, SharedContext, dispatch_app_event, persist_state, to_persisted_state};
+use super::{
+    AppStateHandle, SharedContext, dispatch_app_event, durable_save_request, schedule_durable_save,
+};
 
 /// Manager preview observer interval.
 const MANAGER_PREVIEW_INTERVAL: Duration = Duration::from_secs(2);
@@ -164,9 +166,9 @@ pub(super) fn select_agent_for_focus(
         state.selected_agent_index = Some(agent_idx);
     }
     state.pane_focus = jefe::state::PaneFocus::Terminal;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Background observer that captures a throttled, read-only preview for the

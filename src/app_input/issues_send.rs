@@ -33,8 +33,8 @@ use super::issue_self_assignment::{
 use super::issues_dispatch;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
-    close_modal_and_persist, gh_async, github_client, launch_signature_for_agent, persist_state,
-    preflight_or_prompt, process_on_success, to_persisted_state,
+    close_modal_and_persist, durable_save_request, gh_async, github_client,
+    launch_signature_for_agent, preflight_or_prompt, process_on_success, schedule_durable_save,
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -234,9 +234,9 @@ fn prompt_dirty_copy_confirm(
         payload,
         confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Open the origin-mismatch confirm modal. The default is no/halt — the user
@@ -257,9 +257,9 @@ fn prompt_origin_mismatch_confirm(
         expected: origins.expected,
         confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Shared prefix for the dirty-copy and origin-mismatch confirm paths: close
@@ -544,9 +544,9 @@ pub(super) fn launch_issue_agent(
             );
         }
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 
     // Self-assign the issue to the authenticated viewer only on a successful
     // launch (issue #186). Non-blocking: failures surface a warning, not a
@@ -644,9 +644,9 @@ pub(super) fn apply_send_to_agent_failed(
         &mut state,
         (AppEvent::SendToAgentFailed { error }).into(),
     );
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// After a successful issue-driven launch, self-assign the issue to the

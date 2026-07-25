@@ -23,7 +23,8 @@ use tracing::warn;
 
 use super::availability;
 use super::{
-    AppEvent, AppStateHandle, SharedContext, agent_and_signature, persist_state, to_persisted_state,
+    AppEvent, AppStateHandle, SharedContext, agent_and_signature, durable_save_request,
+    schedule_durable_save,
 };
 
 pub(super) fn dispatch_kill_agent(
@@ -45,9 +46,9 @@ fn commit_kill_and_persist(
     let mut state = app_state.write();
     let effects = transition::commit_in_place(&mut state, (AppEvent::KillAgent(agent_id)).into());
     state.terminal_focused = false;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
     effects
 }
 
@@ -101,9 +102,9 @@ pub(super) fn persist_error_message(
 ) {
     let mut state = app_state.write();
     state.error_message = Some(error);
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Restart an agent: kill, wait for session teardown, then relaunch with fresh

@@ -17,8 +17,24 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::persistence::State as PersistedState;
+use crate::domain::StateV2;
+use crate::domain::effects::Correlation;
 use crate::persistence::writer::Freshness;
+
+/// Durable save request handed to the worker (issue #381).
+///
+/// Carries the projected schema-2 candidate together with the correlation of
+/// the staged effect, so the completion can be routed back to the reducer that
+/// proposed it rather than being applied blindly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistRequest {
+    /// Projected durable document to make authoritative.
+    pub candidate: Box<StateV2>,
+    /// Revision proposed for this candidate.
+    pub revision: u64,
+    /// Correlation of the staged persistence effect.
+    pub correlation: Correlation,
+}
 
 /// Result of a revision-gated persistence attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +53,12 @@ pub type FreshnessFn = dyn Fn(u64) -> Freshness + Send + Sync;
 /// The function receives the scheduled generation and must invoke `freshness`
 /// immediately before making bytes authoritative.
 pub type PersistFn =
-    Arc<dyn Fn(&PersistedState, u64, &FreshnessFn) -> Result<PersistResult, String> + Send + Sync>;
+    Arc<dyn Fn(&PersistRequest, u64, &FreshnessFn) -> Result<PersistResult, String> + Send + Sync>;
 
 /// Pending persistence request: the latest snapshot plus its schedule
 /// generation.
 struct PendingSlot {
-    snapshot: Option<PersistedState>,
+    snapshot: Option<PersistRequest>,
     generation: u64,
 }
 
@@ -103,7 +119,7 @@ impl PersistHandle {
     /// Returns `true` always (the snapshot was scheduled). The return type
     /// allows callers to check whether the handle is initialized.
     #[must_use]
-    pub fn schedule(&self, snapshot: PersistedState) -> bool {
+    pub fn schedule(&self, snapshot: PersistRequest) -> bool {
         // fetch_add returns the *previous* value; +1 yields the value assigned
         // to this schedule. This makes the first schedule generation 1 (not 0,
         // which is the initial/applied generation).
@@ -128,7 +144,7 @@ impl PersistHandle {
     /// Recovers from a poisoned mutex by taking the inner guard (logs an
     /// error). Does not panic on poison.
     #[must_use]
-    pub fn take_pending(&self) -> Option<(PersistedState, u64)> {
+    pub fn take_pending(&self) -> Option<(PersistRequest, u64)> {
         let mut pending = lock_or_recover(&self.inner.pending);
         let snapshot = pending.snapshot.clone()?;
         // Clear the pending slot immediately so a cancelled task that calls
@@ -265,19 +281,55 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
-    fn make_state(label: &str) -> PersistedState {
-        let mut state = PersistedState::default_with_version();
-        state.hide_idle_repositories = label.contains("hide");
-        state
+    fn make_state(label: &str) -> PersistRequest {
+        let mut candidate = crate::domain::StateV2 {
+            state_schema: 2,
+            revision: 1,
+            repositories: Vec::new(),
+            agents: Vec::new(),
+            selection: crate::domain::Selection {
+                repository_id: None,
+                agent_id: None,
+                screen_id: None,
+            },
+            last_selected_agent_by_repo: std::collections::BTreeMap::new(),
+            preferences: crate::domain::Preferences {
+                hide_idle_repositories: false,
+                pane_focus: "repositories".to_owned(),
+                terminal_focused: false,
+                repository_preferences: std::collections::BTreeMap::new(),
+            },
+            dormant_records: Vec::new(),
+        };
+        candidate.preferences.hide_idle_repositories = label.contains("hide");
+        PersistRequest {
+            candidate: Box::new(candidate),
+            revision: 1,
+            correlation: test_correlation(),
+        }
     }
 
-    fn counting_persist_fn() -> (PersistFn, Arc<AtomicUsize>, Arc<Mutex<PersistedState>>) {
+    fn test_correlation() -> Correlation {
+        Correlation {
+            correlation_id: crate::domain::effects::CorrelationId::new(1),
+            owner: crate::domain::Id::parse("core.persistence").unwrap_or_else(|error| {
+                panic!("owner id should parse: {error:?}");
+            }),
+            screen_generation: 0,
+            activation_generation: 0,
+            semantic_key: crate::domain::effects::SemanticKey::new(
+                crate::domain::effects::EffectFamily::Persistence,
+                "state",
+            ),
+        }
+    }
+
+    fn counting_persist_fn() -> (PersistFn, Arc<AtomicUsize>, Arc<Mutex<PersistRequest>>) {
         let count = Arc::new(AtomicUsize::new(0));
-        let last: Arc<Mutex<PersistedState>> =
-            Arc::new(Mutex::new(PersistedState::default_with_version()));
+        let last: Arc<Mutex<PersistRequest>> = Arc::new(Mutex::new(make_state("initial")));
         let count_clone = Arc::clone(&count);
         let last_clone = Arc::clone(&last);
-        let f: PersistFn = Arc::new(move |state: &PersistedState, generation, freshness| {
+        let f: PersistFn = Arc::new(move |state: &PersistRequest, generation, freshness| {
             if freshness(generation) == Freshness::Stale {
                 return Ok(PersistResult::Stale);
             }
@@ -291,7 +343,7 @@ mod tests {
         (f, count, last)
     }
 
-    fn require_pending(handle: &PersistHandle) -> (PersistedState, u64) {
+    fn require_pending(handle: &PersistHandle) -> (PersistRequest, u64) {
         let Some(pending) = handle.take_pending() else {
             panic!("pending should exist");
         };
@@ -326,7 +378,8 @@ mod tests {
         };
         let durable = durable_guard.clone();
         assert_eq!(
-            durable.hide_idle_repositories, state_b.hide_idle_repositories,
+            durable.candidate.preferences.hide_idle_repositories,
+            state_b.candidate.preferences.hide_idle_repositories,
             "durable state must be gen 2 (newest)"
         );
         assert!(count.load(Ordering::SeqCst) >= 1);
@@ -348,7 +401,7 @@ mod tests {
             "generation must be 100 after 100 schedules"
         );
         assert!(
-            snapshot.hide_idle_repositories,
+            snapshot.candidate.preferences.hide_idle_repositories,
             "latest snapshot (state-99-hide) must have hide_idle"
         );
 
@@ -370,7 +423,7 @@ mod tests {
     fn persist_worker_reports_failure_without_blocking() {
         let fail_count = Arc::new(AtomicUsize::new(0));
         let fail_clone = Arc::clone(&fail_count);
-        let f: PersistFn = Arc::new(move |_state: &PersistedState, _generation, _freshness| {
+        let f: PersistFn = Arc::new(move |_state: &PersistRequest, _generation, _freshness| {
             fail_clone.fetch_add(1, Ordering::SeqCst);
             Err("disk full".to_string())
         });
@@ -406,7 +459,7 @@ mod tests {
             panic!("lock poisoned");
         };
         assert!(
-            !durable_guard.hide_idle_repositories,
+            !durable_guard.candidate.preferences.hide_idle_repositories,
             "durable state should be default before flush"
         );
         drop(durable_guard);
@@ -418,7 +471,8 @@ mod tests {
         };
         let durable = durable_guard.clone();
         assert_eq!(
-            durable.hide_idle_repositories, final_state.hide_idle_repositories,
+            durable.candidate.preferences.hide_idle_repositories,
+            final_state.candidate.preferences.hide_idle_repositories,
             "shutdown_flush must write the final snapshot"
         );
         assert!(

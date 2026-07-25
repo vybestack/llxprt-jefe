@@ -20,7 +20,7 @@ use jefe::runtime::{
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
 
-use crate::app_input::{SharedContext, persist_state, to_persisted_state};
+use crate::app_input::{SharedContext, durable_save_request, schedule_durable_save};
 
 fn launch_signature_for_agent(
     agent: &Agent,
@@ -250,15 +250,23 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
 
     let dead_ids = reconcile_running_agents(&state, &ctx_guard.runtime);
     let should_persist = apply_dead_reconciliations(&mut state, dead_ids, normalized_engines);
-    let state_to_persist = should_persist.then(|| to_persisted_state(&state));
+    // The persist worker is not running yet, so startup reconciliation writes
+    // its candidate synchronously through the manager.
+    let state_to_persist = should_persist
+        .then(|| durable_save_request(&mut state))
+        .flatten();
 
     // Release state/context guards before reacquiring a mutable context lock
     // for persistence writes and theme activation.
     drop(state);
     drop(ctx_guard);
     if let Ok(mut ctx_mut) = ctx_arc.lock() {
-        if let Some(persisted_state) = state_to_persist.as_ref()
-            && let Err(e) = ctx_mut.persistence.save_state(persisted_state)
+        if let Some(request) = state_to_persist.as_ref()
+            && let Err(e) = ctx_mut.persistence.save_state_v2_revisioned(
+                request.candidate.as_ref(),
+                request.revision,
+                &|_| jefe::persistence::writer::Freshness::Current,
+            )
         {
             warn!(error = %e, "could not save reconciled startup state");
         }
@@ -452,8 +460,8 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         append_warning(&mut app_state.write(), warning);
     }
     if state_changed {
-        let state = app_state.read();
-        persist_state(ctx, &to_persisted_state(&state));
+        let request = durable_save_request(&mut app_state.write());
+        schedule_durable_save(ctx, request);
     }
 }
 

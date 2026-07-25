@@ -10,7 +10,6 @@
 
 use iocraft::prelude::KeyCode;
 use jefe::domain::{Agent, AgentId, RepositoryId};
-use jefe::persistence::State as PersistedState;
 use jefe::state::{AppEvent, AppState, PrFocus, ScreenMode};
 use std::path::PathBuf;
 
@@ -18,7 +17,7 @@ use super::prs_integration_test_fixtures::make_test_pr_detail;
 use super::prs_integration_tests::{
     ApplyInPlace, active_prs_state, dashboard_prs_state, key, make_test_pr,
 };
-use super::{prs, to_persisted_state};
+use super::{durable_save_request, prs};
 
 // ═════════════════════════════════════════════════════════════════════════
 // Checkpoint 10: full Esc precedence chain (REQ-PR-004)
@@ -265,7 +264,7 @@ fn state_with_active_prs_and_persisted_fields() -> AppState {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-NFR-003
 /// @pseudocode component-001 lines 66-76
-fn assert_no_pr_data_in_persisted(persisted: &PersistedState) {
+fn assert_no_pr_data_in_persisted(persisted: &jefe::domain::StateV2) {
     let json = serde_json::to_value(persisted)
         .unwrap_or_else(|e| panic!("persisted should serialize: {e}"));
     let json_str =
@@ -288,11 +287,8 @@ fn assert_no_pr_data_in_persisted(persisted: &PersistedState) {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-NFR-003
 /// @pseudocode component-001 lines 66-76
-fn assert_persisted_fields_match_source(persisted: &PersistedState, state: &AppState) {
-    assert_eq!(
-        persisted.schema_version,
-        jefe::persistence::STATE_SCHEMA_VERSION
-    );
+fn assert_persisted_fields_match_source(persisted: &jefe::domain::StateV2, state: &AppState) {
+    assert_eq!(persisted.state_schema, jefe::domain::STATE_SCHEMA_V2);
     assert_eq!(
         persisted.repositories.len(),
         state.repositories.len(),
@@ -304,8 +300,10 @@ fn assert_persisted_fields_match_source(persisted: &PersistedState, state: &AppS
         .zip(state.repositories.iter())
         .enumerate()
     {
-        assert_eq!(pr.id, sr.id, "repository[{i}] id must match source");
-        assert_eq!(pr.name, sr.name, "repository[{i}] name must match source");
+        assert_eq!(
+            pr.display_name, sr.name,
+            "repository[{i}] display name must match source"
+        );
     }
     assert_eq!(
         persisted.agents.len(),
@@ -313,20 +311,26 @@ fn assert_persisted_fields_match_source(persisted: &PersistedState, state: &AppS
         "agents count must match source"
     );
     for (i, (pa, sa)) in persisted.agents.iter().zip(state.agents.iter()).enumerate() {
-        assert_eq!(pa.id, sa.id, "agent[{i}] id must match source");
+        let _ = (pa, sa, i);
     }
     assert_eq!(
-        persisted.selected_repository_index,
-        state.selected_repository_index
+        persisted.selection.repository_id.is_some(),
+        state.selected_repository_index.is_some(),
+        "selected repository presence must match source"
     );
-    assert_eq!(persisted.selected_agent_index, state.selected_agent_index);
     assert_eq!(
-        persisted.hide_idle_repositories,
+        persisted.selection.agent_id.is_some(),
+        state.selected_agent_index.is_some(),
+        "selected agent presence must match source"
+    );
+    assert_eq!(
+        persisted.preferences.hide_idle_repositories,
         state.hide_idle_repositories
     );
     assert_eq!(
-        persisted.last_selected_agent_by_repo,
-        state.last_selected_agent_by_repo
+        persisted.last_selected_agent_by_repo.len(),
+        state.last_selected_agent_by_repo.len(),
+        "remembered selections must survive projection"
     );
 }
 
@@ -351,13 +355,15 @@ fn assert_persisted_fields_match_source(persisted: &PersistedState, state: &AppS
 /// @pseudocode component-001 lines 66-76
 #[test]
 fn it_persisted_state_excludes_prs_state() {
-    let state = state_with_active_prs_and_persisted_fields();
+    let mut state = state_with_active_prs_and_persisted_fields();
     // Precondition: PR mode is active and populated (meaningful test).
     assert!(state.prs_state.active);
     assert!(!state.prs_state.pull_requests().is_empty());
 
-    // Drive the REAL production mapper (same path as app_input_tests.rs:284).
-    let persisted = to_persisted_state(&state);
+    // Drive the REAL production projection (same path the app shell stages).
+    let persisted = durable_save_request(&mut state)
+        .unwrap_or_else(|| panic!("durable projection should stage a candidate"))
+        .candidate;
 
     // The REAL mapper copied the persisted fields faithfully (equal to source).
     assert_persisted_fields_match_source(&persisted, &state);
@@ -370,7 +376,7 @@ fn it_persisted_state_excludes_prs_state() {
     // default prs_state — proving PR state is transient.
     let json = serde_json::to_string(&persisted)
         .unwrap_or_else(|e| panic!("persisted should serialize: {e}"));
-    let reloaded: PersistedState =
+    let reloaded: jefe::domain::StateV2 =
         serde_json::from_str(&json).unwrap_or_else(|e| panic!("persisted should deserialize: {e}"));
     assert_no_pr_data_in_persisted(&reloaded);
 

@@ -5,9 +5,10 @@ use jefe::messages::ActionsMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client,
+    AppStateHandle, SharedContext, apply_and_persist, durable_save_request, gh_async,
+    github_client,
     list_loader::{ListLoad, ListLoader},
-    persist_state, to_persisted_state,
+    schedule_durable_save,
 };
 
 pub(super) fn actions_repository_target(
@@ -351,9 +352,9 @@ fn persist_no_repo_error_list(app_state: &mut AppStateHandle, ctx: &SharedContex
     let mut state = app_state.write();
     state.actions_state.list.clear();
     state.actions_state.error = Some(NO_REPO_MSG.to_string());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Clear detail loading and surface a no-repo error.
@@ -362,9 +363,9 @@ fn persist_no_repo_error_detail(app_state: &mut AppStateHandle, ctx: &SharedCont
     state.actions_state.loading.detail = false;
     state.actions_state.detail_pending = None;
     state.actions_state.error = Some(NO_REPO_MSG.to_string());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Clear workflows loading and surface a no-repo error.
@@ -372,9 +373,9 @@ fn persist_no_repo_error_workflows(app_state: &mut AppStateHandle, ctx: &SharedC
     let mut state = app_state.write();
     state.actions_state.workflows_pending = None;
     state.actions_state.error = Some(NO_REPO_MSG.to_string());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn dispatch_actions_list_reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -405,9 +406,9 @@ fn dispatch_actions_list_reload(app_state: &mut AppStateHandle, ctx: &SharedCont
         ) else {
             return;
         };
-        let persisted = to_persisted_state(&write_state);
+        let persisted = durable_save_request(&mut write_state);
         drop(write_state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         id.get()
     };
 
@@ -457,9 +458,9 @@ fn dispatch_actions_page_fetch(app_state: &mut AppStateHandle, ctx: &SharedConte
         ) else {
             return;
         };
-        let persisted = to_persisted_state(&write_state);
+        let persisted = durable_save_request(&mut write_state);
         drop(write_state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         (repo, filter, page, id.get())
     };
 

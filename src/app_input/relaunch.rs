@@ -13,7 +13,7 @@ use super::agent_runtime::{
 };
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, agent_and_signature, availability,
-    persist_state, preflight_or_prompt, to_persisted_state,
+    durable_save_request, preflight_or_prompt, schedule_durable_save,
 };
 
 pub(super) fn dispatch_relaunch_agent(
@@ -123,9 +123,9 @@ fn persist_relaunch_result(
         }
         Err(error) => persist_relaunch_failure(&mut state, &agent_id, relaunch_event, &error),
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn persist_relaunch_success(

@@ -305,3 +305,50 @@ fn transient_agents_are_absent_from_the_staged_candidate() {
 
     assert_eq!(candidate.agents.len(), 1);
 }
+
+/// The durable revision is the acknowledged-write watermark: taking a request
+/// (which the worker will attempt) must not advance it on its own, and a save
+/// that is superseded in flight must leave it where it was. Only the
+/// acknowledged write moves it (issue #381).
+#[test]
+fn taking_a_save_request_does_not_advance_the_durable_revision() {
+    let mut state = state_with_one_agent();
+    let settled = state.durable_revision;
+
+    let (_, requested_revision, correlation) = state
+        .take_durable_save_request()
+        .unwrap_or_else(|| panic!("a durable save request should be staged"));
+
+    assert!(
+        requested_revision > settled,
+        "the candidate must claim a newer revision than the settled one"
+    );
+    assert_eq!(
+        state.durable_revision, settled,
+        "an in-flight request must not advance the acknowledged watermark"
+    );
+
+    // The worker reports the write was superseded before it landed.
+    let superseded = EffectCompletion {
+        correlation,
+        result: Ok(EffectResponse::Persistence(
+            PersistenceResponse::Superseded {
+                revision: requested_revision,
+            },
+        )),
+    };
+    let effects = commit_in_place(
+        &mut state,
+        AppMessage::EffectCompletion(Box::new(superseded)),
+    );
+
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.durable_revision, settled,
+        "a superseded candidate never became the authority"
+    );
+    assert!(
+        state.error_message.is_none(),
+        "supersession is normal coalescing, not a user-facing failure"
+    );
+}

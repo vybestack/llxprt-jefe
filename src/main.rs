@@ -250,14 +250,19 @@ fn build_persist_fn(
         jefe::persistence::FilePersistenceManager::with_paths(paths),
     ));
     Arc::new(
-        move |state: &jefe::persistence::State, generation, freshness| {
+        move |request: &jefe::services::persist_worker::PersistRequest, generation, freshness| {
+            // The writer fences on the worker's schedule generation, not the
+            // document revision: the candidate already carries its own
+            // revision, while `generation` decides which in-flight write is
+            // still the newest.
+            let candidate = request.candidate.as_ref();
             let result = match manager.lock() {
-                Ok(mgr) => mgr.save_state_revisioned(state, generation, freshness),
+                Ok(mgr) => mgr.save_state_v2_revisioned(candidate, generation, freshness),
                 Err(poisoned) => {
                     tracing::warn!("persist worker: mutex poisoned; recovering");
                     poisoned
                         .into_inner()
-                        .save_state_revisioned(state, generation, freshness)
+                        .save_state_v2_revisioned(candidate, generation, freshness)
                 }
             };
             result.map_err(|error| error.to_string())

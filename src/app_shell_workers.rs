@@ -68,7 +68,10 @@ const PERSIST_POLL_MS: u64 = 50;
 /// Polls [`PersistHandle::take_pending`] every [`PERSIST_POLL_MS`] and
 /// offloads the durable write to `smol::unblock`. When no snapshot is
 /// pending, the loop yields immediately.
-pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) {
+pub async fn run_persist_worker(
+    ctx: Option<Arc<std::sync::Mutex<AppContext>>>,
+    mut app_state: crate::app_input::AppStateHandle,
+) {
     let Some(ctx_arc) = ctx.as_ref() else {
         return;
     };
@@ -80,55 +83,118 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
             };
             let handle = ctx_guard.persist_handle.clone();
             let request = handle.take_pending();
-            request
-                .map(|(state, generation)| (handle.clone(), handle.persist_fn(), state, generation))
+            request.map(|(request, generation)| {
+                (handle.clone(), handle.persist_fn(), request, generation)
+            })
         };
-        let Some((handle, persist_fn, state, generation)) = handle_and_fn else {
+        let Some((handle, persist_fn, request, generation)) = handle_and_fn else {
             continue;
         };
-        // take_pending already cleared the pending slot, but a newer schedule
-        // may have arrived between take_pending and the worker's offload.
-        // clear_pending_if only clears if the generation still matches,
-        // preserving any newer snapshot (issue #301 review feedback).
-        handle.clear_pending_if(generation);
-        let freshness_handle = handle.clone();
-        let result = smol::unblock(move || {
-            let freshness = move |revision| freshness_handle.freshness(revision);
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                persist_fn(&state, generation, &freshness)
-            })) {
-                Ok(inner) => inner,
-                Err(payload) => {
-                    let msg = payload
-                        .downcast_ref::<&str>()
-                        .copied()
-                        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                        .unwrap_or("unknown panic");
-                    Err(format!("persist_fn panicked: {msg}"))
-                }
-            }
-        })
-        .await;
-        match result {
-            Ok(jefe::services::persist_worker::PersistResult::Authoritative) => {
-                if !handle.commit(generation) {
-                    debug!(
-                        generation,
-                        "persisted generation was superseded after replacement"
-                    );
-                }
-            }
-            Ok(jefe::services::persist_worker::PersistResult::Stale) => {
-                debug!(
-                    generation,
-                    "stale persistence candidate was not made authoritative"
-                );
-            }
-            Err(e) => {
-                warn!(error = %e, generation, "background persist failed; not committing generation");
+        let completion = run_persist_cycle(&handle, persist_fn, request, generation).await;
+        deliver_persist_completion(&mut app_state, completion);
+    }
+}
+
+/// Perform one offloaded persist attempt and map its result to a completion.
+///
+/// The write runs on a blocking thread so the UI loop is never stalled; the
+/// returned completion carries the same correlation the save was staged with.
+async fn run_persist_cycle(
+    handle: &jefe::services::persist_worker::PersistHandle,
+    persist_fn: jefe::services::persist_worker::PersistFn,
+    request: jefe::services::persist_worker::PersistRequest,
+    generation: u64,
+) -> jefe::domain::effects::EffectCompletion {
+    let correlation = request.correlation.clone();
+    let revision = request.revision;
+    // take_pending already cleared the pending slot, but a newer schedule
+    // may have arrived between take_pending and the worker's offload.
+    // clear_pending_if only clears if the generation still matches,
+    // preserving any newer snapshot (issue #301 review feedback).
+    handle.clear_pending_if(generation);
+    let freshness_handle = handle.clone();
+    let result = smol::unblock(move || {
+        let freshness = move |revision| freshness_handle.freshness(revision);
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            persist_fn(&request, generation, &freshness)
+        })) {
+            Ok(inner) => inner,
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("unknown panic");
+                Err(format!("persist_fn panicked: {msg}"))
             }
         }
+    })
+    .await;
+    // The completion is routed back through the reducer so the durable
+    // revision advances (or not) under the same correlation the save was
+    // staged with; a stale correlation is ignored there.
+    match result {
+        Ok(jefe::services::persist_worker::PersistResult::Authoritative) => {
+            if !handle.commit(generation) {
+                debug!(
+                    generation,
+                    "persisted generation was superseded after replacement"
+                );
+            }
+            persist_completion(
+                correlation,
+                Ok(jefe::domain::effects::PersistenceResponse::Persisted { revision }),
+            )
+        }
+        Ok(jefe::services::persist_worker::PersistResult::Stale) => {
+            debug!(
+                generation,
+                "stale persistence candidate was not made authoritative"
+            );
+            persist_completion(
+                correlation,
+                Ok(jefe::domain::effects::PersistenceResponse::Superseded { revision }),
+            )
+        }
+        Err(e) => {
+            warn!(error = %e, generation, "background persist failed; not committing generation");
+            persist_completion(
+                correlation,
+                Err(jefe::domain::effects::EffectError::new(
+                    jefe::domain::effects::EffectErrorKind::Io,
+                    false,
+                    &e,
+                )),
+            )
+        }
     }
+}
+
+/// Build a typed persistence completion for the reducer.
+fn persist_completion(
+    correlation: jefe::domain::effects::Correlation,
+    result: Result<jefe::domain::effects::PersistenceResponse, jefe::domain::effects::EffectError>,
+) -> jefe::domain::effects::EffectCompletion {
+    jefe::domain::effects::EffectCompletion {
+        correlation,
+        result: result.map(jefe::domain::effects::EffectResponse::Persistence),
+    }
+}
+
+/// Commit a persistence completion, rejecting any effect it stages.
+///
+/// The persist worker owns no adapter, so a transition that stages further
+/// effects here would silently drop them; routing through `commit_pure_site`
+/// makes that a loud contract violation instead.
+fn deliver_persist_completion(
+    app_state: &mut crate::app_input::AppStateHandle,
+    completion: jefe::domain::effects::EffectCompletion,
+) {
+    let mut state = app_state.write();
+    jefe::state::transition::commit_pure_site(
+        &mut state,
+        jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
+    );
 }
 
 /// Poll interval for the capture worker drain loop.

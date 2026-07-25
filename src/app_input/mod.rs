@@ -140,7 +140,6 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
-use jefe::persistence::State as PersistedState;
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
@@ -181,24 +180,24 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
             state.terminal_focused = false;
             state.pane_focus = PaneFocus::Agents;
             mark_agent_runtime_attached(&mut state, &agent_id, false);
-            let persisted = to_persisted_state(&state);
+            let persisted = durable_save_request(&mut state);
             drop(state);
-            persist_state(ctx, &persisted);
+            schedule_durable_save(ctx, persisted);
             return false;
         }
 
         clear_agent_runtime_attachment(&mut state);
         mark_agent_runtime_attached(&mut state, &agent_id, true);
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         true
     } else {
         state.terminal_focused = false;
         state.pane_focus = PaneFocus::Agents;
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         false
     }
 }
@@ -224,54 +223,7 @@ fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
     let ctx_guard = ctx_arc.lock().ok()?;
     Some(ctx_guard.gh_client)
 }
-pub fn to_persisted_state(state: &AppState) -> PersistedState {
-    // Transient agents are runtime-only — never persisted to state.json
-    // (issue #213). Filter them out and project selection metadata onto the
-    // remaining persistent-agent collection so no transient index/ID lingers.
-    let persistent_agents: Vec<_> = state
-        .agents
-        .iter()
-        .filter(|a| !a.is_transient())
-        .cloned()
-        .collect();
-
-    // Recompute selected_agent_index by tracking the originally-selected
-    // agent's ID through the filter: if it was transient, clear; otherwise
-    // find its new index in the persistent list (issue #213 OCR fix).
-    let selected_agent_index = state.selected_agent_index.and_then(|idx| {
-        let original = state.agents.get(idx)?;
-        if original.is_transient() {
-            return None;
-        }
-        persistent_agents.iter().position(|a| a.id == original.id)
-    });
-
-    // Filter last_selected_agent_by_repo: remove entries whose agent ID
-    // belonged to a transient agent (no longer in persistent_agents).
-    let persistent_agent_ids: std::collections::HashSet<_> =
-        persistent_agents.iter().map(|a| a.id.clone()).collect();
-    let last_selected_agent_by_repo: Vec<_> = state
-        .last_selected_agent_by_repo
-        .iter()
-        .filter(|(_, agent_id)| persistent_agent_ids.contains(agent_id))
-        .cloned()
-        .collect();
-
-    PersistedState {
-        schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
-        repositories: state.repositories.clone(),
-        agents: persistent_agents,
-        selected_repository_index: state.selected_repository_index,
-        selected_agent_index,
-        hide_idle_repositories: state.hide_idle_repositories,
-        last_selected_agent_by_repo,
-        pane_focus: pane_focus_to_persisted(state.pane_focus),
-        terminal_focused: state.terminal_focused,
-        user_preferences: state.user_preferences.clone(),
-    }
-}
-
-pub use persist_focus::{pane_focus_from_persisted, pane_focus_to_persisted, persist_state};
+pub use persist_focus::{durable_save_request, pane_focus_from_persisted, schedule_durable_save};
 
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,
@@ -345,9 +297,9 @@ fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: A
     let settled_refresh = SettledRefresh::from_event(&evt);
     let mut state = app_state.write();
     jefe::state::transition::commit_pure_site(&mut state, (evt).into());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
     match settled_refresh {
         Some(SettledRefresh::Issues) => {
             issues_dispatch::resume_issue_post_mutation_refresh(app_state, ctx);
@@ -440,9 +392,9 @@ fn mark_launch_failed(
         agent.runtime_binding = None;
     }
     mark_runtime_session_dead_if_present(&mut state, agent_id);
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn mark_launch_attached(
@@ -476,9 +428,9 @@ fn mark_launch_attached(
             clear_runtime_warning(&mut state);
         }
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 pub fn handle_mode_help_key(

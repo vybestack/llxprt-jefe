@@ -1,26 +1,15 @@
 //! Persistence helpers: state serialization and pane-focus conversion.
 //!
-//! `pane_focus_to_persisted` / `pane_focus_from_persisted` bridge the state-layer
+//! `pane_focus_from_persisted` bridges the state-layer
 //! `PaneFocus` enum and the string form stored in the persisted `State` DTO. They
 //! live in the app-shell layer (not in `persistence/`) because the persistence
 //! module is restricted to `domain/` dependencies and cannot reference
 //! `state::PaneFocus`. See issue #160.
 
-use jefe::persistence::State as PersistedState;
-use jefe::state::PaneFocus;
+use jefe::services::persist_worker::PersistRequest;
+use jefe::state::{AppState, PaneFocus};
 
 use super::SharedContext;
-
-/// Serialize a `PaneFocus` to its persisted string form.
-#[must_use]
-pub fn pane_focus_to_persisted(focus: PaneFocus) -> String {
-    match focus {
-        PaneFocus::Repositories => "repositories",
-        PaneFocus::Agents => "agents",
-        PaneFocus::Terminal => "terminal",
-    }
-    .to_owned()
-}
 
 /// Parse a persisted pane-focus string back into `PaneFocus`.
 ///
@@ -48,7 +37,7 @@ pub fn pane_focus_from_persisted(value: &str) -> PaneFocus {
 /// snapshot is silently dropped — the background worker was never set up,
 /// so there is no durable write path. This only happens in edge cases like
 /// startup before the worker is wired.
-pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
+pub fn persist_state(ctx: &SharedContext, request: PersistRequest) {
     let Some(ctx_arc) = ctx else {
         return;
     };
@@ -58,7 +47,40 @@ pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     // Issue #301: schedule the snapshot for the coalescing background worker
     // instead of performing a synchronous durable write. The worker drains
     // the slot and writes asynchronously.
-    if !ctx_guard.persist_handle.schedule(persisted.clone()) {
+    if !ctx_guard.persist_handle.schedule(request) {
         tracing::trace!("persist_state: persist handle not initialized; skipping durable write");
     }
+}
+
+/// Stage a durable save and schedule the resulting candidate (issue #381).
+///
+/// Staging happens on the committed state so the reducer decides what the
+/// durable document contains; only the bounded [`PersistRequest`] crosses into
+/// the worker. A projection failure surfaces through the state's error channel
+/// rather than writing a degraded document.
+/// Stage a durable save on the committed state (issue #381).
+///
+/// Called while the state guard is held; the returned request is scheduled by
+/// [`schedule_durable_save`] *after* the guard is released, so the state and
+/// context locks are never held simultaneously.
+#[must_use]
+pub fn durable_save_request(state: &mut AppState) -> Option<PersistRequest> {
+    let (candidate, revision, correlation) = state.take_durable_save_request()?;
+    Some(PersistRequest {
+        candidate,
+        revision,
+        correlation,
+    })
+}
+
+/// Schedule a staged durable save for the background worker.
+///
+/// A `None` request means the reducer declined to stage one (a projection
+/// failure already surfaced through the state's error channel), so nothing is
+/// written rather than writing a degraded document.
+pub fn schedule_durable_save(ctx: &SharedContext, request: Option<PersistRequest>) {
+    let Some(request) = request else {
+        return;
+    };
+    persist_state(ctx, request);
 }

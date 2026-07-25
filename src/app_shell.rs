@@ -11,8 +11,8 @@ use crate::app_input::{
     apply_background_gh_delivery, dispatch_app_event, handle_mode_auth_key,
     handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
     handle_mode_theme_picker_key, handle_normal_key_event, install_gh_delivery_handler,
-    persist_state, request_pr_background_refresh, synchronize_actions_geometry, to_persisted_state,
-    try_ctrl_c_interrupt_passthrough, try_suppress_synthetic_enter, update_paste_enter_suppression,
+    request_pr_background_refresh, synchronize_actions_geometry, try_ctrl_c_interrupt_passthrough,
+    try_suppress_synthetic_enter, update_paste_enter_suppression,
 };
 use crate::app_shell_key_routing::{
     handle_pre_mode_shortcut, route_shell_overlay_key, route_terminal_capture_key,
@@ -31,6 +31,7 @@ use jefe::ui::orchestration::{
     TerminalRenderData, build_modal_element, build_screen_element, derive_confirm_modal_data,
 };
 
+use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -263,9 +264,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         changed = true;
                     }
                     if changed {
-                        let persisted = to_persisted_state(&state);
+                        let persisted = durable_save_request(&mut state);
                         drop(state);
-                        persist_state(&ctx, &persisted);
+                        schedule_durable_save(&ctx, persisted);
                     } else {
                         drop(state);
                     }
@@ -279,7 +280,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     hooks.use_future({
         let ctx = ctx.clone();
         async move {
-            crate::app_shell_workers::run_persist_worker(ctx).await;
+            crate::app_shell_workers::run_persist_worker(ctx, app_state).await;
         }
     });
 
@@ -353,13 +354,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         );
                         apply_attach_failure(&mut app_state, &agent_id);
                         let persisted = {
-                            let state = app_state.read();
-                            to_persisted_state(&state)
+                            let mut state = app_state.write();
+                            durable_save_request(&mut state)
                         };
                         // Offload file I/O to a background thread so the
                         // smol executor is not blocked during attach failure.
                         let ctx_for_persist = ctx.clone();
-                        smol::unblock(move || persist_state(&ctx_for_persist, &persisted)).await;
+                        smol::unblock(move || schedule_durable_save(&ctx_for_persist, persisted))
+                            .await;
                     }
                 }
             }
@@ -684,9 +686,9 @@ fn paste_to_form(
     for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
         jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FormChar(ch)).into());
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(&ctx.cloned(), &persisted);
+    schedule_durable_save(&ctx.cloned(), persisted);
     suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
@@ -707,9 +709,9 @@ fn paste_to_issues_inline(
             );
         }
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(&ctx.cloned(), &persisted);
+    schedule_durable_save(&ctx.cloned(), persisted);
     suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
@@ -834,9 +836,9 @@ fn resolve_input_mode(
         );
         let mut state = app_state.write();
         state.terminal_focused = false;
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(&ctx.cloned(), &persisted);
+        schedule_durable_save(&ctx.cloned(), persisted);
         InputMode::Normal
     } else {
         let state = app_state.read();

@@ -12,8 +12,8 @@ use jefe::runtime::RuntimeManager;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 
 use super::{
-    AppStateHandle, MAC_ALT_DIGIT_SHORTCUTS, QuitHandle, SharedContext, jump_to_shortcut_agent,
-    persist_state, to_persisted_state,
+    AppStateHandle, MAC_ALT_DIGIT_SHORTCUTS, QuitHandle, SharedContext, durable_save_request,
+    jump_to_shortcut_agent, schedule_durable_save,
 };
 
 #[derive(Clone)]
@@ -439,9 +439,9 @@ fn select_first_visible_repository(
         let mut state_mut = app_state.write();
         state_mut.selected_repository_index = Some(first_visible_idx);
         state_mut.normalize_selection_indices();
-        let persisted = to_persisted_state(&state_mut);
+        let persisted = durable_save_request(&mut state_mut);
         drop(state_mut);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
     }
     first_id
 }
@@ -565,9 +565,9 @@ fn set_pane_focus(app_state: &mut AppStateHandle, ctx: &SharedContext, pane_focu
     let mut state = app_state.write();
     state.pane_focus = pane_focus;
     state.dashboard_grab = None;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn focus_terminal_pane(app_state: &mut AppStateHandle, ctx: &SharedContext) {

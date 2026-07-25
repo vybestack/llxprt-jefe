@@ -29,6 +29,10 @@ mod paths_tests;
 mod settings_document_tests;
 
 #[cfg(test)]
+#[path = "state_v2_write_tests.rs"]
+mod state_v2_write_tests;
+
+#[cfg(test)]
 #[path = "state_v2_tests.rs"]
 mod state_v2_tests;
 
@@ -664,6 +668,85 @@ impl FilePersistenceManager {
         })
     }
 
+    /// Persist a projected schema-2 candidate as the durable authority.
+    ///
+    /// Writes the same canonical encoding the migration reader produces, so a
+    /// saved document reloads without migration. When the authority currently
+    /// on disk is still schema 1, the original bytes are retained in a
+    /// content-addressed sibling before replacement — the one-way migration is
+    /// otherwise unrecoverable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PersistenceError`] when the candidate cannot be encoded or the
+    /// durable replacement fails.
+    pub fn save_state_v2_revisioned(
+        &self,
+        candidate: &crate::domain::StateV2,
+        revision: u64,
+        freshness: &crate::services::persist_worker::FreshnessFn,
+    ) -> Result<crate::services::persist_worker::PersistResult, PersistenceError> {
+        let mut bytes = serde_json::to_vec_pretty(candidate)
+            .map_err(|e| PersistenceError::SerializeError(format!("serialize state: {e}")))?;
+        bytes.push(b'\n');
+        Self::write_state_bytes(&self.paths.state_path, bytes, revision, freshness).map(|outcome| {
+            match outcome {
+                writer::WriteOutcome::Authoritative { .. } => {
+                    crate::services::persist_worker::PersistResult::Authoritative
+                }
+                writer::WriteOutcome::Stale { .. } => {
+                    crate::services::persist_worker::PersistResult::Stale
+                }
+            }
+        })
+    }
+
+    /// Select the backup policy for replacing the current durable authority.
+    ///
+    /// Only a schema-1 authority is retained: schema-2 replacements are
+    /// ordinary revisions of the same format and would otherwise accumulate
+    /// a backup per save.
+    fn state_backup_policy(current: Option<&[u8]>) -> writer::BackupPolicy {
+        let Some(bytes) = current else {
+            return writer::BackupPolicy::None;
+        };
+        let schema = serde_json::from_slice::<serde_json::Value>(bytes)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("state_schema")
+                    .and_then(serde_json::Value::as_u64)
+            });
+        if schema == Some(crate::domain::STATE_SCHEMA_V2) {
+            writer::BackupPolicy::None
+        } else {
+            writer::BackupPolicy::RetainSchema1
+        }
+    }
+
+    fn write_state_bytes<F>(
+        path: &std::path::Path,
+        bytes: Vec<u8>,
+        revision: u64,
+        freshness: F,
+    ) -> Result<writer::WriteOutcome, PersistenceError>
+    where
+        F: FnOnce(u64) -> writer::Freshness,
+    {
+        let current = match std::fs::read(path) {
+            Ok(current) => Some(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(PersistenceError::IoError(format!("read target: {error}"))),
+        };
+        let expected = current
+            .as_ref()
+            .map_or(writer::ExpectedHash::Absent, |bytes| {
+                writer::ExpectedHash::Present(sha256::Sha256::digest(bytes))
+            });
+        let backup = Self::state_backup_policy(current.as_deref());
+        Self::run_write(path, bytes, revision, expected, backup, freshness)
+    }
+
     fn write_bytes<F>(
         path: &std::path::Path,
         bytes: Vec<u8>,
@@ -680,13 +763,34 @@ impl FilePersistenceManager {
             }
             Err(error) => return Err(PersistenceError::IoError(format!("read target: {error}"))),
         };
+        Self::run_write(
+            path,
+            bytes,
+            revision,
+            expected,
+            writer::BackupPolicy::None,
+            freshness,
+        )
+    }
+
+    fn run_write<F>(
+        path: &std::path::Path,
+        bytes: Vec<u8>,
+        revision: u64,
+        expected: writer::ExpectedHash,
+        backup: writer::BackupPolicy,
+        freshness: F,
+    ) -> Result<writer::WriteOutcome, PersistenceError>
+    where
+        F: FnOnce(u64) -> writer::Freshness,
+    {
         writer::write(
             writer::AtomicWrite {
                 target: path.to_path_buf(),
                 draft: writer::DraftBytes::new(bytes),
                 expected,
                 revision,
-                backup: writer::BackupPolicy::None,
+                backup,
             },
             freshness,
         )

@@ -194,6 +194,18 @@ impl EffectLedger {
         self.records.len()
     }
 
+    /// Drain the staged persistence effect, if one was staged.
+    ///
+    /// Used by the schedule boundary, which owns the durable write and must
+    /// not execute the other families staged in the same transition.
+    pub(super) fn take_staged_persist(&mut self) -> Option<IssuedEffect> {
+        let index = self
+            .staged
+            .iter()
+            .position(|issued| matches!(issued.effect, Effect::Persistence(_)))?;
+        Some(self.staged.remove(index))
+    }
+
     /// Whether no effect is pending.
     #[must_use]
     pub fn is_empty(&self) -> bool {

@@ -1,3 +1,4 @@
+use super::durable_save_request;
 use super::prs_orchestration::pr_send_info_from_state;
 use super::*;
 use std::path::PathBuf;
@@ -385,16 +386,18 @@ fn state_with_active_prs() -> jefe::state::AppState {
 /// @plan PLAN-20260624-PR-MODE.P04
 /// @requirement REQ-PR-NFR-002
 /// @pseudocode component-001 lines 66-76
-/// NOTE: this test lives in src/app_input/app_input_tests.rs (alongside the
-/// to_persisted_state_carries_hide_idle_toggle precedent) because
-/// to_persisted_state is module-private to app_input (declared in main.rs as
-/// `mod app_input`, NOT `pub mod app_input` in lib.rs), so it is NOT reachable
-/// from a test in the src/state module without changing production visibility.
+/// NOTE: this test lives in src/app_input/app_input_tests.rs because
+/// `durable_save_request` is module-private to app_input (declared in main.rs
+/// as `mod app_input`, NOT `pub mod app_input` in lib.rs), so it is NOT
+/// reachable from a test in the src/state module without changing production
+/// visibility.
 #[test]
-fn test_to_persisted_state_excludes_prs_state() {
-    let state = state_with_active_prs();
+fn durable_candidate_excludes_prs_state() {
+    let mut state = state_with_active_prs();
 
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state)
+        .value_or_panic("durable projection should stage a candidate")
+        .candidate;
     let json = serde_json::to_value(&persisted).value_or_panic("persisted should serialize");
 
     let json_str = serde_json::to_string(&json).value_or_panic("json should stringify");
@@ -408,10 +411,13 @@ fn test_to_persisted_state_excludes_prs_state() {
 
     assert!(json.get("repositories").is_some());
     assert!(json.get("agents").is_some());
-    assert!(json.get("selected_repository_index").is_some());
-    assert!(json.get("selected_agent_index").is_some());
-    assert!(json.get("hide_idle_repositories").is_some());
+    assert!(json.get("selection").is_some());
     assert!(json.get("last_selected_agent_by_repo").is_some());
+    assert!(
+        json.pointer("/preferences/hide_idle_repositories")
+            .is_some(),
+        "durable preferences must carry the idle-repository toggle"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

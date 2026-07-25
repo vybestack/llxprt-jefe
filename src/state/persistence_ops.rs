@@ -5,10 +5,11 @@
 //! fencing on freshness, and renaming are the root shell's responsibility;
 //! this module never touches the filesystem.
 
-use crate::domain::Id;
 use crate::domain::effects::{
-    Effect, EffectFamily, PersistenceEffect, PersistenceResponse, RetryPolicy, SemanticKey,
+    Correlation, Effect, EffectFamily, IssuedEffect, PersistenceEffect, PersistenceResponse,
+    RetryPolicy, SemanticKey,
 };
+use crate::domain::{Id, StateV2};
 
 use super::AppState;
 use super::durable_projection::to_durable_state;
@@ -52,6 +53,32 @@ impl AppState {
             self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
         {
             self.error_message = Some(error.to_string());
+        }
+    }
+
+    /// Stage a durable save and drain it into a schedulable request.
+    ///
+    /// Returns the projected candidate, its revision, and the correlation the
+    /// completion must carry. Returns `None` when projection failed (the error
+    /// is already on the state) so a degraded document is never written.
+    ///
+    /// Callers own the schedule/write boundary; the state layer only decides
+    /// *what* would be written.
+    #[must_use]
+    pub fn take_durable_save_request(&mut self) -> Option<(Box<StateV2>, u64, Correlation)> {
+        self.stage_durable_save();
+        let issued = self.pending_effects.take_staged_persist()?;
+        let IssuedEffect {
+            effect,
+            correlation,
+            ..
+        } = issued;
+        match effect {
+            Effect::Persistence(PersistenceEffect::PersistState {
+                candidate,
+                revision,
+            }) => Some((candidate, revision, correlation)),
+            _ => None,
         }
     }
 

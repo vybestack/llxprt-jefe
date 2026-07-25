@@ -18,10 +18,10 @@ use tracing::warn;
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
-    clear_agent_runtime_attachment, dispatch_app_event, gh_async, github_client,
-    launch_signature_for_agent, mark_agent_runtime_attached, persist_state, preflight_or_prompt,
+    clear_agent_runtime_attachment, dispatch_app_event, durable_save_request, gh_async,
+    github_client, launch_signature_for_agent, mark_agent_runtime_attached, preflight_or_prompt,
     process_on_success, prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation,
-    to_persisted_state,
+    schedule_durable_save,
 };
 
 // ── PR-mode dispatch routing + loader helpers ──────────────────────────────
@@ -669,9 +669,9 @@ pub(super) fn launch_pr_agent(
             );
         }
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Spawn a fresh runtime session and attach it for a PR send.
@@ -742,7 +742,7 @@ pub(super) fn apply_pr_send_to_agent_failed(
         &mut state,
         (AppEvent::PrSendToAgentFailed { error }).into(),
     );
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
