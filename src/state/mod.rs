@@ -73,6 +73,11 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
+#[cfg(test)]
+#[path = "persistence_effect_tests.rs"]
+mod persistence_effect_tests;
+/// Durable-save staging and persistence completion handling.
+pub mod persistence_ops;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;
@@ -700,6 +705,7 @@ impl AppState {
             PersistenceMessage::LoadFailed(msg) | PersistenceMessage::SaveFailed(msg) => {
                 self.error_message = Some(msg);
             }
+            PersistenceMessage::StageSave => self.stage_durable_save(),
         }
     }
 

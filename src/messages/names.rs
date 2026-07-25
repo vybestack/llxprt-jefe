@@ -98,6 +98,7 @@ message_names!(PersistenceMessage {
     Self::LoadFailed(_) => "PersistenceLoadFailed",
     Self::SaveSuccess => "PersistenceSaveSuccess",
     Self::SaveFailed(_) => "PersistenceSaveFailed",
+    Self::StageSave => "PersistenceStageSave",
 });
 
 message_names!(ThemeMessage {

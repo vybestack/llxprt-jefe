@@ -6,7 +6,7 @@
 //! executed by the root shell after every state guard is released, never here.
 
 use crate::domain::effects::{
-    Effect, EffectCompletion, EffectFamily, RetryPolicy, RuntimeEffect, SemanticKey,
+    Effect, EffectCompletion, EffectFamily, EffectResponse, RetryPolicy, RuntimeEffect, SemanticKey,
 };
 use crate::domain::{AgentId, AgentStatus, Id};
 use crate::messages::RuntimeMessage;
@@ -106,15 +106,19 @@ impl AppState {
     /// the error channel.
     pub(super) fn apply_effect_completion_message(&mut self, completion: EffectCompletion) {
         match self.apply_effect_completion(&completion.correlation) {
-            CompletionOutcome::Applied => {
-                if let Err(error) = &completion.result {
+            CompletionOutcome::Applied => match &completion.result {
+                Ok(EffectResponse::Persistence(response)) => {
+                    self.apply_persistence_response(*response);
+                }
+                Ok(_) => {}
+                Err(error) => {
                     self.error_message = Some(format!(
                         "{:?} effect failed: {}",
                         completion.family(),
                         error.redacted_detail
                     ));
                 }
-            }
+            },
             CompletionOutcome::StaleIgnored => {}
         }
     }

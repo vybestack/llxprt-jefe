@@ -382,10 +382,18 @@ pub struct AppState {
     pub user_preferences: crate::domain::UserPreferences,
 
     /// Revision of the durable schema-2 document this state was loaded from
-    /// (issue #381). Each staged save proposes `durable_revision + 1`; the
-    /// writer rejects candidates that lost the race, and the accepted
-    /// revision is committed back through the persistence completion.
+    /// (issue #381). The writer rejects candidates that lost the race, and the
+    /// accepted revision is committed back through the persistence completion.
     pub durable_revision: u64,
+
+    /// Highest revision proposed by a staged save (issue #381).
+    ///
+    /// Candidate revisions must be monotonic even while an earlier save is
+    /// still in flight, otherwise two candidates would claim the same revision
+    /// and the writer could not tell which one supersedes the other. Tracked
+    /// separately from [`Self::durable_revision`], which only advances once a
+    /// write is acknowledged.
+    pub proposed_revision: u64,
 
     /// Schema-1 fields retained verbatim by migration because no schema-2
     /// owner claims them (issue #381). Carried through load -> save unchanged

@@ -96,6 +96,8 @@ pub enum AppEvent {
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),
     PersistenceSaveSuccess,
+    /// Stage a durable save of the committed state (issue #381).
+    StageDurableSave,
     PersistenceSaveFailed(String),
 
     // Theme

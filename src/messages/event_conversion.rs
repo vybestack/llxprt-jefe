@@ -577,6 +577,7 @@ impl From<PersistenceMessage> for AppEvent {
             PersistenceMessage::LoadFailed(error) => Self::PersistenceLoadFailed(error),
             PersistenceMessage::SaveSuccess => Self::PersistenceSaveSuccess,
             PersistenceMessage::SaveFailed(error) => Self::PersistenceSaveFailed(error),
+            PersistenceMessage::StageSave => Self::StageDurableSave,
         }
     }
 }

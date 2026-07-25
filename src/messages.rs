@@ -156,6 +156,12 @@ pub enum PersistenceMessage {
     LoadFailed(String),
     SaveSuccess,
     SaveFailed(String),
+    /// Stage a durable save of the committed state (issue #381).
+    ///
+    /// The reducer projects the schema-2 candidate, assigns it the next
+    /// revision, and stages one bounded `PersistState` effect; the bytes are
+    /// written by the root shell after every state guard is released.
+    StageSave,
 }
 
 /// Theme messages.
