@@ -327,7 +327,7 @@ impl PtySession {
         // status it sees, so reaping here preserves the code the command
         // chose instead of the signal-derived status it would report if the
         // TERM landed first. Group cleanup below still runs unchanged.
-        self.await_self_exit(group);
+        self.await_self_exit();
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-TERM");
         }
@@ -356,23 +356,22 @@ impl PtySession {
         }))
     }
 
-    /// Cache the child's own exit status if it is already finishing.
+    /// Cache the direct child's own exit status if it is already finishing.
     ///
-    /// Bounded by [`SELF_EXIT_GRACE`] and only while the child is no longer
-    /// alive, so a running app proceeds straight to signalled teardown.
-    fn await_self_exit(&mut self, group: Option<i32>) {
+    /// Group liveness cannot answer this: a short command that has written
+    /// its output and begun exiting still answers signal 0 for a moment, and
+    /// that window is exactly when its status is about to become available.
+    /// Sampling liveness here therefore raced, and teardown replaced a real
+    /// exit code with the signalled status. Waiting on the direct child is
+    /// the honest signal, bounded by [`SELF_EXIT_GRACE`]; the group probe
+    /// only shortcuts the wait once nothing is left that could report one.
+    fn await_self_exit(&mut self) {
         let deadline = Instant::now() + SELF_EXIT_GRACE;
         loop {
             if self.try_exit().is_some() {
                 return;
             }
-            // A group that still answers signal 0 is a running app: leave it
-            // to signalled teardown instead of delaying every stop. Otherwise
-            // the command is on its way out, and `try_wait` may report nothing
-            // until the kernel finalizes the status, so keep polling until it
-            // does or the grace window expires.
-            let still_running = group.is_some_and(|pgid| group_alive(pgid).unwrap_or(true));
-            if still_running || Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 return;
             }
             std::thread::sleep(POLL_INTERVAL);

@@ -79,3 +79,36 @@ fn signalled_command_does_not_masquerade_as_exit_one() {
         "teardown reported the signal fallback code instead of the command's exit"
     );
 }
+
+/// A command that writes its output and exits normally must report its own
+/// exit code. This is the fixture shape: unlike the trapping command above,
+/// it is killable, so any teardown signal that lands first silently rewrites
+/// a successful run into exit 1. The process group still answers signal 0
+/// during that brief window, so group liveness cannot be used to decide
+/// whether to wait for the status.
+#[test]
+fn self_exiting_command_reports_its_own_exit_code() {
+    let mut env = BTreeMap::new();
+    env.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+    let argv = vec![
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        // Exit shortly after teardown begins, so the status is still being
+        // finalized when it samples: the exact window CI hit.
+        "printf 'done\\n'; sleep 0.2; exit 0".to_string(),
+    ];
+    let mut session = PtySession::launch(
+        &argv,
+        &env,
+        std::env::temp_dir().as_path(),
+        Size { cols: 80, rows: 24 },
+    )
+    .unwrap_or_else(|err| panic!("launch: {err}"));
+
+    let exit = session.stop().unwrap_or_else(|err| panic!("stop: {err}"));
+    assert_eq!(
+        exit.exit_code,
+        Some(0),
+        "teardown replaced the command's successful exit with a signalled status"
+    );
+}
