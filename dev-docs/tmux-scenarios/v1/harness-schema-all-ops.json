@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "name": "harness-schema-all-ops",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 493 }],
+    "files": [
+      {
+        "path": "work/seed.txt",
+        "content": { "utf8": "seed-content" },
+        "mode": 420
+      }
+    ],
+    "env": [{ "name": "PATH", "value": "${workspace}/bin" }]
+  },
+  "steps": [
+    { "op": "mkdir", "dir": { "path": "work/sub", "mode": 448 } },
+    {
+      "op": "write",
+      "file": {
+        "path": "work/sub/data.bin",
+        "content": { "base64": "aGVsbG8=" },
+        "mode": 384
+      }
+    },
+    {
+      "op": "capture",
+      "name": "gh",
+      "path": "bin/gh",
+      "behavior": {
+        "stdout": "gh-capture-output\n",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY 100x30",
+      "timeout_ms": 15000
+    },
+    { "op": "assert-frame", "contains": ["PROBE READY 100x30"], "absent": ["PANIC"] },
+    { "op": "text", "text": "run gh pr view\n" },
+    { "op": "wait", "source": "frame", "literal": "RUN[1] EXIT 0", "timeout_ms": 15000 },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "gh",
+        "invocation": 1,
+        "argv": ["gh", "pr", "view"],
+        "env": [{ "name": "PATH", "value": "${workspace}/bin" }],
+        "cwd": "${workspace}/work",
+        "stdout": "gh-capture-output\n",
+        "exit_code": 0
+      }
+    },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "resize", "size": { "cols": 70, "rows": 18 } },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY 70x18",
+      "timeout_ms": 15000
+    },
+    { "op": "assert-file", "file": { "path": "work/seed.txt", "content": { "utf8": "seed-content" } } },
+    { "op": "remove", "path": "work/sub/data.bin" },
+    { "op": "assert-file", "file": { "path": "work/sub/data.bin", "exists": false } },
+    { "op": "restart" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY",
+      "timeout_ms": 15000
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

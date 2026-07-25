@@ -57,19 +57,53 @@ pub fn forward_key_to_pty(
     }
 }
 
-/// Whether a viewer is currently attached to an agent terminal.
+/// Tri-state probe for the attached agent terminal (issue #333).
 ///
-/// Used by the `Ctrl-C` interrupt passthrough (#200) to decide whether the
-/// byte can be forwarded to a live agent PTY. Uses `try_lock` so the key path
-/// stays non-blocking even if a background attach holds the ctx mutex.
-fn attached_terminal_present(ctx: Option<&CtxArc>) -> bool {
+/// `Busy` means the ctx mutex is held elsewhere (e.g. async attach). The
+/// interrupt path must still forward `Ctrl-C` because [`forward_key_to_pty`]
+/// uses a blocking `lock()` and can wait for the attach to finish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AttachedTerminalProbe {
+    Attached,
+    Absent,
+    Busy,
+}
+
+/// Classify from a non-blocking lock attempt and attached-agent presence.
+#[must_use]
+pub(super) fn attached_terminal_probe_from_lock(
+    try_lock_ok: bool,
+    has_attached_agent: bool,
+) -> AttachedTerminalProbe {
+    if !try_lock_ok {
+        AttachedTerminalProbe::Busy
+    } else if has_attached_agent {
+        AttachedTerminalProbe::Attached
+    } else {
+        AttachedTerminalProbe::Absent
+    }
+}
+
+#[must_use]
+pub(super) fn ctrl_c_passthrough_may_forward(probe: AttachedTerminalProbe) -> bool {
+    matches!(
+        probe,
+        AttachedTerminalProbe::Attached | AttachedTerminalProbe::Busy
+    )
+}
+
+/// Non-blocking probe used on the key path before `Ctrl-C` passthrough.
+#[must_use]
+pub(super) fn probe_attached_terminal(ctx: Option<&CtxArc>) -> AttachedTerminalProbe {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return AttachedTerminalProbe::Absent;
     };
-    let Ok(guard) = ctx_arc.try_lock() else {
-        return false;
-    };
-    guard.runtime.attached_agent().is_some()
+    match ctx_arc.try_lock() {
+        Ok(guard) => {
+            attached_terminal_probe_from_lock(true, guard.runtime.attached_agent().is_some())
+        }
+        Err(_) => AttachedTerminalProbe::Busy,
+    }
 }
 
 /// Forward `Ctrl-C` to the attached agent terminal regardless of pane focus
@@ -95,7 +129,7 @@ pub fn try_ctrl_c_interrupt_passthrough(
 ) -> bool {
     if input_mode != InputMode::Normal
         || !is_bare_ctrl_c(key_event)
-        || !attached_terminal_present(ctx)
+        || !ctrl_c_passthrough_may_forward(probe_attached_terminal(ctx))
     {
         return false;
     }

@@ -59,6 +59,12 @@ tempfile = "3.0"
 winsafe = { version = "0.0.27", features = ["kernel"] }
 whoami = "2.1.2"
 
+[target.'cfg(unix)'.dependencies]
+# Signal-aware cleanup for the tmux harness (issue #375): catches SIGINT/SIGTERM/
+# SIGHUP/SIGQUIT to kill the harness-owned private-socket tmux server before the
+# process dies, since Rust Drop is bypassed by abrupt signals.
+signal-hook = "0.3"
+
 [features]
 psmux-smoke = []
 
@@ -66,6 +72,18 @@ psmux-smoke = []
 name = "jefe-psmux-smoke-fixture"
 path = "tests/fixtures/psmux_smoke_fixture.rs"
 required-features = ["psmux-smoke"]
+
+[[bin]]
+name = "jefe-capture-shim"
+path = "src/bin/jefe-capture-shim.rs"
+
+[[bin]]
+name = "jefe-harness-probe"
+path = "src/bin/jefe-harness-probe.rs"
+
+[[bin]]
+name = "tmux_scenario"
+path = "src/bin/tmux_scenario.rs"
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }

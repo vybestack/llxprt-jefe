@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "name": "harness-interpolation",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 493 }],
+    "files": [],
+    "env": [
+      { "name": "WS_PREFIXED", "value": "${workspace}/data" },
+      { "name": "ESCAPED", "value": "cost $$5 and $${workspace}" },
+      { "name": "PLAIN", "value": "no substitution here" }
+    ]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe-harness-probe"], "env": [], "cwd": "work" },
+    { "op": "wait", "source": "frame", "literal": "PROBE READY", "timeout_ms": 15000 },
+    { "op": "text", "text": "print-env ESCAPED\n" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "ENV ESCAPED=cost $5 and ${workspace}",
+      "timeout_ms": 15000
+    },
+    { "op": "text", "text": "print-env PLAIN\n" },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "ENV PLAIN=no substitution here",
+      "timeout_ms": 15000
+    },
+    { "op": "text", "text": "print-env WS_PREFIXED\n" },
+    { "op": "wait", "source": "frame", "literal": "ENV WS_PREFIXED=/", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": ["ENV PLAIN=no substitution here"],
+      "absent": ["ENV WS_PREFIXED=${workspace}/data"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

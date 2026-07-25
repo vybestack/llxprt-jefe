@@ -455,6 +455,31 @@ impl TmuxDriver {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
+    /// Kill the entire harness-owned tmux server (issue #375).
+    ///
+    /// Targets only the harness private socket (`-L jefe-harness-<pid>`),
+    /// killing every session on it. Idempotent: if no server is running on
+    /// the harness socket, returns `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError`] when tmux fails for a reason other than
+    /// "no server running".
+    pub fn kill_harness_server(&self) -> Result<(), TmuxDriverError> {
+        match run_tmux(&["kill-server"], None) {
+            Ok(()) => Ok(()),
+            Err(err) if is_no_server_error(&err) => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Return the harness private socket name for signal-handler cleanup
+    /// (issue #375).
+    #[must_use]
+    pub fn socket_name(&self) -> &'static str {
+        harness_socket_name()
+    }
+
     fn kill_session_if_exists(session_name: &str) -> Result<(), TmuxDriverError> {
         match run_tmux_capture(&["has-session", "-t", session_name]) {
             Ok(_) => run_tmux(&["kill-session", "-t", session_name], None),
@@ -462,6 +487,14 @@ impl TmuxDriver {
             Err(err) => Err(err),
         }
     }
+}
+
+fn is_no_server_error(err: &TmuxDriverError) -> bool {
+    let TmuxDriverError::Failed { stderr, .. } = err else {
+        return false;
+    };
+    stderr.contains("no server running")
+        || (stderr.contains("error connecting") && stderr.contains("No such file or directory"))
 }
 
 fn is_absent_session_error(err: &TmuxDriverError) -> bool {

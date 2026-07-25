@@ -22,12 +22,14 @@ pub mod parser;
 mod psmux_process;
 pub mod runner;
 pub mod scenario;
+pub mod signal_cleanup;
 pub mod step;
 #[cfg(windows)]
 #[path = "psmux_driver.rs"]
 pub mod tmux_driver;
 #[cfg(not(windows))]
 pub mod tmux_driver;
+pub mod v1;
 
 pub use capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
 pub use config::{AssertMode, ScenarioConfig};
@@ -44,6 +46,7 @@ pub use runner::{
     HarnessDriver, RunSummary, RunnerError, RunnerFailure, run_scenario, run_tmux_scenario,
 };
 pub use scenario::Scenario;
+pub use signal_cleanup::SignalCleanupGuard;
 pub use step::Step;
 pub use tmux_driver::{TmuxDriver, TmuxDriverError, TmuxPaneSize, TmuxSession, TmuxStartRequest};
 

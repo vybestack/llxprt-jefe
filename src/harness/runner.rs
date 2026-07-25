@@ -222,6 +222,14 @@ pub fn run_tmux_scenario(
 ) -> Result<RunSummary, RunnerError> {
     let expanded = expand_macros(scenario)?;
     let tmux = TmuxDriver::new();
+    // Issue #375: Register signal handlers before starting the session so
+    // that an abrupt signal (SIGINT/SIGTERM/SIGHUP/SIGQUIT) kills the
+    // harness-owned private-socket tmux server even though Rust Drop is
+    // bypassed. On Windows this is a no-op (psmux processes die with parent).
+    // The guard drops AFTER `TmuxSessionGuard` (reverse declaration order),
+    // so normal-path RAII still tears down the session first.
+    let _signal_guard = super::signal_cleanup::SignalCleanupGuard::new(tmux.clone())
+        .map_err(|err| RunnerError::Driver(format!("failed to install signal cleanup: {err}")))?;
     let effective_request = request
         .clone()
         .with_keep_session(request.keep_session || expanded.config.keep_session);

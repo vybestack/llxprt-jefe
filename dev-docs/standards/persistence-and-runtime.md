@@ -119,3 +119,40 @@ On every render cycle, the root component checks all agents with
 `status == Running`. For each, if the slot is no longer alive (`is_alive(slot)`
 returns false), status is set to `Dead`. This check only writes to `AppState`
 when changes are detected, avoiding infinite render loops.
+
+### Startup and PID liveness policy
+
+Process-instance evidence follows one conservative policy across startup
+reconciliation and the local PID-only recovery probe:
+
+| Outcome | Startup with no live session | PID-only recovery probe |
+|---------|------------------------------|-------------------------|
+| `Alive` | keep the agent recoverable/running | alive |
+| `Dead` | stop the agent and clear its binding | dead |
+| `ReusedPid` | reject the stale binding | not applicable without an expected identity; false if classified |
+| `Inaccessible` | keep the agent recoverable | alive (fail open) |
+| `MalformedIdentity` | reject inconsistent binding evidence | not applicable without an expected identity; false if classified |
+| `ProbeFailure` | keep the agent recoverable | alive (fail open) |
+
+A live multiplexer session remains ground truth during startup even when
+persisted binding metadata is inconsistent. Without a live session, invalid
+session names, launch signatures, or PID/identity pairings are rejected before
+process liveness is considered. For coherent bindings, only a confirmed exit,
+PID reuse, or malformed identity rejects the expected process. Permission
+denial and probe failure are uncertainty, not proof of death.
+
+A PID-only probe has no persisted creation token to compare, so it can produce
+`Alive`, `Dead`, `Inaccessible`, or `ProbeFailure`, but cannot independently
+produce `ReusedPid` or `MalformedIdentity`. PID-only and identity-aware startup
+both route their final classifications through the same recoverability policy.
+Unix probes force the C locale before interpreting `kill -0` diagnostics;
+macOS creation tokens come from UTC, C-locale `ps` output; Windows retains its
+native creation `FILETIME`.
+
+During restore, PID and `ProcessIdentity` are selected as one observation. Fresh
+runtime evidence never borrows a missing field from persisted state, and a
+stored identity is only written with its matching PID. Legacy PID-only bindings
+remain readable and are probed by PID until a successful runtime refresh adds a
+platform creation token. Legacy identities with a missing creation token also
+remain compatible: a matching live PID is accepted, and fully tokenized future
+observations resume PID-reuse protection.

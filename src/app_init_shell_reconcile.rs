@@ -18,7 +18,7 @@
 //! unit-tested without a multiplexer.
 
 use jefe::domain::AgentId;
-use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession};
+use jefe::runtime::{RuntimeError, RuntimeSession};
 use jefe::state::AppState;
 use tracing::{debug, warn};
 
@@ -108,23 +108,18 @@ pub fn reconcile_shell_inventory(
             .collect()
     };
 
-    // Observe every session hosting a jefe-shell window (batched). Returns
-    // raw session names so orphans are discovered.
-    let observed_sessions: Vec<String> = {
-        let Ok(ctx_guard) = ctx_arc.lock() else {
-            warn!("startup shell reconcile: runtime context mutex poisoned");
-            return Some(
-                "could not reconcile shell windows: runtime context unavailable".to_owned(),
-            );
-        };
-        match ctx_guard.runtime.observe_shell_window_sessions() {
-            Ok(sessions) => sessions,
-            Err(error) => {
-                // Probe failure: warn and do NOT touch inventory or agent
-                // status (issue #361 invariant).
-                warn!(error = %error, "startup shell reconcile: observation failed");
-                return Some(format!("could not reconcile shell windows: {error}"));
-            }
+    // Observe every session hosting a jefe-shell window (batched). This runs
+    // without an AppContext guard (issue #374): it is a stateless multiplexer
+    // observation that needs no manager in-memory state. Returns raw session
+    // names so orphans are discovered.
+    let _ = ctx_arc; // retained for API compatibility; no lock is taken.
+    let observed_sessions: Vec<String> = match jefe::runtime::observe_shell_window_sessions() {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            // Probe failure: warn and do NOT touch inventory or agent
+            // status (issue #361 invariant).
+            warn!(error = %error, "startup shell reconcile: observation failed");
+            return Some(format!("could not reconcile shell windows: {error}"));
         }
     };
 
