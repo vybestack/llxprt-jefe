@@ -10,7 +10,8 @@
 
 use super::fresh_prompt::{
     FreshPromptKind, ISSUE_DELIVERY_WORKFLOW, MAX_PROMPT_CONTENT_BYTES,
-    PROMPT_COMPACTION_THRESHOLD_BYTES, compact_prompt_content, fresh_prompt_instruction,
+    PROMPT_COMPACTION_THRESHOLD_BYTES, TMUX_PANE_COMMAND_LIMIT_BYTES, compact_prompt_content,
+    fresh_prompt_instruction,
 };
 
 // ── Threshold consistency ────────────────────────────────────────────────
@@ -50,7 +51,7 @@ fn large_issue_prompt_produces_gh_fetch_reference() {
         "compacted content must include a preview of the body content"
     );
     assert!(
-        compacted.contains("compact reference") || compacted.contains("truncated"),
+        compacted.contains("compact reference"),
         "compacted content must signal the body was summarized:\n{compacted}"
     );
 }
@@ -153,9 +154,9 @@ fn compacted_prompt_with_workflow_stays_under_tmux_pane_limit() {
     let instruction = fresh_prompt_instruction(FreshPromptKind::Issue, &compacted_body);
 
     assert!(
-        instruction.len() < 16_000,
-        "compacted issue instruction must stay under 16 KB (tmux pane limit ~16,340 bytes), \
-         got {} bytes",
+        instruction.len() < TMUX_PANE_COMMAND_LIMIT_BYTES,
+        "compacted issue instruction must stay under the tmux pane-command limit \
+         ({TMUX_PANE_COMMAND_LIMIT_BYTES} bytes), got {} bytes",
         instruction.len()
     );
 }
@@ -319,5 +320,40 @@ fn format_issue_prompt_compacts_large_focused_comment() {
     assert!(
         prompt.contains("gh issue view 5 --repo owner/repo --comments"),
         "compacted comment must reference gh issue view:\n{prompt}"
+    );
+}
+
+/// A large focused comment on a PR must also be compacted.
+#[test]
+fn format_pr_prompt_compacts_large_focused_comment() {
+    use super::prs_dispatch::format_pr_prompt;
+    use jefe::github::PrSendPayload;
+
+    let large_comment = "W".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES + 1000);
+    let payload = PrSendPayload {
+        repository: "owner/repo".to_owned(),
+        pr_number: 7,
+        pr_title: "PR".to_owned(),
+        pr_body: "small body".to_owned(),
+        pr_state: "OPEN".to_owned(),
+        head_ref: "feature".to_owned(),
+        base_ref: "main".to_owned(),
+        external_url: String::new(),
+        review_summary: vec![],
+        check_summary: vec![],
+        focused_comment: Some(large_comment.clone()),
+        focused_comment_author: Some("reviewer".to_owned()),
+        pr_base_prompt: String::new(),
+    };
+
+    let prompt = format_pr_prompt(&payload);
+
+    assert!(
+        !prompt.contains(&large_comment),
+        "large focused PR comment must not be inlined verbatim"
+    );
+    assert!(
+        prompt.contains("gh pr view 7 --repo owner/repo --comments"),
+        "compacted PR comment must reference gh pr view:\n{prompt}"
     );
 }

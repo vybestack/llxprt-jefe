@@ -75,12 +75,25 @@ pub(super) const MAX_PROMPT_CONTENT_BYTES: usize = 24_000;
 /// Sized so that the compacted prompt — including metadata, base prompt, the
 /// `ISSUE_DELIVERY_WORKFLOW` appendix (~1.5 KB for issues), and the
 /// instruction framing — stays comfortably under tmux's pane-command limit
-/// (~16,340 bytes). Measured on tmux 3.7b: 16,330 bytes OK, 16,340 TOO LONG.
+/// ([`TMUX_PANE_COMMAND_LIMIT_BYTES`]).
 ///
 /// The agent runs in a checked-out git repo with `gh` available and
 /// authenticated, so it can fetch the full live issue/PR content itself —
 /// strictly better than a truncated copy (issue #409).
 pub(super) const PROMPT_COMPACTION_THRESHOLD_BYTES: usize = 10_000;
+
+/// Measured tmux pane-command length limit on tmux 3.7b (macOS): 16,330 bytes
+/// OK, 16,340 bytes TOO LONG. We use 16,000 as a conservative safety margin.
+///
+/// This is the binding constraint on Unix — not the OS `ARG_MAX` (macOS:
+/// 1,048,576). tmux imposes this internal limit on the total pane command
+/// string length, which includes env-scrub prefix, executable, mode flags,
+/// and the inlined prompt instruction.
+///
+/// Only referenced by tests (the production compaction threshold is sized
+/// with enough headroom that this limit is never checked at runtime).
+#[cfg(test)]
+pub(super) const TMUX_PANE_COMMAND_LIMIT_BYTES: usize = 16_000;
 
 /// Maximum number of bytes of preview content to show before the fetch
 /// reference in a compacted prompt.
