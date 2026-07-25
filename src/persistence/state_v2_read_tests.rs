@@ -100,6 +100,60 @@ fn schema1_state_is_migrated_on_read() {
     assert_eq!(restored.selected_repository_index, Some(0));
 }
 
+/// An unset optional flag is written as an explicit null by the app itself, so
+/// migration must accept it. Rejecting the state file leaves the user unable to
+/// start at all, which is why this is checked against the real serialized shape
+/// rather than a hand-written fixture that omits the field.
+#[test]
+fn schema1_null_optional_flags_are_migrated() {
+    let temp = tempfile::tempdir().value_or_panic("temporary state root");
+    let work_dir = temp.path().join("repo");
+    std::fs::create_dir_all(&work_dir).value_or_panic("repository directory");
+    let dir = work_dir.display();
+    let document = format!(
+        r#"{{
+  "schema_version": 1,
+  "repositories": [
+    {{
+      "id": "repo-1",
+      "name": "Example",
+      "slug": "example",
+      "base_dir": "{dir}",
+      "default_code_puppy_yolo": null,
+      "default_llxprt_version": null,
+      "agent_ids": []
+    }}
+  ],
+  "agents": [
+    {{
+      "id": "agent-1",
+      "display_id": "a1",
+      "repository_id": "repo-1",
+      "name": "worker",
+      "work_dir": "{dir}",
+      "code_puppy_yolo": null,
+      "llxprt_version": null
+    }}
+  ],
+  "selected_repository_index": 0,
+  "selected_agent_index": 0,
+  "hide_idle_repositories": false,
+  "last_selected_agent_by_repo": [],
+  "pane_focus": "agents",
+  "terminal_focused": false
+}}"#
+    );
+    std::fs::write(temp.path().join("state.json"), document)
+        .value_or_panic("write schema-1 document");
+
+    let restored = manager(temp.path())
+        .load_durable_state()
+        .value_or_panic("null optional flags should migrate");
+
+    assert_eq!(restored.agents.len(), 1);
+    assert_eq!(restored.repositories.len(), 1);
+}
+
 /// Reading never rewrites the file: migration is a pure in-memory read, so the
 /// legacy bytes stay untouched until a save makes a schema-2 document
 /// authoritative.

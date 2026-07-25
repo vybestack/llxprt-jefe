@@ -6,8 +6,12 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-fn default_code_puppy_yolo() -> bool {
+const fn default_code_puppy_yolo_enabled() -> bool {
     true
+}
+
+fn default_code_puppy_yolo() -> Option<bool> {
+    default_code_puppy_yolo_enabled().then_some(true)
 }
 
 fn default_llxprt_mode_flags() -> Vec<String> {
@@ -73,7 +77,7 @@ pub(super) struct Schema1Repository {
     #[serde(default)]
     pub transient_agent_dir: PathBuf,
     #[serde(default = "default_code_puppy_yolo")]
-    pub default_code_puppy_yolo: bool,
+    pub default_code_puppy_yolo: Option<bool>,
     #[serde(default = "default_llxprt_mode_flags")]
     pub default_llxprt_mode_flags: Vec<String>,
     #[serde(default)]
