@@ -270,7 +270,7 @@ fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
 /// the stale session, all non-fatal — cleanup failures never block record
 /// removal, which `delete_selected_agent` performs regardless.
 fn reap_orphan_before_delete(app_state: &AppStateHandle, ctx: &SharedContext, agent_id: &AgentId) {
-    let _ = (ctx, agent_id); // ctx reserved for future session-name resolution.
+    let _ = ctx; // reserved for future session-name resolution.
     let (identities, session_name) = {
         let state = app_state.read();
         let Some(agent) = state.agents.iter().find(|agent| &agent.id == agent_id) else {

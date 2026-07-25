@@ -99,6 +99,12 @@ pub fn classify_orphan_state(
     if pane == PaneLiveness::Alive {
         return OrphanClassification::NoOrphan;
     }
+    // When the multiplexer server is unavailable we cannot establish that the
+    // pane is actually dead — reaping risks killing workers belonging to a
+    // still-healthy session. Fail safe: do not treat as an orphan.
+    if pane == PaneLiveness::Unavailable {
+        return OrphanClassification::NoOrphan;
+    }
     // No session at all and no descendants: nothing to reap.
     if !session_exists && observed.is_empty() {
         return OrphanClassification::DeadPaneNoWorker;
@@ -217,10 +223,11 @@ mod windows_probes {
                 // PID exited or was recycled: nothing to reap for this anchor.
                 continue;
             }
-            let status = Command::new("taskkill")
+            let reaped_ok = Command::new("taskkill")
                 .args(["/PID", &anchor.pid.to_string(), "/T", "/F"])
-                .status();
-            if status.is_ok() {
+                .status()
+                .is_ok_and(|status| status.success());
+            if reaped_ok {
                 reaped += 1;
             }
         }
@@ -314,8 +321,9 @@ mod unix_probes {
             if !super::descendant_still_matches_anchor(*anchor) {
                 continue;
             }
-            let _ = nix_like_kill(anchor.pid);
-            reaped += 1;
+            if nix_like_kill(anchor.pid) {
+                reaped += 1;
+            }
         }
         if reaped == 0 && !anchors.is_empty() {
             return Err(ReapOutcome::NothingReaped);
@@ -323,12 +331,12 @@ mod unix_probes {
         Ok(reaped)
     }
 
-    fn nix_like_kill(pid: u32) -> std::io::Result<()> {
+    fn nix_like_kill(pid: u32) -> bool {
         let pid_arg = pid.to_string();
         std::process::Command::new("kill")
             .args(["-KILL", &pid_arg])
-            .status()?;
-        Ok(())
+            .status()
+            .is_ok_and(|status| status.success())
     }
 }
 

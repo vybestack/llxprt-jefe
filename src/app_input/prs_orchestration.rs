@@ -1,4 +1,4 @@
-﻿//! PR-mode dispatch routing + orchestration helpers (extracted from mod.rs).
+//! PR-mode dispatch routing + orchestration helpers (extracted from mod.rs).
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-001
@@ -24,7 +24,7 @@ use super::{
     to_persisted_state,
 };
 
-// â”€â”€ PR-mode dispatch routing + loader helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PR-mode dispatch routing + loader helpers ──────────────────────────────
 //
 // @plan PLAN-20260624-PR-MODE.P11
 // @requirement REQ-PR-001
@@ -477,7 +477,7 @@ fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Op
 /// computed viewport rows into `prs_state.detail_viewport_rows` so the
 /// reducers never touch crossterm (#37/#39/#55). The content width for
 /// truncation is computed independently by the screen renderer (it does not
-/// live in reducer state â€” the reducer never wraps).
+/// live in reducer state — the reducer never wraps).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009

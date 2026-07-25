@@ -1,4 +1,4 @@
-﻿use super::prs_orchestration::pr_send_info_from_state;
+use super::prs_orchestration::pr_send_info_from_state;
 use super::*;
 use std::path::PathBuf;
 
@@ -342,7 +342,7 @@ fn pane_focus_from_persisted_unknown_defaults_to_repositories() {
     assert_eq!(pane_focus_from_persisted("bogus"), PaneFocus::Repositories);
 }
 
-/// to_persisted_state must EXCLUDE all prs_state data â€” no PR key appears in
+/// to_persisted_state must EXCLUDE all prs_state data — no PR key appears in
 /// the serialized JSON.
 ///
 /// Build a PullRequest populated with non-default data.
@@ -464,13 +464,13 @@ fn test_to_persisted_state_excludes_prs_state() {
     assert!(json.get("last_selected_agent_by_repo").is_some());
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // P11 Dispatch-Ordering Tests
 //
 // These assert OBSERVABLE STATE from the synchronous pre-spawn portion of
-// dispatch (not spawn counts â€” no spawn-recording seam exists). They mirror
+// dispatch (not spawn counts — no spawn-recording seam exists). They mirror
 // how the issues async-dispatch tests assert state + the written prompt file.
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 /// `PullRequests(OpenInBrowser)` dispatch with a valid repo + selected PR:
 /// the reducer sets `draft_notice == "Opening pull request in browser..."`
@@ -479,7 +479,7 @@ fn test_to_persisted_state_excludes_prs_state() {
 /// Exercises the dispatch path's synchronous reducer portion (the same
 /// `apply_and_persist(PrOpenInBrowser)` that the `mod.rs` dispatch arm runs
 /// BEFORE calling `dispatch_pr_open_in_browser`). Since `AppStateHandle`
-/// cannot be constructed in unit tests, we apply through `state.apply()` â€”
+/// cannot be constructed in unit tests, we apply through `state.apply()` —
 /// the exact reducer transition the dispatch runs synchronously before spawn.
 /// The `pr_open_in_browser_info_from_state` call proves the dispatch would
 /// resolve a valid info (proceed to spawn), and the notice proves the
@@ -499,7 +499,7 @@ fn test_open_in_browser_sets_opening_notice_through_dispatch() {
         state.repositories[idx].github_repo = "owner/repo".to_string();
     }
 
-    // Prove the dispatch would proceed to spawn (valid info resolved) â€” read
+    // Prove the dispatch would proceed to spawn (valid info resolved) — read
     // this BEFORE the apply (which takes ownership).
     let info = prs_dispatch::pr_open_in_browser_info_from_state(&state);
     assert!(
@@ -526,8 +526,8 @@ fn test_open_in_browser_sets_opening_notice_through_dispatch() {
 /// so `draft_notice` is the no-selection message AND no loading/pending flag
 /// is set (the NoSelection path never reaches the dispatch spawn).
 ///
-/// Exercises the REAL handler (`resolve_prs_key_event` â†’ `handle_pr_list_key`)
-/// which yields the event, then applies it through the reducer â€” NOT a
+/// Exercises the REAL handler (`resolve_prs_key_event` → `handle_pr_list_key`)
+/// which yields the event, then applies it through the reducer — NOT a
 /// hand-applied PrShowNotice.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -578,7 +578,7 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
         notice.to_lowercase().contains("no") && notice.to_lowercase().contains("pull request"),
         "notice should mention no pull request selected, got: {notice}"
     );
-    // No loading/pending flags set â€” the no-selection path never reaches the
+    // No loading/pending flags set — the no-selection path never reaches the
     // dispatch spawn.
     assert!(
         !after.prs_state.list_loading(),
@@ -652,7 +652,7 @@ fn state_for_pr_agent_chooser_confirm(
 
 /// Agent-chooser confirm applies the reducer BEFORE the side effects: after
 /// the confirm dispatch the agent chooser is CLOSED in state and the send is
-/// recorded â€” proving `apply_and_persist(PrAgentChooserConfirm)` ran BEFORE
+/// recorded — proving `apply_and_persist(PrAgentChooserConfirm)` ran BEFORE
 /// `launch_pr_agent`.
 ///
 /// Issue #315: the PR prompt is inlined into the launch instruction, so no
@@ -692,7 +692,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
     assert_eq!(send_info.payload.repository, "owner/repo");
     assert!(!send_info.payload.pr_title.is_empty());
 
-    // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) â€” this runs
+    // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) — this runs
     // BEFORE launch in the real dispatch.
     let after_confirm = state.apply(AppEvent::PrAgentChooserConfirm);
     assert!(
@@ -700,7 +700,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
         "PrAgentChooserConfirm must close the agent chooser BEFORE side effects"
     );
 
-    // Issue #315: no prompt file should be written â€” the prompt is inlined
+    // Issue #315: no prompt file should be written — the prompt is inlined
     // into the -i instruction.
     assert!(
         !temp_work_dir.join(".jefe").join("pr-prompt.md").exists(),
@@ -737,7 +737,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
     use jefe::state::{ComposerTarget, InlineState};
 
     let mut state = state_with_active_prs();
-    // An open composer holding non-blank text â€” the precondition for a submit.
+    // An open composer holding non-blank text — the precondition for a submit.
     state.prs_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "ship it".to_string(),
@@ -752,7 +752,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
     // mutation helper. Exercise that exact reducer transition.
     let after = state.apply(AppEvent::PrInlineSubmit);
 
-    // The reducer set mutation_pending â€” this is the marker that
+    // The reducer set mutation_pending — this is the marker that
     // resolve_pr_inline_submit requires to reach create_pr_comment. Without the
     // apply, this would be None and the mutation would never fire.
     let pending = after
@@ -777,7 +777,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
     );
 }
 
-// â”€â”€ Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) â”€
+// ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
 /// Build an AppState for the issue agent-chooser send path: an open chooser +
 /// issue detail + an agent (with `pass_continue = true`) whose work_dir is a
@@ -862,8 +862,8 @@ fn state_for_issue_agent_chooser_send(
 #[test]
 fn issue_send_forces_pass_continue_false_on_launch_signature() {
     let agent_id = AgentId(String::from("issue-agent-1"));
-    // This test only exercises pure struct transforms â€” the work_dir is
-    // never materialized on disk â€” so a static path suffices.
+    // This test only exercises pure struct transforms — the work_dir is
+    // never materialized on disk — so a static path suffices.
     let work_dir = std::path::PathBuf::from("/tmp/jefe-issue-send-test");
     let state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
 

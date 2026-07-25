@@ -1,4 +1,4 @@
-﻿//! Issue send-to-agent orchestration (extracted from mod.rs).
+//! Issue send-to-agent orchestration (extracted from mod.rs).
 //!
 //! Resolves issue send context, prepares the agent working copy via the
 //! target-aware prep in [`super::issue_prep`] (clone/checkout/dirty-guard,
@@ -216,7 +216,7 @@ fn preflight_and_launch_issue(
     }
 }
 
-/// Open the dirty-copy confirm modal. The default is no/halt â€” the user must
+/// Open the dirty-copy confirm modal. The default is no/halt — the user must
 /// explicitly press Enter to discard changes and proceed.
 fn prompt_dirty_copy_confirm(
     app_state: &mut AppStateHandle,
@@ -239,7 +239,7 @@ fn prompt_dirty_copy_confirm(
     persist_state(ctx, &persisted);
 }
 
-/// Open the origin-mismatch confirm modal. The default is no/halt â€” the user
+/// Open the origin-mismatch confirm modal. The default is no/halt — the user
 /// must explicitly press Enter to replace the mismatched repo and proceed.
 fn prompt_origin_mismatch_confirm(
     app_state: &mut AppStateHandle,
@@ -346,7 +346,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                 issue_assignment_from_payload(&payload),
             );
         }
-        // Discard policy cleans first, so Dirty should not occur â€” but treat
+        // Discard policy cleans first, so Dirty should not occur — but treat
         // it defensively as a launch failure rather than silently dropping.
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
             app_state,
@@ -547,7 +547,7 @@ pub(super) fn launch_issue_agent(
     // Self-assign the issue to the authenticated viewer only on a successful
     // launch (issue #186). Non-blocking: failures surface a warning, not a
     // send failure. The decision is pure (`direct_assignment_action`) so the
-    // success/failure Ã— resolved/unavailable matrix is unit-tested.
+    // success/failure × resolved/unavailable matrix is unit-tested.
     apply_assignment_action(
         app_state,
         ctx,

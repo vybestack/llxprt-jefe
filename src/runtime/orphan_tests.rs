@@ -99,13 +99,13 @@ fn missing_session_no_descendants_is_dead_pane_no_worker() {
 }
 
 #[test]
-fn unavailable_pane_with_live_descendant_is_orphaned() {
-    // Pane liveness unobservable but a validated live descendant remains: the
-    // safest classification is Orphaned so the caller reaps before relaunch.
+fn unavailable_pane_with_live_descendant_is_not_an_orphan() {
+    // When the multiplexer server is unavailable we cannot confirm the pane is
+    // dead, so we must not reap — the session may still be healthy. Fail safe.
     let recorded = anchor(ANCHOR_PID, ANCHOR_START);
     let observed = [ObservedDescendant::alive(recorded)];
     let classification = classify_orphan_state(PaneLiveness::Unavailable, true, &observed);
-    assert_eq!(classification, OrphanClassification::DeadPaneWithOrphans);
+    assert_eq!(classification, OrphanClassification::NoOrphan);
 }
 
 #[test]
