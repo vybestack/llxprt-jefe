@@ -77,7 +77,8 @@ pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 /// Descendant-process observation and validated orphan-tree reaping (issue #332).
 pub use orphan::{
     ObservedDescendant, OrphanClassification, PaneLiveness, ReapOutcome, classify_orphan_state,
-    descendant_liveness, descendant_still_matches_anchor, enumerate_descendants, reap_orphan_tree,
+    descendant_liveness, descendant_still_matches_anchor, enumerate_descendants,
+    reap_orphan_session, reap_orphan_tree,
 };
 pub use package_probe::{
     NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,

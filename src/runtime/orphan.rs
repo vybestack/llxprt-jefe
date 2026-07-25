@@ -411,3 +411,27 @@ pub fn reap_orphan_tree(anchors: &[ProcessIdentity]) -> Result<usize, ReapOutcom
     }
     platform_probes::reap_validated(anchors)
 }
+
+/// Best-effort reap of a dead-launcher orphan: terminate the validated worker
+/// descendant tree, then remove the stale multiplexer session (issue #332).
+///
+/// Combines [`reap_orphan_tree`] with a `kill_session` so callers at the
+/// startup/relaunch/delete boundaries get a single agent-scoped cleanup
+/// operation. Every failure is logged as a warning and swallowed; this never
+/// returns an error that a caller must propagate, because cleanup must not
+/// abort startup, relaunch, or deletion.
+pub fn reap_orphan_session(anchors: &[ProcessIdentity], session_name: &str) {
+    if let Err(outcome) = reap_orphan_tree(anchors) {
+        tracing::warn!(
+            ?outcome,
+            "orphan reap did not terminate any validated descendant"
+        );
+    }
+    if let Err(error) = super::commands::kill_session(session_name) {
+        tracing::warn!(
+            session = session_name,
+            error = %error,
+            "best-effort kill of stale orphan session failed"
+        );
+    }
+}

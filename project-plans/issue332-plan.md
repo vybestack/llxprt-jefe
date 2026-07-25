@@ -143,9 +143,11 @@ live-session startup reconciliation (#323/#326) and healthy-session switching (#
 | 2026-07-25 | Initial plan (5 phases from CodeRabbit issue enrichment) | Accepted pending user approval |
 | 2026-07-25 | Decision: stacked PRs (option b); Unix recovery = non-goal; new `OrphanBlocked` RuntimeError variant | Accepted (coordinator default) |
 | 2026-07-25 | Slice 1 complete: `src/runtime/orphan.rs` + `orphan_tests.rs` (11 tests, AC1–AC4 + edge cases) | Green |
+| 2026-07-25 | Slice 2 complete: `RuntimeBinding.worker_identities` + manager capture (AC8/AC9 storage) | Green |
+| 2026-07-25 | Slice 3 complete: `StartupClassification::Orphaned` + `orphan_evidence` + reap-then-Dead at startup (AC10/AC11) | Green |
+| 2026-07-25 | **Mandatory scope review after Phase 3:** 17 files / +954 net lines — BELOW soft targets (25/1500). No stop required. | Accepted (continue) |
 | 2026-07-25 | PRE-EXISTING clippy error `manual_is_multiple_of` at `src/harness/v1/validate.rs:114` (clippy-version drift, present on `main`) | Reject (out of scope; will block `make ci-check -D warnings` until fixed separately) |
-| | Mandatory scope review after Slice 3 (Phase 3) | Pending |
-| | Hard-budget check (40 files / 2,500 lines) | Pending |
+| | Hard-budget check (40 files / 2,500 lines) — re-check before PR | Pending |
 
 ## Review Counters
 
@@ -155,6 +157,8 @@ live-session startup reconciliation (#323/#326) and healthy-session switching (#
 ## Verification Evidence
 
 - **Slice 1 (orphan primitive):** `cargo test --lib orphan` → 11 passed / 0 failed. `cargo clippy --lib` on orphan code: clean (only pre-existing `validate.rs` error remains, see scope ledger). `cargo fmt --all -- --check`: clean.
+- **Slice 2 (data model + capture):** `cargo test --lib --tests` → 2083 lib passed, all integration suites passed. AC8 backward-compat + roundtrip verified.
+- **Slice 3 (startup Orphaned classification):** `cargo test --bin jefe` → 751 passed (incl. 3 new: `dead_pane_with_orphans_is_orphaned_not_recoverable`, `alive_pane_with_orphan_evidence_stays_running`, `dead_pane_without_orphans_is_not_orphaned`). Clippy on orphan+app_init: clean (only pre-existing `validate.rs` error). Scope review: 17 files / +954 net, below soft targets.
 
 ## Open Questions for User (require decision before implementation)
 
