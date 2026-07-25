@@ -83,7 +83,7 @@ private field). No unrelated refactor.
 ## Review Counters
 
 - Local OCR runs before PR: 0 / 2
-- OCR runs after PR opened: 0 / 2
+- OCR runs after PR opened: 1 / 2 (result: no findings)
 
 ## Verification Evidence
 
