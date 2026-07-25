@@ -7,6 +7,10 @@
 //! to the screen, while `markdown_render` owns the comrak AST traversal.
 //! The two are one logical pipeline; `markdown_render_tests.rs` covers both
 //! through the public `render_markdown_lines` entry point.
+//!
+//! This module is public only so integration tests can exercise the state
+//! machine directly. It is hidden from generated API documentation and is not
+//! a supported stable surface for crate consumers.
 
 /// Strip a raw HTML fragment down to its visible text.
 ///
@@ -63,7 +67,7 @@ pub fn strip_html_to_text(html: &str) -> String {
 /// Maximum entity length scanned after a `&` before falling back to a literal
 /// `&` (no entity is longer than ~10 chars; bounding this keeps the scanner
 /// single-pass for unmatched `&`).
-const MAX_ENTITY_LEN: usize = 12;
+pub const MAX_ENTITY_LEN: usize = 12;
 
 /// Consume an HTML tag starting at `bytes[start]` (which is `<`), appending a
 /// `\n` for block-boundary tags and returning the index just past the tag's
