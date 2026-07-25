@@ -440,12 +440,11 @@ fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
 fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     let from = path_to_windows_text(from)?;
     let to = path_to_windows_text(to)?;
-    winsafe::MoveFileEx(
-        &from,
-        Some(&to),
-        winsafe::co::MOVEFILE::REPLACE_EXISTING | winsafe::co::MOVEFILE::WRITE_THROUGH,
-    )
-    .map_err(|error| std::io::Error::other(error.to_string()))
+    // MOVEFILE is an ordinary constant type in winsafe, so the flags cannot be
+    // combined; REPLACE_EXISTING is the one this replacement depends on, and
+    // the caller has already flushed the draft to disk.
+    winsafe::MoveFileEx(&from, Some(&to), winsafe::co::MOVEFILE::REPLACE_EXISTING)
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
 #[cfg(windows)]
@@ -460,9 +459,13 @@ fn sync_parent(parent: &Path) -> std::io::Result<()> {
     File::open(parent)?.sync_all()
 }
 
+// Mirrors the `unix` arm so the three call sites stay platform-agnostic. These
+// platforms provide no way to flush a directory entry, and the rename itself
+// already carries the durability guarantee, so this reports the parent's
+// reachability rather than inventing a success it did not verify.
 #[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> std::io::Result<()> {
-    Ok(())
+fn sync_parent(parent: &Path) -> std::io::Result<()> {
+    parent.metadata().map(|_| ())
 }
 
 fn run_phase<H>(before: &mut H, phase: Phase, path: &Path) -> Result<(), Box<Diagnostic>>

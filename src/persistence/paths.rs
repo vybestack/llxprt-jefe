@@ -550,12 +550,12 @@ fn unix_file_key(metadata: &std::fs::Metadata) -> PhysicalFileKey {
 }
 
 #[cfg(windows)]
-fn windows_file_key(metadata: &std::fs::Metadata) -> Option<PhysicalFileKey> {
-    use std::os::windows::fs::MetadataExt;
-    Some(PhysicalFileKey::Windows {
-        volume_serial: u64::from(metadata.volume_serial_number()?),
-        file_index: metadata.file_index()?,
-    })
+fn windows_file_key(_metadata: &std::fs::Metadata) -> Option<PhysicalFileKey> {
+    // `volume_serial_number` and `file_index` are still unstable, so a stable
+    // toolchain cannot read a Windows file identity from `Metadata`. Reporting
+    // no key is already a supported outcome: `PhysicalIdentity::equivalent`
+    // compares canonical paths whenever either side lacks one.
+    None
 }
 
 /// Result of validating one discovered source.
