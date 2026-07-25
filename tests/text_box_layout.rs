@@ -34,16 +34,25 @@ fn new_issue_props_at_width(
 
 #[test]
 fn new_issue_composer_uses_all_rows_after_static_guidance() {
-    let props = new_issue_props(28);
+    let pane_height = 28;
+    let props = new_issue_props(pane_height);
+    let body_rows = jefe::layout::detail_body_viewport_rows(usize::from(pane_height));
+    let guidance_rows = jefe::issue_detail_content::build_new_issue_content(&InlineState::None)
+        .text
+        .lines()
+        .count()
+        .max(1);
+
     assert_eq!(
-        props.viewport_rows, 4,
-        "all four guidance rows stay visible"
+        props.viewport_rows, guidance_rows,
+        "all guidance rows stay visible"
     );
     assert_eq!(
-        props.composer_rows, 17,
+        props.composer_rows,
+        body_rows.saturating_sub(guidance_rows),
         "composer fills the remaining body rows"
     );
-    assert_eq!(props.viewport_rows + props.composer_rows, 21);
+    assert_eq!(props.viewport_rows + props.composer_rows, body_rows);
 }
 
 #[test]
@@ -55,12 +64,21 @@ fn constrained_new_issue_composer_keeps_one_editable_row() {
 
 #[test]
 fn narrow_new_issue_reserves_wrapped_guidance_rows() {
-    let props = new_issue_props_at_width(28, 20);
+    let pane_height = 28;
+    let props = new_issue_props_at_width(pane_height, 20);
+    let body_rows = jefe::layout::detail_body_viewport_rows(usize::from(pane_height));
+    let logical_guidance_rows =
+        jefe::issue_detail_content::build_new_issue_content(&InlineState::None)
+            .text
+            .lines()
+            .count()
+            .max(1);
+
     assert!(
-        props.viewport_rows > 4,
-        "wrapped guidance should occupy more than four display rows"
+        props.viewport_rows > logical_guidance_rows,
+        "wrapped guidance should occupy more display rows than logical lines"
     );
-    assert_eq!(props.viewport_rows + props.composer_rows, 21);
+    assert_eq!(props.viewport_rows + props.composer_rows, body_rows);
     assert!(props.composer_rows > 0, "composer must remain editable");
 }
 
@@ -96,4 +114,19 @@ fn scroll_direction_queries_follow_wrapped_display_rows() {
     let no_viewport = build_text_box_view(text, 0, 0, 20);
     assert!(!no_viewport.can_scroll_up());
     assert!(!no_viewport.can_scroll_down());
+}
+
+#[test]
+fn scroll_direction_queries_handle_multibyte_wrapped_text() {
+    let text = "éééééé";
+
+    let at_top = build_text_box_view(text, 0, 1, 3);
+    assert_eq!(at_top.total_display_rows, 2);
+    assert!(!at_top.can_scroll_up());
+    assert!(at_top.can_scroll_down());
+
+    let at_bottom = build_text_box_view(text, text.len(), 1, 3);
+    assert_eq!(at_bottom.total_display_rows, 2);
+    assert!(at_bottom.can_scroll_up());
+    assert!(!at_bottom.can_scroll_down());
 }

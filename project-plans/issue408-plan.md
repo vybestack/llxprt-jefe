@@ -106,13 +106,18 @@ Expected scope: at most 7 changed files and under 500 net changed lines. The pla
 | PR OCR: New Issue ignored a contextual reservation argument | In-scope—Fix | Separate fill-available and contextual row-allocation helpers so New Issue does not compute or accept the irrelevant fixed-composer reservation. The duplicate fourth finding shares this disposition. |
 | Exact-head PR OCR: New Issue guidance height used logical lines | In-scope—Fix | A1 preserves guidance when space permits, including narrow widths. Allocate from the shared wrapped-document display-row count and add a RED/GREEN narrow-width integration test. |
 | Exact-head PR OCR: wide body text can exceed a scalar-count wrap budget | Defer | The shared `text_wrap` contract intentionally uses Unicode scalar values and is shared by TextBox and ScrollableText. Changing it is a broader public behavior shift outside A1-A4; follow-up issue #422 records the shared design/test work. |
+| Automatic exact-head OCR: New Issue should retain a five-row cap | Reject | Contradicts A1 and the issue's explicit outcome that New Issue consume all available vertical space; only contextual comment/reply composers retain the cap. |
+| Automatic exact-head OCR: contextual document allocation uses logical lines | Defer | Valid pre-existing context-allocation concern, but contextual scroll offsets and reply anchors use content-line units and A4 preserves their behavior. Follow-up issue #423 owns the coordinated issue/PR contract. |
+| Automatic exact-head OCR: body width units differ from terminal-cell prefix width | Defer | Duplicate of the shared wrapping concern already tracked by #422. |
+| Automatic exact-head OCR: layout tests duplicate derived constants | In-scope—Fix | Derive body rows from `detail_body_viewport_rows` and guidance rows from `build_new_issue_content`; the duplicate finding shares this fix. |
+| Automatic exact-head OCR: scroll-direction coverage is ASCII-only | In-scope—Fix | Add a multibyte wrapped-text regression for total display rows and both direction transitions; the duplicate finding shares this fix. |
 
 No unapproved scope discoveries are open.
 
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (both invocations terminated by signal 15 without output; no findings available to triage)
-- Post-PR Open Code Review: 2 / 2 (four findings on `a069823` and two findings on `50910ff`; all classified, in-scope findings fixed, and the shared wide-body contract deferred to #422)
+- Post-PR Open Code Review: 2 / 2 permitted runs used (the required final push triggered additional automatic output without a manual rerun; all seven additional findings were classified, in-scope test findings fixed, and every thread resolved)
 
 ## Verification evidence
 
@@ -128,10 +133,13 @@ No unapproved scope discoveries are open.
 | `a069823` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design |
 | working tree | focused tests after PR OCR fixes | PASS: TextBox renderer (including wide prefix) and `text_box_layout` integration tests |
 | `50910ff` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design |
-| working tree | narrow-guidance RED/GREEN and focused tests | RED on logical-line allocation; PASS after shared wrapped-display-row allocation (4 layout tests, 2 renderer tests) |
-| working tree | `make ci-check` after PR OCR fixes | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
+| `051d762` | narrow-guidance RED/GREEN and focused tests | RED on logical-line allocation; PASS after shared wrapped-display-row allocation (4 layout tests, 2 renderer tests) |
+| `051d762` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, native Windows, and automatic OCR; optional TUI smoke skipped by design |
+| working tree | automatic OCR test findings | PASS: five `text_box_layout` tests, including derived layout expectations and multibyte wrapped-row directions |
+| working tree | `make ci-check` after all automatic OCR triage | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
 
 ## Deferred findings and follow-ups
 
 - Schema-1 runner input compatibility with Jefe's iocraft terminal-event stream remains with the existing harness migration effort; no harness production or quality-tool code changed in this issue.
 - Shared terminal-cell-aware body wrapping is tracked by #422; it requires a coordinated `text_wrap`, TextBox caret, and ScrollableText selection contract rather than an issue-408-only patch.
+- Contextual issue/PR composer document allocation is tracked by #423; it must reconcile wrapped display rows with content-line scroll offsets and reply-anchor visibility.
