@@ -165,20 +165,26 @@ fn title_cursor_move() {
 #[test]
 fn title_home_moves_to_start() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Walk to the end of the title text.
     let title_len = require_pr_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     assert_eq!(
         require_pr_editor(&state).title_cursor,
         title_len,
         "cursor must be at the end after walking right"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
 }
@@ -186,11 +192,15 @@ fn title_home_moves_to_start() {
 #[test]
 fn title_end_moves_to_end() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Cursor starts at 0; End must jump to the byte length of the title.
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -202,28 +212,38 @@ fn title_end_moves_to_end() {
 #[test]
 fn title_home_end_utf8_safe() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Insert a multibyte char at the start ("éTest PR" — cursor at byte 2).
-    state = state.apply(AppEvent::PrPropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleChar('é'))
+        .committed_pure();
     // Walk to the end, then Home -> 0, then End -> byte length.
     let title_len = require_pr_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     assert_eq!(
         require_pr_editor(&state).title_cursor,
         title_len,
         "cursor must be at the byte length after walking right on multibyte text"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor, 0,
         "Home on multibyte text must land on 0"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor,

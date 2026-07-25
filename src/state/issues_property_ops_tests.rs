@@ -326,13 +326,17 @@ fn title_cursor_move() {
 #[test]
 fn title_home_moves_to_start() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Walk to the end of the title text.
     let title_len = require_issue_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     // Verify the cursor reached the end before testing Home.
     assert_eq!(
@@ -340,7 +344,9 @@ fn title_home_moves_to_start() {
         title_len,
         "cursor must be at the end after walking right"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
 }
@@ -348,11 +354,15 @@ fn title_home_moves_to_start() {
 #[test]
 fn title_end_moves_to_end() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Cursor starts at 0; End must jump to the byte length of the title.
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -364,15 +374,21 @@ fn title_end_moves_to_end() {
 #[test]
 fn title_home_end_utf8_safe() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Insert a multibyte char at the start ("éTest Issue" — cursor at byte 2).
-    state = state.apply(AppEvent::IssuePropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleChar('é'))
+        .committed_pure();
     // Walk to the end, then Home -> 0, then End -> byte length.
     let title_len = require_issue_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     // Verify the cursor reached the byte length before testing Home.
     assert_eq!(
@@ -380,13 +396,17 @@ fn title_home_end_utf8_safe() {
         title_len,
         "cursor must be at the byte length after walking right on multibyte text"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor, 0,
         "Home on multibyte text must land on 0"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor,

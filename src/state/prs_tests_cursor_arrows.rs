@@ -466,10 +466,12 @@ fn text_box_view_shows_current_text_and_caret_for_tall_draft() {
 fn home_on_single_line_moves_to_start() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abcdef");
     // Caret at end (byte 6); Home must jump to byte 0.
-    let state = state.apply(AppEvent::PrInlineCursorHome);
+    let state = state.apply(AppEvent::PrInlineCursorHome).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 0,
@@ -482,13 +484,15 @@ fn home_on_single_line_moves_to_start() {
 fn end_on_single_line_moves_to_end() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "abcdef");
     // Walk back to the middle, then End must return to the end.
-    let state = state.apply(AppEvent::PrInlineCursorLeft);
-    let state = state.apply(AppEvent::PrInlineCursorLeft);
-    let state = state.apply(AppEvent::PrInlineCursorLeft);
-    let state = state.apply(AppEvent::PrInlineCursorEnd);
+    let state = state.apply(AppEvent::PrInlineCursorLeft).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorLeft).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorLeft).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorEnd).committed_pure();
     let (text, cursor) = composer_text_cursor(&state);
     assert_eq!(cursor, text.len(), "End must move the caret to text.len()");
 }
@@ -499,11 +503,13 @@ fn end_on_single_line_moves_to_end() {
 fn home_on_multiline_moves_to_current_line_start() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // "abcd\nefgh" — caret lands at byte 9 (end of second line).
     let state = type_into_composer(state, "abcd\nefgh");
     // Home must move to byte 5 (start of "efgh"), NOT byte 0.
-    let state = state.apply(AppEvent::PrInlineCursorHome);
+    let state = state.apply(AppEvent::PrInlineCursorHome).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 5,
@@ -517,13 +523,15 @@ fn home_on_multiline_moves_to_current_line_start() {
 fn end_on_multiline_moves_to_current_line_end() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     // "abcd\nefgh" — caret lands at byte 9.
     let state = type_into_composer(state, "abcd\nefgh");
     // Move to the first line (CursorUp), then End must land at byte 4 (end of
     // "abcd"), NOT byte 9.
-    let state = state.apply(AppEvent::PrInlineCursorUp);
-    let state = state.apply(AppEvent::PrInlineCursorEnd);
+    let state = state.apply(AppEvent::PrInlineCursorUp).committed_pure();
+    let state = state.apply(AppEvent::PrInlineCursorEnd).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor, 4,
@@ -536,14 +544,16 @@ fn end_on_multiline_moves_to_current_line_end() {
 fn home_end_are_utf8_safe() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let state = type_into_composer(state, "héllo");
     // Caret at byte 6; Home -> 0.
-    let state = state.apply(AppEvent::PrInlineCursorHome);
+    let state = state.apply(AppEvent::PrInlineCursorHome).committed_pure();
     let (_text, cursor) = composer_text_cursor(&state);
     assert_eq!(cursor, 0, "Home on multibyte text must land on byte 0");
     // End -> byte length (6).
-    let state = state.apply(AppEvent::PrInlineCursorEnd);
+    let state = state.apply(AppEvent::PrInlineCursorEnd).committed_pure();
     let (text, cursor) = composer_text_cursor(&state);
     assert_eq!(
         cursor,

@@ -687,11 +687,11 @@ fn sticky_cleared_on_select_repository() {
 /// Drive the real New Repository form submit path: open the modal, type a
 /// name, submit. Returns the state after submit with the new repo appended.
 fn submit_new_repository(mut state: AppState, name: &str) -> AppState {
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     for c in name.chars() {
-        state = state.apply(AppEvent::FormChar(c));
+        state = state.apply(AppEvent::FormChar(c)).committed_pure();
     }
-    state.apply(AppEvent::SubmitForm)
+    state.apply(AppEvent::SubmitForm).committed_pure()
 }
 
 /// Test 1 (A1): With hide_idle_repositories=true, submit the New Repository
@@ -749,7 +749,7 @@ fn navigate_after_new_repo_filters_empty_repo() {
     assert!(created.visible_repository_indices().contains(&new_repo_idx));
 
     // Navigate down — clears sticky, empty new repo should be filtered out.
-    let after_nav = created.apply(AppEvent::NavigateDown);
+    let after_nav = created.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         !visible_after.contains(&new_repo_idx),
@@ -778,7 +778,9 @@ fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
     let new_repo_idx = created.repositories.len() - 1;
 
     // Toggle filter ON — must NOT clear sticky.
-    let toggled = created.apply(AppEvent::ToggleHideIdleRepositories);
+    let toggled = created
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(toggled.hide_idle_repositories);
     assert!(
         toggled.visible_repository_indices().contains(&new_repo_idx),
@@ -786,7 +788,7 @@ fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
     );
 
     // Now navigate — sticky clears, empty repo filtered out.
-    let navigated = toggled.apply(AppEvent::NavigateDown);
+    let navigated = toggled.apply(AppEvent::NavigateDown).committed_pure();
     assert!(
         !navigated
             .visible_repository_indices()
@@ -814,7 +816,9 @@ fn sticky_cleared_on_select_repository_after_new_repo() {
     let new_repo_idx = created.repositories.len() - 1;
 
     // SelectRepository is navigation — clears sticky.
-    let after_select = created.apply(AppEvent::SelectRepository(new_repo_idx));
+    let after_select = created
+        .apply(AppEvent::SelectRepository(new_repo_idx))
+        .committed_pure();
     assert!(
         !after_select
             .visible_repository_indices()
@@ -854,7 +858,7 @@ fn multiple_new_repos_all_sticky() {
     );
 
     // Navigate away — both filtered out (only r1 with its running agent remains).
-    let after_nav = second.apply(AppEvent::NavigateDown);
+    let after_nav = second.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         !visible_after.contains(&first_idx) && !visible_after.contains(&second_idx),
@@ -878,8 +882,11 @@ fn new_repo_sticky_coexists_with_sticky_dead_agent() {
     };
     state.normalize_selection_indices();
 
-    // Kill the agent (sticky-dead keeps r1 visible).
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    // Kill the agent (sticky-dead keeps r1 visible). KillAgent stages a
+    // runtime effect; this contract covers visibility semantics only.
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
     // Create a new empty repo (sticky-empty keeps it visible).
     let created = submit_new_repository(killed, "NewRepo");
     let new_repo_idx = created.repositories.len() - 1;
@@ -895,7 +902,7 @@ fn new_repo_sticky_coexists_with_sticky_dead_agent() {
     );
 
     // Navigate — both stickies clear. r1 has a dead agent, new repo is empty.
-    let after_nav = created.apply(AppEvent::NavigateDown);
+    let after_nav = created.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         visible_after.is_empty(),
