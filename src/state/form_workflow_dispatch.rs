@@ -8,7 +8,9 @@
 use super::types::{
     WorkflowDispatchFormCursor, WorkflowDispatchFormFields, WorkflowDispatchFormFocus,
 };
-use super::util::{delete_char_at, delete_char_before, insert_char_at, move_cursor_left};
+use super::util::{
+    delete_char_at, delete_char_before, insert_char_at, move_cursor_left, move_cursor_start,
+};
 
 /// Insert a character at the cursor position in the focused WorkflowDispatch
 /// text field.
@@ -77,6 +79,19 @@ pub(super) fn move_cursor_field_left(
         WorkflowDispatchFormFocus::Inputs => {
             cursor.inputs = move_cursor_left(cursor.inputs);
         }
+        WorkflowDispatchFormFocus::Submit | WorkflowDispatchFormFocus::Cancel => {}
+    }
+}
+
+/// Move the cursor to the start of the focused WorkflowDispatch text field
+/// (issue #406).
+pub(super) fn move_cursor_field_start(
+    cursor: &mut WorkflowDispatchFormCursor,
+    focus: WorkflowDispatchFormFocus,
+) {
+    match focus {
+        WorkflowDispatchFormFocus::RefName => cursor.ref_name = move_cursor_start(),
+        WorkflowDispatchFormFocus::Inputs => cursor.inputs = move_cursor_start(),
         WorkflowDispatchFormFocus::Submit | WorkflowDispatchFormFocus::Cancel => {}
     }
 }

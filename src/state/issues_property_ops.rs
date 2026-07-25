@@ -23,7 +23,9 @@ impl AppState {
             | AppEvent::IssuePropertyEditorTitleBackspace
             | AppEvent::IssuePropertyEditorTitleDelete
             | AppEvent::IssuePropertyEditorTitleCursorLeft
-            | AppEvent::IssuePropertyEditorTitleCursorRight => {
+            | AppEvent::IssuePropertyEditorTitleCursorRight
+            | AppEvent::IssuePropertyEditorTitleCursorHome
+            | AppEvent::IssuePropertyEditorTitleCursorEnd => {
                 self.apply_issue_property_editor_ui(event)
             }
             AppEvent::IssuePropertyEditorOptionsLoaded { .. }
@@ -85,6 +87,14 @@ impl AppState {
             }
             AppEvent::IssuePropertyEditorTitleCursorRight => {
                 self.issue_property_title_cursor_right();
+                true
+            }
+            AppEvent::IssuePropertyEditorTitleCursorHome => {
+                self.issue_property_title_cursor_home();
+                true
+            }
+            AppEvent::IssuePropertyEditorTitleCursorEnd => {
+                self.issue_property_title_cursor_end();
                 true
             }
             _ => false,
@@ -367,6 +377,22 @@ impl AppState {
                 .next()
                 .map_or(0, char::len_utf8);
             editor.title_cursor += next;
+        }
+    }
+
+    fn issue_property_title_cursor_home(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+        {
+            editor.title_cursor = 0;
+        }
+    }
+
+    fn issue_property_title_cursor_end(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+        {
+            editor.title_cursor = editor.title_text.len();
         }
     }
 

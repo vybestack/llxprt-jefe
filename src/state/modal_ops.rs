@@ -104,6 +104,8 @@ impl AppState {
             ModalMessage::FormDelete => self.handle_form_delete(),
             ModalMessage::FormMoveCursorLeft => self.handle_form_move_cursor_left(),
             ModalMessage::FormMoveCursorRight => self.handle_form_move_cursor_right(),
+            ModalMessage::FormMoveCursorStart => self.handle_form_move_cursor_start(),
+            ModalMessage::FormMoveCursorEnd => self.handle_form_move_cursor_end(),
             ModalMessage::FormNextField => self.handle_form_next_field(),
             ModalMessage::FormPrevField => self.handle_form_prev_field(),
             ModalMessage::FormToggleCheckbox => self.handle_form_toggle_checkbox(),

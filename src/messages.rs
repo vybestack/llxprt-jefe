@@ -120,6 +120,8 @@ pub enum ModalMessage {
     FormDelete,
     FormMoveCursorLeft,
     FormMoveCursorRight,
+    FormMoveCursorStart,
+    FormMoveCursorEnd,
     FormNextField,
     FormPrevField,
     FormToggleCheckbox,
@@ -314,6 +316,10 @@ pub enum IssuesMessage {
     InlineCursorRight,
     InlineCursorUp,
     InlineCursorDown,
+    /// Move the caret to the start of the current line (Home, issue #406).
+    InlineCursorHome,
+    /// Move the caret to the end of the current line (End, issue #406).
+    InlineCursorEnd,
     InlineSubmit,
     InlineCancelOrEsc,
     /// Ask the configured default agent to rewrite the new-issue draft
@@ -430,6 +436,8 @@ pub enum IssuesMessage {
     PropertyEditorTitleDelete,
     PropertyEditorTitleCursorLeft,
     PropertyEditorTitleCursorRight,
+    PropertyEditorTitleCursorHome,
+    PropertyEditorTitleCursorEnd,
     PropertyEditorOptionsLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -689,6 +697,8 @@ pub enum PullRequestsMessage {
     PropertyEditorTitleDelete,
     PropertyEditorTitleCursorLeft,
     PropertyEditorTitleCursorRight,
+    PropertyEditorTitleCursorHome,
+    PropertyEditorTitleCursorEnd,
     PropertyEditorOptionsLoaded {
         scope_repo_id: RepositoryId,
         pr_number: u64,
@@ -816,6 +826,10 @@ pub enum PrInlineMsg {
     CursorRight,
     CursorUp,
     CursorDown,
+    /// Move the caret to the start of the current line (Home, issue #406).
+    CursorHome,
+    /// Move the caret to the end of the current line (End, issue #406).
+    CursorEnd,
     Submit,
     CancelOrEsc,
 }
