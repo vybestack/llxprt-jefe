@@ -366,13 +366,13 @@ impl PtySession {
             if self.try_exit().is_some() {
                 return;
             }
-            // A live group means a running app: leave it to signalled
-            // teardown rather than delaying every stop by the grace window.
-            let finishing = match group {
-                Some(pgid) => !group_alive(pgid).unwrap_or(true),
-                None => !self.is_alive(),
-            };
-            if !finishing || Instant::now() >= deadline {
+            // A group that still answers signal 0 is a running app: leave it
+            // to signalled teardown instead of delaying every stop. Otherwise
+            // the command is on its way out, and `try_wait` may report nothing
+            // until the kernel finalizes the status, so keep polling until it
+            // does or the grace window expires.
+            let still_running = group.is_some_and(|pgid| group_alive(pgid).unwrap_or(true));
+            if still_running || Instant::now() >= deadline {
                 return;
             }
             std::thread::sleep(POLL_INTERVAL);
