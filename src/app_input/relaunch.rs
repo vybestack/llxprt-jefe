@@ -76,10 +76,10 @@ fn relaunch_runtime_session(
     // still alive, spawning now would create a duplicate --continue worker.
     // Best-effort reap first; if a validated orphan survives, block relaunch
     // with a user-facing error instead of spawning.
-    if let Some(binding) = agent.runtime_binding.as_ref() {
-        if relaunch_blocked_by_orphan(agent_id, &binding.worker_identities) {
-            return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
-        }
+    if let Some(binding) = agent.runtime_binding.as_ref()
+        && relaunch_blocked_by_orphan(agent_id, &binding.worker_identities)
+    {
+        return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
     }
 
     spawn_relaunch_session(

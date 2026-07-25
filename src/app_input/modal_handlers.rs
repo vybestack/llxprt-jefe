@@ -271,14 +271,22 @@ fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
 /// removal, which `delete_selected_agent` performs regardless.
 fn reap_orphan_before_delete(app_state: &AppStateHandle, ctx: &SharedContext, agent_id: &AgentId) {
     let _ = (ctx, agent_id); // ctx reserved for future session-name resolution.
-    let state = app_state.read();
-    let Some(agent) = state.agents.iter().find(|agent| &agent.id == agent_id) else {
-        return;
+    let (identities, session_name) = {
+        let state = app_state.read();
+        let Some(agent) = state.agents.iter().find(|agent| &agent.id == agent_id) else {
+            return;
+        };
+        let Some(binding) = agent.runtime_binding.as_ref() else {
+            return;
+        };
+        let pair = (
+            binding.worker_identities.clone(),
+            binding.session_name.clone(),
+        );
+        drop(state);
+        pair
     };
-    let Some(binding) = agent.runtime_binding.as_ref() else {
-        return;
-    };
-    jefe::runtime::reap_orphan_session(&binding.worker_identities, &binding.session_name);
+    jefe::runtime::reap_orphan_session(&identities, &session_name);
 }
 
 pub fn handle_mode_form_key(

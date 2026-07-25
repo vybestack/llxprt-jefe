@@ -86,7 +86,7 @@ fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
     true
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum SessionEvidence {
+enum SessionEvidence {
     Alive,
     Missing,
     Unavailable,
@@ -103,14 +103,14 @@ impl From<jefe::runtime::SessionLiveness> for SessionEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum BindingEvidence {
+enum BindingEvidence {
     Coherent,
     Legacy,
     Inconsistent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StartupClassification {
+enum StartupClassification {
     Running,
     Stopped,
     Stale,
@@ -146,7 +146,7 @@ fn binding_evidence(
 }
 
 #[must_use]
-pub(super) fn classify_startup(
+fn classify_startup(
     session: SessionEvidence,
     binding: BindingEvidence,
     remote: bool,
@@ -341,14 +341,9 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
                 orphan_reconcile::reap_orphaned_agent(agent);
                 dead_ids.push(agent.id.clone());
             }
-            class
-                if matches!(
-                    class,
-                    StartupClassification::Stopped
-                        | StartupClassification::Stale
-                        | StartupClassification::Inconsistent
-                ) =>
-            {
+            StartupClassification::Stopped
+            | StartupClassification::Stale
+            | StartupClassification::Inconsistent => {
                 dead_ids.push(agent.id.clone());
             }
             _ => {}
@@ -663,7 +658,7 @@ mod tests {
                     Oc::NoOrphan
                 ),
                 expected
-            )
+            );
         };
         cls(
             SessionEvidence::Alive,

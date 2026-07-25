@@ -88,7 +88,7 @@ fn spawn_orphan_leader(marker_path: &std::path::Path) -> Result<(), Box<dyn std:
 // Minimal creation-time capture for the marker, isolated to this fixture.
 mod capture_process_identity {
     #[cfg(windows)]
-    pub(super) fn start_time(pid: u32) -> Option<u64> {
+    fn start_time(pid: u32) -> Option<u64> {
         use winsafe::{HPROCESS, co};
         let access = co::PROCESS::QUERY_LIMITED_INFORMATION;
         let process = HPROCESS::OpenProcess(access, false, pid).ok()?;

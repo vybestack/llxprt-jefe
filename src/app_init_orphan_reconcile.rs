@@ -6,8 +6,6 @@
 
 use jefe::domain::{Agent, ProcessIdentity};
 
-#[cfg(test)]
-use crate::app_init::BindingEvidence;
 use crate::app_init::SessionEvidence;
 
 /// Compute orphan evidence for startup classification (issue #332).
@@ -21,7 +19,7 @@ pub(super) fn orphan_evidence(
     if remote {
         return Oc::NoOrphan;
     }
-    let identities = worker_identities.map(Vec::as_slice).unwrap_or(&[]);
+    let identities: &[ProcessIdentity] = worker_identities.map_or(&[], Vec::as_slice);
     if identities.is_empty() {
         return Oc::NoOrphan;
     }
