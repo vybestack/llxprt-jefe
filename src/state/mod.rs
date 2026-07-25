@@ -98,8 +98,6 @@ use tracing::{debug, trace};
 
 pub use util::inline_cursor_vertical;
 impl AppState {
-    /// Reset terminal scrollback state to defaults (fix #4). Called from
-    /// every path that changes the selected agent or repository.
     fn reset_terminal_scrollback(&mut self) {
         self.terminal_history_offset = None;
         self.terminal_viewport_rows = 0;
