@@ -17,6 +17,10 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
     {
         state.repositories.remove(repo_idx);
 
+        // Drop any sticky-empty flag for the deleted repo so it cannot linger
+        // as a stale entry pointing at a removed repository (issue #404).
+        state.sticky_empty_repository_ids.remove(repository_id);
+
         // Remove all agents belonging to the deleted repository.
         // Capture the agents about to be removed so their shell windows can
         // be cleaned up too (issue #361 PR A).
