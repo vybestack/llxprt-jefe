@@ -208,21 +208,28 @@ fn dispatch_prs_post_mutation(
 
 /// Request a silent background refresh of the PR list + detail (issue #128).
 ///
-/// Fires ONLY when the PR view is open (`DashboardPullRequests`) and no list
-/// or detail load is already in flight. The refresh is silent: it preserves
-/// selection, scroll offset, filter, and search query, and does NOT flash the
-/// loading spinner.
+/// Fires ONLY when the PR view is open (`DashboardPullRequests`), no list
+/// or detail load is already in flight, and the user is not idle. The
+/// refresh is silent: it preserves selection, scroll offset, filter, and
+/// search query, and does NOT flash the loading spinner.
 ///
-/// @requirement issue #128
-pub fn request_pr_background_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+/// `is_idle` suppresses the refresh when the user has had no input for the
+/// idle threshold (issue #411), preventing GraphQL budget drain.
+///
+/// @requirement issue #128, issue #411
+pub fn request_pr_background_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    is_idle: bool,
+) {
     let should_refresh = {
         let state = app_state.read();
-        should_background_refresh(
-            state.screen_mode,
-            state.prs_state.list.has_pending_request(),
-            false,
-            state.prs_state.detail_pending.is_some(),
-        )
+        should_background_refresh(BackgroundRefreshGuard {
+            screen_mode: state.screen_mode,
+            list_reload_pending: state.prs_state.list.has_pending_request(),
+            detail_pending: state.prs_state.detail_pending.is_some(),
+            is_idle,
+        })
     };
     if should_refresh {
         prs_list_dispatch::request_pr_list_silent_refresh(app_state, ctx);
@@ -245,22 +252,31 @@ pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ct
     load_pr_detail_silent_refresh(app_state, ctx);
 }
 
+/// Guard conditions for [`should_background_refresh`] (issue #128, #411).
+/// Grouped into a struct to avoid excessive bool parameters.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BackgroundRefreshGuard {
+    pub screen_mode: jefe::state::ScreenMode,
+    pub list_reload_pending: bool,
+    pub detail_pending: bool,
+    pub is_idle: bool,
+}
+
 /// Pure guard predicate for `request_pr_background_refresh` (issue #128).
-/// Returns `true` when the PR view is open AND no list/detail load is in
-/// flight. Extracted so the guard logic is unit-testable without an
-/// `AppStateHandle`.
+/// Returns `true` when the PR view is open, no list/detail load is in
+/// flight, and the user is not idle. Extracted so the guard logic is
+/// unit-testable without an `AppStateHandle`.
 ///
-/// @requirement issue #128
-pub(super) fn should_background_refresh(
-    screen_mode: jefe::state::ScreenMode,
-    list_reload_pending: bool,
-    list_page_pending: bool,
-    detail_pending: bool,
-) -> bool {
-    screen_mode == jefe::state::ScreenMode::DashboardPullRequests
-        && !list_reload_pending
-        && !list_page_pending
-        && !detail_pending
+/// `is_idle` suppresses background refresh when the user has had no
+/// keyboard/mouse/paste input for the idle threshold (issue #411), so
+/// leaving jefe open on the PR screen cannot drain the GraphQL budget.
+///
+/// @requirement issue #128, issue #411
+pub(super) fn should_background_refresh(guard: BackgroundRefreshGuard) -> bool {
+    guard.screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+        && !guard.list_reload_pending
+        && !guard.detail_pending
+        && !guard.is_idle
 }
 
 /// Silently refresh PR detail for the currently selected PR (issue #128).
