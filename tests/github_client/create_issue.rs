@@ -1,5 +1,5 @@
-use crate::domain::IssueState;
-use crate::github::{GhError, parse_created_issue_json};
+use jefe::domain::IssueState;
+use jefe::github::{GhError, parse_created_issue_json};
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;

@@ -1,6 +1,6 @@
 //! Tests for the issue-draft rewrite instruction builder (issue #214 / #359).
 
-use super::build_rewrite_instruction;
+use jefe::domain::build_rewrite_instruction;
 use std::path::Path;
 
 fn out_path() -> &'static Path {
