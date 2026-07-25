@@ -103,26 +103,22 @@ impl AppState {
         self.terminal_viewport_rows = 0;
         self.terminal_total_lines = 0;
     }
-
     #[must_use]
     pub fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
-
     #[must_use]
     pub fn repository_by_id(&self, repository_id: &RepositoryId) -> Option<&Repository> {
         self.repositories
             .iter()
             .find(|repo| &repo.id == repository_id)
     }
-
     #[must_use]
     pub fn repository_for_agent(&self, agent_id: &AgentId) -> Option<&Repository> {
         let agent = self.agents.iter().find(|agent| &agent.id == agent_id)?;
         self.repository_by_id(&agent.repository_id)
     }
-
     fn remember_selected_agent_for_current_repo(&mut self) {
         let selected_repo_id = self.selected_repository_id().cloned();
         let selected_agent_id = self.selected_agent().map(|agent| agent.id.clone());
