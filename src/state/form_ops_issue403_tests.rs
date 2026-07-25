@@ -1,0 +1,291 @@
+//! Issue #403 tests: duplicate agent name prevention, work-dir collision
+//! detection, and version whitespace validation in agent form submission.
+
+use super::*;
+use crate::domain::{Agent, AgentKind, AgentStatus, Repository, RepositoryId};
+use crate::state::events::AppEvent;
+use crate::state::types::ModalState;
+
+fn seed_repository() -> Repository {
+    Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
+        std::path::PathBuf::from("/tmp/repo-1"),
+    )
+}
+
+fn seed_second_repository() -> Repository {
+    Repository::new(
+        RepositoryId("repo-2".to_owned()),
+        "Repo 2".to_owned(),
+        "repo-2".to_owned(),
+        std::path::PathBuf::from("/tmp/repo-2"),
+    )
+}
+
+fn existing_agent(repo_id: &RepositoryId, name: &str, work_dir: &str) -> Agent {
+    let mut agent = Agent::new(
+        crate::domain::AgentId("agent-existing".to_owned()),
+        repo_id.clone(),
+        name.to_owned(),
+        std::path::PathBuf::from(work_dir),
+    );
+    agent.status = AgentStatus::Running;
+    agent
+}
+
+fn open_new_agent_form(state: &mut AppState, repo_id: &RepositoryId) {
+    *state = std::mem::take(state).apply(AppEvent::OpenNewAgent(repo_id.clone()));
+}
+
+fn set_form_fields(modal: &mut ModalState, name: &str, work_dir: &str) {
+    let ModalState::NewAgent { fields, .. } = modal else {
+        panic!("expected NewAgent modal, got {modal:?}");
+    };
+    fields.name = name.to_owned();
+    fields.work_dir = work_dir.to_owned();
+}
+
+#[test]
+fn submit_new_agent_rejects_duplicate_name_same_repository() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "main",
+        "/tmp/repo-1/main",
+    ));
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    set_form_fields(&mut state.modal, "main", "/tmp/repo-1/main-2");
+    state = state.apply(AppEvent::SubmitForm);
+
+    // Modal stays open with error; no new agent added.
+    assert!(
+        matches!(state.modal, ModalState::NewAgent { .. }),
+        "modal should stay open on duplicate name"
+    );
+    assert_eq!(
+        state.error_message.as_deref(),
+        Some("An agent named 'main' already exists in this repository")
+    );
+    assert_eq!(
+        state.agents.len(),
+        1,
+        "no new agent should be added on duplicate name"
+    );
+}
+
+#[test]
+fn submit_new_agent_rejects_duplicate_name_case_insensitive() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "Main",
+        "/tmp/repo-1/main",
+    ));
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    set_form_fields(&mut state.modal, "MAIN", "/tmp/repo-1/main-2");
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::NewAgent { .. }),
+        "modal should stay open on case-insensitive duplicate"
+    );
+    assert!(
+        state
+            .error_message
+            .as_deref()
+            .is_some_and(|m| m.contains("already exists"))
+    );
+    assert_eq!(state.agents.len(), 1);
+}
+
+#[test]
+fn submit_new_agent_allows_same_name_in_different_repository() {
+    let repo1 = seed_repository();
+    let repo2 = seed_second_repository();
+    let mut state = AppState {
+        repositories: vec![repo1, repo2],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "main",
+        "/tmp/repo-1/main",
+    ));
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-2".to_owned()));
+    set_form_fields(&mut state.modal, "main", "/tmp/repo-2/main");
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::None),
+        "modal should close when name is unique within the repository"
+    );
+    assert!(state.error_message.is_none());
+    assert_eq!(state.agents.len(), 2);
+}
+
+#[test]
+fn submit_new_agent_rejects_colliding_work_dir() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "alpha",
+        "/tmp/repo-1/shared",
+    ));
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    // Different name but same work dir.
+    set_form_fields(&mut state.modal, "beta", "/tmp/repo-1/shared");
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::NewAgent { .. }),
+        "modal should stay open on work-dir collision"
+    );
+    assert!(
+        state
+            .error_message
+            .as_deref()
+            .is_some_and(|m| m.contains("already used by agent"))
+    );
+    assert_eq!(state.agents.len(), 1);
+}
+
+#[test]
+fn submit_new_agent_with_whitespace_version_sets_error() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected NewAgent modal");
+    };
+    fields.name = "Agent One".to_owned();
+    fields.work_dir = "/tmp/repo-1/agent-one".to_owned();
+    fields.agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.llxprt_version = "0.9.0\n0".to_owned();
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::NewAgent { .. }),
+        "modal should stay open on whitespace version"
+    );
+    assert!(
+        state
+            .error_message
+            .as_deref()
+            .is_some_and(|m| m.contains("whitespace"))
+    );
+    assert!(state.agents.is_empty());
+}
+
+#[test]
+fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        installed_agent_kinds: vec![AgentKind::Llxprt, AgentKind::CodePuppy],
+        ..AppState::default()
+    };
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected NewAgent modal");
+    };
+    fields.name = "CP Agent".to_owned();
+    fields.work_dir = "/tmp/repo-1/cp-agent".to_owned();
+    fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.code_puppy_version = "0.0.361\n0".to_owned();
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::NewAgent { .. }),
+        "modal should stay open on Code Puppy whitespace version"
+    );
+    assert!(
+        state
+            .error_message
+            .as_deref()
+            .is_some_and(|m| m.contains("whitespace"))
+    );
+    assert!(state.agents.is_empty());
+}
+
+#[test]
+fn submit_new_agent_clean_version_succeeds() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected NewAgent modal");
+    };
+    fields.name = "Agent One".to_owned();
+    fields.work_dir = "/tmp/repo-1/agent-one".to_owned();
+    fields.agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.llxprt_version = "0.9.0".to_owned();
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::None),
+        "modal should close on valid submit"
+    );
+    assert!(state.error_message.is_none());
+    assert_eq!(state.agents.len(), 1);
+}
+
+#[test]
+fn submit_new_agent_clears_stale_error_on_success() {
+    let repo = seed_repository();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "main",
+        "/tmp/repo-1/main",
+    ));
+
+    // First submit: duplicate name → error set.
+    open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
+    set_form_fields(&mut state.modal, "main", "/tmp/repo-1/main-2");
+    state = state.apply(AppEvent::SubmitForm);
+    assert!(state.error_message.is_some());
+
+    // Fix the name and resubmit: error should be cleared.
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected modal still open");
+    };
+    fields.name = "main-2".to_owned();
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(matches!(state.modal, ModalState::None));
+    assert!(state.error_message.is_none());
+    assert_eq!(state.agents.len(), 2);
+}
