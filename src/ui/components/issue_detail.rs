@@ -213,26 +213,28 @@ fn detail_content_width(available_width: Option<u16>) -> usize {
     }))
 }
 
-/// Compute the `(scroll_rows, composer_rows)` split for the issue detail pane
-/// given the total detail viewport rows, the reserved document rows, the
-/// document line count, and whether a composer is active.
+/// Compute the parent-selected document/composer row split.
 fn issue_scroll_composer_rows(
     detail_viewport_rows: usize,
     reserved_document_rows: usize,
     document_line_count: usize,
     composer_active: bool,
+    composer_fills_available: bool,
 ) -> (usize, usize) {
-    let scroll_rows = if composer_active {
-        reserved_document_rows.min(document_line_count)
-    } else {
-        reserved_document_rows
-    };
-    let composer_rows = if composer_active {
-        crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
-            .min(detail_viewport_rows.saturating_sub(scroll_rows))
-    } else {
-        0
-    };
+    if !composer_active {
+        return (reserved_document_rows, 0);
+    }
+    if composer_fills_available {
+        let scroll_rows = document_line_count.min(detail_viewport_rows.saturating_sub(1));
+        return (
+            scroll_rows,
+            detail_viewport_rows.saturating_sub(scroll_rows),
+        );
+    }
+
+    let scroll_rows = reserved_document_rows.min(document_line_count);
+    let composer_rows = crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
+        .min(detail_viewport_rows.saturating_sub(scroll_rows));
     (scroll_rows, composer_rows)
 }
 
@@ -282,6 +284,7 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
         reserved_document_rows,
         document_line_count,
         composer_active,
+        showing_new_issue_composer,
     );
     let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
         text,
