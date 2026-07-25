@@ -104,13 +104,15 @@ Expected scope: at most 7 changed files and under 500 net changed lines. The pla
 | PR OCR: prefix width used scalar count instead of terminal-cell width | In-scope—Fix | Prefix width is part of A3's parent width budget. Use the established `unicode-width` dependency and add a wide-prefix renderer regression. The shared text wrap remains intentionally scalar-count based by its documented contract. |
 | PR OCR: arrow right-edge assertions use scalar indices | In-scope—Fix | The shipped arrows and ASCII fixture are one-cell symbols, but the new wide-prefix regression now exercises the variable-width boundary that the original assertions do not cover. |
 | PR OCR: New Issue ignored a contextual reservation argument | In-scope—Fix | Separate fill-available and contextual row-allocation helpers so New Issue does not compute or accept the irrelevant fixed-composer reservation. The duplicate fourth finding shares this disposition. |
+| Exact-head PR OCR: New Issue guidance height used logical lines | In-scope—Fix | A1 preserves guidance when space permits, including narrow widths. Allocate from the shared wrapped-document display-row count and add a RED/GREEN narrow-width integration test. |
+| Exact-head PR OCR: wide body text can exceed a scalar-count wrap budget | Defer | The shared `text_wrap` contract intentionally uses Unicode scalar values and is shared by TextBox and ScrollableText. Changing it is a broader public behavior shift outside A1-A4; follow-up issue #422 records the shared design/test work. |
 
 No unapproved scope discoveries are open.
 
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (both invocations terminated by signal 15 without output; no findings available to triage)
-- Post-PR Open Code Review: 1 / 2 (four findings posted on `a069823`; all classified and addressed, including one duplicate)
+- Post-PR Open Code Review: 2 / 2 (four findings on `a069823` and two findings on `50910ff`; all classified, in-scope findings fixed, and the shared wide-body contract deferred to #422)
 
 ## Verification evidence
 
@@ -125,8 +127,11 @@ No unapproved scope discoveries are open.
 | `a069823` | `make ci-check` | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
 | `a069823` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design |
 | working tree | focused tests after PR OCR fixes | PASS: TextBox renderer (including wide prefix) and `text_box_layout` integration tests |
+| `50910ff` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design |
+| working tree | narrow-guidance RED/GREEN and focused tests | RED on logical-line allocation; PASS after shared wrapped-display-row allocation (4 layout tests, 2 renderer tests) |
 | working tree | `make ci-check` after PR OCR fixes | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
 
 ## Deferred findings and follow-ups
 
 - Schema-1 runner input compatibility with Jefe's iocraft terminal-event stream remains with the existing harness migration effort; no harness production or quality-tool code changed in this issue.
+- Shared terminal-cell-aware body wrapping is tracked by #422; it requires a coordinated `text_wrap`, TextBox caret, and ScrollableText selection contract rather than an issue-408-only patch.

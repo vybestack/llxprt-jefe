@@ -6,6 +6,13 @@ use jefe::theme::ThemeColors;
 use jefe::ui::components::{IssueDetailProjectionInputs, issue_detail_props};
 
 fn new_issue_props(pane_height: u16) -> jefe::ui::components::DetailPaneProps {
+    new_issue_props_at_width(pane_height, 80)
+}
+
+fn new_issue_props_at_width(
+    pane_height: u16,
+    available_width: u16,
+) -> jefe::ui::components::DetailPaneProps {
     let inline = InlineState::Composer {
         target: ComposerTarget::NewIssue,
         text: String::new(),
@@ -20,7 +27,7 @@ fn new_issue_props(pane_height: u16) -> jefe::ui::components::DetailPaneProps {
         scroll_offset: 0,
         colors: ThemeColors::default(),
         available_height: Some(pane_height),
-        available_width: Some(80),
+        available_width: Some(available_width),
         selection: None,
     })
 }
@@ -44,6 +51,17 @@ fn constrained_new_issue_composer_keeps_one_editable_row() {
     let props = new_issue_props(8);
     assert_eq!(props.viewport_rows, 0);
     assert_eq!(props.composer_rows, 1);
+}
+
+#[test]
+fn narrow_new_issue_reserves_wrapped_guidance_rows() {
+    let props = new_issue_props_at_width(28, 20);
+    assert!(
+        props.viewport_rows > 4,
+        "wrapped guidance should occupy more than four display rows"
+    );
+    assert_eq!(props.viewport_rows + props.composer_rows, 21);
+    assert!(props.composer_rows > 0, "composer must remain editable");
 }
 
 #[test]

@@ -282,7 +282,9 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
 
     let document_line_count = detail_content.text.lines().count().max(1);
     let (scroll_rows, composer_rows) = if showing_new_issue_composer {
-        new_issue_composer_rows(detail_vp_rows, document_line_count)
+        let document_display_rows =
+            super::doc_wrap::wrap_document(&detail_content.text, content_width).len();
+        new_issue_composer_rows(detail_vp_rows, document_display_rows)
     } else {
         let reserved_document_rows =
             crate::layout::issue_detail_document_viewport_rows(detail_vp_rows, composer_active);
