@@ -44,6 +44,13 @@ impl std::fmt::Display for RegressionFailure {
 
 impl std::error::Error for RegressionFailure {}
 
+fn fail<E: std::fmt::Debug>(message: &str, error: E) -> RegressionFailure {
+    RegressionFailure {
+        message: message.to_owned(),
+        diagnostics: format!("{error:?}"),
+    }
+}
+
 struct PsmuxNamespace {
     executable: PathBuf,
     name: String,
@@ -134,12 +141,12 @@ impl Drop for PsmuxNamespace {
 }
 
 #[test]
-fn reap_removes_validated_orphan_and_only_target_session() {
+fn reap_removes_validated_orphan_and_only_target_session() -> Result<(), RegressionFailure> {
     if !psmux_required() {
-        return;
+        return Ok(());
     }
     let mut namespace = PsmuxNamespace::new("orphan-reap");
-    let work_dir = tempfile::tempdir().expect("create work dir");
+    let work_dir = tempfile::tempdir().map_err(|e| fail("create work dir", e))?;
     let marker_path = work_dir.path().join("orphan-marker.json");
     let session = "orphan-target";
     let bystander = "orphan-bystander";
@@ -147,9 +154,9 @@ fn reap_removes_validated_orphan_and_only_target_session() {
     launch_fixture(&mut namespace, session, &work_dir, &marker_path);
     launch_fixture(&mut namespace, bystander, &work_dir, &marker_path);
 
-    let marker = wait_for_marker(&marker_path).expect("orphan marker written");
+    let marker = wait_for_marker(&marker_path).map_err(|e| fail("orphan marker written", e))?;
     let orphan_identity = jefe::runtime::capture_process_identity(marker.pid)
-        .expect("orphan child alive for identity capture");
+        .map_err(|e| fail("orphan child alive for identity capture", e))?;
     let observed = vec![jefe::runtime::ObservedDescendant::alive(orphan_identity)];
 
     assert!(process_alive(marker.pid), "orphan child alive before reap");
@@ -169,7 +176,7 @@ fn reap_removes_validated_orphan_and_only_target_session() {
     );
 
     jefe::runtime::reap_orphan_tree(&[orphan_identity])
-        .expect("reap of a validated orphan should succeed");
+        .map_err(|e| fail("reap of a validated orphan should succeed", e))?;
     namespace.run_quiet(&["kill-session", "-t", session]);
 
     assert!(
@@ -182,6 +189,7 @@ fn reap_removes_validated_orphan_and_only_target_session() {
         namespace.session_exists(bystander),
         "bystander session must not be touched by the reap"
     );
+    Ok(())
 }
 
 /// Launch a fixture session. Targets (`*target`) run `--orphan-leader` with a
@@ -225,55 +233,58 @@ fn launch_fixture(
         .map(|s| OsString::from(*s))
         .collect()
     };
-    let refs: Vec<&str> = args.iter().map(|s| s.to_str().expect("utf8")).collect();
-    namespace
-        .run(&refs)
-        .unwrap_or_else(|error| panic!("launch {session}: {error}"));
+    let refs: Vec<&str> = args.iter().filter_map(|s| s.to_str()).collect();
+    if let Err(error) = namespace.run(&refs) {
+        panic!("launch {session}: {error}");
+    }
 }
 
 /// Kill the pane leader of `session` to simulate the dead-pane state.
 fn kill_pane_leader(namespace: &mut PsmuxNamespace, session: &str) {
-    let leader_pid = namespace
-        .run(&["display-message", "-p", "-t", session, "#{pane_pid}"])
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<u32>()
-                .expect("pane_pid parses")
-        })
-        .unwrap_or_else(|error| panic!("read pane_pid: {error}"));
-    let _ = Command::new("taskkill")
-        .args(["/PID", &leader_pid.to_string(), "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let leader_pid = match namespace.run(&["display-message", "-p", "-t", session, "#{pane_pid}"]) {
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u32>()
+            .unwrap_or(0),
+        Err(error) => {
+            panic!("read pane_pid: {error}");
+        }
+    };
+    if leader_pid != 0 {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &leader_pid.to_string(), "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     thread::sleep(Duration::from_millis(400));
 }
 
 #[test]
-fn empty_orphan_tree_leaves_unrelated_processes_and_sessions_intact() {
+fn empty_orphan_tree_leaves_unrelated_processes_and_sessions_intact()
+-> Result<(), RegressionFailure> {
     // AC6/AC18 negative: reaping with no anchors and removing a session must
     // not affect other sessions or processes in the namespace.
     if !psmux_required() {
-        return;
+        return Ok(());
     }
     let mut namespace = PsmuxNamespace::new("orphan-empty");
-    let work_dir = tempfile::tempdir().expect("create work dir");
+    let work_dir = tempfile::tempdir().map_err(|e| fail("create work dir", e))?;
     let session = "orphan-empty-target";
     let bystander = "orphan-empty-bystander";
     for name in [session, bystander] {
-        namespace
-            .run(&[
-                "new-session",
-                "-d",
-                "-s",
-                name,
-                "-c",
-                &work_dir.path().to_string_lossy(),
-                FIXTURE,
-                "--orphan-child",
-            ])
-            .unwrap_or_else(|error| panic!("launch {name}: {error}"));
+        if let Err(error) = namespace.run(&[
+            "new-session",
+            "-d",
+            "-s",
+            name,
+            "-c",
+            &work_dir.path().to_string_lossy(),
+            FIXTURE,
+            "--orphan-child",
+        ]) {
+            panic!("launch {name}: {error}");
+        }
     }
     assert!(namespace.session_exists(session));
     assert!(namespace.session_exists(bystander));
@@ -288,22 +299,25 @@ fn empty_orphan_tree_leaves_unrelated_processes_and_sessions_intact() {
         namespace.session_exists(bystander),
         "empty reap must not remove unrelated sessions"
     );
+    Ok(())
 }
 
 fn wait_for_marker(path: &Path) -> Result<OrphanMarker, String> {
     let deadline = Instant::now() + POLL_TIMEOUT;
     let mut last_error = String::from("marker not written");
     while Instant::now() < deadline {
-        if let Ok(bytes) = fs::read(path) {
-            if let Ok(marker) = serde_json::from_slice::<OrphanMarker>(&bytes) {
-                return Ok(marker);
-            }
+        if let Ok(bytes) = fs::read(path)
+            && let Ok(marker) = serde_json::from_slice::<OrphanMarker>(&bytes)
+        {
+            return Ok(marker);
         }
-        last_error = "marker unreadable".to_owned();
+        last_error = String::from("marker unreadable");
         thread::sleep(Duration::from_millis(50));
     }
     Err(format!(
-        "orphan marker {path:?} not ready within {POLL_TIMEOUT:?}: {last_error}"
+        "orphan marker {} not ready within {:?}: {last_error}",
+        path.display(),
+        POLL_TIMEOUT
     ))
 }
 
@@ -347,8 +361,7 @@ fn which_psmux() -> Option<PathBuf> {
 fn unique_name(label: &str) -> String {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     format!("jefe-orph-{label}-{stamp}")
 }
 
