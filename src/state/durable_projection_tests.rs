@@ -416,3 +416,69 @@ fn inverse_rejects_agent_with_unknown_repository() {
 
     assert!(from_durable_state(&projected).is_err());
 }
+
+/// Two runtime repositories must never collapse onto one durable identifier.
+/// A repository whose runtime id is already a valid `Id` is preserved verbatim,
+/// so it can equal the id minted for a different repository whose runtime id
+/// was unusable. The projection must refuse rather than emit a document with
+/// duplicate ids (issue #381).
+#[test]
+fn forward_rejects_two_repositories_that_share_one_durable_id() {
+    let mut state = sample_state();
+    // "Repo One" cannot parse as an Id, so it mints to this exact digest.
+    let minted = "repo.165ed0b47b52ea93c2ec1b4fd8b4a5e4becd6a6dc49ca1c6b7542df112fa62bc";
+    state.repositories = vec![
+        local_repository("Repo One", "minted", "/srv/one"),
+        local_repository(minted, "preserved", "/srv/two"),
+    ];
+    state.agents.clear();
+    state.selected_repository_index = None;
+    state.selected_agent_index = None;
+    state.last_selected_agent_by_repo.clear();
+    state.rebuild_repository_agent_ids();
+
+    let projected = to_durable_state(&state);
+
+    assert!(
+        projected.is_err(),
+        "a durable id shared by two repositories must be refused, got {:?}",
+        projected.map(|state| state
+            .repositories
+            .iter()
+            .map(|repository| repository.id.to_string())
+            .collect::<Vec<_>>())
+    );
+}
+
+/// Restoring a remote repository must not resurrect a disabled connection.
+/// The forward projection selects `RepositoryLocation::Remote` from
+/// `remote.enabled`, so forcing it back to `true` on restore would make a
+/// disabled remote impossible to persist (issue #381).
+#[test]
+fn inverse_preserves_a_disabled_remote_flag() {
+    let mut state = sample_state();
+    state.repositories = vec![remote_repository("repo-remote")];
+    state.agents.clear();
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = None;
+    state.last_selected_agent_by_repo.clear();
+    state.rebuild_repository_agent_ids();
+
+    // A remote-located record whose stored settings say the connection is
+    // disabled: exactly what persisting a disabled remote produces.
+    let mut durable = to_durable_state(&state).value_or_panic("project the remote repository");
+    let values = &mut durable.repositories[0].agent_defaults.values;
+    let remote_key = crate::domain::Id::parse("remote").value_or_panic("the remote key");
+    let Some(crate::domain::TypedValue::Map(remote)) = values.get_mut(&remote_key) else {
+        panic!("the projected repository should carry a remote value map");
+    };
+    let enabled_key = crate::domain::Id::parse("enabled").value_or_panic("the enabled key");
+    let _ = remote.insert(enabled_key, crate::domain::TypedValue::Bool(false));
+
+    let restored = from_durable_state(&durable).value_or_panic("restore the disabled remote");
+
+    assert!(
+        !restored.repositories[0].remote.enabled,
+        "a stored disabled remote must not be silently re-enabled on restore"
+    );
+}

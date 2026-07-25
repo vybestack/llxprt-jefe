@@ -232,6 +232,11 @@ impl EffectLedger {
     ) -> Result<Correlation, EffectLedgerError> {
         self.records
             .retain(|record| record.correlation.semantic_key != semantic_key);
+        // A superseded record must take its staged effect with it: `staged` is
+        // drained once per message, so anything left here would still execute
+        // and could write a document older than the one that replaced it.
+        self.staged
+            .retain(|issued| issued.correlation.semantic_key != semantic_key);
         if self.records.len() >= MAX_TRANSITION_EFFECTS {
             return Err(EffectLedgerError::PendingLimitExceeded {
                 limit: MAX_TRANSITION_EFFECTS,

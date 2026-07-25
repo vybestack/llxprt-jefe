@@ -673,3 +673,58 @@ fn agent_is_transient_backward_compat_with_missing_field() {
     let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
     assert!(!agent.is_transient());
 }
+
+/// A canonical decimal carrying more digits than an f64 can represent must not
+/// be silently truncated when it is encoded as JSON (issue #381).
+#[test]
+fn high_precision_decimals_survive_json_encoding() {
+    use crate::domain::canonical_values::typed_to_json;
+    use crate::domain::{CanonicalDecimal, TypedValue};
+
+    let text = "1.2345678901234567890123";
+    let decimal = CanonicalDecimal::parse(text).value_or_panic("a canonical decimal");
+
+    let encoded = typed_to_json(&TypedValue::Decimal(decimal));
+
+    let rendered = match &encoded {
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::String(value) => value.clone(),
+        other => panic!("a decimal should encode as a number or its exact text, got {other}"),
+    };
+    assert_eq!(
+        rendered, text,
+        "every significant digit must survive the encoding"
+    );
+
+    // Values a double represents exactly still encode as JSON numbers.
+    let exact = CanonicalDecimal::parse("0.5").value_or_panic("an exact decimal");
+    assert!(
+        typed_to_json(&TypedValue::Decimal(exact)).is_number(),
+        "an exactly representable decimal stays a JSON number"
+    );
+}
+
+/// SemVer 2.0.0 allows hyphens inside prerelease identifiers, so a version such
+/// as `1.0.0-rc-beta` is valid and must not be rejected (issue #381).
+#[test]
+fn semver_accepts_hyphens_inside_the_prerelease() {
+    use crate::domain::CanonicalSemver;
+
+    let parsed = CanonicalSemver::parse("1.0.0-rc-beta");
+
+    assert!(
+        parsed.is_ok(),
+        "a hyphenated prerelease identifier is valid SemVer, got {parsed:?}"
+    );
+    assert_eq!(
+        parsed.value_or_panic("the parsed version").to_string(),
+        "1.0.0-rc-beta",
+        "the version renders back to its canonical text"
+    );
+
+    // Build metadata still cannot repeat its separator.
+    assert!(
+        CanonicalSemver::parse("1.0.0+build+again").is_err(),
+        "a repeated build separator stays invalid"
+    );
+}

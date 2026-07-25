@@ -148,12 +148,26 @@ impl Diagnostic {
 }
 
 impl Ord for Diagnostic {
+    /// Order by report position first: severity, path, span, then code.
+    ///
+    /// The remaining fields break ties so that ordering stays consistent with
+    /// `Eq`. Without them two diagnostics differing only in their detail would
+    /// compare `Equal` while being unequal, which violates the `Ord` contract
+    /// and makes sorting, deduplication and `BTree` keys unsound.
     fn cmp(&self, other: &Self) -> Ordering {
         self.severity
             .cmp(&other.severity)
             .then_with(|| self.path.cmp(&other.path))
             .then_with(|| self.span.cmp(&other.span))
             .then_with(|| self.code.as_str().cmp(other.code.as_str()))
+            .then_with(|| self.owner.cmp(&other.owner))
+            .then_with(|| self.correction.cmp(&other.correction))
+            .then_with(|| self.redacted_detail.cmp(&other.redacted_detail))
+            .then_with(|| {
+                owner_version_key(self.owner_version.as_ref())
+                    .cmp(&owner_version_key(other.owner_version.as_ref()))
+            })
+            .then_with(|| provenance_key(&self.provenance).cmp(&provenance_key(&other.provenance)))
     }
 }
 
@@ -161,6 +175,24 @@ impl PartialOrd for Diagnostic {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+/// Stable tiebreaker text for an optional owner version.
+///
+/// `CanonicalSemver` orders by SemVer precedence, under which distinct values
+/// can be equal; comparing the rendered text keeps the total order consistent
+/// with equality.
+fn owner_version_key(version: Option<&CanonicalSemver>) -> String {
+    version.map(ToString::to_string).unwrap_or_default()
+}
+
+/// Stable tiebreaker text for a provenance chain, which carries no ordering.
+fn provenance_key(provenance: &[ProvenanceOrigin]) -> String {
+    provenance
+        .iter()
+        .map(|origin| format!("{origin:?}"))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
 }
 
 /// Validate an inclusive bound without truncating the owning value.
@@ -181,4 +213,32 @@ pub fn validate_inclusive_limit(
     );
     diagnostic.redacted_detail = format!("observed {actual}; inclusive limit {limit}");
     Err(Box::new(diagnostic))
+}
+
+#[cfg(test)]
+mod ord_contract_tests {
+    use super::{CfgCode, Diagnostic, DiagnosticPath, Severity};
+
+    /// `Ord` must agree with `Eq`: values that compare `Equal` have to be equal.
+    /// Diagnostics differing only in their detail previously ordered as equal
+    /// while comparing unequal, which makes sorting and `BTree` use unsound.
+    #[test]
+    fn ordering_is_consistent_with_equality() {
+        let base = Diagnostic::new(
+            CfgCode::E008,
+            Severity::Error,
+            DiagnosticPath::root(),
+            None,
+            "correct it",
+        );
+        let mut other = base.clone();
+        other.redacted_detail = "a different detail".to_owned();
+
+        assert_ne!(base, other, "the two diagnostics are not equal");
+        assert_ne!(
+            base.cmp(&other),
+            std::cmp::Ordering::Equal,
+            "unequal diagnostics must not compare as equal"
+        );
+    }
 }

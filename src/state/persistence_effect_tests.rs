@@ -352,3 +352,47 @@ fn taking_a_save_request_does_not_advance_the_durable_revision() {
         "supersession is normal coalescing, not a user-facing failure"
     );
 }
+
+/// Superseding a staged save must also discard the superseded effect, not just
+/// its pending record. Otherwise the stale candidate still reaches the worker
+/// and an older document can overwrite a newer one on disk (issue #381).
+#[test]
+fn superseding_a_staged_save_discards_the_stale_candidate() {
+    let mut state = state_with_one_agent();
+
+    // Stage a save, then stage another before the first is drained.
+    let effects = commit_in_place(
+        &mut state,
+        AppMessage::Persistence(PersistenceMessage::StageSave),
+    );
+    assert_eq!(effects.len(), 1, "the first save stages one effect");
+
+    state.hide_idle_repositories = !state.hide_idle_repositories;
+    let effects = commit_in_place(
+        &mut state,
+        AppMessage::Persistence(PersistenceMessage::StageSave),
+    );
+
+    assert_eq!(
+        effects.len(),
+        1,
+        "the newer save supersedes the older one instead of queueing both"
+    );
+
+    // Two stages inside a single message must also collapse: `staged` is only
+    // drained once per message, so a superseded effect left behind here would
+    // still reach the worker and could overwrite a newer document.
+    state.stage_durable_save();
+    state.stage_durable_save();
+
+    assert_eq!(
+        state.pending_effects.iter().count(),
+        1,
+        "the ledger keeps exactly one pending record per semantic key"
+    );
+    assert_eq!(
+        state.pending_effects.staged.len(),
+        1,
+        "the superseded candidate must be discarded, not left staged"
+    );
+}

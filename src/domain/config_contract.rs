@@ -248,9 +248,9 @@ enum PrereleaseIdentifier {
 impl CanonicalSemver {
     /// Parse a complete SemVer 2.0.0 value.
     pub fn parse(value: &str) -> Result<Self, ConfigContractError> {
-        let (version, build) = split_optional(value, '+')?;
+        let (version, build) = split_optional(value, '+', false)?;
         validate_build(build)?;
-        let (core, prerelease) = split_optional(version, '-')?;
+        let (core, prerelease) = split_optional(version, '-', true)?;
         let core = parse_core(core)?;
         let prerelease = parse_prerelease(prerelease)?;
         Ok(Self {
@@ -279,14 +279,20 @@ impl CanonicalSemver {
     }
 }
 
+/// Split `value` at its first `separator`.
+///
+/// `repeatable` states whether the separator may appear again in the remainder:
+/// build metadata is introduced by a single `+`, while SemVer 2.0.0 permits
+/// hyphens inside prerelease identifiers (for example `1.0.0-rc-beta`).
 fn split_optional(
     value: &str,
     separator: char,
+    repeatable: bool,
 ) -> Result<(&str, Option<&str>), ConfigContractError> {
     let Some((left, right)) = value.split_once(separator) else {
         return Ok((value, None));
     };
-    if right.is_empty() || right.contains(separator) {
+    if right.is_empty() || (!repeatable && right.contains(separator)) {
         return Err(ConfigContractError::InvalidSemver);
     }
     Ok((left, Some(right)))

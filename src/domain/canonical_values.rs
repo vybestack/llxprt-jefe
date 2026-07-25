@@ -119,6 +119,19 @@ fn normalized_key(value: &str) -> Result<Id, String> {
     required_id(&normalized)
 }
 
+/// Encode a canonical decimal as JSON without losing precision.
+///
+/// `serde_json::Number` is f64-backed, so a decimal carrying more significant
+/// digits than a double can hold would silently truncate. Such a value is
+/// emitted as its exact text instead: losing the JSON number type is
+/// recoverable, whereas losing digits is not.
+fn decimal_to_json(text: &str) -> Value {
+    match text.parse::<serde_json::Number>() {
+        Ok(number) if number.to_string() == text => Value::Number(number),
+        _ => Value::String(text.to_owned()),
+    }
+}
+
 /// Convert one [`TypedValue`] back into plain JSON.
 #[must_use]
 pub fn typed_to_json(value: &TypedValue) -> Value {
@@ -126,10 +139,7 @@ pub fn typed_to_json(value: &TypedValue) -> Value {
         TypedValue::String(value) => Value::String(value.clone()),
         TypedValue::Bool(value) => Value::Bool(*value),
         TypedValue::Integer(value) => Value::Number((*value).into()),
-        TypedValue::Decimal(value) => value
-            .as_str()
-            .parse::<serde_json::Number>()
-            .map_or_else(|_| Value::String(value.as_str().to_owned()), Value::Number),
+        TypedValue::Decimal(value) => decimal_to_json(value.as_str()),
         TypedValue::Datetime(value) => Value::String(value.as_str().to_owned()),
         TypedValue::List(values) => Value::Array(values.iter().map(typed_to_json).collect()),
         TypedValue::Map(values) => {

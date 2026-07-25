@@ -120,6 +120,19 @@ fn restore_preferences(state: &StateV2, repositories: &[Repository]) -> Projecte
     Ok(preferences)
 }
 
+/// Report whether the record stores an explicit `remote.enabled` flag.
+fn remote_values_declare_enabled(values: &TypedMap) -> bool {
+    match typed_field(values, "remote") {
+        Some(crate::domain::TypedValue::Map(map)) => {
+            let Ok(key) = crate::domain::Id::parse("enabled") else {
+                return false;
+            };
+            map.contains_key(&key)
+        }
+        _ => false,
+    }
+}
+
 fn restore_remote_settings(values: &TypedMap) -> crate::domain::RemoteRepositorySettings {
     let remote_values = match typed_field(values, "remote") {
         Some(crate::domain::TypedValue::Map(map)) => Some(map),
@@ -160,7 +173,12 @@ fn restore_repository(record: &RepositoryRecord) -> Projected<Repository> {
         RepositoryLocation::Local(local) => PathBuf::from(&local.local_path),
         RepositoryLocation::Remote(target) => {
             let parts = parse_remote_target(&target.remote_target).map_err(map_detail)?;
-            remote.enabled = true;
+            // Connectivity fields are derived from the target only when absent;
+            // the stored `enabled` flag is the user's choice and is preserved,
+            // otherwise a disabled remote would be re-enabled on every load.
+            if !remote_values_declare_enabled(values) {
+                remote.enabled = true;
+            }
             if remote.login_user.is_empty() {
                 remote.login_user.clone_from(&parts.login_user);
             }

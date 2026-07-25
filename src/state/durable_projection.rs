@@ -10,7 +10,7 @@
 //! Transient agents are runtime-only and are excluded, together with every
 //! reference to them.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::{Value, json};
 
@@ -176,6 +176,7 @@ fn next_ordinal(collisions: &mut BTreeMap<String, u64>, key: &str) -> String {
 fn mint_repository_ids(repositories: &[Repository]) -> Projected<RepositoryIds> {
     let mut ids = HashMap::with_capacity(repositories.len());
     let mut collisions = BTreeMap::<String, u64>::new();
+    let mut claimed = BTreeSet::<Id>::new();
     for repository in repositories {
         let id = if let Ok(id) = Id::parse(&repository.id.0) {
             id
@@ -183,6 +184,11 @@ fn mint_repository_ids(repositories: &[Repository]) -> Projected<RepositoryIds> 
             let ordinal = next_ordinal(&mut collisions, &repository.id.0);
             stable_id("repo", &[&repository.id.0, &ordinal]).map_err(map_detail)?
         };
+        // A preserved id can equal an id minted for a different repository, so
+        // uniqueness is checked on the durable id, not on the runtime key.
+        if !claimed.insert(id.clone()) {
+            return error(format!("duplicate durable repository id {id}"));
+        }
         if ids.insert(repository.id.clone(), id).is_some() {
             return error(format!("duplicate repository id {}", repository.id.0));
         }
@@ -193,6 +199,7 @@ fn mint_repository_ids(repositories: &[Repository]) -> Projected<RepositoryIds> 
 fn mint_agent_ids(agents: &[Agent], repository_ids: &RepositoryIds) -> Projected<AgentIds> {
     let mut ids = HashMap::with_capacity(agents.len());
     let mut collisions = BTreeMap::<String, u64>::new();
+    let mut claimed = BTreeSet::<Id>::new();
     for agent in agents {
         if agent.origin == AgentOrigin::Transient {
             continue;
@@ -210,6 +217,9 @@ fn mint_agent_ids(agents: &[Agent], repository_ids: &RepositoryIds) -> Projected
             stable_id("agent", &[repository_id.as_str(), &agent.id.0, &ordinal])
                 .map_err(map_detail)?
         };
+        if !claimed.insert(id.clone()) {
+            return error(format!("duplicate durable agent id {id}"));
+        }
         if ids.insert(agent.id.clone(), id).is_some() {
             return error(format!("duplicate agent id {}", agent.id.0));
         }
