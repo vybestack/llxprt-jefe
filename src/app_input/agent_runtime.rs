@@ -1,4 +1,4 @@
-//! Runtime-binding helper functions extracted from `mod.rs` to keep that file
+﻿//! Runtime-binding helper functions extracted from `mod.rs` to keep that file
 //! under the per-file line limit.
 //!
 //! These helpers mutate agent runtime-binding state on `AppState` / query the
@@ -35,6 +35,7 @@ pub(super) fn set_agent_runtime_binding(
             process_identity,
             pid,
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         });
     }
 }
@@ -82,7 +83,7 @@ pub(super) fn worker_process_for(
 /// All launch/relaunch persistence paths share the same invariant: the PID
 /// must be queried from the runtime **before** the caller takes the
 /// `app_state` write lock, because `worker_process_for` acquires the shared
-/// context mutex and `app_state-lock → ctx-lock` would be a lock-ordering
+/// context mutex and `app_state-lock â†’ ctx-lock` would be a lock-ordering
 /// hazard. Centralizing the success-gated query here guarantees that ordering
 /// is respected at every call site. On the failure path no binding is
 /// persisted, so the query is skipped.

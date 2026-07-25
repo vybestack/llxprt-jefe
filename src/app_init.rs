@@ -1,4 +1,4 @@
-//! One-time application startup: state hydration and runtime session restore.
+﻿//! One-time application startup: state hydration and runtime session restore.
 
 #[path = "app_init_process_binding.rs"]
 mod process_binding;
@@ -529,6 +529,7 @@ fn apply_restored_state(
                 process_identity,
                 pid,
                 lifecycle_generation: 0,
+                worker_identities: Vec::new(),
             });
         }
     }
@@ -775,6 +776,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
@@ -820,6 +822,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
@@ -844,6 +847,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),

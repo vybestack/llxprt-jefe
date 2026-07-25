@@ -69,6 +69,7 @@ fn runtime_binding(
             90_000 + u64::from(index),
         )),
         lifecycle_generation: 0,
+        worker_identities: Vec::new(),
     }
 }
 
