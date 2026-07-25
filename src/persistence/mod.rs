@@ -45,7 +45,7 @@ pub mod paths;
 pub mod settings_document;
 mod settings_publish;
 mod settings_syntax;
-pub mod sha256;
+pub use crate::domain::sha256;
 mod state_json;
 pub mod state_v2;
 pub mod writer;

@@ -66,6 +66,13 @@ pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub use shell_focus_resolution::resolve_repository_shell;
 pub use shell_inventory_ops::ShellInventory;
+/// Pure projections between runtime state and the durable schema-2 document.
+pub mod durable_projection;
+#[cfg(test)]
+#[path = "durable_projection_tests.rs"]
+mod durable_projection_tests;
+/// Restoration of runtime state from the durable schema-2 document.
+pub mod durable_restore;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;

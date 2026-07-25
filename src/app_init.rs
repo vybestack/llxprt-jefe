@@ -26,23 +26,7 @@ fn launch_signature_for_agent(
     agent: &Agent,
     repository: &jefe::domain::Repository,
 ) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: agent.work_dir.clone(),
-        profile: agent.profile.clone(),
-        code_puppy_model: agent.code_puppy_model.trim().to_owned(),
-        code_puppy_version: agent.code_puppy_version.trim().to_owned(),
-        code_puppy_yolo: agent.code_puppy_yolo,
-        code_puppy_quick_resume: agent.code_puppy_quick_resume,
-        mode_flags: agent.mode_flags.clone(),
-        llxprt_debug: agent.llxprt_debug.clone(),
-        pass_continue: agent.pass_continue,
-        sandbox_enabled: agent.sandbox_enabled,
-        sandbox_engine: agent.sandbox_engine,
-        sandbox_flags: agent.sandbox_flags.clone(),
-        remote: repository.remote.clone(),
-        agent_kind: agent.agent_kind,
-        llxprt_version: agent.llxprt_version.clone(),
-    }
+    LaunchSignature::for_agent(agent, repository)
 }
 
 fn append_warning(state: &mut AppState, warning: String) {

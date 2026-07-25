@@ -381,6 +381,17 @@ pub struct AppState {
     /// in memory; the app-shell persists it via `to_persisted_state`.
     pub user_preferences: crate::domain::UserPreferences,
 
+    /// Revision of the durable schema-2 document this state was loaded from
+    /// (issue #381). Each staged save proposes `durable_revision + 1`; the
+    /// writer rejects candidates that lost the race, and the accepted
+    /// revision is committed back through the persistence completion.
+    pub durable_revision: u64,
+
+    /// Schema-1 fields retained verbatim by migration because no schema-2
+    /// owner claims them (issue #381). Carried through load -> save unchanged
+    /// so a future owner can adopt them; never interpreted at runtime.
+    pub dormant_records: Vec<crate::domain::DormantRecord>,
+
     /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
     pub actions_state: ActionsState,
 

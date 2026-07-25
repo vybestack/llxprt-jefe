@@ -30,6 +30,13 @@ pub use state_contract::{
     StateV2,
 };
 
+/// Dependency-free SHA-256 used for durable digests and write fencing.
+pub mod sha256;
+
+/// Canonical typed-value and identity helpers shared by durable projection
+/// and one-way schema-1 migration.
+pub mod canonical_values;
+
 /// Closed post-commit effect contract shared by reducer and root shell.
 pub mod effects;
 #[cfg(test)]
@@ -832,6 +839,35 @@ pub struct LaunchSignature {
     /// issue send, PR send, and fresh prompts retain the exact selection.
     #[serde(default, deserialize_with = "deserialize_optional_selector")]
     pub llxprt_version: Option<LlxprtNpmPackageSelector>,
+}
+
+impl LaunchSignature {
+    /// Build the signature that identifies `agent`'s current session.
+    ///
+    /// Agent fields are used verbatim (only trimmed); repository defaults are
+    /// not substituted, because this describes the session an already-created
+    /// agent owns. Launch-time creation resolves defaults before it reaches
+    /// this point.
+    #[must_use]
+    pub fn for_agent(agent: &Agent, repository: &Repository) -> Self {
+        Self {
+            work_dir: agent.work_dir.clone(),
+            profile: agent.profile.clone(),
+            code_puppy_model: agent.code_puppy_model.trim().to_owned(),
+            code_puppy_version: agent.code_puppy_version.trim().to_owned(),
+            code_puppy_yolo: agent.code_puppy_yolo,
+            code_puppy_quick_resume: agent.code_puppy_quick_resume,
+            mode_flags: agent.mode_flags.clone(),
+            llxprt_debug: agent.llxprt_debug.clone(),
+            pass_continue: agent.pass_continue,
+            sandbox_enabled: agent.sandbox_enabled,
+            sandbox_engine: agent.sandbox_engine,
+            sandbox_flags: agent.sandbox_flags.clone(),
+            remote: repository.remote.clone(),
+            agent_kind: agent.agent_kind,
+            llxprt_version: agent.llxprt_version.clone(),
+        }
+    }
 }
 
 impl Agent {
