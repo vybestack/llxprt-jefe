@@ -401,16 +401,24 @@ fn poll_until<F>(
 where
     F: FnMut() -> Result<bool, RunnerError>,
 {
-    let deadline = Instant::now() + timeout;
+    let start = Instant::now();
+    let deadline = start + timeout;
     loop {
         if predicate()? {
             return Ok(());
         }
         if Instant::now() >= deadline {
+            // Issue #396: report configured budget vs actual elapsed so a
+            // timeout is self-diagnosing in CI-uploaded harness logs.
+            let elapsed = start.elapsed();
             return Err(RunnerError::Assertion(failure(
                 index,
                 step,
-                "condition did not become true before timeout".to_string(),
+                format!(
+                    "condition did not become true before timeout (budget={}ms, elapsed={}ms)",
+                    timeout.as_millis(),
+                    elapsed.as_millis()
+                ),
             )));
         }
         std::thread::sleep(POLL_INTERVAL);
