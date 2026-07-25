@@ -111,13 +111,15 @@ Expected scope: at most 7 changed files and under 500 net changed lines. The pla
 | Automatic exact-head OCR: body width units differ from terminal-cell prefix width | Defer | Duplicate of the shared wrapping concern already tracked by #422. |
 | Automatic exact-head OCR: layout tests duplicate derived constants | In-scope—Fix | Derive body rows from `detail_body_viewport_rows` and guidance rows from `build_new_issue_content`; the duplicate finding shares this fix. |
 | Automatic exact-head OCR: scroll-direction coverage is ASCII-only | In-scope—Fix | Add a multibyte wrapped-text regression for total display rows and both direction transitions; the duplicate finding shares this fix. |
+| Automatic final-head OCR: fill helper parameter says logical lines | In-scope—Fix | Rename it to `document_display_rows` so the helper's typed-by-name contract matches its caller. |
+| Automatic final-head OCR: shared width unit mismatch | Defer | Duplicate of the shared terminal-cell wrapping contract tracked by #422. |
 
 No unapproved scope discoveries are open.
 
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (both invocations terminated by signal 15 without output; no findings available to triage)
-- Post-PR Open Code Review: 2 / 2 permitted runs used (the required final push triggered additional automatic output without a manual rerun; all seven additional findings were classified, in-scope test findings fixed, and every thread resolved)
+- Post-PR Open Code Review: 2 / 2 permitted runs used (required fix pushes triggered additional automatic output without manual reruns; all automatic findings were classified, every in-scope finding fixed, and every thread resolved)
 
 ## Verification evidence
 

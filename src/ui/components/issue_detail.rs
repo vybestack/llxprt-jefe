@@ -233,9 +233,9 @@ fn contextual_issue_composer_rows(
 /// Preserve New Issue guidance and give every remaining row to its composer.
 fn new_issue_composer_rows(
     detail_viewport_rows: usize,
-    document_line_count: usize,
+    document_display_rows: usize,
 ) -> (usize, usize) {
-    let scroll_rows = document_line_count.min(detail_viewport_rows.saturating_sub(1));
+    let scroll_rows = document_display_rows.min(detail_viewport_rows.saturating_sub(1));
     (
         scroll_rows,
         detail_viewport_rows.saturating_sub(scroll_rows),
