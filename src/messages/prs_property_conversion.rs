@@ -38,6 +38,8 @@ impl PullRequestsMessage {
             AppEvent::PrPropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
             AppEvent::PrPropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
             AppEvent::PrPropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
+            AppEvent::PrPropertyEditorTitleCursorHome => Self::PropertyEditorTitleCursorHome,
+            AppEvent::PrPropertyEditorTitleCursorEnd => Self::PropertyEditorTitleCursorEnd,
             // Non-property events should never reach this converter; the
             // routing guard filters them upstream. If one slips through,
             // it is safer to no-op (close the editor) than to panic or
@@ -168,6 +170,8 @@ impl PullRequestsMessage {
             Self::PropertyEditorTitleDelete => AppEvent::PrPropertyEditorTitleDelete,
             Self::PropertyEditorTitleCursorLeft => AppEvent::PrPropertyEditorTitleCursorLeft,
             Self::PropertyEditorTitleCursorRight => AppEvent::PrPropertyEditorTitleCursorRight,
+            Self::PropertyEditorTitleCursorHome => AppEvent::PrPropertyEditorTitleCursorHome,
+            Self::PropertyEditorTitleCursorEnd => AppEvent::PrPropertyEditorTitleCursorEnd,
             // Non-property messages should never reach this converter. If
             // one slips through, close the editor rather than entering an
             // unrelated mode.

@@ -111,6 +111,8 @@ fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Right => Some(AppEvent::InlineCursorRight),
         KeyCode::Up => Some(AppEvent::InlineCursorUp),
         KeyCode::Down => Some(AppEvent::InlineCursorDown),
+        KeyCode::Home => Some(AppEvent::InlineCursorHome),
+        KeyCode::End => Some(AppEvent::InlineCursorEnd),
         _ => None,
     }
 }
@@ -150,6 +152,8 @@ fn resolve_property_editor_key_event(
         KeyCode::Delete => Some(AppEvent::IssuePropertyEditorTitleDelete),
         KeyCode::Left => Some(AppEvent::IssuePropertyEditorTitleCursorLeft),
         KeyCode::Right => Some(AppEvent::IssuePropertyEditorTitleCursorRight),
+        KeyCode::Home => Some(AppEvent::IssuePropertyEditorTitleCursorHome),
+        KeyCode::End => Some(AppEvent::IssuePropertyEditorTitleCursorEnd),
         _ => None,
     }
 }

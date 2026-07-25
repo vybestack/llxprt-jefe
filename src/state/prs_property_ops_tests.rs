@@ -133,6 +133,78 @@ fn title_cursor_move() {
     assert_eq!(editor.title_cursor, 0);
 }
 
+// ── H1: Title Home/End (issue #406) ─────────────────────────────────
+
+#[test]
+fn title_home_moves_to_start() {
+    let mut state = make_state_with_detail();
+    state = state.apply(AppEvent::PrOpenPropertyEditor {
+        kind: PrPropertyKind::Title,
+    });
+    // Walk to the end of the title text.
+    let title_len = require_pr_editor(&state).title_text.len();
+    for _ in 0..title_len {
+        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+    }
+    assert_eq!(
+        require_pr_editor(&state).title_cursor,
+        title_len,
+        "cursor must be at the end after walking right"
+    );
+    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    let editor = require_pr_editor(&state);
+    assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
+}
+
+#[test]
+fn title_end_moves_to_end() {
+    let mut state = make_state_with_detail();
+    state = state.apply(AppEvent::PrOpenPropertyEditor {
+        kind: PrPropertyKind::Title,
+    });
+    // Cursor starts at 0; End must jump to the byte length of the title.
+    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    let editor = require_pr_editor(&state);
+    assert_eq!(
+        editor.title_cursor,
+        editor.title_text.len(),
+        "End must move the cursor to the title byte length"
+    );
+}
+
+#[test]
+fn title_home_end_utf8_safe() {
+    let mut state = make_state_with_detail();
+    state = state.apply(AppEvent::PrOpenPropertyEditor {
+        kind: PrPropertyKind::Title,
+    });
+    // Insert a multibyte char at the start ("éTest PR" — cursor at byte 2).
+    state = state.apply(AppEvent::PrPropertyEditorTitleChar('é'));
+    // Walk to the end, then Home -> 0, then End -> byte length.
+    let title_len = require_pr_editor(&state).title_text.len();
+    for _ in 0..title_len {
+        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+    }
+    assert_eq!(
+        require_pr_editor(&state).title_cursor,
+        title_len,
+        "cursor must be at the byte length after walking right on multibyte text"
+    );
+    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    let editor = require_pr_editor(&state);
+    assert_eq!(
+        editor.title_cursor, 0,
+        "Home on multibyte text must land on 0"
+    );
+    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    let editor = require_pr_editor(&state);
+    assert_eq!(
+        editor.title_cursor,
+        editor.title_text.len(),
+        "End on multibyte text must land on the byte length"
+    );
+}
+
 // ── H3: Single-select uses selected_index ──────────────────────────
 
 #[test]

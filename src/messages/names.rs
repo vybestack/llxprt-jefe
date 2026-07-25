@@ -71,6 +71,8 @@ message_names!(ModalMessage {
     Self::FormDelete => "FormDelete",
     Self::FormMoveCursorLeft => "FormMoveCursorLeft",
     Self::FormMoveCursorRight => "FormMoveCursorRight",
+    Self::FormMoveCursorStart => "FormMoveCursorStart",
+    Self::FormMoveCursorEnd => "FormMoveCursorEnd",
     Self::FormNextField => "FormNextField",
     Self::FormPrevField => "FormPrevField",
     Self::FormToggleCheckbox => "FormToggleCheckbox",
@@ -181,6 +183,8 @@ message_names!(IssuesMessage {
     Self::InlineCursorRight => "InlineCursorRight",
     Self::InlineCursorUp => "InlineCursorUp",
     Self::InlineCursorDown => "InlineCursorDown",
+    Self::InlineCursorHome => "InlineCursorHome",
+    Self::InlineCursorEnd => "InlineCursorEnd",
     Self::InlineSubmit => "InlineSubmit",
     Self::InlineCancelOrEsc => "InlineCancelOrEsc",
     Self::RequestIssueRewrite => "RequestIssueRewrite",
@@ -228,6 +232,8 @@ message_names!(IssuesMessage {
     Self::PropertyEditorTitleDelete => "IssuePropertyEditorTitleDelete",
     Self::PropertyEditorTitleCursorLeft => "IssuePropertyEditorTitleCursorLeft",
     Self::PropertyEditorTitleCursorRight => "IssuePropertyEditorTitleCursorRight",
+    Self::PropertyEditorTitleCursorHome => "IssuePropertyEditorTitleCursorHome",
+    Self::PropertyEditorTitleCursorEnd => "IssuePropertyEditorTitleCursorEnd",
     Self::PropertyEditorOptionsLoaded { .. } => "IssuePropertyEditorOptionsLoaded",
     Self::PropertyEditorOptionsFailed { .. } => "IssuePropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "IssuePropertyEditSucceeded",
@@ -315,6 +321,8 @@ message_names!(PullRequestsMessage {
     Self::PropertyEditorTitleDelete => "PrPropertyEditorTitleDelete",
     Self::PropertyEditorTitleCursorLeft => "PrPropertyEditorTitleCursorLeft",
     Self::PropertyEditorTitleCursorRight => "PrPropertyEditorTitleCursorRight",
+    Self::PropertyEditorTitleCursorHome => "PrPropertyEditorTitleCursorHome",
+    Self::PropertyEditorTitleCursorEnd => "PrPropertyEditorTitleCursorEnd",
     Self::PropertyEditorOptionsLoaded { .. } => "PrPropertyEditorOptionsLoaded",
     Self::PropertyEditorOptionsFailed { .. } => "PrPropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "PrPropertyEditSucceeded",
@@ -340,6 +348,8 @@ pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {
             | AppEvent::IssuePropertyEditorTitleDelete
             | AppEvent::IssuePropertyEditorTitleCursorLeft
             | AppEvent::IssuePropertyEditorTitleCursorRight
+            | AppEvent::IssuePropertyEditorTitleCursorHome
+            | AppEvent::IssuePropertyEditorTitleCursorEnd
             | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
             | AppEvent::IssuePropertyEditorOptionsFailed { .. }
             | AppEvent::IssuePropertyEditSucceeded { .. }
@@ -364,6 +374,8 @@ pub(super) fn is_issue_property_msg(message: &IssuesMessage) -> bool {
             | IssuesMessage::PropertyEditorTitleDelete
             | IssuesMessage::PropertyEditorTitleCursorLeft
             | IssuesMessage::PropertyEditorTitleCursorRight
+            | IssuesMessage::PropertyEditorTitleCursorHome
+            | IssuesMessage::PropertyEditorTitleCursorEnd
             | IssuesMessage::PropertyEditorOptionsLoaded { .. }
             | IssuesMessage::PropertyEditorOptionsFailed { .. }
             | IssuesMessage::PropertyEditSucceeded { .. }

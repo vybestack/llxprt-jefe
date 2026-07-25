@@ -58,6 +58,16 @@ pub(super) fn move_cursor_right(s: &str, cursor: usize) -> usize {
     clamp_cursor(s, cursor).saturating_add(1).min(len)
 }
 
+/// Move a form-field cursor to the start of the field (char index 0).
+pub(super) fn move_cursor_start() -> usize {
+    0
+}
+
+/// Move a form-field cursor to the end of the field (char count).
+pub(super) fn move_cursor_end(s: &str) -> usize {
+    s.chars().count()
+}
+
 /// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
 /// Attempts to land on the same column in the target line, clamping to line length.
 ///
@@ -117,4 +127,43 @@ pub fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
         .map_or(target_slice.len(), |(byte_idx, _)| byte_idx);
 
     *cursor = target_byte_start + target_byte_offset;
+}
+
+/// Move the inline editor cursor to the START of its current logical line
+/// (issue #406).
+///
+/// UTF-8 safe: `cursor` is floored to a char boundary before the line lookup
+/// so a mid-codepoint offset can never panic.
+pub fn inline_cursor_line_start(text: &str, cursor: &mut usize) {
+    let clamped = floor_to_char_boundary(text, *cursor);
+    let newline = char::from(0x0Au8);
+    let line_start = text[..clamped].rfind(newline).map_or(0, |p| p + 1);
+    *cursor = line_start;
+}
+
+/// Move the inline editor cursor to the END of its current logical line
+/// (issue #406).
+///
+/// The end is the byte just before the next newline, or `text.len()` when the
+/// line is the last one. UTF-8 safe: `cursor` is floored to a char boundary,
+/// and the resulting `line_end` is also floored so the invariant holds even if
+/// the line-end calculation is ever extended to non-newline delimiters.
+pub fn inline_cursor_line_end(text: &str, cursor: &mut usize) {
+    let clamped = floor_to_char_boundary(text, *cursor);
+    let newline = char::from(0x0Au8);
+    let line_end = text[clamped..]
+        .find(newline)
+        .map_or(text.len(), |p| clamped + p);
+    *cursor = floor_to_char_boundary(text, line_end);
+}
+
+/// Walk `idx` down to the nearest UTF-8 char boundary at or before `idx`.
+/// Shared by the line-start/line-end helpers so a mid-codepoint cursor offset
+/// never panics during slicing.
+fn floor_to_char_boundary(text: &str, idx: usize) -> usize {
+    let mut i = idx.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }

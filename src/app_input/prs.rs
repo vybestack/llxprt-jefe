@@ -517,6 +517,8 @@ fn handle_pr_inline_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Right => Some(AppEvent::PrInlineCursorRight),
         KeyCode::Up => Some(AppEvent::PrInlineCursorUp),
         KeyCode::Down => Some(AppEvent::PrInlineCursorDown),
+        KeyCode::Home => Some(AppEvent::PrInlineCursorHome),
+        KeyCode::End => Some(AppEvent::PrInlineCursorEnd),
         _ => None,
     }
 }
@@ -571,6 +573,8 @@ fn handle_pr_property_editor_key(kind: PrPropertyKind, key_event: &KeyEvent) -> 
         KeyCode::Delete => Some(AppEvent::PrPropertyEditorTitleDelete),
         KeyCode::Left => Some(AppEvent::PrPropertyEditorTitleCursorLeft),
         KeyCode::Right => Some(AppEvent::PrPropertyEditorTitleCursorRight),
+        KeyCode::Home => Some(AppEvent::PrPropertyEditorTitleCursorHome),
+        KeyCode::End => Some(AppEvent::PrPropertyEditorTitleCursorEnd),
         _ => None,
     }
 }

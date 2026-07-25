@@ -39,6 +39,8 @@ impl IssuesMessage {
             AppEvent::IssuePropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
             AppEvent::IssuePropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
             AppEvent::IssuePropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
+            AppEvent::IssuePropertyEditorTitleCursorHome => Self::PropertyEditorTitleCursorHome,
+            AppEvent::IssuePropertyEditorTitleCursorEnd => Self::PropertyEditorTitleCursorEnd,
             // Non-property events should never reach this converter; the
             // routing guard (`is_issue_property_app_event`) filters them
             // upstream. If one slips through, it is safer to no-op (close
@@ -132,6 +134,8 @@ impl IssuesMessage {
             Self::PropertyEditorTitleDelete => AppEvent::IssuePropertyEditorTitleDelete,
             Self::PropertyEditorTitleCursorLeft => AppEvent::IssuePropertyEditorTitleCursorLeft,
             Self::PropertyEditorTitleCursorRight => AppEvent::IssuePropertyEditorTitleCursorRight,
+            Self::PropertyEditorTitleCursorHome => AppEvent::IssuePropertyEditorTitleCursorHome,
+            Self::PropertyEditorTitleCursorEnd => AppEvent::IssuePropertyEditorTitleCursorEnd,
             // Non-property messages should never reach this converter. If
             // one slips through, close the editor rather than entering an
             // unrelated mode.

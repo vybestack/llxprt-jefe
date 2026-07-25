@@ -4,7 +4,7 @@ use crate::issue_detail_content::{ISSUE_REPLY_ANCHOR, build_detail_content};
 
 use super::{
     AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus,
-    inline_cursor_vertical,
+    inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical,
 };
 
 impl AppState {
@@ -57,6 +57,8 @@ impl AppState {
                 | AppEvent::InlineCursorRight
                 | AppEvent::InlineCursorUp
                 | AppEvent::InlineCursorDown
+                | AppEvent::InlineCursorHome
+                | AppEvent::InlineCursorEnd
         )
     }
 
@@ -147,6 +149,20 @@ impl AppState {
                     Self::active_inline_text(&mut self.issues_state.inline_state)
                 {
                     inline_cursor_vertical(text, cursor, 1);
+                }
+            }
+            AppEvent::InlineCursorHome => {
+                if let Some((text, cursor)) =
+                    Self::active_inline_text(&mut self.issues_state.inline_state)
+                {
+                    inline_cursor_line_start(text, cursor);
+                }
+            }
+            AppEvent::InlineCursorEnd => {
+                if let Some((text, cursor)) =
+                    Self::active_inline_text(&mut self.issues_state.inline_state)
+                {
+                    inline_cursor_line_end(text, cursor);
                 }
             }
             AppEvent::InlineCancelOrEsc => self.issues_state.inline_state = InlineState::None,
