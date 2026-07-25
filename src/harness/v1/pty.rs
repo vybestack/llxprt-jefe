@@ -31,6 +31,11 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// Each teardown escalation phase is bounded at two seconds.
 const ESCALATION_PHASE: Duration = Duration::from_secs(2);
 
+/// Window allowed for a command that is already finishing to be reaped before
+/// teardown signals it. Short-lived commands (`jefe config …`) exit on their
+/// own, and signalling them would mask the exit code the scenario asserts.
+const SELF_EXIT_GRACE: Duration = Duration::from_millis(250);
+
 struct HarnessDimensions {
     cols: usize,
     rows: usize,
@@ -317,6 +322,12 @@ impl PtySession {
         F: FnMut(i32) -> Result<(), HarnessError>,
     {
         let group = self.process_group();
+        // A short-lived command exits on its own just as teardown begins.
+        // Observe that exit before signalling: `try_exit` caches the first
+        // status it sees, so reaping here preserves the code the command
+        // chose instead of the signal-derived status it would report if the
+        // TERM landed first. Group cleanup below still runs unchanged.
+        self.await_self_exit(group);
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-TERM");
         }
@@ -343,6 +354,29 @@ impl PtySession {
         Err(observer_error.unwrap_or_else(|| {
             HarnessError::cleanup("process group survived TERM/KILL escalation".to_string())
         }))
+    }
+
+    /// Cache the child's own exit status if it is already finishing.
+    ///
+    /// Bounded by [`SELF_EXIT_GRACE`] and only while the child is no longer
+    /// alive, so a running app proceeds straight to signalled teardown.
+    fn await_self_exit(&mut self, group: Option<i32>) {
+        let deadline = Instant::now() + SELF_EXIT_GRACE;
+        loop {
+            if self.try_exit().is_some() {
+                return;
+            }
+            // A live group means a running app: leave it to signalled
+            // teardown rather than delaying every stop by the grace window.
+            let finishing = match group {
+                Some(pgid) => !group_alive(pgid).unwrap_or(true),
+                None => !self.is_alive(),
+            };
+            if !finishing || Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
     }
 
     /// One bounded escalation phase: reap the direct child and poll for the
