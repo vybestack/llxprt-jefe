@@ -51,6 +51,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut startup_sessions_restored = hooks.use_state(|| false);
     let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
     let mut suppress_next_enter = hooks.use_state(PasteEnterSuppression::new);
+    let last_activity = hooks.use_state(Instant::now);
 
     let ctx = props.context.clone();
 
@@ -366,14 +367,20 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // poll pattern: a background loop that fires while the PR view is open and
     // silently refreshes the PR list + detail without flashing the loading
     // spinner or disrupting the user's selection/scroll position.
+    //
+    // Issue #411: the refresh is suppressed when the user has been idle (no
+    // keyboard/mouse/paste input) for longer than the idle threshold, so
+    // leaving jefe open on the PR screen cannot drain the GraphQL budget.
     hooks.use_future({
         let ctx = ctx.clone();
         let mut app_state = app_state;
         async move {
+            const REFRESH_INTERVAL_SECONDS: u64 = 60;
+            const IDLE_THRESHOLD_SECONDS: u64 = 5 * 60;
             loop {
-                const REFRESH_INTERVAL_SECONDS: u64 = 60;
                 smol::Timer::after(std::time::Duration::from_secs(REFRESH_INTERVAL_SECONDS)).await;
-                request_pr_background_refresh(&mut app_state, &ctx);
+                let is_idle = last_activity.get().elapsed().as_secs() >= IDLE_THRESHOLD_SECONDS;
+                request_pr_background_refresh(&mut app_state, &ctx, is_idle);
             }
         }
     });
@@ -383,8 +390,12 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         let mut app_state = app_state;
         let mut should_quit = should_quit;
         let mut help_scroll = help_scroll;
+        let mut last_activity = last_activity;
 
         move |event| {
+            // Issue #411: any terminal event (key, mouse, paste, resize)
+            // resets the idle timer so the background refresh resumes.
+            last_activity.set(Instant::now());
             handle_terminal_event(
                 event,
                 ctx.as_ref(),
