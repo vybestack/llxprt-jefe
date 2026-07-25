@@ -9,8 +9,8 @@
 //! authenticated, so it can fetch the full live content itself.
 
 use super::fresh_prompt::{
-    FreshPromptKind, MAX_PROMPT_CONTENT_BYTES, PROMPT_COMPACTION_THRESHOLD_BYTES,
-    fresh_prompt_instruction,
+    FreshPromptKind, ISSUE_DELIVERY_WORKFLOW, MAX_PROMPT_CONTENT_BYTES,
+    PROMPT_COMPACTION_THRESHOLD_BYTES, compact_prompt_content, fresh_prompt_instruction,
 };
 
 // ── Threshold consistency ────────────────────────────────────────────────
@@ -31,8 +31,6 @@ const _: () = assert!(
 /// the caller using `compact_prompt_content`).
 #[test]
 fn large_issue_prompt_produces_gh_fetch_reference() {
-    use super::fresh_prompt::compact_prompt_content;
-
     let large_body = "A".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES + 1000);
     let compacted =
         compact_prompt_content(&large_body, "gh issue view 42 --repo owner/repo --comments");
@@ -63,8 +61,6 @@ fn large_issue_prompt_produces_gh_fetch_reference() {
 /// unchanged.
 #[test]
 fn small_prompt_is_inlined_unchanged() {
-    use super::fresh_prompt::compact_prompt_content;
-
     let small_body = "This is a normal-sized issue body.";
     let compacted =
         compact_prompt_content(small_body, "gh issue view 42 --repo owner/repo --comments");
@@ -78,8 +74,6 @@ fn small_prompt_is_inlined_unchanged() {
 /// A large PR prompt must be compacted with a `gh pr view` reference.
 #[test]
 fn large_pr_prompt_produces_gh_fetch_reference() {
-    use super::fresh_prompt::compact_prompt_content;
-
     let large_body = "B".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES + 500);
     let compacted =
         compact_prompt_content(&large_body, "gh pr view 42 --repo owner/repo --comments");
@@ -99,8 +93,6 @@ fn large_pr_prompt_produces_gh_fetch_reference() {
 /// A prompt exactly at the threshold must be inlined (boundary inclusive).
 #[test]
 fn prompt_at_exact_threshold_is_inlined() {
-    use super::fresh_prompt::compact_prompt_content;
-
     let body = "C".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES);
     let compacted = compact_prompt_content(&body, "gh issue view 1 --repo o/r --comments");
 
@@ -113,8 +105,6 @@ fn prompt_at_exact_threshold_is_inlined() {
 /// A prompt one byte over the threshold must be compacted.
 #[test]
 fn prompt_one_byte_over_threshold_is_compacted() {
-    use super::fresh_prompt::compact_prompt_content;
-
     let body = "D".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES + 1);
     let compacted = compact_prompt_content(&body, "gh issue view 1 --repo o/r --comments");
 
@@ -136,22 +126,16 @@ fn prompt_one_byte_over_threshold_is_compacted() {
 fn compacted_issue_prompt_still_includes_delivery_workflow() {
     // Build a compacted prompt body, then pass it through fresh_prompt_instruction
     // to verify the workflow is still appended.
-    use super::fresh_prompt::compact_prompt_content;
-
     let large_body = "E".repeat(PROMPT_COMPACTION_THRESHOLD_BYTES + 1000);
     let compacted_body =
         compact_prompt_content(&large_body, "gh issue view 99 --repo owner/repo --comments");
     let instruction = fresh_prompt_instruction(FreshPromptKind::Issue, &compacted_body);
 
+    // Assert against the constant itself rather than hardcoded fragments so
+    // the test stays valid if the workflow wording evolves.
     assert!(
-        instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"),
-        "compacted issue prompt must still include the delivery workflow"
-    );
-    assert!(
-        instruction.contains("acceptance matrix")
-            && instruction.contains("Blocker-Fix")
-            && instruction.contains("scope ledger is clean"),
-        "compacted issue prompt must include full ISSUE_DELIVERY_WORKFLOW text"
+        instruction.contains(ISSUE_DELIVERY_WORKFLOW),
+        "compacted issue prompt must still include the full ISSUE_DELIVERY_WORKFLOW"
     );
 }
 
@@ -162,8 +146,6 @@ fn compacted_issue_prompt_still_includes_delivery_workflow() {
 /// prevents the spawn failure (#409).
 #[test]
 fn compacted_prompt_with_workflow_stays_under_tmux_pane_limit() {
-    use super::fresh_prompt::compact_prompt_content;
-
     // Even a 100 KB body must compact down to something safe.
     let huge_body = "X".repeat(100_000);
     let compacted_body =

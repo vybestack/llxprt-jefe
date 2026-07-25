@@ -21,7 +21,7 @@ impl FreshPromptKind {
 /// Runtime-neutral delivery contract appended to every fresh Send Issue
 /// instruction. Issue-specific content remains in the prompt file; this text
 /// defines how an agent must carry that issue through review and CI.
-const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
+pub(super) const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
     "Follow the canonical bounded issue-delivery policy in ",
     "dev-docs/workflow/ISSUE-DELIVERY.md. Before implementation, shape a decision-complete ",
     "acceptance matrix and record explicit non-goals, bounded vertical slices, expected paths, and a ",
@@ -55,8 +55,6 @@ pub(super) fn fresh_prompt_instruction(
     }
 }
 
-/// Maximum prompt content length (in bytes) before truncation.
-///
 /// Maximum prompt content length (in bytes) before truncation.
 ///
 /// Cross-platform safe bound that stays well under the smallest OS
@@ -96,9 +94,16 @@ const COMPACTION_PREVIEW_BYTES: usize = 2_000;
 /// tells it exactly how to retrieve the full, live content. Content at or
 /// below the threshold passes through unchanged.
 ///
-/// The `fetch_command` should be the exact shell command the agent should run,
-/// e.g. `gh issue view 42 --repo owner/repo --comments` or
-/// `gh pr view 42 --repo owner/repo --comments`.
+/// # Caller responsibility
+///
+/// The `fetch_command` is interpolated verbatim into the prompt text the agent
+/// reads. Callers MUST construct it from validated components only: the
+/// `repository` should be a GitHub-validated `owner/repo` slug (enforced by
+/// [`GitHubRepoRef::parse`](crate::domain::GitHubRepoRef::parse)) and the
+/// number must be an integer. Never pass raw user/editor input as
+/// `fetch_command`.
+///
+/// Example: `gh issue view 42 --repo owner/repo --comments`.
 #[must_use]
 pub(super) fn compact_prompt_content(content: &str, fetch_command: &str) -> String {
     if content.len() <= PROMPT_COMPACTION_THRESHOLD_BYTES {
