@@ -28,8 +28,16 @@ fn manager(root: &Path) -> FilePersistenceManager {
     })
 }
 
+/// Escape a path for embedding in a JSON string literal so Windows separators
+/// survive as separators instead of parsing as invalid escape sequences.
+fn json_path(path: &Path) -> String {
+    let encoded =
+        serde_json::to_string(&path.to_string_lossy()).value_or_panic("path should encode as JSON");
+    encoded.trim_matches('"').to_owned()
+}
+
 fn schema1_document(work_dir: &Path) -> String {
-    let dir = work_dir.display();
+    let dir = json_path(work_dir);
     format!(
         r#"{{
   "schema_version": 1,
@@ -109,7 +117,7 @@ fn schema1_null_optional_flags_are_migrated() {
     let temp = tempfile::tempdir().value_or_panic("temporary state root");
     let work_dir = temp.path().join("repo");
     std::fs::create_dir_all(&work_dir).value_or_panic("repository directory");
-    let dir = work_dir.display();
+    let dir = json_path(&work_dir);
     let document = format!(
         r#"{{
   "schema_version": 1,
@@ -164,7 +172,7 @@ fn migration_preserves_valid_agent_and_repository_ids() {
     let temp = tempfile::tempdir().value_or_panic("temporary state root");
     let work_dir = temp.path().join("repo");
     std::fs::create_dir_all(&work_dir).value_or_panic("repository directory");
-    let dir = work_dir.display();
+    let dir = json_path(&work_dir);
     let document = format!(
         r#"{{
   "schema_version": 1,

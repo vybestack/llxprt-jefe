@@ -477,6 +477,8 @@ pub fn physical_identity(path: &Path) -> Result<PhysicalIdentity, PathError> {
 }
 
 fn existing_identity(canonical_path: PathBuf) -> Result<PhysicalIdentity, PathError> {
+    // Read metadata on every platform so an unreadable leaf still reports
+    // CFG-E001 here; only the unix key is derived from it.
     let metadata = std::fs::metadata(&canonical_path).map_err(|error| {
         path_error(
             CfgCode::E001,
@@ -485,10 +487,12 @@ fn existing_identity(canonical_path: PathBuf) -> Result<PhysicalIdentity, PathEr
             &format!("cannot read metadata: {error}"),
         )
     })?;
+    #[cfg(not(unix))]
+    let _ = &metadata;
     #[cfg(unix)]
     let file_key = Some(unix_file_key(&metadata));
     #[cfg(windows)]
-    let file_key = windows_file_key(&metadata);
+    let file_key = windows_file_key(&canonical_path);
     #[cfg(not(any(unix, windows)))]
     let file_key = None;
     Ok(PhysicalIdentity {
@@ -550,12 +554,31 @@ fn unix_file_key(metadata: &std::fs::Metadata) -> PhysicalFileKey {
 }
 
 #[cfg(windows)]
-fn windows_file_key(_metadata: &std::fs::Metadata) -> Option<PhysicalFileKey> {
-    // `volume_serial_number` and `file_index` are still unstable, so a stable
-    // toolchain cannot read a Windows file identity from `Metadata`. Reporting
-    // no key is already a supported outcome: `PhysicalIdentity::equivalent`
-    // compares canonical paths whenever either side lacks one.
-    None
+fn windows_file_key(path: &Path) -> Option<PhysicalFileKey> {
+    use winsafe::{HFILE, co};
+
+    // `Metadata::volume_serial_number` and `file_index` are still unstable, so
+    // the identity comes from the Win32 call those accessors wrap. Without it
+    // two hard links to one document look like distinct sources and a legacy
+    // import would be reported as ambiguous.
+    let (handle, _) = HFILE::CreateFile(
+        path.to_str()?,
+        co::GENERIC::READ,
+        Some(co::FILE_SHARE::READ | co::FILE_SHARE::WRITE | co::FILE_SHARE::DELETE),
+        None,
+        co::DISPOSITION::OPEN_EXISTING,
+        co::FILE_ATTRIBUTE::NORMAL,
+        // Required so directories can be opened, not just regular files.
+        Some(co::FILE_FLAG::BACKUP_SEMANTICS),
+        None,
+        None,
+    )
+    .ok()?;
+    let information = handle.GetFileInformationByHandle().ok()?;
+    Some(PhysicalFileKey::Windows {
+        volume_serial: u64::from(information.dwVolumeSerialNumber),
+        file_index: information.nFileIndex(),
+    })
 }
 
 /// Result of validating one discovered source.
