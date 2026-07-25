@@ -101,13 +101,16 @@ Expected scope: at most 7 changed files and under 500 net changed lines. The pla
 | Direct schema-1 PTY input did not drive Jefe's iocraft event stream | Defer | Updating the harness would be a quality-tool change. Update the existing textbox scenario and use the multiplexer-backed runner; schema-1 Jefe input support remains with the harness migration effort. |
 | Existing `issues-composer-textbox.json` depended on live issue data | In-scope evidence fix | Reuse the established isolated config and fail-closed issue-list shim so the updated New Issue flow has no network or developer-state dependency. |
 | Property editor has its own editor projection and does not embed TextBox | Reject | Outside the audited component's usage and issue scope. |
+| PR OCR: prefix width used scalar count instead of terminal-cell width | In-scope—Fix | Prefix width is part of A3's parent width budget. Use the established `unicode-width` dependency and add a wide-prefix renderer regression. The shared text wrap remains intentionally scalar-count based by its documented contract. |
+| PR OCR: arrow right-edge assertions use scalar indices | In-scope—Fix | The shipped arrows and ASCII fixture are one-cell symbols, but the new wide-prefix regression now exercises the variable-width boundary that the original assertions do not cover. |
+| PR OCR: New Issue ignored a contextual reservation argument | In-scope—Fix | Separate fill-available and contextual row-allocation helpers so New Issue does not compute or accept the irrelevant fixed-composer reservation. The duplicate fourth finding shares this disposition. |
 
 No unapproved scope discoveries are open.
 
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (both invocations terminated by signal 15 without output; no findings available to triage)
-- Post-PR Open Code Review: 0 / 2
+- Post-PR Open Code Review: 1 / 2 (four findings posted on `a069823`; all classified and addressed, including one duplicate)
 
 ## Verification evidence
 
@@ -119,7 +122,10 @@ No unapproved scope discoveries are open.
 | working tree | updated multiplexer-backed New Issue scenario with isolated state and fail-closed `gh` shim | PASS: 27 steps; rows one and eight were simultaneously visible in the 160x40 New Issue pane |
 | working tree | `cargo test --test text_box_layout`; focused TextBox, issue-detail, Issues composer, and PR composer tests | PASS: parent row allocation, wrapped-display direction queries, right-edge arrows, and unchanged contextual composer behavior |
 | working tree | `make quick-check` | PASS |
-| working tree | `make ci-check` | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
+| `a069823` | `make ci-check` | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
+| `a069823` | PR CI | PASS: build, test, format, lint, policy, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design |
+| working tree | focused tests after PR OCR fixes | PASS: TextBox renderer (including wide prefix) and `text_box_layout` integration tests |
+| working tree | `make ci-check` after PR OCR fixes | PASS: format, policy, source size, Clippy/complexity, coverage, locked all-feature build, and full tests |
 
 ## Deferred findings and follow-ups
 

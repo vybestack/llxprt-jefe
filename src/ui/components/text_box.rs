@@ -11,6 +11,7 @@
 //! @pseudocode component-001 lines 169-176
 
 use iocraft::prelude::*;
+use unicode_width::UnicodeWidthStr;
 
 use crate::text_box_view::{TextBoxRow, build_text_box_view};
 
@@ -157,7 +158,7 @@ pub fn TextBox(props: &TextBoxProps) -> impl Into<AnyElement<'static>> {
     let prefix = props.prefix.as_str();
     let row_width = props
         .content_width
-        .saturating_sub(prefix.chars().count())
+        .saturating_sub(UnicodeWidthStr::width(prefix))
         .saturating_sub(SCROLL_INDICATOR_WIDTH);
     let view = build_text_box_view(
         &props.text,
@@ -193,6 +194,16 @@ mod tests {
     use iocraft::prelude::*;
 
     fn render(text: &str, byte_cursor: usize, viewport_rows: usize, width: usize) -> String {
+        render_with_prefix(text, byte_cursor, viewport_rows, width, "> ")
+    }
+
+    fn render_with_prefix(
+        text: &str,
+        byte_cursor: usize,
+        viewport_rows: usize,
+        width: usize,
+        prefix: &str,
+    ) -> String {
         let mut element = element! {
             Box(width: u32::try_from(width).unwrap_or(u32::MAX), height: u32::try_from(viewport_rows).unwrap_or(u32::MAX)) {
                 TextBox(
@@ -200,7 +211,7 @@ mod tests {
                     byte_cursor: byte_cursor,
                     viewport_rows: viewport_rows,
                     content_width: width,
-                    prefix: "> ".to_string(),
+                    prefix: prefix.to_string(),
                     color: Color::White,
                     caret_color: Color::Black,
                     caret_bg: Color::White,
@@ -266,6 +277,22 @@ mod tests {
         assert!(
             !fitted.contains('↓'),
             "fitted content must not show down: {fitted}"
+        );
+    }
+
+    #[test]
+    fn wide_prefix_uses_terminal_cell_width_in_text_budget() {
+        let rendered = render_with_prefix("abcde", 0, 2, 8, "界");
+        let Some(first_row) = rendered.lines().next() else {
+            panic!("expected the first rendered row: {rendered}");
+        };
+        assert!(
+            first_row.contains("界abcd"),
+            "two-cell prefix should leave four text cells before the gutter: {rendered}"
+        );
+        assert!(
+            !first_row.contains("abcde"),
+            "the fifth character should wrap instead of exceeding the width: {rendered}"
         );
     }
 }

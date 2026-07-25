@@ -213,29 +213,33 @@ fn detail_content_width(available_width: Option<u16>) -> usize {
     }))
 }
 
-/// Compute the parent-selected document/composer row split.
-fn issue_scroll_composer_rows(
+/// Compute the document/composer split for a contextual comment or reply.
+fn contextual_issue_composer_rows(
     detail_viewport_rows: usize,
     reserved_document_rows: usize,
     document_line_count: usize,
     composer_active: bool,
-    composer_fills_available: bool,
 ) -> (usize, usize) {
     if !composer_active {
         return (reserved_document_rows, 0);
-    }
-    if composer_fills_available {
-        let scroll_rows = document_line_count.min(detail_viewport_rows.saturating_sub(1));
-        return (
-            scroll_rows,
-            detail_viewport_rows.saturating_sub(scroll_rows),
-        );
     }
 
     let scroll_rows = reserved_document_rows.min(document_line_count);
     let composer_rows = crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
         .min(detail_viewport_rows.saturating_sub(scroll_rows));
     (scroll_rows, composer_rows)
+}
+
+/// Preserve New Issue guidance and give every remaining row to its composer.
+fn new_issue_composer_rows(
+    detail_viewport_rows: usize,
+    document_line_count: usize,
+) -> (usize, usize) {
+    let scroll_rows = document_line_count.min(detail_viewport_rows.saturating_sub(1));
+    (
+        scroll_rows,
+        detail_viewport_rows.saturating_sub(scroll_rows),
+    )
 }
 
 /// Pure projection of the issue detail pane into a [`DetailPaneProps`].
@@ -253,8 +257,6 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
     let detail_vp_rows = detail_viewport_rows(inputs.available_height);
     let composer = composer_from_inline_state(inputs.inline_state);
     let composer_active = composer.is_some();
-    let reserved_document_rows =
-        crate::layout::issue_detail_document_viewport_rows(detail_vp_rows, composer_active);
     let content_width = detail_content_width(inputs.available_width);
 
     let showing_new_issue_composer = matches!(
@@ -279,13 +281,18 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
     };
 
     let document_line_count = detail_content.text.lines().count().max(1);
-    let (scroll_rows, composer_rows) = issue_scroll_composer_rows(
-        detail_vp_rows,
-        reserved_document_rows,
-        document_line_count,
-        composer_active,
-        showing_new_issue_composer,
-    );
+    let (scroll_rows, composer_rows) = if showing_new_issue_composer {
+        new_issue_composer_rows(detail_vp_rows, document_line_count)
+    } else {
+        let reserved_document_rows =
+            crate::layout::issue_detail_document_viewport_rows(detail_vp_rows, composer_active);
+        contextual_issue_composer_rows(
+            detail_vp_rows,
+            reserved_document_rows,
+            document_line_count,
+            composer_active,
+        )
+    };
     let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
         text,
         byte_cursor,
