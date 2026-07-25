@@ -204,17 +204,20 @@ pub fn code_puppy_uvx_from_spec(version: &str) -> Option<String> {
     if sanitized.is_empty() {
         return None;
     }
+    if is_version_sentinel(&sanitized) {
+        return Some(CODE_PUPPY_PACKAGE.to_owned());
+    }
     Some(format!("{CODE_PUPPY_PACKAGE}=={sanitized}"))
 }
 
 /// Whether a Code Puppy version string requires the uvx wrapper (#337).
 ///
 /// Returns `true` for any nonblank version (including sentinels). Blank
-/// versions (after stripping all whitespace) launch the direct `code-puppy`
-/// binary without uvx.
+/// versions — after stripping all whitespace and zero-width characters —
+/// launch the direct `code-puppy` binary without uvx.
 #[must_use]
 pub fn code_puppy_requires_uvx(version: &str) -> bool {
-    !version.trim().is_empty()
+    !strip_internal_whitespace(version).is_empty()
 }
 
 /// Strip all embedded whitespace (newlines, tabs, control chars) and

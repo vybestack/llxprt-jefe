@@ -37,28 +37,7 @@ impl AppState {
         fields: &AgentFormFields,
         repository: &Repository,
     ) -> Result<(), String> {
-        let new_name = fields.name.trim().to_lowercase();
-        let new_work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir);
-        for agent in &self.agents {
-            if &agent.repository_id != repository_id {
-                continue;
-            }
-            if !new_name.is_empty() && agent.name.trim().to_lowercase() == new_name {
-                return Err(format!(
-                    "An agent named '{}' already exists in this repository",
-                    fields.name.trim()
-                ));
-            }
-            if let Some(ref new_dir) = new_work_dir
-                && local_paths_equivalent(std::path::Path::new(new_dir), &agent.work_dir)
-            {
-                return Err(format!(
-                    "Work directory '{}' is already used by agent '{}'",
-                    new_dir, agent.name
-                ));
-            }
-        }
-        Ok(())
+        Self::check_agent_uniqueness(None, repository_id, fields, repository, &self.agents)
     }
 
     /// Same as [`validate_new_agent_uniqueness`] but excludes the agent
@@ -69,13 +48,28 @@ impl AppState {
         fields: &AgentFormFields,
         repository: &Repository,
     ) -> Result<(), String> {
+        Self::check_agent_uniqueness(Some(id), &repository.id, fields, repository, &self.agents)
+    }
+
+    /// Shared collision-check logic for new and edit agent validation.
+    ///
+    /// When `exclude_id` is `Some`, that agent is skipped (edit mode). The
+    /// `repository_id` is the target repository for the agent being
+    /// created/edited.
+    fn check_agent_uniqueness(
+        exclude_id: Option<&AgentId>,
+        repository_id: &RepositoryId,
+        fields: &AgentFormFields,
+        repository: &Repository,
+        agents: &[crate::domain::Agent],
+    ) -> Result<(), String> {
         let new_name = fields.name.trim().to_lowercase();
         let new_work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir);
-        for agent in &self.agents {
-            if &agent.id == id {
+        for agent in agents {
+            if Some(&agent.id) == exclude_id {
                 continue;
             }
-            if agent.repository_id != repository.id {
+            if &agent.repository_id != repository_id {
                 continue;
             }
             if !new_name.is_empty() && agent.name.trim().to_lowercase() == new_name {

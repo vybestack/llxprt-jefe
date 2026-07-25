@@ -70,6 +70,11 @@ fn capture_runtime_errors_clears_tracker_when_error_resolved() {
 
     state.error_message = None;
     capture_runtime_errors(&mut state);
+    assert_eq!(
+        state.errors_state.errors.len(),
+        1,
+        "None error_message should not add a ring entry"
+    );
 
     // The tracker should be reset so a future error with the same text is
     // captured again rather than deduped.

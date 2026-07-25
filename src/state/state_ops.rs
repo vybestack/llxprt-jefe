@@ -67,6 +67,16 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
 }
 
 /// Delete a selected agent from state and optionally remove its working directory.
+///
+/// The work-directory removal guard uses [`work_dir_shared_by_sibling`] which
+/// compares paths via [`crate::services::local_paths_equivalent`] — a
+/// string-based, platform-aware normalization (separators, case, `.`/`..`,
+/// Windows extended-path prefixes). It does **not** canonicalize symlinks or
+/// resolve relative paths to absolute. Work directories that point to the
+/// same physical directory through different symlinked paths will bypass this
+/// guard. This is a known limitation; the guard protects against the
+/// identical/normalized path collision case which is the common failure mode
+/// from duplicate agent names (issue #403).
 pub fn delete_selected_agent(
     state: &mut AppState,
     agent_id: &AgentId,
@@ -85,27 +95,20 @@ pub fn delete_selected_agent(
         .iter()
         .find(|repository| repository.id == removed_agent.repository_id)
         .is_some_and(|repository| repository.remote.enabled);
-    if delete_work_dir
-        && !repository_remote_enabled
-        && removed_agent.work_dir.exists()
-        && !work_dir_shared_by_sibling(state, &removed_agent)
-        && let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir)
-    {
-        warn!(
-            error = %e,
-            work_dir = %removed_agent.work_dir.display(),
-            "could not remove work directory"
-        );
-    }
-    if delete_work_dir
-        && !repository_remote_enabled
-        && removed_agent.work_dir.exists()
-        && work_dir_shared_by_sibling(state, &removed_agent)
-    {
-        warn!(
-            work_dir = %removed_agent.work_dir.display(),
-            "skipping work directory removal: another agent shares this directory"
-        );
+    if delete_work_dir && !repository_remote_enabled && removed_agent.work_dir.exists() {
+        let shared = work_dir_shared_by_sibling(state, &removed_agent);
+        if shared {
+            warn!(
+                work_dir = %removed_agent.work_dir.display(),
+                "skipping work directory removal: another agent shares this directory"
+            );
+        } else if let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir) {
+            warn!(
+                error = %e,
+                work_dir = %removed_agent.work_dir.display(),
+                "could not remove work directory"
+            );
+        }
     }
 
     let selected_repo_id = state
@@ -280,14 +283,13 @@ mod tests {
         // Two agents share the same work directory (issue #403 Bug 1/4).
         // Deleting one with delete_work_dir=true must NOT remove the
         // directory because the other agent still depends on it.
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let tmp_dir = tmp.path().to_path_buf();
+
         let repo_id = RepositoryId("repo-shared".into());
         let agent_a = AgentId("agent-shared-a".into());
         let agent_b = AgentId("agent-shared-b".into());
-
-        let tmp_dir = std::env::temp_dir().join("jefe-test-shared-workdir");
-        if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
-            panic!("create temp dir: {err}");
-        }
 
         let repository = Repository::new(
             repo_id.clone(),
@@ -317,21 +319,18 @@ mod tests {
             tmp_dir.exists(),
             "shared work directory must not be removed when another agent uses it"
         );
-
-        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
     fn delete_selected_agent_removes_sole_owner_work_dir() {
         // A sole-owner agent's work directory should be removed when
         // delete_work_dir is true.
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let tmp_dir = tmp.path().to_path_buf();
+
         let repo_id = RepositoryId("repo-sole".into());
         let agent_id = AgentId("agent-sole".into());
-
-        let tmp_dir = std::env::temp_dir().join("jefe-test-sole-workdir");
-        if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
-            panic!("create temp dir: {err}");
-        }
 
         let repository = Repository::new(
             repo_id.clone(),
