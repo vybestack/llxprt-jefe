@@ -233,7 +233,7 @@ mod windows_probes {
 
 #[cfg(unix)]
 mod unix_probes {
-    use super::{ProcessIdentity, ProcessLiveness};
+    use super::{ProcessIdentity, ReapOutcome};
     use std::collections::HashMap;
 
     /// Walk `/proc/<pid>/stat` parent links to enumerate descendants of `root`.
@@ -247,7 +247,8 @@ mod unix_probes {
             return Vec::new();
         };
         for entry in entries.flatten() {
-            let Some(name) = entry.file_name().to_str() else {
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
                 continue;
             };
             let Ok(pid) = name.parse::<u32>() else {
@@ -323,8 +324,9 @@ mod unix_probes {
     }
 
     fn nix_like_kill(pid: u32) -> std::io::Result<()> {
+        let pid_arg = pid.to_string();
         std::process::Command::new("kill")
-            .args(["-KILL", &pid.to_string()])
+            .args(["-KILL", &pid_arg])
             .status()?;
         Ok(())
     }
