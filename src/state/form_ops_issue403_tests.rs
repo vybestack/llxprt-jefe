@@ -25,8 +25,9 @@ fn seed_second_repository() -> Repository {
 }
 
 fn existing_agent(repo_id: &RepositoryId, name: &str, work_dir: &str) -> Agent {
+    let id = format!("agent-{}", name.to_lowercase().replace(' ', "-"));
     let mut agent = Agent::new(
-        crate::domain::AgentId("agent-existing".to_owned()),
+        crate::domain::AgentId(id),
         repo_id.clone(),
         name.to_owned(),
         std::path::PathBuf::from(work_dir),
@@ -105,7 +106,7 @@ fn submit_new_agent_rejects_duplicate_name_case_insensitive() {
         state
             .error_message
             .as_deref()
-            .is_some_and(|m| m.contains("already exists"))
+            .is_some_and(|m| m == "An agent named 'MAIN' already exists in this repository")
     );
     assert_eq!(state.agents.len(), 1);
 }
@@ -131,6 +132,37 @@ fn submit_new_agent_allows_same_name_in_different_repository() {
     assert!(
         matches!(state.modal, ModalState::None),
         "modal should close when name is unique within the repository"
+    );
+    assert!(state.error_message.is_none());
+    assert_eq!(state.agents.len(), 2);
+}
+
+#[test]
+fn submit_new_agent_allows_colliding_work_dir_across_different_repositories() {
+    // Work-dir uniqueness is scoped per-repository (issue #403 acceptance
+    // matrix A3): two agents in different repositories may share the same
+    // work_dir path. This test locks that contract so a future tightening
+    // does not silently break cross-repo workflows.
+    let repo1 = seed_repository();
+    let repo2 = seed_second_repository();
+    let mut state = AppState {
+        repositories: vec![repo1, repo2],
+        ..AppState::default()
+    };
+    state.agents.push(existing_agent(
+        &RepositoryId("repo-1".to_owned()),
+        "alpha",
+        "/tmp/shared-workdir",
+    ));
+
+    open_new_agent_form(&mut state, &RepositoryId("repo-2".to_owned()));
+    // Same work_dir, different repository, different name.
+    set_form_fields(&mut state.modal, "beta", "/tmp/shared-workdir");
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert!(
+        matches!(state.modal, ModalState::None),
+        "cross-repo work-dir reuse should be allowed"
     );
     assert!(state.error_message.is_none());
     assert_eq!(state.agents.len(), 2);
