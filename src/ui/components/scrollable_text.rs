@@ -423,6 +423,7 @@ fn clip_range_to_row(range: HighlightRange, row_start: usize, row_end: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn test_scrollbar_geometry_no_scroll() {
@@ -523,19 +524,18 @@ mod tests {
     /// assertions measure visible glyphs, not SGR codes.
     fn strip_ansi(s: &str) -> String {
         let mut out = String::with_capacity(s.len());
-        let bytes = s.as_bytes();
-        let mut i = 0usize;
-        while i < bytes.len() {
-            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-                // Skip to the terminating letter of the CSI sequence.
-                i += 2;
-                while i < bytes.len() && !bytes[i].is_ascii_alphabetic() {
-                    i += 1;
+        let mut chars = s.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                for sequence_char in chars.by_ref() {
+                    if sequence_char.is_ascii_alphabetic() {
+                        break;
+                    }
                 }
             } else {
-                out.push(bytes[i] as char);
+                out.push(character);
             }
-            i += 1;
         }
         out
     }
@@ -555,6 +555,22 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    #[test]
+    fn wide_rows_leave_the_fixed_scrollbar_column_visible() {
+        let rendered = render_text("甲乙丙丁戊", 2, 4, 5);
+        let clean = strip_ansi(&rendered);
+        let lines = clean.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 2, "{clean}");
+        assert!(lines[0].contains("甲乙"), "{clean}");
+        assert!(
+            lines.iter().all(|line| {
+                UnicodeWidthStr::width(*line) <= 5 && (line.ends_with('┃') || line.ends_with('│'))
+            }),
+            "wide text must stay left of the visible scrollbar: {clean}"
+        );
     }
 
     /// A short line that fits within the width stays on a single row (no
