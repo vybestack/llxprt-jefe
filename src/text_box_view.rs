@@ -65,6 +65,23 @@ pub struct TextBoxView {
     pub first_visible_row: usize,
     /// Total logical line count of the source text.
     pub total_lines: usize,
+    /// Total display-row count after wrapping.
+    pub total_display_rows: usize,
+}
+
+impl TextBoxView {
+    /// Whether wrapped display rows exist above the current viewport.
+    #[must_use]
+    pub fn can_scroll_up(&self) -> bool {
+        !self.rows.is_empty() && self.first_visible_row > 0
+    }
+
+    /// Whether wrapped display rows exist below the current viewport.
+    #[must_use]
+    pub fn can_scroll_down(&self) -> bool {
+        !self.rows.is_empty()
+            && self.first_visible_row.saturating_add(self.rows.len()) < self.total_display_rows
+    }
 }
 
 /// Split `text` into logical lines using the same semantics as the composer:
@@ -177,21 +194,22 @@ pub fn build_text_box_view(
     let total_lines = lines.len();
     let caret = byte_cursor_to_caret(text, byte_cursor);
 
+    let (display_rows, caret_row_idx) =
+        build_wrapped_display_rows(&lines, caret, content_width, viewport_rows);
+    let total_display = display_rows.len();
+
     if viewport_rows == 0 {
         return TextBoxView {
             rows: Vec::new(),
             first_visible_row: 0,
             total_lines,
+            total_display_rows: total_display,
         };
     }
-
-    let (display_rows, caret_row_idx) =
-        build_wrapped_display_rows(&lines, caret, content_width, viewport_rows);
 
     // If no caret row was recorded (e.g. content_width == 0 suppresses the
     // caret), anchor the viewport at the top.
     let caret_row = caret_row_idx.unwrap_or(0);
-    let total_display = display_rows.len();
     let first = vertical_first_visible(caret_row, viewport_rows, total_display);
 
     let mut rows: Vec<TextBoxRow> = Vec::with_capacity(viewport_rows);
@@ -212,6 +230,7 @@ pub fn build_text_box_view(
         rows,
         first_visible_row: first,
         total_lines,
+        total_display_rows: total_display,
     }
 }
 
