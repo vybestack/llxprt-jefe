@@ -466,7 +466,7 @@ fn guarded_real_jefe_runner_scenario_starts_and_quits() {
             { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
-        30_000,
+        REAL_PROCESS_WAIT_TIMEOUT_MS,
     );
     let session_name = unique_session("runner-jefe");
     let request = TmuxStartRequest::jefe(
@@ -566,7 +566,7 @@ fn guarded_real_jefe_qqq_quits() {
             { "line": "qqq" },
             { "waitForExit": 3000 }
         ]"#,
-        30_000,
+        REAL_PROCESS_WAIT_TIMEOUT_MS,
     );
     let session_name = unique_session("qqq-jefe");
     let request = TmuxStartRequest::jefe(

@@ -15,7 +15,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use jefe::runtime::{AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan};
 
-const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Ceiling for a byte to traverse a real PTY and appear in a pane capture.
+///
+/// The wait polls every 50ms and returns as soon as the needle appears, so
+/// this only bounds how long a genuine hang is tolerated; a passing run is not
+/// slowed by raising it. Five seconds proved too tight on shared CI runners —
+/// Windows in particular — where this test failed intermittently on commits
+/// that changed no code it exercises.
+const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 
 #[test]
