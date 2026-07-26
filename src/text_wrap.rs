@@ -1,30 +1,23 @@
 //! Pure, iocraft-free word-wrap projection.
 //!
-//! Splits text into wrapped rows of at most `width` characters, breaking
-//! at word boundaries (whitespace) so words are never split mid-character.
-//! Each row records the half-open `[start, end)` char-column range it covers
-//! within the source text, so consumers (the editor caret, the displayer
-//! selection) can map a source position onto the wrapped row that contains it.
-//!
-//! `width` is counted in Unicode scalar values (one per `char`), not terminal
-//! display columns: a wide glyph (CJK, emoji) or combining mark counts as one.
-//! This matches the editor's caret model, which is char-based. Terminal-cell
-//! width would require a separate measurement pass and is out of scope here.
-//!
-//! This is the single shared wrapping primitive for the app: the editor
-//! (`TextBox`) and the read-only displayer (`ScrollableText`) both consume it
-//! so wrapping behavior cannot drift between them.
+//! This is the single shared wrapping primitive for the app. Row capacity is
+//! measured in terminal display cells while source ranges remain Unicode-scalar
+//! offsets, so renderers can share one physical-grid contract without changing
+//! the editor or selection coordinate models.
 //!
 //! Semantics:
-//! - Words are runs of non-whitespace characters. A break happens at a
-//!   whitespace boundary when the next word would overflow `width`.
-//! - A single word longer than `width` is broken at `width` columns (it cannot
-//!   fit any other way); the remainder continues on the next row.
-//! - A run of spaces between words is preserved up to the wrap point.
-//! - Explicit newlines (`'\n'`) always start a new row.
-//! - `width == 0` returns one empty row (callers suppress the caret).
+//! - Rows break at whitespace when the next word would exceed `width` cells.
+//! - An overlong word breaks at the largest scalar boundary that fits.
+//! - Zero-cell combining marks remain attached to a fitting base scalar.
+//! - A glyph wider than an empty nonzero row renders as a one-cell ellipsis and
+//!   retains its source range.
+//! - Explicit newlines always start a row; `width == 0` returns one empty row.
 //!
 //! @requirement REQ-TEXT-WRAP
+
+use unicode_width::UnicodeWidthChar;
+
+const OVERWIDE_GLYPH_PLACEHOLDER: &str = "…";
 
 /// One wrapped row: the display text plus the half-open `[start, end)`
 /// char-column range it covers within the source text.
@@ -38,9 +31,8 @@ pub struct WrapRow {
     pub end: usize,
 }
 
-/// Wrap `text` into rows of at most `width` characters, breaking at word
-/// boundaries. See the module docs for the full semantics (including the
-/// char-count width convention).
+/// Wrap `text` into rows of at most `width` terminal display cells while
+/// retaining Unicode-scalar source ranges.
 ///
 /// `width == 0` yields a single empty row. The result is never empty: even
 /// empty input produces one row.
@@ -77,219 +69,119 @@ fn split_lines(text: &str) -> Vec<&str> {
     if text.is_empty() {
         return vec![""];
     }
-    let lines: Vec<&str> = text.split('\n').collect();
-    // `split('\n')` already emits a trailing "" for a final newline, so no
-    // extra push is needed.
-    lines
+    text.split('\n').collect()
 }
 
-/// Wrap a single (newline-free) line into rows, appending to `rows`. `base`
-/// is the global source char offset where this line begins (so the emitted
-/// `WrapRow.start`/`end` are global across the whole source text, not just
-/// this line).
+#[derive(Clone, Copy)]
+struct RowEnd {
+    display_end: usize,
+    source_end: usize,
+    overwide: bool,
+}
+
+impl RowEnd {
+    fn normal(display_end: usize, source_end: usize) -> Self {
+        Self {
+            display_end,
+            source_end,
+            overwide: false,
+        }
+    }
+
+    fn overwide(source_end: usize) -> Self {
+        Self {
+            display_end: 0,
+            source_end,
+            overwide: true,
+        }
+    }
+}
+
 fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRow>) {
-    let chars: Vec<char> = line.chars().collect();
-    // `row_src_start` is the GLOBAL source offset of the first char in the
-    // current (in-progress) row. It stays synced to `base + (local i)` at the
-    // moment a row begins, so dropped wrap-spaces never desync the ranges.
-    let mut row_src_start = base;
-    let mut col = 0usize; // char columns consumed on the current row (local)
-    let mut row_chars: String = String::with_capacity(width);
-
-    let mut i = 0usize;
-    while i < chars.len() {
-        let (word_start, word_end, ws_start, ws_end) = scan_word(&chars, i);
-        let word_len = word_end - word_start;
-        let ws_len = ws_end - ws_start;
-
-        if word_len >= width {
-            // Over-long word: flush any in-progress row first so it starts
-            // fresh. The in-progress row ends at the word's start (contiguous).
-            if col > 0 {
-                flush_row_to(rows, &mut row_chars, &mut row_src_start, base + word_start);
-            }
-            let ctx = WordPlaceCtx {
-                chars: &chars,
-                rows,
-                row_chars: &mut row_chars,
-                row_src_start: &mut row_src_start,
-                base,
-            };
-            col = place_overlong_word(ctx, word_start, word_end, ws_start, ws_len, width);
-            // Advance past the word plus the spaces that fit on the final chunk.
-            let placed = if word_len % width == 0 {
-                width
-            } else {
-                word_len % width
-            };
-            i = ws_start + width.saturating_sub(placed).min(ws_len);
-        } else if col + word_len <= width {
-            // Word fits on the current row; place it with trailing spaces.
-            place_word_on_row(
-                &chars[word_start..word_end],
-                &chars[ws_start..ws_end],
-                &mut row_chars,
-                &mut col,
-                width,
-            );
-            i = ws_end;
-        } else {
-            // Word fits within `width` but not on the current row: flush, then
-            // start a new row at the word. The flushed row's source extent
-            // reaches the word's start, so dropped leading spaces stay covered
-            // and ranges stay contiguous.
-            flush_row_to(rows, &mut row_chars, &mut row_src_start, base + word_start);
-            col = 0;
-            place_word_on_row(
-                &chars[word_start..word_end],
-                &chars[ws_start..ws_end],
-                &mut row_chars,
-                &mut col,
-                width,
-            );
-            i = ws_end;
-        }
-    }
-
-    // Flush the final partial row (trailing spaces are trimmed by flush_row_to).
-    // Its extent reaches the end of the line.
-    flush_row_to(rows, &mut row_chars, &mut row_src_start, base + chars.len());
-}
-
-/// Scan one word + its trailing whitespace run starting at `i` in `chars`.
-/// Returns `(word_start, word_end, ws_start, ws_end)`.
-fn scan_word(chars: &[char], i: usize) -> (usize, usize, usize, usize) {
-    let word_start = i;
-    let mut j = i;
-    while j < chars.len() && !chars[j].is_whitespace() {
-        j += 1;
-    }
-    let word_end = j;
-    let ws_start = j;
-    while j < chars.len() && chars[j].is_whitespace() {
-        j += 1;
-    }
-    (word_start, word_end, ws_start, j)
-}
-
-/// Place a word (known to fit within `width`) onto the current row. Appends
-/// the word plus as many trailing spaces as fit, updating `col`.
-fn place_word_on_row(
-    word: &[char],
-    ws: &[char],
-    row_chars: &mut String,
-    col: &mut usize,
-    width: usize,
-) {
-    push_chars(row_chars, word);
-    *col += word.len();
-    let space_budget = width.saturating_sub(*col).min(ws.len());
-    push_chars(row_chars, &ws[..space_budget]);
-    *col += space_budget;
-}
-
-/// Bundle the mutable references needed by [`place_overlong_word`] so its
-/// signature stays under the argument-count limit.
-struct WordPlaceCtx<'a, 'b, 'c> {
-    chars: &'a [char],
-    rows: &'b mut Vec<WrapRow>,
-    row_chars: &'c mut String,
-    row_src_start: &'c mut usize,
-    /// Global source offset of `chars[0]` (the line base).
-    base: usize,
-}
-
-/// Place a word longer than `width` by emitting width-sized chunks (flushing
-/// between them), then attaching trailing spaces that fit on the final chunk.
-/// Returns the local `col` after the final chunk.
-fn place_overlong_word(
-    ctx: WordPlaceCtx<'_, '_, '_>,
-    word_start: usize,
-    word_end: usize,
-    ws_start: usize,
-    ws_len: usize,
-    width: usize,
-) -> usize {
-    let WordPlaceCtx {
-        chars,
-        rows,
-        row_chars,
-        row_src_start,
-        base,
-    } = ctx;
-    let mut k = word_start;
-    let mut col = 0usize;
-    while k < word_end {
-        let take = width.min(word_end - k);
-        push_chars(row_chars, &chars[k..k + take]);
-        col = take;
-        k += take;
-        if k < word_end {
-            // This chunk row ends where the next chunk begins (contiguous).
-            flush_row_to(rows, row_chars, row_src_start, base + k);
-        }
-    }
-    let space_budget = width.saturating_sub(col).min(ws_len);
-    push_chars(row_chars, &chars[ws_start..ws_start + space_budget]);
-    col += space_budget;
-    col
-}
-/// Flush the in-progress row: push it with a GLOBAL `start` of the CURRENT
-/// `row_src_start` and a GLOBAL `end` of `src_end`, trimming trailing spaces
-/// from the DISPLAYED text. `end` is the source extent up to where the NEXT
-/// row begins (including any dropped/dropped-wrap spaces), so source ranges
-/// stay contiguous and a position in trailing/dropped spaces still maps to
-/// this row. `row_src_start` is advanced to `src_end`.
-fn flush_row_to(
-    rows: &mut Vec<WrapRow>,
-    row_chars: &mut String,
-    row_src_start: &mut usize,
-    src_end: usize,
-) {
-    if row_chars.is_empty() {
-        // An empty in-progress row (e.g. blank line): emit one empty row.
+    if line.is_empty() {
         rows.push(WrapRow {
             text: String::new(),
-            start: *row_src_start,
-            end: src_end.max(*row_src_start),
+            start: base,
+            end: base,
         });
-        *row_src_start = src_end.max(*row_src_start);
         return;
     }
-    let trailing = row_chars.chars().rev().take_while(|c| *c == ' ').count();
-    let trimmed_text = if trailing > 0 {
-        let keep = row_chars.chars().count() - trailing;
-        let byte_len = byte_len_of_chars(row_chars, keep);
-        row_chars[..byte_len].to_string()
-    } else {
-        row_chars.clone()
-    };
-    rows.push(WrapRow {
-        text: trimmed_text,
-        start: *row_src_start,
-        end: src_end.max(*row_src_start),
-    });
-    *row_src_start = src_end.max(*row_src_start);
-    row_chars.clear();
-}
-fn byte_len_of_chars(s: &str, n: usize) -> usize {
-    s.char_indices().nth(n).map_or(s.len(), |(i, _)| i)
+    let chars = line.chars().collect::<Vec<_>>();
+    let mut start = 0;
+    while start < chars.len() {
+        let end = display_row_end(&chars, start, width);
+        rows.push(WrapRow {
+            text: row_text(&chars, start, end),
+            start: base + start,
+            end: base + end.source_end,
+        });
+        start = end.source_end;
+    }
 }
 
-/// Append a slice of chars to a string.
-fn push_chars(buf: &mut String, chars: &[char]) {
-    for ch in chars {
-        buf.push(*ch);
+fn display_row_end(chars: &[char], start: usize, width: usize) -> RowEnd {
+    let mut used: usize = 0;
+    let mut cursor = start;
+    let mut last_whitespace_end = None;
+    while cursor < chars.len() {
+        let char_width = UnicodeWidthChar::width(chars[cursor]).unwrap_or(0);
+        if used.saturating_add(char_width) > width {
+            return overflow_row_end(chars, start, cursor, last_whitespace_end);
+        }
+        used = used.saturating_add(char_width);
+        cursor += 1;
+        if chars[cursor - 1].is_whitespace() {
+            last_whitespace_end = Some(cursor);
+        }
     }
+    RowEnd::normal(cursor, cursor)
+}
+
+fn overflow_row_end(
+    chars: &[char],
+    start: usize,
+    cursor: usize,
+    last_whitespace_end: Option<usize>,
+) -> RowEnd {
+    if cursor == start {
+        let source_end = chars[cursor + 1..]
+            .iter()
+            .take_while(|character| UnicodeWidthChar::width(**character).unwrap_or(0) == 0)
+            .count()
+            + cursor
+            + 1;
+        return RowEnd::overwide(source_end);
+    }
+    if chars[cursor].is_whitespace() {
+        let source_end = chars[cursor..]
+            .iter()
+            .take_while(|character| character.is_whitespace())
+            .count()
+            + cursor;
+        return RowEnd::normal(cursor, source_end);
+    }
+    if let Some(break_end) = last_whitespace_end.filter(|end| *end > start) {
+        return RowEnd::normal(break_end, break_end);
+    }
+    RowEnd::normal(cursor, cursor)
+}
+
+fn row_text(chars: &[char], start: usize, end: RowEnd) -> String {
+    if end.overwide {
+        let mut text = OVERWIDE_GLYPH_PLACEHOLDER.to_string();
+        text.extend(chars[start + 1..end.source_end].iter());
+        return text;
+    }
+    let mut text = chars[start..end.display_end].iter().collect::<String>();
+    while text.ends_with(' ') {
+        text.pop();
+    }
+    text
 }
 
 /// Find the row index that contains the given source char column, and the
-/// column relative to that row's start. Returns `(row_index, relative_col)`.
-///
-/// A column in `[row.start, row.end)` maps to that row. A column in a gap
-/// between rows (e.g. a newline position no row covers) maps to the preceding
-/// row's end, so it is never lost or wrapped-underflowed. A column past the
-/// last row clamps to the last row's end.
+/// column relative to that row's start. Columns outside the rows clamp to the
+/// last row's source end.
 #[must_use]
 pub fn row_for_column(rows: &[WrapRow], col: usize) -> Option<(usize, usize)> {
     let mut last_idx = 0usize;
@@ -308,6 +200,7 @@ pub fn row_for_column(rows: &[WrapRow], col: usize) -> Option<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn empty_text_one_empty_row() {
@@ -518,6 +411,62 @@ cccc";
             .filter(|c| !c.is_whitespace())
             .collect();
         assert_eq!(joined, "héllowörld");
+    }
+
+    #[test]
+    fn cjk_wraps_by_terminal_cells_and_preserves_source_columns() {
+        let rows = wrap_text("甲乙丙", 4);
+
+        assert_eq!(
+            rows,
+            vec![
+                WrapRow {
+                    text: "甲乙".to_string(),
+                    start: 0,
+                    end: 2,
+                },
+                WrapRow {
+                    text: "丙".to_string(),
+                    start: 2,
+                    end: 3,
+                },
+            ]
+        );
+        assert_eq!(row_for_column(&rows, 2), Some((1, 0)));
+    }
+
+    #[test]
+    fn combining_marks_share_their_base_row_without_consuming_cells() {
+        let rows = wrap_text("e\u{301}x", 1);
+
+        assert_eq!(rows[0].text, "e\u{301}");
+        assert_eq!((rows[0].start, rows[0].end), (0, 2));
+        assert_eq!(rows[1].text, "x");
+        assert_eq!((rows[1].start, rows[1].end), (2, 3));
+        assert!(
+            rows.iter()
+                .all(|row| UnicodeWidthStr::width(row.text.as_str()) <= 1)
+        );
+    }
+
+    #[test]
+    fn overwide_glyph_uses_bounded_placeholder_and_retains_source_range() {
+        let rows = wrap_text("甲", 1);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "…");
+        assert_eq!((rows[0].start, rows[0].end), (0, 1));
+        assert_eq!(UnicodeWidthStr::width(rows[0].text.as_str()), 1);
+    }
+
+    #[test]
+    fn overwide_whitespace_uses_bounded_placeholder_and_retains_source_range() {
+        let rows = wrap_text("\u{3000}", 1);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "…");
+        assert_eq!((rows[0].start, rows[0].end), (0, 1));
+        assert_eq!(UnicodeWidthStr::width(rows[0].text.as_str()), 1);
     }
 
     #[test]

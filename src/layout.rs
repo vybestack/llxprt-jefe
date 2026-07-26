@@ -532,7 +532,7 @@ pub fn prs_detail_viewport_rows(
 pub struct ActionsDetailGeometry {
     /// Wrapped display rows visible below the fixed metadata header.
     pub viewport_rows: usize,
-    /// Character width used by the shared document wrapping projection.
+    /// Terminal-cell width used by the shared document wrapping projection.
     pub content_width: usize,
 }
 
