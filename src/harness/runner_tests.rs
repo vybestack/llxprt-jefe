@@ -1,4 +1,4 @@
-//! Behavioral tests for the harness runner/orchestrator.
+﻿//! Behavioral tests for the harness runner/orchestrator.
 //!
 //! @plan PLAN-20260629-TMUX-HARNESS.P04
 //! @requirement REQ-TMUX-HARNESS-004
@@ -550,7 +550,7 @@ fn seed_dashboard_list_state(config_dir: &std::path::Path) {
         .save_state(&persisted_state)
         .unwrap_or_else(|error| panic!("save dashboard fixture state: {error:?}"));
 }
-/// Rapid triple-`q` (`qqq`) quits the app — behavioral proof of the quit
+/// Rapid triple-`q` (`qqq`) quits the app â€” behavioral proof of the quit
 /// sequence fallback (issue #129). Three bare `q`s sent back-to-back land
 /// within the 1s window, so the app exits.
 #[test]
@@ -611,7 +611,7 @@ fn unique_session(label: &str) -> String {
 /// This scenario pre-creates a tmux session running `sleep 300` so jefe's
 /// runtime kill can actually succeed, seeds a state.json with a Running agent
 /// bound to that session, then drives the real jefe binary through the
-/// kill → still-visible → navigate → filtered → quit flow.
+/// kill â†’ still-visible â†’ navigate â†’ filtered â†’ quit flow.
 #[cfg(unix)]
 #[test]
 fn guarded_real_jefe_sticky_kill_scenario() {
@@ -729,6 +729,7 @@ fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
         process_identity: None,
         pid: None,
         lifecycle_generation: 0,
+        worker_identities: Vec::new(),
     }
 }
 
@@ -858,8 +859,8 @@ impl Drop for TmuxSessionCleanup {
 /// Issue #117: Ctrl-r should restart (kill + relaunch) a running agent in one
 /// action. This scenario pre-creates a tmux session running `sleep 300`, seeds
 /// a state.json with a Running agent bound to that session, then drives the
-/// real jefe binary through the restart flow: active-only → Tab to Agents →
-/// Ctrl-r → expect agent still visible and running → quit.
+/// real jefe binary through the restart flow: active-only â†’ Tab to Agents â†’
+/// Ctrl-r â†’ expect agent still visible and running â†’ quit.
 #[cfg(unix)]
 #[test]
 fn guarded_real_jefe_restart_scenario() {
@@ -901,10 +902,10 @@ fn guarded_real_jefe_restart_scenario() {
     //  - The session was killed and recreated with the agent command (capture
     //    succeeds; content must NOT contain "sleep 300"), or
     //  - The session was killed and not (yet) recreated in this environment
-    //    (capture returns None — tmux kill-session killed the sleep process
+    //    (capture returns None â€” tmux kill-session killed the sleep process
     //    along with the pane, so the sleep is dead).
     // The only FAILURE is the session existing AND still running "sleep 300",
-    // i.e. restart did not kill the sleep process — which is the regression
+    // i.e. restart did not kill the sleep process â€” which is the regression
     // this test guards against.
     let sleep_survived_restart =
         capture_jefe_pane(&agent_session).is_some_and(|pane| pane.contains("sleep 300"));

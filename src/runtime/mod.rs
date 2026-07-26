@@ -27,6 +27,7 @@ mod manager;
 mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
+mod orphan;
 mod package_probe;
 mod pane_capture;
 mod preflight;
@@ -73,6 +74,12 @@ pub use multiplexer::{
     MultiplexerVersion, ProbeObservation, classify_probe,
 };
 pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
+/// Descendant-process observation and validated orphan-tree reaping (issue #332).
+pub use orphan::{
+    ObservedDescendant, OrphanClassification, PaneLiveness, ReapOutcome, capture_worker_identities,
+    classify_orphan_state, descendant_liveness, descendant_still_matches_anchor,
+    enumerate_descendants, reap_orphan_session, reap_orphan_tree,
+};
 pub use package_probe::{
     NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,
 };
@@ -109,6 +116,10 @@ mod identity_tests;
 #[cfg(test)]
 #[path = "process_tests.rs"]
 mod process_tests;
+
+#[cfg(test)]
+#[path = "orphan_tests.rs"]
+mod orphan_tests;
 
 #[cfg(test)]
 #[path = "multiplexer_tests.rs"]

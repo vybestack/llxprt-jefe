@@ -366,4 +366,47 @@ mod tests {
             "sole-owner work directory should be removed"
         );
     }
+
+    #[test]
+    fn delete_selected_agent_tolerates_bogus_work_dir() {
+        // AC17 (issue #332): deletion must remove the agent record even when the
+        // work_dir never existed or is invalid; cleanup remains best-effort and
+        // the opt-in delete_work_dir flag does not error on a missing path.
+        let repo_id = RepositoryId("repo-bogus".into());
+        let agent_id = AgentId("agent-bogus".into());
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Repo".into(),
+            "repo".into(),
+            PathBuf::from("/tmp/repo"),
+        );
+        let bogus_work_dir = std::env::temp_dir().join("jefe-test-bogus-workdir-332");
+        let _ = std::fs::remove_dir_all(&bogus_work_dir);
+        let mut agent = Agent::new(
+            agent_id.clone(),
+            repo_id.clone(),
+            "Bogus Agent".into(),
+            bogus_work_dir.clone(),
+        );
+        agent.status = crate::domain::AgentStatus::Running;
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_id, true);
+
+        assert_eq!(removed, Some(agent_id));
+        assert!(
+            state.agents.is_empty(),
+            "agent record must be removed even with a bogus work_dir"
+        );
+        assert!(
+            !bogus_work_dir.exists(),
+            "bogus work_dir should remain absent"
+        );
+    }
 }

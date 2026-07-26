@@ -32,6 +32,10 @@ pub struct RuntimeSession {
     /// spawn/relaunch/kill/rebind so stale liveness results can be rejected
     /// (issue #301 Phase 4).
     pub lifecycle_generation: u64,
+    /// Captured worker descendant identities (issue #332). On Windows/psmux the
+    /// pane PID is the launcher, not the real worker; these anchors let a
+    /// dead-launcher orphan be reaped PID-reuse-safely.
+    pub worker_identities: Vec<ProcessIdentity>,
 }
 
 impl RuntimeSession {
@@ -46,6 +50,7 @@ impl RuntimeSession {
             pid: None,
             process_identity: None,
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         }
     }
 

@@ -1,5 +1,7 @@
 //! One-time application startup: state hydration and runtime session restore.
 
+#[path = "app_init_orphan_reconcile.rs"]
+mod orphan_reconcile;
 #[path = "app_init_process_binding.rs"]
 mod process_binding;
 #[path = "app_init_shell_reconcile.rs"]
@@ -114,6 +116,11 @@ enum StartupClassification {
     Stale,
     Recoverable,
     Inconsistent,
+    /// Dead pane with surviving validated worker descendants (issue #332). The
+    /// caller must reap the orphan tree and remove the stale session before
+    /// marking the agent Dead; a live descendant under a dead pane must never
+    /// be treated as reattachable.
+    Orphaned,
 }
 
 #[must_use]
@@ -144,7 +151,18 @@ fn classify_startup(
     binding: BindingEvidence,
     remote: bool,
     process: ProcessLiveness,
+    orphan: jefe::runtime::OrphanClassification,
 ) -> StartupClassification {
+    use jefe::runtime::OrphanClassification as Oc;
+
+    // A dead pane with surviving validated worker descendants is the orphan
+    // state (issue #332): it must never be treated as reattachable. This takes
+    // precedence over the Recoverable fallback so a live descendant under a
+    // dead pane is reaped instead of left stranded. Only applies when the
+    // session is not alive â€” a healthy pane is never an orphan.
+    if session != SessionEvidence::Alive && orphan == Oc::DeadPaneWithOrphans {
+        return StartupClassification::Orphaned;
+    }
     if binding == BindingEvidence::Inconsistent {
         // A live session is ground truth: the agent is still running even if
         // the persisted binding signature drifted (e.g. a new binary recomputed
@@ -195,7 +213,15 @@ fn classify_agent_startup(
                 .and_then(|value| value.process_identity),
         )
     };
-    classify_startup(session, binding, signature.remote.enabled, process)
+    let orphan = orphan_reconcile::orphan_evidence(
+        session,
+        signature.remote.enabled,
+        agent
+            .runtime_binding
+            .as_ref()
+            .map(|value| &value.worker_identities),
+    );
+    classify_startup(session, binding, signature.remote.enabled, process, orphan)
 }
 
 fn process_liveness_for_binding(
@@ -306,13 +332,21 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
             continue;
         };
         let signature = launch_signature_for_agent(agent, repository);
-        if matches!(
-            classify_agent_startup(agent, &signature, runtime),
+        match classify_agent_startup(agent, &signature, runtime) {
+            StartupClassification::Orphaned => {
+                // Dead pane with surviving validated worker descendants
+                // (issue #332): reap the orphan tree and remove the stale
+                // session before marking Dead. Best-effort, agent-scoped,
+                // warn-don't-fail â€” probe/kill failures never abort startup.
+                orphan_reconcile::reap_orphaned_agent(agent);
+                dead_ids.push(agent.id.clone());
+            }
             StartupClassification::Stopped
-                | StartupClassification::Stale
-                | StartupClassification::Inconsistent
-        ) {
-            dead_ids.push(agent.id.clone());
+            | StartupClassification::Stale
+            | StartupClassification::Inconsistent => {
+                dead_ids.push(agent.id.clone());
+            }
+            _ => {}
         }
     }
     dead_ids
@@ -382,7 +416,8 @@ fn restore_one_agent(
     match classify_agent_startup(agent, &signature, runtime) {
         StartupClassification::Stopped
         | StartupClassification::Stale
-        | StartupClassification::Inconsistent => RestoreOneOutcome::Dead,
+        | StartupClassification::Inconsistent
+        | StartupClassification::Orphaned => RestoreOneOutcome::Dead,
         StartupClassification::Recoverable => RestoreOneOutcome::Skip,
         StartupClassification::Running => {
             match revive_agent_session(agent, &signature, runtime, runtime_warning) {
@@ -529,6 +564,7 @@ fn apply_restored_state(
                 process_identity,
                 pid,
                 lifecycle_generation: 0,
+                worker_identities: Vec::new(),
             });
         }
     }
@@ -609,58 +645,53 @@ mod tests {
 
     #[test]
     fn startup_classification_covers_required_lifecycle_states() {
-        let coherent = BindingEvidence::Coherent;
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                coherent,
-                false,
-                ProcessLiveness::Dead
-            ),
-            StartupClassification::Running
+        use jefe::runtime::OrphanClassification as Oc;
+        // Local helper: fix remote=false and orphan=NoOrphan so each row is a
+        // compact (session, binding, process) -> expected assertion.
+        let cls = |session, process, expected| {
+            assert_eq!(
+                classify_startup(
+                    session,
+                    BindingEvidence::Coherent,
+                    false,
+                    process,
+                    Oc::NoOrphan
+                ),
+                expected
+            );
+        };
+        cls(
+            SessionEvidence::Alive,
+            ProcessLiveness::Dead,
+            StartupClassification::Running,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::Dead
-            ),
-            StartupClassification::Stopped
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::Dead,
+            StartupClassification::Stopped,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::ReusedPid
-            ),
-            StartupClassification::Stale
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::ReusedPid,
+            StartupClassification::Stale,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                coherent,
-                false,
-                ProcessLiveness::ReusedPid
-            ),
-            StartupClassification::Stale
+        cls(
+            SessionEvidence::Alive,
+            ProcessLiveness::ReusedPid,
+            StartupClassification::Stale,
         );
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Missing,
-                coherent,
-                false,
-                ProcessLiveness::Alive
-            ),
-            StartupClassification::Recoverable
+        cls(
+            SessionEvidence::Missing,
+            ProcessLiveness::Alive,
+            StartupClassification::Recoverable,
         );
         assert_eq!(
             classify_startup(
                 SessionEvidence::Missing,
                 BindingEvidence::Inconsistent,
                 false,
-                ProcessLiveness::Alive
+                ProcessLiveness::Alive,
+                Oc::NoOrphan,
             ),
             StartupClassification::Inconsistent
         );
@@ -674,7 +705,8 @@ mod tests {
                     SessionEvidence::Unavailable,
                     BindingEvidence::Coherent,
                     false,
-                    liveness
+                    liveness,
+                    jefe::runtime::OrphanClassification::NoOrphan,
                 ),
                 StartupClassification::Recoverable
             );
@@ -688,7 +720,8 @@ mod tests {
                 SessionEvidence::Missing,
                 BindingEvidence::Coherent,
                 true,
-                ProcessLiveness::Alive
+                ProcessLiveness::Alive,
+                jefe::runtime::OrphanClassification::NoOrphan,
             ),
             StartupClassification::Stopped
         );
@@ -701,7 +734,8 @@ mod tests {
                 SessionEvidence::Missing,
                 BindingEvidence::Coherent,
                 false,
-                ProcessLiveness::MalformedIdentity
+                ProcessLiveness::MalformedIdentity,
+                jefe::runtime::OrphanClassification::NoOrphan,
             ),
             StartupClassification::Inconsistent
         );
@@ -710,7 +744,8 @@ mod tests {
                 SessionEvidence::Missing,
                 BindingEvidence::Coherent,
                 false,
-                ProcessLiveness::Inaccessible
+                ProcessLiveness::Inaccessible,
+                jefe::runtime::OrphanClassification::NoOrphan,
             ),
             StartupClassification::Recoverable
         );
@@ -731,7 +766,8 @@ mod tests {
                     SessionEvidence::Alive,
                     BindingEvidence::Inconsistent,
                     false,
-                    liveness
+                    liveness,
+                    jefe::runtime::OrphanClassification::NoOrphan,
                 ),
                 StartupClassification::Running,
                 "Alive session with Inconsistent binding and {liveness:?} process should be Running"
@@ -748,7 +784,8 @@ mod tests {
                 SessionEvidence::Missing,
                 BindingEvidence::Inconsistent,
                 false,
-                ProcessLiveness::Alive
+                ProcessLiveness::Alive,
+                jefe::runtime::OrphanClassification::NoOrphan,
             ),
             StartupClassification::Inconsistent
         );
@@ -757,7 +794,8 @@ mod tests {
                 SessionEvidence::Missing,
                 BindingEvidence::Inconsistent,
                 true,
-                ProcessLiveness::Alive
+                ProcessLiveness::Alive,
+                jefe::runtime::OrphanClassification::NoOrphan,
             ),
             StartupClassification::Inconsistent
         );
@@ -775,6 +813,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
@@ -820,6 +859,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
@@ -844,6 +884,7 @@ mod tests {
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
