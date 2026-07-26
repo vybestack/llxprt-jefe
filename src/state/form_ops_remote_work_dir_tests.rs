@@ -3,6 +3,7 @@
 use super::*;
 use crate::domain::{RemoteRepositorySettings, Repository, RepositoryId};
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::ModalState;
 
 #[test]
@@ -23,7 +24,9 @@ fn remote_agent_work_dir_preserves_unix_tilde_and_trims_trailing_slashes() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(repository_id));
+    state = state
+        .apply(AppEvent::OpenNewAgent(repository_id))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
     };

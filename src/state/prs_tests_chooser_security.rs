@@ -9,6 +9,7 @@
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::RepositoryId;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 
 /// PR chooser: cross-repo metadata is dropped.
 ///
@@ -46,7 +47,9 @@ fn pr_metadata_cross_repo_agent_dropped_from_chooser() {
             dirty: crate::domain::DirtyStatus::dirty(),
         },
     ];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -93,7 +96,9 @@ fn pr_metadata_running_agent_dropped_from_chooser() {
             "idle-agent".to_string(),
         )),
     ];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -140,7 +145,9 @@ fn pr_metadata_unavailable_kind_agent_dropped_from_chooser() {
             "llxprt-agent".to_string(),
         )),
     ];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -180,7 +187,9 @@ fn pr_metadata_stale_removed_agent_dropped_from_chooser() {
             "current-agent".to_string(),
         )),
     ];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -241,7 +250,9 @@ fn pr_metadata_branch_and_dirty_joined_for_eligible_agent() {
         branch: Some("feature".to_string()),
         dirty: crate::domain::DirtyStatus::dirty(),
     }];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &state
         .prs_state
         .agent_chooser
@@ -278,7 +289,9 @@ fn pr_nonzero_chooser_index_selects_correct_agent_id() {
             "agent-beta".to_string(),
         )),
     ];
-    let mut state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let mut state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     assert_eq!(
         state
             .prs_state
@@ -288,7 +301,9 @@ fn pr_nonzero_chooser_index_selects_correct_agent_id() {
             .selected_index,
         0
     );
-    state = state.apply(AppEvent::PrAgentChooserNavigateDown);
+    state = state
+        .apply(AppEvent::PrAgentChooserNavigateDown)
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -320,7 +335,9 @@ fn pr_metadata_cannot_override_identity() {
     let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
         crate::domain::AgentId("agent-1".to_string()),
     )];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .prs_state
         .agent_chooser
@@ -344,7 +361,9 @@ fn pr_no_metadata_gives_unknown_dirty_no_branch() {
         std::path::PathBuf::from("/tmp/a1"),
     ));
 
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata: vec![] });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata: vec![] })
+        .committed_pure();
     let entry = &state
         .prs_state
         .agent_chooser
@@ -376,7 +395,9 @@ fn pr_empty_agent_value_kept_not_repo_default() {
     let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
         crate::domain::AgentId("a1".to_string()),
     )];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &state
         .prs_state
         .agent_chooser
@@ -410,7 +431,9 @@ fn pr_agent_config_preserved_not_repo_fallback() {
     let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
         crate::domain::AgentId("a1".to_string()),
     )];
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &state
         .prs_state
         .agent_chooser
@@ -441,7 +464,9 @@ fn pr_open_chooser_clears_stale_chooser_when_no_eligible() {
     let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
         crate::domain::AgentId("a1".to_string()),
     )];
-    let mut state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    let mut state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata })
+        .committed_pure();
     assert!(
         state.prs_state.agent_chooser.is_some(),
         "chooser must be open initially"
@@ -451,7 +476,9 @@ fn pr_open_chooser_clears_stale_chooser_when_no_eligible() {
     state.agents[0].status = crate::domain::AgentStatus::Running;
 
     // Reopen: no eligible agents → chooser must be cleared and notice set.
-    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata: vec![] });
+    let state = state
+        .apply(AppEvent::PrOpenAgentChooser { metadata: vec![] })
+        .committed_pure();
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "stale chooser must be cleared when no agents are eligible"

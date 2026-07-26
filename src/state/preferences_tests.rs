@@ -13,6 +13,7 @@ use crate::state::types::{InlineState, ScreenMode};
 use crate::state::{ISSUE_FILTER_FIELD_COUNT, PR_FILTER_FIELD_COUNT};
 
 use super::prs_test_fixtures::prs_state_with_detail;
+use crate::state::transition::TransitionExt;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ fn enter_prs_mode_restores_remembered_pr_filter() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Closed)
@@ -95,7 +96,7 @@ fn enter_prs_mode_defaults_to_open_when_no_prefs() {
         std::path::PathBuf::from("/tmp"),
     ));
     state.selected_repository_index = Some(0);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Open)
@@ -109,7 +110,7 @@ fn enter_prs_mode_restores_search_query() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(state.prs_state.search_query, "foo");
 }
 
@@ -120,7 +121,7 @@ fn enter_prs_mode_restores_field_index() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 3);
 }
 
@@ -135,7 +136,7 @@ fn pr_apply_filter_persists_to_prefs() {
     state.prs_state.draft_filter.state = Some(PrFilterState::Closed);
     state.prs_state.draft_filter.author = "alice".to_string();
 
-    let state = state.apply(AppEvent::PrApplyFilter);
+    let state = state.apply(AppEvent::PrApplyFilter).committed_pure();
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
@@ -151,7 +152,7 @@ fn pr_clear_filter_persists_open_default() {
     // Seed a search query so we can prove ClearFilter also clears it.
     state.prs_state.search_query = "stale query".to_string();
 
-    let state = state.apply(AppEvent::PrClearFilter);
+    let state = state.apply(AppEvent::PrClearFilter).committed_pure();
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
@@ -181,9 +182,9 @@ fn pr_open_filter_controls_keeps_restored_field_index() {
 
     // Enter mode restores field_index=2 into live state; opening filter
     // controls must preserve it (not reset to 0).
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 2);
-    let state = state.apply(AppEvent::PrOpenFilterControls);
+    let state = state.apply(AppEvent::PrOpenFilterControls).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 2);
 }
 
@@ -210,14 +211,14 @@ fn pr_prefs_are_per_repo() {
     state.prs_state.active = true;
 
     // Enter PR mode with repo-1 selected → Closed.
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Closed)
     );
 
     // Switch to repo-2 → reset_prs_for_repo_change restores Merged.
-    let state = state.apply(AppEvent::SelectRepository(1));
+    let state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Merged)
@@ -236,7 +237,7 @@ fn enter_issues_mode_restores_remembered_issue_filter() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::All)
@@ -253,7 +254,7 @@ fn enter_issues_mode_defaults_to_open() {
         std::path::PathBuf::from("/tmp"),
     ));
     state.selected_repository_index = Some(0);
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::Open)
@@ -272,9 +273,9 @@ fn issue_open_filter_controls_keeps_restored_field_index() {
 
     // Enter mode restores field_index=4 into live state; opening filter
     // controls must preserve it (not reset to 0).
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(state.issues_state.filter_ui.field_index, 4);
-    let state = state.apply(AppEvent::OpenFilterControls);
+    let state = state.apply(AppEvent::OpenFilterControls).committed_pure();
     assert_eq!(state.issues_state.filter_ui.field_index, 4);
 }
 
@@ -286,7 +287,7 @@ fn issue_apply_filter_persists() {
     state.issues_state.filter_ui.controls_open = true;
     state.issues_state.draft_filter.author = "alice".to_string();
 
-    let state = state.apply(AppEvent::ApplyFilter);
+    let state = state.apply(AppEvent::ApplyFilter).committed_pure();
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
@@ -301,7 +302,7 @@ fn issue_clear_filter_persists() {
     // Seed a search query so we can prove ClearFilter also clears it.
     state.issues_state.search_query = "stale query".to_string();
 
-    let state = state.apply(AppEvent::ClearFilter);
+    let state = state.apply(AppEvent::ClearFilter).committed_pure();
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
@@ -334,7 +335,7 @@ fn issue_clear_draft_filter_defaults_to_open() {
     state.issues_state.active = true;
     state.issues_state.draft_filter.state = Some(IssueFilterState::Closed);
 
-    let state = state.apply(AppEvent::ClearDraftFilter);
+    let state = state.apply(AppEvent::ClearDraftFilter).committed_pure();
     assert_eq!(
         state.issues_state.draft_filter.state,
         Some(IssueFilterState::Open),
@@ -355,7 +356,7 @@ fn merge_chooser_restores_last_method() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     let selected = state
         .prs_state
         .merge_chooser
@@ -367,7 +368,7 @@ fn merge_chooser_restores_last_method() {
 #[test]
 fn merge_chooser_defaults_to_merge_when_no_prefs() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     let selected = state
         .prs_state
         .merge_chooser
@@ -379,13 +380,13 @@ fn merge_chooser_defaults_to_merge_when_no_prefs() {
 #[test]
 fn merge_confirm_persists_method() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     // Navigate to Rebase (index 2)
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
     // Confirm twice
-    let state = state.apply(AppEvent::PrMergeConfirm);
-    let state = state.apply(AppEvent::PrMergeConfirm);
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
 
     let stored = state
         .user_preferences
@@ -404,12 +405,14 @@ fn merge_methods_loaded_clamps_disabled_last_method() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        allowed_methods: vec![MergeMethod::Merge, MergeMethod::Rebase],
-    });
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Rebase],
+        })
+        .committed_pure();
     let selected = state
         .prs_state
         .merge_chooser
@@ -432,12 +435,14 @@ fn merge_methods_loaded_keeps_last_method_when_allowed() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        allowed_methods: vec![MergeMethod::Merge, MergeMethod::Squash],
-    });
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Squash],
+        })
+        .committed_pure();
     let selected = state
         .prs_state
         .merge_chooser
@@ -557,14 +562,16 @@ fn issue_repo_switch_persists_old_search_before_switch() {
         "repo-2",
         RepoPreferences::default(),
     );
-    state = state.apply(AppEvent::EnterIssuesMode);
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     state.issues_state.issue_focus = IssueFocus::RepoList;
-    state = state.apply(AppEvent::SetSearchQuery {
-        query: "rust-bug".to_string(),
-    });
+    state = state
+        .apply(AppEvent::SetSearchQuery {
+            query: "rust-bug".to_string(),
+        })
+        .committed_pure();
 
     // Switch down to repo-2.
-    state = state.apply(AppEvent::IssuesNavigateDown);
+    state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
 
     // repo-1's typed search query must now be in its stored prefs.
     let repo1_prefs = state
@@ -576,8 +583,8 @@ fn issue_repo_switch_persists_old_search_before_switch() {
     );
 
     // Switch back up to repo-1 and re-enter mode to confirm it restores.
-    state = state.apply(AppEvent::IssuesNavigateUp);
-    state = state.apply(AppEvent::RefocusIssueList);
+    state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
+    state = state.apply(AppEvent::RefocusIssueList).committed_pure();
     assert_eq!(state.issues_state.search_query, "rust-bug");
 }
 
@@ -593,14 +600,16 @@ fn pr_repo_switch_persists_old_search_before_switch() {
         "repo-2",
         RepoPreferences::default(),
     );
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     state.prs_state.pr_focus = PrFocus::RepoList;
-    state = state.apply(AppEvent::PrSetSearchQuery {
-        query: "draft-prs".to_string(),
-    });
+    state = state
+        .apply(AppEvent::PrSetSearchQuery {
+            query: "draft-prs".to_string(),
+        })
+        .committed_pure();
 
     // Switch down to repo-2.
-    state = state.apply(AppEvent::PrNavigateDown);
+    state = state.apply(AppEvent::PrNavigateDown).committed_pure();
 
     let repo1_prefs = state
         .user_preferences
@@ -611,8 +620,8 @@ fn pr_repo_switch_persists_old_search_before_switch() {
     );
 
     // Switch back up to repo-1 and confirm it restores.
-    state = state.apply(AppEvent::PrNavigateUp);
-    state = state.apply(AppEvent::RefocusPrList);
+    state = state.apply(AppEvent::PrNavigateUp).committed_pure();
+    state = state.apply(AppEvent::RefocusPrList).committed_pure();
     assert_eq!(state.prs_state.search_query, "draft-prs");
 }
 
@@ -626,7 +635,7 @@ fn restore_clamps_stale_pr_filter_field_index() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(
         state.prs_state.filter_ui.field_index < PR_FILTER_FIELD_COUNT,
         "restored field_index must be clamped within the valid field range"
@@ -641,7 +650,7 @@ fn restore_clamps_stale_issue_filter_field_index() {
         ..RepoPreferences::default()
     };
     let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(
         state.issues_state.filter_ui.field_index < ISSUE_FILTER_FIELD_COUNT,
         "restored field_index must be clamped within the valid field range"
@@ -666,18 +675,18 @@ fn pr_dashboard_repo_switch_does_not_leak_filter() {
         RepoPreferences::default(),
     );
     // Enter PR mode on repo-1 (llxprt-code).
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     // Apply a Closed filter on repo-1.
-    state = state.apply(AppEvent::PrOpenFilterControls);
-    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::PrApplyFilter);
+    state = state.apply(AppEvent::PrOpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::PrCycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Closed)
     );
 
     // Switch to repo-2 (jefe) via the dashboard selection path.
-    state = state.apply(AppEvent::SelectRepository(1));
+    state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
 
     // repo-2 must NOT carry repo-1's Closed filter — it must be Open (default).
     assert_eq!(
@@ -707,18 +716,18 @@ fn issue_dashboard_repo_switch_does_not_leak_filter() {
         RepoPreferences::default(),
     );
     // Enter issues mode on repo-1 (llxprt-code).
-    state = state.apply(AppEvent::EnterIssuesMode);
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     // Apply a Closed filter on repo-1.
-    state = state.apply(AppEvent::OpenFilterControls);
-    state = state.apply(AppEvent::CycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::ApplyFilter);
+    state = state.apply(AppEvent::OpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::CycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::ApplyFilter).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::Closed)
     );
 
     // Switch to repo-2 (jefe) via the dashboard selection path.
-    state = state.apply(AppEvent::SelectRepository(1));
+    state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
 
     // repo-2 must NOT carry repo-1's Closed filter.
     assert_eq!(
@@ -748,16 +757,16 @@ fn pr_inmode_repo_switch_does_not_leak_applied_filter() {
         "jefe",
         RepoPreferences::default(),
     );
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     state.prs_state.pr_focus = PrFocus::RepoList;
     // Apply a Closed filter on repo-1.
-    state = state.apply(AppEvent::PrOpenFilterControls);
-    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::PrApplyFilter);
+    state = state.apply(AppEvent::PrOpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::PrCycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter).committed_pure();
     state.prs_state.pr_focus = PrFocus::RepoList;
 
     // Switch down to repo-2 (jefe) via in-mode repo navigation.
-    state = state.apply(AppEvent::PrNavigateDown);
+    state = state.apply(AppEvent::PrNavigateDown).committed_pure();
 
     assert_eq!(
         state.prs_state.committed_filter.state,
@@ -777,16 +786,16 @@ fn pr_exit_switch_reenter_does_not_leak_filter() {
         RepoPreferences::default(),
     );
     // Enter PR mode on repo-1, apply a Closed filter, exit.
-    state = state.apply(AppEvent::EnterPrsMode);
-    state = state.apply(AppEvent::PrOpenFilterControls);
-    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::PrApplyFilter);
-    state = state.apply(AppEvent::ExitPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+    state = state.apply(AppEvent::PrOpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::PrCycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter).committed_pure();
+    state = state.apply(AppEvent::ExitPrsMode).committed_pure();
 
     // Switch to repo-2 (jefe) from the dashboard.
-    state = state.apply(AppEvent::SelectRepository(1));
+    state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
     // Re-enter PR mode on repo-2.
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     assert_eq!(
         state.prs_state.committed_filter.state,
@@ -818,17 +827,19 @@ fn pr_jump_to_agent_in_other_repo_does_not_leak_filter() {
     state.agents[0].shortcut_slot = Some(1);
 
     // Enter PR mode on repo-1 (llxprt-code) and apply a Closed filter.
-    state = state.apply(AppEvent::EnterPrsMode);
-    state = state.apply(AppEvent::PrOpenFilterControls);
-    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::PrApplyFilter);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+    state = state.apply(AppEvent::PrOpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::PrCycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter).committed_pure();
     assert_eq!(
         state.prs_state.committed_filter.state,
         Some(PrFilterState::Closed)
     );
 
     // Jump to the jefe agent (slot 1), which switches the selected repo.
-    state = state.apply(AppEvent::JumpToAgentByShortcut(1));
+    state = state
+        .apply(AppEvent::JumpToAgentByShortcut(1))
+        .committed_pure();
 
     // repo-2 (jefe) must NOT carry repo-1's Closed filter.
     assert_eq!(
@@ -868,17 +879,19 @@ fn issue_jump_to_agent_in_other_repo_does_not_leak_filter() {
     state.agents[0].shortcut_slot = Some(1);
 
     // Enter issues mode on repo-1 (llxprt-code) and apply a Closed filter.
-    state = state.apply(AppEvent::EnterIssuesMode);
-    state = state.apply(AppEvent::OpenFilterControls);
-    state = state.apply(AppEvent::CycleFilterState); // Open -> Closed
-    state = state.apply(AppEvent::ApplyFilter);
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    state = state.apply(AppEvent::OpenFilterControls).committed_pure();
+    state = state.apply(AppEvent::CycleFilterState).committed_pure(); // Open -> Closed
+    state = state.apply(AppEvent::ApplyFilter).committed_pure();
     assert_eq!(
         state.issues_state.committed_filter.state,
         Some(IssueFilterState::Closed)
     );
 
     // Jump to the jefe agent (slot 1), which switches the selected repo.
-    state = state.apply(AppEvent::JumpToAgentByShortcut(1));
+    state = state
+        .apply(AppEvent::JumpToAgentByShortcut(1))
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.committed_filter.state,

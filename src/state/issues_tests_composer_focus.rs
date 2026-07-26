@@ -8,6 +8,7 @@
 use crate::domain::{IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{
     ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueMutationPending,
 };
@@ -21,7 +22,7 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
         std::path::PathBuf::from("/tmp/test"),
     ));
     state.selected_repository_index = Some(0);
-    state.apply(AppEvent::EnterIssuesMode)
+    state.apply(AppEvent::EnterIssuesMode).committed_pure()
 }
 
 fn p15_detail(number: u64) -> IssueDetail {
@@ -65,12 +66,14 @@ fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str
 fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), issue_number);
-    state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number,
-        request_id: 0,
-        detail: Box::new(p15_detail(issue_number)),
-    })
+    state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number,
+            request_id: 0,
+            detail: Box::new(p15_detail(issue_number)),
+        })
+        .committed_pure()
 }
 
 fn state_with_long_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
@@ -81,12 +84,14 @@ fn state_with_long_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState
         .join("\n");
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), issue_number);
-    state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number,
-        request_id: 0,
-        detail: Box::new(detail),
-    })
+    state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure()
 }
 
 /// Issue #56: Opening the new-comment composer moves detail subfocus to NewComment
@@ -98,7 +103,9 @@ fn test_open_new_comment_composer_sets_subfocus_to_new_comment() {
     let mut state = p15_state_with_loaded_detail(&repo_id, 42);
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.detail_subfocus,
@@ -122,7 +129,9 @@ fn test_open_new_comment_composer_scrolls_to_bottom() {
     state.issues_state.detail_viewport_rows = 5;
     state.issues_state.detail_scroll_offset = 0;
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.detail_scroll_offset,
@@ -148,7 +157,9 @@ fn test_open_new_comment_composer_blocked_does_not_change_subfocus_or_scroll() {
         cursor: 7,
     };
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
 
     assert_eq!(state.issues_state.detail_subfocus, DetailSubfocus::Body);
     assert_eq!(state.issues_state.detail_scroll_offset, 0);
@@ -164,9 +175,9 @@ fn test_open_new_comment_composer_blocked_does_not_change_subfocus_or_scroll() {
 fn type_into_composer(mut state: AppState, text: &str) -> AppState {
     for ch in text.chars() {
         state = if ch == '\n' {
-            state.apply(AppEvent::InlineNewline)
+            state.apply(AppEvent::InlineNewline).committed_pure()
         } else {
-            state.apply(AppEvent::InlineChar(ch))
+            state.apply(AppEvent::InlineChar(ch)).committed_pure()
         };
     }
     state
@@ -178,7 +189,9 @@ fn test_typing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = state_with_long_detail(&repo_id, 42);
     state.issues_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.issues_state.detail_scroll_offset;
 
     let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
@@ -196,7 +209,9 @@ fn test_arrowing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = state_with_long_detail(&repo_id, 42);
     state.issues_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.issues_state.detail_scroll_offset;
     let typed = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
     let mut state = type_into_composer(state, typed);
@@ -208,7 +223,7 @@ fn test_arrowing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
         AppEvent::InlineCursorDown,
     ] {
         for _ in 0..typed.chars().count() {
-            state = state.apply(event.clone());
+            state = state.apply(event.clone()).committed_pure();
         }
         assert_eq!(state.issues_state.detail_scroll_offset, offset_after_open);
         assert!(matches!(
@@ -224,13 +239,15 @@ fn test_backspacing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = state_with_long_detail(&repo_id, 42);
     state.issues_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
     let offset_after_open = state.issues_state.detail_scroll_offset;
     let typed = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
     let mut state = type_into_composer(state, typed);
 
     for _ in 0..typed.chars().count() {
-        state = state.apply(AppEvent::InlineBackspace);
+        state = state.apply(AppEvent::InlineBackspace).committed_pure();
     }
     assert!(matches!(
         &state.issues_state.inline_state,
@@ -244,7 +261,9 @@ fn test_backspacing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
 #[test]
 fn test_inline_cancel_clears_pending_issue_comment_mutation() {
     let repo_id = RepositoryId("repo-1".to_string());
-    let mut state = state_with_long_detail(&repo_id, 42).apply(AppEvent::OpenNewCommentComposer);
+    let mut state = state_with_long_detail(&repo_id, 42)
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
     let pending_target = state.issues_state.inline_state.clone();
     state.issues_state.mutation_pending = Some(IssueMutationPending {
         scope_repo_id: repo_id,
@@ -252,7 +271,7 @@ fn test_inline_cancel_clears_pending_issue_comment_mutation() {
         target: pending_target,
     });
 
-    let state = state.apply(AppEvent::InlineCancelOrEsc);
+    let state = state.apply(AppEvent::InlineCancelOrEsc).committed_pure();
 
     assert_eq!(state.issues_state.inline_state, InlineState::None);
     assert!(state.issues_state.mutation_pending.is_none());
@@ -278,7 +297,9 @@ fn test_open_reply_composer_reveals_reply_anchor() {
             "comment body",
         ));
 
-    let state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+    let state = state
+        .apply(AppEvent::OpenReplyComposer { comment_index: 0 })
+        .committed_pure();
     let detail = state
         .issues_state
         .issue_detail
@@ -322,10 +343,14 @@ fn test_blocked_reply_composer_open_does_not_mutate_scroll() {
             "2026-07-01T00:00:00Z",
             "comment body",
         ));
-    let mut state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+    let mut state = state
+        .apply(AppEvent::OpenReplyComposer { comment_index: 0 })
+        .committed_pure();
     state.issues_state.detail_scroll_offset = 0;
 
-    let state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+    let state = state
+        .apply(AppEvent::OpenReplyComposer { comment_index: 0 })
+        .committed_pure();
 
     assert_eq!(state.issues_state.detail_scroll_offset, 0);
 }
@@ -341,20 +366,24 @@ fn test_comment_created_scrolls_to_bottom() {
         text: "fresh comment".to_string(),
         cursor: 13,
     };
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: repo_id.clone(),
-        mutation_id: 1,
-        target: submitted_target,
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: submitted_target,
+        })
+        .committed_pure();
     state.issues_state.detail_viewport_rows = 5;
     state.issues_state.detail_scroll_offset = 0;
 
-    let state = state.apply(AppEvent::CommentCreated {
-        scope_repo_id: repo_id,
-        issue_number: 42,
-        mutation_id: 1,
-        comment: p15_comment(99, "bob", "2024-01-05T00:00:00Z", "fresh comment"),
-    });
+    let state = state
+        .apply(AppEvent::CommentCreated {
+            scope_repo_id: repo_id,
+            issue_number: 42,
+            mutation_id: 1,
+            comment: p15_comment(99, "bob", "2024-01-05T00:00:00Z", "fresh comment"),
+        })
+        .committed_pure();
 
     let detail = state
         .issues_state
@@ -385,20 +414,24 @@ fn test_stale_comment_created_does_not_scroll() {
         text: "draft".to_string(),
         cursor: 5,
     };
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: repo_id.clone(),
-        mutation_id: 1,
-        target: submitted_target,
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: submitted_target,
+        })
+        .committed_pure();
     state.issues_state.detail_viewport_rows = 5;
     state.issues_state.detail_scroll_offset = 0;
 
-    let state = state.apply(AppEvent::CommentCreated {
-        scope_repo_id: repo_id,
-        issue_number: 99,
-        mutation_id: 1,
-        comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
-    });
+    let state = state
+        .apply(AppEvent::CommentCreated {
+            scope_repo_id: repo_id,
+            issue_number: 99,
+            mutation_id: 1,
+            comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
+        })
+        .committed_pure();
 
     let detail = state
         .issues_state

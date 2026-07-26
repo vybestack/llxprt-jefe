@@ -8,6 +8,7 @@
 //! Acceptance criteria from: analysis/f12-cross-view-consistency-matrix.md
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 use std::path::PathBuf;
 
@@ -61,7 +62,7 @@ fn cycle_pane_focus_from_repositories_goes_to_agents() {
     let mut state = create_test_state();
     state.pane_focus = PaneFocus::Repositories;
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Agents);
 }
@@ -71,7 +72,7 @@ fn cycle_pane_focus_from_agents_goes_to_terminal() {
     let mut state = create_test_state();
     state.pane_focus = PaneFocus::Agents;
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Terminal);
 }
@@ -81,7 +82,7 @@ fn cycle_pane_focus_from_terminal_goes_to_repositories() {
     let mut state = create_test_state();
     state.pane_focus = PaneFocus::Terminal;
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 }
@@ -96,7 +97,7 @@ fn navigate_down_increments_agent_selection() {
     state.pane_focus = PaneFocus::Agents;
     state.selected_agent_index = Some(0);
 
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(state.selected_agent_index, Some(1));
 }
@@ -107,7 +108,7 @@ fn navigate_up_decrements_agent_selection() {
     state.pane_focus = PaneFocus::Agents;
     state.selected_agent_index = Some(1);
 
-    state = state.apply(AppEvent::NavigateUp);
+    state = state.apply(AppEvent::NavigateUp).committed_pure();
 
     assert_eq!(state.selected_agent_index, Some(0));
 }
@@ -118,7 +119,7 @@ fn navigate_down_at_end_stays_at_end() {
     state.pane_focus = PaneFocus::Agents;
     state.selected_agent_index = Some(1); // Last agent
 
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(state.selected_agent_index, Some(1));
 }
@@ -129,7 +130,7 @@ fn navigate_up_at_zero_stays_at_zero() {
     state.pane_focus = PaneFocus::Agents;
     state.selected_agent_index = Some(0);
 
-    state = state.apply(AppEvent::NavigateUp);
+    state = state.apply(AppEvent::NavigateUp).committed_pure();
 
     assert_eq!(state.selected_agent_index, Some(0));
 }
@@ -143,7 +144,7 @@ fn f12_toggle_enables_terminal_focus() {
     let mut state = create_test_state();
     state.terminal_focused = false;
 
-    state = state.apply(AppEvent::ToggleTerminalFocus);
+    state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
 
     assert!(state.terminal_focused);
 }
@@ -153,7 +154,7 @@ fn f12_toggle_disables_terminal_focus() {
     let mut state = create_test_state();
     state.terminal_focused = true;
 
-    state = state.apply(AppEvent::ToggleTerminalFocus);
+    state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
 
     assert!(!state.terminal_focused);
 }
@@ -164,7 +165,7 @@ fn f12_focus_is_independent_of_pane_focus() {
     state.pane_focus = PaneFocus::Repositories;
     state.terminal_focused = false;
 
-    state = state.apply(AppEvent::ToggleTerminalFocus);
+    state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
 
     // Terminal focus is independent - pane focus should NOT change
     assert!(state.terminal_focused);
@@ -189,7 +190,7 @@ fn f12_focus_blocks_non_terminal_navigation() {
     // (keys go to PTY instead)
     let original_selection = state.selected_agent_index;
 
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
 
     // Expected: selection unchanged when terminal focused
     assert_eq!(
@@ -207,7 +208,7 @@ fn enter_split_mode_changes_screen_mode() {
     let mut state = create_test_state();
     state.screen_mode = ScreenMode::Dashboard;
 
-    state = state.apply(AppEvent::EnterSplitMode);
+    state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Split);
 }
@@ -218,7 +219,7 @@ fn enter_split_mode_focuses_the_visible_repository_list() {
     state.screen_mode = ScreenMode::Dashboard;
     state.pane_focus = PaneFocus::Agents;
 
-    state = state.apply(AppEvent::EnterSplitMode);
+    state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Split);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
@@ -228,7 +229,7 @@ fn exit_split_mode_returns_to_dashboard() {
     let mut state = create_test_state();
     state.screen_mode = ScreenMode::Split;
 
-    state = state.apply(AppEvent::ExitSplitMode);
+    state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Dashboard);
 }
@@ -250,7 +251,7 @@ fn selecting_repository_filters_visible_agents() {
     );
     state.agents.push(agent3);
 
-    state = state.apply(AppEvent::SelectRepository(1)); // Select repo-2
+    state = state.apply(AppEvent::SelectRepository(1)).committed_pure(); // Select repo-2
 
     assert_eq!(state.selected_repository_index, Some(1));
     // Agent list should show only agents for selected repository

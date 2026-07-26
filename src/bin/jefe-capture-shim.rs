@@ -160,6 +160,6 @@ fn write_record(
 
 fn hang_forever() -> ! {
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(3600));
+        std::thread::park();
     }
 }

@@ -175,11 +175,15 @@ fn local_boundary_classifies_missing_nonzero_and_timeout() {
         Vec::new(),
         None,
     );
+    // These two cases assert how a completed probe is classified, not how long
+    // it takes, so they get a deadline generous enough that a loaded machine
+    // cannot turn either into a timeout.
+    let classification_budget = Duration::from_mins(1);
     assert!(matches!(
         require_local_with_resolver(
             &selector("nightly"),
             &missing_resolver,
-            Duration::from_secs(1)
+            classification_budget
         ),
         Err(NpmPackageAvailabilityError::NpmMissing { .. })
     ));
@@ -187,7 +191,7 @@ fn local_boundary_classifies_missing_nonzero_and_timeout() {
     let (_failed_dir, failed) =
         fixture_resolver("#!/bin/sh\nprintf 'registry unavailable' >&2\nexit 42\n");
     assert!(matches!(
-        require_local_with_resolver(&selector("nightly"), &failed, Duration::from_secs(1)),
+        require_local_with_resolver(&selector("nightly"), &failed, classification_budget),
         Err(NpmPackageAvailabilityError::PackageUnresolved { .. })
     ));
 

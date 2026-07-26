@@ -5,6 +5,7 @@ use jefe::domain::{
     Repository, RepositoryId, SandboxEngine,
 };
 use jefe::selection::agent_form_content_lines;
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -83,10 +84,12 @@ fn set_edit_repository_default(state: &mut AppState, version: &str) {
 fn new_agent_submit_form_trims_persists_and_edit_agent_reopens_with_nonblank_llxprt_selector() {
     let repository = remote_repository();
     let repository_id = repository.id.clone();
-    let mut state = state_with_repository(repository).apply(AppEvent::OpenNewAgent(repository_id));
+    let mut state = state_with_repository(repository)
+        .apply(AppEvent::OpenNewAgent(repository_id))
+        .committed_pure();
     set_new_agent_fields(&mut state, "nightly agent", "  nightly  ");
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(state.modal, ModalState::None);
     assert_eq!(state.agents.len(), 1);
@@ -96,7 +99,9 @@ fn new_agent_submit_form_trims_persists_and_edit_agent_reopens_with_nonblank_llx
     );
 
     let created_agent_id = state.agents[0].id.clone();
-    state = state.apply(AppEvent::OpenEditAgent(created_agent_id));
+    state = state
+        .apply(AppEvent::OpenEditAgent(created_agent_id))
+        .committed_pure();
     let ModalState::EditAgent { fields, .. } = &state.modal else {
         panic!("persisted new agent should reopen in Edit Agent");
     };
@@ -108,10 +113,12 @@ fn new_agent_submit_form_clears_whitespace_only_llxprt_selector_to_none() {
     let mut repository = remote_repository();
     repository.default_llxprt_version = Some(selector("old-selector"));
     let repository_id = repository.id.clone();
-    let mut state = state_with_repository(repository).apply(AppEvent::OpenNewAgent(repository_id));
+    let mut state = state_with_repository(repository)
+        .apply(AppEvent::OpenNewAgent(repository_id))
+        .committed_pure();
     set_new_agent_fields(&mut state, "direct agent", " \t\n ");
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(state.modal, ModalState::None);
     assert_eq!(state.agents.len(), 1);
@@ -126,17 +133,21 @@ fn edit_agent_submit_form_trims_updates_and_clears_llxprt_selector() {
     let mut state = state_with_repository(repository);
     state.agents.push(agent);
 
-    state = state.apply(AppEvent::OpenEditAgent(agent_id.clone()));
+    state = state
+        .apply(AppEvent::OpenEditAgent(agent_id.clone()))
+        .committed_pure();
     set_edit_agent_version(&mut state, "  nightly  ");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert_eq!(
         selector_value(state.agents[0].llxprt_version.as_ref()),
         Some("nightly")
     );
 
-    state = state.apply(AppEvent::OpenEditAgent(agent_id));
+    state = state
+        .apply(AppEvent::OpenEditAgent(agent_id))
+        .committed_pure();
     set_edit_agent_version(&mut state, "  \t ");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert!(state.agents[0].llxprt_version.is_none());
 }
 
@@ -147,7 +158,9 @@ fn edit_agent_runtime_switch_to_code_puppy_and_back_retains_hidden_llxprt_select
     let agent_id = agent.id.clone();
     let mut state = state_with_repository(repository);
     state.agents.push(agent);
-    state = state.apply(AppEvent::OpenEditAgent(agent_id));
+    state = state
+        .apply(AppEvent::OpenEditAgent(agent_id))
+        .committed_pure();
 
     let ModalState::EditAgent { fields, focus, .. } = &mut state.modal else {
         panic!("edit-agent modal should be open");
@@ -155,14 +168,14 @@ fn edit_agent_runtime_switch_to_code_puppy_and_back_retains_hidden_llxprt_select
     fields.llxprt_version = NIGHTLY_SELECTOR.to_owned();
     *focus = AgentFormFocus::AgentKind;
 
-    state = state.apply(AppEvent::FormToggleCheckbox);
+    state = state.apply(AppEvent::FormToggleCheckbox).committed_pure();
     let ModalState::EditAgent { fields, .. } = &state.modal else {
         panic!("edit-agent modal should remain open after runtime switch");
     };
     assert_eq!(fields.agent_kind, "code_puppy");
     assert_eq!(fields.llxprt_version, NIGHTLY_SELECTOR);
 
-    state = state.apply(AppEvent::FormToggleCheckbox);
+    state = state.apply(AppEvent::FormToggleCheckbox).committed_pure();
     let ModalState::EditAgent { fields, .. } = &state.modal else {
         panic!("edit-agent modal should remain open after switching back");
     };
@@ -179,9 +192,11 @@ fn edit_repository_submit_form_trims_updates_and_clears_default_without_changing
     let mut state = state_with_repository(repository);
     state.agents.push(agent);
 
-    state = state.apply(AppEvent::OpenEditRepository(repository_id.clone()));
+    state = state
+        .apply(AppEvent::OpenEditRepository(repository_id.clone()))
+        .committed_pure();
     set_edit_repository_default(&mut state, "  nightly  ");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert_eq!(
         selector_value(state.repositories[0].default_llxprt_version.as_ref()),
         Some("nightly")
@@ -191,9 +206,11 @@ fn edit_repository_submit_form_trims_updates_and_clears_default_without_changing
         Some("agent-pinned")
     );
 
-    state = state.apply(AppEvent::OpenEditRepository(repository_id));
+    state = state
+        .apply(AppEvent::OpenEditRepository(repository_id))
+        .committed_pure();
     set_edit_repository_default(&mut state, " \n\t ");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert!(state.repositories[0].default_llxprt_version.is_none());
     assert_eq!(
         selector_value(state.agents[0].llxprt_version.as_ref()),
@@ -208,17 +225,21 @@ fn new_agent_created_after_repository_edit_copies_updated_default_llxprt_selecto
     let repository_id = repository.id.clone();
     let mut state = state_with_repository(repository);
 
-    state = state.apply(AppEvent::OpenEditRepository(repository_id.clone()));
+    state = state
+        .apply(AppEvent::OpenEditRepository(repository_id.clone()))
+        .committed_pure();
     set_edit_repository_default(&mut state, &format!("  {NIGHTLY_SELECTOR}  "));
-    state = state.apply(AppEvent::SubmitForm);
-    state = state.apply(AppEvent::OpenNewAgent(repository_id));
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
+    state = state
+        .apply(AppEvent::OpenNewAgent(repository_id))
+        .committed_pure();
 
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("new-agent modal should be open");
     };
     assert_eq!(fields.llxprt_version, NIGHTLY_SELECTOR);
     fields.name = "later agent".to_owned();
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(state.agents.len(), 1);
     assert_eq!(
@@ -330,7 +351,9 @@ fn launch_signature_serde_selector_missing_null_blank_and_nonblank_normalize_and
 fn projection_state(agent_kind: AgentKind) -> AppState {
     let repository = remote_repository();
     let repository_id = repository.id.clone();
-    let mut state = state_with_repository(repository).apply(AppEvent::OpenNewAgent(repository_id));
+    let mut state = state_with_repository(repository)
+        .apply(AppEvent::OpenNewAgent(repository_id))
+        .committed_pure();
     let ModalState::NewAgent { fields, focus, .. } = &mut state.modal else {
         panic!("new-agent modal should be open");
     };

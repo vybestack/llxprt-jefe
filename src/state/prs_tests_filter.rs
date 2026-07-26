@@ -7,6 +7,7 @@
 use crate::domain::{PrFilter, PrFilterState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::ScreenMode;
 
 /// Helper: PR-mode state with filter controls open and a selected repo.
@@ -40,18 +41,20 @@ fn test_filter_navigate_and_update_draft_changes_draft_only() {
     assert_eq!(state.prs_state.filter_ui.field_index, 0);
 
     // Next advances the field index.
-    let state = state.apply(AppEvent::PrFilterNavigateNext);
+    let state = state.apply(AppEvent::PrFilterNavigateNext).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 1);
 
     // Prev reverses it.
-    let state = state.apply(AppEvent::PrFilterNavigatePrev);
+    let state = state.apply(AppEvent::PrFilterNavigatePrev).committed_pure();
     assert_eq!(state.prs_state.filter_ui.field_index, 0);
 
     // UpdateDraftFilter must change the DRAFT filter only, NOT committed.
-    let state = state.apply(AppEvent::PrUpdateDraftFilter {
-        field: "author".to_string(),
-        value: "octocat".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrUpdateDraftFilter {
+            field: "author".to_string(),
+            value: "octocat".to_string(),
+        })
+        .committed_pure();
     assert_eq!(state.prs_state.draft_filter.author, "octocat");
     assert!(
         state.prs_state.committed_filter.author.is_empty(),
@@ -71,7 +74,7 @@ fn test_apply_filter_commits_and_resets_for_reload() {
     state.prs_state.draft_filter.author = "octocat".to_string();
     state.prs_state.draft_filter.state = Some(PrFilterState::Closed);
 
-    let new_state = state.apply(AppEvent::PrApplyFilter);
+    let new_state = state.apply(AppEvent::PrApplyFilter).committed_pure();
 
     // Draft was committed.
     assert_eq!(new_state.prs_state.committed_filter.author, "octocat");
@@ -100,23 +103,23 @@ fn test_cycle_filter_state_open_closed_merged_all_open() {
     let mut state = prs_filter_open_state();
     state.prs_state.draft_filter.state = Some(PrFilterState::Open);
 
-    let state = state.apply(AppEvent::PrCycleFilterState);
+    let state = state.apply(AppEvent::PrCycleFilterState).committed_pure();
     assert_eq!(
         state.prs_state.draft_filter.state,
         Some(PrFilterState::Closed)
     );
 
-    let state = state.apply(AppEvent::PrCycleFilterState);
+    let state = state.apply(AppEvent::PrCycleFilterState).committed_pure();
     assert_eq!(
         state.prs_state.draft_filter.state,
         Some(PrFilterState::Merged)
     );
 
-    let state = state.apply(AppEvent::PrCycleFilterState);
+    let state = state.apply(AppEvent::PrCycleFilterState).committed_pure();
     assert_eq!(state.prs_state.draft_filter.state, Some(PrFilterState::All));
 
     // Wrap back to Open.
-    let state = state.apply(AppEvent::PrCycleFilterState);
+    let state = state.apply(AppEvent::PrCycleFilterState).committed_pure();
     assert_eq!(
         state.prs_state.draft_filter.state,
         Some(PrFilterState::Open)
@@ -135,7 +138,7 @@ fn test_apply_search_commits_trimmed_query_and_resets() {
     state.prs_state.search_query = "  bug fix  ".to_string();
     state.prs_state.search_input_focused = true;
 
-    let new_state = state.apply(AppEvent::PrApplySearch);
+    let new_state = state.apply(AppEvent::PrApplySearch).committed_pure();
 
     assert_eq!(
         new_state.prs_state.committed_filter.query_text, "bug fix",
@@ -164,7 +167,7 @@ fn test_clear_search_blurs_and_reloads() {
     state.prs_state.committed_filter.query_text = "bug".to_string();
     state.prs_state.search_input_focused = true;
 
-    let new_state = state.apply(AppEvent::PrClearSearch);
+    let new_state = state.apply(AppEvent::PrClearSearch).committed_pure();
 
     assert!(
         new_state.prs_state.search_query.is_empty(),
@@ -200,7 +203,7 @@ fn test_clear_filter_resets_committed_and_draft() {
     };
     state.prs_state.draft_filter = state.prs_state.committed_filter.clone();
 
-    let new_state = state.apply(AppEvent::PrClearFilter);
+    let new_state = state.apply(AppEvent::PrClearFilter).committed_pure();
 
     assert_eq!(
         new_state.prs_state.committed_filter.state,

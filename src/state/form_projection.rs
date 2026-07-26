@@ -226,6 +226,7 @@ pub fn prev_visible_repository_focus(
 mod tests {
     use super::*;
     use crate::state::AgentFormFocus as F;
+    use crate::state::transition::TransitionExt;
 
     #[test]
     fn llxprt_shows_all_fields() {
@@ -333,15 +334,17 @@ mod tests {
             repositories: vec![repository],
             ..AppState::default()
         };
-        state = state.apply(AppEvent::OpenNewAgent(RepositoryId(
-            "repo-version".to_owned(),
-        )));
+        state = state
+            .apply(AppEvent::OpenNewAgent(RepositoryId(
+                "repo-version".to_owned(),
+            )))
+            .committed_pure();
         let ModalState::NewAgent { focus, .. } = &mut state.modal else {
             panic!("expected new-agent modal");
         };
         *focus = AgentFormFocus::LlxprtVersion;
-        state = state.apply(AppEvent::FormChar('-'));
-        state = state.apply(AppEvent::FormChar('x'));
+        state = state.apply(AppEvent::FormChar('-')).committed_pure();
+        state = state.apply(AppEvent::FormChar('x')).committed_pure();
         let ModalState::NewAgent { fields, cursor, .. } = &state.modal else {
             panic!("expected new-agent modal");
         };

@@ -5,6 +5,10 @@ use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
+    /// Typed completion for a previously staged post-commit effect
+    /// (issue #381 CW01-11).
+    EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
+
     // Navigation
     NavigateUp,
     NavigateDown,
@@ -108,6 +112,8 @@ pub enum AppEvent {
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),
     PersistenceSaveSuccess,
+    /// Stage a durable save of the committed state (issue #381).
+    StageDurableSave,
     PersistenceSaveFailed(String),
 
     // Theme

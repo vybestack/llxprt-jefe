@@ -10,6 +10,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{PrDetailSubfocus, ScreenMode};
 
 /// Helper: PR-mode state with one repository selected at index 0.
@@ -100,12 +101,14 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
     state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
 
-    let new_state = state.apply(AppEvent::PrDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id: 1,
-        detail: Box::new(make_test_pr_detail(1)),
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id: 1,
+            detail: Box::new(make_test_pr_detail(1)),
+        })
+        .committed_pure();
 
     assert!(!new_state.prs_state.loading.detail);
     assert_eq!(new_state.prs_state.detail_subfocus, PrDetailSubfocus::Body);
@@ -144,12 +147,14 @@ fn test_detail_loaded_discards_stale_pr_number_or_request_id() {
     state.prs_state.pr_detail = Some(current);
 
     // Stale: arrives for PR #1 while PR #2 is selected.
-    let new_state = state.apply(AppEvent::PrDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        request_id: 0,
-        detail: Box::new(make_test_pr_detail(1)),
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id: 0,
+            detail: Box::new(make_test_pr_detail(1)),
+        })
+        .committed_pure();
 
     let loaded = new_state
         .prs_state
@@ -191,12 +196,14 @@ fn test_detail_loaded_discards_mismatched_request_id() {
 
     // Dispatch PrDetailLoaded with a DIFFERENT request_id = R2 (=200),
     // matching scope and pr_number.
-    let new_state = state.apply(AppEvent::PrDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 2,
-        request_id: 200,
-        detail: Box::new(make_test_pr_detail(2)),
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 2,
+            request_id: 200,
+            detail: Box::new(make_test_pr_detail(2)),
+        })
+        .committed_pure();
 
     // The stale-request-id detail must be DISCARDED: existing detail preserved.
     let loaded = new_state
@@ -230,12 +237,14 @@ fn test_detail_loaded_discards_stale_scope() {
     state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.loading.detail = true;
 
-    let new_state = state.apply(AppEvent::PrDetailLoaded {
-        scope_repo_id: RepositoryId("repo-WRONG".to_string()),
-        pr_number: 1,
-        request_id: 0,
-        detail: Box::new(make_test_pr_detail(1)),
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-WRONG".to_string()),
+            pr_number: 1,
+            request_id: 0,
+            detail: Box::new(make_test_pr_detail(1)),
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.pr_detail.is_none(),
@@ -265,9 +274,13 @@ fn test_scroll_detail_down_bounded_by_rendered_length() {
 
     // Scrolling down repeatedly must never exceed the max offset (saturating
     // at content_height - viewport_rows, which is 0 when content fits).
-    let mut new_state = state.apply(AppEvent::PrScrollDetailDown);
-    new_state = new_state.apply(AppEvent::PrScrollDetailDown);
-    new_state = new_state.apply(AppEvent::PrScrollDetailDown);
+    let mut new_state = state.apply(AppEvent::PrScrollDetailDown).committed_pure();
+    new_state = new_state
+        .apply(AppEvent::PrScrollDetailDown)
+        .committed_pure();
+    new_state = new_state
+        .apply(AppEvent::PrScrollDetailDown)
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.detail_scroll_offset, 0,
@@ -296,7 +309,9 @@ fn test_scroll_detail_down_advances_then_clamps() {
     // Scroll down many times — must clamp, not exceed the max.
     let mut new_state = state;
     for _ in 0..200 {
-        new_state = new_state.apply(AppEvent::PrScrollDetailDown);
+        new_state = new_state
+            .apply(AppEvent::PrScrollDetailDown)
+            .committed_pure();
     }
 
     // The offset must be bounded (non-negative, and not absurdly large).
@@ -352,12 +367,12 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
 
     // Advance subfocus forward through Reviews and ReviewThreads to thread #5.
     // Body -> Review(0)
-    state = state.apply(AppEvent::PrDetailSubfocusNext);
+    state = state.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     // Review(0) -> ReviewThread(0)
-    state = state.apply(AppEvent::PrDetailSubfocusNext);
+    state = state.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     // Advance through threads 0..=5
     for _ in 0..5 {
-        state = state.apply(AppEvent::PrDetailSubfocusNext);
+        state = state.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     }
     assert_eq!(
         state.prs_state.detail_subfocus,
@@ -425,7 +440,7 @@ fn test_pr_subfocus_prev_scrolls_to_offscreen_comment() {
 
     // Prev from NewComment -> Comment(11) (last comment). With viewport=4, it
     // should scroll up to reveal comment 11.
-    let state = state.apply(AppEvent::PrDetailSubfocusPrev);
+    let state = state.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(
         state.prs_state.detail_subfocus,
         PrDetailSubfocus::Comment(11),
@@ -529,34 +544,34 @@ fn subfocus_next_follows_document_order_reviews_interleaved_with_threads() {
 
     let mut s = state;
     // Body -> Review(0)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(0));
     // Review(0) -> ReviewThread(0)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(0)
     );
     // ReviewThread(0) -> ReviewThread(1)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(1)
     );
     // ReviewThread(1) -> Review(1)  [interleaved! NOT skipped to a different thread]
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(1));
     // Review(1) -> ReviewThread(2)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(2)
     );
     // ReviewThread(2) -> NewComment (no checks or comments in this detail)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::NewComment);
     // NewComment -> Body (wrap)
-    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
 }
 
@@ -576,34 +591,34 @@ fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads
 
     let mut s = state;
     // Body -> NewComment (prev wraps to last item)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::NewComment);
     // NewComment -> ReviewThread(2)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(2)
     );
     // ReviewThread(2) -> Review(1)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(1));
     // Review(1) -> ReviewThread(1)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(1)
     );
     // ReviewThread(1) -> ReviewThread(0)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(0)
     );
     // ReviewThread(0) -> Review(0)
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(0));
     // Review(0) -> Body
-    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    s = s.apply(AppEvent::PrDetailSubfocusPrev).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
 }
 

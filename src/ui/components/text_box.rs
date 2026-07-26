@@ -30,7 +30,7 @@ pub struct TextBoxProps {
     pub byte_cursor: usize,
     /// Fixed number of rows this component occupies.
     pub viewport_rows: usize,
-    /// Max display width in characters for prefix + row text.
+    /// Max display width in terminal cells for prefix + row text + indicator gutter.
     pub content_width: usize,
     /// Prefix/gutter rendered before each row's text.
     pub prefix: String,
@@ -192,6 +192,7 @@ pub fn TextBox(props: &TextBoxProps) -> impl Into<AnyElement<'static>> {
 mod tests {
     use super::TextBox;
     use iocraft::prelude::*;
+    use unicode_width::UnicodeWidthStr;
 
     fn render(text: &str, byte_cursor: usize, viewport_rows: usize, width: usize) -> String {
         render_with_prefix(text, byte_cursor, viewport_rows, width, "> ")
@@ -277,6 +278,35 @@ mod tests {
         assert!(
             !fitted.contains('↓'),
             "fitted content must not show down: {fitted}"
+        );
+    }
+
+    #[test]
+    fn wide_body_wraps_before_the_fixed_indicator_gutter() {
+        let rendered = render("甲乙丙", 0, 2, 8);
+        let lines = rendered.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 2, "{rendered}");
+        assert!(lines[0].contains("甲乙"), "{rendered}");
+        assert!(!lines[0].contains('丙'), "{rendered}");
+        assert!(lines[1].contains('丙'), "{rendered}");
+        assert!(
+            lines.iter().all(|line| UnicodeWidthStr::width(*line) <= 8),
+            "wide body rows must leave the right gutter inside width 8: {rendered}"
+        );
+    }
+
+    #[test]
+    fn wrap_boundary_caret_leaves_the_fixed_indicator_gutter_visible() {
+        let rendered = render("甲乙 丙", "甲乙".len(), 2, 8);
+        let lines = rendered.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 2, "{rendered}");
+        assert!(lines[0].contains("甲乙"), "{rendered}");
+        assert!(lines[1].contains('丙'), "{rendered}");
+        assert!(
+            lines.iter().all(|line| UnicodeWidthStr::width(*line) <= 8),
+            "the caret must not consume either reserved gutter cell: {rendered}"
         );
     }
 

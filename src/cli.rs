@@ -7,6 +7,23 @@
 
 use std::path::PathBuf;
 
+/// Provider-free configuration recovery operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigCommand {
+    /// Print resolved persistence paths and provenance.
+    Path,
+    /// Parse and statically validate configuration documents.
+    Validate,
+    /// Print redacted effective configuration.
+    ShowEffective { provenance: bool },
+    /// Open the settings document in the configured editor.
+    Edit,
+    /// Check or rewrite owned settings syntax.
+    Format { check: bool, migrate: bool },
+    /// Migrate/import state through the atomic writer.
+    MigrateState,
+}
+
 /// Parsed command-line arguments.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CliArgs {
@@ -16,19 +33,14 @@ pub struct CliArgs {
     pub help: bool,
     /// Explicit config directory from `--config <dir>` / `-c <dir>`.
     pub config_dir: Option<PathBuf>,
+    /// Provider-free recovery command, when selected.
+    pub command: Option<ConfigCommand>,
     /// `doctor` subcommand was requested (issue #264).
-    ///
-    /// When true, the dispatcher in `main` runs the read-only diagnostic
-    /// report before logging/TUI initialization and exits with the typed
-    /// `DoctorOutcome` exit code.
     pub doctor: bool,
 }
 
 impl CliArgs {
     /// Whether the parsed arguments request the `doctor` subcommand.
-    ///
-    /// Provided as a focused predicate so dispatch sites read intent rather
-    /// than touching the public field directly (issue #264).
     #[must_use]
     pub const fn is_doctor(&self) -> bool {
         self.doctor
@@ -40,14 +52,25 @@ impl CliArgs {
 pub enum CliError {
     /// A flag that expects a value was given none.
     MissingValue(String),
+    /// A command that expects an operand was given none.
+    MissingOperand(String),
     /// An unrecognized argument was encountered.
     UnknownArgument(String),
+}
+
+impl CliError {
+    /// Return the standard command-line usage error exit code.
+    #[must_use]
+    pub const fn exit_code(&self) -> u8 {
+        64
+    }
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingValue(flag) => write!(f, "{flag} requires a path argument"),
+            Self::MissingOperand(command) => write!(f, "{command} requires a command operand"),
             Self::UnknownArgument(arg) => write!(f, "unknown argument: {arg}"),
         }
     }
@@ -63,6 +86,7 @@ Usage: jefe [OPTIONS] [COMMAND]
 
 Commands:
   doctor              Run read-only local readiness diagnostics and exit
+  config <COMMAND>    Run provider-free configuration recovery
 
 Options:
   -c, --config <DIR>  Use <DIR> for settings.toml, state.json, and themes/,
@@ -72,12 +96,6 @@ Options:
 
 /// Parse command-line arguments from an iterator of program arguments
 /// (excluding the program name).
-///
-/// Recognises `--version`/`-V`, `--help`/`-h`, the global `--config <dir>` /
-/// `-c <dir>` flag (including the `=` forms), and the first-class `doctor`
-/// subcommand (issue #264). The `doctor` subcommand accepts only the global
-/// `--config` flag and rejects positional operands and any unsupported option
-/// (in particular there is no `--json` and no `--copy`).
 ///
 /// # Errors
 ///
@@ -99,19 +117,9 @@ where
             }
             "--version" | "-V" => result.version = true,
             "--help" | "-h" => result.help = true,
-            "--config" | "-c" => {
-                set_config_value(&mut result, &arg, iter.next())?;
-            }
-            other => {
-                if let Some(value) = other
-                    .strip_prefix("--config=")
-                    .or_else(|| other.strip_prefix("-c="))
-                {
-                    set_config_equals(&mut result, other, value)?;
-                } else {
-                    return Err(CliError::UnknownArgument(other.to_string()));
-                }
-            }
+            "--config" | "-c" => set_config_value(&mut result, &arg, iter.next())?,
+            "config" => parse_config_command(&mut result, &mut iter)?,
+            other => parse_config_equals(&mut result, other)?,
         }
     }
 
@@ -119,11 +127,6 @@ where
 }
 
 /// Parse the trailing flags accepted by the `doctor` subcommand.
-///
-/// `doctor` takes only the global `--config <dir>` / `-c <dir>` flag (and its
-/// `=` forms). Positional operands and any other option are rejected so the
-/// diagnostic surface stays minimal and JSON/clipboard flags remain explicit
-/// non-goals (issue #264, decision D-06).
 fn parse_doctor_flags<I>(
     iter: &mut std::iter::Peekable<I>,
     result: &mut CliArgs,
@@ -134,42 +137,81 @@ where
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--config" | "-c" => set_config_value(result, &arg, iter.next())?,
-            other => {
-                if let Some(value) = other
-                    .strip_prefix("--config=")
-                    .or_else(|| other.strip_prefix("-c="))
-                {
-                    set_config_equals(result, other, value)?;
-                } else {
-                    return Err(CliError::UnknownArgument(other.to_string()));
-                }
-            }
+            other => parse_config_equals(result, other)?,
         }
     }
     Ok(())
 }
 
-/// Apply a `--config <dir>` / `-c <dir>` flag value, rejecting empty/flag-like
-/// tokens so a typo cannot silently swallow a flag.
 fn set_config_value(
     result: &mut CliArgs,
     flag: &str,
-    next: Option<String>,
+    value: Option<String>,
 ) -> Result<(), CliError> {
-    let value = next.ok_or_else(|| CliError::MissingValue(flag.to_string()))?;
+    let value = value.ok_or_else(|| CliError::MissingValue(flag.to_owned()))?;
     if value.is_empty() || value.starts_with('-') {
-        return Err(CliError::MissingValue(flag.to_string()));
+        return Err(CliError::MissingValue(flag.to_owned()));
     }
     result.config_dir = Some(PathBuf::from(value));
     Ok(())
 }
 
-/// Apply the `--config=<dir>` / `-c=<dir>` equals form.
-fn set_config_equals(result: &mut CliArgs, raw: &str, value: &str) -> Result<(), CliError> {
+fn parse_config_equals(result: &mut CliArgs, argument: &str) -> Result<(), CliError> {
+    let Some(value) = argument
+        .strip_prefix("--config=")
+        .or_else(|| argument.strip_prefix("-c="))
+    else {
+        return Err(CliError::UnknownArgument(argument.to_owned()));
+    };
     if value.is_empty() {
-        let flag = raw.split('=').next().unwrap_or(raw);
-        return Err(CliError::MissingValue(flag.to_string()));
+        let flag = argument.split('=').next().unwrap_or(argument);
+        return Err(CliError::MissingValue(flag.to_owned()));
     }
     result.config_dir = Some(PathBuf::from(value));
     Ok(())
+}
+
+#[derive(Default)]
+struct RecoveryFlags {
+    provenance: bool,
+    check: bool,
+    migrate: bool,
+}
+
+fn parse_config_command(
+    result: &mut CliArgs,
+    iter: &mut impl Iterator<Item = String>,
+) -> Result<(), CliError> {
+    let name = iter
+        .next()
+        .ok_or_else(|| CliError::MissingOperand("config".to_owned()))?;
+    let mut flags = RecoveryFlags::default();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--config" | "-c" => set_config_value(result, &argument, iter.next())?,
+            "--provenance" if name == "show-effective" => flags.provenance = true,
+            "--check" if name == "format" => flags.check = true,
+            "--migrate" if name == "format" => flags.migrate = true,
+            other => parse_config_equals(result, other)?,
+        }
+    }
+    result.command = Some(config_command(&name, flags)?);
+    Ok(())
+}
+
+fn config_command(name: &str, flags: RecoveryFlags) -> Result<ConfigCommand, CliError> {
+    match name {
+        "path" => Ok(ConfigCommand::Path),
+        "validate" => Ok(ConfigCommand::Validate),
+        "show-effective" => Ok(ConfigCommand::ShowEffective {
+            provenance: flags.provenance,
+        }),
+        "edit" => Ok(ConfigCommand::Edit),
+        "format" => Ok(ConfigCommand::Format {
+            check: flags.check,
+            migrate: flags.migrate,
+        }),
+        "migrate-state" => Ok(ConfigCommand::MigrateState),
+        other => Err(CliError::UnknownArgument(other.to_owned())),
+    }
 }

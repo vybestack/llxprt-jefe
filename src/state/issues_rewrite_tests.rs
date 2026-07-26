@@ -1,5 +1,6 @@
 //! Tests for the agent-driven new-issue draft rewrite reducer (issue #214).
 
+use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, ComposerTarget, IssueFocus};
 use crate::state::{AppState, InlineState};
 
@@ -25,7 +26,7 @@ fn composer_text(state: &AppState) -> Option<String> {
 #[test]
 fn request_rewrite_sets_pending_and_keeps_draft() {
     let state = state_with_new_issue_composer("fix the bug");
-    let state = state.apply(AppEvent::RequestIssueRewrite);
+    let state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
 
     assert!(state.issues_state.rewrite_pending);
     assert_eq!(composer_text(&state).as_deref(), Some("fix the bug"));
@@ -38,9 +39,9 @@ fn request_rewrite_sets_pending_and_keeps_draft() {
 #[test]
 fn request_rewrite_is_idempotent_when_already_pending() {
     let state = state_with_new_issue_composer("fix the bug");
-    let mut state = state.apply(AppEvent::RequestIssueRewrite);
+    let mut state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
     // Second request must not error or duplicate.
-    state = state.apply(AppEvent::RequestIssueRewrite);
+    state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
     assert!(state.issues_state.rewrite_pending);
 }
 
@@ -48,19 +49,21 @@ fn request_rewrite_is_idempotent_when_already_pending() {
 fn request_rewrite_noop_outside_new_issue_composer() {
     let mut state = AppState::default();
     state.issues_state.inline_state = InlineState::None;
-    let state = state.apply(AppEvent::RequestIssueRewrite);
+    let state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
     assert!(!state.issues_state.rewrite_pending);
 }
 
 #[test]
 fn rewrite_succeeded_replaces_composer_text_and_drops_pending() {
     let state = state_with_new_issue_composer("rough notes");
-    let mut state = state.apply(AppEvent::RequestIssueRewrite);
+    let mut state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
     assert!(state.issues_state.rewrite_pending);
 
-    state = state.apply(AppEvent::IssueRewriteSucceeded {
-        text: "Polished title\n\nDetailed body.".to_owned(),
-    });
+    state = state
+        .apply(AppEvent::IssueRewriteSucceeded {
+            text: "Polished title\n\nDetailed body.".to_owned(),
+        })
+        .committed_pure();
 
     assert!(!state.issues_state.rewrite_pending);
     assert_eq!(
@@ -87,9 +90,11 @@ fn rewrite_succeeded_preserves_other_composer_targets_unchanged() {
         text: "comment".to_owned(),
         cursor: 7,
     };
-    let state = state.apply(AppEvent::IssueRewriteSucceeded {
-        text: "rewritten".to_owned(),
-    });
+    let state = state
+        .apply(AppEvent::IssueRewriteSucceeded {
+            text: "rewritten".to_owned(),
+        })
+        .committed_pure();
     assert_eq!(composer_text(&state).as_deref(), Some("comment"));
     // pending still cleared
     assert!(!state.issues_state.rewrite_pending);
@@ -102,10 +107,12 @@ fn rewrite_succeeded_preserves_other_composer_targets_unchanged() {
 #[test]
 fn rewrite_failed_clears_pending_and_preserves_draft() {
     let state = state_with_new_issue_composer("my draft");
-    let state = state.apply(AppEvent::RequestIssueRewrite);
-    let state = state.apply(AppEvent::IssueRewriteFailed {
-        error: "agent offline".to_owned(),
-    });
+    let state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
+    let state = state
+        .apply(AppEvent::IssueRewriteFailed {
+            error: "agent offline".to_owned(),
+        })
+        .committed_pure();
     assert!(!state.issues_state.rewrite_pending);
     // Original draft preserved.
     assert_eq!(composer_text(&state).as_deref(), Some("my draft"));
@@ -134,9 +141,11 @@ fn rewrite_succeeded_stale_when_composer_closed_clears_pending_only() {
     let mut state = AppState::default();
     state.issues_state.rewrite_pending = true;
     state.issues_state.inline_state = InlineState::None;
-    let state = state.apply(AppEvent::IssueRewriteSucceeded {
-        text: "rewritten".to_owned(),
-    });
+    let state = state
+        .apply(AppEvent::IssueRewriteSucceeded {
+            text: "rewritten".to_owned(),
+        })
+        .committed_pure();
     assert!(!state.issues_state.rewrite_pending);
     assert!(state.issues_state.draft_notice.is_none());
 }
@@ -146,9 +155,11 @@ fn rewrite_failed_stale_when_composer_closed_clears_pending_only() {
     let mut state = AppState::default();
     state.issues_state.rewrite_pending = true;
     state.issues_state.inline_state = InlineState::None;
-    let state = state.apply(AppEvent::IssueRewriteFailed {
-        error: "timeout".to_owned(),
-    });
+    let state = state
+        .apply(AppEvent::IssueRewriteFailed {
+            error: "timeout".to_owned(),
+        })
+        .committed_pure();
     assert!(!state.issues_state.rewrite_pending);
     // No notice surfaced in an unrelated view.
     assert!(state.issues_state.draft_notice.is_none());

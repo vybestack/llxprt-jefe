@@ -7,12 +7,15 @@
 //! Tabbing forward from the version fields therefore jumped past the
 //! visually-adjacent GitHub Repo field.
 
+use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState, ModalState, RepositoryFormFocus};
 
 /// Opening the New Repository modal should start with focus on Name.
 #[test]
 fn new_repository_modal_starts_focused_on_name() {
-    let state = AppState::default().apply(AppEvent::OpenNewRepository);
+    let state = AppState::default()
+        .apply(AppEvent::OpenNewRepository)
+        .committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
@@ -28,13 +31,13 @@ fn llxprt_tab_from_default_version_lands_on_github_repo() {
         installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Advance to DefaultLlxprtVersion (skip hidden CodePuppy fields).
-    state = state.apply(AppEvent::FormNextField); // Name → BaseDir
-    state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // → DefaultAgentKind
-    state = state.apply(AppEvent::FormNextField); // → DefaultLlxprtMode
-    state = state.apply(AppEvent::FormNextField); // → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // BaseDir → DefaultProfile
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultAgentKind
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultLlxprtMode
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultLlxprtVersion
 
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
@@ -42,7 +45,7 @@ fn llxprt_tab_from_default_version_lands_on_github_repo() {
     assert_eq!(focus, RepositoryFormFocus::DefaultLlxprtVersion);
 
     // Now Tab forward — must reach GitHubRepo, not TransientAgentDir.
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
@@ -60,13 +63,13 @@ fn llxprt_shift_tab_from_github_repo_lands_on_default_version() {
         installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     *focus = RepositoryFormFocus::GitHubRepo;
 
-    state = state.apply(AppEvent::FormPrevField);
+    state = state.apply(AppEvent::FormPrevField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
@@ -80,14 +83,16 @@ fn llxprt_shift_tab_from_github_repo_lands_on_default_version() {
 /// Typing into the GitHubRepo field while focused must insert characters.
 #[test]
 fn github_repo_field_accepts_typed_input_when_focused() {
-    let mut state = AppState::default().apply(AppEvent::OpenNewRepository);
+    let mut state = AppState::default()
+        .apply(AppEvent::OpenNewRepository)
+        .committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     *focus = RepositoryFormFocus::GitHubRepo;
 
     for ch in "acme/widgets".chars() {
-        state = state.apply(AppEvent::FormChar(ch));
+        state = state.apply(AppEvent::FormChar(ch)).committed_pure();
     }
 
     let ModalState::NewRepository { fields, cursor, .. } = state.modal else {
@@ -100,13 +105,15 @@ fn github_repo_field_accepts_typed_input_when_focused() {
 /// Tabbing forward from GitHubRepo must land on IssuePrRepo.
 #[test]
 fn tab_from_github_repo_lands_on_issue_pr_repo() {
-    let mut state = AppState::default().apply(AppEvent::OpenNewRepository);
+    let mut state = AppState::default()
+        .apply(AppEvent::OpenNewRepository)
+        .committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     *focus = RepositoryFormFocus::GitHubRepo;
 
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
@@ -121,19 +128,19 @@ fn transient_fields_are_reachable_after_setup_env_default() {
         installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     *focus = RepositoryFormFocus::SetupEnvDefault;
 
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
     assert_eq!(focus, RepositoryFormFocus::TransientAgentDir);
 
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };
@@ -148,9 +155,9 @@ fn shift_tab_from_name_wraps_to_transient_max_concurrent() {
         installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Focus starts on Name.
-    state = state.apply(AppEvent::FormPrevField);
+    state = state.apply(AppEvent::FormPrevField).committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
         panic!("expected new-repository modal");
     };

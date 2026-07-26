@@ -33,8 +33,8 @@ struct AppContext {
     /// Root-owned delivery slot for background GitHub request results.
     gh_deliveries: app_input::GhDeliveryHandle,
     /// Coalescing persistence worker handle (issue #301). When present,
-    /// `persist_state` schedules snapshots here instead of calling
-    /// `save_state` synchronously on the input path.
+    /// `persist_state` schedules durable save requests here instead of
+    /// writing synchronously on the input path.
     persist_handle: jefe::services::persist_worker::PersistHandle,
     /// Async capture worker handle (issue #301 Phase 2). When present, the
     /// render path requests a background capture instead of calling
@@ -52,7 +52,7 @@ fn parse_cli_or_exit() -> Option<jefe::cli::CliArgs> {
         Ok(args) => handle_parsed_cli_args(args),
         Err(e) => {
             write_cli_error(&e);
-            std::process::exit(2);
+            std::process::exit(i32::from(e.exit_code()));
         }
     }
 }
@@ -76,6 +76,17 @@ fn write_stdout_line(message: &str) {
     let _ = writeln!(handle, "{message}");
 }
 
+fn write_recovery_output(output: &jefe::recovery::RecoveryOutput) {
+    if !output.stdout.is_empty() {
+        write_stdout_line(&output.stdout);
+    }
+    if !output.stderr.is_empty() {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "{}", output.stderr);
+    }
+}
+
 fn write_cli_error(error: &jefe::cli::CliError) {
     let stderr = std::io::stderr();
     let mut handle = stderr.lock();
@@ -84,17 +95,20 @@ fn write_cli_error(error: &jefe::cli::CliError) {
     let _ = writeln!(handle, "{}", jefe::cli::USAGE);
 }
 
-/// Print a startup persistence error (e.g. an unusable explicit `--config`
-/// directory) to stderr with actionable guidance, then let the caller exit
-/// nonzero.
-fn write_startup_error(error: &jefe::persistence::PersistenceError) {
+/// Print a typed startup diagnostic and exact offline recovery commands.
+fn write_startup_error(
+    error: &jefe::persistence::paths::PathError,
+    config_dir: Option<&std::path::Path>,
+) {
     let stderr = std::io::stderr();
     let mut handle = stderr.lock();
-    let _ = writeln!(handle, "error: {error}");
-    let _ = writeln!(
-        handle,
-        "hint: check that the --config directory exists, is a directory, and is writable"
-    );
+    let rendered = serde_json::to_string_pretty(error.diagnostic.as_ref())
+        .unwrap_or_else(|_| error.diagnostic.redacted_detail.clone());
+    let _ = writeln!(handle, "{rendered}");
+    let suffix =
+        config_dir.map_or_else(String::new, |path| format!(" --config {}", path.display()));
+    let _ = writeln!(handle, "jefe config validate{suffix}");
+    let _ = writeln!(handle, "jefe config migrate-state{suffix}");
 }
 
 /// Run the read-only `jefe doctor` diagnostics, write the redacted report to
@@ -136,20 +150,67 @@ fn run_internal_agent_launch_if_requested() {
     }
 }
 
+fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
+    let output = match cli_args.command {
+        Some(jefe::cli::ConfigCommand::Path) => {
+            Some(jefe::recovery::run_path(cli_args.config_dir.as_deref()))
+        }
+        Some(jefe::cli::ConfigCommand::Validate) => {
+            Some(jefe::recovery::run_validate(cli_args.config_dir.as_deref()))
+        }
+        Some(jefe::cli::ConfigCommand::ShowEffective { provenance }) => Some(
+            jefe::recovery::run_show_effective(cli_args.config_dir.as_deref(), provenance),
+        ),
+        Some(jefe::cli::ConfigCommand::Edit) => {
+            Some(jefe::recovery::run_edit(cli_args.config_dir.as_deref()))
+        }
+        Some(jefe::cli::ConfigCommand::Format { check, migrate }) => Some(
+            jefe::recovery::run_format(cli_args.config_dir.as_deref(), check, migrate),
+        ),
+        Some(jefe::cli::ConfigCommand::MigrateState) => Some(jefe::recovery::run_migrate_state(
+            cli_args.config_dir.as_deref(),
+        )),
+        _ => None,
+    };
+    let Some(output) = output else {
+        return false;
+    };
+    write_recovery_output(&output);
+    if output.exit_code != 0 {
+        std::process::exit(i32::from(output.exit_code));
+    }
+    true
+}
+
 fn main() {
     run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
     };
-
-    // Dispatch the read-only `doctor` subcommand before logging/TUI init so
-    // diagnostics never create a session or touch persistence state (issue #264).
-    if cli_args.is_doctor() {
-        run_doctor_and_exit(cli_args.config_dir.as_deref());
+    if dispatch_recovery_command(&cli_args) {
         return;
     }
 
-    // Initialize structured logging (no-op if JEFE_LOG_FILE is unset).
+    // Dispatch doctor before startup persistence, logging, or TUI initialization.
+    if cli_args.is_doctor() {
+        run_doctor_and_exit(cli_args.config_dir.as_deref());
+    }
+
+    let startup = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {
+        Ok(startup) => startup,
+        Err(error) => {
+            write_startup_error(&error, cli_args.config_dir.as_deref());
+            std::process::exit(i32::from(error.exit_code));
+        }
+    };
+    let persist_paths = jefe::persistence::PersistencePaths {
+        settings_path: startup.paths.settings.path.clone(),
+        state_path: startup.paths.state.path.clone(),
+    };
+    let themes_dir = startup.paths.themes.clone();
+    let persistence = startup.manager;
+
+    // Initialize structured logging only after persistence has validated.
     jefe::logging::init();
     tracing::info!(version = jefe::VERSION, "jefe starting");
     tracing::debug!(
@@ -164,35 +225,12 @@ fn main() {
     let pty_rows = layout.pty_rows;
     let pty_cols = layout.pty_cols;
 
-    // Initialize managers. An explicit `--config <dir>` isolates settings,
-    // state, and themes under that directory; otherwise fall back to the
-    // default platform paths and environment variable overrides.
-    //
-    // An explicit config directory is validated fail-fast: if it cannot be
-    // created or written to (e.g. an unwritable path from a `--config` typo),
-    // surface a clear error and exit instead of starting a session whose state
-    // will silently fail to persist.
     let mut theme_manager = FileThemeManager::new();
-    let persistence = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {
-        Ok(manager) => manager,
-        Err(error) => {
-            write_startup_error(&error);
-            std::process::exit(1);
-        }
-    };
-    // Load themes: explicit --config dir takes precedence; otherwise load
-    // from the default config dir's themes/ (JEFE_SETTINGS_PATH parent /
-    // JEFE_CONFIG_DIR / platform default).
-    let themes_dir = match cli_args.config_dir.as_deref() {
-        Some(dir) => dir.join("themes"),
-        None => jefe::persistence::default_themes_dir(),
-    };
     theme_manager.load_from_dir(&themes_dir);
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
-    let persist_handle = jefe::services::persist_worker::PersistHandle::new(build_persist_fn(
-        cli_args.config_dir.as_deref(),
-    ));
+    let persist_handle =
+        jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
@@ -221,42 +259,33 @@ fn main() {
 /// Build the coalescing persistence worker's durable-write boundary (issue #301).
 ///
 /// The worker calls this function on a background OS thread; the input path
-/// never touches the filesystem directly. This reuses the persistence
-/// manager already constructed at startup (via `build_persistence`) by
-/// re-invoking the same factory function — the startup instance and the
-/// worker instance operate on the same config dir and file, so writes are
-/// consistent. A second `build_persistence` call is used rather than moving
-/// the startup instance because the startup instance is owned by
-/// `AppContext` and used for synchronous reads (e.g. initial state load);
-/// the worker needs its own `Arc<Mutex<>>` to avoid lock contention with
-/// the input path.
+/// never touches the filesystem directly. The worker receives its own manager
+/// over the exact startup-resolved [`jefe::persistence::PersistencePaths`], so
+/// worker writes and startup reads share one selected authority without
+/// re-running startup validation or lock contention with the input path.
 fn build_persist_fn(
-    config_dir: Option<&std::path::Path>,
+    paths: jefe::persistence::PersistencePaths,
 ) -> jefe::services::persist_worker::PersistFn {
-    use jefe::persistence::PersistenceManager;
-    let manager =
-        jefe::startup::build_persistence(config_dir).map(|m| Arc::new(std::sync::Mutex::new(m)));
-    match manager {
-        Ok(m) => {
-            let manager = Arc::clone(&m);
-            Arc::new(
-                move |state: &jefe::persistence::State| match manager.lock() {
-                    Ok(mgr) => mgr
-                        .save_state(state)
-                        .map_err(|e: jefe::persistence::PersistenceError| e.to_string()),
-                    Err(poisoned) => {
-                        tracing::warn!("persist worker: mutex poisoned; recovering");
-                        poisoned
-                            .into_inner()
-                            .save_state(state)
-                            .map_err(|e| e.to_string())
-                    }
-                },
-            )
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "persist worker: build_persistence failed; durable writes disabled");
-            Arc::new(|_: &jefe::persistence::State| Ok(()))
-        }
-    }
+    let manager = Arc::new(std::sync::Mutex::new(
+        jefe::persistence::FilePersistenceManager::with_paths(paths),
+    ));
+    Arc::new(
+        move |request: &jefe::services::persist_worker::PersistRequest, generation, freshness| {
+            // The writer fences on the worker's schedule generation, not the
+            // document revision: the candidate already carries its own
+            // revision, while `generation` decides which in-flight write is
+            // still the newest.
+            let candidate = request.candidate.as_ref();
+            let result = match manager.lock() {
+                Ok(mgr) => mgr.save_state_v2_revisioned(candidate, generation, freshness),
+                Err(poisoned) => {
+                    tracing::warn!("persist worker: mutex poisoned; recovering");
+                    poisoned
+                        .into_inner()
+                        .save_state_v2_revisioned(candidate, generation, freshness)
+                }
+            };
+            result.map_err(|error| error.to_string())
+        },
+    )
 }

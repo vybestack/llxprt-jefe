@@ -7,6 +7,7 @@
 
 use crate::domain::{Issue, IssueDetail, IssueState, RepositoryId};
 use crate::state::AppState;
+use crate::state::transition::TransitionExt;
 use crate::state::{
     AppEvent, InlineState, IssueDeleteConfirmState, IssueFocus, IssueLifecycleMutationPending,
 };
@@ -88,7 +89,7 @@ fn list_focus_uses_selected_row_when_stale_detail_is_retained() {
     state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
     state.issues_state.issue_focus = IssueFocus::IssueList;
 
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     let Some(pending) = state.issues_state.close_mutation_pending.as_ref() else {
         panic!("close mutation should target the selected list row");
     };
@@ -100,7 +101,7 @@ fn list_focus_uses_selected_row_when_stale_detail_is_retained() {
 #[test]
 fn close_issue_sets_close_mutation_pending() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     let pending = state.issues_state.close_mutation_pending.as_ref();
     assert!(pending.is_some(), "close_mutation_pending should be set");
     let Some(p) = pending else {
@@ -115,7 +116,7 @@ fn close_issue_when_already_closed_sets_notice() {
     let mut issues = state.issues_state.list.items().to_vec();
     issues[0].state = IssueState::Closed;
     state.issues_state.list.replace_items(issues);
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close pending must NOT be set for already-closed issue"
@@ -131,7 +132,7 @@ fn close_issue_with_no_issue_focused_shows_notice() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.list.set_selected_index(None);
     state.issues_state.issue_detail = None;
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "no close pending without focused issue"
@@ -148,7 +149,7 @@ fn close_issue_with_no_repo_selected_shows_notice() {
     // close pending with an empty scope (it would never match the async result).
     let mut state = issues_state_with_list("repo-1");
     state.selected_repository_index = None;
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "no close pending when no repository is selected"
@@ -164,7 +165,7 @@ fn close_issue_captures_node_id_for_graphql_mutation() {
     // The plain close must now capture the node id so the GraphQL closeIssue
     // mutation can close by node id (issue #204).
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     let pending = state.issues_state.close_mutation_pending.as_ref();
     let Some(pending) = pending else {
         panic!("close pending should be set");
@@ -185,7 +186,7 @@ fn close_issue_without_node_id_is_blocked() {
     let mut issues = state.issues_state.list.items().to_vec();
     issues[0].node_id = String::new();
     state.issues_state.list.replace_items(issues);
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "no close pending without a node id"
@@ -203,7 +204,7 @@ fn issue_closed_updates_list_and_detail_state() {
     let scope = RepositoryId("repo-1".to_string());
     // First set the close pending via CloseIssue, then capture the actual
     // mutation_id the reducer allocated (avoid coupling to the +1 strategy).
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     let mutation_id = state
         .issues_state
         .close_mutation_pending
@@ -213,13 +214,15 @@ fn issue_closed_updates_list_and_detail_state() {
         panic!("close pending should be set after CloseIssue");
     };
     // Now apply IssueClosed with the same mutation_id
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: scope,
-        issue_number: 1,
-        mutation_id,
-        close_reason: None,
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: scope,
+            issue_number: 1,
+            mutation_id,
+            close_reason: None,
+            duplicate_of: None,
+        })
+        .committed_pure();
     let list_issue = state.issues_state.issues().iter().find(|i| i.number == 1);
     assert!(
         list_issue.is_some_and(|i| i.state == IssueState::Closed),
@@ -252,13 +255,15 @@ fn issue_closed_with_wrong_mutation_id_is_ignored() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 999,
-        close_reason: None,
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 999,
+            close_reason: None,
+            duplicate_of: None,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_some(),
         "stale mutation id should NOT clear the pending"
@@ -278,13 +283,15 @@ fn issue_closed_with_wrong_scope_is_ignored() {
     });
     // An IssueClosed from a different repository must NOT be applied to this
     // repo's pending close (defense against cross-repo state corruption).
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: RepositoryId("repo-2".to_string()),
-        issue_number: 1,
-        mutation_id: 100,
-        close_reason: None,
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: RepositoryId("repo-2".to_string()),
+            issue_number: 1,
+            mutation_id: 100,
+            close_reason: None,
+            duplicate_of: None,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_some(),
         "wrong-scope close result should NOT clear the pending"
@@ -312,13 +319,15 @@ fn issue_closed_clears_prior_error() {
         duplicate_of: None,
     });
     state.issues_state.error = Some("Previous error".to_string());
-    let state = state.apply(AppEvent::IssueClosed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 42,
-        close_reason: None,
-        duplicate_of: None,
-    });
+    let state = state
+        .apply(AppEvent::IssueClosed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 42,
+            close_reason: None,
+            duplicate_of: None,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.error.is_none(),
         "a successful close must clear a prior error"
@@ -336,11 +345,13 @@ fn issue_deleted_with_wrong_scope_is_ignored() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueDeleted {
-        scope_repo_id: RepositoryId("repo-2".to_string()),
-        issue_number: 1,
-        mutation_id: 100,
-    });
+    let state = state
+        .apply(AppEvent::IssueDeleted {
+            scope_repo_id: RepositoryId("repo-2".to_string()),
+            issue_number: 1,
+            mutation_id: 100,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.delete_mutation_pending.is_some(),
         "wrong-scope delete result should NOT clear the pending"
@@ -354,7 +365,9 @@ fn issue_deleted_with_wrong_scope_is_ignored() {
 #[test]
 fn open_delete_confirm_from_list() {
     let state = issues_state_with_list("repo-1");
-    let state = state.apply(AppEvent::OpenDeleteIssueConfirm);
+    let state = state
+        .apply(AppEvent::OpenDeleteIssueConfirm)
+        .committed_pure();
     let confirm = state.issues_state.delete_confirm.as_ref();
     assert!(confirm.is_some(), "delete confirm should be open");
     let Some(c) = confirm else {
@@ -369,7 +382,9 @@ fn open_delete_confirm_with_no_issue_shows_notice() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.list.set_selected_index(None);
     state.issues_state.issue_detail = None;
-    let state = state.apply(AppEvent::OpenDeleteIssueConfirm);
+    let state = state
+        .apply(AppEvent::OpenDeleteIssueConfirm)
+        .committed_pure();
     assert!(
         state.issues_state.delete_confirm.is_none(),
         "no delete confirm without focused issue"
@@ -384,7 +399,7 @@ fn delete_confirm_first_enter_arms() {
         issue_number: 1,
         awaiting_confirmation: false,
     });
-    let state = state.apply(AppEvent::IssueDeleteConfirm);
+    let state = state.apply(AppEvent::IssueDeleteConfirm).committed_pure();
     let confirm = state.issues_state.delete_confirm.as_ref();
     assert!(
         confirm.is_some_and(|c| c.awaiting_confirmation),
@@ -403,7 +418,7 @@ fn delete_confirm_second_enter_dispatches() {
         issue_number: 1,
         awaiting_confirmation: true,
     });
-    let state = state.apply(AppEvent::IssueDeleteConfirm);
+    let state = state.apply(AppEvent::IssueDeleteConfirm).committed_pure();
     assert!(
         state.issues_state.delete_confirm.is_none(),
         "overlay should be cleared on confirm"
@@ -421,7 +436,7 @@ fn delete_confirm_cancel_clears_overlay() {
         issue_number: 1,
         awaiting_confirmation: false,
     });
-    let state = state.apply(AppEvent::IssueDeleteCancel);
+    let state = state.apply(AppEvent::IssueDeleteCancel).committed_pure();
     assert!(
         state.issues_state.delete_confirm.is_none(),
         "cancel should clear the overlay"
@@ -436,7 +451,9 @@ fn open_delete_confirm_blocked_when_composer_active() {
         text: String::new(),
         cursor: 0,
     };
-    let state = state.apply(AppEvent::OpenDeleteIssueConfirm);
+    let state = state
+        .apply(AppEvent::OpenDeleteIssueConfirm)
+        .committed_pure();
     assert!(
         state.issues_state.delete_confirm.is_none(),
         "delete confirm must NOT open while composer is active"
@@ -451,7 +468,7 @@ fn close_issue_blocked_when_composer_active() {
         text: String::new(),
         cursor: 0,
     };
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close must NOT begin while composer is active"
@@ -473,11 +490,13 @@ fn issue_deleted_removes_from_list_and_clears_detail() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueDeleted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 1,
-    });
+    let state = state
+        .apply(AppEvent::IssueDeleted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 1,
+        })
+        .committed_pure();
     assert!(
         !state.issues_state.issues().iter().any(|i| i.number == 1),
         "deleted issue should be removed from list"
@@ -534,11 +553,13 @@ fn issue_deleted_when_last_in_list_clears_selection() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueDeleted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 7,
-        mutation_id: 1,
-    });
+    let state = state
+        .apply(AppEvent::IssueDeleted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 7,
+            mutation_id: 1,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.issues().is_empty(),
         "list should be empty after deleting the last issue"
@@ -568,11 +589,13 @@ fn issue_deleted_shifts_selection_when_earlier_row_removed() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueDeleted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 1,
-    });
+    let state = state
+        .apply(AppEvent::IssueDeleted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 1,
+        })
+        .committed_pure();
     // After removing #1, the list is [#2, #3]; #3 is now at index 1.
     assert_eq!(
         state.issues_state.selected_issue_index(),
@@ -600,11 +623,13 @@ fn issue_deleted_with_wrong_mutation_id_is_ignored() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::IssueDeleted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 1,
-        mutation_id: 999,
-    });
+    let state = state
+        .apply(AppEvent::IssueDeleted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 1,
+            mutation_id: 999,
+        })
+        .committed_pure();
     assert!(
         state.issues_state.delete_mutation_pending.is_some(),
         "stale mutation id should NOT clear pending"
@@ -628,12 +653,14 @@ fn mutation_failed_clears_close_pending_and_sets_error() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: Some(1),
-        mutation_id: Some(5),
-        error: "network error".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: Some(1),
+            mutation_id: Some(5),
+            error: "network error".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close pending should be cleared on failure"
@@ -655,12 +682,14 @@ fn mutation_failed_clears_delete_pending_and_sets_error() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: Some(2),
-        mutation_id: Some(7),
-        error: "forbidden".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: Some(2),
+            mutation_id: Some(7),
+            error: "forbidden".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.delete_mutation_pending.is_none(),
         "delete pending should be cleared on failure"
@@ -682,12 +711,14 @@ fn mutation_failed_with_unrelated_mutation_id_is_ignored_by_lifecycle() {
     // A MutationFailed with mutation_id=99 does NOT match the lifecycle pending
     // (mutation_id=50). The lifecycle handler should return false, letting the
     // regular error handler process it.
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: Some(1),
-        mutation_id: Some(99),
-        error: "unrelated".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: Some(1),
+            mutation_id: Some(99),
+            error: "unrelated".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_some(),
         "unrelated mutation id should NOT clear lifecycle pending"
@@ -710,12 +741,14 @@ fn close_failure_with_wrong_scope_is_ignored_by_lifecycle() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-OTHER".to_string()),
-        issue_number: Some(1),
-        mutation_id: Some(50),
-        error: "wrong scope".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-OTHER".to_string()),
+            issue_number: Some(1),
+            mutation_id: Some(50),
+            error: "wrong scope".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_some(),
         "wrong-scope failure should NOT clear lifecycle pending"
@@ -733,12 +766,14 @@ fn close_failure_with_wrong_issue_number_is_ignored_by_lifecycle() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: Some(999),
-        mutation_id: Some(50),
-        error: "wrong issue".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: Some(999),
+            mutation_id: Some(50),
+            error: "wrong issue".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_some(),
         "wrong-issue-number failure should NOT clear lifecycle pending"
@@ -760,12 +795,14 @@ fn delete_failure_with_wrong_scope_is_ignored_by_lifecycle() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-OTHER".to_string()),
-        issue_number: Some(2),
-        mutation_id: Some(70),
-        error: "wrong scope".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-OTHER".to_string()),
+            issue_number: Some(2),
+            mutation_id: Some(70),
+            error: "wrong scope".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.delete_mutation_pending.is_some(),
         "wrong-scope failure should NOT clear delete pending"
@@ -783,12 +820,14 @@ fn delete_failure_with_wrong_issue_number_is_ignored_by_lifecycle() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::MutationFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: Some(999),
-        mutation_id: Some(71),
-        error: "wrong issue".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: Some(999),
+            mutation_id: Some(71),
+            error: "wrong issue".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.issues_state.delete_mutation_pending.is_some(),
         "wrong-issue-number failure should NOT clear delete pending"
@@ -816,7 +855,7 @@ fn repeated_close_while_close_pending_is_suppressed() {
         duplicate_of: None,
     });
     // A second CloseIssue should NOT overwrite the existing pending (mutation_id stays 1).
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     match &state.issues_state.close_mutation_pending {
         Some(pending) => assert_eq!(
             pending.mutation_id, 1,
@@ -837,7 +876,9 @@ fn open_delete_while_close_pending_is_suppressed() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::OpenDeleteIssueConfirm);
+    let state = state
+        .apply(AppEvent::OpenDeleteIssueConfirm)
+        .committed_pure();
     assert!(
         state.issues_state.delete_confirm.is_none(),
         "delete overlay must not open while a close is in flight"
@@ -855,7 +896,7 @@ fn close_while_delete_pending_is_suppressed() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close must not begin while a delete is in flight"
@@ -869,7 +910,7 @@ fn close_while_delete_confirm_overlay_open_is_suppressed() {
         issue_number: 1,
         awaiting_confirmation: false,
     });
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close must not begin while the delete-confirm overlay is open"
@@ -892,7 +933,7 @@ fn repeated_close_does_not_increment_mutation_id_indefinitely() {
         close_reason: None,
         duplicate_of: None,
     });
-    let state = state.apply(AppEvent::CloseIssue);
+    let state = state.apply(AppEvent::CloseIssue).committed_pure();
     assert_eq!(
         state.issues_state.next_mutation_id, before,
         "suppressed close must not allocate a new mutation id"

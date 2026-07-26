@@ -183,6 +183,12 @@ impl AgentExecutableResolver {
         }
     }
 
+    /// The platform policy this resolver applies.
+    #[must_use]
+    pub const fn platform(&self) -> AgentExecutablePlatform {
+        self.platform
+    }
+
     /// Resolve an agent runtime to a supported executable and wrapper strategy.
     pub fn resolve(
         &self,

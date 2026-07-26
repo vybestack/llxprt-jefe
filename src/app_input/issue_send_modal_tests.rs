@@ -20,6 +20,7 @@ fn tracker_ref(value: &str) -> jefe::domain::GitHubRepoRef {
 use super::issue_self_assignment::{IssueAssignment, SelfAssignment};
 use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{AgentId, IssueDetail, IssueState, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
@@ -256,7 +257,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::CloseModal);
+    let next = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(
         next.modal,
         ModalState::None,

@@ -10,8 +10,8 @@
 use crate::support::TestResultExt;
 
 use jefe::persistence::{
-    PersistenceManager, SETTINGS_SCHEMA_VERSION, STATE_SCHEMA_VERSION, Settings, State,
-    StubPersistenceManager, resolve_paths,
+    FilePersistenceManager, PersistenceManager, PersistencePaths, SETTINGS_SCHEMA_VERSION,
+    STATE_SCHEMA_VERSION, Settings, State, StubPersistenceManager, resolve_paths,
 };
 use jefe::theme::{StubThemeManager, ThemeDefinition, ThemeKind, ThemeManager};
 
@@ -103,9 +103,18 @@ fn load_settings_returns_defaults_when_file_missing() {
 
 #[test]
 fn load_state_returns_defaults_when_file_missing() {
-    let mgr = StubPersistenceManager::new();
-    let state = mgr.load_state().test_unwrap("should return defaults");
+    let temp = tempfile::tempdir().test_unwrap("temporary state root");
+    let mgr = FilePersistenceManager::with_paths(PersistencePaths {
+        settings_path: temp.path().join("settings.toml"),
+        state_path: temp.path().join("state.json"),
+    });
+
+    let state = mgr
+        .load_durable_state()
+        .test_unwrap("missing state should restore defaults");
+
     assert!(state.repositories.is_empty());
+    assert!(state.agents.is_empty());
 }
 
 // These tests will need real implementation in P05:

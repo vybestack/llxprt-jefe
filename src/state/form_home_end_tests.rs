@@ -7,6 +7,7 @@
 use crate::domain::RepositoryId;
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::ModalState;
 
 /// A repository row suitable for seeding AppState in form tests.
@@ -26,11 +27,13 @@ fn new_agent_form_with_typed_name(text: &str) -> AppState {
         repositories: vec![seed_repository()],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
     // Move focus to the Name field (default focus is Shortcut).
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     for ch in text.chars() {
-        state = state.apply(AppEvent::FormChar(ch));
+        state = state.apply(AppEvent::FormChar(ch)).committed_pure();
     }
     state
 }
@@ -48,8 +51,8 @@ fn agent_name_cursor(state: &AppState) -> usize {
 fn form_home_moves_agent_name_cursor_to_start() {
     let state = new_agent_form_with_typed_name("hello");
     // Walk the cursor into the middle.
-    let state = state.apply(AppEvent::FormMoveCursorLeft);
-    let state = state.apply(AppEvent::FormMoveCursorLeft);
+    let state = state.apply(AppEvent::FormMoveCursorLeft).committed_pure();
+    let state = state.apply(AppEvent::FormMoveCursorLeft).committed_pure();
     // After two left-moves the cursor should be at 3 (middle of "hello").
     assert_eq!(
         agent_name_cursor(&state),
@@ -57,7 +60,7 @@ fn form_home_moves_agent_name_cursor_to_start() {
         "cursor should be at char 3 after two left-moves"
     );
     // Home -> 0.
-    let state = state.apply(AppEvent::FormMoveCursorStart);
+    let state = state.apply(AppEvent::FormMoveCursorStart).committed_pure();
     assert_eq!(
         agent_name_cursor(&state),
         0,
@@ -70,8 +73,8 @@ fn form_home_moves_agent_name_cursor_to_start() {
 fn form_end_moves_agent_name_cursor_to_end() {
     let state = new_agent_form_with_typed_name("hello");
     // Walk back to the start, then End -> char count (5).
-    let state = state.apply(AppEvent::FormMoveCursorStart);
-    let state = state.apply(AppEvent::FormMoveCursorEnd);
+    let state = state.apply(AppEvent::FormMoveCursorStart).committed_pure();
+    let state = state.apply(AppEvent::FormMoveCursorEnd).committed_pure();
     assert_eq!(
         agent_name_cursor(&state),
         5,
@@ -85,9 +88,9 @@ fn form_end_moves_agent_name_cursor_to_end() {
 fn form_home_end_utf8_safe_agent_name() {
     // "héllo" is 5 chars but 6 bytes; the cursor counts chars.
     let state = new_agent_form_with_typed_name("héllo");
-    let state = state.apply(AppEvent::FormMoveCursorStart);
+    let state = state.apply(AppEvent::FormMoveCursorStart).committed_pure();
     assert_eq!(agent_name_cursor(&state), 0, "Home -> 0");
-    let state = state.apply(AppEvent::FormMoveCursorEnd);
+    let state = state.apply(AppEvent::FormMoveCursorEnd).committed_pure();
     assert_eq!(agent_name_cursor(&state), 5, "End -> char count (5)");
 }
 
@@ -98,20 +101,20 @@ fn form_home_end_repository_basedir() {
         repositories: vec![seed_repository()],
         ..AppState::default()
     };
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Move focus to BaseDir (Tab advances field focus).
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField).committed_pure();
     // Type some text into BaseDir.
     for ch in "my/path".chars() {
-        state = state.apply(AppEvent::FormChar(ch));
+        state = state.apply(AppEvent::FormChar(ch)).committed_pure();
     }
     // Home -> 0, End -> char count.
-    let state = state.apply(AppEvent::FormMoveCursorStart);
+    let state = state.apply(AppEvent::FormMoveCursorStart).committed_pure();
     let ModalState::NewRepository { cursor, .. } = &state.modal else {
         panic!("expected NewRepository modal");
     };
     assert_eq!(cursor.base_dir, 0, "Home on BaseDir -> 0");
-    let state = state.apply(AppEvent::FormMoveCursorEnd);
+    let state = state.apply(AppEvent::FormMoveCursorEnd).committed_pure();
     let ModalState::NewRepository { cursor, .. } = &state.modal else {
         panic!("expected NewRepository modal");
     };

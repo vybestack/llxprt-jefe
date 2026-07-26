@@ -10,6 +10,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{
     AgentChooserState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
 };
@@ -23,7 +24,7 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
         std::path::PathBuf::from("/tmp/test"),
     ));
     state.selected_repository_index = Some(0);
-    state.apply(AppEvent::EnterIssuesMode)
+    state.apply(AppEvent::EnterIssuesMode).committed_pure()
 }
 
 fn issue_detail() -> IssueDetail {
@@ -77,7 +78,9 @@ fn test_send_to_agent_agent_in_different_repository() {
     agent.agent_kind = AgentKind::Llxprt;
     state.agents.push(agent);
 
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata: vec![] })
+        .committed_pure();
 
     assert!(
         state.issues_state.agent_chooser.is_none(),
@@ -109,7 +112,9 @@ fn test_send_to_agent_eligible_clears_stale_notice_and_opens_chooser() {
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
         "agent-1".to_string(),
     ))];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
 
     assert!(
         state.issues_state.agent_chooser.is_some(),
@@ -132,7 +137,9 @@ fn test_send_to_agent_no_eligible_clears_stale_chooser() {
         agents: vec![AgentChooserEntry::simple("stale", "Stale")],
     });
 
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata: vec![] })
+        .committed_pure();
 
     assert!(
         state.issues_state.agent_chooser.is_none(),
@@ -159,7 +166,7 @@ fn refocus_issue_list_clears_stale_draft_notice() {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.issues_state.draft_notice = Some("No agents available".to_string());
 
-    let state = state.apply(AppEvent::RefocusIssueList);
+    let state = state.apply(AppEvent::RefocusIssueList).committed_pure();
 
     assert!(
         state.issues_state.draft_notice.is_none(),
@@ -179,7 +186,7 @@ fn refocus_issue_list_preserves_real_error() {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.issues_state.error = Some("load failed".to_string());
 
-    let state = state.apply(AppEvent::RefocusIssueList);
+    let state = state.apply(AppEvent::RefocusIssueList).committed_pure();
 
     assert_eq!(
         state.issues_state.error.as_deref(),
@@ -197,7 +204,7 @@ fn open_new_issue_composer_clears_stale_draft_notice() {
     // Seed a real error to prove the transition does not erase it.
     state.issues_state.error = Some("load failed".to_string());
 
-    let state = state.apply(AppEvent::OpenNewIssueComposer);
+    let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
 
     assert!(
         state.issues_state.draft_notice.is_none(),
@@ -226,7 +233,9 @@ fn open_new_comment_composer_clears_stale_draft_notice() {
     // Seed a real error to prove the transition does not erase it.
     state.issues_state.error = Some("load failed".to_string());
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
 
     assert!(
         state.issues_state.draft_notice.is_none(),
@@ -263,9 +272,11 @@ fn open_inline_editor_clears_stale_draft_notice() {
     // Seed a real error to prove the transition does not erase it.
     state.issues_state.error = Some("load failed".to_string());
 
-    let state = state.apply(AppEvent::OpenInlineEditor {
-        target: crate::state::types::EditorTarget::IssueBody,
-    });
+    let state = state
+        .apply(AppEvent::OpenInlineEditor {
+            target: crate::state::types::EditorTarget::IssueBody,
+        })
+        .committed_pure();
 
     assert!(
         state.issues_state.draft_notice.is_none(),
@@ -308,7 +319,7 @@ fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
             cursor: 14,
         };
 
-        let state = state.apply(event);
+        let state = state.apply(event).committed_pure();
 
         assert_eq!(
             state.issues_state.draft_notice.as_deref(),
@@ -364,7 +375,9 @@ fn metadata_cross_repo_agent_dropped_from_chooser() {
             dirty: crate::domain::DirtyStatus::dirty(),
         },
     ];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -408,7 +421,9 @@ fn metadata_running_agent_dropped_from_chooser() {
         },
         AgentChooserGitMetadata::for_agent(AgentId("idle-agent".to_string())),
     ];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -446,7 +461,9 @@ fn metadata_only_ineligible_agents_keeps_chooser_closed() {
         branch: Some("main".to_string()),
         dirty: crate::domain::DirtyStatus::dirty(),
     }];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     assert!(
         state.issues_state.agent_chooser.is_none(),
         "chooser must stay closed when all referenced agents are ineligible"
@@ -490,7 +507,9 @@ fn metadata_unavailable_kind_agent_dropped_from_chooser() {
         },
         AgentChooserGitMetadata::for_agent(AgentId("llxprt-agent".to_string())),
     ];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -529,7 +548,9 @@ fn metadata_stale_removed_agent_dropped_from_chooser() {
         },
         AgentChooserGitMetadata::for_agent(AgentId("current-agent".to_string())),
     ];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -565,7 +586,9 @@ fn metadata_cannot_override_identity() {
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
         "agent-1".to_string(),
     ))];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -604,7 +627,9 @@ fn metadata_duplicate_agent_id_first_wins() {
             dirty: crate::domain::DirtyStatus::dirty(),
         },
     ];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let chooser = state
         .issues_state
         .agent_chooser
@@ -642,11 +667,15 @@ fn nonzero_chooser_index_selects_correct_agent_id() {
         AgentChooserGitMetadata::for_agent(AgentId("agent-alpha".to_string())),
         AgentChooserGitMetadata::for_agent(AgentId("agent-beta".to_string())),
     ];
-    let mut state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let mut state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     assert_eq!(issues_chooser(&state).selected_index, 0);
 
     // Navigate down to index 1.
-    state = state.apply(AppEvent::AgentChooserNavigateDown);
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure();
     let chooser = issues_chooser(&state);
     assert_eq!(chooser.selected_index, 1);
     assert_eq!(
@@ -678,11 +707,17 @@ fn navigate_down_clamps_at_last_entry() {
         AgentChooserGitMetadata::for_agent(AgentId("a1".to_string())),
         AgentChooserGitMetadata::for_agent(AgentId("a2".to_string())),
     ];
-    let mut state = state.apply(AppEvent::OpenAgentChooser { metadata });
-    state = state.apply(AppEvent::AgentChooserNavigateDown);
+    let mut state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure();
     assert_eq!(issues_chooser(&state).selected_index, 1);
     // Try to advance past the end — should stay at 1.
-    state = state.apply(AppEvent::AgentChooserNavigateDown);
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure();
     assert_eq!(issues_chooser(&state).selected_index, 1);
 }
 
@@ -710,12 +745,16 @@ fn confirm_closes_chooser_after_nonzero_navigation() {
         AgentChooserGitMetadata::for_agent(AgentId("a1".to_string())),
         AgentChooserGitMetadata::for_agent(AgentId("a2".to_string())),
     ];
-    let mut state = state.apply(AppEvent::OpenAgentChooser { metadata });
-    state = state.apply(AppEvent::AgentChooserNavigateDown);
+    let mut state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::AgentChooserNavigateDown)
+        .committed_pure();
     // Before confirm, index is 1.
     assert_eq!(issues_chooser(&state).selected_index, 1);
     // Confirm closes the chooser.
-    state = state.apply(AppEvent::AgentChooserConfirm);
+    state = state.apply(AppEvent::AgentChooserConfirm).committed_pure();
     assert!(state.issues_state.agent_chooser.is_none());
 }
 
@@ -737,7 +776,9 @@ fn metadata_branch_and_dirty_joined_for_eligible_agent() {
         branch: Some("feature".to_string()),
         dirty: crate::domain::DirtyStatus::dirty(),
     }];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &issues_chooser(&state).agents[0];
     assert_eq!(entry.branch.as_deref(), Some("feature"));
     assert!(entry.dirty.is_dirty());
@@ -758,7 +799,9 @@ fn no_matching_metadata_gives_unknown_dirty_and_no_branch() {
 
     // Pass empty metadata — the eligible agent should still appear with
     // unknown dirty and no branch.
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata: vec![] })
+        .committed_pure();
     let entry = &issues_chooser(&state).agents[0];
     assert!(entry.branch.is_none());
     assert_eq!(entry.dirty, crate::domain::DirtyStatus::unknown());
@@ -813,7 +856,9 @@ fn empty_agent_value_not_replaced_by_repo_default() {
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
         "a1".to_string(),
     ))];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &issues_chooser(&state).agents[0];
     // The agent's own empty value is preserved, NOT the repo default.
     assert!(
@@ -843,7 +888,9 @@ fn agent_config_preserved_exactly_not_repo_fallback() {
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
         "a1".to_string(),
     ))];
-    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let state = state
+        .apply(AppEvent::OpenAgentChooser { metadata })
+        .committed_pure();
     let entry = &issues_chooser(&state).agents[0];
     assert_eq!(entry.runtime_config.value, "agent-profile");
 }

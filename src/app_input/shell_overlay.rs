@@ -76,7 +76,10 @@ pub async fn observe_shell_exit(mut app_state: AppStateHandle, ctx: SharedContex
                 {
                     continue;
                 }
-                *state = std::mem::take(&mut *state).apply(AppEvent::CloseShellOverlay);
+                jefe::state::transition::commit_pure_site(
+                    &mut state,
+                    (AppEvent::CloseShellOverlay).into(),
+                );
                 drop(state);
                 resize_for_active_layout(&app_state, &ctx);
             }

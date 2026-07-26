@@ -12,7 +12,7 @@ use jefe::harness::{
 };
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
-use jefe::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+use jefe::persistence::{FilePersistenceManager, PersistencePaths, State};
 
 /// Seed a config dir with three repositories each having a running agent so
 /// they are all visible on the dashboard.
@@ -63,7 +63,7 @@ fn seed_reorder_state(config_dir: &Path) {
     };
     let persistence = FilePersistenceManager::with_paths(paths);
     persistence
-        .save_state(&persisted)
+        .save_schema1_state(&persisted)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
 }
 

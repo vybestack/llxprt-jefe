@@ -2,6 +2,7 @@
 //! (issue #186). Split out of `issues_tests_detail_flow.rs` to keep that file
 //! under the source-file length limit.
 
+use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState};
 
 /// A self-assignment failure surfaces a `warning_message` that identifies the
@@ -14,11 +15,13 @@ fn test_issue_self_assignment_failed_sets_warning_not_error() {
     state.warning_message = None;
     state.issues_state.error = None;
 
-    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
-        owner_repo: "acme/widgets".to_string(),
-        issue_number: 166,
-        error: "repo restricts assignees".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::IssueSelfAssignmentFailed {
+            owner_repo: "acme/widgets".to_string(),
+            issue_number: 166,
+            error: "repo restricts assignees".to_string(),
+        })
+        .committed_pure();
 
     assert!(
         state.issues_state.active,
@@ -52,13 +55,15 @@ fn test_issue_self_assignment_failed_warns_without_owner_repo() {
     state.warning_message = None;
     state.issues_state.error = None;
 
-    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
-        owner_repo: String::new(),
-        issue_number: 42,
-        error: "No valid GitHub repo (owner/repo) configured for this agent's repository; \
+    let state = state
+        .apply(AppEvent::IssueSelfAssignmentFailed {
+            owner_repo: String::new(),
+            issue_number: 42,
+            error: "No valid GitHub repo (owner/repo) configured for this agent's repository; \
                 could not self-assign the issue"
-            .to_string(),
-    });
+                .to_string(),
+        })
+        .committed_pure();
 
     assert!(
         state.issues_state.error.is_none(),
@@ -84,11 +89,13 @@ fn test_issue_self_assignment_failed_overwrites_prior_warning() {
     state.issues_state.active = true;
     state.warning_message = Some("an earlier unrelated warning".to_string());
 
-    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
-        owner_repo: "acme/widgets".to_string(),
-        issue_number: 186,
-        error: "repo restricts assignees".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::IssueSelfAssignmentFailed {
+            owner_repo: "acme/widgets".to_string(),
+            issue_number: 186,
+            error: "repo restricts assignees".to_string(),
+        })
+        .committed_pure();
 
     let warning = state
         .warning_message
@@ -114,11 +121,13 @@ fn test_issue_self_assignment_failed_outside_issues_mode_is_safe() {
     state.issues_state.active = false;
     state.issues_state.error = None;
 
-    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
-        owner_repo: "acme/widgets".to_string(),
-        issue_number: 186,
-        error: "repo restricts assignees".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::IssueSelfAssignmentFailed {
+            owner_repo: "acme/widgets".to_string(),
+            issue_number: 186,
+            error: "repo restricts assignees".to_string(),
+        })
+        .committed_pure();
 
     assert!(
         !state.issues_state.active,

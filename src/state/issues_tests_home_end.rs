@@ -9,6 +9,7 @@
 use crate::domain::{IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::InlineState;
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
@@ -20,7 +21,7 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
         std::path::PathBuf::from("/tmp/test"),
     ));
     state.selected_repository_index = Some(0);
-    state.apply(AppEvent::EnterIssuesMode)
+    state.apply(AppEvent::EnterIssuesMode).committed_pure()
 }
 
 fn detail(number: u64) -> IssueDetail {
@@ -54,24 +55,28 @@ fn detail(number: u64) -> IssueDetail {
 fn state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), issue_number);
-    state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number,
-        request_id: 0,
-        detail: Box::new(detail(issue_number)),
-    })
+    state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number,
+            request_id: 0,
+            detail: Box::new(detail(issue_number)),
+        })
+        .committed_pure()
 }
 
 fn open_new_comment_composer(state: AppState) -> AppState {
-    state.apply(AppEvent::OpenNewCommentComposer)
+    state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure()
 }
 
 fn type_into_composer(mut state: AppState, text: &str) -> AppState {
     for ch in text.chars() {
         state = if ch == '\n' {
-            state.apply(AppEvent::InlineNewline)
+            state.apply(AppEvent::InlineNewline).committed_pure()
         } else {
-            state.apply(AppEvent::InlineChar(ch))
+            state.apply(AppEvent::InlineChar(ch)).committed_pure()
         };
     }
     state
@@ -80,7 +85,7 @@ fn type_into_composer(mut state: AppState, text: &str) -> AppState {
 fn move_cursor_left(state: AppState, steps: usize) -> AppState {
     let mut s = state;
     for _ in 0..steps {
-        s = s.apply(AppEvent::InlineCursorLeft);
+        s = s.apply(AppEvent::InlineCursorLeft).committed_pure();
     }
     s
 }
@@ -102,7 +107,7 @@ fn home_on_single_line_moves_to_start() {
     let state = open_new_comment_composer(state);
     let state = type_into_composer(state, "abcdef");
     // Caret at end (byte 6); Home must jump to byte 0.
-    let state = state.apply(AppEvent::InlineCursorHome);
+    let state = state.apply(AppEvent::InlineCursorHome).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 0,
@@ -119,7 +124,7 @@ fn end_on_single_line_moves_to_end() {
     let state = type_into_composer(state, "abcdef");
     // Walk back to the middle, then End must return to the end.
     let state = move_cursor_left(state, 3);
-    let state = state.apply(AppEvent::InlineCursorEnd);
+    let state = state.apply(AppEvent::InlineCursorEnd).committed_pure();
     let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, text.len(), "End must move the caret to text.len()");
 }
@@ -134,7 +139,7 @@ fn home_on_multiline_moves_to_current_line_start() {
     // "abcd\nefgh" — caret lands at byte 9 (end of second line).
     let state = type_into_composer(state, "abcd\nefgh");
     // Home must move to byte 5 (start of "efgh"), NOT byte 0.
-    let state = state.apply(AppEvent::InlineCursorHome);
+    let state = state.apply(AppEvent::InlineCursorHome).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 5,
@@ -153,8 +158,8 @@ fn end_on_multiline_moves_to_current_line_end() {
     let state = type_into_composer(state, "abcd\nefgh");
     // Move to the first line (CursorUp), then End must land at byte 4 (end of
     // "abcd"), NOT byte 9.
-    let state = state.apply(AppEvent::InlineCursorUp);
-    let state = state.apply(AppEvent::InlineCursorEnd);
+    let state = state.apply(AppEvent::InlineCursorUp).committed_pure();
+    let state = state.apply(AppEvent::InlineCursorEnd).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor, 4,
@@ -172,11 +177,11 @@ fn home_end_are_utf8_safe() {
     let state = open_new_comment_composer(state);
     let state = type_into_composer(state, "héllo");
     // Caret at byte 6; Home -> 0.
-    let state = state.apply(AppEvent::InlineCursorHome);
+    let state = state.apply(AppEvent::InlineCursorHome).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, 0, "Home on multibyte text must land on byte 0");
     // End -> byte length (6).
-    let state = state.apply(AppEvent::InlineCursorEnd);
+    let state = state.apply(AppEvent::InlineCursorEnd).committed_pure();
     let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor,
@@ -192,7 +197,7 @@ fn home_on_empty_composer_is_noop() {
     let repo_id = RepositoryId("repo-1".to_string());
     let state = state_with_loaded_detail(&repo_id, 42);
     let state = open_new_comment_composer(state);
-    let state = state.apply(AppEvent::InlineCursorHome);
+    let state = state.apply(AppEvent::InlineCursorHome).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(cursor, 0, "Home on an empty composer must be a no-op");
 }
@@ -211,14 +216,14 @@ fn home_end_work_in_inline_editor() {
         text: body.clone(),
         cursor: body.len(),
     };
-    let state = state.apply(AppEvent::InlineCursorHome);
+    let state = state.apply(AppEvent::InlineCursorHome).committed_pure();
     let (_text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor,
         "line1\n".len(),
         "Home in the editor must move to the start of the current line"
     );
-    let state = state.apply(AppEvent::InlineCursorEnd);
+    let state = state.apply(AppEvent::InlineCursorEnd).committed_pure();
     let (text, cursor) = inline_text_cursor(&state);
     assert_eq!(
         cursor,

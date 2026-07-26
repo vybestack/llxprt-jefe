@@ -15,7 +15,9 @@ use super::clone_identity::CloneIdentity;
 use super::issue_prep::{DirtyPolicy, PrepOutcome, prepare_issue_target};
 use super::issue_self_assignment::IssueAssignment;
 use super::issues_dispatch;
-use super::{AppStateHandle, SharedContext, apply_and_persist, persist_state, to_persisted_state};
+use super::{
+    AppStateHandle, SharedContext, apply_and_persist, durable_save_request, schedule_durable_save,
+};
 
 pub(super) use super::issues_send::{
     apply_assignment_action, apply_send_to_agent_failed, focused_issue_comment,
@@ -66,9 +68,9 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         };
         let mut state = app_state.write();
         let pos = state.push_transient_queue_item(queue_item);
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         apply_and_persist(
             app_state,
             ctx,
@@ -315,9 +317,9 @@ fn push_transient_agent_queued(
 ) {
     let mut state = app_state.write();
     state.agents.push(agent);
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Public re-export for PRs orchestration (issue #213). Pushes a transient
@@ -352,9 +354,9 @@ fn launch_transient_issue_agent(
             pid,
             process_identity,
         );
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
     } else {
         // Surface the failure, then remove the transient agent and clean up
         // its temp directory via fail_transient_agent.
@@ -424,9 +426,9 @@ pub(super) fn fail_transient_agent(
             .filter(|a| a.is_transient())
             .map(|a| a.work_dir.clone());
         state.agents.retain(|a| a.id != *agent_id);
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         work_dir
     };
     // Best-effort cleanup of the transient work directory. Only transient
