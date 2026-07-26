@@ -74,13 +74,11 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
 ///
 /// The work-directory removal guard uses [`work_dir_shared_by_sibling`] which
 /// compares paths via [`crate::services::local_paths_equivalent`] — a
-/// string-based, platform-aware normalization (separators, case, `.`/`..`,
-/// Windows extended-path prefixes). It does **not** canonicalize symlinks or
-/// resolve relative paths to absolute. Work directories that point to the
-/// same physical directory through different symlinked paths will bypass this
-/// guard. This is a known limitation; the guard protects against the
-/// identical/normalized path collision case which is the common failure mode
-/// from duplicate agent names (issue #403).
+/// platform-aware comparison that resolves symlinks via
+/// [`std::fs::canonicalize`] when both paths exist on disk (issue #424), then
+/// normalizes separators, case, `.`/`..`, and Windows extended-path prefixes.
+/// Paths that do not exist (unmaterialized work directories) fall back to the
+/// string-based normalization.
 pub fn delete_selected_agent(
     state: &mut AppState,
     agent_id: &AgentId,
