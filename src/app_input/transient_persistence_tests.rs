@@ -6,6 +6,13 @@ use std::path::PathBuf;
 
 use super::durable_save_request;
 
+fn id_of(key: &str) -> jefe::domain::Id {
+    match jefe::domain::Id::parse(key) {
+        Ok(id) => id,
+        Err(error) => panic!("{key} must be a valid id: {error:?}"),
+    }
+}
+
 /// Stage a durable save, failing loudly when the projection declined.
 fn require_candidate(state: &mut AppState) -> Box<jefe::domain::StateV2> {
     match durable_save_request(state) {
@@ -57,6 +64,21 @@ fn durable_candidate_filters_out_transient_agents() {
         persisted.agents.len(),
         1,
         "only non-transient agents should persist"
+    );
+    // A count alone would also pass if the transient agent were the survivor,
+    // so prove which agent was kept via its persisted origin and work dir.
+    let origin_key = id_of("origin");
+    let survivor = &persisted.agents[0];
+    assert_eq!(
+        survivor.values.get(&origin_key),
+        Some(&jefe::domain::TypedValue::String("persistent".to_owned())),
+        "the surviving agent must be the persistent one"
+    );
+    let work_dir_key = id_of("work-dir");
+    assert_eq!(
+        survivor.values.get(&work_dir_key),
+        Some(&jefe::domain::TypedValue::String("/tmp/regular".to_owned())),
+        "the surviving agent must be the one rooted at the non-transient work dir"
     );
 }
 

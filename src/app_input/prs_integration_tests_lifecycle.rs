@@ -329,24 +329,60 @@ fn assert_persisted_fields_match_source(persisted: &jefe::domain::StateV2, state
             "agent[{i}] must carry a durable id"
         );
     }
-    assert_eq!(
-        persisted.selection.repository_id.is_some(),
-        state.selected_repository_index.is_some(),
-        "selected repository presence must match source"
-    );
-    assert_eq!(
-        persisted.selection.agent_id.is_some(),
-        state.selected_agent_index.is_some(),
-        "selected agent presence must match source"
-    );
+    assert_selection_matches_source(persisted, state);
     assert_eq!(
         persisted.preferences.hide_idle_repositories,
         state.hide_idle_repositories
     );
+    assert_remembered_selections_match_source(persisted, state);
+}
+
+/// Ids are minted by the projection, so each selected index is resolved to the
+/// durable id it must point at. A presence-only check would accept a
+/// projection that selected the wrong record.
+fn assert_selection_matches_source(persisted: &jefe::domain::StateV2, state: &AppState) {
+    let expected_repository = state
+        .selected_repository_index
+        .map(|index| persisted.repositories[index].id.clone());
     assert_eq!(
-        persisted.last_selected_agent_by_repo.len(),
-        state.last_selected_agent_by_repo.len(),
-        "remembered selections must survive projection"
+        persisted.selection.repository_id, expected_repository,
+        "the durable selection must name the source-selected repository"
+    );
+    let expected_agent = state
+        .selected_agent_index
+        .map(|index| persisted.agents[index].id.clone());
+    assert_eq!(
+        persisted.selection.agent_id, expected_agent,
+        "the durable selection must name the source-selected agent"
+    );
+}
+
+/// Compare content, not just cardinality: a truncated or mis-keyed map has the
+/// same length as a correct one.
+fn assert_remembered_selections_match_source(persisted: &jefe::domain::StateV2, state: &AppState) {
+    let expected: std::collections::BTreeMap<_, _> = state
+        .last_selected_agent_by_repo
+        .iter()
+        .map(|(repository_id, agent_id)| {
+            let repository_index = state
+                .repositories
+                .iter()
+                .position(|repo| &repo.id == repository_id)
+                .unwrap_or_else(|| panic!("remembered repository must exist"));
+            let agent_index = state
+                .agents
+                .iter()
+                .position(|agent| &agent.id == agent_id)
+                .unwrap_or_else(|| panic!("remembered agent must exist"));
+            (
+                persisted.repositories[repository_index].id.clone(),
+                persisted.agents[agent_index].id.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        persisted.last_selected_agent_by_repo, expected,
+        "remembered selections must survive projection with their exact mapping"
     );
 }
 
