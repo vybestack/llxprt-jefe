@@ -16,8 +16,8 @@ use jefe::theme::ThemeManager;
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, auth_remediation, close_modal_and_persist,
-    execute_agent_launch, launch_signature_for_agent, persist_state, preflight_or_prompt,
-    repository_focus_toggles_checkbox, to_persisted_state,
+    durable_save_request, execute_agent_launch, launch_signature_for_agent, preflight_or_prompt,
+    repository_focus_toggles_checkbox, schedule_durable_save,
 };
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -49,7 +49,10 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
 
     if state.terminal_focused {
         state.pane_focus = PaneFocus::Agents;
-        *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            (AppEvent::ToggleTerminalFocus).into(),
+        );
     } else {
         let selected_running_agent_id = state
             .selected_agent()
@@ -58,7 +61,10 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
 
         if selected_running_agent_id.is_some() {
             state.pane_focus = PaneFocus::Terminal;
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                (AppEvent::ToggleTerminalFocus).into(),
+            );
         } else {
             state.pane_focus = PaneFocus::Agents;
             state.terminal_focused = false;
@@ -66,11 +72,11 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
     }
 }
 
-fn persist_current_state(app_state: &AppStateHandle, ctx: &SharedContext) {
-    let state = app_state.read();
-    let persisted = to_persisted_state(&state);
+fn persist_current_state(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let mut state = app_state.write();
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 pub fn handle_mode_confirm_key(
@@ -219,9 +225,9 @@ fn confirm_delete_agent(
     let mut state = app_state.write();
     let _ = jefe::state::delete_selected_agent(&mut state, &id, delete_work_dir);
     state.modal = ModalState::None;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn confirm_delete_repository(
@@ -247,9 +253,9 @@ fn confirm_delete_repository(
     let mut state = app_state.write();
     jefe::state::delete_selected_repository(&mut state, &id);
     state.modal = ModalState::None;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
@@ -691,9 +697,9 @@ fn handle_workflow_dispatch_submit(
     if trimmed_ref.is_empty() {
         let mut state = app_state.write();
         state.actions_state.error = Some("Ref name is required".to_string());
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         return;
     }
     // Parse inputs (cheap, no state access).
@@ -711,9 +717,9 @@ fn handle_workflow_dispatch_submit(
     let Some(scope_repo_id) = scope_repo_id else {
         let mut state = app_state.write();
         state.actions_state.error = Some("No repository selected".to_string());
-        let persisted = to_persisted_state(&state);
+        let persisted = durable_save_request(&mut state);
         drop(state);
-        persist_state(ctx, &persisted);
+        schedule_durable_save(ctx, persisted);
         return;
     };
     // All validation passed — close the modal now so the dispatch proceeds.
@@ -771,18 +777,18 @@ fn submit_form_and_snapshot_launch(
         state.error_message = Some("selected agent repository not found".to_owned());
     }
 
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
     launch_after_submit
 }
 
 fn focus_terminal_after_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
     focus_terminal_state(&mut state);
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 pub(super) fn focus_terminal_state(state: &mut AppState) {
@@ -837,7 +843,7 @@ fn cycle_sandbox_engine(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             .label()
             .clone_into(&mut fields.sandbox_engine);
     }
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }

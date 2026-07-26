@@ -1,142 +1,275 @@
-//! Startup-boundary helpers for wiring persistence and managers.
+//! Startup-boundary path resolution and persistence validation.
 //!
-//! These functions keep the TUI-launching `main` thin by moving testable
-//! construction/validation logic into the library. In particular,
-//! [`build_persistence`] performs fail-fast validation of an explicit
-//! `--config` directory so that an unwritable path produces a clear, actionable
-//! error instead of silent apparent data loss mid-session.
-//!
-//! @requirement REQ-TECH-005
+//! Normal startup consumes the same [`ResolvedPaths`] authority as recovery,
+//! applies the shared source decision table (importing exactly one valid
+//! distinct source into an absent target, atomically, while retaining the
+//! source), and validates bounded settings/state bytes before composition.
+//! Ambiguous or malformed sources block startup with the same typed
+//! diagnostics and exits as recovery.
 
-use crate::persistence::{
-    FilePersistenceManager, PersistenceError, PersistencePaths, resolve_paths,
-    resolve_paths_from_dir, validate_config_dir,
+use std::path::Path;
+
+use crate::config_owners::builtin_owner_catalog;
+use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
+use crate::persistence::migration::{migrate_settings, migrate_state};
+use crate::persistence::paths::{
+    ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
+    SourceValidity, decide_import, import_state_source, physical_identity, resolve,
 };
+use crate::persistence::{FilePersistenceManager, PersistencePaths};
 
-/// Build the persistence manager for the resolved config directory.
-///
-/// When `config_dir` is `Some(dir)` (i.e. `--config <dir>` was supplied) the
-/// directory is validated fail-fast via [`validate_config_dir`]: it is created
-/// if missing, confirmed to be a directory, and probed for writability of both
-/// `settings.toml` and `state.json`. When `config_dir` is `None` the default
-/// platform/env paths are used with no extra validation, matching the existing
-/// behavior for the implicit config location.
-///
-/// # Errors
-///
-/// Returns [`PersistenceError::InvalidConfigDir`] when an explicit config
-/// directory cannot be created or written to.
-pub fn build_persistence(
-    config_dir: Option<&std::path::Path>,
-) -> Result<FilePersistenceManager, PersistenceError> {
-    let paths = resolve_persistence_paths(config_dir)?;
-    Ok(FilePersistenceManager::with_paths(paths))
+/// Fully resolved startup paths and the persistence manager that consumes them.
+#[derive(Debug)]
+pub struct StartupPersistence {
+    pub paths: ResolvedPaths,
+    pub manager: FilePersistenceManager,
 }
 
-/// Resolve [`PersistencePaths`] for the given config directory, validating an
-/// explicit directory before returning.
-fn resolve_persistence_paths(
-    config_dir: Option<&std::path::Path>,
-) -> Result<PersistencePaths, PersistenceError> {
-    match config_dir {
-        Some(dir) => {
-            validate_config_dir(dir)?;
-            Ok(resolve_paths_from_dir(dir))
+/// Resolve and validate persistence before runtime or provider composition.
+pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
+    let paths = resolve(config_dir)?;
+    apply_state_import(&paths.state)?;
+    validate_settings(&paths.settings.path)?;
+    validate_state(&paths.state.path)?;
+    let manager = FilePersistenceManager::with_paths(PersistencePaths {
+        settings_path: paths.settings.path.clone(),
+        state_path: paths.state.path.clone(),
+    });
+    Ok(StartupPersistence { paths, manager })
+}
+
+fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
+    let target = existing_identity(&file.path)?;
+    let sources = inspect_sources(file)?;
+    match decide_import(target.is_some(), target.as_ref(), &sources)? {
+        ImportDecision::Empty => Ok(()),
+        ImportDecision::Import { source } => import_state_source(&source, &file.path)
+            .map(|_| ())
+            .map_err(|error| import_error(&file.path, &error)),
+    }
+}
+
+fn existing_identity(path: &Path) -> Result<Option<PhysicalIdentity>, PathError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => physical_identity(path).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(path_error(path, CfgCode::E001, 2, &error.to_string())),
+    }
+}
+
+fn inspect_sources(file: &ResolvedFile) -> Result<Vec<InspectedSource>, PathError> {
+    let mut inspected = Vec::new();
+    for source in &file.sources {
+        match std::fs::read(&source.path) {
+            Ok(bytes) => {
+                let validity = match migrate_state(&bytes) {
+                    Ok(_) => SourceValidity::Valid,
+                    Err(diagnostics) => SourceValidity::Malformed(
+                        diagnostics
+                            .first()
+                            .map_or(CfgCode::E103, |diagnostic| diagnostic.code),
+                    ),
+                };
+                inspected.push(InspectedSource::new(
+                    source.path.clone(),
+                    physical_identity(&source.path)?,
+                    validity,
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(path_error(
+                    &source.path,
+                    CfgCode::E001,
+                    2,
+                    &error.to_string(),
+                ));
+            }
         }
-        None => Ok(resolve_paths()),
+    }
+    Ok(inspected)
+}
+
+fn validate_settings(path: &Path) -> Result<(), PathError> {
+    let Some(bytes) = read_optional(path)? else {
+        return Ok(());
+    };
+    let catalog = builtin_owner_catalog()
+        .map_err(|error| path_error(path, CfgCode::E005, 2, &format!("owner catalog: {error}")))?;
+    migrate_settings(&bytes, &catalog)
+        .map(|_| ())
+        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))
+}
+
+fn validate_state(path: &Path) -> Result<(), PathError> {
+    let Some(bytes) = read_optional(path)? else {
+        return Ok(());
+    };
+    migrate_state(&bytes)
+        .map(|_| ())
+        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))
+}
+
+fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, PathError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(path_error(path, CfgCode::E001, 2, &error.to_string())),
+    }
+}
+
+fn import_error(path: &Path, error: &crate::persistence::paths::StateImportError) -> PathError {
+    error.diagnostic().map_or_else(
+        || {
+            path_error(
+                path,
+                CfgCode::E104,
+                error.exit_code(),
+                "state import failed",
+            )
+        },
+        |diagnostic| PathError {
+            diagnostic: Box::new(diagnostic.clone()),
+            exit_code: error.exit_code(),
+        },
+    )
+}
+
+fn diagnostic_error(path: &Path, diagnostics: Vec<Diagnostic>, exit_code: u8) -> PathError {
+    diagnostics.into_iter().next().map_or_else(
+        || path_error(path, CfgCode::E103, exit_code, "document validation failed"),
+        |diagnostic| PathError {
+            diagnostic: Box::new(diagnostic),
+            exit_code,
+        },
+    )
+}
+
+fn path_error(path: &Path, code: CfgCode, exit_code: u8, detail: &str) -> PathError {
+    let mut diagnostic = Diagnostic::new(
+        code,
+        Severity::Error,
+        DiagnosticPath::new(path.to_string_lossy()),
+        None,
+        "run jefe config validate and jefe config migrate-state",
+    );
+    detail.clone_into(&mut diagnostic.redacted_detail);
+    PathError {
+        diagnostic: Box::new(diagnostic),
+        exit_code,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::PersistenceError;
+    use crate::persistence::paths::{PathCandidate, PathProvenance};
 
-    trait TestResultExt<T> {
+    trait TestResultExt<T, E> {
         fn value_or_panic(self, context: &str) -> T;
+        fn error_or_panic(self, context: &str) -> E;
     }
 
-    impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    impl<T, E: std::fmt::Debug> TestResultExt<T, E> for Result<T, E> {
         fn value_or_panic(self, context: &str) -> T {
             match self {
                 Ok(value) => value,
                 Err(error) => panic!("{context}: {error:?}"),
             }
         }
-    }
 
-    fn expect_error<E: std::fmt::Debug>(result: Result<(), E>, context: &str) -> E {
-        match result {
-            Ok(()) => panic!("{context}: expected error"),
-            Err(error) => error,
+        fn error_or_panic(self, context: &str) -> E {
+            match self {
+                Ok(_) => panic!("{context}: expected error"),
+                Err(error) => error,
+            }
         }
     }
 
     fn unique_dir(label: &str) -> std::path::PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("jefe_test_startup_{label}_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&root);
-        root.join(label)
+        let dir = std::env::temp_dir().join(format!(
+            "jefe_startup_{label}_{}_{}",
+            std::process::id(),
+            counter()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).value_or_panic("create test dir");
+        dir
+    }
+
+    fn counter() -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    const SCHEMA1_STATE: &str = "{\n  \"schema_version\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selected_repository_index\": null,\n  \"selected_agent_index\": null\n}\n";
+
+    #[test]
+    fn build_persistence_resolves_explicit_dir_without_creating_files() {
+        let dir = unique_dir("valid");
+        let startup = build_persistence(Some(&dir)).value_or_panic("valid dir should build");
+        assert_eq!(startup.paths.settings.path, dir.join("settings.toml"));
+        assert_eq!(startup.paths.state.path, dir.join("state.json"));
+        assert_eq!(startup.paths.themes, dir.join("themes"));
+        assert!(!startup.paths.settings.path.exists());
+        assert!(!startup.paths.state.path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn build_persistence_validates_explicit_dir_and_rejects_regular_file() {
-        // A path that exists as a regular file must be rejected fail-fast with
-        // a context-rich error mentioning the config path.
-        let temp = unique_dir("regular_file");
-        let root = temp.parent().map(std::path::Path::to_path_buf);
-        let _ = std::fs::remove_file(&temp);
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::write(&temp, "not a directory").value_or_panic("should seed regular file");
+    fn build_persistence_blocks_malformed_state_without_writing() {
+        let dir = unique_dir("malformed");
+        std::fs::write(dir.join("state.json"), "{ malformed state bytes\n")
+            .value_or_panic("seed malformed state");
+        let error = build_persistence(Some(&dir)).error_or_panic("malformed state must block");
+        assert_eq!(error.exit_code, 2);
+        assert_eq!(error.diagnostic.code, CfgCode::E103);
+        let bytes = std::fs::read(dir.join("state.json")).value_or_panic("state must remain");
+        assert_eq!(bytes, b"{ malformed state bytes\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
-        let error = expect_error(
-            build_persistence(Some(&temp)).map(|_| ()),
-            "should reject regular file at startup",
-        );
-        let PersistenceError::InvalidConfigDir { path, reason } = &error else {
-            panic!("expected InvalidConfigDir, got {error:?}");
+    #[test]
+    fn startup_imports_single_valid_source_into_absent_target() {
+        let dir = unique_dir("import");
+        let source_path = dir.join("legacy-state.json");
+        std::fs::write(&source_path, SCHEMA1_STATE).value_or_panic("seed source");
+        let file = ResolvedFile {
+            path: dir.join("state.json"),
+            provenance: PathProvenance::PlatformDefault,
+            sources: vec![PathCandidate {
+                path: source_path.clone(),
+                provenance: PathProvenance::HistoricalLinuxDataState,
+            }],
         };
-        assert_eq!(path, &temp, "error must mention the config path");
-        assert!(
-            reason.contains("not a directory"),
-            "reason should explain it is not a directory, got: {reason}"
-        );
-
-        let _ = std::fs::remove_file(&temp);
-        if let Some(root) = root {
-            let _ = std::fs::remove_dir_all(&root);
-        }
+        apply_state_import(&file).value_or_panic("single valid source must import");
+        let imported = std::fs::read_to_string(dir.join("state.json"))
+            .value_or_panic("target must be written");
+        assert!(imported.contains("\"state_schema\": 2"));
+        let retained = std::fs::read_to_string(&source_path).value_or_panic("source must remain");
+        assert_eq!(retained, SCHEMA1_STATE, "source must stay byte-identical");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn build_persistence_succeeds_for_valid_explicit_dir() {
-        // A freshly-created writable explicit directory should build a manager
-        // whose paths root under that directory.
-        let temp = unique_dir("valid_dir");
-        let root = temp.parent().map(std::path::Path::to_path_buf);
-        let _ = std::fs::remove_dir_all(&temp);
-
-        let manager =
-            build_persistence(Some(&temp)).value_or_panic("valid dir should build manager");
-
-        assert_eq!(
-            manager.paths_ref().settings_path,
-            temp.join("settings.toml")
-        );
-        assert_eq!(manager.paths_ref().state_path, temp.join("state.json"));
-
-        let _ = std::fs::remove_dir_all(&temp);
-        if let Some(root) = root {
-            let _ = std::fs::remove_dir_all(&root);
-        }
-    }
-
-    #[test]
-    fn build_persistence_none_uses_default_paths() {
-        // No explicit dir must not error and must not validate anything.
-        let manager = build_persistence(None).value_or_panic("None should build default manager");
-        let expected = crate::persistence::resolve_paths();
-        assert_eq!(manager.paths_ref().settings_path, expected.settings_path);
-        assert_eq!(manager.paths_ref().state_path, expected.state_path);
+    fn startup_blocks_when_target_and_distinct_source_both_exist() {
+        let dir = unique_dir("ambiguous");
+        let source_path = dir.join("legacy-state.json");
+        let target_path = dir.join("state.json");
+        std::fs::write(&source_path, SCHEMA1_STATE).value_or_panic("seed source");
+        std::fs::write(&target_path, SCHEMA1_STATE).value_or_panic("seed target");
+        let file = ResolvedFile {
+            path: target_path.clone(),
+            provenance: PathProvenance::PlatformDefault,
+            sources: vec![PathCandidate {
+                path: source_path,
+                provenance: PathProvenance::HistoricalLinuxDataState,
+            }],
+        };
+        let error = apply_state_import(&file).error_or_panic("distinct source must block");
+        assert_eq!(error.exit_code, 3);
+        assert_eq!(error.diagnostic.code, CfgCode::E001);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

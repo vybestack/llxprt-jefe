@@ -7,6 +7,7 @@
 //! These tests verify split mode (repository management) behavior.
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ScreenMode};
 use std::path::PathBuf;
 
@@ -50,7 +51,7 @@ fn s_key_enters_split_mode() {
         ..Default::default()
     };
 
-    let state = state.apply(AppEvent::EnterSplitMode);
+    let state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Split);
 }
@@ -59,7 +60,7 @@ fn s_key_enters_split_mode() {
 fn esc_key_exits_split_mode() {
     let mut state = create_split_test_state();
 
-    state = state.apply(AppEvent::ExitSplitMode);
+    state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Dashboard);
 }
@@ -74,7 +75,7 @@ fn g_key_enters_grab_mode() {
     state.split_grab_index = None;
     state.selected_repository_index = Some(1);
 
-    state = state.apply(AppEvent::EnterGrabMode);
+    state = state.apply(AppEvent::EnterGrabMode).committed_pure();
 
     assert_eq!(state.split_grab_index, Some(1));
 }
@@ -84,7 +85,7 @@ fn esc_key_exits_grab_mode() {
     let mut state = create_split_test_state();
     state.split_grab_index = Some(1);
 
-    state = state.apply(AppEvent::ExitGrabMode);
+    state = state.apply(AppEvent::ExitGrabMode).committed_pure();
 
     assert_eq!(state.split_grab_index, None);
 }
@@ -98,7 +99,7 @@ fn grab_mode_move_up_reorders_repository() {
     // Repo order: [llxprt-code, starflight, gable-work]
     // Move starflight (index 1) up
 
-    state = state.apply(AppEvent::GrabMoveUp);
+    state = state.apply(AppEvent::GrabMoveUp).committed_pure();
 
     // Expected order: [starflight, llxprt-code, gable-work]
     assert_eq!(state.repositories[0].name, "starflight");
@@ -116,7 +117,7 @@ fn grab_mode_move_down_reorders_repository() {
     // Repo order: [llxprt-code, starflight, gable-work]
     // Move llxprt-code (index 0) down
 
-    state = state.apply(AppEvent::GrabMoveDown);
+    state = state.apply(AppEvent::GrabMoveDown).committed_pure();
 
     // Expected order: [starflight, llxprt-code, gable-work]
     assert_eq!(state.repositories[0].name, "starflight");
@@ -160,10 +161,10 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
     state.agents = vec![repo1_running, repo2_idle, repo3_running];
     state.selected_repository_index = Some(2);
 
-    state = state.apply(AppEvent::EnterGrabMode);
+    state = state.apply(AppEvent::EnterGrabMode).committed_pure();
     assert_eq!(state.split_grab_index, Some(1));
 
-    state = state.apply(AppEvent::GrabMoveUp);
+    state = state.apply(AppEvent::GrabMoveUp).committed_pure();
 
     assert_eq!(state.repositories[0].id, repo3_id);
     assert_eq!(state.repositories[1].id, repo2_id);
@@ -178,7 +179,7 @@ fn grab_mode_move_up_at_top_stays_at_top() {
     state.selected_repository_index = Some(0);
     state.split_grab_index = Some(0);
 
-    state = state.apply(AppEvent::GrabMoveUp);
+    state = state.apply(AppEvent::GrabMoveUp).committed_pure();
 
     // Should stay at index 0
     assert_eq!(state.split_grab_index, Some(0));
@@ -191,7 +192,7 @@ fn grab_mode_move_down_at_bottom_stays_at_bottom() {
     state.selected_repository_index = Some(2);
     state.split_grab_index = Some(2);
 
-    state = state.apply(AppEvent::GrabMoveDown);
+    state = state.apply(AppEvent::GrabMoveDown).committed_pure();
 
     // Should stay at index 2
     assert_eq!(state.split_grab_index, Some(2));
@@ -206,9 +207,11 @@ fn grab_mode_move_down_at_bottom_stays_at_bottom() {
 fn split_mode_filter_by_repository_id() {
     let mut state = create_split_test_state();
 
-    state = state.apply(AppEvent::SetSplitFilter(Some(RepositoryId(
-        "repo-2".into(),
-    ))));
+    state = state
+        .apply(AppEvent::SetSplitFilter(Some(RepositoryId(
+            "repo-2".into(),
+        ))))
+        .committed_pure();
 
     assert_eq!(state.split_filter, Some(RepositoryId("repo-2".into())));
 }
@@ -218,7 +221,7 @@ fn split_mode_clear_filter() {
     let mut state = create_split_test_state();
     state.split_filter = Some(RepositoryId("repo-2".into()));
 
-    state = state.apply(AppEvent::SetSplitFilter(None));
+    state = state.apply(AppEvent::SetSplitFilter(None)).committed_pure();
 
     assert_eq!(state.split_filter, None);
 }
@@ -232,7 +235,7 @@ fn split_mode_navigate_down_increments_selection() {
     let mut state = create_split_test_state();
     state.selected_repository_index = Some(0);
 
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(state.selected_repository_index, Some(1));
 }
@@ -242,7 +245,7 @@ fn split_mode_navigate_up_decrements_selection() {
     let mut state = create_split_test_state();
     state.selected_repository_index = Some(1);
 
-    state = state.apply(AppEvent::NavigateUp);
+    state = state.apply(AppEvent::NavigateUp).committed_pure();
 
     assert_eq!(state.selected_repository_index, Some(0));
 }

@@ -1,7 +1,7 @@
 //! CLI argument parsing tests moved out of the lib target to stay under the
 //! Clippy `large_stack_arrays` test-descriptor ceiling (issue #307).
 
-use jefe::cli::{CliArgs, CliError, parse_args};
+use jefe::cli::{CliArgs, CliError, ConfigCommand, parse_args};
 use std::path::PathBuf;
 
 trait TestResultExt<T, E> {
@@ -120,4 +120,54 @@ fn combined_flags_parse() {
 fn later_config_overrides_earlier() {
     let parsed = parse(&["-c", "/tmp/a", "-c", "/tmp/b"]).value_or_panic("parse");
     assert_eq!(parsed.config_dir, Some(PathBuf::from("/tmp/b")));
+}
+
+#[test]
+fn config_recovery_commands_parse_with_only_their_owned_flags() {
+    let path =
+        parse(&["config", "path", "--config", "/tmp/recovery"]).value_or_panic("path command");
+    assert_eq!(path.config_dir, Some(PathBuf::from("/tmp/recovery")));
+    assert_eq!(path.command, Some(ConfigCommand::Path));
+
+    let effective =
+        parse(&["config", "show-effective", "--provenance"]).value_or_panic("effective command");
+    assert_eq!(
+        effective.command,
+        Some(ConfigCommand::ShowEffective { provenance: true })
+    );
+
+    let format =
+        parse(&["config", "format", "--check", "--migrate"]).value_or_panic("format command");
+    assert_eq!(
+        format.command,
+        Some(ConfigCommand::Format {
+            check: true,
+            migrate: true,
+        })
+    );
+
+    for (name, expected) in [
+        ("validate", ConfigCommand::Validate),
+        ("edit", ConfigCommand::Edit),
+        ("migrate-state", ConfigCommand::MigrateState),
+    ] {
+        assert_eq!(
+            parse(&["config", name]).value_or_panic(name).command,
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn config_recovery_rejects_missing_command_and_foreign_flags_with_exit_64() {
+    for args in [
+        vec!["config"],
+        vec!["config", "path", "--check"],
+        vec!["config", "validate", "--provenance"],
+        vec!["config", "format", "--provenance"],
+        vec!["config", "unknown"],
+    ] {
+        let error = parse(&args).error_or_panic("invalid recovery syntax");
+        assert_eq!(error.exit_code(), 64, "args: {args:?}");
+    }
 }

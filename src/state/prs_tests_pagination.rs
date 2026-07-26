@@ -13,6 +13,7 @@ use crate::state::events::AppEvent;
 
 use super::prs_integration_tests::{ApplyInPlace, dashboard_state, make_test_pr};
 use super::prs_test_fixtures::begin_pr_list_reload;
+use crate::state::transition::TransitionExt;
 
 /// Load the first page of 30 PRs, navigate selection to the last row, and mark
 /// list_page_pending. Returns the request_id used.
@@ -162,7 +163,7 @@ fn assert_stale_pages_discarded(state: &mut AppState) {
 #[test]
 fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_stale() {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     let request_id = load_first_page_and_navigate_to_end(&mut state);
     deliver_second_page_and_assert_append(&mut state, request_id);
@@ -176,7 +177,7 @@ fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_sta
 #[test]
 fn it_pr_list_page_failure_clears_pending_and_allows_retry() {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     // load_first_page_and_navigate_to_end also begins the page load and
     // returns its request id.
@@ -222,7 +223,7 @@ fn it_pr_list_page_failure_clears_pending_and_allows_retry() {
 #[test]
 fn it_pr_list_page_wrong_scope_discarded() {
     let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     let page_request_id = load_first_page_and_navigate_to_end(&mut state);
 
     // A page response for a DIFFERENT repository must not be appended.

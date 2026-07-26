@@ -4,6 +4,7 @@ use jefe::domain::{
     ListRequestId, PageToken, Repository, RepositoryId, WorkflowRun, WorkflowRunStatus,
 };
 use jefe::messages::{ActionsMessage, AppMessage};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{ActionsListIdentity, AppState};
 
 fn create_test_state() -> AppState {
@@ -55,14 +56,16 @@ fn make_run_at(id: u64, created_at: &str) -> WorkflowRun {
 fn apply_reload(state: &mut AppState, runs: Vec<WorkflowRun>, has_more: bool) {
     start_reload(state, 1);
     let filter = state.actions_state.committed_filter.clone();
-    *state = std::mem::take(state).apply_message(AppMessage::Actions(ActionsMessage::RunsLoaded {
-        scope_repo_id: RepositoryId("test_repo".to_string()),
-        filter: Box::new(filter),
-        page: 1,
-        request_id: 1,
-        runs,
-        has_more,
-    }));
+    *state = std::mem::take(state)
+        .apply_message(AppMessage::Actions(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(filter),
+            page: 1,
+            request_id: 1,
+            runs,
+            has_more,
+        }))
+        .committed_pure();
 }
 
 fn apply_page(state: &mut AppState, runs: Vec<WorkflowRun>) {
@@ -72,15 +75,16 @@ fn apply_page(state: &mut AppState, runs: Vec<WorkflowRun>) {
         .actions_state
         .list
         .begin_page(PageToken::PageNumber(2), request_id);
-    *state =
-        std::mem::take(state).apply_message(AppMessage::Actions(ActionsMessage::RunsPageLoaded {
+    *state = std::mem::take(state)
+        .apply_message(AppMessage::Actions(ActionsMessage::RunsPageLoaded {
             scope_repo_id: RepositoryId("test_repo".to_string()),
             filter: Box::new(filter),
             page: 2,
             request_id: request_id.get(),
             runs,
             has_more: false,
-        }));
+        }))
+        .committed_pure();
 }
 
 fn run_ids(state: &AppState) -> Vec<u64> {

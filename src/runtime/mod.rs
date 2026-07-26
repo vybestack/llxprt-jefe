@@ -25,6 +25,7 @@ mod gh_auth;
 mod identity;
 mod liveness;
 mod manager;
+mod manager_passthrough;
 mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;

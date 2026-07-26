@@ -668,6 +668,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "iocraft",
+ "jefe",
  "lru",
  "portable-pty",
  "serde",

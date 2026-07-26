@@ -4,6 +4,7 @@ use crate::state::types::ScreenMode;
 use crate::state::{AppState, ISSUE_FILTER_FIELD_COUNT};
 
 use super::issues_test_fixtures::begin_issue_list_reload;
+use crate::state::transition::TransitionExt;
 
 fn dashboard_issues_state() -> AppState {
     AppState {
@@ -62,7 +63,7 @@ fn test_open_filter_preserves_field_index() {
     state.issues_state.active = true;
     state.issues_state.filter_ui.field_index = 3;
 
-    let state = state.apply(AppEvent::OpenFilterControls);
+    let state = state.apply(AppEvent::OpenFilterControls).committed_pure();
     assert!(state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.filter_ui.field_index, 3);
 }
@@ -74,7 +75,7 @@ fn test_open_filter_clamps_out_of_range_field_index() {
     state.issues_state.active = true;
     state.issues_state.filter_ui.field_index = ISSUE_FILTER_FIELD_COUNT + 5;
 
-    let state = state.apply(AppEvent::OpenFilterControls);
+    let state = state.apply(AppEvent::OpenFilterControls).committed_pure();
     assert_eq!(
         state.issues_state.filter_ui.field_index,
         ISSUE_FILTER_FIELD_COUNT - 1,
@@ -89,11 +90,11 @@ fn test_filter_navigate_next_cycles() {
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
     for expected in 1..ISSUE_FILTER_FIELD_COUNT {
-        state = state.apply(AppEvent::FilterNavigateNext);
+        state = state.apply(AppEvent::FilterNavigateNext).committed_pure();
         assert_eq!(state.issues_state.filter_ui.field_index, expected);
     }
 
-    let state = state.apply(AppEvent::FilterNavigateNext);
+    let state = state.apply(AppEvent::FilterNavigateNext).committed_pure();
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 }
 
@@ -103,13 +104,13 @@ fn test_filter_navigate_prev_cycles() {
     let state = filter_open_state();
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
-    let state = state.apply(AppEvent::FilterNavigatePrev);
+    let state = state.apply(AppEvent::FilterNavigatePrev).committed_pure();
     assert_eq!(
         state.issues_state.filter_ui.field_index,
         ISSUE_FILTER_FIELD_COUNT - 1
     );
 
-    let state = state.apply(AppEvent::FilterNavigatePrev);
+    let state = state.apply(AppEvent::FilterNavigatePrev).committed_pure();
     assert_eq!(
         state.issues_state.filter_ui.field_index,
         ISSUE_FILTER_FIELD_COUNT - 2
@@ -123,19 +124,19 @@ fn test_cycle_filter_state() {
     // Default is None (treated as Open)
     assert!(state.issues_state.draft_filter.state.is_none());
 
-    let state = state.apply(AppEvent::CycleFilterState);
+    let state = state.apply(AppEvent::CycleFilterState).committed_pure();
     assert_eq!(
         state.issues_state.draft_filter.state,
         Some(IssueFilterState::Closed)
     );
 
-    let state = state.apply(AppEvent::CycleFilterState);
+    let state = state.apply(AppEvent::CycleFilterState).committed_pure();
     assert_eq!(
         state.issues_state.draft_filter.state,
         Some(IssueFilterState::All)
     );
 
-    let state = state.apply(AppEvent::CycleFilterState);
+    let state = state.apply(AppEvent::CycleFilterState).committed_pure();
     assert_eq!(
         state.issues_state.draft_filter.state,
         Some(IssueFilterState::Open)
@@ -147,20 +148,24 @@ fn test_cycle_filter_state() {
 fn test_update_draft_filter_labels() {
     let state = filter_open_state();
 
-    let state = state.apply(AppEvent::UpdateDraftFilter {
-        field: "labels".to_string(),
-        value: "bug,enhancement".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "labels".to_string(),
+            value: "bug,enhancement".to_string(),
+        })
+        .committed_pure();
     assert_eq!(
         state.issues_state.draft_filter.labels,
         vec!["bug", "enhancement"]
     );
 
     // Empty value clears labels
-    let state = state.apply(AppEvent::UpdateDraftFilter {
-        field: "labels".to_string(),
-        value: String::new(),
-    });
+    let state = state
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "labels".to_string(),
+            value: String::new(),
+        })
+        .committed_pure();
     assert!(state.issues_state.draft_filter.labels.is_empty());
 }
 
@@ -173,7 +178,7 @@ fn test_apply_filter_commits_and_reloads() {
     state.issues_state.draft_filter.milestone = "v1".to_string();
     state.issues_state.draft_filter.module = "ui".to_string();
 
-    let state = state.apply(AppEvent::ApplyFilter);
+    let state = state.apply(AppEvent::ApplyFilter).committed_pure();
     assert!(!state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.committed_filter.author, "alice");
     assert_eq!(state.issues_state.committed_filter.issue_type, "bug");
@@ -190,7 +195,7 @@ fn test_clear_filter_resets_and_reloads() {
     state.issues_state.draft_filter.author = "bob".to_string();
     state.issues_state.committed_filter.author = "bob".to_string();
 
-    let state = state.apply(AppEvent::ClearFilter);
+    let state = state.apply(AppEvent::ClearFilter).committed_pure();
     assert!(!state.issues_state.filter_ui.controls_open);
     assert!(state.issues_state.committed_filter.author.is_empty());
     assert!(state.issues_state.draft_filter.author.is_empty());
@@ -200,46 +205,57 @@ fn test_clear_filter_resets_and_reloads() {
 fn populate_all_draft_filter_fields(state: AppState) -> AppState {
     state
         .apply(AppEvent::CycleFilterState)
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "author".to_string(),
             value: "alice".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "assignee".to_string(),
             value: "none".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "labels".to_string(),
             value: "bug,module:ui".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "issue_type".to_string(),
             value: "Bug".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "milestone".to_string(),
             value: "Sprint 1".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "module".to_string(),
             value: "ui".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "query_text".to_string(),
             value: "panic".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "mentioned".to_string(),
             value: "carol".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "updated_before".to_string(),
             value: "2026-07-01".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "updated_after".to_string(),
             value: "2026-06-01".to_string(),
         })
+        .committed_pure()
 }
 
 fn assert_all_draft_filter_fields_populated(filter: &IssueFilter) {
@@ -269,7 +285,7 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
     let populated = populate_all_draft_filter_fields(initial);
     assert_all_draft_filter_fields_populated(&populated.issues_state.draft_filter);
 
-    let state = populated.apply(AppEvent::ClearDraftFilter);
+    let state = populated.apply(AppEvent::ClearDraftFilter).committed_pure();
 
     // ClearDraftFilter resets the draft to the Open default (issue #163).
     assert_eq!(
@@ -297,20 +313,22 @@ fn test_apply_filter_fresh_list_loaded_selects_first_issue() {
     let mut state = state_with_repo();
     state.issues_state.draft_filter.author = "alice".to_string();
 
-    let mut state = state.apply(AppEvent::ApplyFilter);
+    let mut state = state.apply(AppEvent::ApplyFilter).committed_pure();
     assert!(!state.issues_state.list_loading());
     assert_eq!(state.issues_state.selected_issue_index(), None);
     let committed_filter = state.issues_state.committed_filter.clone();
     let request_id = begin_issue_list_reload(&mut state, "repo-1", committed_filter.clone());
 
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(committed_filter),
-        request_id,
-        issues: vec![make_test_issue(1), make_test_issue(2)],
-        cursor: Some("next".to_string()),
-        has_more: true,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(committed_filter),
+            request_id,
+            issues: vec![make_test_issue(1), make_test_issue(2)],
+            cursor: Some("next".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
 
     assert!(!state.issues_state.list_loading());
     assert_eq!(state.issues_state.selected_issue_index(), Some(0));
@@ -323,7 +341,7 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
     state.issues_state.draft_filter.author = "bob".to_string();
     state.issues_state.committed_filter.author = "bob".to_string();
 
-    let mut state = state.apply(AppEvent::ClearFilter);
+    let mut state = state.apply(AppEvent::ClearFilter).committed_pure();
     assert!(!state.issues_state.list_loading());
     assert_eq!(
         state.issues_state.committed_filter,
@@ -338,14 +356,16 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
     };
     let request_id = begin_issue_list_reload(&mut state, "repo-1", open_filter.clone());
 
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(open_filter),
-        request_id,
-        issues: vec![make_test_issue(3)],
-        cursor: None,
-        has_more: false,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(open_filter),
+            request_id,
+            issues: vec![make_test_issue(3)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(!state.issues_state.list_loading());
     assert_eq!(state.issues_state.selected_issue_index(), Some(0));
@@ -379,7 +399,7 @@ fn test_apply_filter_clears_stale_detail_and_comment_pending() {
             .is_some_and(|detail| detail.comments.has_pending_request())
     );
 
-    let state = state.apply(AppEvent::ApplyFilter);
+    let state = state.apply(AppEvent::ApplyFilter).committed_pure();
 
     assert!(!state.issues_state.loading.detail);
     assert!(!state.issues_state.loading.comments);
@@ -404,7 +424,9 @@ fn test_apply_search_clears_stale_detail_pending() {
         request_id: 2,
     });
 
-    let state = state.apply(AppEvent::from(IssuesMessage::ApplySearch));
+    let state = state
+        .apply(AppEvent::from(IssuesMessage::ApplySearch))
+        .committed_pure();
 
     assert!(!state.issues_state.loading.detail);
     assert!(state.issues_state.detail_pending.is_none());
@@ -420,7 +442,9 @@ fn test_apply_search_preserves_literal_any_query() {
     state.issues_state.search_query = "ANY".to_string();
     state.issues_state.committed_filter.query_text = "old".to_string();
 
-    let state = state.apply(AppEvent::from(IssuesMessage::ApplySearch));
+    let state = state
+        .apply(AppEvent::from(IssuesMessage::ApplySearch))
+        .committed_pure();
 
     assert_eq!(state.issues_state.committed_filter.query_text, "ANY");
     assert!(!state.issues_state.list_loading());
@@ -433,14 +457,17 @@ fn test_update_draft_filter_text_fields() {
             field: "author".to_string(),
             value: "octocat".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "assignee".to_string(),
             value: "dev1".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "query_text".to_string(),
             value: "crash".to_string(),
-        });
+        })
+        .committed_pure();
 
     assert_eq!(state.issues_state.draft_filter.author, "octocat");
     assert_eq!(state.issues_state.draft_filter.assignee, "dev1");
@@ -460,10 +487,12 @@ fn test_labels_sequential_typing_round_trip() {
         let raw = state.issues_state.filter_ui.draft_labels_text.clone();
         let mut value = raw;
         value.push(ch);
-        state = state.apply(AppEvent::UpdateDraftFilter {
-            field: "labels".to_string(),
-            value,
-        });
+        state = state
+            .apply(AppEvent::UpdateDraftFilter {
+                field: "labels".to_string(),
+                value,
+            })
+            .committed_pure();
     }
 
     assert_eq!(state.issues_state.filter_ui.draft_labels_text, "bug,ui");
@@ -483,10 +512,12 @@ fn test_labels_trailing_comma_preserved() {
     for ch in ['b', 'u', 'g', ','] {
         let mut value = state.issues_state.filter_ui.draft_labels_text.clone();
         value.push(ch);
-        state = state.apply(AppEvent::UpdateDraftFilter {
-            field: "labels".to_string(),
-            value,
-        });
+        state = state
+            .apply(AppEvent::UpdateDraftFilter {
+                field: "labels".to_string(),
+                value,
+            })
+            .committed_pure();
     }
 
     // Raw text preserves trailing comma
@@ -506,14 +537,17 @@ fn test_update_draft_filter_extended_fields() {
             field: "issue_type".to_string(),
             value: "bug".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "milestone".to_string(),
             value: "v1".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "module".to_string(),
             value: "ui".to_string(),
-        });
+        })
+        .committed_pure();
 
     assert_eq!(state.issues_state.draft_filter.issue_type, "bug");
     assert_eq!(state.issues_state.draft_filter.milestone, "v1");
@@ -528,10 +562,12 @@ fn test_update_draft_filter_state_ignores_unknown_value() {
             field: "state".to_string(),
             value: "all".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "state".to_string(),
             value: "invalid".to_string(),
-        });
+        })
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.draft_filter.state,
@@ -540,13 +576,14 @@ fn test_update_draft_filter_state_ignores_unknown_value() {
 }
 #[test]
 fn test_update_draft_filter_state_clears_to_default() {
-    let state =
-        filter_open_state()
-            .apply(AppEvent::CycleFilterState)
-            .apply(AppEvent::UpdateDraftFilter {
-                field: "state".to_string(),
-                value: String::new(),
-            });
+    let state = filter_open_state()
+        .apply(AppEvent::CycleFilterState)
+        .committed_pure()
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "state".to_string(),
+            value: String::new(),
+        })
+        .committed_pure();
 
     assert_eq!(state.issues_state.draft_filter.state, None);
 }
@@ -554,10 +591,12 @@ fn test_update_draft_filter_state_clears_to_default() {
 /// Updating the state draft field to all preserves the explicit all filter.
 #[test]
 fn test_update_draft_filter_state_all_stays_explicit() {
-    let state = filter_open_state().apply(AppEvent::UpdateDraftFilter {
-        field: "state".to_string(),
-        value: "all".to_string(),
-    });
+    let state = filter_open_state()
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "state".to_string(),
+            value: "all".to_string(),
+        })
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.draft_filter.state,

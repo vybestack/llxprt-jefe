@@ -20,6 +20,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{PrListIdentity, ScreenMode};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
+use crate::state::transition::TransitionExt;
 
 // ── Test fixtures ──────────────────────────────────────────────────────────
 
@@ -140,14 +141,16 @@ fn test_list_loaded_does_not_clear_detail_pending() {
         request_id: 42,
     });
 
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 1,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 1,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.detail_pending.is_some(),
@@ -172,14 +175,16 @@ fn test_silent_refresh_preserves_selection_and_detail() {
     state.prs_state.pr_detail = Some(make_test_pr_detail("repo-1", 3, vec![]));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: (1u64..=5).map(make_test_pr).collect(),
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: (1u64..=5).map(make_test_pr).collect(),
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
@@ -214,14 +219,16 @@ fn test_silent_refresh_preserves_selection_when_pr_reordered() {
     state.prs_state.list.set_selected_index(Some(1)); // PR #2
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(3), make_test_pr(2), make_test_pr(1)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(3), make_test_pr(2), make_test_pr(1)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
@@ -253,14 +260,16 @@ fn test_silent_refresh_handles_selected_pr_removed() {
     state.prs_state.list.set_selected_index(Some(1)); // PR #2
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(1), make_test_pr(3)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(1), make_test_pr(3)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
@@ -284,14 +293,16 @@ fn test_silent_refresh_discards_stale_scope() {
     state.prs_state.list.set_selected_index(Some(0));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-WRONG".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(99)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-WRONG".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(99)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.pull_requests().len(),
@@ -320,14 +331,16 @@ fn test_silent_refresh_does_not_set_loading_or_error() {
     state.prs_state.error = None;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(
         !new_state.prs_state.list_loading(),
@@ -367,10 +380,12 @@ fn test_silent_refresh_failed_clears_pending_without_error() {
     state.prs_state.error = None;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        request_id: 100,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            request_id: 100,
+        })
+        .committed_pure();
 
     assert!(
         !new_state.prs_state.list_pending(),
@@ -402,10 +417,12 @@ fn test_silent_refresh_failed_discards_stale_request_id() {
     state.prs_state.committed_filter = PrFilter::default();
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        request_id: 999,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            request_id: 999,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.list_pending(),
@@ -431,14 +448,16 @@ fn test_silent_refresh_does_not_clear_pr_detail() {
     state.prs_state.detail_scroll_offset = 3;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.pr_detail.is_some(),
@@ -466,14 +485,16 @@ fn test_silent_refresh_empty_list_preserves_pr_detail() {
     state.prs_state.list.set_selected_index(Some(1));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id: 100,
-        pull_requests: vec![],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id: 100,
+            pull_requests: vec![],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.pr_detail.is_some(),
@@ -513,14 +534,16 @@ fn test_silent_refresh_preserves_search_query_and_filter() {
         crate::domain::ListRequestId::from_raw(100),
     );
 
-    let new_state = state.apply(AppEvent::PrListSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(filter),
-        request_id: 100,
-        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(filter),
+            request_id: 100,
+            pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.search_query, "foo",
@@ -553,12 +576,14 @@ fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
         request_id: 42,
     });
 
-    let new_state = state.apply(AppEvent::PrDetailSilentRefreshed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 5,
-        request_id: 42,
-        detail: std::boxed::Box::new(make_test_pr_detail("repo-1", 5, vec![])),
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailSilentRefreshed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 5,
+            request_id: 42,
+            detail: std::boxed::Box::new(make_test_pr_detail("repo-1", 5, vec![])),
+        })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.detail_subfocus,
@@ -606,11 +631,13 @@ fn test_silent_detail_refresh_failed_does_not_set_error() {
         request_id: 42,
     });
 
-    let new_state = state.apply(AppEvent::PrDetailSilentRefreshFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 5,
-        request_id: 42,
-    });
+    let new_state = state
+        .apply(AppEvent::PrDetailSilentRefreshFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 5,
+            request_id: 42,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.error.is_none(),

@@ -23,7 +23,9 @@ fn minimal_test_ctx() -> CtxArc {
         runtime: TmuxRuntimeManager::new(24, 80),
         gh_client: GhClient::new(),
         gh_deliveries: super::GhDeliveryHandle::default(),
-        persist_handle: PersistHandle::new(Arc::new(|_| Ok(()))),
+        persist_handle: PersistHandle::new(Arc::new(|_, _, _| {
+            Ok(jefe::services::persist_worker::PersistResult::Authoritative)
+        })),
         capture_handle: CaptureHandle::new(),
     }))
 }

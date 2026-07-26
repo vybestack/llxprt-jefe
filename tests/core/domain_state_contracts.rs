@@ -11,6 +11,7 @@ use crate::support::TestOptionExt;
 use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 
 // =============================================================================
@@ -90,7 +91,7 @@ fn navigate_up_decrements_selection() {
     state.selected_repository_index = Some(1);
     state.pane_focus = PaneFocus::Repositories;
 
-    let next = state.apply(AppEvent::NavigateUp);
+    let next = state.apply(AppEvent::NavigateUp).committed_pure();
 
     assert_eq!(
         next.selected_repository_index,
@@ -111,7 +112,7 @@ fn navigate_up_at_zero_stays_at_zero() {
     state.selected_repository_index = Some(0);
     state.pane_focus = PaneFocus::Repositories;
 
-    let next = state.apply(AppEvent::NavigateUp);
+    let next = state.apply(AppEvent::NavigateUp).committed_pure();
 
     assert_eq!(
         next.selected_repository_index,
@@ -138,7 +139,7 @@ fn navigate_down_increments_selection() {
     state.selected_repository_index = Some(0);
     state.pane_focus = PaneFocus::Repositories;
 
-    let next = state.apply(AppEvent::NavigateDown);
+    let next = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(
         next.selected_repository_index,
@@ -159,7 +160,7 @@ fn navigate_down_at_end_stays_at_end() {
     state.selected_repository_index = Some(0);
     state.pane_focus = PaneFocus::Repositories;
 
-    let next = state.apply(AppEvent::NavigateDown);
+    let next = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(
         next.selected_repository_index,
@@ -168,53 +169,46 @@ fn navigate_down_at_end_stays_at_end() {
     );
 }
 
+fn contract_repository(id: &str) -> Repository {
+    Repository::new(
+        RepositoryId(id.into()),
+        id.to_uppercase(),
+        id.into(),
+        PathBuf::from(format!("/{id}")),
+    )
+}
+
+fn contract_agent(id: &str, repository: &str, status: AgentStatus) -> Agent {
+    let mut agent = Agent::new(
+        AgentId(id.into()),
+        RepositoryId(repository.into()),
+        format!("Agent {id}"),
+        PathBuf::from(format!("/{repository}/{id}")),
+    );
+    agent.status = status;
+    agent
+}
+
 #[test]
 fn toggle_hide_idle_repositories_filters_to_running_repositories() {
     let state = AppState {
         repositories: vec![
-            Repository::new(
-                RepositoryId("r1".into()),
-                "R1".into(),
-                "r1".into(),
-                PathBuf::from("/r1"),
-            ),
-            Repository::new(
-                RepositoryId("r2".into()),
-                "R2".into(),
-                "r2".into(),
-                PathBuf::from("/r2"),
-            ),
-            Repository::new(
-                RepositoryId("r3".into()),
-                "R3".into(),
-                "r3".into(),
-                PathBuf::from("/r3"),
-            ),
+            contract_repository("r1"),
+            contract_repository("r2"),
+            contract_repository("r3"),
         ],
         agents: vec![
-            Agent::new(
-                AgentId("a1".into()),
-                RepositoryId("r1".into()),
-                "Idle A1".into(),
-                PathBuf::from("/r1/a1"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("a2".into()),
-                    RepositoryId("r2".into()),
-                    "Running A2".into(),
-                    PathBuf::from("/r2/a2"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
+            contract_agent("a1", "r1", AgentStatus::Queued),
+            contract_agent("a2", "r2", AgentStatus::Running),
         ],
         selected_repository_index: Some(0),
         pane_focus: PaneFocus::Repositories,
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let next = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
 
     assert!(next.hide_idle_repositories);
     assert_eq!(next.selected_repository_index, Some(1));
@@ -268,7 +262,9 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
 
     assert!(hidden.hide_idle_repositories);
     let visible_indices = hidden.agent_indices_for_repository(&RepositoryId("r1".into()));
@@ -278,7 +274,9 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
         Some(AgentId("running".into()))
     );
 
-    let restored = hidden.apply(AppEvent::ToggleHideIdleRepositories);
+    let restored = hidden
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(!restored.hide_idle_repositories);
     let restored_visible = restored.agent_indices_for_repository(&RepositoryId("r1".into()));
     assert_eq!(restored_visible.len(), 2);
@@ -288,65 +286,29 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
 fn repository_navigation_skips_idle_repositories_when_hidden() {
     let state = AppState {
         repositories: vec![
-            Repository::new(
-                RepositoryId("r1".into()),
-                "R1".into(),
-                "r1".into(),
-                PathBuf::from("/r1"),
-            ),
-            Repository::new(
-                RepositoryId("r2".into()),
-                "R2".into(),
-                "r2".into(),
-                PathBuf::from("/r2"),
-            ),
-            Repository::new(
-                RepositoryId("r3".into()),
-                "R3".into(),
-                "r3".into(),
-                PathBuf::from("/r3"),
-            ),
+            contract_repository("r1"),
+            contract_repository("r2"),
+            contract_repository("r3"),
         ],
         agents: vec![
-            {
-                let mut running = Agent::new(
-                    AgentId("a1".into()),
-                    RepositoryId("r1".into()),
-                    "Running A1".into(),
-                    PathBuf::from("/r1/a1"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
-            Agent::new(
-                AgentId("a2".into()),
-                RepositoryId("r2".into()),
-                "Idle A2".into(),
-                PathBuf::from("/r2/a2"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("a3".into()),
-                    RepositoryId("r3".into()),
-                    "Running A3".into(),
-                    PathBuf::from("/r3/a3"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
+            contract_agent("a1", "r1", AgentStatus::Running),
+            contract_agent("a2", "r2", AgentStatus::Queued),
+            contract_agent("a3", "r3", AgentStatus::Running),
         ],
         selected_repository_index: Some(0),
         pane_focus: PaneFocus::Repositories,
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let next = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(next.hide_idle_repositories);
 
-    let next = next.apply(AppEvent::NavigateDown);
+    let next = next.apply(AppEvent::NavigateDown).committed_pure();
     assert_eq!(next.selected_repository_index, Some(2));
 
-    let next = next.apply(AppEvent::NavigateUp);
+    let next = next.apply(AppEvent::NavigateUp).committed_pure();
     assert_eq!(next.selected_repository_index, Some(0));
 }
 
@@ -385,11 +347,15 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(hidden.hide_idle_repositories);
     assert_eq!(hidden.selected_repository_index, None);
 
-    let restored = hidden.apply(AppEvent::ToggleHideIdleRepositories);
+    let restored = hidden
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(!restored.hide_idle_repositories);
     assert_eq!(restored.selected_repository_index, Some(0));
 }
@@ -401,7 +367,7 @@ fn toggle_terminal_focus_sets_terminal_focused() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ToggleTerminalFocus);
+    let next = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
 
     assert!(
         next.terminal_focused,
@@ -440,10 +406,14 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
         ..AppState::default()
     };
 
-    let filtered = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let filtered = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(filtered.hide_idle_repositories);
 
-    let attempted = filtered.apply(AppEvent::SelectRepository(1));
+    let attempted = filtered
+        .apply(AppEvent::SelectRepository(1))
+        .committed_pure();
     assert_eq!(attempted.selected_repository_index, Some(0));
 }
 
@@ -454,7 +424,7 @@ fn toggle_terminal_focus_clears_terminal_focused() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ToggleTerminalFocus);
+    let next = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
 
     assert!(
         !next.terminal_focused,
@@ -469,7 +439,7 @@ fn enter_split_mode_changes_screen_mode() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::EnterSplitMode);
+    let next = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(
         next.screen_mode,
@@ -485,7 +455,7 @@ fn exit_split_mode_returns_to_dashboard() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ExitSplitMode);
+    let next = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
     assert_eq!(
         next.screen_mode,
@@ -498,7 +468,7 @@ fn exit_split_mode_returns_to_dashboard() {
 fn open_help_sets_modal_to_help() {
     let state = AppState::default();
 
-    let next = state.apply(AppEvent::OpenHelp);
+    let next = state.apply(AppEvent::OpenHelp).committed_pure();
 
     assert!(
         matches!(next.modal, ModalState::Help),
@@ -513,7 +483,7 @@ fn close_modal_clears_modal() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::CloseModal);
+    let next = state.apply(AppEvent::CloseModal).committed_pure();
 
     assert!(
         matches!(next.modal, ModalState::None),
@@ -528,7 +498,7 @@ fn cycle_pane_focus_rotates_through_panes() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::CyclePaneFocus);
+    let next = state.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(
         next.pane_focus,
@@ -536,7 +506,7 @@ fn cycle_pane_focus_rotates_through_panes() {
         "CyclePaneFocus from Repositories should go to Agents"
     );
 
-    let next2 = next.apply(AppEvent::CyclePaneFocus);
+    let next2 = next.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(
         next2.pane_focus,
@@ -544,7 +514,7 @@ fn cycle_pane_focus_rotates_through_panes() {
         "CyclePaneFocus from Agents should go to Terminal"
     );
 
-    let next3 = next2.apply(AppEvent::CyclePaneFocus);
+    let next3 = next2.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(
         next3.pane_focus,
@@ -568,10 +538,12 @@ fn agent_status_changed_updates_agent() {
         PathBuf::from("/work"),
     ));
 
-    let next = state.apply(AppEvent::AgentStatusChanged(
-        agent_id.clone(),
-        AgentStatus::Running,
-    ));
+    let next = state
+        .apply(AppEvent::AgentStatusChanged(
+            agent_id.clone(),
+            AgentStatus::Running,
+        ))
+        .committed_pure();
 
     let agent = next
         .agents
@@ -598,7 +570,9 @@ fn kill_agent_sets_status_to_dead() {
     agent.status = AgentStatus::Running;
     state.agents.push(agent);
 
-    let next = state.apply(AppEvent::KillAgent(agent_id.clone()));
+    let next = state
+        .apply(AppEvent::KillAgent(agent_id.clone()))
+        .committed_discarding_effects();
 
     let agent = next
         .agents
@@ -649,7 +623,9 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
 
-    let next = state.apply(AppEvent::JumpToAgentByShortcut(2));
+    let next = state
+        .apply(AppEvent::JumpToAgentByShortcut(2))
+        .committed_pure();
 
     assert_eq!(next.selected_repository_index, Some(1));
     assert_eq!(next.selected_agent_index, Some(1));
@@ -696,7 +672,9 @@ fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
 
-    let next = state.apply(AppEvent::JumpToAgentByShortcut(2));
+    let next = state
+        .apply(AppEvent::JumpToAgentByShortcut(2))
+        .committed_pure();
 
     assert_eq!(next.selected_repository_index, Some(0));
     assert_eq!(next.selected_agent_index, Some(0));
@@ -745,11 +723,11 @@ fn repository_navigation_restores_last_selected_agent_per_repo() {
     state.selected_agent_index = Some(1);
     state.pane_focus = PaneFocus::Repositories;
 
-    let to_repo_b = state.apply(AppEvent::NavigateDown);
+    let to_repo_b = state.apply(AppEvent::NavigateDown).committed_pure();
     assert_eq!(to_repo_b.selected_repository_index, Some(1));
     assert_eq!(to_repo_b.selected_agent_index, Some(2));
 
-    let back_to_repo_a = to_repo_b.apply(AppEvent::NavigateUp);
+    let back_to_repo_a = to_repo_b.apply(AppEvent::NavigateUp).committed_pure();
     assert_eq!(back_to_repo_a.selected_repository_index, Some(0));
     assert_eq!(back_to_repo_a.selected_agent_index, Some(1));
 }
@@ -762,7 +740,9 @@ fn repository_navigation_restores_last_selected_agent_per_repo() {
 fn persistence_load_failed_sets_error() {
     let state = AppState::default();
 
-    let next = state.apply(AppEvent::PersistenceLoadFailed("file not found".into()));
+    let next = state
+        .apply(AppEvent::PersistenceLoadFailed("file not found".into()))
+        .committed_pure();
 
     assert!(
         next.error_message.is_some(),
@@ -784,7 +764,7 @@ fn clear_error_clears_error_message() {
         ..AppState::default()
     };
 
-    let next = state.apply(AppEvent::ClearError);
+    let next = state.apply(AppEvent::ClearError).committed_pure();
 
     assert!(
         next.error_message.is_none(),
@@ -796,7 +776,9 @@ fn clear_error_clears_error_message() {
 fn theme_resolve_failed_sets_warning() {
     let state = AppState::default();
 
-    let next = state.apply(AppEvent::ThemeResolveFailed("theme not found".into()));
+    let next = state
+        .apply(AppEvent::ThemeResolveFailed("theme not found".into()))
+        .committed_pure();
 
     assert!(
         next.warning_message.is_some(),
@@ -817,7 +799,9 @@ fn form_created_agent_has_running_status() {
         ..AppState::default()
     };
 
-    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".into())));
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".into())))
+        .committed_pure();
     if let ModalState::NewAgent { fields, .. } = &mut state.modal {
         fields.name = "Form Agent".into();
         fields.work_dir = "/tmp/repo-one/form-agent".into();
@@ -825,7 +809,7 @@ fn form_created_agent_has_running_status() {
         panic!("expected new-agent modal");
     }
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     let Some(created) = state.agents.iter().find(|a| a.name == "Form Agent") else {
         panic!("form-created agent should exist");

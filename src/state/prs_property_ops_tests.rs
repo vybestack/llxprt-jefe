@@ -4,6 +4,7 @@
 use super::*;
 use crate::domain::{PrState, PullRequestDetail, RepositoryId};
 use crate::state::PullRequestsState;
+use crate::state::transition::TransitionExt;
 
 fn make_state_with_detail() -> AppState {
     let detail = PullRequestDetail {
@@ -61,7 +62,9 @@ fn require_pr_editor(state: &AppState) -> &PrPropertyEditorState {
 }
 
 fn open_editor_with_load_request_id(state: AppState, kind: PrPropertyKind) -> (AppState, u64) {
-    let state = state.apply(AppEvent::PrOpenPropertyEditor { kind });
+    let state = state
+        .apply(AppEvent::PrOpenPropertyEditor { kind })
+        .committed_pure();
     let load_request_id = require_pr_editor(&state).load_request_id;
     (state, load_request_id)
 }
@@ -71,10 +74,14 @@ fn open_editor_with_load_request_id(state: AppState, kind: PrPropertyKind) -> (A
 #[test]
 fn title_char_insert() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorTitleChar('X'));
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleChar('X'))
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_text, "XTest PR");
     assert_eq!(editor.title_cursor, 1);
@@ -83,10 +90,14 @@ fn title_char_insert() {
 #[test]
 fn title_multibyte_char_insert() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleChar('é'))
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_text, "éTest PR");
     assert_eq!(editor.title_cursor, 2);
@@ -95,15 +106,21 @@ fn title_multibyte_char_insert() {
 #[test]
 fn title_backspace() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Move cursor to end, then backspace removes the trailing char.
     let title_len = require_pr_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+            .committed_pure();
     }
-    state = state.apply(AppEvent::PrPropertyEditorTitleBackspace);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleBackspace)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_text, "Test P");
 }
@@ -111,10 +128,14 @@ fn title_backspace() {
 #[test]
 fn title_delete() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorTitleDelete);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleDelete)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_text, "est PR");
 }
@@ -122,13 +143,19 @@ fn title_delete() {
 #[test]
 fn title_cursor_move() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_cursor, 1);
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorLeft);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorLeft)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_cursor, 0);
 }
@@ -138,20 +165,26 @@ fn title_cursor_move() {
 #[test]
 fn title_home_moves_to_start() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Walk to the end of the title text.
     let title_len = require_pr_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     assert_eq!(
         require_pr_editor(&state).title_cursor,
         title_len,
         "cursor must be at the end after walking right"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
 }
@@ -159,11 +192,15 @@ fn title_home_moves_to_start() {
 #[test]
 fn title_end_moves_to_end() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Cursor starts at 0; End must jump to the byte length of the title.
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -175,28 +212,38 @@ fn title_end_moves_to_end() {
 #[test]
 fn title_home_end_utf8_safe() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     // Insert a multibyte char at the start ("éTest PR" — cursor at byte 2).
-    state = state.apply(AppEvent::PrPropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleChar('é'))
+        .committed_pure();
     // Walk to the end, then Home -> 0, then End -> byte length.
     let title_len = require_pr_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::PrPropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::PrPropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     assert_eq!(
         require_pr_editor(&state).title_cursor,
         title_len,
         "cursor must be at the byte length after walking right on multibyte text"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor, 0,
         "Home on multibyte text must land on 0"
     );
-    state = state.apply(AppEvent::PrPropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::PrPropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -210,10 +257,14 @@ fn title_home_end_utf8_safe() {
 #[test]
 fn single_select_state_down_then_highlights_closed() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::State,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorNavigateDown);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::State,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorNavigateDown)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.selected_index, 1);
     assert_eq!(editor.options[1].label, "Closed");
@@ -239,24 +290,30 @@ fn stale_completion_ignored() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
     // Open editor and mark pending.
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_pr_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
     // Cancel the editor (pending token stays for late-failure correlation).
-    state = state.apply(AppEvent::PrPropertyEditorCancel);
+    state = state
+        .apply(AppEvent::PrPropertyEditorCancel)
+        .committed_pure();
     assert!(state.prs_state.property_editor.is_none());
     // A late SUCCESS after cancel is applied silently (pending cleared,
     // no crash, editor stays closed).
-    state = state.apply(AppEvent::PrPropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Labels,
-        request_id: rid,
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Labels,
+            request_id: rid,
+        })
+        .committed_pure();
     assert!(state.prs_state.property_editor.is_none());
     assert!(state.prs_state.property_mutation_pending.is_none());
 }
@@ -275,13 +332,15 @@ fn options_failed_keeps_existing_milestone() {
             .iter()
             .any(|o| o.label == "v1.0" && o.selected)
     );
-    state = state.apply(AppEvent::PrPropertyEditorOptionsFailed {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Milestone,
-        request_id: load_rid,
-        error: "network error".to_string(),
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditorOptionsFailed {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Milestone,
+            request_id: load_rid,
+            error: "network error".to_string(),
+        })
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert!(
         editor
@@ -300,15 +359,19 @@ fn stale_options_response_ignored() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
     let (mut state, labels_rid) = open_editor_with_load_request_id(state, PrPropertyKind::Labels);
-    state = state.apply(AppEvent::PrPropertyEditorCancel);
+    state = state
+        .apply(AppEvent::PrPropertyEditorCancel)
+        .committed_pure();
     let (mut state, ms_rid) = open_editor_with_load_request_id(state, PrPropertyKind::Milestone);
-    state = state.apply(AppEvent::PrPropertyEditorOptionsLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Labels,
-        request_id: labels_rid,
-        options: vec![(None, "stale".to_string(), false)],
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditorOptionsLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Labels,
+            request_id: labels_rid,
+            options: vec![(None, "stale".to_string(), false)],
+        })
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert!(!editor.options.iter().any(|o| o.label == "stale"));
     let _ = ms_rid;
@@ -319,9 +382,11 @@ fn stale_options_response_ignored() {
 #[test]
 fn open_property_editor_labels() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.kind, PrPropertyKind::Labels);
     assert_eq!(editor.options.len(), 1);
@@ -332,9 +397,11 @@ fn open_property_editor_labels() {
 #[test]
 fn open_property_editor_title_prepopulates() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Title,
+        })
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.title_text, "Test PR");
 }
@@ -342,10 +409,14 @@ fn open_property_editor_title_prepopulates() {
 #[test]
 fn navigate_wraps() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorNavigateUp);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorNavigateUp)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.selected_index, 0);
 }
@@ -353,10 +424,14 @@ fn navigate_wraps() {
 #[test]
 fn toggle_labels_flips_selected() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorToggle);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorToggle)
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert!(!editor.options[0].selected);
 }
@@ -364,10 +439,14 @@ fn toggle_labels_flips_selected() {
 #[test]
 fn cancel_closes_editor() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::PrPropertyEditorCancel);
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::PrPropertyEditorCancel)
+        .committed_pure();
     assert!(state.prs_state.property_editor.is_none());
 }
 
@@ -375,19 +454,23 @@ fn cancel_closes_editor() {
 fn succeeded_clears_editor() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_pr_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
-    state = state.apply(AppEvent::PrPropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Labels,
-        request_id: rid,
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Labels,
+            request_id: rid,
+        })
+        .committed_pure();
     assert!(state.prs_state.property_editor.is_none());
 }
 
@@ -395,24 +478,30 @@ fn succeeded_clears_editor() {
 fn succeeded_requests_one_coalesced_pr_refresh() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(request_id) =
         state.mark_pr_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id");
     };
 
-    state = state.apply(AppEvent::PrPropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Labels,
-        request_id,
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Labels,
+            request_id,
+        })
+        .committed_pure();
     assert!(state.pr_post_mutation_refresh_ready());
 
-    state = state.apply(AppEvent::PrPostMutationRefreshStarted);
+    state = state
+        .apply(AppEvent::PrPostMutationRefreshStarted)
+        .committed_pure();
     assert!(!state.pr_post_mutation_refresh_ready());
 }
 
@@ -420,20 +509,24 @@ fn succeeded_requests_one_coalesced_pr_refresh() {
 fn failed_sets_error_keeps_editor_open() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::PrOpenPropertyEditor {
-        kind: PrPropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::PrOpenPropertyEditor {
+            kind: PrPropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_pr_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
-    state = state.apply(AppEvent::PrPropertyEditFailed {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        pr_number: 42,
-        kind: PrPropertyKind::Labels,
-        request_id: rid,
-        error: "boom".to_string(),
-    });
+    state = state
+        .apply(AppEvent::PrPropertyEditFailed {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            pr_number: 42,
+            kind: PrPropertyKind::Labels,
+            request_id: rid,
+            error: "boom".to_string(),
+        })
+        .committed_pure();
     let editor = require_pr_editor(&state);
     assert_eq!(editor.error.as_deref(), Some("boom"));
 }

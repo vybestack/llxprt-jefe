@@ -17,6 +17,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenMode};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
+use crate::state::transition::TransitionExt;
 
 /// Helper: a Dashboard AppState with two repositories selected at index 0.
 fn dashboard_state() -> AppState {
@@ -63,7 +64,7 @@ fn test_enter_prs_mode_sets_active_and_saves_prior_focus() {
         selected_repository_index: Some(1),
         ..dashboard_state()
     };
-    let new_state = state.apply(AppEvent::EnterPrsMode);
+    let new_state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     assert_eq!(new_state.screen_mode, ScreenMode::DashboardPullRequests);
     assert!(new_state.prs_state.active);
@@ -89,7 +90,7 @@ fn test_enter_prs_mode_sets_active_and_saves_prior_focus() {
 #[test]
 fn test_enter_prs_mode_default_committed_filter_is_open() {
     let state = dashboard_state();
-    let new_state = state.apply(AppEvent::EnterPrsMode);
+    let new_state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     assert_eq!(
         new_state.prs_state.committed_filter.state,
@@ -118,7 +119,7 @@ fn test_clear_committed_filter_resets_state_to_open() {
     state.prs_state.committed_filter.author = "octocat".to_string();
     state.prs_state.committed_filter.query_text = "bug".to_string();
 
-    let new_state = state.apply(AppEvent::PrClearFilter);
+    let new_state = state.apply(AppEvent::PrClearFilter).committed_pure();
 
     assert_eq!(
         new_state.prs_state.committed_filter.state,
@@ -151,7 +152,7 @@ fn test_exit_prs_mode_restores_prior_focus_with_bounds_fallback() {
         selected_agent_index: Some(99),
     });
 
-    let new_state = state.apply(AppEvent::ExitPrsMode);
+    let new_state = state.apply(AppEvent::ExitPrsMode).committed_pure();
 
     assert_eq!(new_state.screen_mode, ScreenMode::Dashboard);
     assert!(!new_state.prs_state.active);
@@ -258,14 +259,16 @@ fn test_empty_pr_list_shows_empty_state_not_panic() {
     let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
 
     // Dispatch the "list loaded with EMPTY result for the current scope" event.
-    let new_state = state.apply(AppEvent::PrListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(PrFilter::default()),
-        request_id,
-        pull_requests: vec![],
-        cursor: None,
-        has_more: false,
-    });
+    let new_state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(PrFilter::default()),
+            request_id,
+            pull_requests: vec![],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // The reducer must CLEAR the seeded list and show the empty-state.
     assert!(

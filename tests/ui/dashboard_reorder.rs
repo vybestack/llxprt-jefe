@@ -7,6 +7,7 @@
 //! Issue #118.
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, DashboardGrabPane, PaneFocus, ScreenMode};
 use std::path::PathBuf;
 
@@ -74,7 +75,7 @@ fn space_grabs_repository_in_repositories_pane() {
     state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
 
     assert_eq!(
         state.dashboard_grab,
@@ -89,7 +90,7 @@ fn space_grabs_agent_in_agents_pane() {
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
 
     assert_eq!(
         state.dashboard_grab,
@@ -105,7 +106,7 @@ fn enter_grab_is_noop_in_terminal_pane() {
     let mut state = create_dashboard_test_state();
     state.pane_focus = PaneFocus::Terminal;
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -115,7 +116,7 @@ fn exit_grab_clears_grab_state() {
     let mut state = create_dashboard_test_state();
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 1 });
 
-    state = state.apply(AppEvent::ExitDashboardGrab);
+    state = state.apply(AppEvent::ExitDashboardGrab).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -131,7 +132,7 @@ fn grab_move_up_reorders_repository() {
     state.selected_repository_index = Some(1);
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 1 });
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     // Expected order: [bravo, alpha, charlie]
     assert_eq!(state.repositories[0].name, "bravo");
@@ -150,7 +151,9 @@ fn grab_move_down_reorders_repository() {
     state.selected_repository_index = Some(0);
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
 
     // Expected order: [bravo, alpha, charlie]
     assert_eq!(state.repositories[0].name, "bravo");
@@ -168,7 +171,7 @@ fn grab_move_up_at_top_stays() {
     state.selected_repository_index = Some(0);
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     assert_eq!(
         state.dashboard_grab,
@@ -183,7 +186,9 @@ fn grab_move_down_at_bottom_stays() {
     state.selected_repository_index = Some(2);
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 2 });
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
 
     assert_eq!(
         state.dashboard_grab,
@@ -198,11 +203,13 @@ fn full_reorder_flow_repository_grab_move_drop_preserves_order() {
     state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
     assert!(state.dashboard_grab.is_some());
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
-    state = state.apply(AppEvent::ExitDashboardGrab);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
+    state = state.apply(AppEvent::ExitDashboardGrab).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
     assert_eq!(state.repositories[0].name, "bravo");
@@ -264,7 +271,7 @@ fn grab_move_up_reorders_agent_within_repository() {
         local_index: 1,
     });
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     // Expected order: [agent-two, agent-one, agent-three]
     assert_eq!(state.agents[0].name, "agent-two");
@@ -290,7 +297,9 @@ fn grab_move_down_reorders_agent_within_repository() {
         local_index: 0,
     });
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
 
     // Expected order: [agent-two, agent-one, agent-three]
     assert_eq!(state.agents[0].name, "agent-two");
@@ -311,11 +320,13 @@ fn full_reorder_flow_agent_grab_move_drop_preserves_order() {
     state.pane_focus = PaneFocus::Agents;
     state.selected_agent_index = Some(0);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
     assert!(state.dashboard_grab.is_some());
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
-    state = state.apply(AppEvent::ExitDashboardGrab);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
+    state = state.apply(AppEvent::ExitDashboardGrab).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
     assert_eq!(state.agents[0].name, "agent-two");
@@ -340,14 +351,14 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
     // repo3 has a running agent, so visible set is [repo1, repo3].
     state.selected_repository_index = Some(2);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
     // repo3 is visible_index 1.
     assert_eq!(
         state.dashboard_grab,
         Some(DashboardGrabPane::Repository { visible_index: 1 })
     );
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     // repo3 swaps with repo1 in the visible set; repo2 stays in place globally.
     assert_eq!(state.repositories[0].id, repo3_id);
@@ -423,7 +434,7 @@ fn agent_grab_only_affects_agents_within_selected_repository() {
         local_index: 1,
     });
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     // alpha agents swapped; bravo agents unchanged.
     assert_eq!(state.agents[0].name, "alpha-two");
@@ -442,7 +453,7 @@ fn cycle_pane_focus_clears_dashboard_grab() {
     state.pane_focus = PaneFocus::Repositories;
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::CyclePaneFocus);
+    state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Agents);
     assert_eq!(state.dashboard_grab, None);
@@ -457,7 +468,7 @@ fn move_pane_focus_left_clears_dashboard_grab() {
         local_index: 0,
     });
 
-    state = state.apply(AppEvent::NavigateLeft);
+    state = state.apply(AppEvent::NavigateLeft).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
     assert_eq!(state.dashboard_grab, None);
@@ -469,7 +480,7 @@ fn move_pane_focus_right_clears_dashboard_grab() {
     state.pane_focus = PaneFocus::Repositories;
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::NavigateRight);
+    state = state.apply(AppEvent::NavigateRight).committed_pure();
 
     assert_eq!(state.pane_focus, PaneFocus::Agents);
     assert_eq!(state.dashboard_grab, None);
@@ -480,45 +491,38 @@ fn enter_split_mode_clears_dashboard_grab() {
     let mut state = create_dashboard_test_state();
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::EnterSplitMode);
+    state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(state.screen_mode, ScreenMode::Split);
     assert_eq!(state.dashboard_grab, None);
 }
 
 // ============================================================================
-// Persistence: reordered Vec order survives to_persisted_state mapping
+// Persistence: reordered Vec order survives the durable projection
 // ============================================================================
 
 #[test]
 fn reordered_repository_vec_order_matches_persisted_order() {
-    use jefe::persistence::State as PersistedState;
-
     let mut state = create_dashboard_test_state();
     state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
 
-    // Manually mirror to_persisted_state (private to app_input) and verify the
-    // Vec order is preserved — persistence derives directly from the Vec.
-    let persisted = PersistedState {
-        schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
-        repositories: state.repositories.clone(),
-        agents: state.agents.clone(),
-        selected_repository_index: state.selected_repository_index,
-        selected_agent_index: state.selected_agent_index,
-        hide_idle_repositories: state.hide_idle_repositories,
-        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
-        pane_focus: String::new(),
-        terminal_focused: false,
-        user_preferences: state.user_preferences.clone(),
-    };
+    // Project through the real durable path rather than mirroring it, so a
+    // projection that reordered repositories would fail here.
+    let candidate = jefe::state::durable_projection::to_durable_state(&state)
+        .unwrap_or_else(|err| panic!("durable projection: {err}"));
 
-    assert_eq!(persisted.repositories[0].name, "bravo");
-    assert_eq!(persisted.repositories[1].name, "alpha");
-    assert_eq!(persisted.repositories[2].name, "charlie");
+    let names: Vec<&str> = candidate
+        .repositories
+        .iter()
+        .map(|repository| repository.display_name.as_str())
+        .collect();
+    assert_eq!(names, vec!["bravo", "alpha", "charlie"]);
 }
 
 // ============================================================================
@@ -536,7 +540,7 @@ fn agent_grab_move_up_at_top_stays() {
         local_index: 0,
     });
 
-    state = state.apply(AppEvent::DashboardGrabMoveUp);
+    state = state.apply(AppEvent::DashboardGrabMoveUp).committed_pure();
 
     // Already at the top — no change.
     assert_eq!(state.agents[0].name, "agent-one");
@@ -562,7 +566,9 @@ fn agent_grab_move_down_at_bottom_stays() {
         local_index: 2,
     });
 
-    state = state.apply(AppEvent::DashboardGrabMoveDown);
+    state = state
+        .apply(AppEvent::DashboardGrabMoveDown)
+        .committed_pure();
 
     // Already at the bottom — no change.
     assert_eq!(state.agents[0].name, "agent-one");
@@ -588,7 +594,9 @@ fn toggle_hide_idle_clears_dashboard_grab() {
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
     assert!(state.dashboard_grab.is_some());
 
-    state = state.apply(AppEvent::ToggleHideIdleRepositories);
+    state = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -600,7 +608,7 @@ fn navigation_clears_dashboard_grab() {
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
     assert!(state.dashboard_grab.is_some());
 
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -612,7 +620,7 @@ fn select_repository_clears_dashboard_grab() {
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
     assert!(state.dashboard_grab.is_some());
 
-    state = state.apply(AppEvent::SelectRepository(1));
+    state = state.apply(AppEvent::SelectRepository(1)).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -624,7 +632,7 @@ fn agent_grab_carries_repository_id() {
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(1);
 
-    state = state.apply(AppEvent::EnterDashboardGrab);
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
 
     match state.dashboard_grab {
         Some(DashboardGrabPane::Agent {
@@ -649,7 +657,7 @@ fn enter_issues_mode_clears_dashboard_grab_via_finalize() {
 
     // EnterIssuesMode changes screen_mode away from Dashboard; finalize_message
     // validation must clear the stale grab.
-    state = state.apply(AppEvent::EnterIssuesMode);
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
     assert_ne!(state.screen_mode, ScreenMode::Dashboard);
     assert_eq!(state.dashboard_grab, None);
@@ -665,7 +673,7 @@ fn repository_deletion_clears_stale_grab_via_finalize() {
     // visible_index is still in bounds and clears if not.
     // Here we simulate the state change by applying a persistence/system event
     // that triggers finalize. OpenHelp is a modal event that goes through finalize.
-    state = state.apply(AppEvent::OpenHelp);
+    state = state.apply(AppEvent::OpenHelp).committed_pure();
 
     // With 3 repos, visible_index 2 is still valid, so grab should survive.
     assert_eq!(
@@ -675,7 +683,7 @@ fn repository_deletion_clears_stale_grab_via_finalize() {
 
     // Now manually shrink the repositories and trigger finalize via another event.
     state.repositories.pop();
-    state = state.apply(AppEvent::CloseModal);
+    state = state.apply(AppEvent::CloseModal).committed_pure();
 
     // visible_index 2 is now out of bounds (only 2 repos left) — grab cleared.
     assert_eq!(state.dashboard_grab, None);
@@ -693,7 +701,7 @@ fn agent_deletion_clears_stale_agent_grab_via_finalize() {
 
     // Remove the last agent so local_index 2 is out of bounds.
     state.agents.pop();
-    state = state.apply(AppEvent::OpenHelp);
+    state = state.apply(AppEvent::OpenHelp).committed_pure();
 
     assert_eq!(state.dashboard_grab, None);
 }
@@ -709,7 +717,7 @@ fn agent_grab_for_deleted_repository_clears_via_finalize() {
 
     // Remove the repository the grab points to.
     state.repositories.pop();
-    state = state.apply(AppEvent::OpenHelp);
+    state = state.apply(AppEvent::OpenHelp).committed_pure();
 
     // repository_id no longer exists → grab cleared.
     assert_eq!(state.dashboard_grab, None);

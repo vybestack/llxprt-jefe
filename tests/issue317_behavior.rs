@@ -1,6 +1,7 @@
 //! Repository-form behavior tests for transient launch defaults (issue #317).
 
 use jefe::domain::{AgentKind, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AppEvent, AppState, ModalState, RepositoryFormFocus, is_repository_field_visible,
 };
@@ -11,7 +12,8 @@ fn new_repository_defaults_transient_yolo_for_both_runtimes() {
         installed_agent_kinds: vec![AgentKind::Llxprt],
         ..AppState::default()
     }
-    .apply(AppEvent::OpenNewRepository);
+    .apply(AppEvent::OpenNewRepository)
+    .committed_pure();
 
     let ModalState::NewRepository { fields, .. } = state.modal else {
         panic!("expected new-repository modal");
@@ -22,7 +24,9 @@ fn new_repository_defaults_transient_yolo_for_both_runtimes() {
 
 #[test]
 fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
-    let mut state = AppState::default().apply(AppEvent::OpenNewRepository);
+    let mut state = AppState::default()
+        .apply(AppEvent::OpenNewRepository)
+        .committed_pure();
     let ModalState::NewRepository { fields, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
@@ -30,7 +34,7 @@ fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
     fields.default_agent_kind = AgentKind::Llxprt.label().to_owned();
     fields.default_llxprt_mode = "  --yolo   --fast  ".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(
         state.repositories[0].default_llxprt_mode_flags,
@@ -38,13 +42,15 @@ fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
     );
 
     let repository_id = state.repositories[0].id.clone();
-    state = state.apply(AppEvent::OpenEditRepository(repository_id));
+    state = state
+        .apply(AppEvent::OpenEditRepository(repository_id))
+        .committed_pure();
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("expected edit-repository modal");
     };
     fields.default_llxprt_mode = "   ".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(state.repositories[0].default_llxprt_mode_flags.is_empty());
 }
@@ -65,7 +71,8 @@ fn edit_repository_loads_mode_and_code_puppy_yolo_choices() {
     }
     .apply(AppEvent::OpenEditRepository(RepositoryId(
         "repo-317".to_owned(),
-    )));
+    )))
+    .committed_pure();
 
     let ModalState::EditRepository { fields, cursor, .. } = state.modal else {
         panic!("expected edit-repository modal");
@@ -81,14 +88,15 @@ fn repository_mode_field_supports_character_and_backspace_editing() {
         installed_agent_kinds: vec![AgentKind::Llxprt],
         ..AppState::default()
     }
-    .apply(AppEvent::OpenNewRepository);
+    .apply(AppEvent::OpenNewRepository)
+    .committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     *focus = RepositoryFormFocus::DefaultLlxprtMode;
 
-    state = state.apply(AppEvent::FormChar('x'));
-    state = state.apply(AppEvent::FormBackspace);
+    state = state.apply(AppEvent::FormChar('x')).committed_pure();
+    state = state.apply(AppEvent::FormBackspace).committed_pure();
 
     let ModalState::NewRepository { fields, cursor, .. } = state.modal else {
         panic!("expected new-repository modal");

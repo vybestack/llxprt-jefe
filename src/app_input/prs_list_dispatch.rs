@@ -13,9 +13,10 @@ use jefe::messages::PullRequestsMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client,
+    AppStateHandle, SharedContext, apply_and_persist, durable_save_request, gh_async,
+    github_client,
     list_loader::{ListLoad, ListLoader},
-    persist_state, prs_dispatch, to_persisted_state,
+    prs_dispatch, schedule_durable_save,
 };
 
 /// Apply a list-reload message through the reducer, then fetch the list.
@@ -224,9 +225,9 @@ fn persist_missing_github_repo_with(
     let mut state = app_state.write();
     state.prs_state.list.clear();
     state.prs_state.error = Some(message.to_string());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Fetch the PR list via the gh client (runs on the background thread).
@@ -328,15 +329,15 @@ fn persist_pr_list_loaded(
             has_more: response.has_more,
         }
     };
-    *state = std::mem::take(&mut *state).apply(event);
+    jefe::state::transition::commit_pure_site(&mut state, (event).into());
     drop(state);
     if should_preview {
         prs_dispatch::preview_pr_from_list(app_state);
     }
-    let state = app_state.read();
-    let persisted = to_persisted_state(&state);
+    let mut state = app_state.write();
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Apply + persist a PR list load failure (scoped error, never silent).

@@ -18,7 +18,10 @@ use serde::Deserialize;
 
 const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 6);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Ceiling for a pane capture to contain an expected needle. Polled, so this
+/// bounds only how long a genuine hang is tolerated; see the note in
+/// `psmux_smoke_mouse.rs` on shared-runner timing.
+const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 const JEFE: &str = env!("CARGO_BIN_EXE_jefe");
 

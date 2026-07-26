@@ -6,6 +6,7 @@
 use crate::domain::{IssueComment, IssueDetail, IssueState};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{DetailSubfocus, ScreenMode};
 
 fn dashboard_issues_state() -> AppState {
@@ -79,10 +80,14 @@ fn test_issue_subfocus_next_scrolls_to_offscreen_comment() {
 
     // Advance subfocus forward through comments to comment #5.
     // Body -> Comment(0)
-    state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    state = state
+        .apply(AppEvent::IssueDetailSubfocusNext)
+        .committed_pure();
     // Advance through comments 0..=5
     for _ in 0..5 {
-        state = state.apply(AppEvent::IssueDetailSubfocusNext);
+        state = state
+            .apply(AppEvent::IssueDetailSubfocusNext)
+            .committed_pure();
     }
     assert_eq!(
         state.issues_state.detail_subfocus,
@@ -142,7 +147,9 @@ fn test_issue_subfocus_prev_scrolls_to_offscreen_comment() {
     state.issues_state.detail_scroll_offset = 100;
 
     // Prev from NewComment -> Comment(9) (last comment).
-    let state = state.apply(AppEvent::IssueDetailSubfocusPrev);
+    let state = state
+        .apply(AppEvent::IssueDetailSubfocusPrev)
+        .committed_pure();
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::Comment(9),

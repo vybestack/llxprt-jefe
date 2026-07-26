@@ -6,6 +6,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{ComposerTarget, EditorTarget, InlineState};
 
 use super::issues_tests_detail::{issues_mode_state_with_repo, p15_comment, p15_detail};
+use crate::state::transition::TransitionExt;
 
 /// Apply three stale (different-issue) mutation events to `state` (test setup).
 fn apply_three_stale_mutation_events(state: AppState, repo_id: &RepositoryId) -> AppState {
@@ -16,6 +17,7 @@ fn apply_three_stale_mutation_events(state: AppState, repo_id: &RepositoryId) ->
             mutation_id: 1,
             comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
         })
+        .committed_pure()
         .apply(AppEvent::IssueBodyUpdated {
             scope_repo_id: repo_id.clone(),
             issue_number: 99,
@@ -23,6 +25,7 @@ fn apply_three_stale_mutation_events(state: AppState, repo_id: &RepositoryId) ->
             title: "stale title".to_string(),
             body: "stale body".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::CommentUpdated {
             scope_repo_id: repo_id.clone(),
             issue_number: 99,
@@ -31,6 +34,7 @@ fn apply_three_stale_mutation_events(state: AppState, repo_id: &RepositoryId) ->
             comment_index: 0,
             body: "stale update".to_string(),
         })
+        .committed_pure()
 }
 
 #[test]
@@ -45,23 +49,27 @@ fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_i
     )]);
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), 42);
-    let mut state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(detail),
-    });
+    let mut state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "draft".to_string(),
         cursor: 5,
     };
     let pending_target = state.issues_state.inline_state.clone();
-    let state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: repo_id.clone(),
-        mutation_id: 1,
-        target: pending_target,
-    });
+    let state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: pending_target,
+        })
+        .committed_pure();
     let mut state = state;
     state.issues_state.error = Some("current error".to_string());
 
@@ -91,22 +99,26 @@ fn test_comment_update_uses_comment_id_after_submitted_index_shifts() {
     ]);
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), 42);
-    let state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(detail),
-    });
+    let state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
 
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: repo_id.clone(),
-        mutation_id: 1,
-        target: InlineState::Editor {
-            target: EditorTarget::Comment { comment_index: 1 },
-            text: "updated by id".to_string(),
-            cursor: 13,
-        },
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: InlineState::Editor {
+                target: EditorTarget::Comment { comment_index: 1 },
+                text: "updated by id".to_string(),
+                cursor: 13,
+            },
+        })
+        .committed_pure();
     let Some(detail) = state.issues_state.issue_detail.as_mut() else {
         panic!("expected detail");
     };
@@ -115,14 +127,16 @@ fn test_comment_update_uses_comment_id_after_submitted_index_shifts() {
         p15_comment(3, "carol", "2024-01-03T00:00:00Z", "inserted"),
     );
 
-    let state = state.apply(AppEvent::CommentUpdated {
-        scope_repo_id: repo_id,
-        issue_number: 42,
-        mutation_id: 1,
-        comment_id: 2,
-        comment_index: 1,
-        body: "updated by id".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::CommentUpdated {
+            scope_repo_id: repo_id,
+            issue_number: 42,
+            mutation_id: 1,
+            comment_id: 2,
+            comment_index: 1,
+            body: "updated by id".to_string(),
+        })
+        .committed_pure();
 
     let Some(detail) = state.issues_state.issue_detail.as_ref() else {
         panic!("expected detail");
@@ -138,23 +152,27 @@ fn test_stale_mutation_failures_same_repo_different_issue_do_not_clear_inline_st
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), 42);
-    let mut state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(p15_detail(42)),
-    });
+    let mut state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(p15_detail(42)),
+        })
+        .committed_pure();
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "draft".to_string(),
         cursor: 5,
     };
     let pending_target = state.issues_state.inline_state.clone();
-    let state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: repo_id.clone(),
-        mutation_id: 1,
-        target: pending_target,
-    });
+    let state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: pending_target,
+        })
+        .committed_pure();
     let mut state = state;
     state.issues_state.error = Some("current error".to_string());
 
@@ -165,12 +183,14 @@ fn test_stale_mutation_failures_same_repo_different_issue_do_not_clear_inline_st
             mutation_id: 1,
             error: "stale comment create failure".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::MutationFailed {
             scope_repo_id: repo_id,
             issue_number: Some(99),
             mutation_id: Some(1),
             error: "stale mutation failure".to_string(),
-        });
+        })
+        .committed_pure();
 
     match &state.issues_state.inline_state {
         InlineState::Composer { text, .. } => assert_eq!(text, "draft"),

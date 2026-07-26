@@ -8,10 +8,10 @@ use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, BackgroundGhDelivery, SharedContext, apply_and_persist, gh_async,
-    github_client, issues_dispatch,
+    AppStateHandle, BackgroundGhDelivery, SharedContext, apply_and_persist, durable_save_request,
+    gh_async, github_client, issues_dispatch,
     list_loader::{ListLoad, ListLoader},
-    persist_state, to_persisted_state,
+    schedule_durable_save,
 };
 
 pub(super) fn load_more_issues_if_at_end(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -255,9 +255,9 @@ fn persist_missing_github_repo_with(
     let mut state = app_state.write();
     state.issues_state.list.clear();
     state.issues_state.error = Some(message.to_string());
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 fn fetch_issue_list(
@@ -343,15 +343,15 @@ fn persist_issue_list_loaded(
             has_more: response.has_more,
         }
     };
-    *state = std::mem::take(&mut *state).apply(event);
+    jefe::state::transition::commit_pure_site(&mut state, (event).into());
     drop(state);
     if should_preview {
         issues_dispatch::preview_issue_from_list(app_state);
     }
-    let state = app_state.read();
-    let persisted = to_persisted_state(&state);
+    let mut state = app_state.write();
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Emit the silent-refresh-loaded event (issue #175).

@@ -10,6 +10,7 @@ use jefe::messages::{
     AppMessage, IssuesMessage, MessageDomain, ModalMessage, PersistenceMessage,
     RepositoryAgentMessage, RuntimeMessage, UiNavigationMessage,
 };
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 
 #[test]
@@ -132,19 +133,25 @@ fn typed_navigation_message_updates_state_without_global_event_match() {
         ..AppState::default()
     };
 
-    let next = state.apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown));
+    let next = state
+        .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown))
+        .committed_pure();
 
     assert_eq!(next.selected_repository_index, Some(1));
 }
 
 #[test]
 fn typed_modal_and_repository_messages_route_to_isolated_handlers() {
-    let state = AppState::default().apply_message(AppMessage::Modal(ModalMessage::OpenHelp));
+    let state = AppState::default()
+        .apply_message(AppMessage::Modal(ModalMessage::OpenHelp))
+        .committed_pure();
     assert!(matches!(state.modal, ModalState::Help));
 
-    let state = state.apply_message(AppMessage::RepositoryAgent(
-        RepositoryAgentMessage::OpenNewRepository,
-    ));
+    let state = state
+        .apply_message(AppMessage::RepositoryAgent(
+            RepositoryAgentMessage::OpenNewRepository,
+        ))
+        .committed_pure();
     assert!(matches!(state.modal, ModalState::NewRepository { .. }));
 }
 
@@ -161,10 +168,12 @@ fn typed_runtime_message_only_updates_runtime_domain_state() {
         ..AppState::default()
     };
 
-    let next = state.apply_message(AppMessage::Runtime(RuntimeMessage::AgentStatusChanged(
-        agent_id.clone(),
-        AgentStatus::Running,
-    )));
+    let next = state
+        .apply_message(AppMessage::Runtime(RuntimeMessage::AgentStatusChanged(
+            agent_id.clone(),
+            AgentStatus::Running,
+        )))
+        .committed_pure();
 
     assert_eq!(next.agents[0].status, AgentStatus::Running);
     assert_eq!(next.agents[0].id, agent_id);
@@ -211,7 +220,11 @@ fn typed_kill_agent_clears_runtime_binding() {
         ..AppState::default()
     };
 
-    let next = state.apply_message(AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)));
+    // KillAgent stages a bounded KillSession post-commit effect (issue #381);
+    // this contract only asserts the committed state half.
+    let next = state
+        .apply_message(AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)))
+        .committed_discarding_effects();
 
     assert_eq!(next.agents[0].status, AgentStatus::Dead);
     assert!(next.agents[0].runtime_binding.is_none());
@@ -219,12 +232,16 @@ fn typed_kill_agent_clears_runtime_binding() {
 
 #[test]
 fn typed_persistence_save_success_clears_stale_errors() {
-    let state = AppState::default().apply_message(AppMessage::Persistence(
-        PersistenceMessage::SaveFailed("disk full".to_string()),
-    ));
+    let state = AppState::default()
+        .apply_message(AppMessage::Persistence(PersistenceMessage::SaveFailed(
+            "disk full".to_string(),
+        )))
+        .committed_pure();
     assert_eq!(state.error_message.as_deref(), Some("disk full"));
 
-    let state = state.apply_message(AppMessage::Persistence(PersistenceMessage::SaveSuccess));
+    let state = state
+        .apply_message(AppMessage::Persistence(PersistenceMessage::SaveSuccess))
+        .committed_pure();
 
     assert!(state.error_message.is_none());
 }
@@ -242,17 +259,21 @@ fn typed_apply_search_commits_query_and_clears_list() {
     let repo_id = RepositoryId("repo-1".to_string());
     let filter = IssueFilter::default();
     state.mark_issue_list_reload_loading(repo_id.clone(), filter.clone(), 1);
-    let mut state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: repo_id,
-        filter: Box::new(filter),
-        request_id: 1,
-        issues: vec![],
-        cursor: Some("cursor".to_string()),
-        has_more: true,
-    });
+    let mut state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: repo_id,
+            filter: Box::new(filter),
+            request_id: 1,
+            issues: vec![],
+            cursor: Some("cursor".to_string()),
+            has_more: true,
+        })
+        .committed_pure();
     state.issues_state.list.set_selected_index(Some(0));
 
-    let state = state.apply_message(AppMessage::Issues(IssuesMessage::ApplySearch));
+    let state = state
+        .apply_message(AppMessage::Issues(IssuesMessage::ApplySearch))
+        .committed_pure();
 
     assert_eq!(state.issues_state.committed_filter.query_text, "open bug");
     assert!(!state.issues_state.search_input_focused);

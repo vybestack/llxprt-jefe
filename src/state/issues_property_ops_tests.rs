@@ -4,6 +4,7 @@
 use super::*;
 use crate::domain::{IssueDetail, IssueState, RepositoryId};
 use crate::state::IssuesState;
+use crate::state::transition::TransitionExt;
 
 fn make_state_with_detail() -> AppState {
     let detail = IssueDetail {
@@ -82,15 +83,19 @@ fn full_detail_load_preserves_issue_type_from_list_row() {
         .unwrap_or_else(|| panic!("fixture detail should exist"));
     detail.issue_type_name = None;
 
-    let state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        request_id,
-        detail: Box::new(detail),
-    });
-    let state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Type,
-    });
+    let state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            request_id,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
+    let state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Type,
+        })
+        .committed_pure();
     let Some(editor) = state.issues_state.property_editor.as_ref() else {
         panic!("type editor should open");
     };
@@ -168,11 +173,11 @@ fn apply_issue_type_refreshes(
         has_more: false,
     };
     if detail_first {
-        state = state.apply(detail_event);
-        state.apply(list_event)
+        state = state.apply(detail_event).committed_pure();
+        state.apply(list_event).committed_pure()
     } else {
-        state = state.apply(list_event);
-        state.apply(detail_event)
+        state = state.apply(list_event).committed_pure();
+        state.apply(detail_event).committed_pure()
     }
 }
 
@@ -217,7 +222,9 @@ fn require_issue_editor(state: &AppState) -> &IssuePropertyEditorState {
 }
 
 fn open_editor_with_load_request_id(state: AppState, kind: IssuePropertyKind) -> (AppState, u64) {
-    let state = state.apply(AppEvent::IssueOpenPropertyEditor { kind });
+    let state = state
+        .apply(AppEvent::IssueOpenPropertyEditor { kind })
+        .committed_pure();
     let load_request_id = require_issue_editor(&state).load_request_id;
     (state, load_request_id)
 }
@@ -227,10 +234,14 @@ fn open_editor_with_load_request_id(state: AppState, kind: IssuePropertyKind) ->
 #[test]
 fn title_char_insert() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorTitleChar('X'));
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleChar('X'))
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_text, "XTest Issue");
     assert_eq!(editor.title_cursor, 1);
@@ -239,10 +250,14 @@ fn title_char_insert() {
 #[test]
 fn title_multibyte_char_insert() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleChar('é'))
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_text, "éTest Issue");
     assert_eq!(editor.title_cursor, 2);
@@ -251,15 +266,21 @@ fn title_multibyte_char_insert() {
 #[test]
 fn title_backspace() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Move cursor to end, then backspace removes the trailing char.
     let title_len = require_issue_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+            .committed_pure();
     }
-    state = state.apply(AppEvent::IssuePropertyEditorTitleBackspace);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleBackspace)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_text, "Test Issu");
 }
@@ -267,11 +288,15 @@ fn title_backspace() {
 #[test]
 fn title_delete() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Cursor at 0, delete removes 'T'
-    state = state.apply(AppEvent::IssuePropertyEditorTitleDelete);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleDelete)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_text, "est Issue");
 }
@@ -279,13 +304,19 @@ fn title_delete() {
 #[test]
 fn title_cursor_move() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_cursor, 1);
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorLeft);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorLeft)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_cursor, 0);
 }
@@ -295,13 +326,17 @@ fn title_cursor_move() {
 #[test]
 fn title_home_moves_to_start() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Walk to the end of the title text.
     let title_len = require_issue_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     // Verify the cursor reached the end before testing Home.
     assert_eq!(
@@ -309,7 +344,9 @@ fn title_home_moves_to_start() {
         title_len,
         "cursor must be at the end after walking right"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_cursor, 0, "Home must move the cursor to 0");
 }
@@ -317,11 +354,15 @@ fn title_home_moves_to_start() {
 #[test]
 fn title_end_moves_to_end() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Cursor starts at 0; End must jump to the byte length of the title.
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -333,15 +374,21 @@ fn title_end_moves_to_end() {
 #[test]
 fn title_home_end_utf8_safe() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     // Insert a multibyte char at the start ("éTest Issue" — cursor at byte 2).
-    state = state.apply(AppEvent::IssuePropertyEditorTitleChar('é'));
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleChar('é'))
+        .committed_pure();
     // Walk to the end, then Home -> 0, then End -> byte length.
     let title_len = require_issue_editor(&state).title_text.len();
     for _ in 0..title_len {
-        state = state.apply(AppEvent::IssuePropertyEditorTitleCursorRight);
+        state = state
+            .apply(AppEvent::IssuePropertyEditorTitleCursorRight)
+            .committed_pure();
     }
     // Verify the cursor reached the byte length before testing Home.
     assert_eq!(
@@ -349,13 +396,17 @@ fn title_home_end_utf8_safe() {
         title_len,
         "cursor must be at the byte length after walking right on multibyte text"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorHome);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorHome)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor, 0,
         "Home on multibyte text must land on 0"
     );
-    state = state.apply(AppEvent::IssuePropertyEditorTitleCursorEnd);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorTitleCursorEnd)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.title_cursor,
@@ -369,10 +420,14 @@ fn title_home_end_utf8_safe() {
 #[test]
 fn single_select_state_down_then_highlights_closed() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::State,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorNavigateDown);
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::State,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorNavigateDown)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.selected_index, 1);
     // The highlighted option is "Closed", not "Open"
@@ -400,24 +455,30 @@ fn stale_completion_ignored() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
     // Open editor and mark pending with request_id 0.
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
     // Cancel the editor (pending token stays for late-failure correlation).
-    state = state.apply(AppEvent::IssuePropertyEditorCancel);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorCancel)
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_none());
     // A late SUCCESS after cancel is applied silently (pending cleared, no
     // crash, editor stays closed).
-    state = state.apply(AppEvent::IssuePropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: rid,
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: rid,
+        })
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_none());
     assert!(state.issues_state.property_mutation_pending.is_none());
 }
@@ -426,20 +487,24 @@ fn stale_completion_ignored() {
 fn out_of_order_completion_ignored() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
     // Wrong request_id should be ignored
-    state = state.apply(AppEvent::IssuePropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: rid + 100,
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: rid + 100,
+        })
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_some());
 }
 
@@ -460,13 +525,15 @@ fn options_failed_keeps_existing_milestone() {
             .any(|o| o.label == "v1.0" && o.selected)
     );
     // Simulate options fetch failure
-    state = state.apply(AppEvent::IssuePropertyEditorOptionsFailed {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Milestone,
-        request_id: load_rid,
-        error: "network error".to_string(),
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditorOptionsFailed {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Milestone,
+            request_id: load_rid,
+            error: "network error".to_string(),
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     // Options should NOT be replaced with empty
     assert!(
@@ -489,17 +556,21 @@ fn stale_options_response_ignored() {
     let (mut state, labels_rid) =
         open_editor_with_load_request_id(state, IssuePropertyKind::Labels);
     // Cancel labels editor
-    state = state.apply(AppEvent::IssuePropertyEditorCancel);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorCancel)
+        .committed_pure();
     // Open milestone editor (gets a new load_request_id)
     let (mut state, ms_rid) = open_editor_with_load_request_id(state, IssuePropertyKind::Milestone);
     // Stale labels response arrives — should be ignored
-    state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: labels_rid,
-        options: vec![(None, "stale".to_string(), false)],
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditorOptionsLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: labels_rid,
+            options: vec![(None, "stale".to_string(), false)],
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     // Milestone options should NOT contain "stale"
     assert!(!editor.options.iter().any(|o| o.label == "stale"));
@@ -511,9 +582,11 @@ fn stale_options_response_ignored() {
 #[test]
 fn repo_change_clears_property_editor() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_some());
     state.reset_issues_for_repo_change();
     assert!(state.issues_state.property_editor.is_none());
@@ -525,9 +598,11 @@ fn repo_change_clears_property_editor() {
 #[test]
 fn open_property_editor_labels() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.kind, IssuePropertyKind::Labels);
     assert_eq!(editor.options.len(), 1);
@@ -539,9 +614,11 @@ fn open_property_editor_labels() {
 #[test]
 fn open_property_editor_title_prepopulates() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Title,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title,
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.title_text, "Test Issue");
 }
@@ -549,10 +626,14 @@ fn open_property_editor_title_prepopulates() {
 #[test]
 fn navigate_wraps() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorNavigateUp);
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorNavigateUp)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.selected_index, 0);
 }
@@ -560,10 +641,14 @@ fn navigate_wraps() {
 #[test]
 fn toggle_labels_flips_selected() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorToggle);
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorToggle)
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert!(!editor.options[0].selected);
 }
@@ -571,10 +656,14 @@ fn toggle_labels_flips_selected() {
 #[test]
 fn cancel_closes_editor() {
     let mut state = make_state_with_detail();
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
-    state = state.apply(AppEvent::IssuePropertyEditorCancel);
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
+    state = state
+        .apply(AppEvent::IssuePropertyEditorCancel)
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_none());
 }
 
@@ -582,19 +671,23 @@ fn cancel_closes_editor() {
 fn succeeded_clears_editor() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
-    state = state.apply(AppEvent::IssuePropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: rid,
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: rid,
+        })
+        .committed_pure();
     assert!(state.issues_state.property_editor.is_none());
 }
 
@@ -602,24 +695,30 @@ fn succeeded_clears_editor() {
 fn succeeded_requests_one_coalesced_refresh() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(request_id) =
         state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id");
     };
 
-    state = state.apply(AppEvent::IssuePropertyEditSucceeded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id,
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditSucceeded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id,
+        })
+        .committed_pure();
     assert!(state.issue_post_mutation_refresh_ready());
 
-    state = state.apply(AppEvent::IssuePostMutationRefreshStarted);
+    state = state
+        .apply(AppEvent::IssuePostMutationRefreshStarted)
+        .committed_pure();
     assert!(!state.issue_post_mutation_refresh_ready());
 }
 
@@ -627,20 +726,24 @@ fn succeeded_requests_one_coalesced_refresh() {
 fn failed_sets_error_keeps_editor_open() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
-    state = state.apply(AppEvent::IssuePropertyEditFailed {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: rid,
-        error: "boom".to_string(),
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditFailed {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: rid,
+            error: "boom".to_string(),
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.error.as_deref(), Some("boom"));
 }
@@ -650,16 +753,18 @@ fn options_loaded_preserves_selection() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
     let (mut state, load_rid) = open_editor_with_load_request_id(state, IssuePropertyKind::Labels);
-    state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: load_rid,
-        options: vec![
-            (None, "bug".to_string(), false),
-            (None, "enhancement".to_string(), false),
-        ],
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditorOptionsLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: load_rid,
+            options: vec![
+                (None, "bug".to_string(), false),
+                (None, "enhancement".to_string(), false),
+            ],
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(editor.options.len(), 2);
     assert!(editor.options[0].selected);
@@ -674,13 +779,15 @@ fn options_loaded_preserves_baseline_labels_not_in_page() {
     add_repo(&mut state);
     let (mut state, load_rid) = open_editor_with_load_request_id(state, IssuePropertyKind::Labels);
     // Simulate a page that does NOT include "bug" (the baseline label)
-    state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: load_rid,
-        options: vec![(None, "enhancement".to_string(), false)],
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditorOptionsLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: load_rid,
+            options: vec![(None, "enhancement".to_string(), false)],
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     // "bug" should be present (preserved from baseline)
     assert!(
@@ -697,23 +804,29 @@ fn options_loaded_preserves_baseline_labels_not_in_page() {
 fn failure_after_navigation_sets_warning() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::Labels,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels,
+        })
+        .committed_pure();
     let Some(rid) = state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
     else {
         panic!("confirm should allocate request_id")
     };
     // Cancel the editor (simulates navigating away)
-    state = state.apply(AppEvent::IssuePropertyEditorCancel);
+    state = state
+        .apply(AppEvent::IssuePropertyEditorCancel)
+        .committed_pure();
     // Now a failure arrives — should surface as a warning, not crash
-    state = state.apply(AppEvent::IssuePropertyEditFailed {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: rid,
-        error: "network timeout".to_string(),
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditFailed {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: rid,
+            error: "network timeout".to_string(),
+        })
+        .committed_pure();
     // A draft_notice should be set (M11 scoped warning)
     assert!(
         state
@@ -742,16 +855,18 @@ fn options_loaded_preserves_user_deselection() {
         state = s;
     }
     // Options arrive including the baseline "bug".
-    state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
-        scope_repo_id: RepositoryId("r1".to_string()),
-        issue_number: 42,
-        kind: IssuePropertyKind::Labels,
-        request_id: load_rid,
-        options: vec![
-            (None, "bug".to_string(), false),
-            (None, "enhancement".to_string(), false),
-        ],
-    });
+    state = state
+        .apply(AppEvent::IssuePropertyEditorOptionsLoaded {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            issue_number: 42,
+            kind: IssuePropertyKind::Labels,
+            request_id: load_rid,
+            options: vec![
+                (None, "bug".to_string(), false),
+                (None, "enhancement".to_string(), false),
+            ],
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     // The deselected baseline label must remain deselected.
     let bug = editor
@@ -776,9 +891,11 @@ fn state_editor_cursor_starts_at_closed_for_closed_issue() {
         detail.state = IssueState::Closed;
     }
     add_repo(&mut state);
-    state = state.apply(AppEvent::IssueOpenPropertyEditor {
-        kind: IssuePropertyKind::State,
-    });
+    state = state
+        .apply(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::State,
+        })
+        .committed_pure();
     let editor = require_issue_editor(&state);
     assert_eq!(
         editor.options.len(),

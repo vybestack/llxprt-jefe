@@ -5,8 +5,18 @@
 //! tmux side effects off the input/render hot paths (issue #301).
 
 pub mod capture_worker;
+/// Serial post-commit effect executor (issue #381 CW01-10).
+pub mod effect_executor;
+#[cfg(test)]
+#[path = "effect_executor_tests.rs"]
+mod effect_executor_tests;
 mod normalize;
 pub mod persist_worker;
+/// Runtime-family effect adapter executing committed transitions (issue #381).
+pub mod runtime_effect_adapter;
+#[cfg(test)]
+#[path = "runtime_effect_adapter_tests.rs"]
+mod runtime_effect_adapter_tests;
 
 use std::path::PathBuf;
 

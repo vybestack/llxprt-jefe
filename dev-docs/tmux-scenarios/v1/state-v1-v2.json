@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "name": "state-v1-v2",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "config", "mode": 448 }],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selected_repository_index\": null,\n  \"selected_agent_index\": null\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "migrate-state", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "config"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "state_schema",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/state.json",
+        "content": { "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": null,\n    \"agent_id\": null,\n    \"screen_id\": null\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n" }
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

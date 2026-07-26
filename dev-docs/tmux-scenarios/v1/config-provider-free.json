@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "name": "config-provider-free",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "isolated", "mode": 448 }, { "path": "work", "mode": 448 }],
+    "files": [],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "gh",
+      "path": "bin/gh",
+      "behavior": {
+        "stdout": "provider must not run\n",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": true,
+        "spawn_child_hang": true
+      }
+    },
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "path", "--config", "${workspace}/isolated"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "settings.toml",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["settings.toml", "state.json", "definitions", "plugins", "themes"],
+      "absent": ["provider must not run", "LLxprt Jefe", "tmux"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

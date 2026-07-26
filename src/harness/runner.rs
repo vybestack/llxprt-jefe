@@ -33,6 +33,23 @@ const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Wait budget for scenarios that drive a real `jefe` process.
+///
+/// Such scenarios spawn and terminate an actual binary under a real terminal
+/// multiplexer, so their cost tracks machine load rather than the code under
+/// test. Shared CI runners — Windows especially, where process startup is
+/// markedly slower — have exceeded a flat 30s budget on the very first
+/// `waitFor`, producing failures unrelated to any change under test. This
+/// budget therefore follows the same platform split as `DEFAULT_WAIT_TIMEOUT`.
+/// Raising it lengthens only the ceiling before a hang is declared: every wait
+/// polls at `POLL_INTERVAL` and returns as soon as its condition holds, so a
+/// passing run is no slower.
+#[cfg(all(test, not(windows)))]
+pub(super) const REAL_PROCESS_WAIT_TIMEOUT_MS: u32 = 30_000;
+/// Windows counterpart of `REAL_PROCESS_WAIT_TIMEOUT_MS`.
+#[cfg(all(test, windows))]
+pub(super) const REAL_PROCESS_WAIT_TIMEOUT_MS: u32 = 90_000;
+
 /// Result of a scenario run.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P04

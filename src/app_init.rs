@@ -14,7 +14,7 @@ use jefe::domain::{
     Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, ProcessIdentity,
     SandboxEngine,
 };
-use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
+use jefe::persistence::{PersistenceManager, Settings};
 use jefe::runtime::{
     ProcessLiveness, RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, pid_alive,
     platform_engine_diagnostic, process_liveness, process_liveness_indicates_alive,
@@ -22,29 +22,13 @@ use jefe::runtime::{
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
 
-use crate::app_input::{SharedContext, persist_state, to_persisted_state};
+use crate::app_input::{SharedContext, durable_save_request, schedule_durable_save};
 
 fn launch_signature_for_agent(
     agent: &Agent,
     repository: &jefe::domain::Repository,
 ) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: agent.work_dir.clone(),
-        profile: agent.profile.clone(),
-        code_puppy_model: agent.code_puppy_model.trim().to_owned(),
-        code_puppy_version: agent.code_puppy_version.trim().to_owned(),
-        code_puppy_yolo: agent.code_puppy_yolo,
-        code_puppy_quick_resume: agent.code_puppy_quick_resume,
-        mode_flags: agent.mode_flags.clone(),
-        llxprt_debug: agent.llxprt_debug.clone(),
-        pass_continue: agent.pass_continue,
-        sandbox_enabled: agent.sandbox_enabled,
-        sandbox_engine: agent.sandbox_engine,
-        sandbox_flags: agent.sandbox_flags.clone(),
-        remote: repository.remote.clone(),
-        agent_kind: agent.agent_kind,
-        llxprt_version: agent.llxprt_version.clone(),
-    }
+    LaunchSignature::for_agent(agent, repository)
 }
 
 fn append_warning(state: &mut AppState, warning: String) {
@@ -255,10 +239,13 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         Settings::default_with_version()
     });
 
-    let persisted = ctx_guard.persistence.load_state().unwrap_or_else(|e| {
-        warn!(error = %e, "could not load state, using defaults");
-        PersistedState::default_with_version()
-    });
+    let persisted = ctx_guard
+        .persistence
+        .load_durable_state()
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "could not load state, using defaults");
+            jefe::state::durable_projection::RestoredState::default()
+        });
 
     let mut state = app_state.write();
     state.repositories = persisted.repositories;
@@ -268,12 +255,16 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
     state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
+    // The durable revision read from disk is the watermark later saves build
+    // on, so an acknowledged write can be told apart from one that lost a race.
+    state.durable_revision = persisted.revision;
+    state.dormant_records = persisted.dormant_records;
     // Restore the persisted pane focus and terminal-focus so an explicitly
     // focused view survives restart (issue #160). `terminal_focused` is only
     // meaningful when the terminal pane is active, so clamp an inconsistent
     // persisted pair (terminal_focused=true but pane != Terminal) back to false;
     // the per-keypress defensive guard in app_shell would clear it anyway.
-    state.pane_focus = crate::app_input::pane_focus_from_persisted(&persisted.pane_focus);
+    state.pane_focus = persisted.pane_focus;
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.user_preferences = persisted.user_preferences;
@@ -292,15 +283,23 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
 
     let dead_ids = reconcile_running_agents(&state, &ctx_guard.runtime);
     let should_persist = apply_dead_reconciliations(&mut state, dead_ids, normalized_engines);
-    let state_to_persist = should_persist.then(|| to_persisted_state(&state));
+    // The persist worker is not running yet, so startup reconciliation writes
+    // its candidate synchronously through the manager.
+    let state_to_persist = should_persist
+        .then(|| durable_save_request(&mut state))
+        .flatten();
 
     // Release state/context guards before reacquiring a mutable context lock
     // for persistence writes and theme activation.
     drop(state);
     drop(ctx_guard);
     if let Ok(mut ctx_mut) = ctx_arc.lock() {
-        if let Some(persisted_state) = state_to_persist.as_ref()
-            && let Err(e) = ctx_mut.persistence.save_state(persisted_state)
+        if let Some(request) = state_to_persist.as_ref()
+            && let Err(e) = ctx_mut.persistence.save_state_v2_revisioned(
+                request.candidate.as_ref(),
+                request.revision,
+                &|_| jefe::persistence::writer::Freshness::Current,
+            )
         {
             warn!(error = %e, "could not save reconciled startup state");
         }
@@ -503,8 +502,8 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         append_warning(&mut app_state.write(), warning);
     }
     if state_changed {
-        let state = app_state.read();
-        persist_state(ctx, &to_persisted_state(&state));
+        let request = durable_save_request(&mut app_state.write());
+        schedule_durable_save(ctx, request);
     }
 }
 

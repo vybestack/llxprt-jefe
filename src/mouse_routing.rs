@@ -208,7 +208,7 @@ fn route_terminal_gesture(
         refresh_terminal_scroll_geometry_from_ctx(ctx, app_state, overlay_active);
         if let Some(scroll_evt) = wheel_to_terminal_scroll_event(mouse_event) {
             let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(scroll_evt);
+            jefe::state::transition::commit_pure_site(&mut state, (scroll_evt).into());
         }
         return true;
     }

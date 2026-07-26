@@ -87,7 +87,7 @@ pub(super) fn apply_form_submit_after_package_probe(
 ) -> bool {
     match probe_result {
         Ok(()) => {
-            *state = std::mem::take(state).apply(AppEvent::SubmitForm);
+            jefe::state::transition::commit_pure_site(state, (AppEvent::SubmitForm).into());
             true
         }
         Err(error) => {
