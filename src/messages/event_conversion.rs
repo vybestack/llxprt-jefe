@@ -425,6 +425,41 @@ impl AppMessage {
                 | AppEvent::SendToAgentCompleted
                 | AppEvent::SendToAgentFailed { .. }
                 | AppEvent::IssueSelfAssignmentFailed { .. }
+        ) || Self::is_new_issue_dialog_data_event(event)
+    }
+
+    /// Whether the event is a New Issue dialog data/agent event.
+    fn is_new_issue_dialog_data_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::OpenNewIssueDialog
+                | AppEvent::NewIssueTemplateNext
+                | AppEvent::NewIssueTypeNext
+                | AppEvent::NewIssueTitleChar(_)
+                | AppEvent::NewIssueTitleBackspace
+                | AppEvent::NewIssueTitleDelete
+                | AppEvent::NewIssueTitleCursorLeft
+                | AppEvent::NewIssueTitleCursorRight
+                | AppEvent::NewIssueTitleCursorHome
+                | AppEvent::NewIssueTitleCursorEnd
+                | AppEvent::NewIssueBodyChar(_)
+                | AppEvent::NewIssueBodyNewline
+                | AppEvent::NewIssueBodyBackspace
+                | AppEvent::NewIssueBodyDelete
+                | AppEvent::NewIssueBodyCursorLeft
+                | AppEvent::NewIssueBodyCursorRight
+                | AppEvent::NewIssueBodyCursorUp
+                | AppEvent::NewIssueBodyCursorDown
+                | AppEvent::NewIssueBodyCursorHome
+                | AppEvent::NewIssueBodyCursorEnd
+                | AppEvent::NewIssueFocusNext
+                | AppEvent::NewIssueFocusPrev
+                | AppEvent::NewIssueSubmit
+                | AppEvent::NewIssueCancel
+                | AppEvent::NewIssueCreated { .. }
+                | AppEvent::NewIssueCreateFailed { .. }
+                | AppEvent::NewIssueOptionsLoaded { .. }
+                | AppEvent::NewIssueOptionsFailed { .. }
         ) || Self::is_issue_property_data_event(event)
     }
 

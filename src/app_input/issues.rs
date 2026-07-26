@@ -285,7 +285,7 @@ fn resolve_issue_list_key_event(
         KeyCode::Home => Some(AppEvent::IssuesNavigateHome),
         KeyCode::End => Some(AppEvent::IssuesNavigateEnd),
         KeyCode::Enter => Some(AppEvent::IssuesEnter),
-        KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
+        KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueDialog),
         KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
         KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),

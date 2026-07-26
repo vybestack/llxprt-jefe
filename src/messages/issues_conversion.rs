@@ -1,7 +1,10 @@
 use crate::state::AppEvent;
 
 use super::IssuesMessage;
-use super::names::{is_issue_property_app_event, is_issue_property_msg};
+use super::names::{
+    is_issue_property_app_event, is_issue_property_msg, is_new_issue_dialog_app_event,
+    is_new_issue_dialog_msg,
+};
 
 impl From<IssuesMessage> for AppEvent {
     fn from(message: IssuesMessage) -> Self {
@@ -261,6 +264,9 @@ impl IssuesMessage {
             property if is_issue_property_app_event(&property) => {
                 Self::from_app_event_property(property)
             }
+            dialog if is_new_issue_dialog_app_event(&dialog) => {
+                Self::from_app_event_new_issue_dialog(dialog)
+            }
             other => Self::from_app_event_mutation_and_agent(other),
         }
     }
@@ -312,6 +318,68 @@ impl IssuesMessage {
             AppEvent::RequestIssueRewrite => Self::RequestIssueRewrite,
             AppEvent::IssueRewriteSucceeded { text } => Self::IssueRewriteSucceeded { text },
             AppEvent::IssueRewriteFailed { error } => Self::IssueRewriteFailed { error },
+            other => Self::from_app_event_new_issue_dialog(other),
+        }
+    }
+
+    /// New Issue dialog events; delegates mutation/lifecycle and further
+    /// events to `from_app_event_mutation_and_agent`.
+    fn from_app_event_new_issue_dialog(event: AppEvent) -> Self {
+        match event {
+            AppEvent::OpenNewIssueDialog => Self::OpenNewIssueDialog,
+            AppEvent::NewIssueTemplateNext => Self::NewIssueTemplateNext,
+            AppEvent::NewIssueTypeNext => Self::NewIssueTypeNext,
+            AppEvent::NewIssueTitleChar(c) => Self::NewIssueTitleChar(c),
+            AppEvent::NewIssueTitleBackspace => Self::NewIssueTitleBackspace,
+            AppEvent::NewIssueTitleDelete => Self::NewIssueTitleDelete,
+            AppEvent::NewIssueTitleCursorLeft => Self::NewIssueTitleCursorLeft,
+            AppEvent::NewIssueTitleCursorRight => Self::NewIssueTitleCursorRight,
+            AppEvent::NewIssueTitleCursorHome => Self::NewIssueTitleCursorHome,
+            AppEvent::NewIssueTitleCursorEnd => Self::NewIssueTitleCursorEnd,
+            AppEvent::NewIssueBodyChar(c) => Self::NewIssueBodyChar(c),
+            AppEvent::NewIssueBodyNewline => Self::NewIssueBodyNewline,
+            AppEvent::NewIssueBodyBackspace => Self::NewIssueBodyBackspace,
+            AppEvent::NewIssueBodyDelete => Self::NewIssueBodyDelete,
+            AppEvent::NewIssueBodyCursorLeft => Self::NewIssueBodyCursorLeft,
+            AppEvent::NewIssueBodyCursorRight => Self::NewIssueBodyCursorRight,
+            AppEvent::NewIssueBodyCursorUp => Self::NewIssueBodyCursorUp,
+            AppEvent::NewIssueBodyCursorDown => Self::NewIssueBodyCursorDown,
+            AppEvent::NewIssueBodyCursorHome => Self::NewIssueBodyCursorHome,
+            AppEvent::NewIssueBodyCursorEnd => Self::NewIssueBodyCursorEnd,
+            AppEvent::NewIssueFocusNext => Self::NewIssueFocusNext,
+            AppEvent::NewIssueFocusPrev => Self::NewIssueFocusPrev,
+            AppEvent::NewIssueSubmit => Self::NewIssueSubmit,
+            AppEvent::NewIssueCancel => Self::NewIssueCancel,
+            AppEvent::NewIssueOptionsLoaded {
+                labels,
+                milestones,
+                types,
+                assignees,
+            } => Self::NewIssueOptionsLoaded {
+                labels,
+                milestones,
+                types,
+                assignees,
+            },
+            AppEvent::NewIssueOptionsFailed { error } => Self::NewIssueOptionsFailed { error },
+            AppEvent::NewIssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue,
+            } => Self::NewIssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue,
+            },
+            AppEvent::NewIssueCreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            } => Self::NewIssueCreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            },
             other => Self::from_app_event_mutation_and_agent(other),
         }
     }
@@ -679,6 +747,7 @@ impl IssuesMessage {
             | Self::IssueRewriteSucceeded { .. }
             | Self::IssueRewriteFailed { .. } => self.into_app_event_simple_controls(),
             property if is_issue_property_msg(&property) => property.into_app_event_property(),
+            dialog if is_new_issue_dialog_msg(&dialog) => dialog.into_app_event_new_issue_dialog(),
             other => other.into_app_event_mutation_and_agent(),
         }
     }
@@ -730,6 +799,68 @@ impl IssuesMessage {
             Self::RequestIssueRewrite => AppEvent::RequestIssueRewrite,
             Self::IssueRewriteSucceeded { text } => AppEvent::IssueRewriteSucceeded { text },
             Self::IssueRewriteFailed { error } => AppEvent::IssueRewriteFailed { error },
+            other => other.into_app_event_new_issue_dialog(),
+        }
+    }
+
+    /// New Issue dialog messages; delegates mutation/agent and further
+    /// messages to `into_app_event_mutation_and_agent`.
+    fn into_app_event_new_issue_dialog(self) -> AppEvent {
+        match self {
+            Self::OpenNewIssueDialog => AppEvent::OpenNewIssueDialog,
+            Self::NewIssueTemplateNext => AppEvent::NewIssueTemplateNext,
+            Self::NewIssueTypeNext => AppEvent::NewIssueTypeNext,
+            Self::NewIssueTitleChar(c) => AppEvent::NewIssueTitleChar(c),
+            Self::NewIssueTitleBackspace => AppEvent::NewIssueTitleBackspace,
+            Self::NewIssueTitleDelete => AppEvent::NewIssueTitleDelete,
+            Self::NewIssueTitleCursorLeft => AppEvent::NewIssueTitleCursorLeft,
+            Self::NewIssueTitleCursorRight => AppEvent::NewIssueTitleCursorRight,
+            Self::NewIssueTitleCursorHome => AppEvent::NewIssueTitleCursorHome,
+            Self::NewIssueTitleCursorEnd => AppEvent::NewIssueTitleCursorEnd,
+            Self::NewIssueBodyChar(c) => AppEvent::NewIssueBodyChar(c),
+            Self::NewIssueBodyNewline => AppEvent::NewIssueBodyNewline,
+            Self::NewIssueBodyBackspace => AppEvent::NewIssueBodyBackspace,
+            Self::NewIssueBodyDelete => AppEvent::NewIssueBodyDelete,
+            Self::NewIssueBodyCursorLeft => AppEvent::NewIssueBodyCursorLeft,
+            Self::NewIssueBodyCursorRight => AppEvent::NewIssueBodyCursorRight,
+            Self::NewIssueBodyCursorUp => AppEvent::NewIssueBodyCursorUp,
+            Self::NewIssueBodyCursorDown => AppEvent::NewIssueBodyCursorDown,
+            Self::NewIssueBodyCursorHome => AppEvent::NewIssueBodyCursorHome,
+            Self::NewIssueBodyCursorEnd => AppEvent::NewIssueBodyCursorEnd,
+            Self::NewIssueFocusNext => AppEvent::NewIssueFocusNext,
+            Self::NewIssueFocusPrev => AppEvent::NewIssueFocusPrev,
+            Self::NewIssueSubmit => AppEvent::NewIssueSubmit,
+            Self::NewIssueCancel => AppEvent::NewIssueCancel,
+            Self::NewIssueOptionsLoaded {
+                labels,
+                milestones,
+                types,
+                assignees,
+            } => AppEvent::NewIssueOptionsLoaded {
+                labels,
+                milestones,
+                types,
+                assignees,
+            },
+            Self::NewIssueOptionsFailed { error } => AppEvent::NewIssueOptionsFailed { error },
+            Self::NewIssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue,
+            } => AppEvent::NewIssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue,
+            },
+            Self::NewIssueCreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            } => AppEvent::NewIssueCreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            },
             other => other.into_app_event_mutation_and_agent(),
         }
     }

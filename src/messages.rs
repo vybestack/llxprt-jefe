@@ -27,7 +27,7 @@ mod errors;
 mod errors_conversion;
 pub use errors::ErrorsMessage;
 mod event_conversion;
-mod names;
+pub mod names;
 mod terminal_manager;
 mod terminal_manager_conversion;
 pub use terminal_manager::TerminalManagerMessage;
@@ -307,6 +307,50 @@ pub enum IssuesMessage {
     },
     OpenInlineEditor {
         target: EditorTarget,
+    },
+    // ── New Issue dialog (issue #407) ─────────────────────────────────
+    OpenNewIssueDialog,
+    NewIssueTemplateNext,
+    NewIssueTypeNext,
+    NewIssueTitleChar(char),
+    NewIssueTitleBackspace,
+    NewIssueTitleDelete,
+    NewIssueTitleCursorLeft,
+    NewIssueTitleCursorRight,
+    NewIssueTitleCursorHome,
+    NewIssueTitleCursorEnd,
+    NewIssueBodyChar(char),
+    NewIssueBodyNewline,
+    NewIssueBodyBackspace,
+    NewIssueBodyDelete,
+    NewIssueBodyCursorLeft,
+    NewIssueBodyCursorRight,
+    NewIssueBodyCursorUp,
+    NewIssueBodyCursorDown,
+    NewIssueBodyCursorHome,
+    NewIssueBodyCursorEnd,
+    NewIssueFocusNext,
+    NewIssueFocusPrev,
+    NewIssueSubmit,
+    NewIssueCancel,
+    NewIssueOptionsLoaded {
+        labels: Vec<String>,
+        milestones: Vec<String>,
+        types: Vec<(String, String)>,
+        assignees: Vec<String>,
+    },
+    NewIssueOptionsFailed {
+        error: String,
+    },
+    NewIssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue: Box<Issue>,
+    },
+    NewIssueCreateFailed {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        error: String,
     },
     InlineChar(char),
     InlineNewline,

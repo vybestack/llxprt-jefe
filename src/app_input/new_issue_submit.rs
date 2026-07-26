@@ -1,0 +1,234 @@
+//! New Issue dialog submit pipeline (issue #407).
+//!
+//! On `NewIssueSubmit`, reads the open `ModalState::NewIssue` state, validates
+//! the title, marks the issue mutation pending, then spawns a gh task that:
+//!   1. Creates the issue via `GhClient::create_issue` (title + body).
+//!   2. Applies labels, milestone, assignees, and issue type against the
+//!      newly-created issue using the existing `edit_properties` machinery.
+//!   3. Dispatches `NewIssueCreated` (success) or `NewIssueCreateFailed`
+//!      (failure).
+//!
+//! Properties are applied after create because the GitHub REST issue-create
+//! endpoint does not accept labels/milestone/type in a single call. The
+//! issue's node id (returned by create) is used for the GraphQL type mutation.
+
+use jefe::domain::RepositoryId;
+use jefe::github::{
+    CreatedIssue, GhClient, GhError, PropertyEditTarget, compute_assignee_diff, compute_label_diff,
+};
+use jefe::state::{AppEvent, ModalState};
+
+use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
+
+/// Handle a `NewIssueSubmit`: validate, mark pending, spawn the create + apply
+/// task. If the title is empty the dialog stays open with a validation error
+/// (the reducer already surfaces this, but we double-check here to avoid
+/// marking a mutation pending for an invalid submit).
+pub fn handle_new_issue_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let Some(params) = resolve_submit_params(app_state) else {
+        return;
+    };
+    if params.title.trim().is_empty() {
+        // Reducer already set the error; nothing to spawn.
+        return;
+    }
+    let mutation_id = begin_mutation(app_state, ctx, params.scope_repo_id.clone());
+    let panic_scope = params.scope_repo_id.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = create_and_apply_event(&ctx, &params, mutation_id);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, message| {
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                AppEvent::NewIssueCreateFailed {
+                    scope_repo_id: panic_scope,
+                    mutation_id,
+                    error: format!("New issue task panicked: {message}"),
+                },
+            );
+        },
+    );
+}
+
+#[derive(Clone)]
+struct SubmitParams {
+    scope_repo_id: RepositoryId,
+    owner: String,
+    repo: String,
+    title: String,
+    body: String,
+    labels: Vec<String>,
+    milestone: Option<String>,
+    assignees: Vec<String>,
+    type_id: Option<String>,
+}
+
+fn resolve_submit_params(app_state: &AppStateHandle) -> Option<SubmitParams> {
+    let state = app_state.read();
+    let ModalState::NewIssue { state: dialog, .. } = &state.modal else {
+        return None;
+    };
+    let (owner, repo) = super::issues_dispatch::resolve_gh_repo(&state);
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    let scope_repo_id = super::issues_dispatch::current_scope_repo_id(&state);
+    let params = SubmitParams {
+        scope_repo_id,
+        owner,
+        repo,
+        title: dialog.title_text.clone(),
+        body: dialog.body_text.clone(),
+        labels: dialog.labels.clone(),
+        milestone: dialog.milestone.clone(),
+        assignees: dialog.assignees.clone(),
+        type_id: dialog.type_id.clone(),
+    };
+    drop(state);
+    Some(params)
+}
+
+fn begin_mutation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    scope_repo_id: RepositoryId,
+) -> u64 {
+    let mutation_id = {
+        let mut state = app_state.write();
+        state.issues_state.next_mutation_id = state.issues_state.next_mutation_id.saturating_add(1);
+        state.issues_state.next_mutation_id
+    };
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::MutationSubmitted {
+            scope_repo_id,
+            mutation_id,
+            target: jefe::state::InlineState::None,
+        },
+    );
+    mutation_id
+}
+
+fn create_and_apply_event(
+    ctx: &SharedContext,
+    params: &SubmitParams,
+    mutation_id: u64,
+) -> AppEvent {
+    let Some(client) = github_client(ctx) else {
+        return failure_event(params, mutation_id, "Application context unavailable");
+    };
+    match create_and_apply_properties(client, params) {
+        Ok(created) => {
+            let issue = created.into_list_issue();
+            AppEvent::NewIssueCreated {
+                scope_repo_id: params.scope_repo_id.clone(),
+                mutation_id,
+                issue: Box::new(issue),
+            }
+        }
+        Err(error) => failure_event(params, mutation_id, &error.to_string()),
+    }
+}
+
+fn failure_event(params: &SubmitParams, mutation_id: u64, error: &str) -> AppEvent {
+    AppEvent::NewIssueCreateFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        mutation_id,
+        error: error.to_string(),
+    }
+}
+
+/// Create the issue, then apply labels/milestone/assignees/type. Returns the
+/// `CreatedIssue` on success. Property-apply failures are reported as a
+/// combined error so the user knows the issue was created but properties
+/// failed (the issue still exists on GitHub).
+fn create_and_apply_properties(
+    client: GhClient,
+    params: &SubmitParams,
+) -> Result<CreatedIssue, GhError> {
+    let created = client.create_issue(&params.owner, &params.repo, &params.title, &params.body)?;
+    let number = created.number;
+    let target = PropertyEditTarget {
+        owner: &params.owner,
+        repo: &params.repo,
+        number,
+        is_pr: false,
+    };
+    apply_labels(client, target, &params.labels)?;
+    apply_assignees(client, target, &params.assignees)?;
+    apply_milestone(
+        client,
+        &params.owner,
+        &params.repo,
+        number,
+        params.milestone.as_deref(),
+    )?;
+    apply_issue_type(
+        client,
+        &params.owner,
+        &params.repo,
+        number,
+        params.type_id.as_deref(),
+    )?;
+    Ok(created)
+}
+
+fn apply_labels(
+    client: GhClient,
+    target: PropertyEditTarget,
+    labels: &[String],
+) -> Result<(), GhError> {
+    if labels.is_empty() {
+        return Ok(());
+    }
+    let (to_add, _to_remove) = compute_label_diff(&[], labels);
+    client.edit_labels(target, &to_add, &[])
+}
+
+fn apply_assignees(
+    client: GhClient,
+    target: PropertyEditTarget,
+    assignees: &[String],
+) -> Result<(), GhError> {
+    if assignees.is_empty() {
+        return Ok(());
+    }
+    let (to_add, _to_remove) = compute_assignee_diff(&[], assignees);
+    client.edit_assignees(target, &to_add, &[])
+}
+
+fn apply_milestone(
+    client: GhClient,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    milestone: Option<&str>,
+) -> Result<(), GhError> {
+    let Some(milestone) = milestone else {
+        return Ok(());
+    };
+    if milestone.trim().is_empty() {
+        return Ok(());
+    }
+    client.set_milestone(owner, repo, number, false, milestone)
+}
+
+fn apply_issue_type(
+    client: GhClient,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    type_id: Option<&str>,
+) -> Result<(), GhError> {
+    let Some(type_id) = type_id else {
+        return Ok(());
+    };
+    let node_info = client.fetch_issue_node_info(owner, repo, number)?;
+    client.set_issue_type(&node_info.node_id, Some(type_id))
+}

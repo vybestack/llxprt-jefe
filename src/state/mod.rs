@@ -35,6 +35,7 @@ mod issues_ops;
 mod issues_property_ops;
 mod list_navigation_ops;
 mod modal_ops;
+mod new_issue_dialog_ops;
 /// Generic deterministic pagination state container (`PaginatedList<T, I>`).
 pub mod pagination;
 /// Coalesced post-mutation refresh scheduling state.

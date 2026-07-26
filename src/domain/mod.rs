@@ -566,6 +566,14 @@ pub struct RepoPreferences {
     /// confirms a merge; the chooser then defaults to Merge).
     #[serde(default)]
     pub last_merge_method: Option<MergeMethod>,
+    /// Last-used milestone in the New Issue dialog (issue #407). Sticky:
+    /// restored when the dialog opens, remembered on a successful submit.
+    #[serde(default)]
+    pub last_new_issue_milestone: Option<String>,
+    /// Last-used Projects V2 node ids in the New Issue dialog (issue #407).
+    /// Sticky: restored when the dialog opens, remembered on submit.
+    #[serde(default)]
+    pub last_new_issue_project_ids: Vec<String>,
 }
 
 impl Default for RepoPreferences {
@@ -578,6 +586,8 @@ impl Default for RepoPreferences {
             issue_filter_field_index: 0,
             pr_filter_field_index: 0,
             last_merge_method: None,
+            last_new_issue_milestone: None,
+            last_new_issue_project_ids: Vec::new(),
         }
     }
 }

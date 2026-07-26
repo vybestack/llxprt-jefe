@@ -3,8 +3,8 @@
 
 use super::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus,
-    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PrFocus, PriorAgentFocus,
-    ScreenMode,
+    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, ModalState, PaneFocus, PrFocus,
+    PriorAgentFocus, ScreenMode,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -254,6 +254,11 @@ impl AppState {
         }
         self.issues_state.property_editor = None;
         self.issues_state.property_mutation_pending = None;
+        // Issue #407: a repo change closes the New Issue dialog (A14) since its
+        // sticky defaults and option sets are repo-scoped.
+        if matches!(self.modal, ModalState::NewIssue { .. }) {
+            self.modal = ModalState::None;
+        }
         self.issues_state.list.clear();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
@@ -610,6 +615,10 @@ impl AppState {
         match event {
             AppEvent::EnterIssuesMode => self.enter_issues_mode(),
             AppEvent::ExitIssuesMode => self.exit_issues_mode(),
+            AppEvent::OpenNewIssueDialog => {
+                self.open_new_issue_dialog();
+                return true;
+            }
             AppEvent::RefocusIssueList => {
                 // Issue #265: clear a stale non-blocking notice (e.g. "No
                 // agents available") when the user returns to the list. A real
@@ -681,6 +690,7 @@ impl AppState {
             || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_rewrite_event(event.clone())
+            || self.apply_new_issue_dialog_event(&event)
             || self.apply_issue_error_event(event)
     }
 }

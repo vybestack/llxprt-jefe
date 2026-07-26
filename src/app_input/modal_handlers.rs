@@ -269,6 +269,22 @@ pub fn handle_mode_form_key(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
+    // New Issue dialog (issue #407) uses dedicated NewIssue* events keyed off
+    // the focused field, not the generic FormChar/FormBackspace used by the
+    // agent/repository forms.
+    {
+        let state = app_state.read();
+        if matches!(state.modal, ModalState::NewIssue { .. }) {
+            let evt =
+                super::new_issue_dialog::resolve_new_issue_dialog_key(&state.modal, key_event);
+            drop(state);
+            if let Some(evt) = evt {
+                apply_and_persist(app_state, ctx, evt);
+            }
+            return true;
+        }
+    }
+
     let app_event = match key_event.code {
         KeyCode::Esc => Some(AppEvent::CloseModal),
         KeyCode::Enter => {

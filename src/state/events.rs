@@ -279,6 +279,7 @@ pub enum AppEvent {
         value: String,
     },
     OpenNewIssueComposer,
+    OpenNewIssueDialog,
     OpenNewCommentComposer,
     OpenReplyComposer {
         comment_index: usize,
@@ -314,6 +315,49 @@ pub enum AppEvent {
     /// The non-interactive rewrite failed (issue #214). `error` is surfaced as
     /// a non-fatal draft notice so the composer draft is preserved.
     IssueRewriteFailed {
+        error: String,
+    },
+    // ── New Issue dialog events (issue #407) ─────────────────────────────
+    NewIssueTemplateNext,
+    NewIssueTypeNext,
+    NewIssueTitleChar(char),
+    NewIssueTitleBackspace,
+    NewIssueTitleDelete,
+    NewIssueTitleCursorLeft,
+    NewIssueTitleCursorRight,
+    NewIssueTitleCursorHome,
+    NewIssueTitleCursorEnd,
+    NewIssueBodyChar(char),
+    NewIssueBodyNewline,
+    NewIssueBodyBackspace,
+    NewIssueBodyDelete,
+    NewIssueBodyCursorLeft,
+    NewIssueBodyCursorRight,
+    NewIssueBodyCursorUp,
+    NewIssueBodyCursorDown,
+    NewIssueBodyCursorHome,
+    NewIssueBodyCursorEnd,
+    NewIssueFocusNext,
+    NewIssueFocusPrev,
+    NewIssueSubmit,
+    NewIssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue: Box<crate::domain::Issue>,
+    },
+    NewIssueCreateFailed {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        error: String,
+    },
+    NewIssueCancel,
+    NewIssueOptionsLoaded {
+        labels: Vec<String>,
+        milestones: Vec<String>,
+        types: Vec<(String, String)>,
+        assignees: Vec<String>,
+    },
+    NewIssueOptionsFailed {
         error: String,
     },
     MutationSubmitted {

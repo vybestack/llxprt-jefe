@@ -139,3 +139,26 @@ impl AppState {
         }
     }
 }
+
+impl AppState {
+    /// Snapshot the New Issue dialog's milestone/project into per-repo
+    /// preferences (issue #407 A13). Called by the submit pipeline after a
+    /// successful create. No-op when no repo is selected or the dialog is
+    /// not open.
+    pub fn remember_new_issue_preferences(&mut self) {
+        let Some(repo_id) = self.current_repo_id() else {
+            return;
+        };
+        let (milestone, project_ids) = match &self.modal {
+            crate::state::types::ModalState::NewIssue { state, .. } => {
+                (state.milestone.clone(), state.project_ids.clone())
+            }
+            _ => return,
+        };
+        self.user_preferences
+            .update_field_for_repo(&repo_id, |prefs| {
+                prefs.last_new_issue_milestone.clone_from(&milestone);
+                prefs.last_new_issue_project_ids.clone_from(&project_ids);
+            });
+    }
+}

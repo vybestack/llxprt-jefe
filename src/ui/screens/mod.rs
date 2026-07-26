@@ -8,6 +8,7 @@ mod dashboard;
 mod errors;
 mod issues;
 mod new_agent;
+mod new_issue;
 mod new_repository;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001
@@ -22,6 +23,7 @@ pub use dashboard::{Dashboard, DashboardProps};
 pub use errors::{ErrorsScreen, ErrorsScreenProps};
 pub use issues::{IssuesScreen, IssuesScreenProps};
 pub use new_agent::{NewAgentForm, NewAgentFormProps};
+pub use new_issue::{NewIssueForm, NewIssueFormProps};
 pub use new_repository::{NewRepositoryForm, NewRepositoryFormProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001

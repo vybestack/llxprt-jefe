@@ -800,6 +800,7 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
             | ModalState::ThemePicker { .. }
             | ModalState::WorkflowDispatch { .. }
             | ModalState::Auth { .. }
+            | ModalState::NewIssue { .. }
     )
 }
 
@@ -825,7 +826,8 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         jefe::state::ModalState::None
         | jefe::state::ModalState::Search { .. }
         | jefe::state::ModalState::ThemePicker { .. }
-        | jefe::state::ModalState::WorkflowDispatch { .. } => {}
+        | jefe::state::ModalState::WorkflowDispatch { .. }
+        | jefe::state::ModalState::NewIssue { .. } => {}
     }
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
         return OverlayPane::AgentChooser;

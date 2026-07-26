@@ -175,6 +175,34 @@ message_names!(IssuesMessage {
     Self::OpenNewCommentComposer => "OpenNewCommentComposer",
     Self::OpenReplyComposer { .. } => "OpenReplyComposer",
     Self::OpenInlineEditor { .. } => "OpenInlineEditor",
+    Self::OpenNewIssueDialog => "OpenNewIssueDialog",
+    Self::NewIssueTemplateNext => "NewIssueTemplateNext",
+    Self::NewIssueTypeNext => "NewIssueTypeNext",
+    Self::NewIssueTitleChar(_) => "NewIssueTitleChar",
+    Self::NewIssueTitleBackspace => "NewIssueTitleBackspace",
+    Self::NewIssueTitleDelete => "NewIssueTitleDelete",
+    Self::NewIssueTitleCursorLeft => "NewIssueTitleCursorLeft",
+    Self::NewIssueTitleCursorRight => "NewIssueTitleCursorRight",
+    Self::NewIssueTitleCursorHome => "NewIssueTitleCursorHome",
+    Self::NewIssueTitleCursorEnd => "NewIssueTitleCursorEnd",
+    Self::NewIssueBodyChar(_) => "NewIssueBodyChar",
+    Self::NewIssueBodyNewline => "NewIssueBodyNewline",
+    Self::NewIssueBodyBackspace => "NewIssueBodyBackspace",
+    Self::NewIssueBodyDelete => "NewIssueBodyDelete",
+    Self::NewIssueBodyCursorLeft => "NewIssueBodyCursorLeft",
+    Self::NewIssueBodyCursorRight => "NewIssueBodyCursorRight",
+    Self::NewIssueBodyCursorUp => "NewIssueBodyCursorUp",
+    Self::NewIssueBodyCursorDown => "NewIssueBodyCursorDown",
+    Self::NewIssueBodyCursorHome => "NewIssueBodyCursorHome",
+    Self::NewIssueBodyCursorEnd => "NewIssueBodyCursorEnd",
+    Self::NewIssueFocusNext => "NewIssueFocusNext",
+    Self::NewIssueFocusPrev => "NewIssueFocusPrev",
+    Self::NewIssueSubmit => "NewIssueSubmit",
+    Self::NewIssueCancel => "NewIssueCancel",
+    Self::NewIssueOptionsLoaded { .. } => "NewIssueOptionsLoaded",
+    Self::NewIssueOptionsFailed { .. } => "NewIssueOptionsFailed",
+    Self::NewIssueCreated { .. } => "NewIssueCreated",
+    Self::NewIssueCreateFailed { .. } => "NewIssueCreateFailed",
     Self::InlineChar(_) => "InlineChar",
     Self::InlineNewline => "InlineNewline",
     Self::InlineBackspace => "InlineBackspace",
@@ -332,6 +360,76 @@ message_names!(PullRequestsMessage {
 });
 
 use crate::state::AppEvent;
+
+#[must_use]
+pub fn is_new_issue_dialog_app_event(event: &AppEvent) -> bool {
+    matches!(
+        event,
+        AppEvent::OpenNewIssueDialog
+            | AppEvent::NewIssueTemplateNext
+            | AppEvent::NewIssueTypeNext
+            | AppEvent::NewIssueTitleChar(_)
+            | AppEvent::NewIssueTitleBackspace
+            | AppEvent::NewIssueTitleDelete
+            | AppEvent::NewIssueTitleCursorLeft
+            | AppEvent::NewIssueTitleCursorRight
+            | AppEvent::NewIssueTitleCursorHome
+            | AppEvent::NewIssueTitleCursorEnd
+            | AppEvent::NewIssueBodyChar(_)
+            | AppEvent::NewIssueBodyNewline
+            | AppEvent::NewIssueBodyBackspace
+            | AppEvent::NewIssueBodyDelete
+            | AppEvent::NewIssueBodyCursorLeft
+            | AppEvent::NewIssueBodyCursorRight
+            | AppEvent::NewIssueBodyCursorUp
+            | AppEvent::NewIssueBodyCursorDown
+            | AppEvent::NewIssueBodyCursorHome
+            | AppEvent::NewIssueBodyCursorEnd
+            | AppEvent::NewIssueFocusNext
+            | AppEvent::NewIssueFocusPrev
+            | AppEvent::NewIssueSubmit
+            | AppEvent::NewIssueCancel
+            | AppEvent::NewIssueOptionsLoaded { .. }
+            | AppEvent::NewIssueOptionsFailed { .. }
+            | AppEvent::NewIssueCreated { .. }
+            | AppEvent::NewIssueCreateFailed { .. }
+    )
+}
+
+#[must_use]
+pub fn is_new_issue_dialog_msg(message: &IssuesMessage) -> bool {
+    matches!(
+        message,
+        IssuesMessage::OpenNewIssueDialog
+            | IssuesMessage::NewIssueTemplateNext
+            | IssuesMessage::NewIssueTypeNext
+            | IssuesMessage::NewIssueTitleChar(_)
+            | IssuesMessage::NewIssueTitleBackspace
+            | IssuesMessage::NewIssueTitleDelete
+            | IssuesMessage::NewIssueTitleCursorLeft
+            | IssuesMessage::NewIssueTitleCursorRight
+            | IssuesMessage::NewIssueTitleCursorHome
+            | IssuesMessage::NewIssueTitleCursorEnd
+            | IssuesMessage::NewIssueBodyChar(_)
+            | IssuesMessage::NewIssueBodyNewline
+            | IssuesMessage::NewIssueBodyBackspace
+            | IssuesMessage::NewIssueBodyDelete
+            | IssuesMessage::NewIssueBodyCursorLeft
+            | IssuesMessage::NewIssueBodyCursorRight
+            | IssuesMessage::NewIssueBodyCursorUp
+            | IssuesMessage::NewIssueBodyCursorDown
+            | IssuesMessage::NewIssueBodyCursorHome
+            | IssuesMessage::NewIssueBodyCursorEnd
+            | IssuesMessage::NewIssueFocusNext
+            | IssuesMessage::NewIssueFocusPrev
+            | IssuesMessage::NewIssueSubmit
+            | IssuesMessage::NewIssueCancel
+            | IssuesMessage::NewIssueOptionsLoaded { .. }
+            | IssuesMessage::NewIssueOptionsFailed { .. }
+            | IssuesMessage::NewIssueCreated { .. }
+            | IssuesMessage::NewIssueCreateFailed { .. }
+    )
+}
 
 #[must_use]
 pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {

@@ -15,6 +15,12 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+// New Issue dialog form-field types (issue #407). Extracted to keep this
+// file under the source-file-size hard limit.
+#[path = "new_issue_types.rs"]
+mod new_issue_types;
+pub use new_issue_types::{NewIssueDialogFocus, NewIssueDialogState, NewIssueTemplate};
+
 // Issues-mode aggregate state extracted to keep this file under the length limit.
 #[path = "issues_types.rs"]
 mod issues_types;
@@ -261,6 +267,15 @@ pub enum ModalState {
     /// data: the runtime layer owns the `gh auth login --web` subprocess.
     Auth {
         state: AuthDialogState,
+    },
+    /// New Issue form modal (issue #407). A full-screen form modal mirroring
+    /// the existing `NewAgent`/`NewRepository` convention. Carries the draft
+    /// state for the create-then-apply-properties pipeline. `repository_id`
+    /// is captured at open time so the dialog stays bound to the repo that
+    /// was selected when `n` was pressed (mirrors `NewAgent.repository_id`).
+    NewIssue {
+        repository_id: RepositoryId,
+        state: NewIssueDialogState,
     },
 }
 
