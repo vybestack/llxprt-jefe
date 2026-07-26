@@ -6,8 +6,10 @@
 //!
 //! ## Invariants
 //!
-//! - Surrounding whitespace is trimmed; the inner selector content is
-//!   preserved exactly (no semver validation, no normalization beyond trim).
+//! - All whitespace (surrounding AND embedded) is stripped; the resulting
+//!   selector contains no whitespace characters of any kind. This prevents
+//!   pasted version strings with embedded newlines/control characters from
+//!   producing unresolvable npm specs (issue #403).
 //! - Blank/null/missing values normalize to `None` (direct llxprt launch).
 //! - The npm package name is centralized in [`LLXPRT_NPM_PACKAGE`].
 //!
@@ -75,14 +77,14 @@ pub fn is_version_sentinel(value: &str) -> bool {
 
 /// A normalized, nonblank npm package version selector.
 ///
-/// Wraps an inner `String` that is guaranteed non-empty after trimming.
-/// `None` (represented as [`Option::None`] at the call site) means "direct
-/// llxprt launch — no npm version pinning".
+/// Wraps an inner `String` that is guaranteed non-empty and contains no
+/// whitespace characters. `None` (represented as [`Option::None`] at the call
+/// site) means "direct llxprt launch — no npm version pinning".
 ///
-/// Construct via [`LlxprtNpmPackageSelector::normalize`] which trims
-/// surrounding whitespace and returns `None` for blank input. This keeps the
-/// normalization logic in one place so every form, persistence, and launch
-/// path agrees.
+/// Construct via [`LlxprtNpmPackageSelector::normalize`] which strips all
+/// whitespace (leading, trailing, and embedded) and returns `None` for
+/// empty/whitespace-only input. This keeps the normalization logic in one
+/// place so every form, persistence, and launch path agrees.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LlxprtNpmPackageSelector {
     selector: String,
@@ -91,17 +93,23 @@ pub struct LlxprtNpmPackageSelector {
 impl LlxprtNpmPackageSelector {
     /// Normalize a raw form/persisted value into an optional selector.
     ///
-    /// Trims surrounding whitespace. Returns `None` for empty/whitespace-only
-    /// input (direct llxprt launch). Nonblank values are preserved exactly
-    /// after trimming — no semver validation is applied.
+    /// Strips **all** whitespace (leading, trailing, and embedded), including
+    /// newlines, tabs, carriage returns, and Unicode/zero-width whitespace.
+    /// Returns `None` for empty/whitespace-only input (direct llxprt launch).
+    /// Non-whitespace content is preserved exactly — no semver validation is
+    /// applied.
+    ///
+    /// This prevents a pasted version string containing an embedded newline
+    /// (issue #403) from producing an unresolvable npm spec: the resulting
+    /// selector is guaranteed to contain no whitespace characters.
     #[must_use]
     pub fn normalize(raw: &str) -> Option<Self> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
+        let sanitized = strip_internal_whitespace(raw);
+        if sanitized.is_empty() {
             None
         } else {
             Some(Self {
-                selector: trimmed.to_owned(),
+                selector: sanitized,
             })
         }
     }
@@ -123,11 +131,17 @@ impl LlxprtNpmPackageSelector {
     /// user-entered `LATEST` would otherwise produce
     /// `@vybestack/llxprt-code@LATEST`, which npm cannot resolve.
     /// Explicit version strings pass through verbatim.
+    ///
+    /// Sentinel detection uses the selector with whitespace re-inserted as
+    /// spaces so `LATEST NIGHTLY` (stored as `LATESTNIGHTLY` after
+    /// whitespace stripping) is still recognized. Explicit versions are
+    /// emitted verbatim (already whitespace-free).
     #[must_use]
     pub fn package_spec(&self) -> String {
-        let effective = if is_latest_nightly_sentinel(&self.selector) {
+        let sentinel_form = sentinel_with_spaces(&self.selector);
+        let effective = if is_latest_nightly_sentinel(&sentinel_form) {
             NPM_NIGHTLY_DIST_TAG.to_owned()
-        } else if is_latest_sentinel(&self.selector) {
+        } else if is_latest_sentinel(&sentinel_form) {
             LATEST.to_owned()
         } else {
             self.selector.clone()
@@ -168,6 +182,10 @@ pub fn llxprt_launch_source(
 /// release. For an explicit version string, returns
 /// `code-puppy==VERSION`.
 ///
+/// Whitespace (leading, trailing, and embedded) is stripped so a pasted
+/// version with an embedded newline does not produce a broken uvx spec
+/// (issue #403).
+///
 /// PyPI does not publish a separate nightly channel for `code-puppy`, so
 /// `latest nightly` resolves to the same bare package as `latest`.
 ///
@@ -182,16 +200,81 @@ pub fn code_puppy_uvx_from_spec(version: &str) -> Option<String> {
     if is_version_sentinel(trimmed) {
         return Some(CODE_PUPPY_PACKAGE.to_owned());
     }
-    Some(format!("{CODE_PUPPY_PACKAGE}=={trimmed}"))
+    let sanitized = strip_internal_whitespace(trimmed);
+    if sanitized.is_empty() {
+        return None;
+    }
+    // After stripping embedded whitespace, the compound sentinel "latest nightly"
+    // becomes "latestnightly" — reconstruct the spaced form so sentinel detection
+    // still recognizes it (matches the npm path's sentinel_with_spaces handling).
+    let sentinel_form = sentinel_with_spaces(&sanitized);
+    if is_version_sentinel(&sentinel_form) {
+        return Some(CODE_PUPPY_PACKAGE.to_owned());
+    }
+    Some(format!("{CODE_PUPPY_PACKAGE}=={sanitized}"))
 }
 
 /// Whether a Code Puppy version string requires the uvx wrapper (#337).
 ///
 /// Returns `true` for any nonblank version (including sentinels). Blank
-/// versions launch the direct `code-puppy` binary without uvx.
+/// versions — after stripping all whitespace and zero-width characters —
+/// launch the direct `code-puppy` binary without uvx.
 #[must_use]
 pub fn code_puppy_requires_uvx(version: &str) -> bool {
-    !version.trim().is_empty()
+    !strip_internal_whitespace(version).is_empty()
+}
+
+/// Strip all embedded whitespace (newlines, tabs, control chars) and
+/// zero-width characters from a version string after trimming surrounding
+/// whitespace.
+///
+/// This is the shared sanitization used by both the LLxprt npm selector and
+/// the Code Puppy uvx spec path so a pasted version containing embedded
+/// newlines cannot produce an unresolvable package spec (issue #403).
+/// Sentinel detection (`latest`, `latest nightly`) is performed by callers
+/// BEFORE stripping, so sentinels are recognized from their original
+/// whitespace-containing form.
+fn strip_internal_whitespace(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && !is_version_invisible(*c))
+        .collect()
+}
+
+/// Whether a character is invisible/zero-width and should be stripped from a
+/// version selector.
+///
+/// Covers zero-width space (U+200B), zero-width non-joiner (U+200C),
+/// zero-width joiner (U+200D), byte-order mark / zero-width no-break space
+/// (U+FEFF), and soft hyphen (U+00AD). These can be introduced by clipboard
+/// paste and are invisible in the single-line form field (issue #403).
+fn is_version_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' | '\u{00AD}'
+    )
+}
+
+/// Reconstruct the sentinel form (with a space) from a whitespace-stripped
+/// selector so sentinel detection works on stored values.
+///
+/// `latestnightly` → `latest nightly`, `LATESTNIGHTLY` → `LATEST NIGHTLY`.
+/// Non-sentinel values pass through unchanged.
+fn sentinel_with_spaces(selector: &str) -> String {
+    let lower = selector.to_ascii_lowercase();
+    if lower == "latestnightly" {
+        // Split at the char boundary between "latest" (6 chars) and "nightly".
+        let chars: Vec<char> = selector.chars().collect();
+        let (head, tail) = chars.split_at(6);
+        format!(
+            "{} {}",
+            head.iter().collect::<String>(),
+            tail.iter().collect::<String>()
+        )
+    } else {
+        selector.to_owned()
+    }
 }
 
 /// Typed launch-source decision for an agent session.
@@ -298,12 +381,104 @@ mod tests {
     fn normalize_preserves_metacharacters_as_data() {
         // Shell metacharacters must be preserved as data, not interpreted.
         // The launch path shell-escapes them, but the selector stores them.
-        let malicious = "1.0.0; rm -rf /";
-        let selector = LlxprtNpmPackageSelector::normalize(malicious);
+        // Note: whitespace is stripped (see normalize_strips_internal_whitespace),
+        // so the space in the original input is removed.
+        let malicious = "1.0.0;rm-rf/";
+        let selector = LlxprtNpmPackageSelector::normalize("1.0.0; rm -rf /");
         assert_eq!(
             selector.as_ref().map(|s| s.as_str().to_owned()),
             Some(malicious.to_owned())
         );
+    }
+
+    #[test]
+    fn normalize_strips_internal_whitespace() {
+        // Embedded newlines, tabs, carriage returns, and spaces must be
+        // stripped — an npm version selector is a single whitespace-free
+        // token. This is the root cause of issue #403 Bug 2: a pasted
+        // version with an embedded newline produced an unresolvable npm spec.
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize(
+                "0.9.0
+0"
+            )
+            .as_ref()
+            .map(|s| s.as_str().to_owned()),
+            Some("0.9.00".to_owned())
+        );
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize(
+                "0.9.0
+1"
+            )
+            .as_ref()
+            .map(|s| s.as_str().to_owned()),
+            Some("0.9.01".to_owned())
+        );
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize("0	9	0")
+                .as_ref()
+                .map(|s| s.as_str().to_owned()),
+            Some("090".to_owned())
+        );
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize("0 9 0")
+                .as_ref()
+                .map(|s| s.as_str().to_owned()),
+            Some("090".to_owned())
+        );
+    }
+
+    #[test]
+    fn normalize_strips_unicode_and_control_whitespace() {
+        // Zero-width and Unicode whitespace must also be stripped.
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize("0.9.0\u{200B}")
+                .as_ref()
+                .map(|s| s.as_str().to_owned()),
+            Some("0.9.0".to_owned())
+        );
+        assert_eq!(
+            LlxprtNpmPackageSelector::normalize("0.9.0\u{00A0}1")
+                .as_ref()
+                .map(|s| s.as_str().to_owned()),
+            Some("0.9.01".to_owned())
+        );
+    }
+
+    #[test]
+    fn normalize_returns_none_when_only_whitespace_remains() {
+        // Input that is entirely whitespace (internal or surrounding) yields None.
+        assert!(
+            LlxprtNpmPackageSelector::normalize(
+                " 
+	 "
+            )
+            .is_none()
+        );
+        assert!(LlxprtNpmPackageSelector::normalize("\u{200B}").is_none());
+    }
+
+    #[test]
+    fn code_puppy_helpers_strip_internal_whitespace() {
+        // The Code Puppy uvx spec path must apply the same whitespace
+        // sanitization so a pasted version with embedded whitespace does not
+        // produce a broken uvx spec.
+        assert_eq!(
+            code_puppy_uvx_from_spec(
+                "0.0.361
+0"
+            ),
+            Some("code-puppy==0.0.3610".to_owned())
+        );
+        assert_eq!(
+            code_puppy_uvx_from_spec("0	0	361"),
+            Some("code-puppy==00361".to_owned())
+        );
+        assert!(code_puppy_requires_uvx(
+            "0.0.361
+0"
+        ));
     }
 
     fn selector(value: &str) -> LlxprtNpmPackageSelector {

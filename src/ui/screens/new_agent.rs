@@ -391,7 +391,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         ));
     }
 
-    // Content line 13: blank, line 14: hints.
+    // Content line: blank before error/hint.
     all_lines.push(selectable_line(
         "",
         {
@@ -404,6 +404,24 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         rc.fg,
         sel,
     ));
+    if let Some(error) = props
+        .state
+        .as_ref()
+        .and_then(|state| state.error_message.as_deref())
+    {
+        all_lines.push(selectable_line(
+            &format!("  Error: {error}"),
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            rc.bright,
+            sel,
+        ));
+    }
     all_lines.push(selectable_line(
         "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel",
         line_idx,

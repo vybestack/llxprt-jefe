@@ -167,7 +167,7 @@ impl AppState {
 ///
 /// The timestamp is only allocated when at least one slot has changed, to
 /// avoid per-message heap allocation on the hot path.
-pub(super) fn capture_runtime_errors(state: &mut AppState) {
+pub fn capture_runtime_errors(state: &mut AppState) {
     // Quick-change check: see if any slot differs from the last captured value.
     let global_changed =
         state.error_message.as_deref() != state.errors_state.last_captured_global_snapshot();
@@ -213,3 +213,6 @@ pub(super) fn capture_runtime_errors(state: &mut AppState) {
         state.errors_state.reset_actions_tracker();
     }
 }
+#[cfg(test)]
+#[path = "errors_ops_issue403_tests.rs"]
+mod issue403_tests;

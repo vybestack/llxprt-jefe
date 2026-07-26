@@ -62,7 +62,9 @@ fn code_puppy_pinned_version_wraps_unchanged_inner_args_with_structural_uvx_argv
 
 #[test]
 fn code_puppy_hostile_version_remains_one_local_and_remote_argument() {
-    let version = "one space';$(touch nope)`touch nope`\nnext";
+    // Issue #403: internal whitespace is stripped by normalization, so the
+    // version that reaches the uvx spec is whitespace-free.
+    let version = "onespace';$(touchnope)`touchnope`next";
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
     signature.code_puppy_version = format!("  {version}  ");
@@ -92,8 +94,10 @@ fn pinned_remote_shell_preserves_hostile_version_as_one_argument() {
     let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
     let capture = directory.path().join("argv.bin");
     let injected = directory.path().join("injected");
+    // Issue #403: internal whitespace is stripped by normalization, so the
+    // version that reaches the uvx spec is whitespace-free.
     let version = format!(
-        "one space';$(touch {})`touch {}`\nnext",
+        "onespace';$(touch{})`touch{}`next",
         injected.display(),
         injected.display()
     );
