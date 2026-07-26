@@ -117,30 +117,11 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
 ///
 /// @requirement REQ-PR-009
 fn spawn_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
-    fn abandoned(
-        scope: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-        move |app_state, ctx, message| {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::PrMergeFailed {
-                    scope_repo_id: scope,
-                    pr_number,
-                    mutation_id,
-                    error: format!("GitHub merge task panicked: {message}"),
-                },
-            );
-        }
-    }
-
     let (scope, pr_number, mutation_id) = (info.scope.clone(), info.number, info.mutation_id);
     let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        abandoned(scope.clone(), pr_number, mutation_id),
+        merge_abandoned(scope.clone(), pr_number, mutation_id),
     ) else {
         return;
     };
@@ -154,8 +135,28 @@ fn spawn_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext, info: PrM
         // A `PrMergeFailed` outcome is converted to a message but does NOT
         // trigger a reload (it lacks the `Merged`/`CommentCreated` markers).
         dispatch_app_event,
-        abandoned(scope, pr_number, mutation_id),
+        merge_abandoned(scope, pr_number, mutation_id),
     );
+}
+
+/// Report an abandoned merge so the mutation never stays in-flight.
+fn merge_abandoned(
+    scope: RepositoryId,
+    pr_number: u64,
+    mutation_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrMergeFailed {
+                scope_repo_id: scope,
+                pr_number,
+                mutation_id,
+                error: format!("GitHub merge abandoned: {message}"),
+            },
+        );
+    }
 }
 
 /// Build the merge success/failure event from the gh result.

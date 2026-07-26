@@ -380,26 +380,11 @@ fn dispatch_pr_thread_resolve(
     ctx: &SharedContext,
     action: ThreadResolveAction,
 ) {
-    fn abandoned(
-        action: ThreadResolveAction,
-    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-        move |app_state, ctx, message| {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::PrThreadResolveFailed {
-                    scope_repo_id: action.scope_repo_id,
-                    thread_index: action.thread_index,
-                    request_id: action.request_id,
-                    error: format!("GitHub thread resolve task panicked: {message}"),
-                },
-            );
-        }
-    }
-
-    let Some(deliveries) =
-        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(action.clone()))
-    else {
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
+        app_state,
+        ctx,
+        pr_thread_resolve_abandoned(action.clone()),
+    ) else {
         return;
     };
     let panic_action = action.clone();
@@ -408,8 +393,26 @@ fn dispatch_pr_thread_resolve(
         ctx,
         move |ctx| pr_thread_resolve_result_event(ctx, &action),
         apply_and_persist,
-        abandoned(panic_action),
+        pr_thread_resolve_abandoned(panic_action),
     );
+}
+
+/// Report an abandoned thread resolve so the request never stays in-flight.
+fn pr_thread_resolve_abandoned(
+    action: ThreadResolveAction,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrThreadResolveFailed {
+                scope_repo_id: action.scope_repo_id,
+                thread_index: action.thread_index,
+                request_id: action.request_id,
+                error: format!("GitHub thread resolve abandoned: {message}"),
+            },
+        );
+    }
 }
 
 /// Build the thread-resolve result event from the gh result.

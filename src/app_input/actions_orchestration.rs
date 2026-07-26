@@ -491,28 +491,8 @@ fn spawn_list_task(
         ActionsListRequest,
     ),
 ) {
-    fn abandoned(
-        req: ActionsListRequest,
-        handler: fn(
-            &mut AppStateHandle,
-            &SharedContext,
-            Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
-            ActionsListRequest,
-        ),
-    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-        move |app_state, ctx, msg| {
-            let error_msg = format!("GitHub Actions list task panicked: {msg}");
-            handler(
-                app_state,
-                ctx,
-                Err(jefe::github::GhError::ApiError(error_msg)),
-                req,
-            );
-        }
-    }
-
     let Some(deliveries) =
-        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(req.clone(), handler))
+        gh_async::delivery_handle_or_report(app_state, ctx, list_abandoned(req.clone(), handler))
     else {
         return;
     };
@@ -527,8 +507,29 @@ fn spawn_list_task(
             client.list_runs(owner, repo_name, &work_filter, page, 30)
         },
         move |app_state, ctx, res| handler(app_state, ctx, res, req),
-        abandoned(panic_req, handler),
+        list_abandoned(panic_req, handler),
     );
+}
+
+/// Report an abandoned Actions list request through the caller's handler.
+fn list_abandoned(
+    req: ActionsListRequest,
+    handler: fn(
+        &mut AppStateHandle,
+        &SharedContext,
+        Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
+        ActionsListRequest,
+    ),
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, msg| {
+        let error_msg = format!("GitHub Actions list abandoned: {msg}");
+        handler(
+            app_state,
+            ctx,
+            Err(jefe::github::GhError::ApiError(error_msg)),
+            req,
+        );
+    }
 }
 
 fn dispatch_workflows_reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {

@@ -126,7 +126,7 @@ pub(super) fn spawn_gh_request_with_panic<F, R, S, P>(
 /// Run blocking GitHub work off the UI thread and apply its outcome on the
 /// render thread.
 ///
-/// `work` receives only the shared context, so it cannot touch iocraft state:
+/// `work` is handed only the shared context and must not reach iocraft state:
 /// borrowing one `State` from both a blocking worker and the render thread
 /// races inside `generational-box`'s borrow tracking and panics (issue #437).
 /// `apply` and `on_panic` run on the root component's executor through the

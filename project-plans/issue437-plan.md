@@ -12,7 +12,7 @@
 
 The reported dependency line is `generational-box` 0.5.6 `MemoryLocationBorrowInfo::borrow_error`, where diagnostic code unwraps the recorded mutable-borrow location after a conflicting iocraft-state borrow. This differs from issue 351's reported line and demonstrates concurrent access to iocraft hook state rather than a GitHub empty-list parsing failure.
 
-Issue 351 migrated only issue-list fetches to the existing root-owned `BackgroundGhDelivery` queue. Current main still has 32 production calls to `spawn_gh_task_with_panic`; those calls copy `State<AppState>` into `smol::unblock` and read or write it from a blocking worker while the iocraft executor may render or process input. Three of those routes are issue-detail reads in `issues_dispatch.rs`, but the issue report contains no action, backtrace, or task identifier that distinguishes them from an earlier Issues mutation, PR refresh, Actions request, authentication request, or other legacy GitHub task completing after the visible screen changed.
+Issue 351 migrated only issue-list fetches to the existing root-owned `BackgroundGhDelivery` queue. Current main still has 31 production calls to `spawn_gh_task_with_panic`; those calls copy `State<AppState>` into `smol::unblock` and read or write it from a blocking worker while the iocraft executor may render or process input. Three of those routes are issue-detail reads in `issues_dispatch.rs`, but the issue report contains no action, backtrace, or task identifier that distinguishes them from an earlier Issues mutation, PR refresh, Actions request, authentication request, or other legacy GitHub task completing after the visible screen changed.
 
 `catch_unwind` does not suppress Rust's panic hook: the default hook writes the panic to stderr before the payload is returned. Because a legacy panic callback then accesses the same off-thread iocraft state, it also cannot reliably append to the Errors store. Hiding that output without removing the off-thread state access would conceal the architecture defect and is not an acceptable root fix.
 
@@ -20,7 +20,7 @@ Issue 351 migrated only issue-list fetches to the existing root-owned `Backgroun
 
 `GenerationalBox::try_read` fails while another thread holds the data write lock, then builds a diagnostic through `MemoryLocationBorrowInfo::borrow_error`, which evaluates `self.borrowed_mut_at.read().unwrap()`. The writer's `GenerationalRefBorrowMutGuard::drop` clears that same field with `borrowed_mut_at.write().take()`. When the writer releases between the failed data read and the diagnostic read, the `Option` is already `None` and the unwrap panics at `lib.rs:357:58`.
 
-`SyncStorage` uses `parking_lot` locks, and `debug_assertions` compile this diagnostic code into dev/test builds. The panic is therefore reachable only when one `State<AppState>` is borrowed from two threads at once. `spawn_gh_task_with_panic` invokes `work(app_state, ctx)` inside `smol::unblock`, so all 32 production call sites read and write iocraft state from a `blocking-N` worker thread, exactly matching the reported thread name. Every other `smol::unblock` site awaits the blocking call first and touches state on the executor thread, so those are not implicated.
+`SyncStorage` uses `parking_lot` locks, and `debug_assertions` compile this diagnostic code into dev/test builds. The panic is therefore reachable only when one `State<AppState>` is borrowed from two threads at once. `spawn_gh_task_with_panic` invokes `work(app_state, ctx)` inside `smol::unblock`, so all 31 production call sites read and write iocraft state from a `blocking-N` worker thread, exactly matching the reported thread name. Every other `smol::unblock` site awaits the blocking call first and touches state on the executor thread, so those are not implicated.
 
 ## Resolved decision gate
 
@@ -31,7 +31,7 @@ The migration is made mechanical and self-enforcing by changing the helper signa
 - `work: FnOnce(&SharedContext) -> T` runs on the blocking thread and may only perform GitHub I/O.
 - `apply: FnOnce(&mut AppStateHandle, &SharedContext, T)` and the panic continuation run on the render thread through the existing root-owned `BackgroundGhDelivery` queue.
 
-Removing `AppStateHandle` from the blocking closure turns the defect from a convention into a compile error, so no call site can regress.
+No migrated call site passes a state handle into a worker: the helper's blocking closure receives only the shared context, so reintroducing the old shape requires deliberately capturing state rather than merely following the existing signature.
 
 ## Candidate acceptance matrix
 
@@ -97,19 +97,39 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 
 | Discovery | Disposition | Rationale / follow-up |
 | --- | --- | --- |
-| CodeRabbit marked issue 437 as a possible duplicate of issue 351 | Not a duplicate | Issue 351 intentionally migrated only issue-list fetch; 32 legacy stateful worker calls remain. The current panic is at a different generational-box line indicating a conflicting borrow. |
+| CodeRabbit marked issue 437 as a possible duplicate of issue 351 | Not a duplicate | Issue 351 intentionally migrated only issue-list fetch; 31 legacy stateful worker calls remain. The current panic is at a different generational-box line indicating a conflicting borrow. |
 | Issue report provides no triggering action or backtrace | Decision required | Visible Issues mode does not identify the worker that panicked; a task from another mode may complete after navigation. Route coverage changes architecture and PR size materially. |
 | `catch_unwind` still runs the default panic hook | In-scope only for selected state-free recoverable request boundary | Required to meet the no-TUI-dump acceptance without hiding uncontained panics. A global arbitrary-panic ingestion queue remains out of scope. |
 | Current panic callbacks access the same copied iocraft state after a worker panic | Root-cause defect | Error-page recording cannot be reliable until the selected worker routes become state-free. |
 | Existing Errors capture is additive to inline mode errors | Accepted behavior change for worker panics only | Caught worker panic delivery must append directly and clear pending state without setting the inline mode error slot, matching the reporter's non-immediate preference. Ordinary `GhError` behavior remains unchanged. |
-| Remaining legacy routes outside the selected scope | Resolved by full migration | All 32 legacy callers now use `spawn_gh_work`; `spawn_gh_task_with_panic` is deleted, so the unsafe pattern cannot be reintroduced without a compile error. |
+| Remaining legacy routes outside the selected scope | Resolved by full migration | All 31 legacy production callers now use `spawn_gh_work`; `spawn_gh_task_with_panic` is deleted, so the old signature no longer exists to copy. |
 | No deterministic way to trigger a real worker panic from the TUI | Rejected adding a production panic-injection hook | A `JEFE_*` panic-injection env var would be test-only behavior inside the shipped binary, which this plan lists as an explicit stop condition. The panic-to-Errors path is instead proven by `silent_route_panic_is_recorded_without_leaving_the_active_screen`, which drives a real panicking worker through the real delivery queue in an iocraft mock terminal and asserts both the recorded entry and the unchanged active screen. The real Errors screen is separately proven by the `errors-mode.json` TUI scenario. |
 
 ## Review counters
 
-- Pre-PR Open Code Review: 0 / 2
+- Pre-PR Open Code Review: 1 / 2 (22 files, 7 comments; a first attempt with a `A..B` range reviewed 0 files and was not counted as coverage)
 - Post-PR Open Code Review: 0 / 2
-- Review/remediation cycles total: 0 / 2
+- Independent Rust review: 1
+- Review/remediation cycles total: 1 / 2
+
+## Review triage
+
+| # | Source | Finding | Disposition | Action |
+| --- | --- | --- | --- | --- |
+| 1 | Rust review | `spawn_gh_work` does not structurally forbid capturing an `AppStateHandle` in the worker closure | Reject (claim), Defer (hardening) | Correct that a `FnOnce` can still capture state, so the barrier is a strong convention rather than a proof. The plan's wording was corrected to claim only that the helper no longer *passes* a state handle. Converting the seam to a non-capturing `fn` pointer plus an owned input DTO would touch all 31 routes again and is a separate design change, so it is recorded as a follow-up rather than taken here. |
+| 2 | Rust review | A completion could reach a *newly installed* root handler after the original owner is torn down | Reject | Not reachable: the root `App` is mounted exactly once in `src/main.rs:227` and is never remounted, so no second owner can install into the same `AppContext`. The pre-existing late-delivery contract from issue 351 still covers teardown with no replacement. |
+| 3 | Rust review | Panic continuations produce an inline banner and two Errors entries | Reject (as characterized) | Measured with a temporary instrumented probe driving a real panic through the real queue on a non-silent route: the result was exactly one Errors entry and no banner, because the route's failure event is correlation-rejected. Behavior for a *matching* correlated failure is the route's ordinary, pre-existing visible-error semantics, which this issue explicitly does not change. |
+| 4 | Rust review | `capture_worker_panic` shifts the selected Errors entry when the user is browsing | Reject | Index-stable-on-insert is pre-existing `ErrorsState::push` behavior from issue 292, is documented on that method, and is locked by an existing test asserting the index is preserved when `snap_to_newest` is false. Changing it would alter issue-292 behavior for every caller and is outside this scope. |
+| 5 | Rust review | No test proves panic output is suppressed or that uncontained panics still report | Blocker-Fix | Added `contained_panics_are_silent_and_uncontained_panics_still_report`, which re-executes itself in a child process so a sentinel hook can be installed ahead of the process-global one, then asserts the delegate is called zero times for a contained panic and exactly once for an uncontained one. Added `concurrent_containment_keeps_locations_independent` for two threads panicking behind a barrier. |
+| 6 | Rust review | `delivery_handle_or_report` succeeds whenever `AppContext` exists, even with no handler installed | Defer | Real but unreachable today: every dispatch runs from terminal-event handling, which happens only after the root installs the handler on its first render. Narrowing the check requires the same owner-token redesign as finding 1 and is recorded with it. |
+| 7 | Rust review | A stale panic location could be attributed to a later payload | In-scope-Fix | `contain` now clears the location slot on entry and reads it once after the boundary. Added `a_location_from_earlier_work_is_not_reused` (resumed payload keeps no earlier site) and `the_reported_location_is_the_escaping_panic`. |
+| 8 | Rust review | New tests use synthetic probes rather than real migrated routes | Defer | A route-level behavioral matrix across ~31 routes is a large test-only expansion beyond this issue's acceptance rows. Route semantics are preserved mechanically (each route keeps its own typed failure event), and the existing per-route reducer suites still pass. Recorded as a follow-up. |
+| 9 | Rust review | Plan says "32 production calls" | In-scope-Fix | Verified with `git grep` on the base: 31 production call sites plus one definition and one test reference. Plan corrected. |
+| 10 | OCR | Property-edit routes return without UI feedback when the delivery queue is missing | Reject | `delivery_handle_or_report` invokes the supplied reporter before returning `None`; both property-edit routes pass `property_edit_abandoned`/`options_abandoned`, so the editor always receives a typed failure. |
+| 11 | OCR | `options_abandoned` / `pr_options_abandoned` discard the message and hardcode "panicked" | In-scope-Fix | Both now include the message and are reworded to "Options fetch abandoned", which is accurate for a missing queue as well as a panic. |
+| 12 | OCR | Silent issue-detail refresh discards the panic message | Reject | Intentional and required: this route must not surface a visible error (issue 175). The diagnostic is not lost — `record_worker_panic` records the message and its source location on the Errors screen before the route's silent handler runs, which is exactly what `silent_route_panic_is_recorded_without_leaving_the_active_screen` proves. |
+| 13 | OCR | Test couples to the literal file name `worker_panic.rs` | Reject | The assertion is paired with a `starts_with("... (at ")` check and pins that the location resolves to this module's panic site rather than a caller's. A rename is a deliberate edit that should update its own test. |
+| 14 | OCR | Nested `abandoned` helpers are inconsistent with the shared module-level pattern | In-scope-Fix | All remaining nested helpers hoisted to module scope with descriptive names (`pr_thread_resolve_abandoned`, `pr_property_edit_abandoned`, `merge_abandoned`, `open_in_browser_abandoned`, `list_abandoned`), which also removes the `items_after_statements` lint. |
 
 ## Verification evidence
 
@@ -117,7 +137,7 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 | --- | --- | --- |
 | `53b891c` | `cargo tree -i generational-box@0.5.6` | `generational-box` is used through vendored iocraft 0.5.3 |
 | `53b891c` | inspect dependency line 357 | panic site is conflicting-borrow diagnostic state, not issue parsing |
-| `53b891c` | production caller inventory | 32 `spawn_gh_task_with_panic` calls still move iocraft AppState into blocking workers; issue list alone uses the state-free delivery helper |
+| `53b891c` | production caller inventory | 31 production `spawn_gh_task_with_panic` call sites still move iocraft AppState into blocking workers; issue list alone uses the state-free delivery helper |
 | `53b891c` | issue/PR history | issue 351 and PR 354 explicitly deferred all non-list GitHub routes and process-level panic capture |
 | candidate | `CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings` (the exact `make ci-check` invocation) | clean. A bare `cargo clippy` without `CLIPPY_CONF_DIR` reports pre-existing `clippy::duration_suboptimal_units` at `src/runtime/llxprt_install.rs:33`; that is a config artifact, not an issue-437 regression: it reproduces identically on stashed base `53b891c`, and `.github/clippy/clippy.toml` sets `msrv = "1.75"`, under which the suggested `Duration::from_mins` does not exist, so the CI configuration correctly does not raise it. No lint was suppressed to reach this state. |
 | candidate | complexity gate (`-D cognitive_complexity -D too_many_lines -D too_many_arguments -D type_complexity -D struct_excessive_bools`) | clean; every lint introduced by this change (unused `mut`, `too_many_arguments`, `items_after_statements`, `single_match_else`, `field_reassign_with_default`, `expect_err`) is fixed at the source rather than suppressed |

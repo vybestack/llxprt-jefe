@@ -566,25 +566,11 @@ fn spawn_pr_open_in_browser(
     ctx: &SharedContext,
     info: PrOpenInBrowserInfo,
 ) {
-    fn abandoned(
-        info: PrOpenInBrowserInfo,
-    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-        move |app_state, ctx, message| {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::PrOpenInBrowserFailed {
-                    scope_repo_id: info.scope.clone(),
-                    pr_number: info.number,
-                    error: format!("GitHub open-in-browser task panicked: {message}"),
-                },
-            );
-        }
-    }
-
-    let Some(deliveries) =
-        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(info.clone()))
-    else {
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
+        app_state,
+        ctx,
+        open_in_browser_abandoned(info.clone()),
+    ) else {
         return;
     };
     let panic_info = info.clone();
@@ -593,8 +579,25 @@ fn spawn_pr_open_in_browser(
         ctx,
         move |ctx| pr_open_in_browser_event(ctx, &info),
         apply_and_persist,
-        abandoned(panic_info),
+        open_in_browser_abandoned(panic_info),
     );
+}
+
+/// Report an abandoned open-in-browser request so it never stays in-flight.
+fn open_in_browser_abandoned(
+    info: PrOpenInBrowserInfo,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrOpenInBrowserFailed {
+                scope_repo_id: info.scope.clone(),
+                pr_number: info.number,
+                error: format!("GitHub open-in-browser abandoned: {message}"),
+            },
+        );
+    }
 }
 
 /// Resolve the scope + PR number for an `InvalidSlug` failure event.

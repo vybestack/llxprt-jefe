@@ -140,28 +140,11 @@ fn dispatch_pr_property_edit(
     action: PrPropertyAction,
     request_id: u64,
 ) {
-    fn abandoned(
-        action: PrPropertyAction,
-        request_id: u64,
-    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-        move |app_state, ctx, message| {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::PrPropertyEditFailed {
-                    scope_repo_id: action.scope_repo_id,
-                    pr_number: action.pr_number,
-                    kind: action.kind,
-                    request_id,
-                    error: format!("GitHub PR property edit task panicked: {message}"),
-                },
-            );
-        }
-    }
-
-    let Some(deliveries) =
-        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(action.clone(), request_id))
-    else {
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
+        app_state,
+        ctx,
+        pr_property_edit_abandoned(action.clone(), request_id),
+    ) else {
         return;
     };
     let panic_action = action.clone();
@@ -170,8 +153,28 @@ fn dispatch_pr_property_edit(
         ctx,
         move |ctx| pr_property_edit_event(ctx, &repo, &action, request_id),
         dispatch_app_event,
-        abandoned(panic_action, request_id),
+        pr_property_edit_abandoned(panic_action, request_id),
     );
+}
+
+/// Report an abandoned PR property edit so the editor never stays in-flight.
+fn pr_property_edit_abandoned(
+    action: PrPropertyAction,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrPropertyEditFailed {
+                scope_repo_id: action.scope_repo_id,
+                pr_number: action.pr_number,
+                kind: action.kind,
+                request_id,
+                error: format!("GitHub PR property edit abandoned: {message}"),
+            },
+        );
+    }
 }
 
 fn pr_property_edit_event(
@@ -347,7 +350,7 @@ pub fn handle_pr_property_options_load(app_state: &mut AppStateHandle, ctx: &Sha
 fn pr_options_abandoned(
     params: PrOptionsLoadParams,
 ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-    move |app_state, ctx, _message| {
+    move |app_state, ctx, message| {
         apply_and_persist(
             app_state,
             ctx,
@@ -356,7 +359,7 @@ fn pr_options_abandoned(
                 pr_number: params.pr_number,
                 kind: params.kind,
                 request_id: params.request_id,
-                error: "Options fetch task panicked".to_string(),
+                error: format!("Options fetch abandoned: {message}"),
             },
         );
     }

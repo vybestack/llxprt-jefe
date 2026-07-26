@@ -50,9 +50,13 @@ fn install_hook() {
 pub(super) fn contain<T>(work: impl FnOnce() -> T) -> Result<T, String> {
     install_hook();
     let restore = CONTAINED.with(|flag| flag.replace(true));
+    // Drop any location left by an inner boundary or by a panic the work
+    // caught itself, so a stale site is never attributed to this payload.
+    LOCATION.with(|slot| slot.borrow_mut().take());
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
     CONTAINED.with(|flag| flag.set(restore));
-    result.map_err(|payload| describe(&payload, LOCATION.with(|slot| slot.borrow_mut().take())))
+    let location = LOCATION.with(|slot| slot.borrow_mut().take());
+    result.map_err(|payload| describe(&payload, location))
 }
 
 /// Render a panic payload and its recorded location as one diagnostic line.
@@ -71,6 +75,8 @@ fn describe(payload: &Box<dyn std::any::Any + Send>, location: Option<String>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
 
     #[test]
     fn successful_work_returns_its_value() {
@@ -111,6 +117,146 @@ mod tests {
         assert!(
             error.starts_with("unknown panic"),
             "unrecognized payloads must still report: {error}"
+        );
+    }
+
+    /// Marks the re-executed child of the hook-delegation test.
+    const HOOK_CHILD_VAR: &str = "JEFE_WORKER_PANIC_HOOK_CHILD";
+
+    /// The point of the hook is that a contained panic never reaches the
+    /// terminal while an uncontained one keeps its normal reporting.
+    ///
+    /// The hook is process-global and installed once, so this runs in a fresh
+    /// child process where a sentinel can be installed as the delegate before
+    /// any containment exists. Observing delegation is the only way to prove
+    /// the panic text is actually withheld from the terminal.
+    #[test]
+    fn contained_panics_are_silent_and_uncontained_panics_still_report() {
+        if std::env::var_os(HOOK_CHILD_VAR).is_some() {
+            run_hook_delegation_child();
+            return;
+        }
+
+        let executable = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(error) => panic!("the test executable path must resolve: {error}"),
+        };
+        let output = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "app_input::worker_panic::tests::contained_panics_are_silent_and_uncontained_panics_still_report",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(HOOK_CHILD_VAR, "1")
+            .output();
+        let Ok(output) = output else {
+            panic!("the child test process must start");
+        };
+        assert!(
+            output.status.success(),
+            "child hook assertions failed:
+stdout:
+{}
+stderr:
+{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Child half of [`contained_panics_are_silent_and_uncontained_panics_still_report`].
+    fn run_hook_delegation_child() {
+        static SENTINEL_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        // Install the sentinel first so our wrapper adopts it as the delegate.
+        std::panic::set_hook(Box::new(|_info| {
+            SENTINEL_CALLS.fetch_add(1, Ordering::SeqCst);
+        }));
+        install_hook();
+
+        let contained = contain(|| panic!("contained"));
+        let after_contained = SENTINEL_CALLS.load(Ordering::SeqCst);
+
+        let uncontained =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| panic!("uncontained")));
+        let after_uncontained = SENTINEL_CALLS.load(Ordering::SeqCst);
+
+        assert!(contained.is_err(), "the contained panic must be captured");
+        assert_eq!(
+            after_contained, 0,
+            "a contained panic must not reach the previous hook"
+        );
+        assert!(
+            uncontained.is_err(),
+            "the uncontained panic must still unwind"
+        );
+        assert_eq!(
+            after_uncontained, 1,
+            "an uncontained panic must still be reported by the previous hook"
+        );
+    }
+
+    /// Each worker thread records its own location, so simultaneous panics
+    /// cannot be attributed to each other's source site.
+    #[test]
+    fn concurrent_containment_keeps_locations_independent() {
+        let barrier = Arc::new(Barrier::new(2));
+        let first = {
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                contain(|| panic!("first thread"))
+            })
+        };
+        let second = {
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                contain(|| panic!("second thread"))
+            })
+        };
+
+        let (Ok(Err(first)), Ok(Err(second))) = (first.join(), second.join()) else {
+            panic!("both threads must report a contained panic");
+        };
+        assert!(
+            first.starts_with("first thread (at ") && first.contains("worker_panic.rs"),
+            "the first thread must keep its own message and location: {first}"
+        );
+        assert!(
+            second.starts_with("second thread (at ") && second.contains("worker_panic.rs"),
+            "the second thread must keep its own message and location: {second}"
+        );
+    }
+
+    /// A panic the work catches itself must not leak its location onto a later
+    /// boundary. A resumed payload never re-enters the hook, so without
+    /// clearing the slot the earlier site would be reported as this one's.
+    #[test]
+    fn a_location_from_earlier_work_is_not_reused() {
+        let Err(payload) = std::panic::catch_unwind(|| panic!("swallowed by earlier work"));
+
+        let error = contain(|| std::panic::resume_unwind(payload))
+            .expect_err("the resumed payload must still be contained");
+        assert_eq!(
+            error, "swallowed by earlier work",
+            "a resumed payload must not inherit an earlier location: {error}"
+        );
+    }
+
+    /// When work swallows a panic and then panics again, the reported location
+    /// must be the site that actually escaped.
+    #[test]
+    fn the_reported_location_is_the_escaping_panic() {
+        let error = contain(|| {
+            let _ = std::panic::catch_unwind(|| panic!("swallowed inside the worker"));
+            panic!("escaped the worker")
+        })
+        .expect_err("the escaping payload must be contained");
+        assert!(
+            error.starts_with("escaped the worker (at "),
+            "the escaping panic must be reported: {error}"
         );
     }
 

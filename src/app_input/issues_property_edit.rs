@@ -364,7 +364,7 @@ pub fn handle_issue_property_options_load(app_state: &mut AppStateHandle, ctx: &
 fn options_abandoned(
     params: OptionsLoadParams,
 ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
-    move |app_state, ctx, _message| {
+    move |app_state, ctx, message| {
         apply_and_persist(
             app_state,
             ctx,
@@ -373,7 +373,7 @@ fn options_abandoned(
                 issue_number: params.issue_number,
                 kind: params.kind,
                 request_id: params.request_id,
-                error: "Options fetch task panicked".to_string(),
+                error: format!("Options fetch abandoned: {message}"),
             },
         );
     }
