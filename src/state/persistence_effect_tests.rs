@@ -259,24 +259,44 @@ fn stale_persist_completion_is_a_no_op() {
     let (_, revision, correlation) = staged_persist(&effects);
 
     let completion = EffectCompletion {
-        correlation,
+        correlation: correlation.clone(),
         result: Ok(EffectResponse::Persistence(
             PersistenceResponse::Persisted { revision },
         )),
     };
     commit_in_place(
         &mut state,
-        AppMessage::EffectCompletion(Box::new(completion.clone())),
+        AppMessage::EffectCompletion(Box::new(completion)),
     );
     let settled_revision = state.durable_revision;
     state.error_message = Some("later unrelated failure".to_owned());
 
-    commit_in_place(
+    // Stage a fresh save so an unrelated correlation is pending, then replay
+    // the already-completed one carrying a failure. A ledger that does not
+    // match on correlation would consume the pending record and surface this
+    // error, so the replay must be ignored on identity alone.
+    let _ = commit_in_place(
         &mut state,
-        AppMessage::EffectCompletion(Box::new(completion)),
+        AppMessage::Persistence(PersistenceMessage::StageSave),
     );
 
-    assert_eq!(state.durable_revision, settled_revision);
+    let stale_replay = EffectCompletion {
+        correlation,
+        result: Err(EffectError::new(
+            EffectErrorKind::Io,
+            false,
+            "replayed completion must not surface",
+        )),
+    };
+    commit_in_place(
+        &mut state,
+        AppMessage::EffectCompletion(Box::new(stale_replay)),
+    );
+
+    assert_eq!(
+        state.durable_revision, settled_revision,
+        "a replayed correlation must not move the durable revision"
+    );
     assert_eq!(
         state.error_message.as_deref(),
         Some("later unrelated failure"),
