@@ -219,7 +219,7 @@ fn confirm_delete_agent(
     id: AgentId,
     delete_work_dir: bool,
 ) {
-    reap_orphan_before_delete(app_state, ctx, &id);
+    reap_orphan_before_delete(app_state, &id);
     kill_agent_before_delete(ctx, &id);
 
     let mut state = app_state.write();
@@ -246,7 +246,7 @@ fn confirm_delete_repository(
     };
 
     for agent_id in &agent_ids {
-        reap_orphan_before_delete(app_state, ctx, agent_id);
+        reap_orphan_before_delete(app_state, agent_id);
         kill_agent_before_delete(ctx, agent_id);
     }
 
@@ -276,14 +276,11 @@ fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
 /// AC16). Reads the agent's recorded worker identities and reaps them alongside
 /// the stale session, all non-fatal — cleanup failures never block record
 /// removal, which `delete_selected_agent` performs regardless.
-fn reap_orphan_before_delete(app_state: &AppStateHandle, ctx: &SharedContext, agent_id: &AgentId) {
-    let _ = ctx; // reserved for future session-name resolution.
+fn reap_orphan_before_delete(app_state: &AppStateHandle, agent_id: &AgentId) {
     let (identities, session_name) = {
         let state = app_state.read();
-        let Some(agent) = state.agents.iter().find(|agent| &agent.id == agent_id) else {
-            return;
-        };
-        let Some(binding) = agent.runtime_binding.as_ref() else {
+        let agent = state.agents.iter().find(|a| &a.id == agent_id);
+        let Some(binding) = agent.and_then(|a| a.runtime_binding.as_ref()) else {
             return;
         };
         let pair = (

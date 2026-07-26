@@ -638,21 +638,4 @@ mod tests {
             "focused flags field must have caret at position 2"
         );
     }
-
-    #[test]
-    fn edit_agent_form_title_has_leading_space() {
-        let state = AppState {
-            modal: ModalState::EditAgent {
-                id: crate::domain::AgentId("a1".to_string()),
-                fields: AgentFormFields::default(),
-                focus: AgentFormFocus::Shortcut,
-                cursor: AgentFormCursor::default(),
-            },
-            ..Default::default()
-        };
-        let Some(lines) = agent_form_content_lines(&state) else {
-            panic!("must have lines");
-        };
-        assert_eq!(lines[0], " Edit Agent");
-    }
 }

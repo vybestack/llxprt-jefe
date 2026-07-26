@@ -9,7 +9,6 @@ pub enum AppEvent {
     /// (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
 
-    // Navigation
     NavigateUp,
     NavigateDown,
     NavigatePageUp(PageItemCount),
@@ -22,7 +21,6 @@ pub enum AppEvent {
     SelectAgent(usize),
     JumpToAgentByShortcut(u8),
 
-    // Focus
     CyclePaneFocus,
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
@@ -41,7 +39,6 @@ pub enum AppEvent {
     /// Clear the dashboard search query and blur the input.
     ClearDashboardSearch,
 
-    // Embedded agent-shell overlay (issue #222)
     /// Open the embedded shell overlay for the selected local running agent.
     OpenShellOverlay,
     /// Close/restore the embedded shell overlay (F10 toggle or natural exit detected).
@@ -54,11 +51,9 @@ pub enum AppEvent {
     /// the existing `jefe-shell` window without duplicating it.
     ResumeShellOverlay(crate::domain::AgentId),
 
-    // Screen mode
     EnterSplitMode,
     ExitSplitMode,
 
-    // Grab mode (split view reordering)
     EnterGrabMode,
     ExitGrabMode,
     GrabMoveUp,
@@ -71,7 +66,6 @@ pub enum AppEvent {
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
 
-    // Modal/form actions
     OpenHelp,
     OpenSearch,
     CloseModal,
@@ -79,7 +73,6 @@ pub enum AppEvent {
     /// Cycle confirm-dialog button focus (Left/Right/Tab in a confirm modal, issue #228).
     ConfirmCycleFocus,
 
-    // Form input events
     FormChar(char),
     FormBackspace,
     FormDelete,
@@ -91,7 +84,6 @@ pub enum AppEvent {
     FormPrevField,
     FormToggleCheckbox,
 
-    // CRUD
     OpenNewRepository,
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
@@ -100,7 +92,6 @@ pub enum AppEvent {
     OpenDeleteAgent(crate::domain::AgentId),
     ToggleDeleteWorkDir,
 
-    // Lifecycle
     KillAgent(crate::domain::AgentId),
     RelaunchAgent(crate::domain::AgentId),
     /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error
@@ -108,7 +99,6 @@ pub enum AppEvent {
     RestartAgent(crate::domain::AgentId),
     AgentStatusChanged(crate::domain::AgentId, crate::domain::AgentStatus),
 
-    // Persistence results
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),
     PersistenceSaveSuccess,
@@ -116,7 +106,6 @@ pub enum AppEvent {
     StageDurableSave,
     PersistenceSaveFailed(String),
 
-    // Theme
     SetTheme(String),
     ThemeResolveFailed(String),
 
@@ -136,12 +125,10 @@ pub enum AppEvent {
     ThemePickerToggleOverride,
     CloseThemePicker,
 
-    // System
     Quit,
     ClearError,
     ClearWarning,
 
-    // In-app device-code auth remediation (issue #244)
     /// Open the auth dialog and start the device-code flow.
     OpenAuthDialog,
     /// The one-time code + verification URL were parsed from `gh` stderr.
@@ -160,7 +147,6 @@ pub enum AppEvent {
     /// The user requested a retry from the Failed phase.
     AuthRetry,
 
-    // Terminal scrollback (issue #198)
     /// Scroll the terminal viewport up (back in history) by one line.
     TerminalScrollUp,
     /// Scroll the terminal viewport down (toward live) by one line.
@@ -175,7 +161,6 @@ pub enum AppEvent {
     /// fix #8: Home key).
     TerminalScrollToTop,
 
-    // Issues Mode events
     EnterIssuesMode,
     ExitIssuesMode,
     RefocusIssueList,
@@ -336,6 +321,52 @@ pub enum AppEvent {
     IssueRewriteFailed {
         error: String,
     },
+    // ── New Issue dialog events (issue #407) ─────────────────────────────
+    NewIssueTemplateNext,
+    NewIssueTypeNext,
+    NewIssueTitleChar(char),
+    NewIssueTitleBackspace,
+    NewIssueTitleDelete,
+    NewIssueTitleCursorLeft,
+    NewIssueTitleCursorRight,
+    NewIssueTitleCursorHome,
+    NewIssueTitleCursorEnd,
+    NewIssueBodyChar(char),
+    NewIssueBodyNewline,
+    NewIssueBodyBackspace,
+    NewIssueBodyDelete,
+    NewIssueBodyCursorLeft,
+    NewIssueBodyCursorRight,
+    NewIssueBodyCursorUp,
+    NewIssueBodyCursorDown,
+    NewIssueBodyCursorHome,
+    NewIssueBodyCursorEnd,
+    NewIssueFocusNext,
+    NewIssueFocusPrev,
+    NewIssueSubmit,
+    NewIssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue: Box<crate::domain::Issue>,
+    },
+    NewIssueCreateFailed {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        /// When the issue was created but a property apply failed, the created
+        /// issue number so the UI can tell the user the issue exists (issue #407).
+        issue_number: Option<u64>,
+        error: String,
+    },
+    NewIssueCancel,
+    NewIssueOptionsLoaded {
+        labels: Vec<String>,
+        milestones: Vec<String>,
+        types: Vec<crate::state::IssueType>,
+        assignees: Vec<String>,
+    },
+    NewIssueOptionsFailed {
+        error: String,
+    },
     MutationSubmitted {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
@@ -381,7 +412,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Issue Close / Delete lifecycle (issue #182)
     /// Key-layer request: close the focused issue (dispatch resolves context).
     CloseIssue,
     /// Key-layer request: open the delete confirm overlay.
@@ -408,7 +438,6 @@ pub enum AppEvent {
         mutation_id: u64,
     },
 
-    // Issue Close-with-reason chooser (issue #188)
     /// Open the close-reason chooser overlay.
     OpenCloseReasonChooser,
     CloseReasonNavigateUp,
@@ -445,7 +474,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Pull Requests Mode events
     EnterPrsMode,
     ExitPrsMode,
     RefocusPrList,
@@ -646,7 +674,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Transient Agent events (issue #213)
     /// A transient agent send was queued (max_concurrent reached).
     TransientAgentQueued {
         queue_position: usize,
@@ -654,7 +681,6 @@ pub enum AppEvent {
     /// A transient agent was dequeued and is being launched.
     TransientAgentDequeued,
 
-    // Actions Mode events
     EnterActionsMode,
     /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
     EnterActionsModeWithPrFilter {
@@ -780,7 +806,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // PR Review Threads (issue #119)
     /// Open the inline reply composer for a review thread.
     PrOpenThreadReplyComposer {
         thread_index: usize,
@@ -804,7 +829,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Property editing (issue #175) — Issues
     IssueOpenPropertyEditor {
         kind: super::IssuePropertyKind,
     },
@@ -857,7 +881,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Property editing (issue #175) — PRs
     PrOpenPropertyEditor {
         kind: super::PrPropertyKind,
     },
@@ -910,7 +933,6 @@ pub enum AppEvent {
         error: String,
     },
 
-    // Errors Mode events (issue #292)
     EnterErrorsMode,
     ExitErrorsMode,
     RefocusErrorList,
@@ -927,7 +949,6 @@ pub enum AppEvent {
     ErrorsScrollDetailPageDown,
     ErrorsClearAll,
 
-    // Terminal Manager events (issue #361 PR B)
     /// F7 from Dashboard opens the Terminal Manager screen.
     EnterTerminalManagerMode,
     /// Esc/F12 leaves the Terminal Manager and returns to Dashboard.
