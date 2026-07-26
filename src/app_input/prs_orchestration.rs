@@ -298,23 +298,30 @@ pub(super) fn load_pr_detail_silent_refresh(app_state: &mut AppStateHandle, ctx:
         return;
     }
 
-    let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = silent_refresh_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, _message| {
-            // On panic: silently clear the pending marker (no visible error).
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                silent_refresh_failed_event(&panic_params),
-            );
-        },
+        silent_refresh_abandoned(params.clone()),
+    ) else {
+        return;
+    };
+    let panic_params = params.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| silent_refresh_event(ctx, &params),
+        apply_and_persist,
+        silent_refresh_abandoned(panic_params),
     );
+}
+
+/// An abandoned silent refresh clears the pending marker without a visible error.
+fn silent_refresh_abandoned(
+    params: prs_dispatch::PrDetailLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, _message| {
+        apply_and_persist(app_state, ctx, silent_refresh_failed_event(&params));
+    }
 }
 
 /// Mark the PR detail as silently loading (does NOT set `loading.detail`).

@@ -1,7 +1,7 @@
 //! Issue close + delete dispatch helpers (issue #182).
 //!
 //! Mirrors `prs_dispatch::dispatch_pr_merge` and `issues_mutation::create_issue`.
-//! All `gh` I/O runs off the UI thread via `spawn_gh_task_with_panic`.
+//! All `gh` I/O runs off the UI thread via `gh_async::spawn_gh_work`.
 
 use jefe::domain::RepositoryId;
 use jefe::state::AppEvent;
@@ -36,32 +36,31 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
         scope_repo_id: pending.scope_repo_id,
         issue_number: Some(pending.issue_number),
     };
-    let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
     let node_id = pending.node_id.clone();
+    let work_target = failure_target.clone();
+    let apply_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_lifecycle_mutation(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = close_issue_event(
-                &ctx,
+        LifecycleMutation {
+            target: failure_target,
+            mutation_id,
+            task_label: "close",
+        },
+        move |ctx| {
+            close_issue_event(
+                ctx,
                 issue_number,
                 node_id.as_deref(),
-                &failure_target.scope_repo_id,
+                &work_target.scope_repo_id,
                 mutation_id,
-            );
-            apply_close_outcome(&mut app_state, &ctx, event, failure_target, mutation_id);
+            )
         },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                mutation_id,
-                format!("GitHub issue close task panicked: {message}"),
-            );
+        move |app_state, ctx, event| {
+            apply_close_outcome(app_state, ctx, event, apply_target, mutation_id);
         },
     );
 }
@@ -72,6 +71,56 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
 /// surface a `NODE_ID_UNAVAILABLE_MSG` failure (issue #204).
 fn non_empty_node_id(id: Option<&str>) -> Option<&str> {
     id.filter(|s| !s.is_empty())
+}
+
+/// Identifies the lifecycle mutation whose failure must be reported.
+#[derive(Clone)]
+struct LifecycleMutation {
+    target: MutationFailureTarget,
+    mutation_id: u64,
+    task_label: &'static str,
+}
+
+/// Report an abandoned lifecycle mutation so the issue never stays stuck
+/// in-flight after a panicking worker or a missing delivery queue.
+fn lifecycle_abandoned(
+    mutation: LifecycleMutation,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        let LifecycleMutation {
+            target,
+            mutation_id,
+            task_label,
+        } = mutation;
+        apply_mutation_failed(
+            app_state,
+            ctx,
+            target,
+            mutation_id,
+            format!("GitHub issue {task_label} task panicked: {message}"),
+        );
+    }
+}
+
+/// Run an issue lifecycle mutation off the UI thread and apply its outcome on
+/// the render thread.
+fn spawn_lifecycle_mutation<W, R, A>(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    mutation: LifecycleMutation,
+    work: W,
+    apply: A,
+) where
+    W: FnOnce(&SharedContext) -> R + Send + 'static,
+    R: Send + 'static,
+    A: FnOnce(&mut AppStateHandle, &SharedContext, R) + Send + 'static,
+{
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, lifecycle_abandoned(mutation.clone()))
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(&deliveries, ctx, work, apply, lifecycle_abandoned(mutation));
 }
 
 /// Build the close success/failure event from the gh result (pure).
@@ -170,43 +219,36 @@ pub(super) fn handle_issue_close_with_reason(app_state: &mut AppStateHandle, ctx
         scope_repo_id: pending.scope_repo_id.clone(),
         issue_number: Some(pending.issue_number),
     };
-    let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
     let close_reason = pending.close_reason;
     let duplicate_of = pending.duplicate_of;
     let this_node_id = pending.node_id.clone();
+    let work_target = failure_target.clone();
+    let apply_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_lifecycle_mutation(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let outcome = close_with_reason_event(CloseWithReasonParams {
-                ctx: &ctx,
+        LifecycleMutation {
+            target: failure_target,
+            mutation_id,
+            task_label: "close-with-reason",
+        },
+        move |ctx| {
+            close_with_reason_event(CloseWithReasonParams {
+                ctx,
                 repo_target: &repo_target,
                 issue_number,
                 close_reason,
                 duplicate_of,
                 this_node_id: this_node_id.as_deref(),
-                scope: &failure_target.scope_repo_id,
+                scope: &work_target.scope_repo_id,
                 mutation_id,
-            });
-            apply_close_with_reason_outcome(
-                &mut app_state,
-                &ctx,
-                outcome,
-                failure_target,
-                mutation_id,
-            );
+            })
         },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                mutation_id,
-                format!("GitHub issue close-with-reason task panicked: {message}"),
-            );
+        move |app_state, ctx, outcome| {
+            apply_close_with_reason_outcome(app_state, ctx, outcome, apply_target, mutation_id);
         },
     );
 }
@@ -355,31 +397,30 @@ pub(super) fn handle_issue_delete_confirm(app_state: &mut AppStateHandle, ctx: &
         scope_repo_id: pending.scope_repo_id,
         issue_number: Some(pending.issue_number),
     };
-    let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
+    let work_target = failure_target.clone();
+    let apply_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_lifecycle_mutation(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = delete_issue_event(
-                &ctx,
+        LifecycleMutation {
+            target: failure_target,
+            mutation_id,
+            task_label: "delete",
+        },
+        move |ctx| {
+            delete_issue_event(
+                ctx,
                 &node_id,
                 issue_number,
-                &failure_target.scope_repo_id,
+                &work_target.scope_repo_id,
                 mutation_id,
-            );
-            apply_delete_outcome(&mut app_state, &ctx, event, failure_target, mutation_id);
+            )
         },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                mutation_id,
-                format!("GitHub issue delete task panicked: {message}"),
-            );
+        move |app_state, ctx, event| {
+            apply_delete_outcome(app_state, ctx, event, apply_target, mutation_id);
         },
     );
 }

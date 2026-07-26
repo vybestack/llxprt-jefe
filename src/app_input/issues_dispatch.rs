@@ -157,23 +157,35 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     }
 
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let report_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
+            apply_and_persist(
+                app_state,
+                ctx,
+                detail_load_panic_event(&report_params, message),
+            );
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = detail_load_event(&ctx, params);
+        move |ctx| detail_load_event(ctx, params),
+        move |app_state, ctx, event| {
             // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
             if let AppEvent::IssueDetailLoadFailed { error, .. } = &event
-                && super::auth_remediation::offer_auth_remediation(&mut app_state, &ctx, error)
+                && super::auth_remediation::offer_auth_remediation(app_state, ctx, error)
             {
                 return;
             }
-            apply_and_persist(&mut app_state, &ctx, event);
+            apply_and_persist(app_state, ctx, event);
         },
-        move |mut app_state, ctx, message| {
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 detail_load_panic_event(&panic_params, message),
             );
         },
@@ -200,18 +212,28 @@ pub(super) fn load_issue_detail_silent_refresh(
     }
 
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let report_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, _message| {
+            apply_and_persist(
+                app_state,
+                ctx,
+                detail_silent_refresh_failed_event(&report_params),
+            );
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = detail_silent_refresh_event(&ctx, params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, _message| {
+        move |ctx| detail_silent_refresh_event(ctx, params),
+        apply_and_persist,
+        move |app_state, ctx, _message| {
             // On panic: silently clear the pending marker (no visible error).
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 detail_silent_refresh_failed_event(&panic_params),
             );
         },
@@ -401,27 +423,34 @@ pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedCon
     params.request_id = request_id;
 
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let report_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
+            apply_and_persist(app_state, ctx, comment_page_failed(report_params, &message));
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = comment_page_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::IssueCommentsPageFailed {
-                    scope_repo_id: panic_params.scope_repo_id,
-                    issue_number: panic_params.issue_number,
-                    request_id: panic_params.request_id,
-                    request_cursor: panic_params.cursor,
-                    error: format!("GitHub comments task panicked: {message}"),
-                },
-            );
+        move |ctx| comment_page_event(ctx, &params),
+        apply_and_persist,
+        move |app_state, ctx, message| {
+            apply_and_persist(app_state, ctx, comment_page_failed(panic_params, &message));
         },
     );
+}
+
+/// Build the comments-page failure event for an abandoned request.
+fn comment_page_failed(params: CommentPageParams, message: &str) -> AppEvent {
+    AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: params.scope_repo_id,
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+        request_cursor: params.cursor,
+        error: format!("GitHub comments task panicked: {message}"),
+    }
 }
 
 fn mark_comment_failure_pending(

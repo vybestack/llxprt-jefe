@@ -52,17 +52,28 @@ pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: 
 }
 
 /// Spawn the non-interactive rewrite on a background task (issue #359).
-fn spawn_rewrite_task(app_state: &AppStateHandle, ctx: &SharedContext, context: RewriteContext) {
+fn spawn_rewrite_task(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    context: RewriteContext,
+) {
     let RewriteContext {
         instruction,
         signature,
         output_file,
     } = context;
 
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, |app_state, ctx, error| {
+            apply_and_persist(app_state, ctx, AppEvent::IssueRewriteFailed { error });
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
+        move |_ctx| {
             // Keep `output_file` alive until after the agent exits and we read
             // the path (issue #359 temp-file protocol).
             let output_path = output_file.path().to_path_buf();
@@ -73,29 +84,21 @@ fn spawn_rewrite_task(app_state: &AppStateHandle, ctx: &SharedContext, context: 
                 &output_path,
             );
             drop(output_file);
-            match result {
-                Ok(text) => {
-                    apply_and_persist(
-                        &mut app_state,
-                        &ctx,
-                        AppEvent::IssueRewriteSucceeded { text },
-                    );
-                }
-                Err(error) => {
-                    apply_and_persist(
-                        &mut app_state,
-                        &ctx,
-                        AppEvent::IssueRewriteFailed {
-                            error: error.to_string(),
-                        },
-                    );
-                }
-            }
+            result
         },
-        move |mut app_state, ctx, message| {
+        move |app_state, ctx, result| {
+            let event = match result {
+                Ok(text) => AppEvent::IssueRewriteSucceeded { text },
+                Err(error) => AppEvent::IssueRewriteFailed {
+                    error: error.to_string(),
+                },
+            };
+            apply_and_persist(app_state, ctx, event);
+        },
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 AppEvent::IssueRewriteFailed {
                     error: format!("Agent rewrite task panicked: {message}"),
                 },

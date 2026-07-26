@@ -91,7 +91,7 @@ pub mod transition;
 mod transition_tests;
 mod types;
 mod util;
-pub use errors_ops::capture_runtime_errors;
+pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;

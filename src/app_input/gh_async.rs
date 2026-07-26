@@ -10,10 +10,18 @@ use iocraft::Handler;
 
 use super::{AppStateHandle, SharedContext, issues_list_dispatch::IssueListDelivery};
 
+/// A state-touching continuation queued for the root component.
+///
+/// iocraft `State` must only be borrowed on the render thread, so background
+/// work returns one of these instead of writing state itself (issue #437).
+type GhContinuation = Box<dyn FnOnce(&mut AppStateHandle, &SharedContext) + Send>;
+
 /// Typed GitHub-task result delivered to the root component.
 pub enum BackgroundGhDelivery {
     /// Completion of an issue-list request.
     IssueList(Box<IssueListDelivery>),
+    /// A completed background request whose result is applied by the closure.
+    Apply(GhContinuation),
     #[cfg(test)]
     Probe(String),
 }
@@ -101,11 +109,9 @@ pub(super) fn spawn_gh_request_with_panic<F, R, S, P>(
         .map(|arc| Arc::clone(arc) as Arc<std::sync::Mutex<crate::AppContext>>);
     smol::spawn(async move {
         smol::unblock(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(ctx)));
-            let delivery = match result {
+            let delivery = match super::worker_panic::contain(move || work(ctx)) {
                 Ok(result) => on_success(result),
-                Err(payload) => {
-                    let message = panic_message(&payload);
+                Err(message) => {
                     tracing::error!(error = %message, "background gh request panicked");
                     on_panic(message)
                 }
@@ -117,56 +123,88 @@ pub(super) fn spawn_gh_request_with_panic<F, R, S, P>(
     .detach();
 }
 
-fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
-    payload
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| payload.downcast_ref::<&'static str>().copied())
-        .unwrap_or("unknown panic")
-        .to_string()
-}
-
-pub fn spawn_gh_task_with_panic<F, P>(
-    app_state: &AppStateHandle,
+/// Run blocking GitHub work off the UI thread and apply its outcome on the
+/// render thread.
+///
+/// `work` receives only the shared context, so it cannot touch iocraft state:
+/// borrowing one `State` from both a blocking worker and the render thread
+/// races inside `generational-box`'s borrow tracking and panics (issue #437).
+/// `apply` and `on_panic` run on the root component's executor through the
+/// lifecycle-owned delivery queue, and are dropped without running when the
+/// root is gone.
+pub(super) fn spawn_gh_work<F, R, A, P>(
+    deliveries: &GhDeliveryHandle,
     ctx: &SharedContext,
     work: F,
+    apply: A,
     on_panic: P,
 ) where
-    F: FnOnce(AppStateHandle, SharedContext) + Send + 'static,
-    P: FnOnce(AppStateHandle, SharedContext, String) + Send + 'static,
+    F: FnOnce(&SharedContext) -> R + Send + 'static,
+    R: Send + 'static,
+    A: FnOnce(&mut AppStateHandle, &SharedContext, R) + Send + 'static,
+    P: FnOnce(&mut AppStateHandle, &SharedContext, String) + Send + 'static,
 {
-    let app_state = *app_state;
-    let ctx = ctx
-        .as_ref()
-        .map(|arc| Arc::clone(arc) as Arc<std::sync::Mutex<crate::AppContext>>);
-    smol::spawn(async move {
-        smol::unblock(move || {
-            let work_ctx = ctx.clone();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                work(app_state, work_ctx);
-            }));
-            if let Err(panic_payload) = result {
-                let message = panic_message(&panic_payload);
-                tracing::error!(error = %message, "background gh task panicked");
+    spawn_gh_request_with_panic(
+        deliveries,
+        ctx,
+        move |ctx| work(&ctx),
+        move |result| {
+            BackgroundGhDelivery::Apply(Box::new(move |app_state, ctx| {
+                apply(app_state, ctx, result);
+            }))
+        },
+        move |message| {
+            BackgroundGhDelivery::Apply(Box::new(move |app_state, ctx| {
+                record_worker_panic(app_state, &message);
                 on_panic(app_state, ctx, message);
-            }
-        })
-        .await;
-    })
-    .detach();
+            }))
+        },
+    );
+}
+
+/// Record a contained worker panic on the errors screen.
+///
+/// This runs for every panicking request, including routes that intentionally
+/// fail silently, so the report is always retrievable even though nothing
+/// interrupts the active screen (issue #437).
+fn record_worker_panic(app_state: &mut AppStateHandle, message: &str) {
+    let mut state = app_state.write();
+    jefe::state::capture_worker_panic(&mut state, message);
+}
+
+/// Resolve the root delivery queue, reporting the failure when it is absent.
+///
+/// A missing queue means the request cannot be applied, so callers surface
+/// their own typed failure rather than spawning work whose result is dropped.
+pub(super) fn delivery_handle_or_report(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    report: impl FnOnce(&mut AppStateHandle, &SharedContext, String),
+) -> Option<GhDeliveryHandle> {
+    let deliveries = gh_delivery_handle(ctx);
+    if deliveries.is_none() {
+        report(
+            app_state,
+            ctx,
+            "Application delivery context unavailable".to_string(),
+        );
+    }
+    deliveries
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_input::apply_background_gh_delivery;
     use core::time::Duration;
     use iocraft::prelude::*;
-    use jefe::state::AppState;
+    use jefe::state::{AppState, ScreenMode};
     use smol::stream::StreamExt;
     use std::sync::mpsc;
 
     #[derive(Default, Props)]
     struct ProbeProps {
+        deliveries: Option<GhDeliveryHandle>,
         notify: Option<mpsc::Sender<String>>,
     }
 
@@ -178,19 +216,36 @@ mod tests {
             state
         });
         let notify = props.notify.clone();
+        let mut started = hooks.use_state(|| false);
 
-        hooks.use_future(async move {
-            spawn_gh_task_with_panic(
-                &state,
-                &None,
-                |_state, _ctx| panic!("boom"),
-                |mut state, _ctx, message| {
-                    let mut guard = state.write();
-                    guard.issues_state.loading.detail = false;
-                    guard.issues_state.error = Some(format!("panic handled: {message}"));
-                },
-            );
+        let mut handler = hooks.use_async_handler(move |delivery| async move {
+            let mut app_state = state;
+            apply_background_gh_delivery(&mut app_state, &None, delivery);
         });
+        if let Some(deliveries) = &props.deliveries {
+            deliveries.install(handler.take());
+        }
+
+        if !started.get() {
+            started.set(true);
+            let deliveries = props.deliveries.clone();
+            hooks.use_future(async move {
+                let Some(deliveries) = deliveries else {
+                    return;
+                };
+                spawn_gh_work(
+                    &deliveries,
+                    &None,
+                    |_ctx| panic!("boom"),
+                    |_app_state, _ctx, ()| {},
+                    |app_state, _ctx, message| {
+                        let mut guard = app_state.write();
+                        guard.issues_state.loading.detail = false;
+                        guard.issues_state.error = Some(format!("panic handled: {message}"));
+                    },
+                );
+            });
+        }
 
         let snapshot = state.read();
         if !snapshot.issues_state.loading.detail {
@@ -205,12 +260,18 @@ mod tests {
         element! { Text(content: String::from("panic-probe")) }
     }
 
+    /// A panicking worker clears its loading flag and surfaces a copyable
+    /// message rather than leaving the request stuck in-flight (issue #437).
     #[test]
     fn panic_handler_can_surface_visible_error_and_clear_loading() {
+        let deliveries = GhDeliveryHandle::default();
         let (sender, receiver) = mpsc::channel();
 
         smol::block_on(async move {
-            let mut app = element!(PanicProbe(notify: Some(sender)));
+            let mut app = element!(PanicProbe(
+                deliveries: Some(deliveries),
+                notify: Some(sender),
+            ));
             let result = smol::future::or(
                 async move {
                     let _: Vec<_> = app
@@ -225,8 +286,219 @@ mod tests {
                 },
             )
             .await;
-            assert_eq!(result.as_deref(), Some("panic handled: boom"));
+            let message = result.unwrap_or_default();
+            assert!(
+                message.starts_with("panic handled: boom (at "),
+                "panic message and location must reach state: {message}"
+            );
         });
+    }
+
+    #[derive(Default, Props)]
+    struct ThreadAffinityProbeProps {
+        deliveries: Option<GhDeliveryHandle>,
+        observed: Option<mpsc::Sender<(std::thread::ThreadId, std::thread::ThreadId)>>,
+    }
+
+    /// Records the thread that renders the component and the thread that
+    /// applies a background GitHub result to iocraft state.
+    ///
+    /// iocraft `State` is backed by one `generational-box` slot guarded by a
+    /// borrow-tracking lock. Reading it from a blocking worker while the
+    /// render thread holds a borrow is a data race that panics inside the
+    /// library's borrow diagnostics (issue #437), so every GitHub result must
+    /// be applied on the render thread.
+    #[component]
+    fn ThreadAffinityProbe(
+        mut hooks: Hooks,
+        props: &ThreadAffinityProbeProps,
+    ) -> impl Into<AnyElement<'static>> {
+        let state = hooks.use_state(AppState::default);
+        let mut started = hooks.use_state(|| false);
+        let mut reported = hooks.use_state(|| false);
+        let render_thread = std::thread::current().id();
+
+        let mut handler = hooks.use_async_handler(move |delivery| async move {
+            let mut app_state = state;
+            apply_background_gh_delivery(&mut app_state, &None, delivery);
+        });
+        if let Some(deliveries) = &props.deliveries {
+            deliveries.install(handler.take());
+        }
+
+        if !started.get() {
+            started.set(true);
+            let deliveries = props.deliveries.clone();
+            let observed = props.observed.clone();
+            hooks.use_future(async move {
+                let Some(deliveries) = deliveries else {
+                    return;
+                };
+                spawn_gh_work(
+                    &deliveries,
+                    &None,
+                    |_ctx| String::from("worker result"),
+                    move |app_state, _ctx, _result| {
+                        if let Some(sender) = observed {
+                            let _ = sender.send((render_thread, std::thread::current().id()));
+                        }
+                        app_state.write().issues_state.error = Some("applied".to_string());
+                    },
+                    |_app_state, _ctx, _message| {},
+                );
+            });
+        }
+
+        if state.read().issues_state.error.is_some() && !reported.get() {
+            reported.set(true);
+            hooks.use_context_mut::<SystemContext>().exit();
+        }
+
+        element!(Box)
+    }
+
+    /// A GitHub result must be applied on the render thread, never on a
+    /// `smol::unblock` worker (issue #437).
+    #[test]
+    fn background_gh_result_is_applied_on_the_render_thread() {
+        let deliveries = GhDeliveryHandle::default();
+        let (observed_tx, observed_rx) = mpsc::channel();
+
+        smol::block_on(async {
+            let mut app = element!(ThreadAffinityProbe(
+                deliveries: Some(deliveries),
+                observed: Some(observed_tx),
+            ));
+            let _: Vec<_> = smol::future::or(
+                async {
+                    app.mock_terminal_render_loop(MockTerminalConfig::default())
+                        .collect()
+                        .await
+                },
+                async {
+                    smol::Timer::after(Duration::from_secs(10)).await;
+                    Vec::new()
+                },
+            )
+            .await;
+        });
+
+        let (render_thread, apply_thread) = observed_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("the background result must be applied"));
+        assert_eq!(
+            render_thread, apply_thread,
+            "GitHub results must be applied on the render thread, not a blocking worker"
+        );
+    }
+
+    #[derive(Default, Props)]
+    struct SilentPanicProbeProps {
+        deliveries: Option<GhDeliveryHandle>,
+        observed: Option<mpsc::Sender<(usize, String, String, ScreenMode)>>,
+    }
+
+    /// Drives a worker that panics on a route which fails silently, then
+    /// reports what the errors screen retained and which screen stayed active.
+    #[component]
+    fn SilentPanicProbe(
+        mut hooks: Hooks,
+        props: &SilentPanicProbeProps,
+    ) -> impl Into<AnyElement<'static>> {
+        let state = hooks.use_state(|| AppState {
+            screen_mode: ScreenMode::DashboardIssues,
+            ..AppState::default()
+        });
+        let mut started = hooks.use_state(|| false);
+        let mut reported = hooks.use_state(|| false);
+
+        let mut handler = hooks.use_async_handler(move |delivery| async move {
+            let mut app_state = state;
+            apply_background_gh_delivery(&mut app_state, &None, delivery);
+        });
+        if let Some(deliveries) = &props.deliveries {
+            deliveries.install(handler.take());
+        }
+
+        if !started.get() {
+            started.set(true);
+            let deliveries = props.deliveries.clone();
+            hooks.use_future(async move {
+                let Some(deliveries) = deliveries else {
+                    return;
+                };
+                spawn_gh_work(
+                    &deliveries,
+                    &None,
+                    |_ctx| panic!("silent route exploded"),
+                    |_app_state, _ctx, ()| {},
+                    // A silent route deliberately surfaces nothing to the user.
+                    |_app_state, _ctx, _message| {},
+                );
+            });
+        }
+
+        let snapshot = state.read();
+        if !snapshot.errors_state.is_empty() && !reported.get() {
+            let entry = snapshot.errors_state.last_error().map(|entry| {
+                (
+                    snapshot.errors_state.count(),
+                    entry.title.clone(),
+                    entry.detail.clone(),
+                    snapshot.screen_mode,
+                )
+            });
+            drop(snapshot);
+            reported.set(true);
+            if let (Some(sender), Some(entry)) = (props.observed.clone(), entry) {
+                let _ = sender.send(entry);
+            }
+            hooks.use_context_mut::<SystemContext>().exit();
+        }
+
+        element!(Box)
+    }
+
+    /// A panic on a silent route is still retained on the errors screen, and
+    /// does not navigate away from the active screen (issue #437).
+    #[test]
+    fn silent_route_panic_is_recorded_without_leaving_the_active_screen() {
+        let deliveries = GhDeliveryHandle::default();
+        let (observed_tx, observed_rx) = mpsc::channel();
+
+        smol::block_on(async {
+            let mut app = element!(SilentPanicProbe(
+                deliveries: Some(deliveries),
+                observed: Some(observed_tx),
+            ));
+            let _: Vec<_> = smol::future::or(
+                async {
+                    app.mock_terminal_render_loop(MockTerminalConfig::default())
+                        .collect()
+                        .await
+                },
+                async {
+                    smol::Timer::after(Duration::from_secs(10)).await;
+                    Vec::new()
+                },
+            )
+            .await;
+        });
+
+        let (count, title, detail, screen_mode) = observed_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("a silent route panic must reach the errors screen"));
+        assert_eq!(count, 1, "exactly one error entry must be retained");
+        assert_eq!(title, "Background task panicked");
+        assert!(
+            detail.starts_with("silent route exploded (at "),
+            "the copyable detail must carry the payload and location: {detail}"
+        );
+        assert_eq!(
+            screen_mode,
+            ScreenMode::DashboardIssues,
+            "recording an error must not navigate away from the active screen"
+        );
     }
 
     #[derive(Default, Props)]

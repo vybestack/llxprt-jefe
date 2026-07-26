@@ -2,7 +2,7 @@
 //!
 //! Extracted from mod.rs to keep file sizes manageable. Mirrors
 //! `issues_dispatch.rs`. All `gh` I/O runs off the UI thread via
-//! `spawn_gh_task_with_panic`.
+//! `gh_async::spawn_gh_work`.
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-009
@@ -111,28 +111,36 @@ pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: 
         return;
     }
 
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, detail_load_abandoned(params.clone()))
+    else {
+        return;
+    };
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_detail_load_event(&ctx, &params);
+        move |ctx| pr_detail_load_event(ctx, &params),
+        move |app_state, ctx, event| {
             // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
             if let AppEvent::PrDetailLoadFailed { error, .. } = &event
-                && super::auth_remediation::offer_auth_remediation(&mut app_state, &ctx, error)
+                && super::auth_remediation::offer_auth_remediation(app_state, ctx, error)
             {
                 return;
             }
-            apply_and_persist(&mut app_state, &ctx, event);
+            apply_and_persist(app_state, ctx, event);
         },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                pr_detail_load_panic_event(&panic_params, message),
-            );
-        },
+        detail_load_abandoned(panic_params),
     );
+}
+
+/// Report an abandoned PR detail load so the pending marker is cleared.
+fn detail_load_abandoned(
+    params: PrDetailLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(app_state, ctx, pr_detail_load_panic_event(&params, message));
+    }
 }
 
 /// Silently refresh PR detail for the currently selected PR (issue #128).
@@ -499,7 +507,7 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
 /// notice when `PullRequests(OpenInBrowser)` was dispatched and persisted in
 /// the mod.rs arm BEFORE this call. This fn resolves the selected PR's
 /// scope/number and, only for a valid repo+selection, spawns
-/// `GhClient::open_pull_request_in_browser` via `spawn_gh_task_with_panic`
+/// `GhClient::open_pull_request_in_browser` via `gh_async::spawn_gh_work`
 /// (OFF the UI thread), delivering `PrOpenedInBrowser` on success and
 /// `PrOpenInBrowserFailed` on Err/panic.
 ///
@@ -554,29 +562,38 @@ pub(super) fn dispatch_pr_open_in_browser(app_state: &mut AppStateHandle, ctx: &
 /// @requirement REQ-PR-012
 /// @pseudocode component-004 lines 160-175
 fn spawn_pr_open_in_browser(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     info: PrOpenInBrowserInfo,
 ) {
-    let panic_info = info.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            let event = pr_open_in_browser_event(&ctx, &info);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
+    fn abandoned(
+        info: PrOpenInBrowserInfo,
+    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 AppEvent::PrOpenInBrowserFailed {
-                    scope_repo_id: panic_info.scope.clone(),
-                    pr_number: panic_info.number,
+                    scope_repo_id: info.scope.clone(),
+                    pr_number: info.number,
                     error: format!("GitHub open-in-browser task panicked: {message}"),
                 },
             );
-        },
+        }
+    }
+
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(info.clone()))
+    else {
+        return;
+    };
+    let panic_info = info.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_open_in_browser_event(ctx, &info),
+        apply_and_persist,
+        abandoned(panic_info),
     );
 }
 

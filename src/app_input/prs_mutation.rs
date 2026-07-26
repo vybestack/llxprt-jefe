@@ -1,7 +1,7 @@
 //! PR-mode inline-mutation dispatch helpers.
 //!
 //! Mirrors `issues_mutation::handle_inline_submit`. Spawns the gh PR
-//! comment-create off the UI thread via `spawn_gh_task_with_panic`.
+//! comment-create off the UI thread via `gh_async::spawn_gh_work`.
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-010
@@ -18,7 +18,7 @@ use super::{
 /// Handle an inline submit for PR Mode.
 ///
 /// Reads the mutation-pending target + composer text, validates the repo, and
-/// spawns the gh comment/reply task via `spawn_gh_task_with_panic`,
+/// spawns the gh comment/reply task via `gh_async::spawn_gh_work`,
 /// delivering `PrCommentCreated` on success or `PrCommentCreateFailed` on
 /// Err/panic.
 ///
@@ -177,35 +177,49 @@ fn report_missing_github_repo(
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
 fn dispatch_pr_comment_create(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     repo: PrRepoTarget,
     action: PrInlineSubmitAction,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_comment_create_event(&ctx, &repo, &action);
-            // Route through the full dispatch chain so a successful
-            // `PrCommentCreated` triggers the post-mutation detail reload
-            // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrCommentCreateFailed {
-                    scope_repo_id: panic_action.scope_repo_id,
-                    pr_number: panic_action.pr_number,
-                    mutation_id: panic_action.mutation_id,
-                    error: format!("GitHub PR comment task panicked: {message}"),
-                },
-            );
-        },
+        pr_comment_abandoned(action.clone(), "GitHub PR comment"),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_comment_create_event(ctx, &repo, &action),
+        // Route through the full dispatch chain so a successful
+        // `PrCommentCreated` triggers the post-mutation detail reload
+        // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
+        dispatch_app_event,
+        pr_comment_abandoned(panic_action, "GitHub PR comment"),
     );
+}
+
+/// Report an abandoned PR comment/reply request so the composer never stays
+/// stuck in-flight.
+fn pr_comment_abandoned(
+    action: PrInlineSubmitAction,
+    task_label: &'static str,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrCommentCreateFailed {
+                scope_repo_id: action.scope_repo_id,
+                pr_number: action.pr_number,
+                mutation_id: action.mutation_id,
+                error: format!("{task_label} task panicked: {message}"),
+            },
+        );
+    }
 }
 
 /// Build the comment-created/failed event from the gh result (background thread).
@@ -247,35 +261,29 @@ fn pr_comment_create_event(
 ///
 /// @requirement REQ-PR-009
 fn dispatch_pr_thread_reply(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     _repo: PrRepoTarget,
     action: PrInlineSubmitAction,
     thread_id: String,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_thread_reply_event(&ctx, &action, &thread_id);
-            // Route through the full dispatch chain so a successful
-            // `PrCommentCreated` triggers the post-mutation detail reload
-            // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrCommentCreateFailed {
-                    scope_repo_id: panic_action.scope_repo_id,
-                    pr_number: panic_action.pr_number,
-                    mutation_id: panic_action.mutation_id,
-                    error: format!("GitHub thread reply task panicked: {message}"),
-                },
-            );
-        },
+        pr_comment_abandoned(action.clone(), "GitHub thread reply"),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_thread_reply_event(ctx, &action, &thread_id),
+        // Route through the full dispatch chain so a successful
+        // `PrCommentCreated` triggers the post-mutation detail reload
+        // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
+        dispatch_app_event,
+        pr_comment_abandoned(panic_action, "GitHub thread reply"),
     );
 }
 
@@ -317,7 +325,7 @@ fn pr_thread_reply_event(
 /// resolve state, and spawns the gh resolve/unresolve mutation.
 ///
 /// @requirement REQ-PR-009
-pub fn handle_pr_thread_resolve(app_state: &AppStateHandle, ctx: &SharedContext) {
+pub fn handle_pr_thread_resolve(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let Some(pending) = pr_thread_resolve_action(app_state) else {
         tracing::debug!("ignoring PR thread resolve: no pending resolve or detail");
         return;
@@ -368,30 +376,39 @@ struct ThreadResolveAction {
 
 /// Spawn the gh thread resolve/unresolve task off the UI thread.
 fn dispatch_pr_thread_resolve(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     action: ThreadResolveAction,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            let event = pr_thread_resolve_result_event(&ctx, &action);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
+    fn abandoned(
+        action: ThreadResolveAction,
+    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 AppEvent::PrThreadResolveFailed {
-                    scope_repo_id: panic_action.scope_repo_id,
-                    thread_index: panic_action.thread_index,
-                    request_id: panic_action.request_id,
+                    scope_repo_id: action.scope_repo_id,
+                    thread_index: action.thread_index,
+                    request_id: action.request_id,
                     error: format!("GitHub thread resolve task panicked: {message}"),
                 },
             );
-        },
+        }
+    }
+
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(action.clone()))
+    else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_thread_resolve_result_event(ctx, &action),
+        apply_and_persist,
+        abandoned(panic_action),
     );
 }
 

@@ -2,7 +2,7 @@
 //!
 //! Mirrors `issues_list_dispatch.rs`. These helpers own the background fetch of
 //! PR list pages via the `gh` CLI and persist the resulting state transitions.
-//! All `gh` I/O runs off the UI thread via `spawn_gh_task_with_panic`.
+//! All `gh` I/O runs off the UI thread via `gh_async::spawn_gh_work`.
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-006
@@ -54,7 +54,7 @@ fn is_fresh_pr_list_reload(message: &PullRequestsMessage) -> bool {
 /// Fetch the PR list page via gh (off the UI thread).
 ///
 /// Validates the slug, sets loading + a monotonic request id, then spawns
-/// `GhClient::list_pull_requests` via `spawn_gh_task_with_panic`, delivering
+/// `GhClient::list_pull_requests` via `gh_async::spawn_gh_work`, delivering
 /// `PrListLoaded`/`PrListPageLoaded` on success or `PrListLoadFailed` on
 /// Err/panic.
 ///
@@ -89,23 +89,36 @@ pub(super) fn dispatch_pr_list_fetch(
         // as "no ids allocated yet" and must never be used as a correlation id).
         None => return,
     };
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, list_fetch_abandoned(params.clone()))
+    else {
+        return;
+    };
+    let apply_params = params.clone();
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let result = fetch_pr_list(&ctx, &params);
-            persist_pr_list_result(&mut app_state, &ctx, &params, result);
+        move |ctx| fetch_pr_list(ctx, &params),
+        move |app_state, ctx, result| {
+            persist_pr_list_result(app_state, ctx, &apply_params, result);
         },
-        move |mut app_state, ctx, message| {
-            persist_pr_list_failed(
-                &mut app_state,
-                &ctx,
-                &panic_params,
-                format!("GitHub PR list task panicked: {message}"),
-            );
-        },
+        list_fetch_abandoned(panic_params),
     );
+}
+
+/// Report an abandoned PR list fetch so the list never stays loading.
+fn list_fetch_abandoned(
+    params: PrFetchParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        persist_pr_list_failed(
+            app_state,
+            ctx,
+            &params,
+            format!("GitHub PR list task panicked: {message}"),
+        );
+    }
 }
 
 /// Request a fresh PR list reload (cursor reset).

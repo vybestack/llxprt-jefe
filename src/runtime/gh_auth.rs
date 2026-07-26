@@ -9,7 +9,7 @@
 //! captures stderr, parses the one-time code + URL, and reports exit status.
 //!
 //! The caller (dispatch layer) runs this off the UI thread via
-//! `spawn_gh_task_with_panic` and delivers `AuthCodeReceived` / `AuthSucceeded`
+//! `gh_async::spawn_gh_work` and delivers `AuthCodeReceived` / `AuthSucceeded`
 //! / `AuthFailed` events back to the state layer.
 
 use std::io::Read;
@@ -49,7 +49,7 @@ pub struct AuthRunResult {
 /// Run the non-interactive device-code auth flow.
 ///
 /// Blocks until `gh auth login --web` exits. Intended to be called inside
-/// `smol::unblock` / `spawn_gh_task_with_panic` so it never blocks the UI.
+/// `smol::unblock` / `gh_async::spawn_gh_work` so it never blocks the UI.
 ///
 /// Errors: returns `GhError::NotInstalled` if `gh` is not on PATH, else
 /// `GhError::NetworkError` for spawn failures. Subprocess non-zero exit is NOT

@@ -170,7 +170,7 @@ pub(super) fn load_more_runs_if_at_end(app_state: &mut AppStateHandle, ctx: &Sha
 }
 
 fn handle_list_reload_result(
-    mut app_state: AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     res: Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
     req: ActionsListRequest,
@@ -184,7 +184,7 @@ fn handle_list_reload_result(
     let should_reload_detail = res.is_ok()
         && page == 1
         && reload_result_matches_pending(
-            &app_state,
+            app_state,
             &repo_id,
             &filter,
             jefe::domain::ListRequestId::from_raw(request_id),
@@ -201,7 +201,7 @@ fn handle_list_reload_result(
         Err(e) => {
             let error = e.to_string();
             // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
-            if super::auth_remediation::offer_auth_remediation(&mut app_state, ctx, &error) {
+            if super::auth_remediation::offer_auth_remediation(app_state, ctx, &error) {
                 return;
             }
             AppEvent::ActionsRunsLoadFailed {
@@ -213,9 +213,9 @@ fn handle_list_reload_result(
             }
         }
     };
-    apply_and_persist(&mut app_state, ctx, event);
+    apply_and_persist(app_state, ctx, event);
     if should_reload_detail {
-        dispatch_run_detail_reload(&mut app_state, ctx);
+        dispatch_run_detail_reload(app_state, ctx);
     }
 }
 
@@ -237,7 +237,7 @@ fn reload_result_matches_pending(
 }
 
 fn handle_list_page_result(
-    mut app_state: AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     res: Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
     req: ActionsListRequest,
@@ -265,11 +265,11 @@ fn handle_list_page_result(
             error: e.to_string(),
         },
     };
-    apply_and_persist(&mut app_state, ctx, event);
+    apply_and_persist(app_state, ctx, event);
 }
 
 fn handle_workflows_reload_result(
-    mut app_state: AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     res: Result<Vec<jefe::domain::Workflow>, jefe::github::GhError>,
     repo_id: jefe::domain::RepositoryId,
@@ -287,11 +287,11 @@ fn handle_workflows_reload_result(
             error: e.to_string(),
         },
     };
-    apply_and_persist(&mut app_state, ctx, event);
+    apply_and_persist(app_state, ctx, event);
 }
 
 fn handle_run_detail_reload_result(
-    mut app_state: AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     res: Result<jefe::domain::WorkflowRunDetail, jefe::github::GhError>,
     repo_id: jefe::domain::RepositoryId,
@@ -312,11 +312,11 @@ fn handle_run_detail_reload_result(
             error: e.to_string(),
         },
     };
-    apply_and_persist(&mut app_state, ctx, event);
+    apply_and_persist(app_state, ctx, event);
 }
 
 fn handle_workflow_dispatch_result(
-    mut app_state: AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     res: Result<(), jefe::github::GhError>,
     repo_id: jefe::domain::RepositoryId,
@@ -333,7 +333,7 @@ fn handle_workflow_dispatch_result(
             error: e.to_string(),
         },
     };
-    super::dispatch_app_event(&mut app_state, ctx, event);
+    super::dispatch_app_event(app_state, ctx, event);
 }
 
 const NO_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
@@ -480,56 +480,54 @@ fn dispatch_actions_page_fetch(app_state: &mut AppStateHandle, ctx: &SharedConte
 
 /// Spawn a gh task to fetch a list page and route the result through `handler`.
 fn spawn_list_task(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     req: ActionsListRequest,
     repo: jefe::domain::Repository,
     handler: fn(
-        AppStateHandle,
+        &mut AppStateHandle,
         &SharedContext,
         Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
         ActionsListRequest,
     ),
 ) {
-    let page = req.page;
-    let request_id = req.request_id;
-    let filter_clone = req.filter.clone();
-    let (repo_id, repo_id_panic) = (repo.id.clone(), repo.id.clone());
-    let filter_panic = filter_clone.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |app_state, ctx| {
-            let res = (|| {
-                let (client, owner, repo_name) = gh_client_and_slug(&ctx, &repo)?;
-                client.list_runs(owner, repo_name, &filter_clone, page, 30)
-            })();
-            handler(
-                app_state,
-                &ctx,
-                res,
-                ActionsListRequest {
-                    repo_id,
-                    filter: filter_clone,
-                    page,
-                    request_id,
-                },
-            );
-        },
+    fn abandoned(
+        req: ActionsListRequest,
+        handler: fn(
+            &mut AppStateHandle,
+            &SharedContext,
+            Result<jefe::github::WorkflowRunListResponse, jefe::github::GhError>,
+            ActionsListRequest,
+        ),
+    ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
         move |app_state, ctx, msg| {
             let error_msg = format!("GitHub Actions list task panicked: {msg}");
             handler(
                 app_state,
-                &ctx,
+                ctx,
                 Err(jefe::github::GhError::ApiError(error_msg)),
-                ActionsListRequest {
-                    repo_id: repo_id_panic,
-                    filter: filter_panic,
-                    page,
-                    request_id,
-                },
+                req,
             );
+        }
+    }
+
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, abandoned(req.clone(), handler))
+    else {
+        return;
+    };
+    let work_filter = req.filter.clone();
+    let page = req.page;
+    let panic_req = req.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            let (client, owner, repo_name) = gh_client_and_slug(ctx, &repo)?;
+            client.list_runs(owner, repo_name, &work_filter, page, 30)
         },
+        move |app_state, ctx, res| handler(app_state, ctx, res, req),
+        abandoned(panic_req, handler),
     );
 }
 
@@ -561,29 +559,44 @@ fn dispatch_workflows_reload(app_state: &mut AppStateHandle, ctx: &SharedContext
         });
     }
 
-    let repo_id_clone = repo.id.clone();
-    let repo_id_clone_panic = repo_id_clone.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let repo_id = repo.id.clone();
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |app_state, ctx| {
-            let res = (|| {
-                let (client, owner, repo_name) = gh_client_and_slug(&ctx, &repo)?;
-                client.list_workflows(owner, repo_name)
-            })();
-            handle_workflows_reload_result(app_state, &ctx, res, repo_id_clone, request_id);
+        workflows_abandoned(repo_id.clone(), request_id),
+    ) else {
+        return;
+    };
+    let panic_repo_id = repo_id.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            let (client, owner, repo_name) = gh_client_and_slug(ctx, &repo)?;
+            client.list_workflows(owner, repo_name)
         },
-        move |app_state, ctx, msg| {
-            let error_msg = format!("Workflows list task panicked: {msg}");
-            handle_workflows_reload_result(
-                app_state,
-                &ctx,
-                Err(jefe::github::GhError::ApiError(error_msg)),
-                repo_id_clone_panic,
-                request_id,
-            );
+        move |app_state, ctx, res| {
+            handle_workflows_reload_result(app_state, ctx, res, repo_id, request_id);
         },
+        workflows_abandoned(panic_repo_id, request_id),
     );
+}
+
+/// Report an abandoned workflows list so the pending marker is cleared.
+fn workflows_abandoned(
+    repo_id: RepositoryId,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, msg| {
+        let error_msg = format!("Workflows list task panicked: {msg}");
+        handle_workflows_reload_result(
+            app_state,
+            ctx,
+            Err(jefe::github::GhError::ApiError(error_msg)),
+            repo_id,
+            request_id,
+        );
+    }
 }
 
 fn dispatch_run_detail_reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -621,33 +634,50 @@ fn dispatch_run_detail_reload(app_state: &mut AppStateHandle, ctx: &SharedContex
         },
     );
 
-    let (repo_id, repo_id_panic) = (repo.id.clone(), repo.id.clone());
-    gh_async::spawn_gh_task_with_panic(
+    let repo_id = repo.id.clone();
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |app_state, ctx| {
-            let res = (|| {
-                let (client, owner, repo_name) = gh_client_and_slug(&ctx, &repo)?;
-                client.get_run_detail(owner, repo_name, run_id)
-            })();
-            handle_run_detail_reload_result(app_state, &ctx, res, repo_id, run_id, request_id);
+        run_detail_abandoned(repo_id.clone(), run_id, request_id),
+    ) else {
+        return;
+    };
+    let panic_repo_id = repo_id.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            let (client, owner, repo_name) = gh_client_and_slug(ctx, &repo)?;
+            client.get_run_detail(owner, repo_name, run_id)
         },
-        move |app_state, ctx, msg| {
-            let error_msg = format!("Run detail task panicked: {msg}");
-            handle_run_detail_reload_result(
-                app_state,
-                &ctx,
-                Err(jefe::github::GhError::ApiError(error_msg)),
-                repo_id_panic,
-                run_id,
-                request_id,
-            );
+        move |app_state, ctx, res| {
+            handle_run_detail_reload_result(app_state, ctx, res, repo_id, run_id, request_id);
         },
+        run_detail_abandoned(panic_repo_id, run_id, request_id),
     );
 }
 
+/// Report an abandoned run-detail reload so the pending marker is cleared.
+fn run_detail_abandoned(
+    repo_id: RepositoryId,
+    run_id: u64,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, msg| {
+        let error_msg = format!("Run detail task panicked: {msg}");
+        handle_run_detail_reload_result(
+            app_state,
+            ctx,
+            Err(jefe::github::GhError::ApiError(error_msg)),
+            repo_id,
+            run_id,
+            request_id,
+        );
+    }
+}
+
 fn dispatch_workflow_run(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     scope_repo_id: RepositoryId,
     workflow_id: String,
@@ -677,27 +707,41 @@ fn dispatch_workflow_run(
             .map_or(0, |p| p.request_id)
     };
 
-    let scope_repo_id_clone = scope_repo_id.clone();
-    let scope_repo_id_clone_panic = scope_repo_id_clone.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |app_state, ctx| {
-            let res = (|| {
-                let (client, owner, repo_name) = gh_client_and_slug(&ctx, &repo)?;
-                client.dispatch_workflow(owner, repo_name, &workflow_id, &ref_name, &inputs)
-            })();
-            handle_workflow_dispatch_result(app_state, &ctx, res, scope_repo_id_clone, request_id);
+        workflow_dispatch_abandoned(scope_repo_id.clone(), request_id),
+    ) else {
+        return;
+    };
+    let panic_scope_repo_id = scope_repo_id.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            let (client, owner, repo_name) = gh_client_and_slug(ctx, &repo)?;
+            client.dispatch_workflow(owner, repo_name, &workflow_id, &ref_name, &inputs)
         },
-        move |app_state, ctx, msg| {
-            let error_msg = format!("Workflow dispatch task panicked: {msg}");
-            handle_workflow_dispatch_result(
-                app_state,
-                &ctx,
-                Err(jefe::github::GhError::ApiError(error_msg)),
-                scope_repo_id_clone_panic,
-                request_id,
-            );
+        move |app_state, ctx, res| {
+            handle_workflow_dispatch_result(app_state, ctx, res, scope_repo_id, request_id);
         },
+        workflow_dispatch_abandoned(panic_scope_repo_id, request_id),
     );
+}
+
+/// Report an abandoned workflow dispatch so the pending marker is cleared.
+fn workflow_dispatch_abandoned(
+    scope_repo_id: RepositoryId,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, msg| {
+        let error_msg = format!("Workflow dispatch task panicked: {msg}");
+        handle_workflow_dispatch_result(
+            app_state,
+            ctx,
+            Err(jefe::github::GhError::ApiError(error_msg)),
+            scope_repo_id,
+            request_id,
+        );
+    }
 }

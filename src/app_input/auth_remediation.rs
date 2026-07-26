@@ -58,32 +58,38 @@ pub(super) fn is_auth_remediation_candidate(error: &str, modal: &jefe::state::Mo
 /// `AuthCodeReceived` / `AuthSucceeded` / `AuthFailed` events back to state.
 ///
 /// The flow blocks until `gh auth login --web` exits (success → exit 0; the
-/// user authorizes in a browser; failure → non-zero). Because it runs via
-/// `spawn_gh_task_with_panic` → `smol::unblock`, the UI is never blocked.
-pub(super) fn spawn_device_auth_flow(app_state: &AppStateHandle, ctx: &SharedContext) {
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+/// user authorizes in a browser; failure → non-zero). The subprocess runs on a
+/// blocking worker so the UI is never blocked, and the resulting events are
+/// applied on the render thread.
+pub(super) fn spawn_device_auth_flow(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let Some(deliveries) = gh_async::delivery_handle_or_report(app_state, ctx, report_auth_failed)
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        |mut app_state, ctx| {
-            let result = run_device_auth();
-            deliver_auth_result(&mut app_state, &ctx, result);
-        },
-        |mut app_state, ctx, message| {
-            // A panic in the auth flow is a transient failure — surface it and
-            // let the user retry, rather than leaving the dialog stuck.
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::AuthFailed {
-                    error: format!("GitHub auth task panicked: {message}"),
-                },
+        |_ctx| run_device_auth(),
+        deliver_auth_result,
+        // A panic in the auth flow is a transient failure — surface it and
+        // let the user retry, rather than leaving the dialog stuck.
+        |app_state, ctx, message| {
+            report_auth_failed(
+                app_state,
+                ctx,
+                format!("GitHub auth task panicked: {message}"),
             );
         },
     );
 }
 
+/// Surface a retryable auth failure in the dialog.
+fn report_auth_failed(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
+    apply_and_persist(app_state, ctx, AppEvent::AuthFailed { error });
+}
+
 /// Translate the `run_device_auth` outcome into the appropriate auth event and
-/// apply it. Called on the background thread.
+/// apply it.
 fn deliver_auth_result(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,

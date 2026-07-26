@@ -60,6 +60,7 @@ pub mod terminal_manager;
 mod auth_remediation;
 mod gh_async;
 mod list_loader;
+mod worker_panic;
 
 mod agent_runtime;
 mod availability;
@@ -103,6 +104,7 @@ pub fn apply_background_gh_delivery(
         BackgroundGhDelivery::IssueList(delivery) => {
             issues_list_dispatch::apply_issue_list_delivery(app_state, ctx, *delivery);
         }
+        BackgroundGhDelivery::Apply(apply) => apply(app_state, ctx),
         #[cfg(test)]
         BackgroundGhDelivery::Probe(_) => {}
     }
