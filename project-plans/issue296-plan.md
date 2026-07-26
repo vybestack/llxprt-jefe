@@ -192,12 +192,14 @@ In-scope-Fix / Reject / Defer). Starts empty; updated per slice.
 
 (Updated as slices complete.)
 
-- `cargo fmt --all --check`:
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`:
-- `cargo build --workspace --all-features --locked`:
-- `cargo test --workspace --all-features --locked`:
-- `windows_native` CI (psmux-smoke):
-- coverage ≥ 30%:
+- `cargo fmt --all --check`: **PASS** (exit 0)
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`: **PASS** (exit 0)
+- `cargo build --workspace --all-features --locked`: **PASS** (exit 0)
+- `cargo test --workspace --all-features --locked`: **PASS** (exit 0, no failures)
+- `windows_native` CI (psmux-smoke): pending — the new
+  `psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys` test
+  runs under the existing `windows_native` job with no new gating.
+- coverage ≥ 30%: pending CI.
 
 ## Deferred findings / follow-ups
 
