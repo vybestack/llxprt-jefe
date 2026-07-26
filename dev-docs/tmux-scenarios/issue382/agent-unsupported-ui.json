@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "name": "agent-unsupported-ui",
+  "platform": "linux",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "bin", "mode": 493 },
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "bin/claude",
+        "content": { "utf8": "#!/bin/sh\nprintf '2.1.212 (Claude Code)\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+    ]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Claude", "timeout_ms": 15000 },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Resume", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": ["Resume", "Unsupported", "disabled"],
+      "absent": ["[Create enabled]"]
+    },
+    { "op": "key", "key": "escape", "modifiers": [] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

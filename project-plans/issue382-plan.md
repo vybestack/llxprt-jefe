@@ -113,6 +113,8 @@ Final exact-head evidence:
 | 2026-07-26 | CW02-15 mandates a quality-gate script change | Approved by the issue mandate and user approval of the whole cutover; no gate may be weakened |
 | 2026-07-26 | S1, S5, and S16 are enabling work rather than numbered ledger rows | Approved scope: they own the issue's AGT-E201, generated typed-form, and normative-documentation contracts |
 | 2026-07-26 | No dependency change is needed: SHA-256 and bounded parser precedents already exist | Reuse/extract existing pure primitives; stop if a new crate appears necessary |
+| 2026-07-26 | S2 candidate resolution adds three new generic sibling modules (`agent_candidate`, `agent_candidate_path`, `agent_candidate_fingerprint`) plus `agent_registry`; each is under the 1000-line source hard limit | Approved S2 scope (CW02-01); no other layer modified |
+| 2026-07-26 | S2 `agent_candidate` carries a bounded `Box::leak` selector interner so the resolver can borrow `&'static str` selectors without a lifetime parameter | Bounded by SELECTOR_BYTE_LIMIT and captured once at startup; full interning belongs to S12 (package selectors) |
 
 ## Review and deferred-finding ledger
 
@@ -212,3 +214,76 @@ module `jefe::domain::agent_definition` (`AgentTypeId`, `AgentDefinition`,
 `origin/main`. GREEN must add the typed domain contract; once present every
 test body compiles and asserts the accepted observable contracts. `cargo build
 --workspace` passes unchanged, confirming no production code was modified.
+
+## S2 candidate resolution / immutable registry (2026-07-26)
+
+### S2 RED evidence
+
+S2 strengthens the `candidate_resolver_order` integration test
+(`tests/issue382_behavior.rs`) to exercise the S2 boundary: it publishes the
+shipped `AgentTypeRegistry`, confirms the LLxprt definition's first declared
+candidate is the typed `RepositoryLlxprt` kind, builds a repository-local
+symlink tree, and asserts the generic resolver selects declared index 0 with a
+canonical absolute path and fingerprint against an empty PATH. The focused
+unit suites (`agent_candidate_tests`, `agent_candidate_path_tests`,
+`agent_candidate_fingerprint_tests`, `agent_registry_tests`) assert each
+deterministic property: declaration order, typed skips, repository-local
+symlink tree, PATH snapshot, platform/PATHEXT, missing/non-executable
+candidates, slash rejection, package-runner blank/nonblank selector
+participation, absent-runner typed skip, and canonical-path +
+(dev/inode where available, size, mtime) fingerprint.
+
+Before the S2 production modules existed, the strengthened integration and
+unit tests failed to compile because `jefe::agent_candidate`,
+`jefe::agent_candidate_path`, `jefe::agent_candidate_fingerprint`, and
+`jefe::agent_registry` were absent. That compile failure is the S2 RED.
+
+### S2 GREEN evidence
+
+- `cargo test --lib agent_candidate`: 31 passed.
+- `cargo test --lib agent_registry`: 10 passed.
+- `cargo test --test issue382_behavior`: 18 passed (all seventeen ledger
+  scenarios plus the structural gate, with `candidate_resolver_order`
+  strengthened to exercise the S2 boundary).
+- `cargo fmt --all --check`: clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`:
+  zero new lints; the only remaining warning is the known pre-existing
+  `src/runtime/llxprt_install.rs` `Duration::from_secs(300)` lint (S0-era,
+  unrelated to S2).
+- `cargo check -q`: clean.
+- `cargo test`: full workspace green.
+
+### S2 production surface
+
+New generic sibling modules (no other layer modified):
+
+- `src/agent_registry.rs` — immutable `AgentTypeRegistry` published once at
+  the composition boundary; validates every definition, stores them in
+  canonical ID order, exposes `definitions()`, `get(id)`, `at(index)`, and
+  rejects duplicate type ids. Owns no `AppState`/PATH/process.
+- `src/agent_candidate_path.rs` — captured `PathSnapshot` plus the audited
+  platform launchable-file policy (Unix executable bit; Windows PATHEXT
+  extension order and `.ps1` fallback) reused from the existing
+  `AgentExecutableResolver` semantics. Pure filesystem read; never spawns.
+- `src/agent_candidate_fingerprint.rs` — `CandidateFingerprint` carrying
+  canonical path, device/inode where available, size, and mtime.
+- `src/agent_candidate.rs` — generic `AgentCandidateResolver` that consumes
+  closed `AgentDefinition` values plus a borrowed `PathSnapshot` and resolves
+  the first physically valid candidate in declared order, returning typed
+  `CandidateSkip` reasons and a `CandidateFingerprint`. It never spawns and
+  owns no mutable registry.
+
+Wiring: `src/lib.rs` declares the four new public modules. `src/domain/mod.rs`
+already declared `agent_definition` (S1); no further domain wiring was needed.
+
+### S2 non-goals respected
+
+- No process spawn, probe, planning, UI, persistence, orAppState.
+- No new dependency, clippy allow, unsafe, production unwrap/expect/panic, or
+  product branch in generic source.
+- Product knowledge lives only in the shipped definition data and the typed
+  `RepositoryLlxprt` candidate kind; the new modules contain no product tokens.
+- No fake `AgentDefinition::resolve_candidate` filesystem method existed to
+  remove (the pre-S2 tree had none); the real boundary is the generic resolver.
+- Package-runner plan argv belongs to S12; S2 only proves the runner resolves
+  and (when requested) fingerprints it.

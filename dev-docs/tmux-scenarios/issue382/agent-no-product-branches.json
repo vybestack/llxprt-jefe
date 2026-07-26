@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "name": "agent-no-product-branches",
+  "platform": "linux",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "bin", "mode": 493 },
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "bin/llxprt",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/codex",
+        "content": { "utf8": "#!/bin/sh\nprintf 'codex-cli 0.142.0\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/code-puppy",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.0.634\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/claude",
+        "content": { "utf8": "#!/bin/sh\nprintf '2.1.212 (Claude Code)\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
+      { "name": "TERM", "value": "xterm-256color" }
+    ]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Codex", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Claude", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Code Puppy", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": ["LLxprt", "Codex", "Claude", "Code Puppy"],
+      "absent": ["error"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}
