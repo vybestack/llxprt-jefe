@@ -19,7 +19,7 @@ pub use form_types::*;
 // file under the source-file-size hard limit.
 #[path = "new_issue_types.rs"]
 mod new_issue_types;
-pub use new_issue_types::{NewIssueDialogFocus, NewIssueDialogState, NewIssueTemplate};
+pub use new_issue_types::{IssueType, NewIssueDialogFocus, NewIssueDialogState, NewIssueTemplate};
 
 // Issues-mode aggregate state extracted to keep this file under the length limit.
 #[path = "issues_types.rs"]

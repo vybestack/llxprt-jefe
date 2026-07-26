@@ -465,6 +465,69 @@ fn effective_kinds_for_agent_form(state: &AppState) -> Vec<crate::domain::AgentK
     };
     effective_agent_kinds(&state.installed_agent_kinds, is_remote)
 }
+/// Build the copyable lines for the New Issue dialog form modal (issue #407).
+///
+/// Mirrors the lines rendered by `ui/screens/new_issue.rs::NewIssueForm` so
+/// mouse selection coordinates map to the exact characters on screen,
+/// including the caret inserted into the focused title/body field.
+#[must_use]
+pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
+    let ModalState::NewIssue { state: d, .. } = &state.modal else {
+        return None;
+    };
+    let title_value = if d.focus == crate::state::NewIssueDialogFocus::Title {
+        text_with_caret(&d.title_text, d.title_cursor)
+    } else {
+        d.title_text.clone()
+    };
+    let type_display = d.type_name.clone().unwrap_or_else(|| "—".to_string());
+
+    let mut lines: Vec<String> = vec![" New Issue".to_string(), String::new()];
+    lines.push(format!(
+        "  {:<16} [{}]  (space cycles: Blank/Bug/Feature/Task)",
+        "Template",
+        d.template.label()
+    ));
+    lines.push(format!(
+        "  {:<16} [{}]  (space cycles)",
+        "Type", type_display
+    ));
+    lines.push(format!("  {:<16} [{title_value}]", "Title"));
+    lines.push(format!("  {:<16} [...]", "Body"));
+    let body_focused = d.focus == crate::state::NewIssueDialogFocus::Body;
+    let cap = 12usize;
+    let body_lines: Vec<&str> = d.body_text.lines().collect();
+    for (i, line) in body_lines.iter().take(cap).enumerate() {
+        let is_caret_line = body_focused && char_offset_body(&d.body_text, d.body_cursor) == i;
+        let display = if is_caret_line {
+            format!("{line}▌")
+        } else {
+            (*line).to_string()
+        };
+        lines.push(format!("  {display}"));
+    }
+    if body_lines.len() > cap {
+        lines.push("  ... (truncated)".to_string());
+    }
+    lines.push(String::new());
+    if let Some(err) = &d.error {
+        lines.push(format!("  Error: {err}"));
+    }
+    lines.push(
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space cycles Template/Type  Enter submit (Alt+Enter from body)  Esc cancel"
+            .to_string(),
+    );
+    Some(lines)
+}
+
+/// Char-boundary-safe line index for a char-offset cursor within body text.
+fn char_offset_body(text: &str, cursor: usize) -> usize {
+    let byte_idx = text
+        .char_indices()
+        .nth(cursor)
+        .map_or(text.len(), |(i, _)| i);
+    text[..byte_idx].lines().count().saturating_sub(1)
+}
 
 #[cfg(test)]
 mod tests {

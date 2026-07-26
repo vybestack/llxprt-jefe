@@ -68,7 +68,7 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
         );
 
     let selection = props.state.as_ref().and_then(|s| s.selection);
-    let pane = SelectablePane::AgentForm; // reuse selectable-line pane for form modals
+    let pane = SelectablePane::NewIssueForm;
     let mut line_idx: usize = 0;
 
     let mut all_lines: Vec<AnyElement<'static>> = Vec::new();
@@ -271,9 +271,11 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
 }
 
 /// Return the 0-based line index of a char-offset cursor within `text`.
+/// Uses char-boundary-safe traversal so non-ASCII body text does not panic.
 fn char_offset(text: &str, cursor: usize) -> usize {
-    text[..cursor.min(text.len())]
-        .lines()
-        .count()
-        .saturating_sub(1)
+    let byte_idx = text
+        .char_indices()
+        .nth(cursor)
+        .map_or(text.len(), |(i, _)| i);
+    text[..byte_idx].lines().count().saturating_sub(1)
 }

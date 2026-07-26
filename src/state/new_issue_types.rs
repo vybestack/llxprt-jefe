@@ -5,6 +5,27 @@
 //! state carried by [`super::ModalState::NewIssue`] and the focus/cursor
 //! helpers for the form modal.
 
+/// A selectable issue type in the New Issue dialog (issue #407).
+///
+/// Carries the GraphQL node `id` (used for the `updateIssue` mutation) and
+/// the display `name`. Replaces the unlabeled `(String, String)` tuple so
+/// call sites read as `t.id` / `t.name` instead of `.0` / `.1`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IssueType {
+    /// Opaque GraphQL node id submitted to `updateIssue.issueTypeId`.
+    pub id: String,
+    /// Human-readable type name shown in the picker.
+    pub name: String,
+}
+
+impl IssueType {
+    /// Construct an issue type from its GraphQL id and display name.
+    #[must_use]
+    pub fn new(id: String, name: String) -> Self {
+        Self { id, name }
+    }
+}
+
 /// Built-in templates synthesized client-side (issue #407). Repo-defined
 /// issue templates are listed separately via the `issueTemplates` GraphQL
 /// connection; Slice A ships only the built-in presets.
@@ -128,7 +149,7 @@ impl NewIssueDialogFocus {
 /// and drives the `create_issue` + post-create property-edit pipeline.
 /// Sticky milestone/project defaults are restored from `RepoPreferences`
 /// when the dialog opens and remembered back on a successful submit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NewIssueDialogState {
     /// Currently-selected built-in template (Blank/Bug/Feature/Task).
     pub template: NewIssueTemplate,
@@ -138,9 +159,9 @@ pub struct NewIssueDialogState {
     /// Opaque node id for the selected issue type, resolved when the type
     /// picker confirms (issue #407). `None` when no type is selected.
     pub type_id: Option<String>,
-    /// Available issue types for the current repo (`(id, name)`). Populated
-    /// async when the dialog opens; empty while loading.
-    pub available_types: Vec<(String, String)>,
+    /// Available issue types for the current repo. Populated async when the
+    /// dialog opens; empty while loading.
+    pub available_types: Vec<IssueType>,
     /// Title draft (single line).
     pub title_text: String,
     /// Title cursor (char offset).
@@ -171,29 +192,4 @@ pub struct NewIssueDialogState {
     /// Whether the async options load (labels/milestones/types/assignees)
     /// is still in flight. Submit is blocked while true.
     pub options_loading: bool,
-}
-
-impl Default for NewIssueDialogState {
-    fn default() -> Self {
-        Self {
-            template: NewIssueTemplate::Blank,
-            type_name: None,
-            type_id: None,
-            available_types: Vec::new(),
-            title_text: String::new(),
-            title_cursor: 0,
-            body_text: String::new(),
-            body_cursor: 0,
-            labels: Vec::new(),
-            available_labels: Vec::new(),
-            milestone: None,
-            available_milestones: Vec::new(),
-            project_ids: Vec::new(),
-            assignees: Vec::new(),
-            available_assignees: Vec::new(),
-            focus: NewIssueDialogFocus::default(),
-            error: None,
-            options_loading: false,
-        }
-    }
 }

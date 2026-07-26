@@ -374,10 +374,12 @@ impl IssuesMessage {
             AppEvent::NewIssueCreateFailed {
                 scope_repo_id,
                 mutation_id,
+                issue_number,
                 error,
             } => Self::NewIssueCreateFailed {
                 scope_repo_id,
                 mutation_id,
+                issue_number,
                 error,
             },
             other => Self::from_app_event_mutation_and_agent(other),
@@ -855,10 +857,12 @@ impl IssuesMessage {
             Self::NewIssueCreateFailed {
                 scope_repo_id,
                 mutation_id,
+                issue_number,
                 error,
             } => AppEvent::NewIssueCreateFailed {
                 scope_repo_id,
                 mutation_id,
+                issue_number,
                 error,
             },
             other => other.into_app_event_mutation_and_agent(),

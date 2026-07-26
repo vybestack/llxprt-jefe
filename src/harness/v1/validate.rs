@@ -111,7 +111,7 @@ pub fn validate_secrets(secrets: &[String]) -> Result<(), HarnessError> {
 /// `HAR-E001` for malformed input, `HAR-E002` when the decoded size would
 /// exceed the string bound.
 pub fn decode_base64(field: &str, input: &str) -> Result<Vec<u8>, HarnessError> {
-    if input.len() % 4 != 0 {
+    if !is_multiple_of_4(input.len()) {
         return Err(malformed(field));
     }
     if input.len() / 4 * 3 > MAX_STRING_BYTES {
@@ -174,6 +174,12 @@ fn decode_symbol(field: &str, byte: u8) -> Result<u8, HarnessError> {
 
 fn malformed(field: &str) -> HarnessError {
     HarnessError::syntax(format!("{field}: malformed base64"))
+}
+
+/// MSRV-safe replacement for `usize::is_multiple_of` (stabilized in 1.87,
+/// above this project's 1.75 MSRV).
+const fn is_multiple_of_4(n: usize) -> bool {
+    n % 4 == 0
 }
 
 #[cfg(test)]

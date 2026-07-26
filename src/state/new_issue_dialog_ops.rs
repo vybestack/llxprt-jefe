@@ -66,11 +66,13 @@ impl AppState {
             AppEvent::NewIssueCreateFailed {
                 scope_repo_id,
                 mutation_id,
+                issue_number,
                 error,
             } => {
                 self.apply_new_issue_create_failed(
                     scope_repo_id.clone(),
                     *mutation_id,
+                    *issue_number,
                     error.clone(),
                 );
                 true
@@ -155,16 +157,16 @@ impl AppState {
             let current_idx = d
                 .type_id
                 .as_deref()
-                .and_then(|id| d.available_types.iter().position(|(tid, _)| tid == id));
+                .and_then(|id| d.available_types.iter().position(|t| t.id == id));
             let next_idx = match current_idx {
                 Some(idx) if idx + 1 < d.available_types.len() => Some(idx + 1),
                 Some(_) => None, // wrap back to None (clear)
                 None => Some(0),
             };
             if let Some(idx) = next_idx {
-                let (id, name) = d.available_types[idx].clone();
-                d.type_id = Some(id);
-                d.type_name = Some(name);
+                let t = &d.available_types[idx];
+                d.type_id = Some(t.id.clone());
+                d.type_name = Some(t.name.clone());
             } else {
                 d.type_id = None;
                 d.type_name = None;
@@ -371,10 +373,14 @@ impl AppState {
 
     /// Apply a New Issue create failure (issue #407 A10): surface the error in
     /// the open dialog and clear the pending mutation so the user can retry.
+    /// When `issue_number` is `Some`, the issue was created but a property
+    /// failed — the error message includes the number so the user can finish
+    /// the properties by hand.
     fn apply_new_issue_create_failed(
         &mut self,
         scope_repo_id: RepositoryId,
         mutation_id: u64,
+        issue_number: Option<u64>,
         error: String,
     ) {
         if !self
@@ -387,8 +393,12 @@ impl AppState {
             return;
         }
         self.issues_state.mutation_pending = None;
+        let display = match issue_number {
+            Some(n) => format!("Issue #{n} was created but a property failed: {error}"),
+            None => error,
+        };
         self.with_dialog_mut(|d| {
-            d.error = Some(error);
+            d.error = Some(display);
         });
     }
 
@@ -396,7 +406,7 @@ impl AppState {
         &mut self,
         labels: Vec<String>,
         milestones: Vec<String>,
-        types: Vec<(String, String)>,
+        types: Vec<crate::state::IssueType>,
         assignees: Vec<String>,
     ) -> bool {
         self.with_dialog_mut(|d| {

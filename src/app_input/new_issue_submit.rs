@@ -48,6 +48,7 @@ pub fn handle_new_issue_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
                 AppEvent::NewIssueCreateFailed {
                     scope_repo_id: panic_scope,
                     mutation_id,
+                    issue_number: None,
                     error: format!("New issue task panicked: {message}"),
                 },
             );
@@ -121,7 +122,7 @@ fn create_and_apply_event(
     mutation_id: u64,
 ) -> AppEvent {
     let Some(client) = github_client(ctx) else {
-        return failure_event(params, mutation_id, "Application context unavailable");
+        return failure_event(params, mutation_id, None, "Application context unavailable");
     };
     match create_and_apply_properties(client, params) {
         Ok(created) => {
@@ -132,27 +133,41 @@ fn create_and_apply_event(
                 issue: Box::new(issue),
             }
         }
-        Err(error) => failure_event(params, mutation_id, &error.to_string()),
+        Err(NewIssueCreateError::CreateFailed(error)) => {
+            failure_event(params, mutation_id, None, &error.to_string())
+        }
+        Err(NewIssueCreateError::PropertyFailed { number, error }) => {
+            failure_event(params, mutation_id, Some(number), &error.to_string())
+        }
     }
 }
 
-fn failure_event(params: &SubmitParams, mutation_id: u64, error: &str) -> AppEvent {
+fn failure_event(
+    params: &SubmitParams,
+    mutation_id: u64,
+    issue_number: Option<u64>,
+    error: &str,
+) -> AppEvent {
     AppEvent::NewIssueCreateFailed {
         scope_repo_id: params.scope_repo_id.clone(),
         mutation_id,
+        issue_number,
         error: error.to_string(),
     }
 }
 
 /// Create the issue, then apply labels/milestone/assignees/type. Returns the
-/// `CreatedIssue` on success. Property-apply failures are reported as a
-/// combined error so the user knows the issue was created but properties
-/// failed (the issue still exists on GitHub).
+/// `CreatedIssue` on success. Property-apply failures are surfaced via
+/// [`PropertyApplyError`] so the caller can report a partial-failure event
+/// that includes the created issue number (the issue exists on GitHub even
+/// though the property writes failed).
 fn create_and_apply_properties(
     client: GhClient,
     params: &SubmitParams,
-) -> Result<CreatedIssue, GhError> {
-    let created = client.create_issue(&params.owner, &params.repo, &params.title, &params.body)?;
+) -> Result<CreatedIssue, NewIssueCreateError> {
+    let created = client
+        .create_issue(&params.owner, &params.repo, &params.title, &params.body)
+        .map_err(NewIssueCreateError::CreateFailed)?;
     let number = created.number;
     let target = PropertyEditTarget {
         owner: &params.owner,
@@ -160,23 +175,44 @@ fn create_and_apply_properties(
         number,
         is_pr: false,
     };
-    apply_labels(client, target, &params.labels)?;
-    apply_assignees(client, target, &params.assignees)?;
+    // Apply each property independently so a single failure does not hide the
+    // issue number from the user. The first property error short-circuits; the
+    // created issue still exists on GitHub and is reported in the event.
+    apply_labels(client, target, &params.labels)
+        .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
+    apply_assignees(client, target, &params.assignees)
+        .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
     apply_milestone(
         client,
         &params.owner,
         &params.repo,
         number,
         params.milestone.as_deref(),
-    )?;
-    apply_issue_type(
-        client,
-        &params.owner,
-        &params.repo,
-        number,
-        params.type_id.as_deref(),
-    )?;
+    )
+    .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
+    apply_issue_type(client, &created.node_id, params.type_id.as_deref())
+        .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
     Ok(created)
+}
+
+/// Distinguishes a create failure (no issue was created) from a
+/// property-apply failure (the issue exists on GitHub; the user should be told
+/// its number so they can finish the properties by hand).
+#[derive(Debug)]
+enum NewIssueCreateError {
+    CreateFailed(GhError),
+    PropertyFailed { number: u64, error: GhError },
+}
+
+impl std::fmt::Display for NewIssueCreateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CreateFailed(e) => write!(f, "{e}"),
+            Self::PropertyFailed { number, error } => {
+                write!(f, "Issue #{number} created but a property failed: {error}")
+            }
+        }
+    }
 }
 
 fn apply_labels(
@@ -184,10 +220,14 @@ fn apply_labels(
     target: PropertyEditTarget,
     labels: &[String],
 ) -> Result<(), GhError> {
-    if labels.is_empty() {
+    // Filter empty/whitespace-only labels so an accidental blank entry in the
+    // multi-select does not produce a gh error (issue #407 OCR #4).
+    let filtered: Vec<&String> = labels.iter().filter(|l| !l.trim().is_empty()).collect();
+    if filtered.is_empty() {
         return Ok(());
     }
-    let (to_add, _to_remove) = compute_label_diff(&[], labels);
+    let desired: Vec<String> = filtered.into_iter().cloned().collect();
+    let (to_add, _to_remove) = compute_label_diff(&[], &desired);
     client.edit_labels(target, &to_add, &[])
 }
 
@@ -196,10 +236,12 @@ fn apply_assignees(
     target: PropertyEditTarget,
     assignees: &[String],
 ) -> Result<(), GhError> {
-    if assignees.is_empty() {
+    let filtered: Vec<&String> = assignees.iter().filter(|a| !a.trim().is_empty()).collect();
+    if filtered.is_empty() {
         return Ok(());
     }
-    let (to_add, _to_remove) = compute_assignee_diff(&[], assignees);
+    let desired: Vec<String> = filtered.into_iter().cloned().collect();
+    let (to_add, _to_remove) = compute_assignee_diff(&[], &desired);
     client.edit_assignees(target, &to_add, &[])
 }
 
@@ -219,16 +261,14 @@ fn apply_milestone(
     client.set_milestone(owner, repo, number, false, milestone)
 }
 
-fn apply_issue_type(
-    client: GhClient,
-    owner: &str,
-    repo: &str,
-    number: u64,
-    type_id: Option<&str>,
-) -> Result<(), GhError> {
+/// Apply the issue type using the create-response `node_id` directly,
+/// avoiding an extra `fetch_issue_node_info` round-trip (issue #407 OCR #3).
+fn apply_issue_type(client: GhClient, node_id: &str, type_id: Option<&str>) -> Result<(), GhError> {
     let Some(type_id) = type_id else {
         return Ok(());
     };
-    let node_info = client.fetch_issue_node_info(owner, repo, number)?;
-    client.set_issue_type(&node_info.node_id, Some(type_id))
+    if type_id.trim().is_empty() {
+        return Ok(());
+    }
+    client.set_issue_type(node_id, Some(type_id))
 }

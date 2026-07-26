@@ -336,7 +336,7 @@ pub enum IssuesMessage {
     NewIssueOptionsLoaded {
         labels: Vec<String>,
         milestones: Vec<String>,
-        types: Vec<(String, String)>,
+        types: Vec<crate::state::IssueType>,
         assignees: Vec<String>,
     },
     NewIssueOptionsFailed {
@@ -350,6 +350,7 @@ pub enum IssuesMessage {
     NewIssueCreateFailed {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
+        issue_number: Option<u64>,
         error: String,
     },
     InlineChar(char),

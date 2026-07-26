@@ -348,13 +348,16 @@ pub enum AppEvent {
     NewIssueCreateFailed {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
+        /// When the issue was created but a property apply failed, the created
+        /// issue number so the UI can tell the user the issue exists (issue #407).
+        issue_number: Option<u64>,
         error: String,
     },
     NewIssueCancel,
     NewIssueOptionsLoaded {
         labels: Vec<String>,
         milestones: Vec<String>,
-        types: Vec<(String, String)>,
+        types: Vec<crate::state::IssueType>,
         assignees: Vec<String>,
     },
     NewIssueOptionsFailed {

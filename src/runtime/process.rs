@@ -380,6 +380,7 @@ const fn days_in_month(year: u32, month: u32) -> u32 {
 
 #[cfg(target_os = "macos")]
 const fn is_leap_year(year: u32) -> bool {
+    // MSRV (1.75) predates `u32::is_multiple_of` (1.87), so use `%` directly.
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 

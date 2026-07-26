@@ -60,6 +60,8 @@ pub enum SelectablePane {
     IssueDeleteConfirm,
     /// Confirmation modal (delete/kill/preflight/dirty-copy). Issue #178.
     ConfirmModal,
+    /// New Issue dialog form (full-screen modal). Issue #407.
+    NewIssueForm,
 }
 
 /// A single point within a selection, expressed in *content* coordinates.

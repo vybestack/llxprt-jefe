@@ -141,6 +141,7 @@ pub fn pane_content_lines_with_context(
         SelectablePane::KeybindBar => keybind_bar_lines(state),
         SelectablePane::AgentForm => agent_form_lines(state),
         SelectablePane::RepositoryForm => repository_form_lines(state),
+        SelectablePane::NewIssueForm => new_issue_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
         SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
@@ -433,6 +434,14 @@ fn repository_form_lines(state: &AppState) -> PaneContent {
     match form_content::repository_form_content_lines(state) {
         Some(lines) => PaneContent::new(SelectablePane::RepositoryForm, lines),
         None => PaneContent::empty(SelectablePane::RepositoryForm),
+    }
+}
+
+/// New Issue dialog form lines that match the rendered field layout.
+fn new_issue_form_lines(state: &AppState) -> PaneContent {
+    match form_content::new_issue_form_content_lines(state) {
+        Some(lines) => PaneContent::new(SelectablePane::NewIssueForm, lines),
+        None => PaneContent::empty(SelectablePane::NewIssueForm),
     }
 }
 
