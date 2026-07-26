@@ -172,8 +172,16 @@ fn resolve_new_issue_inline_key_event(state: &AppState, key_event: &KeyEvent) ->
 
 fn resolve_new_issue_enter(focus: NewIssueFormFocus) -> AppEvent {
     match focus {
+        // In the body, Enter inserts a newline; selection fields advance to
+        // the next field so Enter is not a dangerous accidental submit.
         NewIssueFormFocus::Body => AppEvent::NewIssueBodyNewline,
-        _ => AppEvent::NewIssueSubmit,
+        NewIssueFormFocus::Template
+        | NewIssueFormFocus::Type
+        | NewIssueFormFocus::Labels
+        | NewIssueFormFocus::Milestone
+        | NewIssueFormFocus::Project
+        | NewIssueFormFocus::Assignees => AppEvent::NewIssueFocusNext,
+        NewIssueFormFocus::Title => AppEvent::NewIssueSubmit,
     }
 }
 

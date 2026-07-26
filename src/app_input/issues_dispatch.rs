@@ -4,7 +4,7 @@
 
 use jefe::domain::PageToken;
 use jefe::messages::IssuesMessage;
-use jefe::messages::names::is_new_issue_form_msg;
+use jefe::messages::is_new_issue_form_msg;
 use jefe::state::AppEvent;
 use tracing::warn;
 

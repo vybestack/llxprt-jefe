@@ -11,6 +11,7 @@ use super::types::NewIssueFormState;
 use crate::domain::RepositoryId;
 use crate::state::events::AppEvent;
 use crate::state::util::{delete_char_at, delete_char_before, insert_char_at};
+use std::collections::HashSet;
 
 impl AppState {
     /// Open the inline New Issue form (issue #407 A1). Restores sticky
@@ -156,26 +157,25 @@ impl AppState {
             if d.available_types.is_empty() {
                 d.type_name = None;
                 d.type_id = None;
-                d.error = None;
-                return;
-            }
-            // Cycle: None → first → second → ... → None.
-            let current_idx = d
-                .type_id
-                .as_deref()
-                .and_then(|id| d.available_types.iter().position(|t| t.id == id));
-            let next_idx = match current_idx {
-                Some(idx) if idx + 1 < d.available_types.len() => Some(idx + 1),
-                Some(_) => None, // wrap back to None (clear)
-                None => Some(0),
-            };
-            if let Some(idx) = next_idx {
-                let t = &d.available_types[idx];
-                d.type_id = Some(t.id.clone());
-                d.type_name = Some(t.name.clone());
             } else {
-                d.type_id = None;
-                d.type_name = None;
+                // Cycle: None → first → second → ... → None.
+                let current_idx = d
+                    .type_id
+                    .as_deref()
+                    .and_then(|id| d.available_types.iter().position(|t| t.id == id));
+                let next_idx = match current_idx {
+                    Some(idx) if idx + 1 < d.available_types.len() => Some(idx + 1),
+                    Some(_) => None, // wrap back to None (clear)
+                    None => Some(0),
+                };
+                if let Some(idx) = next_idx {
+                    let t = &d.available_types[idx];
+                    d.type_id = Some(t.id.clone());
+                    d.type_name = Some(t.name.clone());
+                } else {
+                    d.type_id = None;
+                    d.type_name = None;
+                }
             }
             d.error = None;
         })
@@ -185,11 +185,10 @@ impl AppState {
     fn new_issue_title_char(&mut self, c: char) -> bool {
         self.with_form_mut(|d| {
             // Title is single-line: reject newlines.
-            if c == '\n' || c == '\r' {
-                return;
+            if c != '\n' && c != '\r' {
+                d.title_cursor = insert_char_at(&mut d.title_text, d.title_cursor, c);
+                d.error = None;
             }
-            d.title_cursor = insert_char_at(&mut d.title_text, d.title_cursor, c);
-            d.error = None;
         })
         .is_some()
     }
@@ -428,7 +427,8 @@ impl AppState {
         self.with_form_mut(|d| {
             // If the options list changed, clear any selection that no longer
             // exists in the fresh list so the form never holds a stale
-            // selection (type, labels, milestone, assignees).
+            // selection (type, labels, milestone, assignees). Build HashSets
+            // for O(1) membership checks instead of O(n*m) nested scans.
             if d.available_types != types {
                 if let Some(id) = d.type_id.as_ref() {
                     if !types.iter().any(|t| t.id == *id) {
@@ -438,7 +438,8 @@ impl AppState {
                 }
             }
             if d.available_labels != labels {
-                d.labels.retain(|l| labels.iter().any(|a| a == l));
+                let label_set: HashSet<&str> = labels.iter().map(String::as_str).collect();
+                d.labels.retain(|l| label_set.contains(l.as_str()));
             }
             if d.available_milestones != milestones {
                 if let Some(m) = d.milestone.as_ref() {
@@ -448,7 +449,8 @@ impl AppState {
                 }
             }
             if d.available_assignees != assignees {
-                d.assignees.retain(|a| assignees.iter().any(|av| av == a));
+                let assignee_set: HashSet<&str> = assignees.iter().map(String::as_str).collect();
+                d.assignees.retain(|a| assignee_set.contains(a.as_str()));
             }
             d.available_labels = labels;
             d.available_milestones = milestones;
