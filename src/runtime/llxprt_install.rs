@@ -187,9 +187,24 @@ fn is_cache_hit(install_dir: &Path, bin_dir: &Path, selector: &LlxprtNpmPackageS
     if stored.trim() != marker_contents(selector) {
         return false;
     }
-    bin_dir
-        .join(AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name())
-        .is_file()
+    managed_binary_exists(bin_dir)
+}
+
+/// Whether the `node_modules/.bin` directory holds a launchable `llxprt`
+/// binary, accounting for Windows' PATHEXT extensions (`.exe`, `.cmd`, ...).
+fn managed_binary_exists(bin_dir: &Path) -> bool {
+    let base = AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name();
+    if bin_dir.join(base).is_file() {
+        return true;
+    }
+    if cfg!(windows) {
+        for ext in [".exe", ".cmd", ".bat", ".ps1"] {
+            if bin_dir.join(format!("{base}{ext}")).is_file() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Ensure the jefe-managed install for `selector` exists and return the
