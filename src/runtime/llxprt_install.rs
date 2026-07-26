@@ -197,21 +197,30 @@ fn is_cache_hit(install_dir: &Path, bin_dir: &Path, selector: &LlxprtNpmPackageS
 /// (see `AgentExecutableResolver::resolve_unix`), so it is not counted here.
 fn managed_binary_exists(bin_dir: &Path) -> bool {
     let base = AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name();
-    if cfg!(unix) {
-        use std::os::unix::fs::PermissionsExt;
-        let path = bin_dir.join(base);
-        return std::fs::metadata(&path).is_ok_and(|metadata| {
-            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-        });
-    }
-    if cfg!(windows) {
-        for ext in [".exe", ".cmd", ".bat", ".ps1"] {
-            if bin_dir.join(format!("{base}{ext}")).is_file() {
-                return true;
-            }
+    managed_binary_exists_for(bin_dir, base)
+}
+
+#[cfg(unix)]
+fn managed_binary_exists_for(bin_dir: &Path, base: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let path = bin_dir.join(base);
+    std::fs::metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(windows)]
+fn managed_binary_exists_for(bin_dir: &Path, base: &str) -> bool {
+    for ext in [".exe", ".cmd", ".bat", ".ps1"] {
+        if bin_dir.join(format!("{base}{ext}")).is_file() {
+            return true;
         }
     }
     false
+}
+
+#[cfg(not(any(unix, windows)))]
+fn managed_binary_exists_for(bin_dir: &Path, base: &str) -> bool {
+    bin_dir.join(base).is_file()
 }
 
 /// Ensure the jefe-managed install for `selector` exists and return the
