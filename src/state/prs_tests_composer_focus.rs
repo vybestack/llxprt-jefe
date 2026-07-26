@@ -489,7 +489,9 @@ fn wrapped_pr_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
     state.prs_state.detail_viewport_rows = 20;
     state.prs_state.detail_content_width = 20;
 
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::PrOpenNewCommentComposer)
+        .committed_pure();
     let content = crate::pr_detail_content::build_pr_detail_content(
         state
             .prs_state

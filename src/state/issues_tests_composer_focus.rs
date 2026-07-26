@@ -154,7 +154,9 @@ fn wrapped_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
     state.issues_state.detail_viewport_rows = 20;
     state.issues_state.detail_content_width = 20;
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
     let content = crate::issue_detail_content::build_detail_content(
         state
             .issues_state
