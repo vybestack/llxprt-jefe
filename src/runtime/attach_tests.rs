@@ -130,6 +130,44 @@ fn process_pty_read_advances_terminal_model() {
     );
 }
 
+// ── Issue #296 diagnostics: mouse-reporting mode bit tracing ──────────
+
+/// A fresh terminal model reports no mouse-reporting bits active. This proves
+/// the diagnostic helper used by `process_pty_read` reads the bits the
+/// `mouse_reporting_active()` consumer relies on (issue #296).
+#[test]
+fn mouse_reporting_bits_false_on_fresh_term() {
+    let term = test_term();
+    let guard = term.lock().expect("term lock should succeed");
+    let bits = mouse_reporting_bits(guard.mode());
+    assert_eq!(bits, (false, false, false));
+}
+
+/// Processing DEC private mouse-mode enable sequences flips the observable
+/// bits. Note that alacritty's `MOUSE_MODE` is a *composite* of
+/// MOUSE_REPORT_CLICK | MOUSE_MOTION | MOUSE_DRAG, so `?1000h` (click) alone
+/// does NOT set the composite `MOUSE_MODE` bit (it sets MOUSE_REPORT_CLICK,
+/// which is a subset). `?1006h` sets SGR_MOUSE, which `mouse_reporting_active`
+/// ORs in — so a child advertising `?1000h ?1006h` is observed as reporting
+/// via the SGR_MOUSE bit (issue #296 diagnostic finding).
+#[test]
+fn mouse_reporting_bits_flip_on_dec_private_mode_enable() {
+    let term = test_term();
+    let dirty = Arc::new(AtomicBool::new(false));
+    let mut parser: Processor<StdSyncHandler> = Processor::new();
+
+    // Enable MOUSE_REPORT_CLICK (1000) and SGR_MOUSE (1006).
+    process_pty_read(b"\x1b[?1000h", &mut parser, &term, &dirty);
+    process_pty_read(b"\x1b[?1006h", &mut parser, &term, &dirty);
+
+    let guard = term.lock().expect("term lock should succeed");
+    let bits = mouse_reporting_bits(guard.mode());
+    // MOUSE_MODE composite is NOT fully set (needs click+motion+drag);
+    // SGR_MOUSE IS set by ?1006h. mouse_reporting_active() ORs these so it
+    // still returns true via SGR_MOUSE.
+    assert_eq!(bits, (false, true, false));
+}
+
 // ── Issue #179: default-color transparency ────────────────────────────
 
 use alacritty_terminal::index::{Column, Line, Point};

@@ -777,6 +777,16 @@ impl RuntimeManager for TmuxRuntimeManager {
             self.attached_agent_id = Some(agent_id.clone());
         }
 
+        // Issue #296 diagnostics: trace the observed mouse-reporting state at
+        // attach completion. A freshly spawned viewer starts with cleared
+        // mouse bits; reporting is only recovered if the child re-emits DEC
+        // private mouse modes through the PTY stream after attach.
+        debug!(
+            agent_id = %agent_id.0,
+            mouse_reporting = self.mouse_reporting_active(),
+            "attach: viewer installed"
+        );
+
         // Mark new session as attached
         if let Some(session) = self.sessions.get_mut(agent_id) {
             session.attached = true;

@@ -21,7 +21,7 @@ use alacritty_terminal::vte::ansi::{self, Processor, StdSyncHandler};
 use portable_pty::{
     Child as PtyChild, CommandBuilder, MasterPty, PtyPair, PtySize, native_pty_system,
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use super::errors::RuntimeError;
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
@@ -683,11 +683,18 @@ impl AttachedViewer {
 
         // Also update the terminal model
         if let Ok(mut term) = self.term.lock() {
+            let before = mouse_reporting_bits(term.mode());
             let new_size = TermDimensions {
                 cols: cols as usize,
                 rows: rows as usize,
             };
             term.resize(new_size);
+            let after = mouse_reporting_bits(term.mode());
+            // Issue #296 diagnostics: resize is a lifecycle boundary that can
+            // affect terminal modes. Trace any mouse-reporting transition.
+            if before != after {
+                trace!(before = ?before, after = ?after, rows, cols, "mouse-reporting mode bits changed during resize");
+            }
         }
 
         Ok(())
@@ -806,6 +813,11 @@ fn reader_loop(
 ///
 /// Extracted from `reader_loop` so the "data arrives → dirty is set" behavior
 /// can be unit-tested without a live PTY.
+///
+/// Issue #296 diagnostics: snapshot the parsed mouse-reporting mode bits
+/// before and after advancing the parser, and emit a `trace` when they change
+/// so the layer that loses mouse-reporting state can be identified from logs.
+/// This is observability only — no behavioral change.
 fn process_pty_read(
     bytes: &[u8],
     parser: &mut Processor<StdSyncHandler>,
@@ -813,11 +825,35 @@ fn process_pty_read(
     dirty: &AtomicBool,
 ) {
     if let Ok(mut term) = term.lock() {
+        let before = mouse_reporting_bits(term.mode());
         for byte in bytes {
             parser.advance(&mut *term, *byte);
         }
+        let after = mouse_reporting_bits(term.mode());
+        if before != after {
+            trace!(
+                before = ?before,
+                after = ?after,
+                byte_count = bytes.len(),
+                "mouse-reporting mode bits changed during PTY read"
+            );
+        }
     }
     dirty.store(true, Ordering::Relaxed);
+}
+
+/// Compact representation of the DEC private mouse-reporting mode bits used by
+/// `mouse_reporting_active()` (issue #296 diagnostics).
+///
+/// Returns a tuple of booleans for `(MOUSE_MODE, SGR_MOUSE, UTF8_MOUSE)` so
+/// trace output is small and diffable without leaking the full `TermMode`.
+#[must_use]
+fn mouse_reporting_bits(mode: &TermMode) -> (bool, bool, bool) {
+    (
+        mode.contains(TermMode::MOUSE_MODE),
+        mode.contains(TermMode::SGR_MOUSE),
+        mode.contains(TermMode::UTF8_MOUSE),
+    )
 }
 
 #[cfg(test)]
