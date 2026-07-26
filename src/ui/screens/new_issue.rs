@@ -176,8 +176,16 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
     // Render body lines (up to a reasonable cap for the dialog).
     let body_lines: Vec<&str> = body_text.lines().collect();
     let cap = 12usize;
+    // Compute the caret line once before the loop (issue #407 OCR). The line
+    // index is the number of '\n' chars before the cursor — robust for empty
+    // lines and trailing newlines where `str::lines()` undercounts.
+    let caret_line = if body_focused {
+        char_offset(body_text.as_str(), body_cursor)
+    } else {
+        usize::MAX
+    };
     for (i, line) in body_lines.iter().take(cap).enumerate() {
-        let is_caret_line = body_focused && char_offset(body_text.as_str(), body_cursor) == i;
+        let is_caret_line = i == caret_line;
         let display = if is_caret_line {
             format!("{line}▌")
         } else {
@@ -271,11 +279,13 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
 }
 
 /// Return the 0-based line index of a char-offset cursor within `text`.
-/// Uses char-boundary-safe traversal so non-ASCII body text does not panic.
+///
+/// Counts the number of newline characters before the cursor position. This
+/// is robust for empty lines and trailing newlines, where
+/// `text[..byte_idx].lines().count()` undercounts (a final trailing newline
+/// is ignored by `lines()`, and `count().saturating_sub(1)` is also off-by-one
+/// for the first line). Uses char-boundary-safe traversal so non-ASCII body
+/// text does not panic.
 fn char_offset(text: &str, cursor: usize) -> usize {
-    let byte_idx = text
-        .char_indices()
-        .nth(cursor)
-        .map_or(text.len(), |(i, _)| i);
-    text[..byte_idx].lines().count().saturating_sub(1)
+    text.chars().take(cursor).filter(|c| *c == '\n').count()
 }

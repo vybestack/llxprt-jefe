@@ -497,8 +497,14 @@ pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     let body_focused = d.focus == crate::state::NewIssueDialogFocus::Body;
     let cap = 12usize;
     let body_lines: Vec<&str> = d.body_text.lines().collect();
+    // Compute the caret line once before the loop (issue #407 OCR).
+    let caret_line = if body_focused {
+        char_offset_body(&d.body_text, d.body_cursor)
+    } else {
+        usize::MAX
+    };
     for (i, line) in body_lines.iter().take(cap).enumerate() {
-        let is_caret_line = body_focused && char_offset_body(&d.body_text, d.body_cursor) == i;
+        let is_caret_line = i == caret_line;
         let display = if is_caret_line {
             format!("{line}▌")
         } else {
@@ -521,12 +527,12 @@ pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
 }
 
 /// Char-boundary-safe line index for a char-offset cursor within body text.
+///
+/// Counts the number of newline characters before the cursor position. This
+/// is robust for empty lines and trailing newlines, where
+/// `text[..byte_idx].lines().count().saturating_sub(1)` undercounts.
 fn char_offset_body(text: &str, cursor: usize) -> usize {
-    let byte_idx = text
-        .char_indices()
-        .nth(cursor)
-        .map_or(text.len(), |(i, _)| i);
-    text[..byte_idx].lines().count().saturating_sub(1)
+    text.chars().take(cursor).filter(|c| *c == '\n').count()
 }
 
 #[cfg(test)]
@@ -717,5 +723,45 @@ mod tests {
             panic!("must have lines");
         };
         assert_eq!(lines[0], " Edit Agent");
+    }
+
+    #[test]
+    fn char_offset_body_returns_line_zero_on_first_line() {
+        assert_eq!(char_offset_body("abc\ndef", 0), 0);
+        assert_eq!(char_offset_body("abc\ndef", 2), 0);
+    }
+
+    #[test]
+    fn char_offset_body_counts_newlines_for_line_index() {
+        // cursor right after the first '\n' → line 1.
+        assert_eq!(char_offset_body("abc\ndef", 4), 1);
+        // cursor at end of second line → still line 1.
+        assert_eq!(char_offset_body("abc\ndef", 7), 1);
+        // two newlines → line 2.
+        assert_eq!(char_offset_body("a\nb\nc", 3), 1);
+        assert_eq!(char_offset_body("a\nb\nc", 5), 2);
+    }
+
+    #[test]
+    fn char_offset_body_handles_trailing_newline() {
+        // A trailing newline produces an empty last line at index 1. The old
+        // `lines().count().saturating_sub(1)` logic reported 0 here, hiding
+        // the caret on the (empty) final line. Counting '\n' chars gives 1.
+        assert_eq!(char_offset_body("abc\n", 4), 1);
+        assert_eq!(char_offset_body("abc\n\n", 5), 2);
+    }
+
+    #[test]
+    fn char_offset_body_handles_empty_lines() {
+        // Empty line between two newlines: cursor on line 2.
+        assert_eq!(char_offset_body("a\n\nb", 2), 1);
+        assert_eq!(char_offset_body("a\n\nb", 3), 2);
+    }
+
+    #[test]
+    fn char_offset_body_is_char_boundary_safe_for_multibyte() {
+        // 'é' is two bytes; the cursor must count chars, not bytes.
+        assert_eq!(char_offset_body("é\nx", 1), 0);
+        assert_eq!(char_offset_body("é\nx", 2), 1);
     }
 }

@@ -33,8 +33,13 @@ pub fn resolve_new_issue_dialog_key(modal: &ModalState, key_event: &KeyEvent) ->
     match key_event.code {
         KeyCode::Esc => Some(AppEvent::NewIssueCancel),
         KeyCode::Enter => Some(resolve_enter(focus)),
-        KeyCode::Tab | KeyCode::Down => Some(resolve_tab_down(focus)),
-        KeyCode::BackTab | KeyCode::Up => Some(resolve_backtab_up(focus)),
+        // Tab always cycles field focus so the user can navigate out of the
+        // body editor; Down moves the body cursor when Body is focused
+        // (issue #407 OCR).
+        KeyCode::Tab => Some(AppEvent::NewIssueFocusNext),
+        KeyCode::Down => Some(resolve_down(focus)),
+        KeyCode::BackTab => Some(AppEvent::NewIssueFocusPrev),
+        KeyCode::Up => Some(resolve_up(focus)),
         KeyCode::Left => resolve_left(focus),
         KeyCode::Right => resolve_right(focus),
         KeyCode::Home => resolve_home(focus),
@@ -56,14 +61,18 @@ fn resolve_enter(focus: NewIssueDialogFocus) -> AppEvent {
     }
 }
 
-fn resolve_tab_down(focus: NewIssueDialogFocus) -> AppEvent {
+/// Down moves the body cursor down when Body is focused; otherwise cycles
+/// focus forward (issue #407 OCR).
+fn resolve_down(focus: NewIssueDialogFocus) -> AppEvent {
     match focus {
         NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorDown,
         _ => AppEvent::NewIssueFocusNext,
     }
 }
 
-fn resolve_backtab_up(focus: NewIssueDialogFocus) -> AppEvent {
+/// Up moves the body cursor up when Body is focused; otherwise cycles focus
+/// backward (issue #407 OCR).
+fn resolve_up(focus: NewIssueDialogFocus) -> AppEvent {
     match focus {
         NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorUp,
         _ => AppEvent::NewIssueFocusPrev,
@@ -132,7 +141,14 @@ fn resolve_char(focus: NewIssueDialogFocus, c: char) -> Option<AppEvent> {
     match focus {
         NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleChar(c)),
         NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyChar(c)),
-        // Picker fields consume chars to avoid leaking into the title.
-        _ => None,
+        // Picker fields (Template, Type, Labels, Milestone, Project,
+        // Assignees) are cycled via Space, not free text. Returning None
+        // intentionally drops typed chars so they do not leak into Title.
+        NewIssueDialogFocus::Template
+        | NewIssueDialogFocus::Type
+        | NewIssueDialogFocus::Labels
+        | NewIssueDialogFocus::Milestone
+        | NewIssueDialogFocus::Project
+        | NewIssueDialogFocus::Assignees => None,
     }
 }

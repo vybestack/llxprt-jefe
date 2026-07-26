@@ -137,7 +137,7 @@ impl AppState {
     fn new_issue_template_next(&mut self) -> bool {
         self.with_dialog_mut(|d| {
             d.template = d.template.next();
-            d.body_text = d.template.body_scaffold();
+            d.body_text = d.template.body_scaffold().to_string();
             d.body_cursor = d.body_text.chars().count();
             // Clear the title for built-in templates; the user types it fresh.
             d.title_text.clear();
@@ -330,6 +330,13 @@ impl AppState {
         if title_empty {
             self.with_dialog_mut(|d| {
                 d.error = Some("Issue title cannot be empty".to_string());
+            });
+        } else {
+            // Clear any stale validation error so the footer does not show a
+            // previous empty-title error once the title is valid (issue #407
+            // OCR).
+            self.with_dialog_mut(|d| {
+                d.error = None;
             });
         }
         // The app_input layer is responsible for spawning the create task;

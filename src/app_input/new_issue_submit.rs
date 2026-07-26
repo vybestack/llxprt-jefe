@@ -182,14 +182,8 @@ fn create_and_apply_properties(
         .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
     apply_assignees(client, target, &params.assignees)
         .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
-    apply_milestone(
-        client,
-        &params.owner,
-        &params.repo,
-        number,
-        params.milestone.as_deref(),
-    )
-    .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
+    apply_milestone(client, target, params.milestone.as_deref())
+        .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
     apply_issue_type(client, &created.node_id, params.type_id.as_deref())
         .map_err(|e| NewIssueCreateError::PropertyFailed { number, error: e })?;
     Ok(created)
@@ -220,13 +214,16 @@ fn apply_labels(
     target: PropertyEditTarget,
     labels: &[String],
 ) -> Result<(), GhError> {
-    // Filter empty/whitespace-only labels so an accidental blank entry in the
-    // multi-select does not produce a gh error (issue #407 OCR #4).
-    let filtered: Vec<&String> = labels.iter().filter(|l| !l.trim().is_empty()).collect();
-    if filtered.is_empty() {
+    // Filter empty/whitespace-only labels in one pass so an accidental blank
+    // entry in the multi-select does not produce a gh error (issue #407 OCR #4).
+    let desired: Vec<String> = labels
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .cloned()
+        .collect();
+    if desired.is_empty() {
         return Ok(());
     }
-    let desired: Vec<String> = filtered.into_iter().cloned().collect();
     let (to_add, _to_remove) = compute_label_diff(&[], &desired);
     client.edit_labels(target, &to_add, &[])
 }
@@ -236,20 +233,21 @@ fn apply_assignees(
     target: PropertyEditTarget,
     assignees: &[String],
 ) -> Result<(), GhError> {
-    let filtered: Vec<&String> = assignees.iter().filter(|a| !a.trim().is_empty()).collect();
-    if filtered.is_empty() {
+    let desired: Vec<String> = assignees
+        .iter()
+        .filter(|a| !a.trim().is_empty())
+        .cloned()
+        .collect();
+    if desired.is_empty() {
         return Ok(());
     }
-    let desired: Vec<String> = filtered.into_iter().cloned().collect();
     let (to_add, _to_remove) = compute_assignee_diff(&[], &desired);
     client.edit_assignees(target, &to_add, &[])
 }
 
 fn apply_milestone(
     client: GhClient,
-    owner: &str,
-    repo: &str,
-    number: u64,
+    target: PropertyEditTarget,
     milestone: Option<&str>,
 ) -> Result<(), GhError> {
     let Some(milestone) = milestone else {
@@ -258,7 +256,13 @@ fn apply_milestone(
     if milestone.trim().is_empty() {
         return Ok(());
     }
-    client.set_milestone(owner, repo, number, false, milestone)
+    client.set_milestone(
+        target.owner,
+        target.repo,
+        target.number,
+        target.is_pr,
+        milestone,
+    )
 }
 
 /// Apply the issue type using the create-response `node_id` directly,

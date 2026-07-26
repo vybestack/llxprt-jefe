@@ -62,12 +62,14 @@ impl NewIssueTemplate {
     }
 
     /// The body scaffold to prefill when this template is selected. Blank
-    /// returns an empty body (the user types from scratch).
+    /// returns an empty body (the user types from scratch). Returns a static
+    /// slice to avoid allocating on every call (issue #407 OCR).
     #[must_use]
-    pub fn body_scaffold(self) -> String {
+    pub fn body_scaffold(self) -> &'static str {
         match self {
-            Self::Blank => String::new(),
-            Self::Bug => "\
+            Self::Blank => "",
+            Self::Bug => {
+                "\
 ## What happened?
 
 ## Steps to reproduce
@@ -76,23 +78,25 @@ impl NewIssueTemplate {
 
 ## Expected
 "
-            .to_string(),
-            Self::Feature => "\
+            }
+            Self::Feature => {
+                "\
 ## Motivation
 
 ## Proposal
 
 ## Non-goals
 "
-            .to_string(),
-            Self::Task => "\
+            }
+            Self::Task => {
+                "\
 ## Goal
 
 ## Acceptance
 
 ## Non-goals
 "
-            .to_string(),
+            }
         }
     }
 }
