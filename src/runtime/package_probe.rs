@@ -367,7 +367,27 @@ pub fn require_launch_package_available(
     {
         return super::capabilities::validate_code_puppy_launch(signature);
     }
-    require_npm_package_available(signature).map_err(super::RuntimeError::NpmPackageAvailability)
+    let LaunchSource::NpmBacked(selector) =
+        llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref())
+    else {
+        return Ok(());
+    };
+    if crate::domain::target::is_valid_remote(&signature.remote) {
+        // Remote launches keep the `npm view` probe (issue #425 non-goal:
+        // jefe has no managed install on the remote host).
+        require_remote(signature, &selector).map_err(super::RuntimeError::NpmPackageAvailability)
+    } else {
+        // Issue #425: local versioned launches install the pinned version into
+        // jefe's managed cache. A successful install is the strongest
+        // availability proof (the package resolved and installed), and it
+        // makes the subsequent spawn a cache hit. The `create_session` path
+        // also calls `ensure_installed`, but the probe runs first during
+        // preflight so a bad version fails fast with a typed error before
+        // any tmux session is created.
+        super::llxprt_install::ensure_installed(&selector)
+            .map(|_| ())
+            .map_err(super::RuntimeError::LlxprtInstall)
+    }
 }
 
 #[cfg(test)]

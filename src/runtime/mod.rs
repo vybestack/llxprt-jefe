@@ -24,6 +24,8 @@ mod external_terminal;
 mod gh_auth;
 mod identity;
 mod liveness;
+/// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
+mod llxprt_install;
 mod manager;
 mod manager_passthrough;
 mod multiplexer;
@@ -66,6 +68,10 @@ pub use liveness::{
     batch_liveness_check_with_identity, check_remote_session_alive, check_session_alive,
     parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
     reconcile_dead_agents_with_identity, session_liveness,
+};
+pub use llxprt_install::{
+    LlxprtInstallError, bin_dir_for, cache_root, ensure_installed, install_dir_for,
+    local_managed_bin_dir,
 };
 pub use manager::{
     AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,

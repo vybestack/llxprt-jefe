@@ -43,22 +43,26 @@ fn direct_local_plan_remains_exact() {
             "docker",
         ]
     );
+    assert!(plan.managed_bin_dir.is_none());
 }
 
 #[test]
 
-fn nightly_local_plan_prefixes_complete_existing_llxprt_argv() {
+fn nightly_local_plan_runs_cached_binary_directly() {
+    // Issue #425: local versioned launches run the cached `llxprt` binary
+    // directly from the jefe-managed install dir instead of `npm exec`. The
+    // plan's executable is the agent target (resolved from the managed bin
+    // dir), the args are the inner llxprt argv (no `exec --package` wrapper),
+    // and `managed_bin_dir` points at the cache's `node_modules/.bin`.
     let nightly = "0.10.0-nightly.260712.21cb698b6";
     let plan = local_launch_plan(&signature(Some(nightly)));
-    assert_eq!(plan.executable, AgentExecutableTarget::Npm);
+    assert_eq!(
+        plan.executable,
+        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+    );
     assert_eq!(
         plan.args,
         vec![
-            "exec",
-            "--yes",
-            "--package=@vybestack/llxprt-code@0.10.0-nightly.260712.21cb698b6",
-            "--",
-            "llxprt",
             "--profile-load",
             "review profile",
             "--yolo",
@@ -68,6 +72,20 @@ fn nightly_local_plan_prefixes_complete_existing_llxprt_argv() {
             "--sandbox-engine",
             "docker",
         ]
+    );
+    let bin_dir = plan
+        .managed_bin_dir
+        .as_ref()
+        .unwrap_or_else(|| panic!("managed bin dir must be set for a versioned local launch"));
+    // Assert the full expected suffix so the relative order of cache-root ->
+    // version dir -> node_modules/.bin is fixed, not just that each component
+    // appears somewhere.
+    assert!(
+        bin_dir.ends_with(std::path::Path::new(
+            "llxprt-versions/0.10.0-nightly.260712.21cb698b6/node_modules/.bin"
+        )),
+        "managed bin dir must end in the version-cache .bin path: {}",
+        bin_dir.display()
     );
     assert!(
         plan.env
@@ -79,20 +97,30 @@ fn nightly_local_plan_prefixes_complete_existing_llxprt_argv() {
             .iter()
             .any(|pair| pair == &("SANDBOX_FLAGS".to_owned(), "--network none".to_owned()))
     );
-    local_metacharacter_selector_is_one_argument();
+    local_metacharacter_selector_dir_name_is_filesystem_safe();
     code_puppy_ignores_dormant_selector();
     remote_versioned_argv_is_complete_and_structural();
 }
 
-fn local_metacharacter_selector_is_one_argument() {
-    // Issue #403: internal whitespace is now stripped by normalization, so
-    // the selector passed to the launch plan is the whitespace-free form.
-    let plan = local_launch_plan(&signature(Some("1.0;$(touch nope)`touch no`\nnext")));
-    assert_eq!(
-        plan.args[2],
-        "--package=@vybestack/llxprt-code@1.0;$(touchnope)`touchno`next"
+fn local_metacharacter_selector_dir_name_is_filesystem_safe() {
+    // Issue #425: a selector with shell metacharacters is not passed to a
+    // shell on the local path (the cached binary is invoked directly), but
+    // the version_dir_name still must be filesystem-safe. The plan's
+    // managed_bin_dir derives from the sanitized dir name.
+    let sel = LlxprtNpmPackageSelector::normalize("1.0;$(touch nope)`touch no`\nnext")
+        .unwrap_or_else(|| panic!("selector normalizes"));
+    let dir = sel.version_dir_name();
+    assert!(
+        !dir.contains('/')
+            && !dir.contains('\\')
+            && !dir.contains(' ')
+            && !dir.contains(':')
+            && !dir.contains('?')
+            && !dir.contains('*')
+            && !dir.starts_with('.')
+            && !dir.starts_with(' '),
+        "version dir name must be filesystem-safe: {dir}"
     );
-    assert_eq!(plan.args.len(), 13);
     remote_dynamic_argv_is_shell_escaped_exactly_once();
 }
 
@@ -107,16 +135,37 @@ fn code_puppy_ignores_dormant_selector() {
         AgentExecutableTarget::Agent(AgentKind::CodePuppy)
     );
     assert_eq!(plan.args, vec!["-i", "--yolo", "false"]);
+    assert!(plan.managed_bin_dir.is_none());
 }
 
 fn remote_versioned_argv_is_complete_and_structural() {
+    // Remote versioned launches keep the `npm exec` form (issue #425
+    // non-goal: jefe has no managed install on the remote host).
     let plan = remote_launch_argv(&signature(Some("nightly")), None)
         .unwrap_or_else(|error| panic!("versioned plan: {error}"));
     assert_eq!(plan.executable, "npm");
-    assert_eq!(
-        plan.args,
-        local_launch_plan(&signature(Some("nightly"))).args
+    let local = local_launch_plan(&signature(Some("nightly")));
+    // The local plan runs the binary directly (no `exec --package` prefix);
+    // the remote plan keeps the npm-exec wrapper. They must NOT match.
+    assert_ne!(
+        plan.args, local.args,
+        "remote argv keeps npm exec; local argv runs the cached binary"
     );
+    assert_eq!(plan.args[0], "exec");
+    assert_eq!(plan.args[1], "--yes");
+    // Explicitly assert the package spec so a regression in the npm-exec
+    // wrapper is caught even though the local plan no longer uses it.
+    assert_eq!(
+        plan.args[2],
+        format!(
+            "--package={}",
+            LlxprtNpmPackageSelector::normalize("nightly")
+                .unwrap_or_else(|| panic!("selector"))
+                .package_spec()
+        )
+    );
+    assert_eq!(plan.args[3], "--");
+    assert_eq!(plan.args[4], "llxprt");
 }
 
 fn remote_dynamic_argv_is_shell_escaped_exactly_once() {
@@ -271,19 +320,42 @@ fn windows_noncanonical_npm_cmd_is_rejected_before_command_construction() {
 }
 
 #[test]
-fn latest_sentinel_produces_npm_latest_dist_tag_spec() {
+fn latest_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
+    // Issue #425: `latest` maps to the `latest` dist-tag for the install pin,
+    // and the managed bin dir uses the sanitized dir name.
     let plan = local_launch_plan(&signature(Some("latest")));
-    assert_eq!(plan.executable, AgentExecutableTarget::Npm);
-    // npm resolves @vybestack/llxprt-code@latest natively
-    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@latest");
+    assert_eq!(
+        plan.executable,
+        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+    );
+    let bin_dir = plan
+        .managed_bin_dir
+        .as_ref()
+        .unwrap_or_else(|| panic!("managed bin dir set for latest"));
+    assert!(
+        bin_dir.ends_with(std::path::Path::new("latest/node_modules/.bin")),
+        "latest selector dir name: {}",
+        bin_dir.display()
+    );
 }
 
 #[test]
-fn latest_nightly_sentinel_produces_npm_nightly_dist_tag_spec() {
+fn latest_nightly_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
     // User types "latest nightly", npm dist-tag is "nightly"
     let plan = local_launch_plan(&signature(Some("latest nightly")));
-    assert_eq!(plan.executable, AgentExecutableTarget::Npm);
-    assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@nightly");
+    assert_eq!(
+        plan.executable,
+        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+    );
+    let bin_dir = plan
+        .managed_bin_dir
+        .as_ref()
+        .unwrap_or_else(|| panic!("managed bin dir set for nightly"));
+    assert!(
+        bin_dir.ends_with(std::path::Path::new("nightly/node_modules/.bin")),
+        "nightly selector dir name: {}",
+        bin_dir.display()
+    );
 }
 
 #[test]

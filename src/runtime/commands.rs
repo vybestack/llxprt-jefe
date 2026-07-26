@@ -5,7 +5,7 @@
 //! @pseudocode component-002 lines 01-06
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
@@ -478,6 +478,9 @@ fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget
             AgentExecutableTarget::Agent(signature.agent_kind),
             inner_args,
         ),
+        // Issue #425: remote versioned LLxprt launches keep the `npm exec`
+        // form (jefe has no managed install on the remote host). Local
+        // versioned launches build their argv in `local_launch_plan`.
         LaunchSource::NpmBacked(selector) => {
             let mut args = vec![
                 "exec".to_owned(),
@@ -675,7 +678,21 @@ struct LocalLaunchPlan {
     args: Vec<String>,
     env: Vec<(String, String)>,
     warning: Option<String>,
+    /// When present, the launch runs the agent binary directly from this
+    /// jefe-managed `node_modules/.bin` directory instead of resolving the
+    /// executable on PATH. Set for local NpmBacked LLxprt launches (issue
+    /// #425): the `npm exec` form is replaced by a direct invocation of the
+    /// cached `llxprt` binary so the work directory's `node_modules` cannot
+    /// shadow the pinned version and concurrent launches cannot contend on
+    /// the shared `_npx` cache lock.
+    managed_bin_dir: Option<PathBuf>,
 }
+
+/// Local-launch argv selection helpers, split out so this file stays under
+/// the source-size hard limit.
+#[path = "commands_launch_parts.rs"]
+mod commands_launch_parts;
+use commands_launch_parts::local_launch_parts;
 
 fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     let mut env = Vec::new();
@@ -699,12 +716,14 @@ fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
         env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
     }
-    let (executable, args) = launch_target_and_args(signature);
+    let inner_args = launch_args(signature);
+    let (executable, args, managed_bin_dir) = local_launch_parts(signature, inner_args);
     LocalLaunchPlan {
         executable,
         args,
         env,
         warning,
+        managed_bin_dir,
     }
 }
 
@@ -722,22 +741,49 @@ fn local_launch_command(
         .arg("-c")
         .arg(work_dir);
 
-    let executable = AgentExecutableResolver::current()
-        .resolve_target(launch.executable)
-        .map_err(RuntimeError::AgentExecutable)?;
-    let pane_args = launch.args.iter().map(OsString::from).collect::<Vec<_>>();
-    let environment = launch
-        .env
+    let executable = if let Some(bin_dir) = &launch.managed_bin_dir {
+        // Issue #425: resolve the cached `llxprt` binary from the jefe-managed
+        // install dir so the work directory's `node_modules` cannot shadow
+        // the pinned version. `try_local_create_session` already ran
+        // `ensure_installed` so the bin dir exists.
+        super::llxprt_install::resolve_managed_executable(bin_dir, launch.executable)?
+    } else {
+        AgentExecutableResolver::current()
+            .resolve_target(launch.executable)
+            .map_err(RuntimeError::AgentExecutable)?
+    };
+    multiplexer_pane_args(
+        &multiplexer,
+        &executable,
+        &launch.env,
+        &launch.args,
+        &mut cmd,
+    )?;
+    Ok(cmd)
+}
+
+/// Drive `MultiplexerPlan::agent_pane_command_args`, converting env and args
+/// to `OsString` and forwarding them to `cmd`. Split out so `local_launch_command`
+/// stays compact.
+fn multiplexer_pane_args(
+    multiplexer: &MultiplexerPlan,
+    executable: &super::agent_executable::ResolvedAgentExecutable,
+    env: &[(String, String)],
+    args: &[String],
+    cmd: &mut Command,
+) -> Result<(), RuntimeError> {
+    let pane_args = args.iter().map(OsString::from).collect::<Vec<_>>();
+    let environment = env
         .iter()
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect::<Vec<_>>();
     for arg in multiplexer
-        .agent_pane_command_args(&executable, &pane_args, &environment)
+        .agent_pane_command_args(executable, &pane_args, &environment)
         .map_err(RuntimeError::Multiplexer)?
     {
         cmd.arg(arg);
     }
-    Ok(cmd)
+    Ok(())
 }
 
 /// Build the Unix pane-command argv for remote shell construction and
@@ -754,31 +800,11 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     args
 }
 
-fn finalize_local_session(session_name: &str, warning: Option<String>) {
-    enforce_clipboard_passthrough(session_name);
-    if let Err(error) = configure_prefix_for_passthrough(session_name) {
-        debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
-    }
-    let _ = tmux_cmd_status(
-        ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
-        None,
-    );
-    apply_session_style(session_name);
-
-    if let Some(warning) = warning {
-        debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
-        let _ = tmux_cmd_status(
-            [
-                "display-message",
-                "-t",
-                session_name,
-                &format!("[jefe] warning: {warning}"),
-            ]
-            .as_ref(),
-            None,
-        );
-    }
-}
+/// Local-session finalization (clipboard/prefix passthrough, remain-on-exit,
+/// style, warning), split out so this file stays under the source-size limit.
+#[path = "commands_finalize.rs"]
+mod commands_finalize;
+use commands_finalize::finalize_local_session;
 
 enum LocalCreateFailure {
     Runtime(RuntimeError),
@@ -792,6 +818,15 @@ fn try_local_create_session(
     attempt: u8,
 ) -> Result<(), LocalCreateFailure> {
     let plan = local_launch_plan(signature);
+    if let Some(selector) = commands_launch_parts::versioned_local_selector(signature) {
+        // Issue #425: ensure the jefe-managed install exists before resolving
+        // the cached binary. The install happens here (not in
+        // `local_launch_command`) so a failure surfaces as a launch failure
+        // with the typed install error rather than a missing-binary
+        // SpawnFailed.
+        super::llxprt_install::ensure_installed(selector)
+            .map_err(|error| LocalCreateFailure::Runtime(RuntimeError::LlxprtInstall(error)))?;
+    }
     let mut cmd =
         local_launch_command(session_name, work_dir, &plan).map_err(LocalCreateFailure::Runtime)?;
     debug!(session_name = %session_name, attempt, "create_session invoking local multiplexer new-session");
