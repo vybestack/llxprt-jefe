@@ -30,7 +30,7 @@ use super::command_capture::run_command_capture_with_timeout;
 /// Generous wall-clock budget for a fresh install of `@vybestack/llxprt-code`
 /// (a large package). A cache hit returns well inside this bound; a miss pays
 /// the registry fetch + extract once per selector.
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const INSTALL_TIMEOUT: Duration = Duration::new(300, 0);
 
 /// Subdirectory of the cache dir holding all jefe-managed version installs.
 const VERSIONS_SUBDIR: &str = "llxprt-versions";

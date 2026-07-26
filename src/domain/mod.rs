@@ -108,6 +108,9 @@ pub use agent_chooser::{
     agent_chooser_label,
 };
 
+/// Closed four-agent definition contract (issue #382 CW-02).
+pub mod agent_definition;
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
