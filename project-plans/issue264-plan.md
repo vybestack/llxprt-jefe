@@ -4,7 +4,7 @@
 - Branch: `issue264`
 - Base: `origin/main` at `20f6e76`
 - Issue state: open
-- Review counters: OCR pre-PR 1/2, OCR post-PR 1/2
+- Review counters: OCR pre-PR 1/2, OCR post-PR 2/2 (final)
 - Delivery shape: one issue-closing pull request, explicitly approved by the
   maintainer despite crossing the CLI, diagnostic/process, persistence, Windows
   runtime, release automation, documentation, and CI ownership boundaries.
@@ -229,6 +229,32 @@ Exhaustive finding dispositions (by OCR index → file/path → classification):
 | 26 | windows_support_contracts.rs (general) | docs contracts use exact `contains()` | **Reject**: these are intentional durable-contract gates on exact documented commands; normalization would weaken the signal |
 
 **Coverage:** all32 OCR findings accounted for above (18 In-scope-Fix/Blocker-Fix/resolved-locally, 14 Reject/Defer).
+
+### OCR post-PR run 2/2 (artifact `target/ocr-final/ocr-result.json`, 21 findings)
+
+This was the final allowed completed post-PR review. Finding dispositions:
+
+- **Blocker-Fix / In-scope-Fix:** #2 least-privilege CI default; #4 dangerous
+  installer target rejection; #5 user-PATH length guard; #6 collision-resistant
+  install-path mutex; #10 multi-`@` SSH redaction panic; #11 all Bearer-token
+  occurrences; #12 numeric registry DWORD parsing; #14 repeated doctor config
+  behavior test; #15 workflow step-boundary contract; #16 canonical report-header
+  assertions; #17-#20 structural redaction assertions. These are implemented
+  with focused regression coverage.
+- **Reject:** #1 unowned residue deletion would violate the ownership-marker
+  safety boundary; #3 `JEFE_PSMUX_BIN` is set by the Windows job and missing
+  psmux already fails earlier; #7/#8 every doctor detail has a single tested
+  render-time redaction boundary, so duplicating partial collection-time
+  redaction would not establish a stronger invariant; #21 the long-path parser
+  and terminal evidence are intentionally cross-platform pure APIs and their
+  unconditional tests protect that contract.
+- **Defer:** #9 repeated scans cover a fixed ten-kind list and do not justify an
+  allocation or ordering refactor; #13 is naming-only and the existing test
+  body accurately proves doctor-alone parsing.
+
+All 21 findings are accounted for: 13 grouped fixes, 5 rejects, and 2 deferred
+items (with #17-#20 grouped as one test-strengthening fix). No further OCR run is
+permitted by the issue review cap.
 
 ## Verification evidence (post-PR OCR remediation)
 

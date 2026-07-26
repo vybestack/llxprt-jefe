@@ -48,6 +48,38 @@ if (-not $SourceDir) {
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $SourceDir = [IO.Path]::GetFullPath($SourceDir).TrimEnd([IO.Path]::DirectorySeparatorChar)
 
+function Assert-SafeInstallDir {
+    $root = [IO.Path]::GetPathRoot($InstallDir)
+    if (-not $root -or $InstallDir -eq $root.TrimEnd([IO.Path]::DirectorySeparatorChar)) {
+        throw "InstallDir must not be a drive root: $InstallDir"
+    }
+
+    $protectedRoots = @(
+        $env:SystemRoot,
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)},
+        $env:ProgramData
+    ) | Where-Object { $_ } | ForEach-Object {
+        [IO.Path]::GetFullPath($_).TrimEnd(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        )
+    }
+    foreach ($protectedRoot in $protectedRoots) {
+        if ($InstallDir -eq $protectedRoot -or $InstallDir.StartsWith("$protectedRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "InstallDir must not be a protected system directory: $InstallDir"
+        }
+    }
+
+    foreach ($personalRoot in @($env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA)) {
+        if ($personalRoot -and $InstallDir -eq ([IO.Path]::GetFullPath($personalRoot).TrimEnd([IO.Path]::DirectorySeparatorChar))) {
+            throw "InstallDir must be a package-owned child directory: $InstallDir"
+        }
+    }
+}
+
+Assert-SafeInstallDir
+
 function Write-Step([string]$Message) {
     Write-Host "[jefe] $Message" -ForegroundColor Cyan
 }
@@ -109,7 +141,11 @@ function Add-JefeUserPath {
     }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $separator = if ($userPath -and -not $userPath.EndsWith(';')) { ';' } else { '' }
-    [Environment]::SetEnvironmentVariable('Path', "$userPath$separator$InstallDir", 'User')
+    $newUserPath = "$userPath$separator$InstallDir"
+    if ($newUserPath.Length -ge 32000) {
+        throw "adding Jefe would make the user PATH exceed the safe Windows environment-variable limit"
+    }
+    [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
     Write-Step "added $InstallDir to user PATH"
     return $true
 }
@@ -265,7 +301,14 @@ function Invoke-WithInstallLock([scriptblock]$Action) {
     # race on the final move into InstallDir, corrupting the install or
     # losing a backup. The mutex name is derived from the normalized path so
     # distinct install directories are independent.
-    $mutexName = 'Local\jefe-install-' + ($InstallDir -replace '[^A-Za-z0-9]', '_')
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $pathBytes = [Text.Encoding]::UTF8.GetBytes($InstallDir.ToUpperInvariant())
+        $pathHash = [BitConverter]::ToString($hasher.ComputeHash($pathBytes)).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $hasher.Dispose()
+    }
+    $mutexName = 'Local\jefe-install-' + $pathHash
     $mutex = [System.Threading.Mutex]::new($false, $mutexName)
     try {
         $acquired = $false

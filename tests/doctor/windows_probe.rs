@@ -23,6 +23,18 @@ fn classifies_disabled_registry_dword() {
 }
 
 #[test]
+fn classifies_zero_padded_and_nonzero_registry_dwords() {
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled REG_DWORD 0x00000001"),
+        LongPathPolicy::Enabled
+    );
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled REG_DWORD 0xFF"),
+        LongPathPolicy::Enabled
+    );
+}
+
+#[test]
 fn classifies_missing_registry_value() {
     assert_eq!(LongPathPolicy::classify(""), LongPathPolicy::Missing);
     assert_eq!(

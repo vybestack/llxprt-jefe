@@ -43,8 +43,8 @@ fn redacts_windows_username_in_user_home_path() {
     let raw = r"C:\Users\acoli\AppData\Local\jefe";
     let redacted = assert_redacted(raw, "acoli");
     assert!(
-        redacted.contains("Users"),
-        "structural path label must survive redaction: {redacted:?}"
+        redacted.contains("Users") && redacted.contains(r"\AppData"),
+        "structural path and separator must survive redaction: {redacted:?}"
     );
 }
 
@@ -53,8 +53,8 @@ fn redacts_posix_home_username_path() {
     let raw = "/home/alice/.config/jefe";
     let redacted = assert_redacted(raw, "alice");
     assert!(
-        redacted.contains(".config") || redacted.contains("home"),
-        "structural path label must survive redaction: {redacted:?}"
+        redacted.contains("/home/") && redacted.contains("/.config"),
+        "structural path and separator must survive redaction: {redacted:?}"
     );
 }
 
@@ -103,8 +103,12 @@ fn redacts_url_embedded_password() {
     let raw = "https://alice:s3cr3t@github.com/acme/widgets.git";
     let redacted = assert_redacted(raw, "s3cr3t");
     assert!(
-        redacted.contains("github.com"),
-        "the host must survive password redaction: {redacted:?}"
+        !redacted.contains("alice"),
+        "the username must be redacted: {redacted:?}"
+    );
+    assert!(
+        redacted.contains("[redacted]@github.com"),
+        "the redacted userinfo delimiter and host must survive: {redacted:?}"
     );
 }
 
@@ -191,6 +195,10 @@ fn redacts_enter_password_prompt_evidence() {
     assert!(
         !redacted.contains("carol"),
         "the username embedded in the key path must also be redacted: {redacted:?}"
+    );
+    assert!(
+        redacted.contains("/home/") && redacted.contains("/.ssh/id_rsa"),
+        "the SSH key path skeleton must survive redaction: {redacted:?}"
     );
 }
 
@@ -316,6 +324,24 @@ fn redacts_multiple_ssh_userinfo_occurrences() {
     );
     assert!(redacted.contains("github.com:a/b.git"));
     assert!(redacted.contains("example.com:c/d.git"));
+}
+
+#[test]
+fn redacts_multiple_bearer_tokens() {
+    let raw = "Authorization: Bearer first-secret Proxy: Bearer second-secret";
+    let redacted = redact_value(raw);
+    assert!(!redacted.contains("first-secret"));
+    assert!(!redacted.contains("second-secret"));
+    assert_eq!(redacted.matches("Bearer [redacted]").count(), 2);
+}
+
+#[test]
+fn multiple_at_signs_do_not_panic_or_leak_ssh_userinfo() {
+    let raw = "contact@example.com then deploy@github.com:acme/widgets.git";
+    let redacted = redact_value(raw);
+    assert!(redacted.contains("contact@example.com"));
+    assert!(!redacted.contains("deploy@github.com"));
+    assert!(redacted.contains("[redacted]@github.com:acme/widgets.git"));
 }
 
 #[test]

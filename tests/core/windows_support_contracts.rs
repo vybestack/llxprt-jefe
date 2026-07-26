@@ -164,9 +164,8 @@ fn release_zip_excludes_third_party_binaries() {
         .find("Package Windows portable zip")
         .unwrap_or_else(|| panic!("Windows packaging step not found"));
     let zip_section = &workflow[zip_step_start..];
-    // Find the end of the step (next "- name:" or "Generate checksums").
     let step_end = zip_section
-        .find("Generate checksums")
+        .find("\n      - name:")
         .unwrap_or(zip_section.len());
     let zip_step = &zip_section[..step_end];
     assert!(
@@ -265,11 +264,42 @@ fn install_script_enforces_ownership_and_preservation() {
         script.contains("SourceDir") && script.contains("InstallDir"),
         "install script must support SourceDir/InstallDir parameters for CI"
     );
+    assert_installer_safety_contracts(&script);
+    assert!(
+        script.contains("Normalize-PathEntry")
+            && script.contains("TrimEnd([IO.Path]::DirectorySeparatorChar"),
+        "PATH ownership comparisons must normalize trailing separators"
+    );
+    assert!(
+        script.contains("restoring the previous install also failed")
+            && script.contains("backup remains at"),
+        "a failed rollback must report both failures and the retained backup"
+    );
+    // Must not perform privileged/system-wide mutation.
+    assert!(
+        !script.contains("HKEY_LOCAL_MACHINE")
+            && !script.contains("New-Item -ItemType Directory -Force -Path 'C:\\Program Files'"),
+        "install script must not perform system-wide mutation"
+    );
+}
+
+fn assert_installer_safety_contracts(script: &str) {
     assert!(
         script.contains("Invoke-WithInstallLock")
             && script.contains("Local\\jefe-install-")
+            && script.contains("Security.Cryptography.SHA256")
             && script.contains("ReleaseMutex"),
-        "install lifecycle must serialize per-user mutations and release its mutex"
+        "install lifecycle must serialize each normalized install path with a collision-resistant mutex"
+    );
+    assert!(
+        script.contains("Assert-SafeInstallDir")
+            && script.contains("must not be a drive root")
+            && script.contains("must not be a protected system directory"),
+        "install lifecycle must reject dangerous recursive-removal targets"
+    );
+    assert!(
+        script.contains("$newUserPath.Length -ge 32000"),
+        "install must reject a user PATH that would exceed the safe Windows limit"
     );
     assert!(
         script.contains("Normalize-PathEntry")

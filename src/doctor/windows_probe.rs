@@ -51,11 +51,12 @@ impl LongPathPolicy {
                 .skip(2)
                 .take_while(char::is_ascii_hexdigit)
                 .collect::<String>();
-            if value == "1" {
-                return Self::Enabled;
-            }
-            if !value.is_empty() {
-                return Self::Disabled;
+            if let Ok(parsed) = u64::from_str_radix(&value, 16) {
+                return if parsed == 0 {
+                    Self::Disabled
+                } else {
+                    Self::Enabled
+                };
             }
         }
         // Some locales render `REG_DWORD    0x1`; fall back to a plain `1`.

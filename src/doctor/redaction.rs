@@ -79,7 +79,7 @@ fn redact_ssh_userinfo(value: &str) -> String {
     let mut consumed = 0;
     while let Some(at) = value[consumed..].find('@') {
         let at_abs = consumed + at;
-        let before_at = &value[..at_abs];
+        let before_at = &value[consumed..at_abs];
         let after_at = &value[at_abs + 1..];
         let host_end = after_at.find(char::is_whitespace).unwrap_or(after_at.len());
         if scheme_precedes_at(before_at) || !after_at[..host_end].contains(':') {
@@ -88,9 +88,10 @@ fn redact_ssh_userinfo(value: &str) -> String {
             consumed = copy_to;
             continue;
         }
-        let start = before_at
-            .rfind(|c: char| c.is_whitespace() || c == ':')
-            .map_or(0, |i| i + 1);
+        let start = consumed
+            + before_at
+                .rfind(|c: char| c.is_whitespace() || c == ':')
+                .map_or(0, |i| i + 1);
         if start >= at_abs || value[start..at_abs].starts_with("[redacted]") {
             let copy_to = at_abs + 1;
             result.push_str(&value[consumed..copy_to]);
@@ -161,24 +162,28 @@ fn replace_token_with_prefix(value: &str, prefix: &str) -> String {
 
 /// Mask a `Bearer <token>` run, preserving the `Bearer` label.
 fn redact_bearer_token(value: &str) -> String {
+    const PREFIX: &str = "bearer ";
     let lower = value.to_ascii_lowercase();
-    let Some(bearer_idx) = lower.find("bearer ") else {
-        return value.to_string();
-    };
-    let token_start = bearer_idx + "bearer ".len();
-    let token_end = token_start
-        + value[token_start..]
+    let mut result = String::with_capacity(value.len());
+    let mut consumed = 0;
+    while let Some(relative) = lower[consumed..].find(PREFIX) {
+        let bearer_idx = consumed + relative;
+        let token_start = bearer_idx + PREFIX.len();
+        let token_len = value[token_start..]
             .char_indices()
             .take_while(|(_, c)| !c.is_whitespace())
             .last()
             .map_or(0, |(i, c)| i + c.len_utf8());
-    if token_end <= token_start {
-        return value.to_string();
+        if token_len == 0 {
+            result.push_str(&value[consumed..token_start]);
+            consumed = token_start;
+            continue;
+        }
+        result.push_str(&value[consumed..token_start]);
+        result.push_str("[redacted]");
+        consumed = token_start + token_len;
     }
-    let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..token_start]);
-    result.push_str("[redacted]");
-    result.push_str(&value[token_end..]);
+    result.push_str(&value[consumed..]);
     result
 }
 

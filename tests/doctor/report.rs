@@ -89,113 +89,53 @@ fn report_includes_architecture_label() {
 // ── Required diagnostic section headers (AC-05 .. AC-08) ────────────────────
 
 #[test]
-fn report_includes_multiplexer_section() {
-    let report = sample_report(&[pass_finding(FindingKind::Multiplexer, "psmux 0.9.2 ready")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Multiplexer")
-            || rendered.contains("multiplexer")
-            || rendered.contains("psmux"),
-        "report must include a multiplexer section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_namespace_section() {
-    let report = sample_report(&[pass_finding(
-        FindingKind::Namespace,
-        "private namespace ready",
-    )]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Namespace") || rendered.contains("namespace"),
-        "report must include a namespace section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_conpty_section() {
-    let report = sample_report(&[pass_finding(FindingKind::ConPty, "ConPTY available")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("ConPTY") || rendered.contains("ConPTY".to_lowercase().as_str()),
-        "report must include a ConPTY section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_git_section() {
-    let report = sample_report(&[pass_finding(FindingKind::Git, "git 2.43.0")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Git") || rendered.contains("git"),
-        "report must include a Git section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_gh_auth_section() {
-    let report = sample_report(&[pass_finding(FindingKind::GhAuth, "gh authenticated")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("gh") || rendered.contains("GitHub"),
-        "report must include a gh/auth section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_llxprt_code_section() {
-    let report = sample_report(&[pass_finding(FindingKind::LlxprtCode, "LLxprt Code present")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("LLxprt Code") || rendered.contains("llxprt"),
-        "report must include an LLxprt Code section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_code_puppy_section() {
-    let report = sample_report(&[pass_finding(FindingKind::CodePuppy, "Code Puppy present")]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Code Puppy")
-            || rendered.contains("code-puppy")
-            || rendered.contains("codepuppy"),
-        "report must include a Code Puppy section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_config_state_section() {
-    let report = sample_report(&[pass_finding(
-        FindingKind::Persistence,
-        "config and state directories writable",
-    )]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Config")
-            || rendered.contains("config")
-            || rendered.contains("State")
-            || rendered.contains("state")
-            || rendered.contains("Persistence")
-            || rendered.contains("persistence"),
-        "report must include a config/state section; got: {rendered:?}"
-    );
-}
-
-#[test]
-fn report_includes_long_path_section() {
-    let report = sample_report(&[pass_finding(
-        FindingKind::LongPath,
-        "Windows long-path policy ok",
-    )]);
-    let rendered = render_report(&report);
-    assert!(
-        rendered.contains("Long")
-            || rendered.contains("long path")
-            || rendered.contains("long-path"),
-        "report must include a long-path section; got: {rendered:?}"
-    );
+fn report_uses_canonical_section_headers() {
+    let findings = [
+        pass_finding(FindingKind::Multiplexer, "fixture-a"),
+        pass_finding(FindingKind::Namespace, "fixture-b"),
+        pass_finding(FindingKind::ConPty, "fixture-c"),
+        pass_finding(FindingKind::Git, "fixture-d"),
+        pass_finding(FindingKind::GhAuth, "fixture-e"),
+        pass_finding(FindingKind::LlxprtCode, "fixture-f"),
+        pass_finding(FindingKind::CodePuppy, "fixture-g"),
+        pass_finding(FindingKind::Persistence, "fixture-h"),
+        pass_finding(FindingKind::LongPath, "fixture-i"),
+    ];
+    let rendered = render_report(&sample_report(&findings));
+    for header in [
+        "
+Multiplexer
+",
+        "
+Namespace
+",
+        "
+ConPTY
+",
+        "
+Git
+",
+        "
+gh / GitHub auth
+",
+        "
+LLxprt Code
+",
+        "
+Code Puppy
+",
+        "
+Config / state persistence
+",
+        "
+Long-path support
+",
+    ] {
+        assert!(
+            rendered.contains(header),
+            "report must include canonical header {header:?}; got: {rendered:?}"
+        );
+    }
 }
 
 // ── Redaction is applied before rendering (AC-09 wiring) ───────────────────

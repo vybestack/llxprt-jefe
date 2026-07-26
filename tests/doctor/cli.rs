@@ -134,6 +134,16 @@ fn doctor_rejects_copy_flag() {
 }
 
 #[test]
+fn doctor_repeated_config_uses_last_value() {
+    let parsed = parse(&["doctor", "--config", "/first", "--config", "/second"])
+        .test_unwrap("doctor with repeated config should parse");
+    assert_eq!(
+        parsed.config_dir.as_deref(),
+        Some(std::path::Path::new("/second"))
+    );
+}
+
+#[test]
 fn doctor_does_not_set_version_or_help_flags() {
     let parsed = parse(&["doctor"]).test_unwrap("doctor alone should parse");
     assert!(
