@@ -77,7 +77,7 @@ pub(super) fn spawn_device_auth_flow(app_state: &mut AppStateHandle, ctx: &Share
             report_auth_failed(
                 app_state,
                 ctx,
-                format!("GitHub auth task panicked: {message}"),
+                format!("GitHub auth request abandoned: {message}"),
             );
         },
     );

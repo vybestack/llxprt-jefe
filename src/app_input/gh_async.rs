@@ -131,7 +131,9 @@ pub(super) fn spawn_gh_request_with_panic<F, R, S, P>(
 /// races inside `generational-box`'s borrow tracking and panics (issue #437).
 /// `apply` and `on_panic` run on the root component's executor through the
 /// lifecycle-owned delivery queue, and are dropped without running when the
-/// root is gone.
+/// root is gone. They must not panic: they run outside the worker containment
+/// boundary, so a panic there is a genuine reducer/state bug and is reported
+/// through the normal hook rather than being swallowed.
 pub(super) fn spawn_gh_work<F, R, A, P>(
     deliveries: &GhDeliveryHandle,
     ctx: &SharedContext,

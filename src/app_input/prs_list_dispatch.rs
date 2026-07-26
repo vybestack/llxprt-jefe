@@ -116,7 +116,7 @@ fn list_fetch_abandoned(
             app_state,
             ctx,
             &params,
-            format!("GitHub PR list task panicked: {message}"),
+            format!("GitHub PR list request abandoned: {message}"),
         );
     }
 }

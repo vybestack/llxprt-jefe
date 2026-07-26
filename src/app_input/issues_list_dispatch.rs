@@ -179,7 +179,7 @@ pub(super) fn apply_issue_list_delivery(
             app_state,
             ctx,
             &delivery.params,
-            format!("GitHub issue list task panicked: {message}"),
+            format!("GitHub issue list request abandoned: {message}"),
         ),
     }
 }

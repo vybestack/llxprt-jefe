@@ -73,7 +73,7 @@ fn comment_page_abandoned(
                 scope_repo_id: dispatched.params.scope_repo_id,
                 pr_number: dispatched.params.pr_number,
                 request_id: dispatched.request_id,
-                error: format!("GitHub PR comments task panicked: {message}"),
+                error: format!("GitHub PR comments abandoned: {message}"),
             },
         );
     }

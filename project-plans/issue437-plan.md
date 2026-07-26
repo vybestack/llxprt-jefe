@@ -109,9 +109,9 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 ## Review counters
 
 - Pre-PR Open Code Review: 1 / 2 (22 files, 7 comments; a first attempt with a `A..B` range reviewed 0 files and was not counted as coverage)
-- Post-PR Open Code Review: 0 / 2
+- Post-PR Open Code Review: 1 / 2 (CI OpenCodeReview on the PR head; 15 inline comments)
 - Independent Rust review: 1
-- Review/remediation cycles total: 1 / 2
+- Review/remediation cycles total: 2 / 2 (limit reached; no further review rounds)
 
 ## Review triage
 
@@ -149,6 +149,20 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 | candidate | `jefe-tmux-harness --scenario dev-docs/tmux-scenarios/errors-mode.json` against the rebuilt binary | `ok: 9 steps` — the real Errors screen still opens, renders, and exits under the migrated dispatch boundary |
 | candidate | `make ci-check` | fmt, clippy-allow policy, source-size, both Clippy gates, and coverage all pass (coverage 71.98% lines against a 30% floor). The run ended on `settings_edit_fixture_executes_configured_editor_as_argv`. |
 | candidate vs base | 12x `cargo test --test harness_v1_fixtures` on base | the same fixture is a pre-existing real-PTY timing flake: base `53b891c` failed 1/12 with the identical `E005 ... not observed within 15000 ms` blank-frame signature. Passes deterministically in isolation on the candidate (19/19). Both flaky tests share one cause — a real spawned process missing a fixed deadline under parallel load — and neither touches the GitHub dispatch boundary this change modifies. |
+
+## Post-PR review triage (CI OpenCodeReview)
+
+| # | Finding | Disposition | Action |
+| --- | --- | --- | --- |
+| 15 | Abandoned handlers say "task panicked" but also run when the delivery queue is unavailable, so an availability failure is reported as a panic | In-scope-Fix | Correct and systemic. Reworded all 15 route messages to "abandoned", which is accurate for both a contained panic and a missing queue; the message itself still carries the specific cause. The Errors-screen title "Background task panicked" is unchanged because that path only ever runs for a real panic. |
+| 16 | Terminology is inconsistent between the PR and issue property-edit paths | In-scope-Fix | Resolved by the same sweep; every route now uses one verb. |
+| 17 | `AssertUnwindSafe` has no documented rationale | In-scope-Fix | Added the reasoning: `work` is consumed by the call, its captures are dropped with the closure on unwind, the payload is converted to a `String`, no borrow crosses the boundary, and callers pass owned request data. |
+| 18 | `page_size: 30` is a magic number | In-scope-Fix | Extracted `COMMENT_PAGE_SIZE`. |
+| 19 | `Apply` continuations run on the render thread without panic protection; wrap them in `catch_unwind` or document the contract | Reject (wrap), In-scope-Fix (document) | Wrapping would contradict the project's fail-fast preference: a panic in a reducer continuation is a genuine state bug, and swallowing it would hide exactly the class of defect this issue exists to surface. Containment is deliberately scoped to external `gh` work. Documented the contract on `spawn_gh_work` instead. |
+| 20 | `comment_page_params` can forward `cursor: None` when `has_more()` is true but the token is a `PageNumber` | Reject | Unreachable for issue comments. That list's `next_page` is only ever built by `PageToken::from_cursor`, which yields `Cursor` or `Done`, and `has_more()` is false for `Done`; `PageNumber` is produced only by the REST helper, which comments never use. The `issue_comment_cursor` match is retained as an explicit total-match guard, locked by its two unit tests. |
+| 21 | `drop(state)` in `comment_page_params` is redundant | Reject | Removing it fails the build: `clippy::significant_drop_tightening` requires the explicit drop because the caller immediately acquires a write guard. Verified by making the change and observing the lint error. Added a comment recording why it is required. |
+| 22 | Breaking signature change: `handle_pr_thread_resolve` and other dispatchers now take `&mut AppStateHandle` | Reject | Not a breaking change to any external contract: these are crate-internal dispatch functions with no downstream consumers, and every call site is updated in this PR. `AppStateHandle` is `Copy`, so the mutable reference expresses the write intent rather than enabling new aliasing. A missed call site would be a compile error, and the workspace builds clean. |
+| 23 | `params` is cloned twice in `pr_options_abandoned` setup | Reject | Both clones are required: one is consumed by the reporter passed to `delivery_handle_or_report`, the other by the panic handler given to `spawn_gh_work`. Because each closure owns its copy, neither can be elided without making one handler unconstructible. |
 
 ## Scope review (mandatory: 26 files vs the 25-file target)
 

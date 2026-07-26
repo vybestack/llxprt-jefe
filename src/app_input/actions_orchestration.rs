@@ -589,7 +589,7 @@ fn workflows_abandoned(
     request_id: u64,
 ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
     move |app_state, ctx, msg| {
-        let error_msg = format!("Workflows list task panicked: {msg}");
+        let error_msg = format!("Workflows list abandoned: {msg}");
         handle_workflows_reload_result(
             app_state,
             ctx,
@@ -665,7 +665,7 @@ fn run_detail_abandoned(
     request_id: u64,
 ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
     move |app_state, ctx, msg| {
-        let error_msg = format!("Run detail task panicked: {msg}");
+        let error_msg = format!("Run detail abandoned: {msg}");
         handle_run_detail_reload_result(
             app_state,
             ctx,
@@ -736,7 +736,7 @@ fn workflow_dispatch_abandoned(
     request_id: u64,
 ) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
     move |app_state, ctx, msg| {
-        let error_msg = format!("Workflow dispatch task panicked: {msg}");
+        let error_msg = format!("Workflow dispatch abandoned: {msg}");
         handle_workflow_dispatch_result(
             app_state,
             ctx,

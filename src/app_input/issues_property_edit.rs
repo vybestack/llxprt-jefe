@@ -188,7 +188,7 @@ fn property_edit_abandoned(
                 issue_number: action.issue_number,
                 kind: action.kind,
                 request_id,
-                error: format!("GitHub property edit task panicked: {message}"),
+                error: format!("GitHub property edit abandoned: {message}"),
             },
         );
     }

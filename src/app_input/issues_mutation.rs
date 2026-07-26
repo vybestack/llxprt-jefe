@@ -422,7 +422,7 @@ fn mutation_abandoned(
             ctx,
             target,
             Some(mutation_id),
-            format!("GitHub {task_label} task panicked: {message}"),
+            format!("GitHub {task_label} abandoned: {message}"),
         );
     }
 }

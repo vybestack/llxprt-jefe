@@ -260,7 +260,7 @@ fn pr_detail_load_panic_event(params: &PrDetailLoadParams, message: String) -> A
         scope_repo_id: params.scope_repo_id.clone(),
         pr_number: params.pr_number,
         request_id: params.request_id,
-        error: format!("GitHub PR detail task panicked: {message}"),
+        error: format!("GitHub PR detail request abandoned: {message}"),
     }
 }
 

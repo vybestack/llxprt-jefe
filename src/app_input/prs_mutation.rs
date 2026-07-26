@@ -216,7 +216,7 @@ fn pr_comment_abandoned(
                 scope_repo_id: action.scope_repo_id,
                 pr_number: action.pr_number,
                 mutation_id: action.mutation_id,
-                error: format!("{task_label} task panicked: {message}"),
+                error: format!("{task_label} abandoned: {message}"),
             },
         );
     }

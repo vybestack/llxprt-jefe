@@ -53,6 +53,11 @@ pub(super) fn contain<T>(work: impl FnOnce() -> T) -> Result<T, String> {
     // Drop any location left by an inner boundary or by a panic the work
     // caught itself, so a stale site is never attributed to this payload.
     LOCATION.with(|slot| slot.borrow_mut().take());
+    // `AssertUnwindSafe` is sound here because `work` is consumed by this call
+    // and nothing it captures is observable afterwards: on unwind the captures
+    // are dropped with the closure, the payload is converted to a `String`, and
+    // no borrow crosses the boundary. Callers pass owned request data, so there
+    // is no shared mutable state that could be left half-updated.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
     CONTAINED.with(|flag| flag.set(restore));
     let location = LOCATION.with(|slot| slot.borrow_mut().take());

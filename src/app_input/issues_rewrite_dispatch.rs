@@ -100,7 +100,7 @@ fn spawn_rewrite_task(
                 app_state,
                 ctx,
                 AppEvent::IssueRewriteFailed {
-                    error: format!("Agent rewrite task panicked: {message}"),
+                    error: format!("Agent rewrite abandoned: {message}"),
                 },
             );
         },

@@ -14,6 +14,12 @@ use jefe::state::AppEvent;
 use super::issues_dispatch::{MISSING_DETAIL_REPO_MSG, current_scope_repo_id};
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
+/// Comments requested per page.
+///
+/// Matches the issue-list page size so detail pagination advances at the same
+/// rate the list does.
+const COMMENT_PAGE_SIZE: u32 = 30;
+
 /// Load the next comments page when the detail view is scrolled to the bottom.
 pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut params = match comment_page_params(app_state) {
@@ -154,9 +160,11 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
         owner: tracker.owner().to_owned(),
         repo: tracker.repo().to_owned(),
         cursor: requested_cursor,
-        page_size: 30,
+        page_size: COMMENT_PAGE_SIZE,
         request_id: 0,
     };
+    // Release the read guard before returning: the caller immediately takes a
+    // write guard, and `significant_drop_tightening` requires the explicit drop.
     drop(state);
     CommentPageRequest::Ready(params)
 }

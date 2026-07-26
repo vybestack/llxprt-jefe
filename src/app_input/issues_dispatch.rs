@@ -374,7 +374,7 @@ fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEve
         scope_repo_id: params.scope_repo_id.clone(),
         issue_number: params.issue_number,
         request_id: params.request_id,
-        error: format!("GitHub issue detail task panicked: {message}"),
+        error: format!("GitHub issue detail request abandoned: {message}"),
     }
 }
 

@@ -715,7 +715,7 @@ fn assignment_abandoned(
             ctx,
             &owner_repo,
             issue_number,
-            &format!("Issue self-assignment panicked: {message}"),
+            &format!("Issue self-assignment abandoned: {message}"),
         );
     }
 }

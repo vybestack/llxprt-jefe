@@ -97,7 +97,7 @@ fn lifecycle_abandoned(
             ctx,
             target,
             mutation_id,
-            format!("GitHub issue {task_label} task panicked: {message}"),
+            format!("GitHub issue {task_label} abandoned: {message}"),
         );
     }
 }
