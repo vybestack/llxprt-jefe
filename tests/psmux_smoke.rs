@@ -11,8 +11,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use jefe::domain::AgentKind;
 use jefe::runtime::{
-    AgentExecutablePlatform, AgentExecutableResolver, LocalPlatform, MultiplexerIsolation,
-    MultiplexerPlan,
+    AgentExecutablePlatform, AgentExecutableResolver, AttachedViewer, LocalPlatform,
+    MultiplexerIsolation, MultiplexerPlan,
 };
 use serde::Deserialize;
 
@@ -506,6 +506,136 @@ fn psmux_four_recording_agents_remain_independent_and_scoped() {
         namespace
             .run(&["has-session", "-t", survivor])
             .unwrap_or_else(|error| panic!("selected kill affected {survivor}: {error}"));
+    }
+}
+
+/// Issue #296: prove end-to-end through the real `AttachedViewer` → ConPTY →
+/// psmux path that (a) Jefe observes the fixture's advertised mouse-reporting
+/// modes, (b) forwarded PageUp/PageDown arrive at the child as `CSI 5~`/`6~`
+/// (not arrows), and (c) SGR mouse input reaches the child intact.
+///
+/// This is the real-transport acceptance test for the post-attach mode-recovery
+/// nudge and the page-key encoding contract. It drives input through the actual
+/// `AttachedViewer` (not just `send-keys`) so the Jefe-side parser, encoder,
+/// and PTY write path are all exercised.
+#[test]
+fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
+    let Some((executable, version_text)) = qualified_psmux() else {
+        return;
+    };
+    let mut namespace = namespace_or_panic(executable.clone(), "mouse-mode", &version_text);
+    let session = "mouse-mode-fixture";
+    let work_dir = tempfile::Builder::new()
+        .prefix("jefe psmux mouse Ω ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create mouse-mode fixture directory: {error}"));
+    namespace
+        .run_os(&[
+            OsString::from("new-session"),
+            OsString::from("-d"),
+            OsString::from("-s"),
+            OsString::from(session),
+            OsString::from("-x"),
+            OsString::from("100"),
+            OsString::from("-y"),
+            OsString::from("32"),
+            OsString::from("-c"),
+            work_dir.path().as_os_str().to_owned(),
+            OsString::from(FIXTURE),
+        ])
+        .unwrap_or_else(|error| panic!("create mouse-mode fixture session: {error}"));
+    namespace
+        .wait_for_capture(session, "PSMUX_SMOKE_READY")
+        .unwrap_or_else(|error| panic!("fixture never became ready: {error}"));
+
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        executable,
+        MultiplexerIsolation::Namespace(namespace.name.clone()),
+    )
+    .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+
+    let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, &plan)
+        .unwrap_or_else(|error| panic!("spawn AttachedViewer: {error}"));
+    assert!(
+        viewer.is_alive(),
+        "AttachedViewer should be alive after spawn"
+    );
+
+    assert_attached_viewer_observes_mouse_reporting(&viewer);
+    assert_page_keys_delivered_as_csi_tilde(&mut namespace, session, &viewer);
+    assert_sgr_mouse_delivered_intact(&mut namespace, session, &viewer);
+
+    drop(viewer);
+    let _ = namespace.run(&["kill-session", "-t", session]);
+}
+
+/// Issue #296 (a): poll until the AttachedViewer's embedded terminal model
+/// observes the fixture's advertised DEC private mouse modes.
+fn assert_attached_viewer_observes_mouse_reporting(viewer: &AttachedViewer) {
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    let mut observed = false;
+    while Instant::now() < deadline {
+        if viewer.mouse_reporting_active() {
+            observed = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        observed,
+        "AttachedViewer never observed mouse reporting after fixture advertised 1000/1002/1006"
+    );
+}
+
+/// Issue #296 (b): forwarded PageUp/PageDown must arrive as `CSI 5~`/`CSI 6~`
+/// (bytes 1B 5B 35/36 7E), not arrow sequences.
+fn assert_page_keys_delivered_as_csi_tilde(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    viewer: &AttachedViewer,
+) {
+    viewer
+        .write_input(b"\x1b[5~")
+        .unwrap_or_else(|error| panic!("write PageUp bytes: {error}"));
+    viewer
+        .write_input(b"\x1b[6~")
+        .unwrap_or_else(|error| panic!("write PageDown bytes: {error}"));
+    let capture = namespace
+        .wait_for_capture(session, "PSMUX_BYTE_7E")
+        .unwrap_or_else(|error| panic!("page-key '~' (0x7E) never reached child: {error}"));
+    for needle in [
+        "PSMUX_BYTE_1B",
+        "PSMUX_BYTE_5B",
+        "PSMUX_BYTE_35",
+        "PSMUX_BYTE_36",
+        "PSMUX_BYTE_7E",
+    ] {
+        assert!(
+            capture.contains(needle),
+            "page-key byte {needle} missing from child capture:\n{capture}"
+        );
+    }
+}
+
+/// Issue #296 (c): forwarded SGR mouse bytes (`CSI < 0;1;1 M`) must reach the
+/// child intact.
+fn assert_sgr_mouse_delivered_intact(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    viewer: &AttachedViewer,
+) {
+    viewer
+        .write_input(b"\x1b[<0;1;1M")
+        .unwrap_or_else(|error| panic!("write SGR mouse bytes: {error}"));
+    let capture = namespace
+        .wait_for_capture(session, "PSMUX_BYTE_4D")
+        .unwrap_or_else(|error| panic!("SGR mouse 'M' (0x4D) never reached child: {error}"));
+    for needle in ["PSMUX_BYTE_3C", "PSMUX_BYTE_30", "PSMUX_BYTE_4D"] {
+        assert!(
+            capture.contains(needle),
+            "SGR mouse byte {needle} missing from child capture:\n{capture}"
+        );
     }
 }
 
