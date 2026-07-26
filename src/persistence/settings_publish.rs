@@ -246,12 +246,15 @@ fn parse_known_owner(
     } else {
         "config"
     };
-    let fields = if descriptor.kind == OwnerKind::Agent {
-        ["enabled", "repository_defaults", "repository_defaults"]
+    // Agents own exactly two fields; `parse_owner_version` returns early for
+    // non-plugin owners, so `version` is deliberately absent here rather than
+    // padding the array to a matching length.
+    let fields: &[&str] = if descriptor.kind == OwnerKind::Agent {
+        &["enabled", "repository_defaults"]
     } else {
-        ["enabled", "version", "config"]
+        &["enabled", "version", "config"]
     };
-    validate_fields(table, &path, &fields)?;
+    validate_fields(table, &path, fields)?;
     let enabled = optional_bool(table, "enabled", &format!("{path}/enabled"))?;
     let version = parse_owner_version(table, descriptor)?;
     let mut values = descriptor.defaults.clone();

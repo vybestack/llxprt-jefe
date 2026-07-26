@@ -327,3 +327,45 @@ config = { retries = 3, credential = { secret_ref = "github.token" } }
         .unwrap_or_else(|| panic!("unknown root must fail"));
     assert_eq!(diagnostics[0].code, CfgCode::E005);
 }
+
+/// The agent field allow-list is exactly `enabled` and `repository_defaults`.
+/// `parse_owner_version` returns early for non-plugin owners, so an agent
+/// carrying a `version` key is unowned input and must be refused rather than
+/// silently accepted.
+#[test]
+fn agent_owners_reject_a_version_field_and_accept_their_owned_fields() {
+    let (catalog, owner_id) = known_agent_catalog();
+    let versioned = br#"settings_schema = 2
+[agents."core.llxprt"]
+enabled = true
+version = "1.0.0"
+"#;
+    let Ok(document) = SettingsDocument::parse(versioned) else {
+        panic!("settings fixture must parse");
+    };
+    let Err(diagnostics) = document.publish(&catalog) else {
+        panic!("an agent version field must not be publishable");
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.path.as_str().ends_with("/version")),
+        "the diagnostic must name the unowned version field: {diagnostics:?}"
+    );
+
+    let owned = br#"settings_schema = 2
+[agents."core.llxprt"]
+enabled = true
+repository_defaults = { profile = "custom" }
+"#;
+    let Ok(document) = SettingsDocument::parse(owned) else {
+        panic!("settings fixture must parse");
+    };
+    let Ok(published) = document.publish(&catalog) else {
+        panic!("owned agent fields must publish");
+    };
+    assert!(
+        published.agents.contains_key(&owner_id),
+        "the agent owner must be published"
+    );
+}
