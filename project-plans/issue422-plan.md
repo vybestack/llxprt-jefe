@@ -4,7 +4,7 @@
 
 - GitHub: https://github.com/vybestack/llxprt-jefe/issues/422
 - Branch: `issue422`
-- Base: `origin/main` at `edeff48`
+- Branch-start base: `origin/main` at `edeff48`; current PR merge base after mainline integration: `4730f76`
 - Reported behavior: the shared `text_wrap` primitive budgets Unicode scalar values, while the terminal grid and the independently implemented `doc_wrap` projection budget terminal cells. TextBox can therefore place wide text or an end caret into its fixed right-side indicator gutter, and the advertised shared contract can drift from ScrollableText.
 - Discussion: the only issue comment is an automated related-PR/planning placeholder and adds no requirements.
 - Origin constraint: issue 408 explicitly deferred the shared wrapping change while accepting terminal-cell-aware prefix measurement and fixed-width TextBox indicators.
@@ -77,10 +77,12 @@ TextBox caret positions remain Unicode-scalar source positions. A caret at the s
 | TextBox thin renderer/evidence | `src/ui/components/text_box.rs` | A2 |
 | ScrollableText document/selection adapter | `src/ui/components/doc_wrap.rs` | A3 |
 | ScrollableText thin renderer evidence | `src/ui/components/scrollable_text.rs` | A3 |
+| Actions compatibility evidence | `src/actions_detail_view.rs` | A4 |
+| Shared Actions width terminology | `src/layout.rs` | A4 |
 | Real-TTY evidence | `dev-docs/tmux-scenarios/issues-composer-textbox.json` | A2 |
 | Delivery record | `project-plans/issue422-plan.md` | all rows |
 
-Expected scope: at most 7 changed files and under 600 net changed lines. The change stays in one pure projection ownership layer plus the two existing thin UI adapters/evidence paths.
+Expected scope: at most 9 changed files and under 800 net changed lines. The change stays in one pure projection ownership layer plus existing consumer adapters and evidence paths.
 
 ## Scope ledger
 
@@ -104,7 +106,7 @@ No unapproved scope discoveries are open.
 ## Review counters
 
 - Pre-PR Open Code Review: 2 / 2 (one explicit local run and one run observed by the independent Rust reviewer; no further local OCR runs permitted)
-- Post-PR Open Code Review: 0 / 2
+- Post-PR Open Code Review: 1 / 2 (exact-head workflow run 30184244060 completed successfully with three findings, including one duplicate pair)
 - Independent Rust/DeepThinker review cycles: 1 / 2 (DeepThinker and Rust reviewer completed the same stable checkpoint review cycle)
 
 ## Review triage
@@ -115,7 +117,14 @@ No unapproved scope discoveries are open.
 | ScrollableText can synthesize a selected blank over its scrollbar | Blocker—Fix | Remediated by rendering only actual selected row text and preserving the scrollbar in a renderer test. |
 | ScrollableText wide inline-editor caret mixes terminal-cell and scalar offsets | Defer | Valid existing mismatch, but inline-editor caret rendering is outside this issue's accepted ScrollableText selection scope; follow-up issue records it. |
 | Delivery plan lacked final evidence/triage | Blocker—Fix | This section and the verification table record factual results; interrupted commands are not recorded as passes. |
-| Width terminology and Actions assertion remained character-based | In-scope—Fix | Updated touched API documentation and Actions physical-width assertion. |
+| Width terminology and Actions assertion remained character-based | In-scope—Fix | Updated touched API documentation and added a genuinely wide Actions job/step fixture bounded with `UnicodeWidthStr`. |
+| CodeRabbit: an overwide ideographic space produced an empty row | Blocker—Fix | Reproduced with `wrap_text("\u{3000}", 1)`; reordered empty-row overflow handling and added the passing regression. |
+| CodeRabbit: mixed `||` / `&&` trailing-caret predicate was easy to misread | In-scope—Fix | Named and explicitly grouped the final-segment predicate without changing behavior. |
+| CodeRabbit: annotate the scenario's 128-character boundary filler | Reject | The strict JSON scenario grammar has no comment field; this delivery plan records that the 128-character run places `界` on the 160-column fixture's wrap boundary. |
+| CodeRabbit: strengthen the wide inline-caret assertion | Reject | The reviewed test was removed when inline-caret work was correctly deferred to issue #429. |
+| PR OCR: `doc_wrap` delegation emits global offsets on later lines | Reject | `wrap_document` calls `wrap_text` separately for each logical line, so every returned range is already line-local; existing multiline mapping tests prove second-line column zero. The two OCR comments are duplicates. |
+| PR OCR: selecting source-only dropped whitespace should synthesize a visible cell | Reject | The selected source scalar has no rendered glyph; synthesizing a space consumed the fixed scrollbar and directly violated A3/B2. Source selection mapping remains intact without inventing a display cell. |
+| PR OCR: overwide rows may skip a glyph after leading combining marks | Reject | `RowEnd::overwide` is reachable only when `cursor == start`; a preceding zero-width scalar advances `cursor`, so the reported `start + 1` state cannot occur. |
 | OCR `row_for_column` underflow | Reject | Factual mismatch with the saturating subtraction in the reviewed source. |
 | Change source coordinates to grapheme/cell coordinates | Reject | Contradicts the accepted scalar source/caret/selection contract and issue non-goals. |
 | Split oversized `text_box_view.rs` | Defer | Valid warning-level maintainability work outside this bounded behavior change. |
@@ -134,6 +143,11 @@ No unapproved scope discoveries are open.
 | working tree after review remediation | `make quick-check` | PASS: 2,167 library tests passed, one ignored; all integration suites and doctests passed. |
 | working tree after review remediation | strict all-target/all-feature Clippy | Issue-touched code passed after refactoring; the command remains blocked by new Rust 1.97 `manual_is_multiple_of` diagnostics in unchanged `src/runtime/process.rs` and `src/harness/v1/validate.rs`. |
 | working tree after review remediation | real `jefe-tmux-harness` with isolated config and fail-closed GitHub shim | PASS: all 31 steps. |
+| `aad4c16` | exact-head local format, policy, source-size, locked all-feature build, and locked all-feature tests | PASS. |
+| `aad4c16` | PR CI run 30184244698 | PASS after the unchanged-head Windows rerun: build, test, format, lint, policies, source size, complexity, coverage, and native Windows; optional TUI smoke skipped by design. |
+| `aad4c16` | PR OpenCodeReview run 30184244060 | PASS execution; three findings (one duplicate pair) fully triaged above. |
+| review-remediation working tree | ideographic-space RED/GREEN plus focused shared-wrap and Actions tests | RED produced an empty row; GREEN produced a bounded ellipsis and all 20 shared-wrap plus 5 Actions tests passed. |
+| review-remediation working tree | format, policy, source-size, locked all-feature build, and locked all-feature tests | PASS; source-size gate emitted existing warning-level files but no hard-limit failure. |
 
 ## Deferred findings and follow-ups
 

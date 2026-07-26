@@ -300,8 +300,9 @@ fn project_line_segments(
         let rendered_width = UnicodeWidthStr::width(seg.text.as_str());
         let hidden_suffix = caret_in_hidden_suffix(seg, rendered_chars, rendered_width, context);
         let full_width_end = caret_at_full_width_end(seg, rendered_width, context);
-        let trailing_row = (full_width_end || hidden_suffix && segment_index + 1 == segments.len())
-            && context.viewport_rows >= 2;
+        let is_last_segment = segment_index + 1 == segments.len();
+        let needs_trailing_row = full_width_end || (hidden_suffix && is_last_segment);
+        let trailing_row = needs_trailing_row && context.viewport_rows >= 2;
         if trailing_row {
             rows.push(TextBoxRow {
                 text: seg.text.clone(),

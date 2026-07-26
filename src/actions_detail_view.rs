@@ -264,6 +264,23 @@ mod tests {
     }
 
     #[test]
+    fn wide_job_and_step_labels_respect_terminal_cell_width() {
+        let detail = WorkflowRunDetail {
+            run: run(),
+            jobs: vec![job(1, "构建甲乙", "检查丙丁")],
+        };
+        let view = project_actions_detail(&detail, &HashSet::from([1]), Some(0), geometry(8, 4));
+
+        assert!(view.content().contains("构建"));
+        assert!(view.content().contains("检查"));
+        assert!(
+            view.rows
+                .iter()
+                .all(|row| UnicodeWidthStr::width(row.text.as_str()) <= 8)
+        );
+    }
+
+    #[test]
     fn final_job_reveal_uses_wrapped_predecessor_rows_and_valid_bounds() {
         let detail = detail();
         let expanded = HashSet::from([1, 2]);

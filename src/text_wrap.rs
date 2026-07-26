@@ -143,6 +143,15 @@ fn overflow_row_end(
     cursor: usize,
     last_whitespace_end: Option<usize>,
 ) -> RowEnd {
+    if cursor == start {
+        let source_end = chars[cursor + 1..]
+            .iter()
+            .take_while(|character| UnicodeWidthChar::width(**character).unwrap_or(0) == 0)
+            .count()
+            + cursor
+            + 1;
+        return RowEnd::overwide(source_end);
+    }
     if chars[cursor].is_whitespace() {
         let source_end = chars[cursor..]
             .iter()
@@ -154,16 +163,7 @@ fn overflow_row_end(
     if let Some(break_end) = last_whitespace_end.filter(|end| *end > start) {
         return RowEnd::normal(break_end, break_end);
     }
-    if cursor > start {
-        return RowEnd::normal(cursor, cursor);
-    }
-    let source_end = chars[cursor + 1..]
-        .iter()
-        .take_while(|character| UnicodeWidthChar::width(**character).unwrap_or(0) == 0)
-        .count()
-        + cursor
-        + 1;
-    RowEnd::overwide(source_end)
+    RowEnd::normal(cursor, cursor)
 }
 
 fn row_text(chars: &[char], start: usize, end: RowEnd) -> String {
@@ -452,6 +452,16 @@ cccc";
     #[test]
     fn overwide_glyph_uses_bounded_placeholder_and_retains_source_range() {
         let rows = wrap_text("甲", 1);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, "…");
+        assert_eq!((rows[0].start, rows[0].end), (0, 1));
+        assert_eq!(UnicodeWidthStr::width(rows[0].text.as_str()), 1);
+    }
+
+    #[test]
+    fn overwide_whitespace_uses_bounded_placeholder_and_retains_source_range() {
+        let rows = wrap_text("\u{3000}", 1);
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].text, "…");
