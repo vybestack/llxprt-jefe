@@ -179,7 +179,7 @@ pub fn max_content_line_scroll_offset(rows: &[DocDisplayRow], viewport_rows: usi
         return 0;
     };
     if viewport_rows == 0 {
-        return last.line.saturating_add(1);
+        return last.line;
     }
     if rows.len() <= viewport_rows {
         return 0;
@@ -389,6 +389,7 @@ mod tests {
         let rows = wrap_document("alpha bravo charlie\nanchor\nhelp", 5);
         assert_eq!(max_content_line_scroll_offset(&rows, 4), 1);
         assert_eq!(max_content_line_scroll_offset(&rows, rows.len()), 0);
+        assert_eq!(max_content_line_scroll_offset(&rows, 0), 2);
     }
 
     #[test]

@@ -238,9 +238,6 @@ impl IssuesState {
     /// Maximum detail scroll offset for a caller-provided viewport row count.
     #[must_use]
     pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
-        if self.issue_detail.is_none() {
-            return 0;
-        }
         let composer_active = matches!(
             self.inline_state,
             InlineState::Composer {

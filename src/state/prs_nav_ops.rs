@@ -272,6 +272,26 @@ impl AppState {
         true
     }
 
+    fn pr_detail_wrapped_rows(&self) -> Option<Vec<crate::domain::document_wrap::DocDisplayRow>> {
+        let detail = self.prs_state.pr_detail.as_ref()?;
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+        );
+        let content_width = if self.prs_state.detail_content_width == 0 {
+            usize::from(crate::layout::prs_detail_content_width(120))
+        } else {
+            self.prs_state.detail_content_width
+        };
+        Some(crate::domain::document_wrap::wrap_document(
+            &content.text,
+            content_width,
+        ))
+    }
+
     /// Scroll the detail pane so the currently-focused subfocus item is
     /// visible, using the pure `reveal_range_scroll_offset` helper and the
     /// fresh viewport row count. Only fires on a subfocus *change* (Tab/j/k),
@@ -290,19 +310,9 @@ impl AppState {
             return;
         };
         let viewport = self.pr_detail_scroll_viewport_rows();
-        let content = crate::pr_detail_content::build_pr_detail_content(
-            detail,
-            self.prs_state.detail_subfocus,
-            &self.prs_state.inline_state,
-            self.prs_state.loading.detail,
-            self.prs_state.loading.comments,
-        );
-        let content_width = if self.prs_state.detail_content_width == 0 {
-            usize::from(crate::layout::prs_detail_content_width(120))
-        } else {
-            self.prs_state.detail_content_width
+        let Some(rows) = self.pr_detail_wrapped_rows() else {
+            return;
         };
-        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
         let desired = crate::domain::document_wrap::reveal_content_line_range(
             &rows,
             item_start,
@@ -323,22 +333,9 @@ impl AppState {
     /// @pseudocode component-001 lines 169-176
     #[must_use]
     pub fn pr_detail_max_scroll_offset(&self) -> usize {
-        let Some(detail) = &self.prs_state.pr_detail else {
+        let Some(rows) = self.pr_detail_wrapped_rows() else {
             return 0;
         };
-        let content = crate::pr_detail_content::build_pr_detail_content(
-            detail,
-            self.prs_state.detail_subfocus,
-            &self.prs_state.inline_state,
-            self.prs_state.loading.detail,
-            self.prs_state.loading.comments,
-        );
-        let content_width = if self.prs_state.detail_content_width == 0 {
-            usize::from(crate::layout::prs_detail_content_width(120))
-        } else {
-            self.prs_state.detail_content_width
-        };
-        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
         crate::domain::document_wrap::max_content_line_scroll_offset(
             &rows,
             self.pr_detail_scroll_viewport_rows(),
