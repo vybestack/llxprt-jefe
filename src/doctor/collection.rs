@@ -369,6 +369,7 @@ fn long_path_length_warning(path: &std::path::Path) -> Option<String> {
 /// `to_string_lossy().len()` (UTF-8 bytes) would over-count non-ASCII
 /// characters (e.g. a CJK character is 3 UTF-8 bytes but 1 WCHAR), producing
 /// false-positive warnings. Returns 0 for the empty path.
+#[cfg(any(windows, test))]
 fn path_utf16_unit_count(path: &std::path::Path) -> usize {
     path.to_string_lossy().encode_utf16().count()
 }
