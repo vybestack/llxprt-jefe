@@ -6,6 +6,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{ComposerTarget, InlineState, IssueFocus};
 
 use super::issues_test_fixtures::begin_issue_list_reload;
+use crate::state::transition::TransitionExt;
 
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
@@ -94,14 +95,16 @@ fn state_with_repo(repo_id: &str) -> AppState {
 fn test_issue_list_row_count() {
     let mut state = state_with_repo("repo-1");
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: (1u64..=5).map(make_test_issue).collect(),
-        cursor: None,
-        has_more: false,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: (1u64..=5).map(make_test_issue).collect(),
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert_eq!(state.issues_state.issues().len(), 5);
 }
@@ -114,17 +117,19 @@ fn test_issue_list_row_count() {
 fn test_issue_list_selection_highlight() {
     let mut state = state_with_repo("repo-1");
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: (1u64..=5).map(make_test_issue).collect(),
-        cursor: None,
-        has_more: false,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: (1u64..=5).map(make_test_issue).collect(),
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // After load, selection is at 0. Navigate down once.
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
 
     assert_eq!(state.issues_state.selected_issue_index(), Some(1));
 }
@@ -135,7 +140,9 @@ fn test_issue_list_selection_highlight() {
 /// @requirement REQ-ISS-006
 #[test]
 fn test_issue_list_loading_state() {
-    let state = AppState::default().apply(AppEvent::EnterIssuesMode);
+    let state = AppState::default()
+        .apply(AppEvent::EnterIssuesMode)
+        .committed_pure();
 
     // The state layer clears the list on EnterIssuesMode; the actual loading
     // indicator is driven by the dispatch layer beginning a reload.
@@ -150,14 +157,16 @@ fn test_issue_list_loading_state() {
 fn test_issue_list_empty_state() {
     let mut state = state_with_repo("repo-1");
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: vec![],
-        cursor: None,
-        has_more: false,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: vec![],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     assert!(state.issues_state.issues().is_empty());
     assert!(state.issues_state.selected_issue_index().is_none());
@@ -174,12 +183,14 @@ fn test_issue_detail_all_fields() {
 
     let mut state = state_with_repo("repo-1");
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 42);
-    let state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(detail),
-    });
+    let state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
 
     let loaded = state
         .issues_state
@@ -211,12 +222,14 @@ fn test_issue_detail_comments_timeline() {
 
     let mut state = state_with_repo("repo-1");
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 42);
-    let state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(detail),
-    });
+    let state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
 
     let loaded = state
         .issues_state
@@ -236,7 +249,9 @@ fn test_issue_detail_inline_composer_visible() {
     let mut state = AppState::default();
     state.issues_state.inline_state = InlineState::None;
 
-    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
 
     assert!(
         matches!(
@@ -261,7 +276,7 @@ fn test_issue_list_new_issue_composer_visible() {
     state.issues_state.inline_state = InlineState::None;
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
 
-    let state = state.apply(AppEvent::OpenNewIssueComposer);
+    let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
 
     assert!(
         matches!(
@@ -292,14 +307,17 @@ fn test_filter_controls_value_binding() {
             field: "author".to_string(),
             value: "octocat".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "assignee".to_string(),
             value: "dev1".to_string(),
         })
+        .committed_pure()
         .apply(AppEvent::UpdateDraftFilter {
             field: "query_text".to_string(),
             value: "segfault".to_string(),
-        });
+        })
+        .committed_pure();
 
     assert_eq!(state.issues_state.draft_filter.author, "octocat");
     assert_eq!(state.issues_state.draft_filter.assignee, "dev1");
@@ -315,14 +333,16 @@ fn test_filter_controls_value_binding() {
 fn test_empty_state_no_issues() {
     let mut state = state_with_repo("repo-1");
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
-        request_id,
-        issues: vec![],
-        cursor: None,
-        has_more: false,
-    });
+    let state = state
+        .apply(AppEvent::IssueListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id,
+            issues: vec![],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
 
     // The UI rendering component checks this condition to show the empty message
     assert!(state.issues_state.issues().is_empty());
@@ -339,12 +359,14 @@ fn test_empty_state_no_comments() {
 
     let mut state = state_with_repo("repo-1");
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 42);
-    let state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(detail),
-    });
+    let state = state
+        .apply(AppEvent::IssueDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            issue_number: 42,
+            request_id: 0,
+            detail: Box::new(detail),
+        })
+        .committed_pure();
 
     let loaded = state
         .issues_state
@@ -367,7 +389,9 @@ fn test_empty_state_no_agents_for_send() {
 
     // OpenAgentChooser with no agents must clear any stale chooser and set the
     // `No agents available` notice.
-    state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
+    state = state
+        .apply(AppEvent::OpenAgentChooser { metadata: vec![] })
+        .committed_pure();
 
     // When no eligible agents exist, agent_chooser is not opened.
     assert!(state.issues_state.agent_chooser.is_none());

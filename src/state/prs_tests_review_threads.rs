@@ -8,6 +8,7 @@ use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::{IssueComment, PrReview, PrReviewState, PrReviewThread, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{ComposerTarget, InlineState, PrDetailSubfocus, PrThreadResolvePending};
 
 /// Helper: build a review thread with the given resolved state + path/line.
@@ -62,7 +63,9 @@ fn state_with_two_threads() -> AppState {
 fn open_thread_reply_composer_sets_composer_target() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 0 });
+    let new_state = state
+        .apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 0 })
+        .committed_pure();
 
     let InlineState::Composer {
         target,
@@ -102,7 +105,9 @@ fn open_thread_reply_composer_sets_composer_target() {
 fn open_thread_reply_composer_for_second_thread() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 1 });
+    let new_state = state
+        .apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 1 })
+        .committed_pure();
 
     assert!(
         matches!(
@@ -133,7 +138,9 @@ fn open_thread_reply_composer_noop_when_inline_active() {
         cursor: 5,
     };
 
-    let new_state = state.apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 0 });
+    let new_state = state
+        .apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 0 })
+        .committed_pure();
 
     // The existing composer must be preserved (not overwritten).
     assert!(
@@ -154,7 +161,9 @@ fn open_thread_reply_composer_noop_when_inline_active() {
 fn open_thread_reply_composer_out_of_range_is_noop() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 99 });
+    let new_state = state
+        .apply(AppEvent::PrOpenThreadReplyComposer { thread_index: 99 })
+        .committed_pure();
 
     assert_eq!(
         new_state.prs_state.inline_state,
@@ -170,7 +179,9 @@ fn open_thread_reply_composer_out_of_range_is_noop() {
 fn toggle_thread_resolve_sets_pending_for_unresolved() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrToggleThreadResolve { thread_index: 0 });
+    let new_state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 0 })
+        .committed_pure();
 
     let Some(pending) = &new_state.prs_state.thread_resolve_pending else {
         panic!("thread_resolve_pending must be set");
@@ -194,7 +205,9 @@ fn toggle_thread_resolve_sets_pending_for_unresolved() {
 fn toggle_thread_resolve_sets_pending_for_resolved() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrToggleThreadResolve { thread_index: 1 });
+    let new_state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 1 })
+        .committed_pure();
 
     let Some(pending) = &new_state.prs_state.thread_resolve_pending else {
         panic!("thread_resolve_pending must be set");
@@ -211,7 +224,9 @@ fn toggle_thread_resolve_sets_pending_for_resolved() {
 fn toggle_thread_resolve_out_of_range_is_noop() {
     let state = state_with_two_threads();
 
-    let new_state = state.apply(AppEvent::PrToggleThreadResolve { thread_index: 99 });
+    let new_state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 99 })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_none(),
@@ -234,12 +249,14 @@ fn thread_resolve_succeeded_flips_is_resolved_and_clears_pending() {
         request_id: 1,
     });
 
-    let new_state = state.apply(AppEvent::PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        is_resolved: true,
-        request_id: 1,
-    });
+    let new_state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            is_resolved: true,
+            request_id: 1,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_none(),
@@ -268,12 +285,14 @@ fn thread_resolve_succeeded_out_of_range_clears_pending() {
         request_id: 1,
     });
 
-    let new_state = state.apply(AppEvent::PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 99,
-        is_resolved: true,
-        request_id: 1,
-    });
+    let new_state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 99,
+            is_resolved: true,
+            request_id: 1,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_none(),
@@ -293,12 +312,14 @@ fn thread_resolve_succeeded_stale_request_id_ignored() {
         request_id: 5,
     });
 
-    let new_state = state.apply(AppEvent::PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        is_resolved: true,
-        request_id: 99,
-    });
+    let new_state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            is_resolved: true,
+            request_id: 99,
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_some(),
@@ -320,12 +341,14 @@ fn thread_resolve_failed_clears_pending_and_sets_error() {
         request_id: 1,
     });
 
-    let new_state = state.apply(AppEvent::PrThreadResolveFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        request_id: 1,
-        error: "network error".to_string(),
-    });
+    let new_state = state
+        .apply(AppEvent::PrThreadResolveFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            request_id: 1,
+            error: "network error".to_string(),
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_none(),
@@ -352,12 +375,14 @@ fn thread_resolve_failed_stale_request_id_ignored() {
         request_id: 5,
     });
 
-    let new_state = state.apply(AppEvent::PrThreadResolveFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        request_id: 99,
-        error: "network error".to_string(),
-    });
+    let new_state = state
+        .apply(AppEvent::PrThreadResolveFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            request_id: 99,
+            error: "network error".to_string(),
+        })
+        .committed_pure();
 
     assert!(
         new_state.prs_state.thread_resolve_pending.is_some(),
@@ -444,7 +469,9 @@ fn resolve_survives_mid_flight_review_reorder() {
     }
 
     // Dispatch resolve on flat index 0 (= T1).
-    let mut state = state.apply(AppEvent::PrToggleThreadResolve { thread_index: 0 });
+    let mut state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 0 })
+        .committed_pure();
     let pending = state
         .prs_state
         .thread_resolve_pending
@@ -463,12 +490,14 @@ fn resolve_survives_mid_flight_review_reorder() {
 
     // Resolve succeeds carrying the OLD thread_index (0). Without thread_id
     // validation, this would resolve T2 — the wrong thread.
-    let state = state.apply(AppEvent::PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        thread_index: 0,
-        is_resolved: true,
-        request_id: 1,
-    });
+    let state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            is_resolved: true,
+            request_id: 1,
+        })
+        .committed_pure();
 
     // T1 (now at reviews[1]) must be resolved; T2 (now at reviews[0]) must not.
     assert_thread_resolved(&state, 1, 0, true);

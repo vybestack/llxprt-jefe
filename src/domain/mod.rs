@@ -11,6 +11,38 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "config_contract_tests.rs"]
+mod config_contract_tests;
+
+mod config_contract;
+pub use config_contract::{
+    ByteSpan, CanonicalDateTime, CanonicalDecimal, CanonicalSemver, ConfigContractError, Id,
+    OwnerCatalog, OwnerDescriptor, OwnerKind, ProvenanceKind, ProvenanceOrigin, SecretRef,
+    TypedMap, TypedValue,
+};
+
+mod state_contract;
+pub use state_contract::{
+    AgentDefaults, AgentRecord, DormantRecord, LastKnownRuntime, LaunchSignatureV1,
+    LocalRepositoryLocation, Preferences, RemoteRepositoryLocation, RepositoryLocation,
+    RepositoryRecord, RuntimeRecord, STATE_SCHEMA_V2, Selection, Sha256Digest, StateContractError,
+    StateV2,
+};
+
+/// Dependency-free SHA-256 used for durable digests and write fencing.
+pub mod sha256;
+
+/// Canonical typed-value and identity helpers shared by durable projection
+/// and one-way schema-1 migration.
+pub mod canonical_values;
+
+/// Closed post-commit effect contract shared by reducer and root shell.
+pub mod effects;
+#[cfg(test)]
+#[path = "effects_tests.rs"]
+mod effects_tests;
+
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;
@@ -541,7 +573,7 @@ fn default_open_pr_filter() -> PrFilter {
 ///
 /// All remembered selections are scoped per-repository so filter/merge
 /// choices made in one repo never leak into another. Persisted as part of
-/// `persistence::State` and restored on startup.
+/// the durable state document and restored on startup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoPreferences {
     /// Last committed issue-list filter (state defaults to Open on first use).
@@ -824,6 +856,35 @@ pub struct LaunchSignature {
     /// issue send, PR send, and fresh prompts retain the exact selection.
     #[serde(default, deserialize_with = "deserialize_optional_selector")]
     pub llxprt_version: Option<LlxprtNpmPackageSelector>,
+}
+
+impl LaunchSignature {
+    /// Build the signature that identifies `agent`'s current session.
+    ///
+    /// Agent fields are used verbatim (only trimmed); repository defaults are
+    /// not substituted, because this describes the session an already-created
+    /// agent owns. Launch-time creation resolves defaults before it reaches
+    /// this point.
+    #[must_use]
+    pub fn for_agent(agent: &Agent, repository: &Repository) -> Self {
+        Self {
+            work_dir: agent.work_dir.clone(),
+            profile: agent.profile.clone(),
+            code_puppy_model: agent.code_puppy_model.trim().to_owned(),
+            code_puppy_version: agent.code_puppy_version.trim().to_owned(),
+            code_puppy_yolo: agent.code_puppy_yolo,
+            code_puppy_quick_resume: agent.code_puppy_quick_resume,
+            mode_flags: agent.mode_flags.clone(),
+            llxprt_debug: agent.llxprt_debug.clone(),
+            pass_continue: agent.pass_continue,
+            sandbox_enabled: agent.sandbox_enabled,
+            sandbox_engine: agent.sandbox_engine,
+            sandbox_flags: agent.sandbox_flags.clone(),
+            remote: repository.remote.clone(),
+            agent_kind: agent.agent_kind,
+            llxprt_version: agent.llxprt_version.clone(),
+        }
+    }
 }
 
 impl Agent {

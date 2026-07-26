@@ -12,6 +12,8 @@ pub mod agent_detection;
 pub mod cli;
 /// OSC 52 clipboard writer with tmux / GNU screen passthrough.
 pub mod clipboard;
+/// Static descriptors for configuration owners built into this executable.
+pub mod config_owners;
 /// Resolved dashboard Git display data shared by rendering and selection copy.
 pub mod dashboard_git_info;
 pub mod domain;
@@ -35,6 +37,8 @@ pub mod persistence;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
+/// Provider-free configuration recovery command boundary.
+pub mod recovery;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;

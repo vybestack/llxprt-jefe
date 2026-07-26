@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use jefe::domain::{Agent, AgentId, AgentKind, LaunchSignature, Repository, RepositoryId};
 use jefe::selection::{agent_form_content_lines, repository_form_content_lines};
 use jefe::services::{CreateAgentParams, create_agent, prospective_agent_launch};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AgentFormFocus, AppEvent, AppState, ModalState, RepositoryFormFocus, agent_form_visibility,
     is_field_visible, is_repository_field_visible, next_visible_focus,
@@ -90,7 +91,8 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
     );
 
     let mut state = state_with_repository(repository(AgentKind::CodePuppy))
-        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-270".to_owned())));
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-270".to_owned())))
+        .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("new-agent modal should be open");
     };
@@ -137,9 +139,11 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
         RepositoryFormFocus::DefaultCodePuppyVersion
     );
 
-    let mut state = state_with_repository(repository(AgentKind::CodePuppy)).apply(
-        AppEvent::OpenEditRepository(RepositoryId("repo-270".to_owned())),
-    );
+    let mut state = state_with_repository(repository(AgentKind::CodePuppy))
+        .apply(AppEvent::OpenEditRepository(RepositoryId(
+            "repo-270".to_owned(),
+        )))
+        .committed_pure();
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("edit-repository modal should be open");
     };
@@ -163,7 +167,7 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
             .iter()
             .any(|line| line.contains("Default Version") && line.contains("0.0.361"))
     );
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert_eq!(state.repositories[0].default_code_puppy_version, "0.0.361");
 }
 
@@ -177,12 +181,14 @@ fn create_and_edit_mappings_trim_code_puppy_versions() {
     let mut state = state_with_repository(repository);
     state.agents.push(agent);
     let agent_id = state.agents[0].id.clone();
-    state = state.apply(AppEvent::OpenEditAgent(agent_id));
+    state = state
+        .apply(AppEvent::OpenEditAgent(agent_id))
+        .committed_pure();
     let ModalState::EditAgent { fields, .. } = &mut state.modal else {
         panic!("edit-agent modal should be open");
     };
     fields.code_puppy_version = "  nightly  ".to_owned();
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert_eq!(state.agents[0].code_puppy_version, "nightly");
 }
 

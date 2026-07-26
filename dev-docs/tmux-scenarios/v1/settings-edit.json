@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "name": "settings-edit",
+  "platform": "macos",
+  "terminal": { "cols": 110, "rows": 34 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "config", "mode": 448 }, { "path": "work", "mode": 448 }],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n" },
+        "mode": 384
+      }
+    ],
+    "env": [
+      {
+        "name": "JEFE_EDITOR",
+        "value": "${workspace}/bin/editor --wait \"two words\""
+      }
+    ]
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "editor",
+      "path": "bin/editor",
+      "behavior": {
+        "stdout": "EDITOR CALLED\n",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "edit", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "editor completed",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "editor",
+        "invocation": 1,
+        "argv": ["${workspace}/bin/editor", "--wait", "two words", "${workspace}/config/settings.toml"],
+        "env": [],
+        "cwd": "${workspace}/work",
+        "stdout": "EDITOR CALLED\n",
+        "exit_code": 0
+      }
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["EDITOR CALLED"],
+      "absent": ["LLxprt Jefe", "tmux"]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n" }
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

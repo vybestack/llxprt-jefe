@@ -12,7 +12,7 @@
 //!   with a bounded timeout, reads and trims the output file).
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::domain::{AgentKind, LaunchSignature, LaunchSource, llxprt_launch_source};
@@ -186,13 +186,20 @@ pub fn run_non_interactive(
     instruction: &str,
     output_path: &Path,
 ) -> Result<String, RuntimeError> {
-    let (target, args) = non_interactive_argv(signature, instruction);
-    let executable = AgentExecutableResolver::current()
-        .resolve_target(target)
-        .map_err(RuntimeError::AgentExecutable)?;
-    let owned_args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+    // Issue #425: local versioned LLxprt launches run the cached `llxprt`
+    // binary directly from jefe's managed install dir instead of `npm exec`.
+    // The argv for that path is the inner llxprt args (no `exec --package`
+    // wrapper); the executable is resolved from the managed `node_modules/.bin`,
+    // and the command runs from a neutral dir (the install dir) so the
+    // work_dir's `node_modules` cannot shadow the pinned version. Remote
+    // versioned launches keep `npm exec` (jefe has no managed install on
+    // the remote host), and all other launches keep the existing PATH
+    // resolution with the caller's `work_dir`.
+    let (executable, owned_args, command_work_dir) =
+        resolve_non_interactive_command(signature, instruction)?;
     let mut command = command_for_executable(&executable, &owned_args);
-    if work_dir.as_os_str().is_empty() {
+    let effective_work_dir: &Path = command_work_dir.as_deref().unwrap_or(work_dir);
+    if effective_work_dir.as_os_str().is_empty() {
         // Defensive fallback: the dispatch layer always resolves a real
         // work_dir (the repository base_dir, or the process cwd). An empty
         // path here is unexpected; fall back to the process working directory
@@ -204,7 +211,7 @@ pub fn run_non_interactive(
         })?;
         command.current_dir(current);
     } else {
-        command.current_dir(work_dir);
+        command.current_dir(effective_work_dir);
     }
     command.stdin(std::process::Stdio::null());
     let output = run_command_capture_with_timeout(
@@ -225,6 +232,58 @@ pub fn run_non_interactive(
         return Err(RuntimeError::RemoteExecutionFailed(detail));
     }
     read_rewrite_output_file(output_path, stderr_hint.as_deref())
+}
+
+/// Resolve the executable, argv, and optional override work directory for a
+/// non-interactive run.
+///
+/// Local versioned LLxprt launches (issue #425) install the pinned version
+/// into jefe's managed cache and run the cached `llxprt` binary directly
+/// from `node_modules/.bin` with the inner llxprt argv. All other launches
+/// use `non_interactive_argv` and resolve on PATH.
+fn resolve_non_interactive_command(
+    signature: &LaunchSignature,
+    instruction: &str,
+) -> Result<
+    (
+        super::agent_executable::ResolvedAgentExecutable,
+        Vec<OsString>,
+        Option<PathBuf>,
+    ),
+    RuntimeError,
+> {
+    let remote_enabled = !signature.remote.host.is_empty();
+    let local_versioned = !remote_enabled
+        && matches!(
+            llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()),
+            LaunchSource::NpmBacked(_)
+        );
+    if local_versioned {
+        let selector = signature.llxprt_version.as_ref().ok_or_else(|| {
+            RuntimeError::SpawnFailed("versioned llxprt launch missing its selector".to_owned())
+        })?;
+        let bin_dir = super::llxprt_install::ensure_installed(selector)
+            .map_err(RuntimeError::LlxprtInstall)?;
+        let inner_args = non_interactive_inner_args(signature, instruction);
+        let owned_args: Vec<OsString> = inner_args.into_iter().map(OsString::from).collect();
+        let scoped = AgentExecutableResolver::for_platform(
+            AgentExecutableResolver::current().platform(),
+            vec![bin_dir.clone()],
+            std::env::var_os("PATHEXT"),
+        );
+        let executable = scoped
+            .resolve_target(AgentExecutableTarget::Agent(AgentKind::Llxprt))
+            .map_err(RuntimeError::AgentExecutable)?;
+        // Run from the managed bin dir so the work_dir's node_modules cannot
+        // shadow the pinned version.
+        return Ok((executable, owned_args, Some(bin_dir)));
+    }
+    let (target, args) = non_interactive_argv(signature, instruction);
+    let executable = AgentExecutableResolver::current()
+        .resolve_target(target)
+        .map_err(RuntimeError::AgentExecutable)?;
+    let owned_args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+    Ok((executable, owned_args, None))
 }
 
 #[cfg(test)]

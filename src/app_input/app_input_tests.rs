@@ -1,3 +1,4 @@
+use super::durable_save_request;
 use super::prs_orchestration::pr_send_info_from_state;
 use super::*;
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ use jefe::domain::{
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::domain::{IssueDetail, IssueState};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 
 pub(super) trait TestResultExt<T> {
@@ -294,55 +296,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
     );
 }
 
-#[test]
-fn to_persisted_state_carries_hide_idle_toggle() {
-    let state = AppState {
-        hide_idle_repositories: true,
-        ..AppState::default()
-    };
-
-    let persisted = to_persisted_state(&state);
-    assert!(persisted.hide_idle_repositories);
-}
-
-#[test]
-fn to_persisted_state_carries_pane_focus_and_terminal_focused() {
-    let state = AppState {
-        pane_focus: PaneFocus::Terminal,
-        terminal_focused: true,
-        ..AppState::default()
-    };
-
-    let persisted = to_persisted_state(&state);
-    assert_eq!(persisted.pane_focus, "terminal");
-    assert!(persisted.terminal_focused);
-}
-
-#[test]
-fn pane_focus_round_trip_all_variants() {
-    for focus in [
-        PaneFocus::Repositories,
-        PaneFocus::Agents,
-        PaneFocus::Terminal,
-    ] {
-        let s = pane_focus_to_persisted(focus);
-        assert_eq!(
-            pane_focus_from_persisted(&s),
-            focus,
-            "round-trip for {focus:?}"
-        );
-    }
-}
-
-#[test]
-fn pane_focus_from_persisted_unknown_defaults_to_repositories() {
-    // Older state files written before this field existed have "" or an
-    // unrecognized value; both must fall back to Repositories.
-    assert_eq!(pane_focus_from_persisted(""), PaneFocus::Repositories);
-    assert_eq!(pane_focus_from_persisted("bogus"), PaneFocus::Repositories);
-}
-
-/// to_persisted_state must EXCLUDE all prs_state data — no PR key appears in
+/// The durable projection must EXCLUDE all prs_state data — no PR key appears in
 /// the serialized JSON.
 ///
 /// Build a PullRequest populated with non-default data.
@@ -435,16 +389,18 @@ fn state_with_active_prs() -> jefe::state::AppState {
 /// @plan PLAN-20260624-PR-MODE.P04
 /// @requirement REQ-PR-NFR-002
 /// @pseudocode component-001 lines 66-76
-/// NOTE: this test lives in src/app_input/app_input_tests.rs (alongside the
-/// to_persisted_state_carries_hide_idle_toggle precedent) because
-/// to_persisted_state is module-private to app_input (declared in main.rs as
-/// `mod app_input`, NOT `pub mod app_input` in lib.rs), so it is NOT reachable
-/// from a test in the src/state module without changing production visibility.
+/// NOTE: this test lives in src/app_input/app_input_tests.rs because
+/// `durable_save_request` is module-private to app_input (declared in main.rs
+/// as `mod app_input`, NOT `pub mod app_input` in lib.rs), so it is NOT
+/// reachable from a test in the src/state module without changing production
+/// visibility.
 #[test]
-fn test_to_persisted_state_excludes_prs_state() {
-    let state = state_with_active_prs();
+fn durable_candidate_excludes_prs_state() {
+    let mut state = state_with_active_prs();
 
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state)
+        .value_or_panic("durable projection should stage a candidate")
+        .candidate;
     let json = serde_json::to_value(&persisted).value_or_panic("persisted should serialize");
 
     let json_str = serde_json::to_string(&json).value_or_panic("json should stringify");
@@ -458,10 +414,13 @@ fn test_to_persisted_state_excludes_prs_state() {
 
     assert!(json.get("repositories").is_some());
     assert!(json.get("agents").is_some());
-    assert!(json.get("selected_repository_index").is_some());
-    assert!(json.get("selected_agent_index").is_some());
-    assert!(json.get("hide_idle_repositories").is_some());
+    assert!(json.get("selection").is_some());
     assert!(json.get("last_selected_agent_by_repo").is_some());
+    assert!(
+        json.pointer("/preferences/hide_idle_repositories")
+            .is_some(),
+        "durable preferences must carry the idle-repository toggle"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -479,7 +438,7 @@ fn test_to_persisted_state_excludes_prs_state() {
 /// Exercises the dispatch path's synchronous reducer portion (the same
 /// `apply_and_persist(PrOpenInBrowser)` that the `mod.rs` dispatch arm runs
 /// BEFORE calling `dispatch_pr_open_in_browser`). Since `AppStateHandle`
-/// cannot be constructed in unit tests, we apply through `state.apply()` —
+/// cannot be constructed in unit tests, we apply through `state.apply().committed_pure()` —
 /// the exact reducer transition the dispatch runs synchronously before spawn.
 /// The `pr_open_in_browser_info_from_state` call proves the dispatch would
 /// resolve a valid info (proceed to spawn), and the notice proves the
@@ -509,7 +468,7 @@ fn test_open_in_browser_sets_opening_notice_through_dispatch() {
 
     // The dispatch arm runs apply_and_persist(PrOpenInBrowser) BEFORE the spawn.
     // Exercise that exact reducer transition.
-    let after = state.apply(AppEvent::PrOpenInBrowser);
+    let after = state.apply(AppEvent::PrOpenInBrowser).committed_pure();
 
     let notice = after
         .prs_state
@@ -567,7 +526,7 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
 
     // Apply the handler-emitted event through the reducer (observable state).
     let event = event.unwrap_or_else(|| panic!("handler must emit an event for 'o' key"));
-    let after = state.apply(event);
+    let after = state.apply(event).committed_pure();
 
     let notice = after
         .prs_state
@@ -662,7 +621,7 @@ fn state_for_pr_agent_chooser_confirm(
 /// `AppStateHandle` cannot be constructed in unit tests, the test replicates
 /// the EXACT dispatch sequence on raw `AppState`:
 /// (1) `pr_send_info_from_state` reads send info,
-/// (2) `state.apply(PrAgentChooserConfirm)` closes the chooser (reducer-before-side-effect).
+/// (2) `state.apply(PrAgentChooserConfirm).committed_pure()` closes the chooser (reducer-before-side-effect).
 /// The `ctx` is `None` so `launch_pr_agent` would be guarded (no real spawn).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -694,7 +653,9 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
 
     // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) — this runs
     // BEFORE launch in the real dispatch.
-    let after_confirm = state.apply(AppEvent::PrAgentChooserConfirm);
+    let after_confirm = state
+        .apply(AppEvent::PrAgentChooserConfirm)
+        .committed_pure();
     assert!(
         after_confirm.prs_state.agent_chooser.is_none(),
         "PrAgentChooserConfirm must close the agent chooser BEFORE side effects"
@@ -724,7 +685,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
 ///
 /// Since `AppStateHandle` cannot be constructed in unit tests, this replicates
 /// the EXACT dispatch sequence on raw `AppState`: a non-blank composer is open,
-/// then `state.apply(PrInlineSubmit)` runs the same reducer transition the
+/// then `state.apply(PrInlineSubmit).committed_pure()` runs the same reducer transition the
 /// dispatch arm performs, and the test asserts the resulting state satisfies
 /// the mutation precondition (composer preserved + `mutation_pending` set).
 ///
@@ -750,7 +711,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
 
     // The dispatch arm runs apply_and_persist(PrInlineSubmit) BEFORE the
     // mutation helper. Exercise that exact reducer transition.
-    let after = state.apply(AppEvent::PrInlineSubmit);
+    let after = state.apply(AppEvent::PrInlineSubmit).committed_pure();
 
     // The reducer set mutation_pending — this is the marker that
     // resolve_pr_inline_submit requires to reach create_pr_comment. Without the

@@ -56,100 +56,20 @@ pub struct DocDisplayRow {
 /// is never empty: even empty input produces a single empty row for line 0.
 #[must_use]
 pub fn wrap_document(content: &str, width: usize) -> Vec<DocDisplayRow> {
-    let lines: Vec<&str> = content.split('\n').collect();
-    let mut rows: Vec<DocDisplayRow> = Vec::new();
-    for (line_idx, line) in lines.iter().enumerate() {
-        for seg in wrap_display_line(line, width) {
-            rows.push(DocDisplayRow {
-                text: seg.text,
-                line: line_idx,
-                line_char_start: seg.start,
-                line_char_end: seg.end,
-            });
-        }
-    }
-    if rows.is_empty() {
-        // Only reachable for content that produced no lines at all, which
-        // `split('\n')` never does — guard defensively anyway.
-        rows.push(DocDisplayRow {
-            text: String::new(),
-            line: 0,
-            line_char_start: 0,
-            line_char_end: 0,
-        });
-    }
-    rows
-}
-
-const OVERWIDE_GLYPH_PLACEHOLDER: &str = "…";
-#[derive(Debug)]
-struct DisplaySegment {
-    text: String,
-    start: usize,
-    end: usize,
-}
-
-fn wrap_display_line(line: &str, width: usize) -> Vec<DisplaySegment> {
-    if width == 0 || line.is_empty() {
-        return vec![DisplaySegment {
-            text: String::new(),
-            start: 0,
-            end: 0,
-        }];
-    }
-    let chars: Vec<char> = line.chars().collect();
     let mut rows = Vec::new();
-    let mut start = 0;
-    while start < chars.len() {
-        let (display_end, source_end) = display_row_end(&chars, start, width);
-        let text = if display_end == start && source_end > start {
-            OVERWIDE_GLYPH_PLACEHOLDER.to_string()
-        } else {
-            chars[start..display_end]
-                .iter()
-                .collect::<String>()
-                .trim_end_matches(' ')
-                .to_string()
-        };
-        rows.push(DisplaySegment {
-            text,
-            start,
-            end: source_end,
-        });
-        start = source_end;
+    for (line_idx, line) in content.split('\n').enumerate() {
+        rows.extend(
+            crate::text_wrap::wrap_text(line, width)
+                .into_iter()
+                .map(|row| DocDisplayRow {
+                    text: row.text,
+                    line: line_idx,
+                    line_char_start: row.start,
+                    line_char_end: row.end,
+                }),
+        );
     }
     rows
-}
-
-fn display_row_end(chars: &[char], start: usize, width: usize) -> (usize, usize) {
-    let mut used: usize = 0;
-    let mut cursor = start;
-    let mut last_whitespace_end = None;
-    while cursor < chars.len() {
-        let char_width = UnicodeWidthChar::width(chars[cursor]).unwrap_or(0);
-        if used.saturating_add(char_width) > width {
-            if chars[cursor].is_whitespace() {
-                let mut source_end = cursor;
-                while source_end < chars.len() && chars[source_end].is_whitespace() {
-                    source_end += 1;
-                }
-                return (cursor, source_end);
-            }
-            if let Some(break_end) = last_whitespace_end.filter(|end| *end > start) {
-                return (break_end, break_end);
-            }
-            if cursor == start {
-                return (cursor, cursor + 1);
-            }
-            return (cursor, cursor);
-        }
-        used = used.saturating_add(char_width);
-        cursor += 1;
-        if chars[cursor - 1].is_whitespace() {
-            last_whitespace_end = Some(cursor);
-        }
-    }
-    (cursor, cursor)
 }
 
 /// Convert a terminal-cell column in `text` to a clamped character boundary.
@@ -397,6 +317,22 @@ mod tests {
     }
 
     #[test]
+    fn document_rows_match_the_shared_terminal_cell_wrapper() {
+        let rows = wrap_document("甲乙丙", 4);
+        let shared = crate::text_wrap::wrap_text("甲乙丙", 4);
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.text.as_str(), row.line_char_start, row.line_char_end))
+                .collect::<Vec<_>>(),
+            shared
+                .iter()
+                .map(|row| (row.text.as_str(), row.start, row.end))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn cjk_wraps_by_terminal_cells_and_retains_char_ranges() {
         let rows = wrap_document("甲乙丙", 4);
         assert_eq!(rows.len(), 2);
@@ -422,7 +358,7 @@ mod tests {
     fn overwide_glyph_uses_finite_placeholder_and_retains_source_range() {
         let rows = wrap_document("甲", 1);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].text, OVERWIDE_GLYPH_PLACEHOLDER);
+        assert_eq!(rows[0].text, "…");
         assert_eq!((rows[0].line_char_start, rows[0].line_char_end), (0, 1));
         assert!(UnicodeWidthStr::width(rows[0].text.as_str()) <= 1);
     }

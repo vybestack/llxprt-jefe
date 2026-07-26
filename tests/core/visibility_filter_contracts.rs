@@ -5,6 +5,7 @@ use crate::support::TestOptionExt;
 use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 
 fn repository(id: &str) -> Repository {
@@ -70,7 +71,9 @@ fn visible_agents_matches_agent_indices_when_idle_hidden() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(hidden.hide_idle_repositories);
 
     let repo_id = RepositoryId("r1".into());
@@ -141,7 +144,9 @@ fn selected_agent_local_index_matches_visible_agents_position() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(hidden.hide_idle_repositories);
 
     let repo_id = RepositoryId("r1".into());
@@ -215,7 +220,9 @@ fn delete_targets_correct_agent_when_idle_hidden() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     let repo_id = RepositoryId("r1".into());
     let visible_agents = hidden.visible_agents_for_repository(&repo_id);
     let local_idx = hidden
@@ -230,7 +237,9 @@ fn delete_targets_correct_agent_when_idle_hidden() {
     assert_eq!(visible_agents[local_idx].id, selected_id);
     assert_eq!(selected_id, AgentId("target".into()));
 
-    let with_modal = hidden.apply(AppEvent::OpenDeleteAgent(selected_id));
+    let with_modal = hidden
+        .apply(AppEvent::OpenDeleteAgent(selected_id))
+        .committed_pure();
     let ModalState::ConfirmDeleteAgent { id, .. } = &with_modal.modal else {
         panic!("expected ConfirmDeleteAgent, got {:?}", with_modal.modal);
     };
@@ -314,7 +323,9 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
         ..AppState::default()
     };
 
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert_eq!(hidden.visible_agent_count(), 1);
     assert_eq!(
         hidden.visible_agent_count_for_repository(&RepositoryId("r1".into())),
@@ -367,7 +378,9 @@ fn visible_repo_count_matches_visible_repository_indices() {
     assert_eq!(state.visible_repository_indices().len(), 2);
 
     // Filter on: only r1 visible (has running agent)
-    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    let hidden = state
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert_eq!(hidden.visible_repository_indices().len(), 1);
     assert_eq!(hidden.visible_repository_indices()[0], 0);
 }
@@ -407,7 +420,9 @@ fn kill_agent_in_active_only_mode_stays_visible() {
     };
     state.normalize_selection_indices();
 
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
 
     // The agent is Dead but should still be in the visible set (sticky).
     let repo_id = RepositoryId("r1".into());
@@ -450,10 +465,12 @@ fn navigate_after_kill_filters_dead_agent() {
     };
     state.normalize_selection_indices();
 
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
 
     // Navigate down — this should clear the sticky list.
-    let after_nav = killed.apply(AppEvent::NavigateDown);
+    let after_nav = killed.apply(AppEvent::NavigateDown).committed_pure();
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = after_nav.visible_agents_for_repository(&repo_id);
@@ -482,7 +499,9 @@ fn kill_last_running_agent_keeps_repo_visible() {
     state.normalize_selection_indices();
 
     // Kill the only running agent in r1.
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
 
     // r1 should still be visible because of the sticky dead agent.
     let visible_repos = killed.visible_repository_indices();
@@ -492,7 +511,7 @@ fn kill_last_running_agent_keeps_repo_visible() {
     );
 
     // Navigate down — clears sticky, r1 should now be filtered out.
-    let after_nav = killed.apply(AppEvent::NavigateDown);
+    let after_nav = killed.apply(AppEvent::NavigateDown).committed_pure();
     let visible_repos_after = after_nav.visible_repository_indices();
     assert!(
         !visible_repos_after.contains(&0),
@@ -516,10 +535,12 @@ fn agent_status_changed_does_not_trigger_sticky() {
     state.normalize_selection_indices();
 
     // Use AgentStatusChanged (external status update) instead of KillAgent.
-    let after = state.apply(AppEvent::AgentStatusChanged(
-        AgentId("a1".into()),
-        AgentStatus::Dead,
-    ));
+    let after = state
+        .apply(AppEvent::AgentStatusChanged(
+            AgentId("a1".into()),
+            AgentStatus::Dead,
+        ))
+        .committed_pure();
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = after.visible_agents_for_repository(&repo_id);
@@ -547,10 +568,14 @@ fn kill_with_filter_off_then_toggle_on_keeps_sticky() {
     state.normalize_selection_indices();
 
     // Kill while filter is OFF — sticky list should still be populated.
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
 
     // Toggle filter ON — this is a display toggle, NOT navigation; sticky persists.
-    let toggled = killed.apply(AppEvent::ToggleHideIdleRepositories);
+    let toggled = killed
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(toggled.hide_idle_repositories);
 
     let repo_id = RepositoryId("r1".into());
@@ -561,7 +586,7 @@ fn kill_with_filter_off_then_toggle_on_keeps_sticky() {
     );
 
     // Now navigate down — this clears sticky, and the dead agent is filtered out.
-    let navigated = toggled.apply(AppEvent::NavigateDown);
+    let navigated = toggled.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after_nav = navigated.visible_agents_for_repository(&repo_id);
     assert!(
         !visible_after_nav
@@ -589,8 +614,12 @@ fn multiple_kills_all_sticky() {
     };
     state.normalize_selection_indices();
 
-    let killed_a = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
-    let killed_b = killed_a.apply(AppEvent::KillAgent(AgentId("a2".into())));
+    let killed_a = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
+    let killed_b = killed_a
+        .apply(AppEvent::KillAgent(AgentId("a2".into())))
+        .committed_discarding_effects();
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = killed_b.visible_agents_for_repository(&repo_id);
@@ -604,7 +633,7 @@ fn multiple_kills_all_sticky() {
     );
 
     // Navigate away — both should be filtered.
-    let after_nav = killed_b.apply(AppEvent::NavigateDown);
+    let after_nav = killed_b.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_agents_for_repository(&repo_id);
     assert!(
         visible_after.is_empty(),
@@ -630,10 +659,12 @@ fn sticky_cleared_on_select_repository() {
     };
     state.normalize_selection_indices();
 
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
 
     // SelectRepository is a navigation message — clears sticky.
-    let after_select = killed.apply(AppEvent::SelectRepository(0));
+    let after_select = killed.apply(AppEvent::SelectRepository(0)).committed_pure();
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = after_select.visible_agents_for_repository(&repo_id);
@@ -656,11 +687,11 @@ fn sticky_cleared_on_select_repository() {
 /// Drive the real New Repository form submit path: open the modal, type a
 /// name, submit. Returns the state after submit with the new repo appended.
 fn submit_new_repository(mut state: AppState, name: &str) -> AppState {
-    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     for c in name.chars() {
-        state = state.apply(AppEvent::FormChar(c));
+        state = state.apply(AppEvent::FormChar(c)).committed_pure();
     }
-    state.apply(AppEvent::SubmitForm)
+    state.apply(AppEvent::SubmitForm).committed_pure()
 }
 
 /// Test 1 (A1): With hide_idle_repositories=true, submit the New Repository
@@ -718,7 +749,7 @@ fn navigate_after_new_repo_filters_empty_repo() {
     assert!(created.visible_repository_indices().contains(&new_repo_idx));
 
     // Navigate down — clears sticky, empty new repo should be filtered out.
-    let after_nav = created.apply(AppEvent::NavigateDown);
+    let after_nav = created.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         !visible_after.contains(&new_repo_idx),
@@ -747,7 +778,9 @@ fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
     let new_repo_idx = created.repositories.len() - 1;
 
     // Toggle filter ON — must NOT clear sticky.
-    let toggled = created.apply(AppEvent::ToggleHideIdleRepositories);
+    let toggled = created
+        .apply(AppEvent::ToggleHideIdleRepositories)
+        .committed_pure();
     assert!(toggled.hide_idle_repositories);
     assert!(
         toggled.visible_repository_indices().contains(&new_repo_idx),
@@ -755,7 +788,7 @@ fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
     );
 
     // Now navigate — sticky clears, empty repo filtered out.
-    let navigated = toggled.apply(AppEvent::NavigateDown);
+    let navigated = toggled.apply(AppEvent::NavigateDown).committed_pure();
     assert!(
         !navigated
             .visible_repository_indices()
@@ -783,7 +816,9 @@ fn sticky_cleared_on_select_repository_after_new_repo() {
     let new_repo_idx = created.repositories.len() - 1;
 
     // SelectRepository is navigation — clears sticky.
-    let after_select = created.apply(AppEvent::SelectRepository(new_repo_idx));
+    let after_select = created
+        .apply(AppEvent::SelectRepository(new_repo_idx))
+        .committed_pure();
     assert!(
         !after_select
             .visible_repository_indices()
@@ -823,7 +858,7 @@ fn multiple_new_repos_all_sticky() {
     );
 
     // Navigate away — both filtered out (only r1 with its running agent remains).
-    let after_nav = second.apply(AppEvent::NavigateDown);
+    let after_nav = second.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         !visible_after.contains(&first_idx) && !visible_after.contains(&second_idx),
@@ -847,8 +882,11 @@ fn new_repo_sticky_coexists_with_sticky_dead_agent() {
     };
     state.normalize_selection_indices();
 
-    // Kill the agent (sticky-dead keeps r1 visible).
-    let killed = state.apply(AppEvent::KillAgent(AgentId("a1".into())));
+    // Kill the agent (sticky-dead keeps r1 visible). KillAgent stages a
+    // runtime effect; this contract covers visibility semantics only.
+    let killed = state
+        .apply(AppEvent::KillAgent(AgentId("a1".into())))
+        .committed_discarding_effects();
     // Create a new empty repo (sticky-empty keeps it visible).
     let created = submit_new_repository(killed, "NewRepo");
     let new_repo_idx = created.repositories.len() - 1;
@@ -864,7 +902,7 @@ fn new_repo_sticky_coexists_with_sticky_dead_agent() {
     );
 
     // Navigate — both stickies clear. r1 has a dead agent, new repo is empty.
-    let after_nav = created.apply(AppEvent::NavigateDown);
+    let after_nav = created.apply(AppEvent::NavigateDown).committed_pure();
     let visible_after = after_nav.visible_repository_indices();
     assert!(
         visible_after.is_empty(),

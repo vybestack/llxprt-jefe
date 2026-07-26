@@ -6,6 +6,7 @@ use crate::domain::{Repository, RepositoryId};
 use crate::messages::{AppMessage, SystemMessage};
 use crate::state::AppState;
 
+use crate::state::transition::TransitionExt;
 use std::path::PathBuf;
 
 fn state_with_repo() -> AppState {
@@ -25,9 +26,11 @@ fn transient_agent_queued_sets_draft_notice_position_zero() {
     state.issues_state.draft_notice = None;
     state.prs_state.draft_notice = None;
 
-    let after = state.apply_message(AppMessage::System(SystemMessage::TransientAgentQueued {
-        queue_position: 0,
-    }));
+    let after = state
+        .apply_message(AppMessage::System(SystemMessage::TransientAgentQueued {
+            queue_position: 0,
+        }))
+        .committed_pure();
 
     assert_eq!(
         after.issues_state.draft_notice.as_deref(),
@@ -43,9 +46,11 @@ fn transient_agent_queued_sets_draft_notice_position_zero() {
 fn transient_agent_queued_sets_draft_notice_with_position() {
     let state = state_with_repo();
 
-    let after = state.apply_message(AppMessage::System(SystemMessage::TransientAgentQueued {
-        queue_position: 3,
-    }));
+    let after = state
+        .apply_message(AppMessage::System(SystemMessage::TransientAgentQueued {
+            queue_position: 3,
+        }))
+        .committed_pure();
 
     assert_eq!(
         after.issues_state.draft_notice.as_deref(),
@@ -63,7 +68,9 @@ fn transient_agent_dequeued_clears_draft_notice() {
     state.issues_state.draft_notice = Some("Transient agent queued (position 1)".to_owned());
     state.prs_state.draft_notice = Some("Transient agent queued (position 1)".to_owned());
 
-    let after = state.apply_message(AppMessage::System(SystemMessage::TransientAgentDequeued));
+    let after = state
+        .apply_message(AppMessage::System(SystemMessage::TransientAgentDequeued))
+        .committed_pure();
 
     assert!(
         after.issues_state.draft_notice.is_none(),

@@ -56,11 +56,49 @@ it takes precedence over the `JEFE_*` path environment variables.
   `PersistenceError::InvalidConfigDir` so silent data loss cannot occur
   mid-session.
 
+### The durable state document
+
+State is stored as a schema-2 document (`domain::StateV2`). It is the single
+persistence authority: there is no second in-memory shape that also knows how
+to reach disk.
+
+- **One projection each way.** `state::durable_projection::to_durable_state`
+  builds the document from `AppState`; `state::durable_restore::from_durable_state`
+  restores it. Nothing else translates between runtime and durable form, so the
+  two directions cannot drift.
+- **Saves are staged, not called.** The reducer stages a single bounded
+  `PersistenceEffect::PersistState` carrying the projected candidate, the
+  revision it claims, and its correlation. Staging again supersedes the pending
+  save by semantic key, so a burst of edits coalesces into one write of the
+  latest state rather than a queue of stale ones.
+- **`durable_revision` is an acknowledged-write watermark.** It advances only
+  when a write is confirmed authoritative. A superseded write is normal
+  coalescing rather than a user-facing failure, and a completion whose
+  correlation no longer matches changes nothing.
+- **Reads never rewrite.** Schema-1 documents are migrated in memory on load;
+  the legacy bytes stay authoritative until a save replaces them, and that
+  replacement first retains the originals in a content-addressed sibling
+  because the one-way migration is otherwise unrecoverable.
+- **Identity is stable across migration.** An agent's tmux session name is
+  derived from its id, so rewriting ids orphans live sessions: startup liveness
+  looks for a session that no longer exists and demotes a healthy running agent
+  to dead. Migration therefore preserves any id that is already a valid
+  identifier and mints one only when the source id cannot be reused. Because
+  schema-1 ids carry no uniqueness guarantee, the first claimant keeps its id
+  and later duplicates fall back to the minted, collision-disambiguated form.
+- **Legacy writing is test-only.** Production never writes schema 1. The typed
+  schema-1 helpers exist behind the `schema1-fixtures` feature so tests can
+  author legacy input through the real serialized shape; hand-written JSON
+  fixtures silently omit fields and have already hidden a defect that made
+  jefe refuse to start on state files it wrote itself.
+
 ### What is not persisted
 
-- Agent lifecycle status (Running/Dead/etc.) is re-derived from tmux session
-  liveness on startup; the state file stores agent definitions, runtime status
-  is ephemeral.
+- Agent lifecycle status is not restored as fact. The document records only
+  what an agent was *last known* to be doing, which startup reconciles against
+  actual tmux liveness. The hint still matters: an agent last known to be
+  running is the one startup must check for an orphaned session, so discarding
+  it silently strands live sessions.
 - No background task scheduler state, no network server state.
 
 ---

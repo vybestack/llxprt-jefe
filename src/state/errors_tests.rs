@@ -3,12 +3,13 @@
 use crate::domain::ErrorSource;
 use crate::messages::{ErrorsMessage, NavDir, ScrollDir};
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::{AppState, ErrorsFocus, ScreenMode};
 
 /// In-place apply helper to avoid the take/replace dance on owned AppState.
 fn apply_in_place(state: &mut AppState, event: AppEvent) {
     let old = std::mem::take(state);
-    *state = old.apply(event);
+    *state = old.apply(event).committed_pure();
 }
 
 /// A fresh `ErrorsState` starts empty with no selection.

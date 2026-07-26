@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "name": "config-ambiguity",
+  "platform": "linux",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "legacy-data", "mode": 448 },
+      { "path": "legacy-data/jefe", "mode": 448 },
+      { "path": "work", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "jefe-state/state.json",
+        "content": { "utf8": "{\"state_schema\":2}" },
+        "mode": 384
+      },
+      {
+        "path": "legacy-data/jefe/state.json",
+        "content": { "utf8": "{\"schema_version\":1}" },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "HOME", "value": "${workspace}/home" },
+      { "name": "XDG_STATE_HOME", "value": "${workspace}/jefe-state" },
+      { "name": "XDG_DATA_HOME", "value": "${workspace}/legacy-data" }
+    ]
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "config", "path"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "CFG-E001",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "jefe-state/state.json",
+        "content": { "utf8": "{\"state_schema\":2}" }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "legacy-data/jefe/state.json",
+        "content": { "utf8": "{\"schema_version\":1}" }
+      }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

@@ -423,9 +423,29 @@ pub struct AppState {
     /// Per-repository remembered user preferences (issue #163).
     ///
     /// Runtime copy of the persisted DTO — mirror of
-    /// `persistence::State.user_preferences`. The reducer reads/writes this
-    /// in memory; the app-shell persists it via `to_persisted_state`.
+    /// the durable document's `preferences.repository_preferences`. The reducer
+    /// reads/writes this in memory; it reaches disk through the durable
+    /// projection like every other persisted field.
     pub user_preferences: crate::domain::UserPreferences,
+
+    /// Revision of the durable schema-2 document this state was loaded from
+    /// (issue #381). The writer rejects candidates that lost the race, and the
+    /// accepted revision is committed back through the persistence completion.
+    pub durable_revision: u64,
+
+    /// Highest revision proposed by a staged save (issue #381).
+    ///
+    /// Candidate revisions must be monotonic even while an earlier save is
+    /// still in flight, otherwise two candidates would claim the same revision
+    /// and the writer could not tell which one supersedes the other. Tracked
+    /// separately from [`Self::durable_revision`], which only advances once a
+    /// write is acknowledged.
+    pub proposed_revision: u64,
+
+    /// Schema-1 fields retained verbatim by migration because no schema-2
+    /// owner claims them (issue #381). Carried through load -> save unchanged
+    /// so a future owner can adopt them; never interpreted at runtime.
+    pub dormant_records: Vec<crate::domain::DormantRecord>,
 
     /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
     pub actions_state: ActionsState,
@@ -517,6 +537,11 @@ pub struct AppState {
     /// Populated once by the off-lock liveness worker; read by the pure render
     /// projection. Never persisted.
     pub dead_preview: super::DeadAgentPreviewCache,
+
+    /// Bounded pending post-commit effect correlations plus the generation
+    /// counters stale completions are validated against (issue #381).
+    /// Runtime-only — never persisted; no handle/closure/queue lives here.
+    pub pending_effects: super::transition::EffectLedger,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

@@ -145,6 +145,10 @@ fn code_puppy_uvx_wraps_with_from_and_binary() {
 
 #[test]
 fn llxprt_npm_backed_wraps_with_exec_package() {
+    // The pure argv helper keeps the `npm exec` form so remote and legacy
+    // paths stay consistent with `commands::launch_target_and_args`. The
+    // local versioned path (`run_non_interactive`) builds the inner argv
+    // directly (see `llxprt_npm_backed_local_run_resolves_cached_binary_argv`).
     let mut sig = signature(AgentKind::Llxprt);
     sig.llxprt_version = LlxprtNpmPackageSelector::normalize("1.0.0");
     let (target, args) = non_interactive_argv(&sig, "rewrite");
@@ -155,6 +159,27 @@ fn llxprt_npm_backed_wraps_with_exec_package() {
     assert!(args.contains(&format!("--package={expected_package_spec}")));
     assert!(args.contains(&"llxprt".to_owned()));
     assert!(args.contains(&"--prompt".to_owned()));
+}
+
+#[test]
+fn llxprt_npm_backed_local_run_resolves_cached_binary_argv() {
+    // Issue #425: the local versioned run_non_interactive path builds the
+    // inner llxprt argv (no `exec --package` wrapper) and resolves the
+    // cached binary from the jefe-managed install dir. This test exercises
+    // the pure argv half (`non_interactive_inner_args`) to assert the local
+    // form: it must contain `--prompt` and the instruction, and must NOT
+    // contain the `npm exec` wrapper.
+    let mut sig = signature(AgentKind::Llxprt);
+    sig.llxprt_version = LlxprtNpmPackageSelector::normalize("1.0.0");
+    let inner = super::non_interactive_inner_args(&sig, "rewrite this issue");
+    assert!(inner.contains(&"--prompt".to_owned()));
+    assert!(inner.contains(&"rewrite this issue".to_owned()));
+    assert!(
+        !inner
+            .iter()
+            .any(|a| a == "exec" || a.starts_with("--package=")),
+        "local versioned inner argv must not carry the npm exec wrapper: {inner:?}"
+    );
 }
 
 #[test]

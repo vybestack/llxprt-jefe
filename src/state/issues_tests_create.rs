@@ -5,6 +5,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{ComposerTarget, InlineState, IssueFocus};
 
 use super::issues_tests_detail::{issues_mode_state_with_repo, p15_detail};
+use crate::state::transition::TransitionExt;
 
 fn make_test_issue(number: u64) -> Issue {
     Issue {
@@ -35,22 +36,26 @@ fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
         cursor: 5,
     };
     let state = issues_mode_state_with_repo("repo-1");
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 21,
-        target: submitted_target.clone(),
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 21,
+            target: submitted_target.clone(),
+        })
+        .committed_pure();
     state.issues_state.inline_state = submitted_target;
 
-    let state = state.apply(AppEvent::IssueCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 21,
-        issue: Box::new(Issue {
-            title: "Fresh title".to_string(),
-            body: "Fresh body".to_string(),
-            ..make_test_issue(77)
-        }),
-    });
+    let state = state
+        .apply(AppEvent::IssueCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 21,
+            issue: Box::new(Issue {
+                title: "Fresh title".to_string(),
+                body: "Fresh body".to_string(),
+                ..make_test_issue(77)
+            }),
+        })
+        .committed_pure();
 
     assert!(state.issues_state.mutation_pending.is_none());
     assert_eq!(state.issues_state.inline_state, InlineState::None);
@@ -86,19 +91,23 @@ fn test_create_issue_success_preserves_notice_without_clearing_via_refocus() {
         cursor: 5,
     };
     let state = issues_mode_state_with_repo("repo-1");
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 24,
-        target: submitted_target.clone(),
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 24,
+            target: submitted_target.clone(),
+        })
+        .committed_pure();
     state.issues_state.inline_state = submitted_target;
     state.issues_state.issue_detail = Some(p15_detail(10));
 
-    let state = state.apply(AppEvent::IssueCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 24,
-        issue: Box::new(make_test_issue(88)),
-    });
+    let state = state
+        .apply(AppEvent::IssueCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 24,
+            issue: Box::new(make_test_issue(88)),
+        })
+        .committed_pure();
 
     assert_eq!(
         state.issues_state.draft_notice.as_deref(),
@@ -120,11 +129,13 @@ fn test_create_issue_success_prepends_and_selects_new_issue() {
         cursor: 5,
     };
     let state = issues_mode_state_with_repo("repo-1");
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 22,
-        target: submitted_target.clone(),
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 22,
+            target: submitted_target.clone(),
+        })
+        .committed_pure();
     state.issues_state.inline_state = submitted_target;
     state
         .issues_state
@@ -132,14 +143,16 @@ fn test_create_issue_success_prepends_and_selects_new_issue() {
         .replace_items(vec![make_test_issue(10), make_test_issue(9)]);
     state.issues_state.list.set_selected_index(Some(1));
 
-    let state = state.apply(AppEvent::IssueCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 22,
-        issue: Box::new(Issue {
-            title: "Brand new".to_string(),
-            ..make_test_issue(42)
-        }),
-    });
+    let state = state
+        .apply(AppEvent::IssueCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 22,
+            issue: Box::new(Issue {
+                title: "Brand new".to_string(),
+                ..make_test_issue(42)
+            }),
+        })
+        .committed_pure();
 
     let numbers: Vec<_> = state
         .issues_state
@@ -164,11 +177,13 @@ fn test_create_issue_success_skips_list_insert_when_filter_is_closed_only() {
         cursor: 5,
     };
     let state = issues_mode_state_with_repo("repo-1");
-    let mut state = state.apply(AppEvent::MutationSubmitted {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 23,
-        target: submitted_target.clone(),
-    });
+    let mut state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 23,
+            target: submitted_target.clone(),
+        })
+        .committed_pure();
     state.issues_state.inline_state = submitted_target;
     state.issues_state.committed_filter.state = Some(IssueFilterState::Closed);
     state
@@ -177,11 +192,13 @@ fn test_create_issue_success_skips_list_insert_when_filter_is_closed_only() {
         .replace_items(vec![make_test_issue(10)]);
     state.issues_state.list.set_selected_index(Some(0));
 
-    let state = state.apply(AppEvent::IssueCreated {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        mutation_id: 23,
-        issue: Box::new(make_test_issue(99)),
-    });
+    let state = state
+        .apply(AppEvent::IssueCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 23,
+            issue: Box::new(make_test_issue(99)),
+        })
+        .committed_pure();
 
     assert_eq!(
         state

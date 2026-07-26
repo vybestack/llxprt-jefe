@@ -1,6 +1,7 @@
 use crate::domain::{Issue, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{IssueFocus, PaneFocus, ScreenMode};
 
 fn dashboard_issues_state() -> AppState {
@@ -94,7 +95,7 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     state.pane_focus = PaneFocus::Agents;
 
     // Down should move to repo index 1 even though pane_focus is Agents
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
         !state.issues_state.list_loading(),
@@ -102,15 +103,15 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     );
 
     // Down again to repo index 2
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(2));
 
     // Down at bottom should stay
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(2));
 
     // Up should move back to repo index 1
-    let state = state.apply(AppEvent::IssuesNavigateUp);
+    let state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
         !state.issues_state.list_loading(),
@@ -118,11 +119,11 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     );
 
     // Up again to repo index 0
-    let state = state.apply(AppEvent::IssuesNavigateUp);
+    let state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
     assert_eq!(state.selected_repository_index, Some(0));
 
     // Up at top should stay
-    let state = state.apply(AppEvent::IssuesNavigateUp);
+    let state = state.apply(AppEvent::IssuesNavigateUp).committed_pure();
     assert_eq!(state.selected_repository_index, Some(0));
 }
 
@@ -147,7 +148,7 @@ fn test_issues_repo_navigation_with_terminal_focus() {
     state.issues_state.issue_focus = IssueFocus::RepoList;
     state.pane_focus = PaneFocus::Terminal;
 
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
 }
 
@@ -178,7 +179,7 @@ fn test_issues_repo_navigation_resets_issues_state() {
     state.issues_state.issue_detail = Some(make_detail(1));
     state.pane_focus = PaneFocus::Agents;
 
-    let state = state.apply(AppEvent::IssuesNavigateDown);
+    let state = state.apply(AppEvent::IssuesNavigateDown).committed_pure();
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
         state.issues_state.issues().is_empty(),

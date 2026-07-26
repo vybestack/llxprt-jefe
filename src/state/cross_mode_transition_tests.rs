@@ -7,6 +7,7 @@
 //! reducers.
 
 use super::*;
+use crate::state::transition::TransitionExt;
 
 // ── Cross-mode navigation regression (issue #164) ────────────────────────
 
@@ -15,9 +16,9 @@ use super::*;
 #[test]
 fn enter_issues_mode_from_prs_mode_switches_screen() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(state.screen_mode, ScreenMode::DashboardPullRequests);
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
         state.screen_mode,
         ScreenMode::DashboardIssues,
@@ -35,9 +36,9 @@ fn enter_issues_mode_from_prs_mode_switches_screen() {
 #[test]
 fn enter_prs_mode_from_issues_mode_switches_screen() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(
         state.screen_mode,
         ScreenMode::DashboardPullRequests,
@@ -60,11 +61,11 @@ fn enter_issues_mode_from_prs_deactivates_prs() {
     use crate::state::PrFocus;
 
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(state.prs_state.active);
     assert_eq!(state.screen_mode, ScreenMode::DashboardPullRequests);
 
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(
         state.issues_state.active,
         "EnterIssuesMode must activate the issues state"
@@ -94,11 +95,11 @@ fn enter_prs_mode_from_issues_deactivates_issues() {
     use crate::state::IssueFocus;
 
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(state.issues_state.active);
     assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
 
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(
         state.prs_state.active,
         "EnterPrsMode must activate the prs state"
@@ -127,11 +128,11 @@ fn enter_issues_mode_clears_terminal_focus() {
     use crate::state::PaneFocus;
 
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let mut state = state.apply(AppEvent::EnterPrsMode);
+    let mut state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     state.terminal_focused = true;
     state.pane_focus = PaneFocus::Terminal;
 
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(
         !state.terminal_focused,
         "EnterIssuesMode must clear terminal_focused"
@@ -155,11 +156,11 @@ fn enter_prs_mode_clears_terminal_focus() {
     use crate::state::PaneFocus;
 
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    let mut state = state.apply(AppEvent::EnterIssuesMode);
+    let mut state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     state.terminal_focused = true;
     state.pane_focus = PaneFocus::Terminal;
 
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(
         !state.terminal_focused,
         "EnterPrsMode must clear terminal_focused"
@@ -196,7 +197,7 @@ fn enter_issues_mode_does_not_clobber_existing_prior_focus() {
     state.selected_agent_index = Some(0);
 
     // Enter Issues mode so prior_agent_focus is set by the reducer.
-    let mut state = state.apply(AppEvent::EnterIssuesMode);
+    let mut state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     // Now overwrite with a KNOWN sentinel value that differs from what the
     // current pane_focus/selections would produce on re-entry.
     let original_prior = PriorAgentFocus {
@@ -207,8 +208,8 @@ fn enter_issues_mode_does_not_clobber_existing_prior_focus() {
     state.issues_state.prior_agent_focus = Some(original_prior.clone());
 
     // Switch to PR mode then back to Issues mode.
-    let state = state.apply(AppEvent::EnterPrsMode);
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
     let saved = state
         .issues_state
@@ -249,7 +250,7 @@ fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
     state.selected_agent_index = Some(0);
 
     // Enter PR mode so prior_agent_focus is set by the reducer.
-    let mut state = state.apply(AppEvent::EnterPrsMode);
+    let mut state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     // Now overwrite with a KNOWN sentinel value that differs from what the
     // current pane_focus/selections would produce on re-entry.
     let original_prior = PriorAgentFocus {
@@ -260,8 +261,8 @@ fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
     state.prs_state.prior_agent_focus = Some(original_prior.clone());
 
     // Switch to Issues mode then back to PR mode.
-    let state = state.apply(AppEvent::EnterIssuesMode);
-    let state = state.apply(AppEvent::EnterPrsMode);
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     let saved = state
         .prs_state

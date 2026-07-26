@@ -4,6 +4,7 @@
 use super::*;
 use crate::domain::{Agent, AgentKind, AgentStatus, Repository, RepositoryId};
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt as _;
 use crate::state::types::ModalState;
 
 fn seed_repository() -> Repository {
@@ -37,7 +38,9 @@ fn existing_agent(repo_id: &RepositoryId, name: &str, work_dir: &str) -> Agent {
 }
 
 fn open_new_agent_form(state: &mut AppState, repo_id: &RepositoryId) {
-    *state = std::mem::take(state).apply(AppEvent::OpenNewAgent(repo_id.clone()));
+    *state = std::mem::take(state)
+        .apply(AppEvent::OpenNewAgent(repo_id.clone()))
+        .committed_pure();
 }
 
 fn set_form_fields(modal: &mut ModalState, name: &str, work_dir: &str) {
@@ -63,7 +66,7 @@ fn submit_new_agent_rejects_duplicate_name_same_repository() {
 
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     set_form_fields(&mut state.modal, "main", "/tmp/repo-1/main-2");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     // Modal stays open with error; no new agent added.
     assert!(
@@ -96,7 +99,7 @@ fn submit_new_agent_rejects_duplicate_name_case_insensitive() {
 
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     set_form_fields(&mut state.modal, "MAIN", "/tmp/repo-1/main-2");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::NewAgent { .. }),
@@ -127,7 +130,7 @@ fn submit_new_agent_allows_same_name_in_different_repository() {
 
     open_new_agent_form(&mut state, &RepositoryId("repo-2".to_owned()));
     set_form_fields(&mut state.modal, "main", "/tmp/repo-2/main");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::None),
@@ -158,7 +161,7 @@ fn submit_new_agent_allows_colliding_work_dir_across_different_repositories() {
     open_new_agent_form(&mut state, &RepositoryId("repo-2".to_owned()));
     // Same work_dir, different repository, different name.
     set_form_fields(&mut state.modal, "beta", "/tmp/shared-workdir");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::None),
@@ -184,7 +187,7 @@ fn submit_new_agent_rejects_colliding_work_dir() {
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     // Different name but same work dir.
     set_form_fields(&mut state.modal, "beta", "/tmp/repo-1/shared");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::NewAgent { .. }),
@@ -216,7 +219,7 @@ fn submit_new_agent_with_whitespace_version_sets_error() {
     fields.agent_kind = AgentKind::Llxprt.label().to_owned();
     fields.llxprt_version = "0.9.0\n0".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::NewAgent { .. }),
@@ -249,7 +252,7 @@ fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
     fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
     fields.code_puppy_version = "0.0.361\n0".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::NewAgent { .. }),
@@ -281,7 +284,7 @@ fn submit_new_agent_clean_version_succeeds() {
     fields.agent_kind = AgentKind::Llxprt.label().to_owned();
     fields.llxprt_version = "0.9.0".to_owned();
 
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(
         matches!(state.modal, ModalState::None),
@@ -307,7 +310,7 @@ fn submit_new_agent_clears_stale_error_on_success() {
     // First submit: duplicate name → error set.
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     set_form_fields(&mut state.modal, "main", "/tmp/repo-1/main-2");
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert!(state.error_message.is_some());
 
     // Fix the name and resubmit: error should be cleared.
@@ -315,7 +318,7 @@ fn submit_new_agent_clears_stale_error_on_success() {
         panic!("expected modal still open");
     };
     fields.name = "main-2".to_owned();
-    state = state.apply(AppEvent::SubmitForm);
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert!(matches!(state.modal, ModalState::None));
     assert!(state.error_message.is_none());

@@ -19,7 +19,9 @@ use jefe::state::{
     AppEvent, AppState, ManagedShellRow, ScreenMode, ShellFocusOrigin, project_managed_shell_rows,
 };
 
-use super::{AppStateHandle, SharedContext, dispatch_app_event, persist_state, to_persisted_state};
+use super::{
+    AppStateHandle, SharedContext, dispatch_app_event, durable_save_request, schedule_durable_save,
+};
 
 /// Manager preview observer interval.
 const MANAGER_PREVIEW_INTERVAL: Duration = Duration::from_secs(2);
@@ -164,9 +166,9 @@ pub(super) fn select_agent_for_focus(
         state.selected_agent_index = Some(agent_idx);
     }
     state.pane_focus = jefe::state::PaneFocus::Terminal;
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Background observer that captures a throttled, read-only preview for the
@@ -223,7 +225,7 @@ pub async fn observe_terminal_manager_preview(mut app_state: AppStateHandle, ctx
             lines,
         };
         let mut state = app_state.write();
-        *state = std::mem::take(&mut *state).apply(event);
+        jefe::state::transition::commit_pure_site(&mut state, (event).into());
         drop(state);
     }
 }
@@ -416,7 +418,7 @@ pub fn on_shell_attach_failed(app_state: &mut AppStateHandle, failed_agent_id: &
         return;
     }
     let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::FailShellFocus);
+    jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FailShellFocus).into());
     state.warning_message = Some(format!(
         "Failed to focus shell for agent {}.",
         failed_agent_id.0

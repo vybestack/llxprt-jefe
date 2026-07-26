@@ -12,6 +12,7 @@ use crate::domain::{PrCheckStatus, PrState, PullRequest, Repository, RepositoryI
 use crate::messages::{AppMessage, PullRequestsMessage};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::{ReadOnlyHintKind, ScreenMode};
 
 /// Helper: PR-mode state with a selected PR.
@@ -70,9 +71,11 @@ fn test_show_notice_sets_draft_notice_for_each_readonly_hint_kind() {
 
         // Drive through the REAL dispatch hub (apply_message → apply_prs_message)
         // so the test proves the runtime path is wired, not just the reducer.
-        state = state.apply_message(AppMessage::PullRequests(PullRequestsMessage::ShowNotice(
-            kind,
-        )));
+        state = state
+            .apply_message(AppMessage::PullRequests(PullRequestsMessage::ShowNotice(
+                kind,
+            )))
+            .committed_pure();
 
         // Handled is proven by the observable effect: a handled ShowNotice sets
         // a non-empty draft_notice. A no-op/unrouted message would leave it None.
@@ -108,7 +111,9 @@ fn test_open_in_browser_reducer_is_pure_sets_opening_notice() {
     let selection_snapshot = state.prs_state.selected_pr_index();
 
     // Drive through the REAL dispatch hub (apply_message → apply_prs_message).
-    let state = state.apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser));
+    let state = state
+        .apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser))
+        .committed_pure();
 
     // Handled is proven by the observable effect: a handled OpenInBrowser sets
     // an opening notice. A no-op/unrouted message would leave it None.
@@ -141,7 +146,9 @@ fn test_open_in_browser_no_selection_sets_notice() {
     state.prs_state.list.clear_items();
 
     // Drive through the REAL dispatch hub (apply_message → apply_prs_message).
-    state = state.apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser));
+    state = state
+        .apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser))
+        .committed_pure();
 
     // Handled is proven by the observable effect: NoSelectionToOpen sets a
     // notice (no silent drop). A no-op/unrouted message would leave it None.
@@ -163,13 +170,15 @@ fn test_open_in_browser_failed_sets_scoped_error_notice() {
     let state = prs_mode_state_with_selected_pr("repo-1", 3);
 
     // Drive through the REAL dispatch hub (apply_message → apply_prs_message).
-    let state = state.apply_message(AppMessage::PullRequests(
-        PullRequestsMessage::OpenInBrowserFailed {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            pr_number: 3,
-            error: "browser launch failed".to_string(),
-        },
-    ));
+    let state = state
+        .apply_message(AppMessage::PullRequests(
+            PullRequestsMessage::OpenInBrowserFailed {
+                scope_repo_id: RepositoryId("repo-1".to_string()),
+                pr_number: 3,
+                error: "browser launch failed".to_string(),
+            },
+        ))
+        .committed_pure();
 
     // Handled is proven by the observable effect: a scoped error notice is set.
     assert!(

@@ -12,6 +12,7 @@
 use super::prs_tests_detail::{make_review, make_thread, prs_mode_state};
 use crate::domain::{IssueComment, PrReview, PrReviewState, PrReviewThread, PullRequestDetail};
 use crate::state::events::AppEvent;
+use crate::state::transition::TransitionExt;
 use crate::state::types::PrDetailSubfocus;
 
 /// Access the `pub(super)` order builder through the sibling nav-ops module.
@@ -236,19 +237,19 @@ fn subfocus_next_skips_bodyless_review_focus_in_reducer() {
     state.prs_state.detail_viewport_rows = 100;
 
     // Body → ReviewThread(0) (skipping the bodyless review).
-    let s = state.apply(AppEvent::PrDetailSubfocusNext);
+    let s = state.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(0),
         "Body → ReviewThread(0), not Review(0)"
     );
     // ReviewThread(0) → ReviewThread(1).
-    let s = s.apply(AppEvent::PrDetailSubfocusNext);
+    let s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(
         s.prs_state.detail_subfocus,
         PrDetailSubfocus::ReviewThread(1)
     );
     // ReviewThread(1) → NewComment.
-    let s = s.apply(AppEvent::PrDetailSubfocusNext);
+    let s = s.apply(AppEvent::PrDetailSubfocusNext).committed_pure();
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::NewComment);
 }

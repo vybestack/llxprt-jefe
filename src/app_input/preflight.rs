@@ -6,7 +6,8 @@ use jefe::runtime::{
 use jefe::state::ModalState;
 
 use super::{
-    AppStateHandle, SharedContext, execute_agent_launch, persist_state, to_persisted_state,
+    AppStateHandle, SharedContext, durable_save_request, execute_agent_launch,
+    schedule_durable_save,
 };
 
 /// Run sandbox preflight checks and either show a prompt or proceed with launch.
@@ -76,9 +77,9 @@ fn open_preflight_prompt(
         issue_self_assignment: issue_self_assignment.cloned(),
         confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }
 
 /// Pure predicate: should sandbox preflight run for this signature?
@@ -244,9 +245,9 @@ fn persist_modal_close(
 
 fn persist_state_guard(
     ctx: &SharedContext,
-    state: iocraft::hooks::StateMutRef<'_, jefe::state::AppState>,
+    mut state: iocraft::hooks::StateMutRef<'_, jefe::state::AppState>,
 ) {
-    let persisted = to_persisted_state(&state);
+    let persisted = durable_save_request(&mut state);
     drop(state);
-    persist_state(ctx, &persisted);
+    schedule_durable_save(ctx, persisted);
 }

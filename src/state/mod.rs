@@ -52,6 +52,9 @@ mod prs_nav_ops;
 mod prs_ops;
 mod prs_property_ops;
 mod prs_thread_ops;
+/// Runtime-domain reducer handlers + effect-completion application
+/// (issue #381).
+mod runtime_ops;
 pub mod scrollback_ops;
 mod selectors;
 mod shell_focus_resolution;
@@ -65,9 +68,27 @@ pub use selectors::ChooserAgentInfo;
 pub(crate) use selectors::build_chooser_entries_from_state;
 pub use shell_focus_resolution::resolve_repository_shell;
 pub use shell_inventory_ops::ShellInventory;
+/// Pure projections between runtime state and the durable schema-2 document.
+pub mod durable_projection;
+#[cfg(test)]
+#[path = "durable_projection_tests.rs"]
+mod durable_projection_tests;
+/// Restoration of runtime state from the durable schema-2 document.
+pub mod durable_restore;
+/// Bounded reducer transitions and pending effect correlations (issue #381).
+mod navigation_vertical;
+#[cfg(test)]
+#[path = "persistence_effect_tests.rs"]
+mod persistence_effect_tests;
+/// Durable-save staging and persistence completion handling.
+pub mod persistence_ops;
 pub mod state_ops;
 pub mod theme_picker_view;
 pub mod transient_ops;
+pub mod transition;
+#[cfg(test)]
+#[path = "transition_tests.rs"]
+mod transition_tests;
 mod types;
 mod util;
 pub use errors_ops::capture_runtime_errors;
@@ -85,11 +106,10 @@ pub use terminal_manager_types::{
 pub use types::*;
 pub use util::{inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical};
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
-use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
 use crate::messages::{
-    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
-    UiNavigationMessage,
+    AppMessage, MessageRoute, PersistenceMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
 };
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
@@ -261,20 +281,43 @@ impl AppState {
             .position(|global_idx| *global_idx == selected_global)
     }
 
-    /// Apply an event to produce the next state.
-    #[must_use]
-    pub fn apply(self, event: AppEvent) -> Self {
+    /// Apply an event, committing a bounded transition (issue #381 CW01-10).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`transition::TransitionError`] when the reducer stages more
+    /// than [`transition::MAX_TRANSITION_EFFECTS`] ordered effects.
+    pub fn apply(
+        self,
+        event: AppEvent,
+    ) -> Result<transition::Transition, transition::TransitionError> {
         self.apply_message(event.into())
     }
 
-    /// Apply a routed domain message to produce the next state.
+    /// Apply a routed domain message, committing a bounded transition.
     ///
-    /// State transitions are deterministic per REQ-TECH-003.
+    /// State transitions are deterministic per REQ-TECH-003. The committed
+    /// [`transition::Transition`] carries the next state plus at most
+    /// [`transition::MAX_TRANSITION_EFFECTS`] ordered post-commit effects;
+    /// adapters are never executed while the state is borrowed.
     /// @plan PLAN-20260216-FIRSTVERSION-V1.P05
     /// @requirement REQ-TECH-003
     /// @pseudocode component-001 lines 13-33
-    #[must_use]
-    pub fn apply_message(mut self, message: AppMessage) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`transition::TransitionError`] when the reducer stages more
+    /// than the bounded effect count.
+    pub fn apply_message(
+        mut self,
+        message: AppMessage,
+    ) -> Result<transition::Transition, transition::TransitionError> {
+        self.reduce_message(message);
+        let effects = std::mem::take(&mut self.pending_effects.staged);
+        transition::Transition::new(self, effects)
+    }
+
+    fn reduce_message(&mut self, message: AppMessage) {
         let route = message.route();
         trace!(
             message_domain = ?route.domain,
@@ -291,7 +334,7 @@ impl AppState {
                 message = route.name,
                 "blocked navigation message (terminal_focused=true)"
             );
-            return self;
+            return;
         }
 
         match message {
@@ -323,10 +366,12 @@ impl AppState {
                 let handled = self.apply_terminal_manager_message(message);
                 debug_assert!(handled, "unhandled terminal manager message");
             }
+            AppMessage::EffectCompletion(completion) => {
+                self.apply_effect_completion_message(*completion);
+            }
         }
 
         self.finalize_message(route);
-        self
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {
@@ -652,59 +697,6 @@ impl AppState {
             }
         }
     }
-    fn apply_runtime_message(&mut self, message: RuntimeMessage) {
-        match message {
-            RuntimeMessage::KillAgent(agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
-                    agent.status = AgentStatus::Dead;
-                    agent.runtime_binding = None;
-                    self.sticky_dead_agent_ids.insert(agent_id.clone());
-                }
-                // Immediate shell-inventory cleanup on explicit kill (issue
-                // #361 PR A): the session is being torn down, so any tracked
-                // shell window is gone. Natural AgentStatusChanged->Dead is
-                // NOT touched here; natural death keeps shell close-only.
-                self.remove_shell_window(&agent_id);
-                self.clear_dead_preview(&agent_id);
-            }
-            RuntimeMessage::AgentStatusChanged(agent_id, status) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
-                    agent.status = status;
-                    if status == AgentStatus::Running {
-                        self.sticky_dead_agent_ids.remove(&agent_id);
-                        self.clear_dead_preview(&agent_id);
-                    }
-                    // Reset scroll state when selected agent's status changes
-                    // (fix #6).
-                    if self.selected_agent().is_some_and(|a| a.id == agent_id) {
-                        self.reset_terminal_scrollback();
-                    }
-                }
-            }
-            RuntimeMessage::RelaunchAgent(agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
-                    && agent.runtime_binding.is_some()
-                {
-                    agent.status = AgentStatus::Running;
-                    self.sticky_dead_agent_ids.remove(&agent_id);
-                    self.clear_dead_preview(&agent_id);
-                }
-            }
-            // RestartAgent handles the edge case where apply_and_persist is
-            // called with RestartAgent directly (not via dispatch). The normal
-            // path goes through dispatch_restart_agent which applies Kill then
-            // Relaunch separately. Here we clear sticky and set Running.
-            RuntimeMessage::RestartAgent(agent_id) => {
-                self.sticky_dead_agent_ids.remove(&agent_id);
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
-                    && agent.runtime_binding.is_some()
-                {
-                    agent.status = AgentStatus::Running;
-                    self.clear_dead_preview(&agent_id);
-                }
-            }
-        }
-    }
 
     fn apply_persistence_message(&mut self, message: PersistenceMessage) {
         match message {
@@ -714,6 +706,7 @@ impl AppState {
             PersistenceMessage::LoadFailed(msg) | PersistenceMessage::SaveFailed(msg) => {
                 self.error_message = Some(msg);
             }
+            PersistenceMessage::StageSave => self.stage_durable_save(),
         }
     }
 
@@ -785,99 +778,6 @@ impl AppState {
             auth => self.apply_auth_message(auth),
         }
     }
-    fn handle_navigate_up(&mut self) {
-        match self.pane_focus {
-            PaneFocus::Repositories => {
-                let visible_repo_indices = self.visible_repository_indices();
-                let selected_visible_idx = self.selected_repository_visible_index();
-                if let Some(visible_idx) = selected_visible_idx.filter(|&idx| idx > 0) {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(visible_repo_indices[visible_idx - 1]);
-                    self.restore_selected_agent_for_current_repo();
-                    self.reset_terminal_scrollback();
-                }
-            }
-            PaneFocus::Agents => {
-                let Some(repository_id) = self.selected_repository_id().cloned() else {
-                    self.selected_agent_index = None;
-                    return;
-                };
-                let visible_indices = self.agent_indices_for_repository(&repository_id);
-                if visible_indices.is_empty() {
-                    self.selected_agent_index = None;
-                    return;
-                }
-                let selected_local = self.selected_agent_index.and_then(|selected_idx| {
-                    visible_indices
-                        .iter()
-                        .position(|global_idx| *global_idx == selected_idx)
-                });
-
-                match selected_local {
-                    Some(local_idx) if local_idx > 0 => {
-                        self.selected_agent_index = Some(visible_indices[local_idx - 1]);
-                        self.remember_selected_agent_for_current_repo();
-                        self.reset_terminal_scrollback();
-                    }
-                    Some(_) => {}
-                    None => {
-                        self.selected_agent_index = visible_indices.first().copied();
-                        self.remember_selected_agent_for_current_repo();
-                        self.reset_terminal_scrollback();
-                    }
-                }
-            }
-            PaneFocus::Terminal => {}
-        }
-    }
-
-    fn handle_navigate_down(&mut self) {
-        match self.pane_focus {
-            PaneFocus::Repositories => {
-                let visible_repo_indices = self.visible_repository_indices();
-                let selected_visible_idx = self.selected_repository_visible_index();
-                if let Some(visible_idx) = selected_visible_idx
-                    && visible_idx + 1 < visible_repo_indices.len()
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(visible_repo_indices[visible_idx + 1]);
-                    self.restore_selected_agent_for_current_repo();
-                    self.reset_terminal_scrollback();
-                }
-            }
-            PaneFocus::Agents => {
-                let Some(repository_id) = self.selected_repository_id().cloned() else {
-                    self.selected_agent_index = None;
-                    return;
-                };
-                let visible_indices = self.agent_indices_for_repository(&repository_id);
-                if visible_indices.is_empty() {
-                    self.selected_agent_index = None;
-                    return;
-                }
-                let selected_local = self.selected_agent_index.and_then(|selected_idx| {
-                    visible_indices
-                        .iter()
-                        .position(|global_idx| *global_idx == selected_idx)
-                });
-
-                match selected_local {
-                    Some(local_idx) if local_idx + 1 < visible_indices.len() => {
-                        self.selected_agent_index = Some(visible_indices[local_idx + 1]);
-                        self.remember_selected_agent_for_current_repo();
-                        self.reset_terminal_scrollback();
-                    }
-                    Some(_) => {}
-                    None => {
-                        self.selected_agent_index = visible_indices.first().copied();
-                        self.remember_selected_agent_for_current_repo();
-                        self.reset_terminal_scrollback();
-                    }
-                }
-            }
-            PaneFocus::Terminal => {}
-        }
-    }
 }
 
 #[cfg(test)]
@@ -921,8 +821,17 @@ mod issues_tests_detail_content;
 #[path = "issues_tests_detail_flow.rs"]
 mod issues_tests_detail_flow;
 #[cfg(test)]
+#[path = "issues_tests_detail_nav.rs"]
+mod issues_tests_detail_nav;
+#[cfg(test)]
+#[path = "issues_tests_esc.rs"]
+mod issues_tests_esc;
+#[cfg(test)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
+#[cfg(test)]
+#[path = "issues_tests_inline_cursor.rs"]
+mod issues_tests_inline_cursor;
 #[cfg(test)]
 #[path = "issues_tests_mutations.rs"]
 mod issues_tests_mutations;

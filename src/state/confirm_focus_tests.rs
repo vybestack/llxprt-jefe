@@ -13,6 +13,7 @@
 use super::{AppEvent, AppState, ConfirmFocus, ModalState};
 use crate::domain::{AgentId, LaunchSignature, RepositoryId, SandboxEngine};
 use crate::github::SendPayload;
+use crate::state::transition::TransitionExt;
 
 fn sample_signature() -> LaunchSignature {
     LaunchSignature {
@@ -36,7 +37,9 @@ fn sample_signature() -> LaunchSignature {
 
 #[test]
 fn confirm_focus_defaults_to_cancel_on_open_delete_agent() {
-    let state = AppState::default().apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())));
+    let state = AppState::default()
+        .apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())))
+        .committed_pure();
 
     match state.modal {
         ModalState::ConfirmDeleteAgent { confirm_focus, .. } => {
@@ -52,8 +55,9 @@ fn confirm_focus_defaults_to_cancel_on_open_delete_agent() {
 
 #[test]
 fn confirm_focus_defaults_to_cancel_on_open_delete_repository() {
-    let state =
-        AppState::default().apply(AppEvent::OpenDeleteRepository(RepositoryId("r1".into())));
+    let state = AppState::default()
+        .apply(AppEvent::OpenDeleteRepository(RepositoryId("r1".into())))
+        .committed_pure();
 
     match state.modal {
         ModalState::ConfirmDeleteRepository { confirm_focus, .. } => {
@@ -65,10 +69,12 @@ fn confirm_focus_defaults_to_cancel_on_open_delete_repository() {
 
 #[test]
 fn confirm_cycle_focus_toggles_cancel_to_confirm() {
-    let state = AppState::default().apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())));
+    let state = AppState::default()
+        .apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())))
+        .committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Cancel));
 
-    let state = state.apply(AppEvent::ConfirmCycleFocus);
+    let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Confirm));
 }
 
@@ -83,7 +89,7 @@ fn confirm_cycle_focus_toggles_confirm_to_cancel() {
         ..AppState::default()
     };
 
-    let state = state.apply(AppEvent::ConfirmCycleFocus);
+    let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Cancel));
 }
 
@@ -95,13 +101,15 @@ fn confirm_cycle_focus_noop_on_non_confirm_modal() {
     };
     let before = state.modal.clone();
 
-    let state = state.apply(AppEvent::ConfirmCycleFocus);
+    let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(
         state.modal, before,
         "ConfirmCycleFocus must not change Help"
     );
 
-    let state2 = AppState::default().apply(AppEvent::ConfirmCycleFocus);
+    let state2 = AppState::default()
+        .apply(AppEvent::ConfirmCycleFocus)
+        .committed_pure();
     assert_eq!(state2.modal, ModalState::None);
 }
 
@@ -116,7 +124,7 @@ fn toggle_delete_work_dir_preserves_confirm_focus() {
         ..AppState::default()
     };
 
-    let state = state.apply(AppEvent::ToggleDeleteWorkDir);
+    let state = state.apply(AppEvent::ToggleDeleteWorkDir).committed_pure();
 
     match state.modal {
         ModalState::ConfirmDeleteAgent {
@@ -163,7 +171,7 @@ fn cycle_focus_works_on_dirty_copy() {
         ..AppState::default()
     };
 
-    let state = state.apply(AppEvent::ConfirmCycleFocus);
+    let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Confirm));
 }
 
@@ -178,7 +186,7 @@ fn close_modal_dismisses_confirm_without_side_effect() {
         ..AppState::default()
     };
 
-    let state = state.apply(AppEvent::CloseModal);
+    let state = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
 
@@ -284,14 +292,14 @@ fn assert_confirm_recognized_and_cycles(modal: ModalState) {
         "confirm variant must be recognized by current_confirm_focus: {modal:?}"
     );
 
-    let toggled = state.apply(AppEvent::ConfirmCycleFocus);
+    let toggled = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(
         toggled.current_confirm_focus(),
         Some(ConfirmFocus::Confirm),
         "ConfirmCycleFocus must toggle to Confirm for: {modal:?}"
     );
 
-    let restored = toggled.apply(AppEvent::ConfirmCycleFocus);
+    let restored = toggled.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(
         restored.current_confirm_focus(),
         Some(ConfirmFocus::Cancel),

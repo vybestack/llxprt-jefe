@@ -5,6 +5,7 @@
 //! private policy helpers.
 
 use super::*;
+use crate::state::transition::TransitionExt;
 
 // ── max_scroll_offset ─────────────────────────────────────────────────
 
@@ -451,7 +452,7 @@ fn state_with_geometry(total_lines: usize, viewport_rows: usize) -> crate::state
 fn reducer_terminal_scroll_up_sets_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_geometry(50, 10);
-    state = state.apply(AppEvent::TerminalScrollUp);
+    state = state.apply(AppEvent::TerminalScrollUp).committed_pure();
     assert_eq!(state.terminal_history_offset, Some(1));
 }
 
@@ -464,9 +465,9 @@ fn reducer_terminal_scroll_down_to_bottom_clears_offset() {
         terminal_history_offset: Some(2),
         ..Default::default()
     };
-    state = state.apply(AppEvent::TerminalScrollDown);
+    state = state.apply(AppEvent::TerminalScrollDown).committed_pure();
     assert_eq!(state.terminal_history_offset, Some(1));
-    state = state.apply(AppEvent::TerminalScrollDown);
+    state = state.apply(AppEvent::TerminalScrollDown).committed_pure();
     assert_eq!(state.terminal_history_offset, None);
 }
 
@@ -477,7 +478,7 @@ fn reducer_terminal_follow_tail_clears_offset() {
         terminal_history_offset: Some(42),
         ..Default::default()
     };
-    state = state.apply(AppEvent::TerminalFollowTail);
+    state = state.apply(AppEvent::TerminalFollowTail).committed_pure();
     assert_eq!(state.terminal_history_offset, None);
 }
 
@@ -485,9 +486,11 @@ fn reducer_terminal_follow_tail_clears_offset() {
 fn reducer_terminal_page_up_down() {
     use crate::state::AppEvent;
     let mut state = state_with_geometry(50, 10);
-    state = state.apply(AppEvent::TerminalScrollPageUp);
+    state = state.apply(AppEvent::TerminalScrollPageUp).committed_pure();
     assert_eq!(state.terminal_history_offset, Some(10));
-    state = state.apply(AppEvent::TerminalScrollPageDown);
+    state = state
+        .apply(AppEvent::TerminalScrollPageDown)
+        .committed_pure();
     assert_eq!(state.terminal_history_offset, None);
 }
 
@@ -503,7 +506,7 @@ fn reducer_scroll_events_not_blocked_when_terminal_focused() {
     };
     // Even when terminal is focused, scroll events should be applied
     // (not blocked like normal navigation).
-    state = state.apply(AppEvent::TerminalScrollUp);
+    state = state.apply(AppEvent::TerminalScrollUp).committed_pure();
     assert_eq!(state.terminal_history_offset, Some(1));
 }
 
@@ -544,7 +547,7 @@ fn reducer_select_repository_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
     // Re-selecting the same repo still resets the offset.
-    state = state.apply(AppEvent::SelectRepository(0));
+    state = state.apply(AppEvent::SelectRepository(0)).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "selecting a repository must reset the scroll offset"
@@ -555,7 +558,7 @@ fn reducer_select_repository_resets_scroll_offset() {
 fn reducer_select_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
-    state = state.apply(AppEvent::SelectAgent(0));
+    state = state.apply(AppEvent::SelectAgent(0)).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "selecting an agent must reset the scroll offset"
@@ -566,7 +569,9 @@ fn reducer_select_agent_resets_scroll_offset() {
 fn reducer_jump_to_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
-    state = state.apply(AppEvent::JumpToAgentByShortcut(1));
+    state = state
+        .apply(AppEvent::JumpToAgentByShortcut(1))
+        .committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "jump-to-agent shortcut must reset the scroll offset"
@@ -616,7 +621,7 @@ fn reducer_navigate_down_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_agents();
     // Navigate Down in the agents pane: agent 0 → agent 1.
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "arrow-down agent navigation must reset the scroll offset"
@@ -632,7 +637,7 @@ fn reducer_navigate_up_agent_resets_scroll_offset() {
     state.selected_agent_index = Some(1);
     state.terminal_history_offset = Some(15);
     // Navigate Up in the agents pane: agent 1 → agent 0.
-    state = state.apply(AppEvent::NavigateUp);
+    state = state.apply(AppEvent::NavigateUp).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "arrow-up agent navigation must reset the scroll offset"
@@ -687,7 +692,7 @@ fn reducer_navigate_down_repo_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_repos();
     // Navigate Down in the repositories pane: repo 0 → repo 1.
-    state = state.apply(AppEvent::NavigateDown);
+    state = state.apply(AppEvent::NavigateDown).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "arrow-down repo navigation must reset the scroll offset"
@@ -703,7 +708,7 @@ fn reducer_navigate_up_repo_resets_scroll_offset() {
     state.selected_repository_index = Some(1);
     state.terminal_history_offset = Some(15);
     // Navigate Up in the repositories pane: repo 1 → repo 0.
-    state = state.apply(AppEvent::NavigateUp);
+    state = state.apply(AppEvent::NavigateUp).committed_pure();
     assert_eq!(
         state.terminal_history_offset, None,
         "arrow-up repo navigation must reset the scroll offset"

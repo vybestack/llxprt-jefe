@@ -6,13 +6,14 @@ use super::AppEvent;
 use super::prs_test_fixtures::prs_state_with_detail;
 use super::types::{InlineState, PrFocus};
 use crate::domain::{MergeMethod, PrState, RepositoryId};
+use crate::state::transition::TransitionExt;
 
 // ── Open merge chooser ────────────────────────────────────────────────────
 
 #[test]
 fn open_merge_chooser_from_detail_with_open_pr() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     let chooser = state.prs_state.merge_chooser.as_ref();
     match chooser {
         Some(c) => {
@@ -28,7 +29,7 @@ fn open_merge_chooser_from_detail_with_open_pr() {
 fn open_merge_chooser_from_list_is_noop() {
     let mut state = prs_state_with_detail("repo-1", 42);
     state.prs_state.pr_focus = PrFocus::PrList;
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "merge chooser must NOT open from list focus"
@@ -43,7 +44,7 @@ fn open_merge_chooser_when_composer_active_is_noop() {
         text: String::new(),
         cursor: 0,
     };
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "merge chooser must NOT open while composer is active"
@@ -56,7 +57,7 @@ fn open_merge_chooser_for_merged_pr_sets_notice() {
     if let Some(detail) = &mut state.prs_state.pr_detail {
         detail.state = PrState::Merged;
     }
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "merge chooser must NOT open for a merged PR"
@@ -73,7 +74,7 @@ fn open_merge_chooser_for_unmergeable_pr_sets_notice() {
     if let Some(detail) = &mut state.prs_state.pr_detail {
         detail.mergeable = Some(false);
     }
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "merge chooser must NOT open for an unmergeable PR"
@@ -97,33 +98,35 @@ fn chooser_selected(state: &super::AppState) -> usize {
 #[test]
 fn merge_navigate_down_wraps() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
     assert_eq!(chooser_selected(&state), 1);
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
     assert_eq!(chooser_selected(&state), 2);
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
     assert_eq!(chooser_selected(&state), 0);
 }
 
 #[test]
 fn merge_navigate_up_wraps() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeNavigateUp);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeNavigateUp).committed_pure();
     assert_eq!(chooser_selected(&state), 2);
 }
 
 #[test]
 fn merge_navigate_skips_disabled_methods() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        allowed_methods: vec![MergeMethod::Merge, MergeMethod::Rebase],
-    });
-    let state = state.apply(AppEvent::PrMergeNavigateDown);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Rebase],
+        })
+        .committed_pure();
+    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
     assert_eq!(
         chooser_selected(&state),
         2,
@@ -136,8 +139,8 @@ fn merge_navigate_skips_disabled_methods() {
 #[test]
 fn merge_confirm_first_enter_arms_confirmation() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeConfirm);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
     let confirming = state
         .prs_state
         .merge_chooser
@@ -149,9 +152,9 @@ fn merge_confirm_first_enter_arms_confirmation() {
 #[test]
 fn merge_confirm_second_enter_sets_mutation_pending() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeConfirm);
-    let state = state.apply(AppEvent::PrMergeConfirm);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "second Enter must close the chooser"
@@ -168,8 +171,8 @@ fn merge_confirm_second_enter_sets_mutation_pending() {
 #[test]
 fn merge_cancel_clears_chooser() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeCancel);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeCancel).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "cancel must clear the chooser"
@@ -181,14 +184,16 @@ fn merge_cancel_clears_chooser() {
 #[test]
 fn pr_merged_updates_detail_state_and_clears_pending() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeConfirm);
-    let state = state.apply(AppEvent::PrMergeConfirm);
-    let state = state.apply(AppEvent::PrMerged {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        method: MergeMethod::Merge,
-    });
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMerged {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            method: MergeMethod::Merge,
+        })
+        .committed_pure();
     assert!(
         state.prs_state.merge_mutation_pending.is_none(),
         "PrMerged must clear merge_mutation_pending"
@@ -208,20 +213,22 @@ fn pr_merged_updates_detail_state_and_clears_pending() {
 #[test]
 fn pr_merge_failed_sets_error_and_clears_pending() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeConfirm);
-    let state = state.apply(AppEvent::PrMergeConfirm);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
     let pending_id = state
         .prs_state
         .merge_mutation_pending
         .as_ref()
         .map_or(0, |p| p.mutation_id);
-    let state = state.apply(AppEvent::PrMergeFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        mutation_id: pending_id,
-        error: "Branch protection requires reviews".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrMergeFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            mutation_id: pending_id,
+            error: "Branch protection requires reviews".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.prs_state.merge_mutation_pending.is_none(),
         "PrMergeFailed must clear merge_mutation_pending"
@@ -235,18 +242,20 @@ fn pr_merge_failed_sets_error_and_clears_pending() {
 #[test]
 fn merge_methods_loaded_updates_chooser() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     let is_none = state
         .prs_state
         .merge_chooser
         .as_ref()
         .is_some_and(|c| c.allowed_methods.is_none());
     assert!(is_none, "allowed_methods must be None before load");
-    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        allowed_methods: vec![MergeMethod::Merge, MergeMethod::Squash],
-    });
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Squash],
+        })
+        .committed_pure();
     let allowed = state
         .prs_state
         .merge_chooser
@@ -267,11 +276,13 @@ fn merge_methods_loaded_updates_chooser() {
 #[test]
 fn merged_updates_pull_requests_list_state() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrMerged {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        method: MergeMethod::Merge,
-    });
+    let state = state
+        .apply(AppEvent::PrMerged {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            method: MergeMethod::Merge,
+        })
+        .committed_pure();
     let list_state = state
         .prs_state
         .pull_requests()
@@ -294,12 +305,14 @@ fn merged_updates_pull_requests_list_state() {
 #[test]
 fn merge_failed_ignored_for_wrong_scope() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrMergeFailed {
-        scope_repo_id: RepositoryId("wrong-repo".to_string()),
-        pr_number: 42,
-        mutation_id: 1,
-        error: "some error".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrMergeFailed {
+            scope_repo_id: RepositoryId("wrong-repo".to_string()),
+            pr_number: 42,
+            mutation_id: 1,
+            error: "some error".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.prs_state.error.is_none(),
         "PrMergeFailed with wrong scope must NOT set an error"
@@ -309,12 +322,14 @@ fn merge_failed_ignored_for_wrong_scope() {
 #[test]
 fn merge_failed_ignored_for_wrong_mutation_id() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrMergeFailed {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 42,
-        mutation_id: 999,
-        error: "stale".to_string(),
-    });
+    let state = state
+        .apply(AppEvent::PrMergeFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            mutation_id: 999,
+            error: "stale".to_string(),
+        })
+        .committed_pure();
     assert!(
         state.prs_state.error.is_none(),
         "PrMergeFailed with wrong mutation_id must NOT set an error"
@@ -324,12 +339,14 @@ fn merge_failed_ignored_for_wrong_mutation_id() {
 #[test]
 fn merge_methods_loaded_ignored_for_wrong_pr_number() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
-    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 99,
-        allowed_methods: vec![MergeMethod::Squash],
-    });
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 99,
+            allowed_methods: vec![MergeMethod::Squash],
+        })
+        .committed_pure();
     let still_none = state
         .prs_state
         .merge_chooser
@@ -350,7 +367,7 @@ fn open_merge_chooser_blocked_while_merge_pending() {
         pr_number: 42,
         method: MergeMethod::Merge,
     });
-    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
     assert!(
         state.prs_state.merge_chooser.is_none(),
         "merge chooser must NOT open while a merge is pending"

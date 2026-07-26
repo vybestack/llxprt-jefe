@@ -15,6 +15,7 @@ use super::{
 impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
+            AppEvent::EffectCompletion(completion) => Self::EffectCompletion(completion),
             AppEvent::NavigateUp
             | AppEvent::NavigateDown
             | AppEvent::NavigatePageUp(_)
@@ -587,6 +588,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::Errors(message) => message.into(),
             AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
+            AppMessage::EffectCompletion(completion) => Self::EffectCompletion(completion),
         }
     }
 }
@@ -693,6 +695,7 @@ impl From<PersistenceMessage> for AppEvent {
             PersistenceMessage::LoadFailed(error) => Self::PersistenceLoadFailed(error),
             PersistenceMessage::SaveSuccess => Self::PersistenceSaveSuccess,
             PersistenceMessage::SaveFailed(error) => Self::PersistenceSaveFailed(error),
+            PersistenceMessage::StageSave => Self::StageDurableSave,
         }
     }
 }

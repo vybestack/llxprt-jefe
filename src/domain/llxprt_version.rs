@@ -138,15 +138,82 @@ impl LlxprtNpmPackageSelector {
     /// emitted verbatim (already whitespace-free).
     #[must_use]
     pub fn package_spec(&self) -> String {
+        format!("{LLXPRT_NPM_PACKAGE}@{}", self.install_spec_value())
+    }
+
+    /// The exact selector value to pin in jefe's managed install `package.json`
+    /// and to resolve against npm.
+    ///
+    /// Sentinels map to their npm dist-tag (`latest`/`nightly`); explicit
+    /// versions pass through verbatim. This is the *effective* form — never a
+    /// caret range — so a jefe-managed `npm install` (no args) never drifts to
+    /// a newer patch (issue #425 Problem C).
+    #[must_use]
+    pub fn install_spec_value(&self) -> String {
         let sentinel_form = sentinel_with_spaces(&self.selector);
-        let effective = if is_latest_nightly_sentinel(&sentinel_form) {
+        if is_latest_nightly_sentinel(&sentinel_form) {
             NPM_NIGHTLY_DIST_TAG.to_owned()
         } else if is_latest_sentinel(&sentinel_form) {
             LATEST.to_owned()
         } else {
             self.selector.clone()
-        };
-        format!("{LLXPRT_NPM_PACKAGE}@{effective}")
+        }
+    }
+
+    /// A filesystem-safe directory name uniquely identifying this selector in
+    /// jefe's managed version cache (`<cache>/jefe/llxprt-versions/<name>/`).
+    ///
+    /// Effective selectors (`latest`, `nightly`, or an explicit version) are
+    /// already filesystem-safe (alphanumeric, `.`, `-`); this also strips any
+    /// character that is unsafe across Unix/Windows so a malformed selector
+    /// cannot escape the cache root.
+    #[must_use]
+    pub fn version_dir_name(&self) -> String {
+        sanitize_version_dir_name(&self.install_spec_value())
+    }
+}
+
+/// Reduce a selector value to a cross-platform filesystem-safe directory name.
+///
+/// Keeps ASCII alphanumerics, `.`, `-`, and `_`; any other character is
+/// replaced with `_` (collapsed). All leading dots are stripped so the
+/// directory is never hidden on Unix, and Windows-reserved device names
+/// (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) are neutralized so
+/// `create_dir_all` cannot fail on Windows.
+fn sanitize_version_dir_name(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut prev_underscore = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
+            out.push(ch);
+            prev_underscore = false;
+        } else if !prev_underscore {
+            out.push('_');
+            prev_underscore = true;
+        }
+    }
+    // Strip every leading dot so the dir is never hidden on Unix (a selector
+    // like `..foo` must not become the hidden `.foo`).
+    let no_leading_dots = out.trim_start_matches('.');
+    let trimmed = no_leading_dots.trim_matches('_');
+    if trimmed.is_empty() || trimmed.chars().all(|c| c == '.') {
+        return "_".to_owned();
+    }
+    neutralize_windows_reserved_name(trimmed)
+}
+
+/// Append an underscore to Windows-reserved device base names so they do not
+/// collide with the kernel device namespace (CON, PRN, AUX, NUL, COM1-9,
+/// LPT1-9). On non-Windows targets this is a harmless no-op suffix-free pass.
+fn neutralize_windows_reserved_name(name: &str) -> String {
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.contains(&name.to_ascii_uppercase().as_str()) {
+        format!("{name}_")
+    } else {
+        name.to_owned()
     }
 }
 
@@ -699,5 +766,91 @@ mod tests {
         assert!(code_puppy_requires_uvx("0.0.361"));
         assert!(!code_puppy_requires_uvx(""));
         assert!(!code_puppy_requires_uvx("  "));
+    }
+
+    #[test]
+    fn install_spec_value_maps_sentinels_to_dist_tags() {
+        // The effective selector pinned in jefe's managed install package.json
+        // must be the npm dist-tag, never a caret range (issue #425 Problem C).
+        assert_eq!(selector("latest").install_spec_value(), "latest");
+        assert_eq!(selector("LATEST").install_spec_value(), "latest");
+        assert_eq!(selector("latest nightly").install_spec_value(), "nightly");
+        assert_eq!(selector("LATEST NIGHTLY").install_spec_value(), "nightly");
+    }
+
+    #[test]
+    fn install_spec_value_preserves_explicit_versions_verbatim() {
+        assert_eq!(selector("0.9.0").install_spec_value(), "0.9.0");
+        let nightly = "0.10.0-nightly.260712.21cb698b6";
+        assert_eq!(selector(nightly).install_spec_value(), nightly);
+    }
+
+    #[test]
+    fn install_spec_value_matches_package_spec_tail() {
+        // package_spec() is `@vybestack/llxprt-code@<install_spec_value>`.
+        for input in ["latest", "LATEST", "latest nightly", "0.9.0"] {
+            let sel = selector(input);
+            let spec = sel.package_spec();
+            let tail = sel.install_spec_value();
+            assert!(
+                spec.ends_with(&tail),
+                "package_spec '{spec}' must end with install_spec_value '{tail}'"
+            );
+        }
+    }
+
+    #[test]
+    fn version_dir_name_is_filesystem_safe_for_effective_selectors() {
+        // Common effective selectors already satisfy the safe charset.
+        assert_eq!(selector("latest").version_dir_name(), "latest");
+        assert_eq!(selector("LATEST").version_dir_name(), "latest");
+        assert_eq!(selector("latest nightly").version_dir_name(), "nightly");
+        assert_eq!(selector("0.9.0").version_dir_name(), "0.9.0");
+        let nightly = "0.10.0-nightly.260712.21cb698b6";
+        assert_eq!(selector(nightly).version_dir_name(), nightly);
+    }
+
+    #[test]
+    fn version_dir_name_strips_unsafe_chars() {
+        // A metacharacter-laden selector (issue #403 path) cannot escape the
+        // cache root: unsafe bytes collapse to a single underscore and leading
+        // dots are removed so the dir is never hidden.
+        let sel = selector("1.0.0;rm-rf/");
+        assert_eq!(sel.version_dir_name(), "1.0.0_rm-rf");
+    }
+
+    #[test]
+    fn sanitize_version_dir_name_collapses_runs_and_strips_leading_dot() {
+        // Internal helper covers the adversarial cases the public method
+        // delegates to.
+        assert_eq!(sanitize_version_dir_name("a b/c"), "a_b_c");
+        assert_eq!(sanitize_version_dir_name("  a  "), "a");
+        assert_eq!(sanitize_version_dir_name(".hidden"), "hidden");
+        assert_eq!(sanitize_version_dir_name(".."), "_");
+        assert_eq!(sanitize_version_dir_name("..."), "_");
+        assert_eq!(sanitize_version_dir_name(""), "_");
+        assert_eq!(sanitize_version_dir_name("a//b"), "a_b");
+        assert_eq!(sanitize_version_dir_name("a/b/"), "a_b");
+    }
+
+    #[test]
+    fn sanitize_version_dir_name_strips_all_leading_dots() {
+        // A selector with multiple leading dots must not become a hidden dir
+        // (e.g. `..foo` -> `foo`, never `.foo`).
+        assert_eq!(sanitize_version_dir_name("..foo"), "foo");
+        assert_eq!(sanitize_version_dir_name("...x"), "x");
+    }
+
+    #[test]
+    fn sanitize_version_dir_name_neutralizes_windows_reserved_names() {
+        // Windows device names would fail create_dir_all; the sanitizer
+        // appends an underscore to neutralize them regardless of case.
+        assert_eq!(sanitize_version_dir_name("CON"), "CON_");
+        assert_eq!(sanitize_version_dir_name("con"), "con_");
+        assert_eq!(sanitize_version_dir_name("NUL"), "NUL_");
+        assert_eq!(sanitize_version_dir_name("COM1"), "COM1_");
+        assert_eq!(sanitize_version_dir_name("lpt9"), "lpt9_");
+        // Normal names are untouched.
+        assert_eq!(sanitize_version_dir_name("latest"), "latest");
     }
 }
