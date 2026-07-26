@@ -116,3 +116,75 @@ fn non_kennel_wheel_gate_and_gesture_machine_forward_to_pty() {
         ),
     }
 }
+
+// ── Issue #296: mouse-mode recovery ties observed mode to routing outcome ──
+//
+// The root cause of #296 is that a freshly spawned AttachedViewer reports
+// `mouse_reporting_active() == false` until the child re-emits DEC private
+// mouse modes through the PTY stream. When false, the gesture machine treats a
+// non-kennel (LLxprt) child as non-reporting and routes its wheel/click to
+// Jefe selection instead of the PTY. The post-attach mode-recovery nudge
+// restores the observed mode so the routing below (ForwardToPty) is reached.
+// These tests pin the routing consequence of the observed-mode state.
+
+/// When `mouse_reporting_active` is FALSE (pre-recovery), a non-kennel wheel
+/// event is NOT forwarded to the PTY — it falls to app-level scroll. This is
+/// the regression surface #296's mode-recovery nudge must overcome.
+#[test]
+fn non_kennel_wheel_not_forwarded_when_mouse_reporting_inactive() {
+    use jefe::selection::SelectionPoint;
+
+    let wheel_event = GestureEvent {
+        kind: GestureEventKind::ScrollDown,
+        shift_held: false,
+        col: 5,
+        row: 5,
+        mouse_reporting_active: false,
+        kennel_mode: false,
+    };
+    let resolver = |col: u16, row: u16| -> Option<SelectionPoint> {
+        if col < 2 || row < 2 {
+            return None;
+        }
+        Some(SelectionPoint::new(SelectablePane::TerminalView, 0, 0))
+    };
+    let (action, _state) = GestureState::default().process(wheel_event, &resolver);
+    // Non-reporting child wheel: NOT ForwardToPty (Noop → app-level scroll).
+    assert!(
+        !matches!(action, GestureAction::ForwardToPty(_)),
+        "non-kennel non-reporting wheel must NOT forward to PTY (pre-recovery state): {action:?}"
+    );
+}
+
+/// When `mouse_reporting_active` is TRUE (post-recovery), a non-kennel wheel
+/// event IS forwarded to the PTY. This is the routing outcome the #296
+/// mode-recovery nudge restores.
+#[test]
+fn non_kennel_wheel_forwarded_when_mouse_reporting_active() {
+    use jefe::selection::SelectionPoint;
+
+    let wheel_event = GestureEvent {
+        kind: GestureEventKind::ScrollDown,
+        shift_held: false,
+        col: 5,
+        row: 5,
+        mouse_reporting_active: true,
+        kennel_mode: false,
+    };
+    let resolver = |col: u16, row: u16| -> Option<SelectionPoint> {
+        if col < 2 || row < 2 {
+            return None;
+        }
+        Some(SelectionPoint::new(SelectablePane::TerminalView, 0, 0))
+    };
+    let (action, _state) = GestureState::default().process(wheel_event, &resolver);
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(replays.len(), 1);
+            assert_eq!(replays[0].kind, GestureEventKind::ScrollDown);
+        }
+        other => panic!(
+            "non-kennel reporting wheel must forward to PTY (post-recovery state): {other:?}"
+        ),
+    }
+}

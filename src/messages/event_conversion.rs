@@ -12,33 +12,27 @@ use super::{
     TerminalManagerMessage, ThemeMessage, UiNavigationMessage,
 };
 
-fn ui(message: UiNavigationMessage) -> AppMessage {
-    AppMessage::UiNavigation(message)
-}
-
 impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
-            AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
-            AppEvent::NavigateDown => Self::UiNavigation(UiNavigationMessage::NavigateDown),
-            AppEvent::NavigatePageUp(page) => ui(UiNavigationMessage::NavigatePageUp(page)),
-            AppEvent::NavigatePageDown(page) => ui(UiNavigationMessage::NavigatePageDown(page)),
-            AppEvent::NavigateHome => Self::UiNavigation(UiNavigationMessage::NavigateHome),
-            AppEvent::NavigateEnd => Self::UiNavigation(UiNavigationMessage::NavigateEnd),
-            AppEvent::NavigateLeft => Self::UiNavigation(UiNavigationMessage::NavigateLeft),
-            AppEvent::NavigateRight => Self::UiNavigation(UiNavigationMessage::NavigateRight),
-            AppEvent::SelectRepository(index) => ui(UiNavigationMessage::SelectRepository(index)),
-            AppEvent::SelectAgent(index) => ui(UiNavigationMessage::SelectAgent(index)),
-            AppEvent::JumpToAgentByShortcut(slot) => {
-                ui(UiNavigationMessage::JumpToAgentByShortcut(slot))
-            }
-            AppEvent::CyclePaneFocus => Self::UiNavigation(UiNavigationMessage::CyclePaneFocus),
-            AppEvent::ToggleTerminalFocus => {
-                Self::UiNavigation(UiNavigationMessage::ToggleTerminalFocus)
-            }
-            AppEvent::ToggleHideIdleRepositories => {
-                Self::UiNavigation(UiNavigationMessage::ToggleHideIdleRepositories)
-            }
+            AppEvent::NavigateUp
+            | AppEvent::NavigateDown
+            | AppEvent::NavigatePageUp(_)
+            | AppEvent::NavigatePageDown(_)
+            | AppEvent::NavigateHome
+            | AppEvent::NavigateEnd
+            | AppEvent::NavigateLeft
+            | AppEvent::NavigateRight
+            | AppEvent::SelectRepository(_)
+            | AppEvent::SelectAgent(_)
+            | AppEvent::JumpToAgentByShortcut(_)
+            | AppEvent::CyclePaneFocus
+            | AppEvent::ToggleTerminalFocus
+            | AppEvent::ToggleHideIdleRepositories => Self::from_nav_event(event),
+            AppEvent::FocusDashboardSearch
+            | AppEvent::BlurDashboardSearch
+            | AppEvent::SetDashboardSearchQuery { .. }
+            | AppEvent::ClearDashboardSearch => Self::from_dashboard_search_event(event),
             AppEvent::EnterSplitMode
             | AppEvent::ExitSplitMode
             | AppEvent::EnterGrabMode
@@ -60,6 +54,76 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::CloseShellOverlay
             | AppEvent::HideShellOverlay
             | AppEvent::ResumeShellOverlay(_) => Self::from_split_grab_or_scroll_event(event),
+            AppEvent::OpenHelp
+            | AppEvent::OpenSearch
+            | AppEvent::CloseModal
+            | AppEvent::SubmitForm
+            | AppEvent::ConfirmCycleFocus
+            | AppEvent::FormChar(_)
+            | AppEvent::FormBackspace
+            | AppEvent::FormDelete
+            | AppEvent::FormMoveCursorLeft
+            | AppEvent::FormMoveCursorRight
+            | AppEvent::FormMoveCursorStart
+            | AppEvent::FormMoveCursorEnd
+            | AppEvent::FormNextField
+            | AppEvent::FormPrevField
+            | AppEvent::FormToggleCheckbox => Self::from_modal_event(event),
+            other => Self::from_non_ui_nav_event(other),
+        }
+    }
+}
+
+impl AppMessage {
+    /// Convert navigation [`AppEvent`] variants into UI-navigation messages.
+    /// Split out so the top-level converter stays within the clippy line budget.
+    fn from_nav_event(event: AppEvent) -> Self {
+        use UiNavigationMessage as U;
+        match event {
+            AppEvent::NavigateUp => Self::UiNavigation(U::NavigateUp),
+            AppEvent::NavigateDown => Self::UiNavigation(U::NavigateDown),
+            AppEvent::NavigatePageUp(page) => Self::UiNavigation(U::NavigatePageUp(page)),
+            AppEvent::NavigatePageDown(page) => Self::UiNavigation(U::NavigatePageDown(page)),
+            AppEvent::NavigateHome => Self::UiNavigation(U::NavigateHome),
+            AppEvent::NavigateEnd => Self::UiNavigation(U::NavigateEnd),
+            AppEvent::NavigateLeft => Self::UiNavigation(U::NavigateLeft),
+            AppEvent::NavigateRight => Self::UiNavigation(U::NavigateRight),
+            AppEvent::SelectRepository(index) => Self::UiNavigation(U::SelectRepository(index)),
+            AppEvent::SelectAgent(index) => Self::UiNavigation(U::SelectAgent(index)),
+            AppEvent::JumpToAgentByShortcut(slot) => {
+                Self::UiNavigation(U::JumpToAgentByShortcut(slot))
+            }
+            AppEvent::CyclePaneFocus => Self::UiNavigation(U::CyclePaneFocus),
+            AppEvent::ToggleTerminalFocus => Self::UiNavigation(U::ToggleTerminalFocus),
+            AppEvent::ToggleHideIdleRepositories => {
+                Self::UiNavigation(U::ToggleHideIdleRepositories)
+            }
+            _ => unreachable!("non-navigation AppEvent routed to from_nav_event"),
+        }
+    }
+
+    /// Convert dashboard "search lite" [`AppEvent`] variants into UI-navigation
+    /// messages (issue #405). Split out so the top-level converter stays within
+    /// the clippy line budget.
+    fn from_dashboard_search_event(event: AppEvent) -> Self {
+        use UiNavigationMessage as U;
+        match event {
+            AppEvent::FocusDashboardSearch => Self::UiNavigation(U::FocusDashboardSearch),
+            AppEvent::BlurDashboardSearch => Self::UiNavigation(U::BlurDashboardSearch),
+            AppEvent::SetDashboardSearchQuery { query } => {
+                Self::UiNavigation(U::SetDashboardSearchQuery { query })
+            }
+            AppEvent::ClearDashboardSearch => Self::UiNavigation(U::ClearDashboardSearch),
+            _ => {
+                unreachable!("non-dashboard-search AppEvent routed to from_dashboard_search_event")
+            }
+        }
+    }
+
+    /// Convert modal/form [`AppEvent`] variants into modal messages. Split out
+    /// so the top-level converter stays within the clippy line budget.
+    fn from_modal_event(event: AppEvent) -> Self {
+        match event {
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
@@ -75,12 +139,10 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
-            other => Self::from_non_ui_nav_event(other),
+            _ => unreachable!("non-modal AppEvent routed to from_modal_event"),
         }
     }
-}
 
-impl AppMessage {
     /// Convert split-mode, dashboard-grab, and terminal-scrollback
     /// [`AppEvent`] variants into UI-navigation messages. Split out so the
     /// top-level converter stays within the clippy line budget.
@@ -112,11 +174,9 @@ impl AppMessage {
             AppEvent::ResumeShellOverlay(agent_id) => {
                 Self::UiNavigation(U::ResumeShellOverlay(agent_id))
             }
-            // Catch-all is required: the caller passes an `AppEvent` value that
-            // is known at the call site to be split/grab/scroll, but the type
-            // system cannot enforce that constraint. This arm delegates to the
-            // full converter so an unexpected variant still routes correctly.
-            other => Self::from_non_ui_nav_event(other),
+            _ => unreachable!(
+                "non-split/grab/scroll AppEvent routed to from_split_grab_or_scroll_event"
+            ),
         }
     }
 
@@ -504,6 +564,12 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::CyclePaneFocus => Self::CyclePaneFocus,
             UiNavigationMessage::ToggleTerminalFocus => Self::ToggleTerminalFocus,
             UiNavigationMessage::ToggleHideIdleRepositories => Self::ToggleHideIdleRepositories,
+            UiNavigationMessage::FocusDashboardSearch => Self::FocusDashboardSearch,
+            UiNavigationMessage::BlurDashboardSearch => Self::BlurDashboardSearch,
+            UiNavigationMessage::SetDashboardSearchQuery { query } => {
+                Self::SetDashboardSearchQuery { query }
+            }
+            UiNavigationMessage::ClearDashboardSearch => Self::ClearDashboardSearch,
             UiNavigationMessage::EnterSplitMode => Self::EnterSplitMode,
             UiNavigationMessage::ExitSplitMode => Self::ExitSplitMode,
             UiNavigationMessage::EnterGrabMode => Self::EnterGrabMode,

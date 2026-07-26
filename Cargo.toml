@@ -74,6 +74,11 @@ path = "tests/fixtures/psmux_smoke_fixture.rs"
 required-features = ["psmux-smoke"]
 
 [[bin]]
+name = "jefe-psmux-orphan-fixture"
+path = "tests/fixtures/psmux_orphan_fixture.rs"
+required-features = ["psmux-smoke"]
+
+[[bin]]
 name = "jefe-capture-shim"
 path = "src/bin/jefe-capture-shim.rs"
 

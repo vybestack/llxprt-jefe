@@ -8,7 +8,7 @@
 use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
-use super::manager::{AttachInputs, TmuxRuntimeManager};
+use super::manager::{AttachInputs, RuntimeManager, TmuxRuntimeManager};
 use crate::domain::AgentId;
 
 impl TmuxRuntimeManager {
@@ -111,6 +111,25 @@ impl TmuxRuntimeManager {
 
         self.viewer = Some(viewer);
         self.attached_agent_id = Some(agent_id.clone());
+
+        // Issue #296: nudge the child to re-advertise its DEC private
+        // mouse-reporting modes so a freshly spawned viewer (blank Term with
+        // cleared mouse bits) does not leave LLxprt stuck in non-reporting
+        // fallback. Best-effort; failures are logged inside the nudge.
+        if let Some(viewer) = self.viewer.as_ref() {
+            viewer.nudge_for_mode_recovery();
+        }
+
+        // Issue #296 diagnostics: a freshly spawned AttachedViewer builds a
+        // blank Term with cleared mouse bits; reporting is only recovered if
+        // the child re-emits DEC private mouse modes through the PTY stream
+        // after attach. Trace the post-attach observed mode so the recovery
+        // layer can be reasoned about from logs.
+        tracing::trace!(
+            agent_id = %agent_id.0,
+            mouse_reporting = self.mouse_reporting_active(),
+            "apply_attach_result: viewer installed"
+        );
 
         if let Some(session) = self.sessions.get_mut(agent_id) {
             session.attached = true;
