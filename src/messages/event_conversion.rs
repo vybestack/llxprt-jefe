@@ -98,7 +98,7 @@ impl AppMessage {
             AppEvent::ToggleHideIdleRepositories => {
                 Self::UiNavigation(U::ToggleHideIdleRepositories)
             }
-            other => Self::from_non_ui_nav_event(other),
+            _ => unreachable!("non-navigation AppEvent routed to from_nav_event"),
         }
     }
 
@@ -114,9 +114,9 @@ impl AppMessage {
                 Self::UiNavigation(U::SetDashboardSearchQuery { query })
             }
             AppEvent::ClearDashboardSearch => Self::UiNavigation(U::ClearDashboardSearch),
-            // Catch-all required by the type system; the caller matches the
-            // dashboard-search variants before delegating here.
-            other => Self::from_non_ui_nav_event(other),
+            _ => {
+                unreachable!("non-dashboard-search AppEvent routed to from_dashboard_search_event")
+            }
         }
     }
 
@@ -139,7 +139,7 @@ impl AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
-            other => Self::from_non_ui_nav_event(other),
+            _ => unreachable!("non-modal AppEvent routed to from_modal_event"),
         }
     }
 
@@ -174,11 +174,9 @@ impl AppMessage {
             AppEvent::ResumeShellOverlay(agent_id) => {
                 Self::UiNavigation(U::ResumeShellOverlay(agent_id))
             }
-            // Catch-all is required: the caller passes an `AppEvent` value that
-            // is known at the call site to be split/grab/scroll, but the type
-            // system cannot enforce that constraint. This arm delegates to the
-            // full converter so an unexpected variant still routes correctly.
-            other => Self::from_non_ui_nav_event(other),
+            _ => unreachable!(
+                "non-split/grab/scroll AppEvent routed to from_split_grab_or_scroll_event"
+            ),
         }
     }
 

@@ -118,9 +118,7 @@ fn repo_search_is_case_insensitive() {
         ..AppState::default()
     };
 
-    // "Ea" lowercased is "ea". "Alpha" contains "al"/"ph"/"ha" but not "ea".
-    // Use a query whose case differs from both names but matches both when
-    // lowercased: "A" matches "Alpha" (has 'A') and "BETA" (has 'A').
+    // Verify case-insensitive matching: 'aLp' matches 'Alpha' but not 'BETA'.
     let after = state.clone().apply(AppEvent::SetDashboardSearchQuery {
         query: "aLp".to_string(),
     });
@@ -413,7 +411,7 @@ fn search_active_renders_indicator() {
     let state = dashboard_state();
     // Empty query + active-only off => no filter active.
     assert!(
-        jefe::ui::dashboard_filter_indicator(&state).is_none_or(|s| s.is_empty()),
+        jefe::ui::dashboard_filter_indicator(&state).is_none(),
         "no indicator when unfiltered"
     );
 

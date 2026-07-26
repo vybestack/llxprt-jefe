@@ -336,6 +336,8 @@ pub struct QuitSequenceState {
 pub struct DashboardSearchState {
     /// Current query text.
     pub query: String,
+    /// Pre-lowered query for fast case-insensitive matching (issue #405 OCR).
+    pub lowered_query: String,
     /// Whether the search input has keyboard focus.
     pub input_focused: bool,
 }

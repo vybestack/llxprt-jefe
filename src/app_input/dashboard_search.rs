@@ -98,11 +98,13 @@ pub(super) fn resolve_dashboard_search_focus(
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
 ) -> Option<AppEvent> {
-    if screen_mode != ScreenMode::Dashboard || !app_state.read().dashboard_search.input_focused {
+    let state = app_state.read();
+    if screen_mode != ScreenMode::Dashboard || !state.dashboard_search.input_focused {
         return None;
     }
-    let state_ro = app_state.read();
-    resolve_dashboard_search_key(&state_ro, key_event)
+    let event = resolve_dashboard_search_key(&state, key_event);
+    drop(state);
+    event
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ impl AppState {
     /// Replace the dashboard search query and re-normalize selection so a
     /// filtered-out selection clamps to a visible item.
     pub(super) fn set_dashboard_search_query(&mut self, query: String) {
+        self.dashboard_search.lowered_query = query.trim().to_lowercase();
         self.dashboard_search.query = query;
         self.normalize_selection_indices();
     }
@@ -31,6 +32,7 @@ impl AppState {
     /// Clear the dashboard search query and blur the input.
     pub(super) fn clear_dashboard_search(&mut self) {
         self.dashboard_search.query.clear();
+        self.dashboard_search.lowered_query.clear();
         self.dashboard_search.input_focused = false;
         self.normalize_selection_indices();
     }
@@ -54,12 +56,11 @@ impl AppState {
     /// An empty/blank query matches everything.
     #[must_use]
     pub fn dashboard_search_matches(&self, name: &str) -> bool {
-        let needle = self.dashboard_search.query.trim();
+        let needle = self.dashboard_search.lowered_query.as_str();
         if needle.is_empty() {
             return true;
         }
-        name.to_ascii_lowercase()
-            .contains(&needle.to_ascii_lowercase())
+        name.to_lowercase().contains(needle)
     }
 }
 
