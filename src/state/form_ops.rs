@@ -836,21 +836,37 @@ impl AppState {
     }
 
     fn submit_new_agent(&mut self, repository_id: &RepositoryId, fields: &AgentFormFields) {
+        if let Err(message) = Self::validate_agent_form_fields(fields) {
+            self.error_message = Some(message);
+            return;
+        }
         let next_display_index = self.agents.len() + 1;
-        if let Some(repository) = self.repository_by_id(repository_id).cloned()
-            && let Some(agent) =
+        if let Some(repository) = self.repository_by_id(repository_id).cloned() {
+            if let Err(message) =
+                self.validate_new_agent_uniqueness(repository_id, fields, &repository)
+            {
+                self.error_message = Some(message);
+                return;
+            }
+            if let Some(agent) =
                 Self::create_agent_from_fields(&repository, fields, next_display_index)
-        {
-            self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
-            self.agents.push(agent);
-            self.selected_agent_index = Some(self.agents.len() - 1);
-            self.remember_selected_agent_for_current_repo();
-            self.modal = ModalState::None;
+            {
+                self.error_message = None;
+                self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
+                self.agents.push(agent);
+                self.selected_agent_index = Some(self.agents.len() - 1);
+                self.remember_selected_agent_for_current_repo();
+                self.modal = ModalState::None;
+            }
         }
     }
 
     fn submit_edit_agent(&mut self, id: &crate::domain::AgentId, fields: &AgentFormFields) {
         if fields.name.trim().is_empty() {
+            return;
+        }
+        if let Err(message) = Self::validate_agent_form_fields(fields) {
+            self.error_message = Some(message);
             return;
         }
 
@@ -860,7 +876,12 @@ impl AppState {
             if Self::validated_agent_work_dir(&repository, &fields.work_dir).is_none() {
                 return;
             }
+            if let Err(message) = self.validate_edit_agent_uniqueness(id, fields, &repository) {
+                self.error_message = Some(message);
+                return;
+            }
             if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == id) {
+                self.error_message = None;
                 Self::update_agent_from_fields(agent, &repository, fields);
             }
         }
@@ -911,3 +932,7 @@ mod issue266_tests;
 #[cfg(test)]
 #[path = "form_ops_issue369_tests.rs"]
 mod issue369_tests;
+
+#[cfg(test)]
+#[path = "form_ops_issue403_tests.rs"]
+mod issue403_tests;

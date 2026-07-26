@@ -388,6 +388,12 @@ fn mark_launch_failed(
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
     state.error_message = Some(error.to_string());
+    // Capture the launch error into the Errors ring buffer so it is visible
+    // on the dashboard status bar and persists until superseded (issue #403
+    // Bug 3). Without this, the direct write to error_message bypasses the
+    // reducer's finalize_message capture path and the failure dead-ends
+    // silently with the agent transitioning to Dead.
+    jefe::state::capture_runtime_errors(&mut state);
     if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
         agent.runtime_binding = None;
     }

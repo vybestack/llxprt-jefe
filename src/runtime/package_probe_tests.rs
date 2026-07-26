@@ -25,7 +25,9 @@ fn local_probe_plan_is_non_installing_structural_argv() {
 }
 
 fn remote_probe_shell_escapes_each_dynamic_argument() {
-    let value = "with space's;$(touch x)`touch y`\nline";
+    // Issue #403: internal whitespace is stripped by normalization, so the
+    // selector that reaches the remote script is whitespace-free.
+    let value = "withspace's;$(touchx)`touchy`line";
     let script = remote_probe_script(&selector(value));
     assert!(script.contains("command -v npm"));
     assert!(script.contains(&shell_escape_single(&format!(

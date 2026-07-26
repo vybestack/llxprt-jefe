@@ -15,7 +15,7 @@ mod auth_ops;
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
 mod dead_preview_ops;
-mod errors_ops;
+pub(crate) mod errors_ops;
 mod errors_types;
 mod events;
 mod form_build;
@@ -25,6 +25,7 @@ mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
+mod form_validation_issue403;
 mod form_workflow_dispatch;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;
@@ -89,6 +90,7 @@ pub mod transition;
 mod transition_tests;
 mod types;
 mod util;
+pub use errors_ops::capture_runtime_errors;
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
@@ -115,8 +117,6 @@ pub use form_projection::{
 };
 use tracing::{debug, trace};
 impl AppState {
-    /// Reset terminal scrollback state to defaults (fix #4). Called from
-    /// every path that changes the selected agent or repository.
     fn reset_terminal_scrollback(&mut self) {
         self.terminal_history_offset = None;
         self.terminal_viewport_rows = 0;
