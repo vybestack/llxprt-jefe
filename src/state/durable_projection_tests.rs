@@ -95,6 +95,7 @@ fn running_binding(agent_ref: &Agent, repository: &Repository, session: &str) ->
         last_seen: Some(42),
         pid: Some(4242),
         process_identity: None,
+        worker_identities: Vec::new(),
         lifecycle_generation: 7,
     }
 }

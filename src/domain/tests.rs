@@ -405,6 +405,10 @@ fn runtime_binding_deserializes_missing_pid_as_none() {
         serde_json::from_value(value).value_or_panic("binding should deserialize");
     assert!(binding.pid.is_none());
     assert!(binding.process_identity.is_none());
+    assert!(
+        binding.worker_identities.is_empty(),
+        "legacy state.json without worker_identities must default to empty"
+    );
 }
 
 #[test]
@@ -433,6 +437,10 @@ fn runtime_binding_roundtrips_pid_when_present() {
         pid: Some(42_000),
         process_identity: Some(ProcessIdentity::new(42_000, 123_456)),
         lifecycle_generation: 0,
+        worker_identities: vec![
+            ProcessIdentity::new(42_001, 123_457),
+            ProcessIdentity::new(42_002, 123_458),
+        ],
     };
 
     let json = serde_json::to_value(&binding).value_or_panic("should serialize");
@@ -442,6 +450,14 @@ fn runtime_binding_roundtrips_pid_when_present() {
     assert_eq!(
         binding2.process_identity,
         Some(ProcessIdentity::new(42_000, 123_456))
+    );
+    assert_eq!(
+        binding2.worker_identities,
+        vec![
+            ProcessIdentity::new(42_001, 123_457),
+            ProcessIdentity::new(42_002, 123_458),
+        ],
+        "worker_identities must round-trip through serde"
     );
 }
 

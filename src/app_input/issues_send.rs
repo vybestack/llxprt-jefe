@@ -628,6 +628,7 @@ pub(super) fn persist_issue_agent_launch_success(
             process_identity,
             pid,
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         });
     }
     clear_agent_runtime_attachment(state);

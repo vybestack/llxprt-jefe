@@ -803,6 +803,13 @@ pub struct RuntimeBinding {
     /// results after a restart/rebind (issue #301 Phase 4).
     #[serde(default)]
     pub lifecycle_generation: u64,
+    /// Captured worker descendant identities (issue #332). On Windows/psmux the
+    /// `pane_pid` captures the launcher, not the real worker; persisting the
+    /// resolved worker descendant anchors lets a dead-launcher orphan still be
+    /// reaped PID-reuse-safely after the launcher dies. Empty for legacy
+    /// state.json and for sessions where no descendants were captured.
+    #[serde(default)]
+    pub worker_identities: Vec<ProcessIdentity>,
 }
 
 /// Launch signature for recreating runtime sessions.

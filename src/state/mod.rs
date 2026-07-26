@@ -14,6 +14,7 @@ mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
+mod dashboard_search_ops;
 mod dead_preview_ops;
 pub(crate) mod errors_ops;
 mod errors_types;
@@ -36,8 +37,7 @@ mod issues_ops;
 mod issues_property_ops;
 mod list_navigation_ops;
 mod modal_ops;
-/// Generic deterministic pagination state container (`PaginatedList<T, I>`).
-pub mod pagination;
+pub mod pagination; // `PaginatedList<T, I>` generic deterministic pagination state container
 /// Coalesced post-mutation refresh scheduling state.
 pub mod post_mutation_refresh;
 #[cfg(test)]
@@ -199,9 +199,10 @@ impl AppState {
     }
 
     fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
-        !self.hide_idle_repositories
+        (!self.hide_idle_repositories
             || agent.is_running()
-            || self.sticky_dead_agent_ids.contains(&agent.id)
+            || self.sticky_dead_agent_ids.contains(&agent.id))
+            && self.dashboard_search_matches(&agent.name)
     }
 
     pub fn rebuild_repository_agent_ids(&mut self) {
@@ -474,10 +475,12 @@ impl AppState {
             }
             UiNavigationMessage::CyclePaneFocus => self.cycle_pane_focus(),
             UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
-            UiNavigationMessage::ToggleHideIdleRepositories => {
-                self.hide_idle_repositories = !self.hide_idle_repositories;
-                self.dashboard_grab = None;
-                self.normalize_selection_indices();
+            UiNavigationMessage::ToggleHideIdleRepositories => self.toggle_hide_idle_repositories(),
+            UiNavigationMessage::FocusDashboardSearch
+            | UiNavigationMessage::BlurDashboardSearch
+            | UiNavigationMessage::SetDashboardSearchQuery { .. }
+            | UiNavigationMessage::ClearDashboardSearch => {
+                dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
                 self.screen_mode = ScreenMode::Split;

@@ -8,6 +8,7 @@
 //! core contracts from domain/state/runtime/theme layers.
 
 pub mod components;
+mod dashboard_filter_indicator;
 pub mod modals;
 pub mod orchestration;
 pub mod screens;
@@ -15,6 +16,7 @@ pub mod util;
 
 // Re-export commonly used types
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
+pub use dashboard_filter_indicator::dashboard_filter_indicator;
 pub use modals::{AuthModal, ConfirmModal, HelpModal};
 pub use screens::{
     ActionsScreen, Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen, ThemePickerScreen,

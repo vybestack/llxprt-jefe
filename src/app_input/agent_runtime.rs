@@ -35,6 +35,7 @@ pub(super) fn set_agent_runtime_binding(
             process_identity,
             pid,
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         });
     }
 }

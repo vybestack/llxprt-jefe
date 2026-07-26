@@ -212,6 +212,7 @@ fn typed_kill_agent_clears_runtime_binding() {
         process_identity: None,
         pid: None,
         lifecycle_generation: 0,
+        worker_identities: Vec::new(),
     });
 
     let state = AppState {

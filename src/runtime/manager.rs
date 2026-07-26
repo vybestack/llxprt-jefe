@@ -666,6 +666,10 @@ impl TmuxRuntimeManager {
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
+        // Enumerate the launch tree so a dead-launcher orphan can be reaped
+        // PID-reuse-safely later (issue #332). Best-effort: probe failure
+        // yields no anchors, leaving liveness to the single-PID fallback.
+        session.worker_identities = super::orphan::capture_worker_identities(captured_pid);
         session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 
@@ -776,6 +780,10 @@ impl RuntimeManager for TmuxRuntimeManager {
             self.viewer = Some(viewer);
             self.attached_agent_id = Some(agent_id.clone());
         }
+
+        // Issue #296: nudge the child to re-advertise its DEC private
+        // mouse-reporting modes and trace the observed post-attach state.
+        self.post_attach_mode_recovery(agent_id);
 
         // Mark new session as attached
         if let Some(session) = self.sessions.get_mut(agent_id) {

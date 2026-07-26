@@ -20,6 +20,7 @@ fn bound_agent_state(agent_id: &AgentId) -> AppState {
         process_identity: None,
         pid: None,
         lifecycle_generation: 0,
+        worker_identities: Vec::new(),
     });
     AppState {
         agents: vec![agent],

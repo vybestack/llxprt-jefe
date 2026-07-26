@@ -270,6 +270,10 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
             last_seen: None,
             pid: None,
             process_identity: None,
+            // The durable document records no process anchors (issue #332);
+            // startup reconciliation re-observes them, so restore leaves these
+            // empty exactly as it does for `pid` and `process_identity`.
+            worker_identities: Vec::new(),
             lifecycle_generation: record.runtime.invocation_generation,
         });
     agent

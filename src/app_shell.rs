@@ -881,6 +881,7 @@ fn dispatch_mode_specific_key(
         // @plan PLAN-20260329-ISSUES-MODE.P03
         InputMode::TerminalCapture
         | InputMode::Normal
+        | InputMode::DashboardSearch
         | InputMode::IssuesNormal
         | InputMode::IssuesInline
         | InputMode::IssuesSearch

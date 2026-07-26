@@ -180,6 +180,7 @@ fn status_glyph(
 mod tests {
     use super::*;
     use crate::domain::{WorkflowRun, WorkflowRunJob, WorkflowRunStep};
+    use unicode_width::UnicodeWidthStr;
 
     fn run() -> WorkflowRun {
         WorkflowRun {
@@ -255,7 +256,28 @@ mod tests {
         assert_eq!(view.focused_job_index, Some(1));
         assert!(view.content().contains('\u{2713}'));
         assert!(view.content().contains('\u{2717}'));
-        assert!(view.rows.iter().all(|row| row.text.chars().count() <= 10));
+        assert!(
+            view.rows
+                .iter()
+                .all(|row| UnicodeWidthStr::width(row.text.as_str()) <= 10)
+        );
+    }
+
+    #[test]
+    fn wide_job_and_step_labels_respect_terminal_cell_width() {
+        let detail = WorkflowRunDetail {
+            run: run(),
+            jobs: vec![job(1, "构建甲乙", "检查丙丁")],
+        };
+        let view = project_actions_detail(&detail, &HashSet::from([1]), Some(0), geometry(8, 4));
+
+        assert!(view.content().contains("构建"));
+        assert!(view.content().contains("检查"));
+        assert!(
+            view.rows
+                .iter()
+                .all(|row| UnicodeWidthStr::width(row.text.as_str()) <= 8)
+        );
     }
 
     #[test]

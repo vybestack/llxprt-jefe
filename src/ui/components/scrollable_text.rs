@@ -42,7 +42,7 @@ pub struct ScrollableTextProps {
     /// Fixed number of rows this viewport occupies. Must be set by the parent.
     /// The component always renders exactly this many `Box(height: 1u32)` elements.
     pub viewport_rows: usize,
-    /// Max display width in characters. Lines exceeding this WORD-WRAP onto
+    /// Max display width in terminal cells. Lines exceeding this WORD-WRAP onto
     /// additional display rows at word boundaries (a single over-long word
     /// hard-breaks at the width). When 0, the width falls back to terminal
     /// width minus a safety margin.
@@ -349,16 +349,11 @@ fn highlight_row_element(
     colors: SelectionColors,
 ) -> AnyElement<'static> {
     let (before, selected, after) = split_for_highlight(line, range);
-    let sel_text = if selected.is_empty() {
-        " ".to_string()
-    } else {
-        selected
-    };
     element! {
         Box(height: 1u32) {
             Text(content: before, color: fg, wrap: TextWrap::NoWrap)
             Box(background_color: colors.bg) {
-                Text(content: sel_text, color: colors.fg, wrap: TextWrap::NoWrap)
+                Text(content: selected, color: colors.fg, wrap: TextWrap::NoWrap)
             }
             Text(content: after, color: fg, wrap: TextWrap::NoWrap)
         }
@@ -423,6 +418,7 @@ fn clip_range_to_row(range: HighlightRange, row_start: usize, row_end: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn test_scrollbar_geometry_no_scroll() {
@@ -523,19 +519,18 @@ mod tests {
     /// assertions measure visible glyphs, not SGR codes.
     fn strip_ansi(s: &str) -> String {
         let mut out = String::with_capacity(s.len());
-        let bytes = s.as_bytes();
-        let mut i = 0usize;
-        while i < bytes.len() {
-            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-                // Skip to the terminating letter of the CSI sequence.
-                i += 2;
-                while i < bytes.len() && !bytes[i].is_ascii_alphabetic() {
-                    i += 1;
+        let mut chars = s.chars().peekable();
+        while let Some(character) = chars.next() {
+            if character == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                for sequence_char in chars.by_ref() {
+                    if sequence_char.is_ascii_alphabetic() {
+                        break;
+                    }
                 }
             } else {
-                out.push(bytes[i] as char);
+                out.push(character);
             }
-            i += 1;
         }
         out
     }
@@ -555,6 +550,22 @@ mod tests {
                 line.chars().count()
             );
         }
+    }
+
+    #[test]
+    fn wide_rows_leave_the_fixed_scrollbar_column_visible() {
+        let rendered = render_text("甲乙丙丁戊", 2, 4, 5);
+        let clean = strip_ansi(&rendered);
+        let lines = clean.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 2, "{clean}");
+        assert!(lines[0].contains("甲乙"), "{clean}");
+        assert!(
+            lines.iter().all(|line| {
+                UnicodeWidthStr::width(*line) <= 5 && (line.ends_with('┃') || line.ends_with('│'))
+            }),
+            "wide text must stay left of the visible scrollbar: {clean}"
+        );
     }
 
     /// A short line that fits within the width stays on a single row (no
@@ -622,6 +633,40 @@ mod tests {
         assert!(
             !non_blank[1].contains("\u{1b}[48") && !non_blank[1].contains("\u{1b}[7m"),
             "the charlie row must carry NO selection highlight (selection does not overlap it): {ansi}"
+        );
+    }
+
+    #[test]
+    fn selecting_dropped_space_keeps_the_fixed_scrollbar_visible() {
+        use crate::selection::{SelectablePane, SelectionPoint, TextSelection};
+
+        let selection = TextSelection {
+            anchor: SelectionPoint::new(SelectablePane::IssueDetail, 0, 2),
+            focus: SelectionPoint::new(SelectablePane::IssueDetail, 0, 3),
+        };
+        let mut elem = element! {
+            Box(width: 5u32, height: 2u32) {
+                ScrollableText(
+                    content: "甲乙 丙\nnext".to_string(),
+                    scroll_offset: 0usize,
+                    viewport_rows: 2usize,
+                    max_line_width: 4usize,
+                    color: Some(Color::Reset),
+                    selection: Some(selection),
+                    selection_bg: Some(Color::White),
+                    selection_fg: Some(Color::Black),
+                )
+            }
+        };
+        let rendered = elem.render(Some(5)).to_string();
+        let rows = rendered.lines().collect::<Vec<_>>();
+
+        assert_eq!(rows.len(), 2, "{rendered}");
+        assert!(rows[0].ends_with('┃'), "{rendered}");
+        assert!(rows[1].ends_with('│'), "{rendered}");
+        assert!(
+            rows.iter().all(|row| UnicodeWidthStr::width(*row) <= 5),
+            "selection feedback must remain inside the text column: {rendered}"
         );
     }
 }

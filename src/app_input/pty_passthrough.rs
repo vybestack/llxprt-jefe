@@ -34,12 +34,46 @@ pub fn forward_key_to_pty(
 ) {
     let encoded = key_to_bytes(key_event, false);
 
-    trace!(
-        code = ?key_event.code,
-        modifiers = ?key_event.modifiers,
-        encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
-        "forwarding key to PTY"
+    // Issue #296 diagnostics: for navigation/page keys, include the encoded
+    // bytes so logs can distinguish the tilde form (CSI 5~ / CSI 6~ = page
+    // keys) from the letter form (CSI A / CSI B = arrows). This pinpoints
+    // whether Jefe emits the correct sequence for the key it received.
+    let is_nav_or_page = matches!(
+        key_event.code,
+        iocraft::prelude::KeyCode::Up
+            | iocraft::prelude::KeyCode::Down
+            | iocraft::prelude::KeyCode::Left
+            | iocraft::prelude::KeyCode::Right
+            | iocraft::prelude::KeyCode::PageUp
+            | iocraft::prelude::KeyCode::PageDown
+            | iocraft::prelude::KeyCode::Home
+            | iocraft::prelude::KeyCode::End
+            | iocraft::prelude::KeyCode::Delete
+            | iocraft::prelude::KeyCode::Insert
     );
+    if is_nav_or_page {
+        if let Some(bytes) = &encoded {
+            trace!(
+                code = ?key_event.code,
+                modifiers = ?key_event.modifiers,
+                encoded = ?bytes,
+                "nav/page key encoded to PTY bytes"
+            );
+        } else {
+            trace!(
+                code = ?key_event.code,
+                modifiers = ?key_event.modifiers,
+                "nav/page key produced no PTY bytes"
+            );
+        }
+    } else {
+        trace!(
+            code = ?key_event.code,
+            modifiers = ?key_event.modifiers,
+            encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
+            "forwarding key to PTY"
+        );
+    }
 
     let unmapped = encoded.is_none();
     if let Some(bytes) = encoded
