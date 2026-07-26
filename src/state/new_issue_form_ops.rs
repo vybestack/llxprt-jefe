@@ -68,11 +68,7 @@ impl AppState {
                 mutation_id,
                 issue,
             } => {
-                self.apply_new_issue_created(
-                    scope_repo_id.clone(),
-                    *mutation_id,
-                    (**issue).clone(),
-                );
+                self.apply_new_issue_created(scope_repo_id, *mutation_id, (**issue).clone());
                 true
             }
             AppEvent::NewIssueCreateFailed {
@@ -82,7 +78,7 @@ impl AppState {
                 error,
             } => {
                 self.apply_new_issue_create_failed(
-                    scope_repo_id.clone(),
+                    scope_repo_id,
                     *mutation_id,
                     *issue_number,
                     error.clone(),
@@ -150,6 +146,7 @@ impl AppState {
             // Clear the title for built-in templates; the user types it fresh.
             d.title_text.clear();
             d.title_cursor = 0;
+            d.error = None;
         })
         .is_some()
     }
@@ -159,6 +156,7 @@ impl AppState {
             if d.available_types.is_empty() {
                 d.type_name = None;
                 d.type_id = None;
+                d.error = None;
                 return;
             }
             // Cycle: None → first → second → ... → None.
@@ -179,6 +177,7 @@ impl AppState {
                 d.type_id = None;
                 d.type_name = None;
             }
+            d.error = None;
         })
         .is_some()
     }
@@ -360,7 +359,7 @@ impl AppState {
     /// the form.
     fn apply_new_issue_created(
         &mut self,
-        scope_repo_id: RepositoryId,
+        scope_repo_id: &RepositoryId,
         mutation_id: u64,
         issue: crate::domain::Issue,
     ) {
@@ -369,7 +368,7 @@ impl AppState {
         let Some(pending) = self.issues_state.mutation_pending.as_ref() else {
             return;
         };
-        if pending.id != mutation_id || self.selected_repository_id() != Some(&scope_repo_id) {
+        if pending.id != mutation_id || self.selected_repository_id() != Some(scope_repo_id) {
             return;
         }
         let issue_number = issue.number;
@@ -398,7 +397,7 @@ impl AppState {
     /// the properties by hand.
     fn apply_new_issue_create_failed(
         &mut self,
-        scope_repo_id: RepositoryId,
+        scope_repo_id: &RepositoryId,
         mutation_id: u64,
         issue_number: Option<u64>,
         error: String,
@@ -406,7 +405,7 @@ impl AppState {
         let Some(pending) = self.issues_state.mutation_pending.as_ref() else {
             return;
         };
-        if pending.id != mutation_id || self.selected_repository_id() != Some(&scope_repo_id) {
+        if pending.id != mutation_id || self.selected_repository_id() != Some(scope_repo_id) {
             return;
         }
         self.issues_state.mutation_pending = None;
@@ -427,6 +426,30 @@ impl AppState {
         assignees: Vec<String>,
     ) -> bool {
         self.with_form_mut(|d| {
+            // If the options list changed, clear any selection that no longer
+            // exists in the fresh list so the form never holds a stale
+            // selection (type, labels, milestone, assignees).
+            if d.available_types != types {
+                if let Some(id) = d.type_id.as_ref() {
+                    if !types.iter().any(|t| t.id == *id) {
+                        d.type_id = None;
+                        d.type_name = None;
+                    }
+                }
+            }
+            if d.available_labels != labels {
+                d.labels.retain(|l| labels.iter().any(|a| a == l));
+            }
+            if d.available_milestones != milestones {
+                if let Some(m) = d.milestone.as_ref() {
+                    if !milestones.iter().any(|a| a == m) {
+                        d.milestone = None;
+                    }
+                }
+            }
+            if d.available_assignees != assignees {
+                d.assignees.retain(|a| assignees.iter().any(|av| av == a));
+            }
             d.available_labels = labels;
             d.available_milestones = milestones;
             d.available_types = types;

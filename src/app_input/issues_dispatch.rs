@@ -732,9 +732,10 @@ fn dispatch_direct_action_message(
             new_issue_submit::handle_new_issue_submit(app_state, ctx);
         }
         // The match filter in `dispatch_issues_message` restricts callers to
-        // exactly the four direct-action variants above. Keep the catch-all
-        // so the compiler surfaces a non-exhaustive warning if a future
-        // variant is added to `IssuesMessage` without an explicit arm here.
+        // exactly the four direct-action variants above. The catch-all makes
+        // this match exhaustive (so no compile-time warning if a new variant
+        // is added); the `warn!` is a runtime fallback that logs any future
+        // variant that is routed here but not yet handled.
         _ => {
             warn!("dispatch_direct_action_message received unexpected message; ignoring");
         }
