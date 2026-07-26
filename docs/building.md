@@ -5,8 +5,27 @@ This page is for contributors working on `jefe` itself.
 ## Requirements
 
 - Rust toolchain (edition 2024 crate)
-- `tmux` installed and available on PATH
+- A multiplexer: `tmux` (macOS/Linux) or `psmux` (native Windows)
 - `llxprt` CLI installed and available on PATH
+
+### Native Windows build
+
+On native Windows, build with the MSVC toolchain and PowerShell:
+
+```powershell
+cargo run
+```
+
+Install psmux separately for local testing:
+
+```powershell
+winget install --id marlocarlo.psmux --exact
+```
+
+The release workflow cross-builds the `x86_64-pc-windows-msvc` target and
+packages a portable zip containing `jefe.exe`, `LICENSE`, and the first-party
+`jefe-install.ps1` script. See [Windows support](windows-support.md) and the
+main [README](../README.md) for the install path.
 
 ## Build and run locally
 

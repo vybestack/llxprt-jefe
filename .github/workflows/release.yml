@@ -44,6 +44,12 @@ jobs:
             asset_basename: jefe-${{ github.ref_name }}-aarch64-apple-darwin
             linux_deb_arch: ""
             linux_rpm_arch: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: jefe.exe
+            asset_basename: jefe-${{ github.ref_name }}-x86_64-pc-windows-msvc
+            linux_deb_arch: ""
+            linux_rpm_arch: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -76,12 +82,24 @@ jobs:
           sudo gem install --no-document fpm
 
       - name: Package tar.gz
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/assets
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/jefe
           tar -C dist -czf dist/assets/${{ matrix.asset_basename }}.tar.gz jefe
+
+      - name: Package Windows portable zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist/assets | Out-Null
+          Copy-Item -Path "target/${{ matrix.target }}/release/jefe.exe" -Destination "dist/jefe.exe" -Force
+          Copy-Item -Path "LICENSE" -Destination "dist/LICENSE" -Force
+          Copy-Item -Path "scripts/jefe-install.ps1" -Destination "dist/jefe-install.ps1" -Force
+          Compress-Archive -Path "dist/jefe.exe","dist/LICENSE","dist/jefe-install.ps1" -DestinationPath "dist/assets/${{ matrix.asset_basename }}.zip" -Force
 
       - name: Package Linux deb/rpm
         if: runner.os == 'Linux'
@@ -122,7 +140,8 @@ jobs:
             -C dist/pkg \
             usr/local/bin/jefe
 
-      - name: Generate checksums
+      - name: Generate Unix checksums
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -130,6 +149,16 @@ jobs:
           for asset in *; do
             shasum -a 256 "$asset" > "$asset.sha256"
           done
+
+      - name: Generate Windows checksums
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem -Path 'dist/assets' -File | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content -LiteralPath "$($_.FullName).sha256"
+          }
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

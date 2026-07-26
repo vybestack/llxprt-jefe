@@ -11,8 +11,7 @@ use std::process::{Command, Output};
 use super::agent_executable::ResolvedAgentExecutable;
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 6);
-const WINDOWS_INSTALL_GUIDANCE: &str =
-    "install psmux 3.3.6 or newer with `winget install marlocarlo.psmux`, then restart Jefe";
+const WINDOWS_INSTALL_GUIDANCE: &str = "install psmux 3.3.6 or newer with `winget install --id marlocarlo.psmux --exact`, then restart Jefe";
 const UNIX_INSTALL_GUIDANCE: &str =
     "install upstream tmux with your operating system package manager";
 

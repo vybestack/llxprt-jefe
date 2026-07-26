@@ -9,7 +9,7 @@ MSYS2, Git Bash, Docker, or a Unix shell.
 The minimum qualified version is **psmux 3.3.6**. Install it with:
 
 ```powershell
-winget install marlocarlo.psmux
+winget install --id marlocarlo.psmux --exact
 ```
 
 The suite uses `psmux.exe` by default. Set `JEFE_PSMUX_BIN` to test a specific

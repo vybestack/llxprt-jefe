@@ -447,11 +447,15 @@ There is no event queue, no async event bus, no pub/sub. Events are processed in
 
 ### Compatibility
 
-- Requires tmux installed and available on `$PATH`.
-- Requires `llxprt` (or configured agent CLI) installed and available on `$PATH`.
+- Requires a tmux-compatible multiplexer installed and resolvable on `PATH`:
+  upstream `tmux` on macOS/Linux, or native `psmux` (3.3.6+) on Windows.
+- Native Windows uses the ConPTY pseudo-console and psmux on a private
+  `-L` namespace. WSL, Cygwin, MSYS2, Git Bash, and Docker tmux are rejected.
+- Requires `llxprt` (or configured agent CLI) installed and available on `PATH`.
 - Terminal must support alternate screen mode and 256-color or RGB color.
-- Tested on macOS (darwin). Linux compatibility expected but not yet validated.
-- Minimum Rust version: 1.75 (edition 2021).
+- Supported on macOS, Linux, and native Windows (x86_64). See
+  [Windows support](windows-support.md) for the native Windows architecture.
+- Minimum Rust version: edition 2024 (Rust 1.85+).
 
 ### Extensibility Points
 

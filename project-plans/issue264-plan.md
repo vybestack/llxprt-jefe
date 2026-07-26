@@ -4,16 +4,18 @@
 - Branch: `issue264`
 - Base: `origin/main` at `20f6e76`
 - Issue state: open
-- Review counters: OCR pre-PR 0/2, OCR post-PR 0/2
-- Delivery shape: stacked pull requests are required because the issue crosses
-  the CLI, diagnostic/process, persistence, Windows runtime, release automation,
-  external distribution, documentation, and CI ownership boundaries.
-- Status: implementation is blocked on the decisions recorded below.
+- Review counters: OCR pre-PR 1/2, OCR post-PR 0/2
+- Delivery shape: one issue-closing pull request, explicitly approved by the
+  maintainer despite crossing the CLI, diagnostic/process, persistence, Windows
+  runtime, release automation, documentation, and CI ownership boundaries.
+  The implementation remains organized as internal vertical slices.
+- Status: candidate implementation complete; exact-head local and GitHub gates
+  are recorded below.
 
 ## Summary
 
-Deliver a native x86-64 Windows support path only after three independently
-reviewable capabilities are complete:
+Deliver a native x86-64 Windows support path after three independently
+testable internal slices are complete in the approved single PR:
 
 1. a redacted, read-mostly `jefe doctor` command that classifies local readiness;
 2. a reproducible package/install/upgrade/uninstall path with a clean-Windows
@@ -27,15 +29,24 @@ paths against current repository primitives.
 
 ## Decisions required before implementation
 
-| ID | Decision | Recommended bounded choice | Why implementation must wait |
+| ID | Decision | Approved choice | Status |
 |---|---|---|---|
-| D-01 | Supported Jefe distribution channel | Publish a portable `x86_64-pc-windows-msvc` zip on GitHub Releases and document a PowerShell per-user installation under `%LOCALAPPDATA%`; install psmux separately with qualified package `marlocarlo.psmux`. Defer a Jefe Winget listing until package identity and `microsoft/winget-pkgs` submission ownership are established. | A Jefe Winget identifier, publisher, repository/fork, credentials, and submission owner do not exist in this repository. Portable release and Jefe Winget are materially different release architectures. |
-| D-02 | Workflow changes | Approve bounded edits to `.github/workflows/ci.yml` and `.github/workflows/release.yml` for the Windows package, clean-install doctor gate, and isolated psmux smoke. | The canonical workflow requires explicit approval before changing `.github/`. These edits are required by issue acceptance but cannot be inferred as routine implementation detail. |
-| D-03 | License | Confirm Apache-2.0 is the intended project license and approve adding the standard top-level `LICENSE` text matching `Cargo.toml`. | Packaging must contain license metadata, but adding legal text needs maintainer confirmation. |
-| D-04 | Doctor exit contract | Exit 0 when all required startup checks pass; exit 2 when psmux is missing/incompatible/untrusted, ConPTY cannot open on Windows, or configured persistence paths are not writable; report missing Git, unauthenticated/missing `gh`, and absent agent runtimes as warnings because they disable features but do not prevent Jefe from starting. Exit 1 only when the diagnostic command itself cannot complete. | The issue requires classifications but does not define which findings make the command fail. CI and user scripts depend on this contract. |
-| D-05 | Diagnostic filesystem effects | Do not initialize configuration or mutate state. For an existing config/state directory, create and remove a uniquely named writability probe; for a missing directory, probe the nearest existing parent and report that the application directory is absent. Never touch persistent sessions. | Existing `validate_config_dir` creates a missing directory, so direct reuse would make `doctor` initialize user state. |
-| D-06 | CLI/report surface | Add a typed `Doctor` command to the hand-written CLI parser and dispatch it in `main` before logging/TUI initialization. Ship human-readable redacted output only; safe artifacts are collected with shell redirection. Defer `--json` and `--copy`, which the issue does not require. | A parser subcommand and a `main` special case are materially different ownership models. JSON/clipboard would add unaccepted surface and test scope. |
-| D-07 | Delivery stack | Use PR 1 for doctor + Windows probes + native CI diagnostic smoke, PR 2 for license/release package + clean package-install scenario, and PR 3 for support docs/status after a package is available. | The canonical workflow mandates splitting work that crosses more than three ownership layers or orchestration routes. |
+| D-01 | Supported Jefe distribution channel | Publish a portable `x86_64-pc-windows-msvc` zip on GitHub Releases and document a PowerShell per-user installation under `%LOCALAPPDATA%`; install psmux separately with qualified package `marlocarlo.psmux` using `winget install --id marlocarlo.psmux --exact`. Defer a Jefe Winget listing until package identity and `microsoft/winget-pkgs` submission ownership are established. | **APPROVED 2026-07-26 by acoliver** (user override of stacked-PR recommendation) |
+| D-02 | Workflow changes | Bounded edits to `.github/workflows/ci.yml` and `.github/workflows/release.yml` for the Windows package, clean-install doctor gate, isolated psmux smoke, and Windows MSVC release matrix with checksums. | **APPROVED 2026-07-26 by acoliver** |
+| D-03 | License | Apache-2.0 is the intended project license; add the standard top-level `LICENSE` text matching `Cargo.toml`. | **APPROVED 2026-07-26 by acoliver** |
+| D-04 | Doctor exit contract | Exit 0 when all required startup checks pass; exit 2 when psmux is missing/incompatible/untrusted, ConPTY cannot open on Windows, or configured persistence paths are not writable; report missing Git, unauthenticated/missing `gh`, and absent agent runtimes as warnings. Exit 1 only when the diagnostic command itself cannot complete. | **APPROVED 2026-07-26 by acoliver** (as recommended) |
+| D-05 | Diagnostic filesystem effects | Read-mostly probe: do not initialize configuration or mutate state. For an existing config/state directory, create and remove a uniquely named writability probe; for a missing directory, probe the nearest existing parent and report that the application directory is absent. Never touch persistent sessions. | **APPROVED 2026-07-26 by acoliver** (as recommended) |
+| D-06 | CLI/report surface | Add a typed `Doctor` command to the hand-written CLI parser and dispatch it in `main` before logging/TUI initialization. Ship human-readable redacted output only; safe artifacts are collected with shell redirection. Defer `--json` and `--copy`. | **APPROVED 2026-07-26 by acoliver** (as recommended) |
+| D-07 | Delivery stack | **OVERRIDDEN by user**: deliver the entire issue (#264) as ONE pull request, including `.github` workflow edits, Apache-2.0 LICENSE, docs, packaging scripts, and a mandatory scope review even if the diff crosses the normal hard budget. Internal vertical slices and coherent commits are still preserved for the coordinator. | **OVERRIDDEN 2026-07-26 by acoliver** (single-PR delivery approved) |
+
+### Exact-gate baseline decision
+
+The user explicitly requires zero lint/test failures. Local Clippy 1.97 without
+the repository CI configuration suggests `is_multiple_of` and `from_hours`, but
+both violate the configured Rust 1.75 MSRV. The exact CI command uses
+`.github/clippy/clippy.toml`, keeps the MSRV-compatible expressions, and passes
+without suppressions; no unrelated source change is carried for these false
+positives.
 
 ## Acceptance matrix
 
@@ -74,9 +85,9 @@ paths against current repository primitives.
 - No unrelated refactors, test relocation, dependency/quality-gate changes, or
   changes under `.llxprt/` or `.code_puppy/`.
 
-## Planned stacked vertical slices
+## Approved internal vertical slices
 
-### PR 1 / S1 — Redacted doctor and native readiness probes
+### S1 — Redacted doctor and native readiness probes
 
 - Rows: AC-04 through AC-09 and the doctor portion of AC-11/AC-13.
 - Owners/boundaries: typed CLI parsing; diagnostic domain/orchestrator; existing
@@ -102,7 +113,7 @@ paths against current repository primitives.
 - Stop if a new dependency, process-management subsystem, public abstraction,
   TUI route, persistence mutation, or files outside the allowed set are needed.
 
-### PR 2 / S2 — Portable package, installation lifecycle, and clean smoke
+### S2 — Portable package, installation lifecycle, and clean smoke
 
 - Rows: AC-01 through AC-03, AC-10, AC-11, AC-13.
 - Owners/boundaries: release packaging, package-owned PowerShell install boundary,
@@ -124,7 +135,7 @@ paths against current repository primitives.
 - Stop before external Winget publication, a new installer framework, privileged
   system-wide mutation, or deletion outside the package-owned path.
 
-### PR 3 / S3 — Windows support documentation and support-status gate
+### S3 — Windows support documentation and support-status gate
 
 - Rows: AC-12, AC-13; documents all preceding rows.
 - Owners/boundaries: public support docs and docs contract tests.
@@ -144,10 +155,10 @@ paths against current repository primitives.
 
 | Stack | Expected files | Estimated net lines | Budget state |
 |---|---:|---:|---|
-| PR 1 doctor | 10–16 | 700–1,200 | target; mandatory review if an existing owner needs broad API expansion |
-| PR 2 package | 5–9 | 300–700 plus standard license text | target; `.github` approval required |
-| PR 3 docs | 6–8 | 350–650 | target; gated on operational distribution |
-| Whole issue | 21–33 distinct | 1,350–2,350 plus license text | must not be collapsed into one PR; mandatory scope review before any stack exceeds 25 files or 1,500 net lines; hard stop above 40 files or 2,500 net lines without approval |
+| S1 doctor | 10–16 | 700–1,200 | internal slice; reviewed with the complete PR |
+| S2 package | 5–9 | 300–700 plus standard license text | internal slice; `.github` and license changes approved |
+| S3 docs | 6–8 | 350–650 | internal slice; gated on operational distribution |
+| Whole issue | 33 distinct | 4,172 net lines including license text | single PR explicitly approved above the normal 25-file/1,500-line target and 2,500-line hard stop; mandatory scope review completed before PR creation |
 
 ## Scope ledger
 
@@ -155,15 +166,17 @@ paths against current repository primitives.
 |---|---|---|
 | 2026-07-26 | Issue #264 is open and authored by `acoliver`; the long CodeRabbit comment is non-authoritative research | In scope: acceptance rows come from the issue body, not optional bot additions |
 | 2026-07-26 | No Jefe Winget identity or `microsoft/winget-pkgs` publication owner exists in the repository | Decision D-01: recommend portable GitHub release; defer Jefe Winget publication |
-| 2026-07-26 | `.github` changes are required by the clean-install/release acceptance criteria but require explicit workflow approval | Decision D-02 pending |
-| 2026-07-26 | `Cargo.toml` declares Apache-2.0 but the repository has no top-level license file | Decision D-03 pending; do not infer legal intent from metadata alone |
+| 2026-07-26 | `.github` changes are required by the clean-install/release acceptance criteria | Decision D-02 approved; bounded native package, doctor, and psmux workflow gates are in scope |
+| 2026-07-26 | `Cargo.toml` declares Apache-2.0 but the repository had no top-level license file | Decision D-03 approved; standard Apache-2.0 `LICENSE` added |
 | 2026-07-26 | Existing `validate_config_dir` creates a missing directory | Decision D-05: add/use a read-mostly diagnostic probe rather than initialize config |
 | 2026-07-26 | The issue does not require JSON or clipboard output | Reject optional expansion; human output redirected to a file is the safe-artifact path |
-| 2026-07-26 | The issue crosses more than three ownership layers and orchestration routes | Split into PR 1 doctor, PR 2 package, PR 3 docs per canonical workflow |
+| 2026-07-26 | The issue crosses more than three ownership layers and orchestration routes | User explicitly approved one issue-closing PR and the 33-file/4,172-net-line hard-budget exception; preserve S1/S2/S3 as internal review slices |
 
 ## Review triage
 
-No review runs have been spent and no findings are open.
+OCR pre-PR runs: 1/2. The bounded review found no blockers. Its two deferred
+hardening suggestions—remove duplicate owned PATH entries and normalize Windows
+checksum line endings—were small, in-scope fixes and are resolved.
 
 ## Verification evidence
 
@@ -172,9 +185,22 @@ No review runs have been spent and no findings are open.
 - Planning audit verified existing multiplexer, local-tool, GitHub-auth,
   agent-runtime, persistence-path, logging, identity/redaction, clipboard,
   version/commit, native Windows CI, and schema-1 harness primitives.
-- RED/GREEN evidence: pending decisions and implementation.
-- Exact-head local gate: pending.
-- Exact-head GitHub CI: pending.
+- RED evidence: the recovered doctor integration target initially failed to
+  compile because `FindingKind` was missing from the classification test scope;
+  package/docs contracts were absent before S2/S3.
+- GREEN evidence: 67 focused doctor tests and 10 Windows support contracts pass;
+  native `jefe doctor` exits 0 with psmux 3.3.6 and leaves the isolated config
+  directory empty; the PowerShell install/upgrade/uninstall lifecycle passes and
+  restores the original user PATH.
+- Exact-head local Rust gates: format, strict Clippy, complexity, coverage
+  (69.55% lines, threshold 30%), locked all-feature build, and the complete
+  locked test suite pass. Native psmux tests were run with inherited nested-
+  session markers removed, matching the clean Windows CI process environment.
+  The source-size script reports the unchanged `src/runtime/manager.rs` baseline
+  at 1,002 lines; the canonical Clippy-allow scanner requires Python, which is
+  unavailable on this host. Both policy gates remain required in GitHub CI.
+- Exact-head GitHub CI: pending after PR creation, including the native packaged
+  psmux startup/quit scenario.
 
 ## Deferred findings and follow-ups
 
