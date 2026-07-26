@@ -366,7 +366,7 @@ message_names!(PullRequestsMessage {
 use crate::state::AppEvent;
 
 #[must_use]
-pub fn is_new_issue_dialog_app_event(event: &AppEvent) -> bool {
+pub fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
     matches!(
         event,
         |AppEvent::NewIssueTemplateNext| AppEvent::NewIssueTypeNext
@@ -399,7 +399,7 @@ pub fn is_new_issue_dialog_app_event(event: &AppEvent) -> bool {
 }
 
 #[must_use]
-pub fn is_new_issue_dialog_msg(message: &IssuesMessage) -> bool {
+pub fn is_new_issue_form_msg(message: &IssuesMessage) -> bool {
     matches!(
         message,
         |IssuesMessage::NewIssueTemplateNext| IssuesMessage::NewIssueTypeNext

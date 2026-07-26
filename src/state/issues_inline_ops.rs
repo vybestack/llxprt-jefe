@@ -242,7 +242,7 @@ impl AppState {
                     // (template/type/title/body/labels/milestone/project/
                     // assignees); the composer keeps the existing inline
                     // editor contract so key routing/rendering still work.
-                    self.open_new_issue_dialog();
+                    self.open_new_issue_form();
                 }
                 (true, opened)
             }

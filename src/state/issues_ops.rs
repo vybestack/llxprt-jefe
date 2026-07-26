@@ -687,7 +687,7 @@ impl AppState {
             || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_rewrite_event(event.clone())
-            || self.apply_new_issue_dialog_event(&event)
+            || self.apply_new_issue_form_event(&event)
             || self.apply_issue_error_event(event)
     }
 }

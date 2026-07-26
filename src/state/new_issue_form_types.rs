@@ -5,7 +5,7 @@
 //! state carried by [`crate::state::IssuesState::new_issue_form`] and the
 //! focus/cursor helpers for the inline new-issue composer.
 
-/// A selectable issue type in the New Issue dialog (issue #407).
+/// A selectable issue type in the New Issue form (issue #407).
 ///
 /// Carries the GraphQL node `id` (used for the `updateIssue` mutation) and
 /// the display `name`. Replaces the unlabeled `(String, String)` tuple so
@@ -101,9 +101,9 @@ impl NewIssueTemplate {
     }
 }
 
-/// Which field is focused in the New Issue dialog (issue #407).
+/// Which field is focused in the New Issue form (issue #407).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum NewIssueDialogFocus {
+pub enum NewIssueFormFocus {
     #[default]
     Template,
     Type,
@@ -115,7 +115,7 @@ pub enum NewIssueDialogFocus {
     Assignees,
 }
 
-impl NewIssueDialogFocus {
+impl NewIssueFormFocus {
     /// Move to the next focusable field (issue #407). Cycle at the end.
     #[must_use]
     pub fn next(self) -> Self {
@@ -154,7 +154,7 @@ impl NewIssueDialogFocus {
 /// Sticky milestone/project defaults are restored from `RepoPreferences`
 /// when the form opens and remembered back on a successful submit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct NewIssueDialogState {
+pub struct NewIssueFormState {
     /// Currently-selected built-in template (Blank/Bug/Feature/Task).
     pub template: NewIssueTemplate,
     /// Selected issue type name (`None` = no type). Resolved against the
@@ -164,7 +164,7 @@ pub struct NewIssueDialogState {
     /// picker confirms (issue #407). `None` when no type is selected.
     pub type_id: Option<String>,
     /// Available issue types for the current repo. Populated async when the
-    /// dialog opens; empty while loading.
+    /// form opens; empty while loading.
     pub available_types: Vec<IssueType>,
     /// Title draft (single line).
     pub title_text: String,
@@ -190,7 +190,7 @@ pub struct NewIssueDialogState {
     /// Available assignee logins for the repo (populated async).
     pub available_assignees: Vec<String>,
     /// Which field is focused.
-    pub focus: NewIssueDialogFocus,
+    pub focus: NewIssueFormFocus,
     /// Footer error (e.g. empty-title, options-load failure). Blankable.
     pub error: Option<String>,
     /// Whether the async options load (labels/milestones/types/assignees)

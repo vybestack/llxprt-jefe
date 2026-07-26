@@ -23,8 +23,8 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
 }
 
 /// Helper: assert the inline New Issue form is open and return a reference
-/// to the dialog state.
-fn expect_form_open(state: &AppState) -> &crate::state::NewIssueDialogState {
+/// to the form state.
+fn expect_form_open(state: &AppState) -> &crate::state::NewIssueFormState {
     state
         .issues_state
         .new_issue_form
@@ -38,18 +38,18 @@ fn expect_form_open(state: &AppState) -> &crate::state::NewIssueDialogState {
 fn open_new_issue_composer_opens_inline_form_with_blank_template() {
     let state = issues_mode_state_with_repo("repo-1");
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
-    let dialog = expect_form_open(&state);
+    let form = expect_form_open(&state);
     assert_eq!(
-        dialog.template,
+        form.template,
         NewIssueTemplate::Blank,
         "template must default to Blank"
     );
     assert!(
-        dialog.title_text.is_empty(),
+        form.title_text.is_empty(),
         "title must start empty for Blank template"
     );
     assert!(
-        dialog.body_text.is_empty(),
+        form.body_text.is_empty(),
         "body must start empty for Blank template"
     );
     // The inline composer must also be active.
@@ -63,7 +63,7 @@ fn open_new_issue_composer_opens_inline_form_with_blank_template() {
 }
 
 /// A12: Opening the form for a repo with stored sticky milestone/project
-/// restores those defaults into the dialog draft fields.
+/// restores those defaults into the form draft fields.
 #[test]
 fn open_new_issue_composer_restores_sticky_milestone_and_project() {
     let mut state = issues_mode_state_with_repo("repo-1");
@@ -76,14 +76,14 @@ fn open_new_issue_composer_restores_sticky_milestone_and_project() {
         });
 
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
-    let dialog = expect_form_open(&state);
+    let form = expect_form_open(&state);
     assert_eq!(
-        dialog.milestone,
+        form.milestone,
         Some("v1.2".to_string()),
         "sticky milestone must be restored"
     );
     assert_eq!(
-        dialog.project_ids,
+        form.project_ids,
         vec!["PVT_1".to_string()],
         "sticky project must be restored"
     );
@@ -96,15 +96,15 @@ fn cycling_template_to_bug_prefills_body_scaffold() {
     let state = issues_mode_state_with_repo("repo-1");
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
     let state = state.apply(AppEvent::NewIssueTemplateNext).committed_pure();
-    let dialog = expect_form_open(&state);
-    assert_eq!(dialog.template, NewIssueTemplate::Bug);
+    let form = expect_form_open(&state);
+    assert_eq!(form.template, NewIssueTemplate::Bug);
     assert!(
-        dialog.body_text.contains("## What happened?"),
+        form.body_text.contains("## What happened?"),
         "Bug template must scaffold the body, got {:?}",
-        dialog.body_text
+        form.body_text
     );
     assert!(
-        dialog.title_text.is_empty(),
+        form.title_text.is_empty(),
         "title must stay empty for the user to fill"
     );
 }
@@ -128,13 +128,13 @@ fn new_issue_cancel_closes_form_and_discards_draft() {
     );
     // Reopen: the draft must be empty (cancel discards, not just hides).
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
-    let dialog = expect_form_open(&state);
+    let form = expect_form_open(&state);
     assert!(
-        dialog.title_text.is_empty(),
+        form.title_text.is_empty(),
         "title draft must be discarded on cancel"
     );
     assert!(
-        dialog.body_text.is_empty(),
+        form.body_text.is_empty(),
         "body draft must be discarded on cancel"
     );
 }
@@ -175,11 +175,11 @@ fn submit_with_empty_title_keeps_form_open_and_surfaces_error() {
     let state = issues_mode_state_with_repo("repo-1");
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
     let state = state.apply(AppEvent::NewIssueSubmit).committed_pure();
-    let dialog = expect_form_open(&state);
+    let form = expect_form_open(&state);
     assert!(
-        dialog.error.as_deref().is_some_and(|e| e.contains("title")),
+        form.error.as_deref().is_some_and(|e| e.contains("title")),
         "footer error must mention title, got {:?}",
-        dialog.error
+        form.error
     );
 }
 
@@ -189,9 +189,9 @@ fn submit_with_empty_title_keeps_form_open_and_surfaces_error() {
 fn remember_new_issue_preferences_persists_milestone_and_project() {
     let mut state = issues_mode_state_with_repo("repo-1");
     state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
-    if let Some(dialog) = state.issues_state.new_issue_form.as_mut() {
-        dialog.milestone = Some("v9.9".to_string());
-        dialog.project_ids = vec!["PVT_42".to_string()];
+    if let Some(form) = state.issues_state.new_issue_form.as_mut() {
+        form.milestone = Some("v9.9".to_string());
+        form.project_ids = vec!["PVT_42".to_string()];
     }
     // Apply the sticky-remember op directly (the submit pipeline calls this).
     state.remember_new_issue_preferences();

@@ -2,8 +2,8 @@ use crate::state::AppEvent;
 
 use super::IssuesMessage;
 use super::names::{
-    is_issue_property_app_event, is_issue_property_msg, is_new_issue_dialog_app_event,
-    is_new_issue_dialog_msg,
+    is_issue_property_app_event, is_issue_property_msg, is_new_issue_form_app_event,
+    is_new_issue_form_msg,
 };
 
 impl From<IssuesMessage> for AppEvent {
@@ -264,8 +264,8 @@ impl IssuesMessage {
             property if is_issue_property_app_event(&property) => {
                 Self::from_app_event_property(property)
             }
-            dialog if is_new_issue_dialog_app_event(&dialog) => {
-                Self::from_app_event_new_issue_dialog(dialog)
+            dialog if is_new_issue_form_app_event(&dialog) => {
+                Self::from_app_event_new_issue_form(dialog)
             }
             other => Self::from_app_event_mutation_and_agent(other),
         }
@@ -318,13 +318,13 @@ impl IssuesMessage {
             AppEvent::RequestIssueRewrite => Self::RequestIssueRewrite,
             AppEvent::IssueRewriteSucceeded { text } => Self::IssueRewriteSucceeded { text },
             AppEvent::IssueRewriteFailed { error } => Self::IssueRewriteFailed { error },
-            other => Self::from_app_event_new_issue_dialog(other),
+            other => Self::from_app_event_new_issue_form(other),
         }
     }
 
     /// New Issue dialog events; delegates mutation/lifecycle and further
     /// events to `from_app_event_mutation_and_agent`.
-    fn from_app_event_new_issue_dialog(event: AppEvent) -> Self {
+    fn from_app_event_new_issue_form(event: AppEvent) -> Self {
         match event {
             AppEvent::NewIssueTemplateNext => Self::NewIssueTemplateNext,
             AppEvent::NewIssueTypeNext => Self::NewIssueTypeNext,
@@ -748,7 +748,7 @@ impl IssuesMessage {
             | Self::IssueRewriteSucceeded { .. }
             | Self::IssueRewriteFailed { .. } => self.into_app_event_simple_controls(),
             property if is_issue_property_msg(&property) => property.into_app_event_property(),
-            dialog if is_new_issue_dialog_msg(&dialog) => dialog.into_app_event_new_issue_dialog(),
+            dialog if is_new_issue_form_msg(&dialog) => dialog.into_app_event_new_issue_form(),
             other => other.into_app_event_mutation_and_agent(),
         }
     }
@@ -800,13 +800,13 @@ impl IssuesMessage {
             Self::RequestIssueRewrite => AppEvent::RequestIssueRewrite,
             Self::IssueRewriteSucceeded { text } => AppEvent::IssueRewriteSucceeded { text },
             Self::IssueRewriteFailed { error } => AppEvent::IssueRewriteFailed { error },
-            other => other.into_app_event_new_issue_dialog(),
+            other => other.into_app_event_new_issue_form(),
         }
     }
 
     /// New Issue dialog messages; delegates mutation/agent and further
     /// messages to `into_app_event_mutation_and_agent`.
-    fn into_app_event_new_issue_dialog(self) -> AppEvent {
+    fn into_app_event_new_issue_form(self) -> AppEvent {
         match self {
             Self::NewIssueTemplateNext => AppEvent::NewIssueTemplateNext,
             Self::NewIssueTypeNext => AppEvent::NewIssueTypeNext,

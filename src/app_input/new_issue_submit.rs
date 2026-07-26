@@ -22,7 +22,7 @@ use jefe::state::AppEvent;
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
 /// Handle a `NewIssueSubmit`: validate, mark pending, spawn the create + apply
-/// task. If the title is empty the dialog stays open with a validation error
+/// task. If the title is empty the form stays open with a validation error
 /// (the reducer already surfaces this, but we double-check here to avoid
 /// marking a mutation pending for an invalid submit).
 pub fn handle_new_issue_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -72,7 +72,7 @@ struct SubmitParams {
 
 fn resolve_submit_params(app_state: &AppStateHandle) -> Option<SubmitParams> {
     let state = app_state.read();
-    let dialog = state.issues_state.new_issue_form.as_ref()?;
+    let form = state.issues_state.new_issue_form.as_ref()?;
     let (owner, repo) = super::issues_dispatch::resolve_gh_repo(&state);
     if owner.is_empty() || repo.is_empty() {
         return None;
@@ -82,12 +82,12 @@ fn resolve_submit_params(app_state: &AppStateHandle) -> Option<SubmitParams> {
         scope_repo_id,
         owner,
         repo,
-        title: dialog.title_text.clone(),
-        body: dialog.body_text.clone(),
-        labels: dialog.labels.clone(),
-        milestone: dialog.milestone.clone(),
-        assignees: dialog.assignees.clone(),
-        type_id: dialog.type_id.clone(),
+        title: form.title_text.clone(),
+        body: form.body_text.clone(),
+        labels: form.labels.clone(),
+        milestone: form.milestone.clone(),
+        assignees: form.assignees.clone(),
+        type_id: form.type_id.clone(),
     };
     drop(state);
     Some(params)

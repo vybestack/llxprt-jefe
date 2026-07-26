@@ -4,7 +4,7 @@
 
 use jefe::domain::PageToken;
 use jefe::messages::IssuesMessage;
-use jefe::messages::names::is_new_issue_dialog_msg;
+use jefe::messages::names::is_new_issue_form_msg;
 use jefe::state::AppEvent;
 
 use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
@@ -634,7 +634,7 @@ fn dispatch_issues_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
 /// Route NewIssue dialog messages that require only a reducer apply+persist
 /// (issue #407). Extracted from `dispatch_issues_message` to keep that
 /// dispatcher under the 60-line limit.
-fn dispatch_new_issue_dialog_message(
+fn dispatch_new_issue_form_message(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     message: IssuesMessage,
@@ -702,8 +702,8 @@ pub(super) fn dispatch_issues_message(
         | IssuesMessage::CloseReasonConfirm) => {
             dispatch_issues_lifecycle(app_state, ctx, message);
         }
-        message if is_new_issue_dialog_msg(&message) => {
-            dispatch_new_issue_dialog_message(app_state, ctx, message);
+        message if is_new_issue_form_msg(&message) => {
+            dispatch_new_issue_form_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }

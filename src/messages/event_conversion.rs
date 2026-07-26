@@ -428,7 +428,7 @@ impl AppMessage {
     /// Whether the event is an issues data/mutation/agent event.
     fn is_issues_data_event(event: &AppEvent) -> bool {
         Self::is_issues_core_data_event(event)
-            || Self::is_new_issue_dialog_data_event(event)
+            || Self::is_new_issue_form_data_event(event)
             || Self::is_issue_property_data_event(event)
     }
 
@@ -499,7 +499,7 @@ impl AppMessage {
     }
 
     /// Whether the event is a New Issue dialog data/agent event.
-    fn is_new_issue_dialog_data_event(event: &AppEvent) -> bool {
+    fn is_new_issue_form_data_event(event: &AppEvent) -> bool {
         matches!(
             event,
             AppEvent::OpenNewIssueComposer

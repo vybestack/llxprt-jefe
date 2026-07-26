@@ -7,7 +7,7 @@
 //! successful submit (via `remember_new_issue_preferences`).
 
 use super::AppState;
-use super::types::NewIssueDialogState;
+use super::types::NewIssueFormState;
 use crate::domain::RepositoryId;
 use crate::state::events::AppEvent;
 use crate::state::util::{delete_char_at, delete_char_before, insert_char_at};
@@ -17,7 +17,7 @@ impl AppState {
     /// milestone/project from per-repo preferences and sets the inline
     /// composer state. When no repository is selected the form still opens
     /// with blank defaults (properties are applied on submit).
-    pub(super) fn open_new_issue_dialog(&mut self) {
+    pub(super) fn open_new_issue_form(&mut self) {
         let (milestone, project_ids) = self
             .selected_repository_id()
             .map(|rid| {
@@ -28,10 +28,10 @@ impl AppState {
                 )
             })
             .unwrap_or_default();
-        let state = NewIssueDialogState {
+        let state = NewIssueFormState {
             milestone,
             project_ids,
-            ..NewIssueDialogState::default()
+            ..NewIssueFormState::default()
         };
         self.issues_state.issue_focus = super::IssueFocus::IssueList;
         self.issues_state.inline_state = super::InlineState::Composer {
@@ -43,7 +43,7 @@ impl AppState {
     }
 
     /// Close the inline New Issue form and discard the draft (issue #407 A11).
-    pub(super) fn close_new_issue_dialog(&mut self) {
+    pub(super) fn close_new_issue_form(&mut self) {
         if self.issues_state.new_issue_form.is_some() {
             self.issues_state.new_issue_form = None;
             self.issues_state.inline_state = super::InlineState::None;
@@ -51,13 +51,13 @@ impl AppState {
     }
 
     /// Apply a New Issue form event. Returns `true` if handled.
-    pub(super) fn apply_new_issue_dialog_event(&mut self, event: &AppEvent) -> bool {
+    pub(super) fn apply_new_issue_form_event(&mut self, event: &AppEvent) -> bool {
         if self.issues_state.new_issue_form.is_none() {
             return false;
         }
         match event {
             AppEvent::NewIssueCancel => {
-                self.close_new_issue_dialog();
+                self.close_new_issue_form();
                 true
             }
             AppEvent::NewIssueTemplateNext => self.new_issue_template_next(),
@@ -138,12 +138,12 @@ impl AppState {
         }
     }
 
-    fn with_dialog_mut<R>(&mut self, f: impl FnOnce(&mut NewIssueDialogState) -> R) -> Option<R> {
+    fn with_form_mut<R>(&mut self, f: impl FnOnce(&mut NewIssueFormState) -> R) -> Option<R> {
         self.issues_state.new_issue_form.as_mut().map(f)
     }
 
     fn new_issue_template_next(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.template = d.template.next();
             d.body_text = d.template.body_scaffold().to_string();
             d.body_cursor = d.body_text.chars().count();
@@ -155,7 +155,7 @@ impl AppState {
     }
 
     fn new_issue_type_next(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             if d.available_types.is_empty() {
                 d.type_name = None;
                 d.type_id = None;
@@ -184,7 +184,7 @@ impl AppState {
     }
 
     fn new_issue_title_char(&mut self, c: char) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             // Title is single-line: reject newlines.
             if c == '\n' || c == '\r' {
                 return;
@@ -196,7 +196,7 @@ impl AppState {
     }
 
     fn new_issue_title_backspace(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.title_cursor = delete_char_before(&mut d.title_text, d.title_cursor);
             d.error = None;
         })
@@ -204,7 +204,7 @@ impl AppState {
     }
 
     fn new_issue_title_delete(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             delete_char_at(&mut d.title_text, d.title_cursor);
             d.error = None;
         })
@@ -212,14 +212,14 @@ impl AppState {
     }
 
     fn new_issue_title_cursor_left(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.title_cursor = d.title_cursor.saturating_sub(1);
         })
         .is_some()
     }
 
     fn new_issue_title_cursor_right(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             let max = d.title_text.chars().count();
             if d.title_cursor < max {
                 d.title_cursor += 1;
@@ -229,21 +229,21 @@ impl AppState {
     }
 
     fn new_issue_title_cursor_home(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.title_cursor = 0;
         })
         .is_some()
     }
 
     fn new_issue_title_cursor_end(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.title_cursor = d.title_text.chars().count();
         })
         .is_some()
     }
 
     fn new_issue_body_char(&mut self, c: char) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.body_cursor = insert_char_at(&mut d.body_text, d.body_cursor, c);
             d.error = None;
         })
@@ -255,7 +255,7 @@ impl AppState {
     }
 
     fn new_issue_body_backspace(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.body_cursor = delete_char_before(&mut d.body_text, d.body_cursor);
             d.error = None;
         })
@@ -263,7 +263,7 @@ impl AppState {
     }
 
     fn new_issue_body_delete(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             delete_char_at(&mut d.body_text, d.body_cursor);
             d.error = None;
         })
@@ -271,14 +271,14 @@ impl AppState {
     }
 
     fn new_issue_body_cursor_left(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.body_cursor = d.body_cursor.saturating_sub(1);
         })
         .is_some()
     }
 
     fn new_issue_body_cursor_right(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             let max = d.body_text.chars().count();
             if d.body_cursor < max {
                 d.body_cursor += 1;
@@ -288,42 +288,42 @@ impl AppState {
     }
 
     fn new_issue_body_cursor_up(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             crate::state::util::inline_cursor_vertical(&d.body_text, &mut d.body_cursor, -1);
         })
         .is_some()
     }
 
     fn new_issue_body_cursor_down(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             crate::state::util::inline_cursor_vertical(&d.body_text, &mut d.body_cursor, 1);
         })
         .is_some()
     }
 
     fn new_issue_body_cursor_home(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             crate::state::util::inline_cursor_line_start(&d.body_text, &mut d.body_cursor);
         })
         .is_some()
     }
 
     fn new_issue_body_cursor_end(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             crate::state::util::inline_cursor_line_end(&d.body_text, &mut d.body_cursor);
         })
         .is_some()
     }
 
     fn new_issue_focus_next(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.focus = d.focus.next();
         })
         .is_some()
     }
 
     fn new_issue_focus_prev(&mut self) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.focus = d.focus.prev();
         })
         .is_some()
@@ -340,13 +340,13 @@ impl AppState {
             .as_ref()
             .is_some_and(|d| d.title_text.trim().is_empty());
         if title_empty {
-            self.with_dialog_mut(|d| {
+            self.with_form_mut(|d| {
                 d.error = Some("Issue title cannot be empty".to_string());
             });
         } else {
             // Clear any stale validation error so the footer does not show a
             // previous empty-title error once the title is valid.
-            self.with_dialog_mut(|d| {
+            self.with_form_mut(|d| {
                 d.error = None;
             });
         }
@@ -388,7 +388,7 @@ impl AppState {
         self.issues_state.mutation_pending = None;
         // Remember sticky milestone/project before closing the form.
         self.remember_new_issue_preferences();
-        self.close_new_issue_dialog();
+        self.close_new_issue_form();
     }
 
     /// Apply a New Issue create failure (issue #407 A10): surface the error in
@@ -414,7 +414,7 @@ impl AppState {
             Some(n) => format!("Issue #{n} was created but a property failed: {error}"),
             None => error,
         };
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.error = Some(display);
         });
     }
@@ -426,7 +426,7 @@ impl AppState {
         types: Vec<crate::state::IssueType>,
         assignees: Vec<String>,
     ) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.available_labels = labels;
             d.available_milestones = milestones;
             d.available_types = types;
@@ -438,7 +438,7 @@ impl AppState {
     }
 
     fn new_issue_options_failed(&mut self, error: String) -> bool {
-        self.with_dialog_mut(|d| {
+        self.with_form_mut(|d| {
             d.options_loading = false;
             d.error = Some(error);
         })
@@ -447,5 +447,5 @@ impl AppState {
 }
 
 #[cfg(test)]
-#[path = "new_issue_dialog_ops_tests.rs"]
+#[path = "new_issue_form_ops_tests.rs"]
 mod tests;

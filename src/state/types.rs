@@ -17,9 +17,9 @@ pub use form_types::*;
 
 // New Issue dialog form-field types (issue #407). Extracted to keep this
 // file under the source-file-size hard limit.
-#[path = "new_issue_types.rs"]
+#[path = "new_issue_form_types.rs"]
 mod new_issue_types;
-pub use new_issue_types::{IssueType, NewIssueDialogFocus, NewIssueDialogState, NewIssueTemplate};
+pub use new_issue_types::{IssueType, NewIssueFormFocus, NewIssueFormState, NewIssueTemplate};
 
 // Issues-mode aggregate state extracted to keep this file under the length limit.
 #[path = "issues_types.rs"]
