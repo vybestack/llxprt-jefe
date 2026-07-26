@@ -27,7 +27,7 @@
 //!
 //! @requirement REQ-DOC-WRAP
 
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// One display row produced by wrapping a content document.
 ///
@@ -197,10 +197,11 @@ pub fn caret_row_for_line_col(
         let r = &rows[idx];
         if line_char_col < r.line_char_end {
             let char_col = line_char_col.saturating_sub(r.line_char_start);
-            return Some((idx, char_col.min(r.text.chars().count())));
+            let prefix = r.text.chars().take(char_col).collect::<String>();
+            return Some((idx, UnicodeWidthStr::width(prefix.as_str())));
         }
         best_idx = idx;
-        best_rel = r.text.chars().count();
+        best_rel = UnicodeWidthStr::width(r.text.as_str());
     }
     Some((best_idx, best_rel))
 }
@@ -208,7 +209,6 @@ pub fn caret_row_for_line_col(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn empty_document_one_row_for_line_zero() {
@@ -292,14 +292,6 @@ mod tests {
         assert_eq!(caret_row_for_line_col(&rows, 0, 0), Some((0, 0)));
         // caret at col 19 (end) -> last row (idx 3, "ie" [17,19)) rel 2
         assert_eq!(caret_row_for_line_col(&rows, 0, 19), Some((3, 2)));
-    }
-
-    #[test]
-    fn caret_row_uses_scalar_columns_for_wide_text_renderer() {
-        let rows = wrap_document("甲乙", 4);
-
-        assert_eq!(caret_row_for_line_col(&rows, 0, 1), Some((0, 1)));
-        assert_eq!(caret_row_for_line_col(&rows, 0, 2), Some((0, 2)));
     }
 
     #[test]

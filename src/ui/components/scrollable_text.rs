@@ -637,36 +637,6 @@ mod tests {
     }
 
     #[test]
-    fn wide_inline_caret_uses_scalar_column_within_wrapped_row() {
-        let mut elem = element! {
-            Box(width: 4u32, height: 1u32) {
-                ScrollableText(
-                    content: "甲乙".to_string(),
-                    scroll_offset: 0usize,
-                    viewport_rows: 1usize,
-                    max_line_width: 4usize,
-                    color: Some(Color::Reset),
-                    cursor_line: Some(0usize),
-                    cursor_col: Some(1usize),
-                    cursor_color: Some(Color::Black),
-                    cursor_bg: Some(Color::White),
-                )
-            }
-        };
-        let canvas = elem.render(Some(4));
-        let mut buf = Vec::new();
-        canvas
-            .write_ansi(&mut buf)
-            .unwrap_or_else(|error| panic!("write_ansi failed: {error}"));
-        let ansi = String::from_utf8_lossy(&buf);
-
-        assert!(
-            ansi.contains("\u{1b}[48"),
-            "wide caret must remain visible: {ansi}"
-        );
-    }
-
-    #[test]
     fn selecting_dropped_space_keeps_the_fixed_scrollbar_visible() {
         use crate::selection::{SelectablePane, SelectionPoint, TextSelection};
 

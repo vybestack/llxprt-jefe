@@ -94,7 +94,7 @@ Expected scope: at most 7 changed files and under 600 net changed lines. The cha
 | Existing pre-schema textbox scenario is the established real-Jefe path because schema-1 input does not currently drive Jefe's iocraft stream | Preserve | Update and run the existing scenario; changing harness tooling remains out of scope. |
 | Review reproduced a caret in source-only dropped whitespace on a full TextBox row | Blocker—Fix | Move the caret to the next shared display row, or a trailing empty row at the document end, so it cannot consume the fixed indicator gutter; add pure and renderer regressions. |
 | Review reproduced a ScrollableText selection over source-only trimmed whitespace replacing the scrollbar with a synthetic blank | Blocker—Fix | Do not invent a display cell for an empty clipped span; retain the shared row and fixed scrollbar, with a renderer regression. |
-| Review found ScrollableText inline-editor caret mapping returned terminal cells to a scalar-indexed renderer | Blocker—Fix | Keep the renderer contract scalar-based by returning a clamped scalar offset from the shared row; add pure and renderer regressions. |
+| Review found ScrollableText inline-editor caret mapping returns terminal cells to a scalar-indexed renderer | Defer | Valid pre-existing inline-editor mismatch outside issue 422's accepted TextBox-caret and ScrollableText-selection contract; track it separately rather than expanding this PR. |
 | OCR reported `row_for_column` could underflow before a row start | Reject | The reviewed implementation already uses `col.saturating_sub(row.start)`; the reported subtraction path is not present. |
 | Physical-width docs and one Actions assertion still used character terminology/counts | In-scope—Fix | Update the touched contracts to terminal-cell terminology and measure the existing Actions projection with `UnicodeWidthStr`. |
 | `src/text_box_view.rs` exceeds the 750-line warning threshold but remains below the 1000-line hard gate | Defer | Moving unrelated tests or splitting the established projection is outside issue 422 and requires a separately bounded refactor. |
@@ -113,7 +113,7 @@ No unapproved scope discoveries are open.
 | --- | --- | --- |
 | TextBox caret can enter its fixed gutter at dropped wrap whitespace | Blocker—Fix | Remediated with next-row/trailing-row caret projection and pure/renderer tests. |
 | ScrollableText can synthesize a selected blank over its scrollbar | Blocker—Fix | Remediated by rendering only actual selected row text and preserving the scrollbar in a renderer test. |
-| ScrollableText wide inline-editor caret mixes terminal-cell and scalar offsets | Blocker—Fix | Remediated in the existing adapter by returning scalar row offsets; no new abstraction or editor model. |
+| ScrollableText wide inline-editor caret mixes terminal-cell and scalar offsets | Defer | Valid existing mismatch, but inline-editor caret rendering is outside this issue's accepted ScrollableText selection scope; follow-up issue records it. |
 | Delivery plan lacked final evidence/triage | Blocker—Fix | This section and the verification table record factual results; interrupted commands are not recorded as passes. |
 | Width terminology and Actions assertion remained character-based | In-scope—Fix | Updated touched API documentation and Actions physical-width assertion. |
 | OCR `row_for_column` underflow | Reject | Factual mismatch with the saturating subtraction in the reviewed source. |
@@ -130,11 +130,12 @@ No unapproved scope discoveries are open.
 | `cedb3c5` | `make quick-check` | PASS: format, check, library/integration tests, and doctests. |
 | `cedb3c5` | real `jefe-tmux-harness` with isolated config and fail-closed GitHub shim | PASS: all 31 steps; CJK begins the next physical row and the right-side gutter remains visible. |
 | pre-remediation candidates | `make ci-check` attempts | INCOMPLETE: external SIGTERM while cargo/build locks were contended; not counted as verification passes. |
-| working tree after review remediation | exact focused B1/B2/wide-caret regressions | PASS. |
+| working tree after review remediation | exact focused B1/B2 regressions | PASS. |
 | working tree after review remediation | `make quick-check` | PASS: 2,167 library tests passed, one ignored; all integration suites and doctests passed. |
 | working tree after review remediation | strict all-target/all-feature Clippy | Issue-touched code passed after refactoring; the command remains blocked by new Rust 1.97 `manual_is_multiple_of` diagnostics in unchanged `src/runtime/process.rs` and `src/harness/v1/validate.rs`. |
 | working tree after review remediation | real `jefe-tmux-harness` with isolated config and fail-closed GitHub shim | PASS: all 31 steps. |
 
 ## Deferred findings and follow-ups
 
+- ScrollableText inline-editor caret mapping returns terminal-cell offsets to a scalar-indexed renderer. This is valid but outside issue 422's accepted ScrollableText selection contract and is tracked by issue #429.
 - `src/text_box_view.rs` is above the 750-line warning threshold but below the enforced 1000-line hard limit. A cohesive split would move unrelated tests and is deferred from issue 422.
