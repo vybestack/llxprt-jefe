@@ -36,17 +36,13 @@ pub fn persist_state(ctx: &SharedContext, request: PersistRequest) {
     }
 }
 
-/// Stage a durable save and schedule the resulting candidate (issue #381).
+/// Stage a durable save on the committed state (issue #381).
 ///
 /// Staging happens on the committed state so the reducer decides what the
 /// durable document contains; only the bounded [`PersistRequest`] crosses into
-/// the worker. A projection failure surfaces through the state's error channel
-/// rather than writing a degraded document.
-/// Stage a durable save on the committed state (issue #381).
-///
-/// Called while the state guard is held; the returned request is scheduled by
-/// [`schedule_durable_save`] *after* the guard is released, so the state and
-/// context locks are never held simultaneously.
+/// the worker. Called while the state guard is held; the returned request is
+/// scheduled by [`schedule_durable_save`] *after* the guard is released, so the
+/// state and context locks are never held simultaneously.
 #[must_use]
 pub fn durable_save_request(state: &mut AppState) -> Option<PersistRequest> {
     let (candidate, revision, correlation) = state.take_durable_save_request()?;
