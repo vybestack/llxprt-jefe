@@ -322,7 +322,7 @@ impl IssuesMessage {
         }
     }
 
-    /// New Issue dialog events; delegates mutation/lifecycle and further
+    /// New Issue form events; delegates mutation/lifecycle and further
     /// events to `from_app_event_mutation_and_agent`.
     fn from_app_event_new_issue_form(event: AppEvent) -> Self {
         match event {

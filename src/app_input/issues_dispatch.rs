@@ -6,6 +6,7 @@ use jefe::domain::PageToken;
 use jefe::messages::IssuesMessage;
 use jefe::messages::names::is_new_issue_form_msg;
 use jefe::state::AppEvent;
+use tracing::warn;
 
 use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
 use super::{
@@ -730,7 +731,13 @@ fn dispatch_direct_action_message(
         IssuesMessage::NewIssueSubmit => {
             new_issue_submit::handle_new_issue_submit(app_state, ctx);
         }
-        _ => unreachable!("dispatch_direct_action_message received non-direct message"),
+        // The match filter in `dispatch_issues_message` restricts callers to
+        // exactly the four direct-action variants above. Keep the catch-all
+        // so the compiler surfaces a non-exhaustive warning if a future
+        // variant is added to `IssuesMessage` without an explicit arm here.
+        _ => {
+            warn!("dispatch_direct_action_message received unexpected message; ignoring");
+        }
     }
 }
 

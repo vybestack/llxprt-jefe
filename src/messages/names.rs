@@ -366,7 +366,7 @@ message_names!(PullRequestsMessage {
 use crate::state::AppEvent;
 
 #[must_use]
-pub fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
+pub(super) fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
     matches!(
         event,
         |AppEvent::NewIssueTemplateNext| AppEvent::NewIssueTypeNext
