@@ -164,9 +164,7 @@ fn ocr_review_job_is_not_a_required_ci_gate() -> io::Result<()> {
     // not use continue-on-error:false gating on the review step, and the
     // workflow must declare itself observational.
     assert!(
-        ocr.contains("observational")
-            || ocr.contains("non-blocking")
-            || ocr.contains("non-blocking"),
+        ocr.contains("observational") || ocr.contains("non-blocking"),
         "OCR workflow must document its observational/non-blocking role"
     );
 

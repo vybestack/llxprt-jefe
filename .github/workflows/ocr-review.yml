@@ -1136,7 +1136,6 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const crypto = require('crypto');
-          const REDACTION = '[REDACTED]';
 
           const readTrim = (name, fallback = '') => {
             try { return fs.readFileSync(name, 'utf8').trim(); } catch (_) { return fallback; }
@@ -1192,7 +1191,13 @@ jobs:
             return 'unknown';
           }
           let coverageParsed = null;
-          const exitCode = Number(readTrim('ocr-exit-code.txt', '1')) || 0;
+          // Parse the exit code defensively: an empty or non-numeric
+          // ocr-exit-code.txt must not coerce to 0 (success). Treat an
+          // unparseable value as a nonzero failure so coverage classifies as
+          // failed rather than silently clean.
+          const rawExit = readTrim('ocr-exit-code.txt', '');
+          const parsedExit = Number(rawExit);
+          const exitCode = (rawExit !== '' && Number.isInteger(parsedExit)) ? parsedExit : 1;
           let coverage = classifyCoverage(null, exitCode);
           try {
             const raw = readTrim('ocr-result.json', '');
