@@ -112,6 +112,19 @@ fn new_issue_cancel_closes_modal_and_discards_draft() {
         matches!(state.modal, ModalState::None),
         "Esc must close the New Issue dialog"
     );
+    // Reopen: the draft must be empty (cancel discards, not just hides).
+    let state = state.apply(AppEvent::OpenNewIssueDialog);
+    let ModalState::NewIssue { state: dialog, .. } = &state.modal else {
+        panic!("dialog should reopen after cancel");
+    };
+    assert!(
+        dialog.title_text.is_empty(),
+        "title draft must be discarded on cancel"
+    );
+    assert!(
+        dialog.body_text.is_empty(),
+        "body draft must be discarded on cancel"
+    );
 }
 
 /// A14: A repo switch while the dialog is open closes the dialog (mirrors the

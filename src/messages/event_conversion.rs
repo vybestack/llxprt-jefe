@@ -433,7 +433,7 @@ impl AppMessage {
 
     /// Core issues data/mutation/lifecycle/agent events (issue inline composer,
     /// close/delete, agent chooser). Split from `is_issues_data_event` to stay
-    /// under the clippy too-many-lines limit (issue #407 OCR).
+    /// under the clippy too-many-lines limit (issue #407).
     fn is_issues_core_data_event(event: &AppEvent) -> bool {
         matches!(
             event,

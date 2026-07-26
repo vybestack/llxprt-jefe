@@ -333,8 +333,7 @@ impl AppState {
             });
         } else {
             // Clear any stale validation error so the footer does not show a
-            // previous empty-title error once the title is valid (issue #407
-            // OCR).
+            // previous empty-title error once the title is valid.
             self.with_dialog_mut(|d| {
                 d.error = None;
             });
@@ -365,8 +364,13 @@ impl AppState {
             return;
         }
         let issue_number = issue.number;
-        if created_issue_visible_in_committed_filter(&self.issues_state.committed_filter) {
-            prepend_or_replace_created_issue(&mut self.issues_state.list, issue);
+        if super::issues_mutation_ops::created_issue_visible_in_committed_filter(
+            &self.issues_state.committed_filter,
+        ) {
+            super::issues_mutation_ops::prepend_or_replace_created_issue(
+                &mut self.issues_state.list,
+                issue,
+            );
             self.issues_state.list.set_selected_index(Some(0));
         }
         self.issues_state.issue_focus = super::IssueFocus::IssueList;
@@ -434,32 +438,6 @@ impl AppState {
         })
         .is_some()
     }
-}
-
-/// Whether a newly created (always-open) issue belongs in the current committed
-/// list filter. Mirrors `issues_mutation_ops::created_issue_visible_in_committed_filter`.
-fn created_issue_visible_in_committed_filter(filter: &crate::domain::IssueFilter) -> bool {
-    !matches!(
-        filter
-            .state
-            .unwrap_or(crate::domain::IssueFilterState::Open),
-        crate::domain::IssueFilterState::Closed
-    )
-}
-
-/// Prepend `issue` to the list (or replace an existing row with the same
-/// number) so create success does not wait on a racy GitHub list reload.
-fn prepend_or_replace_created_issue(
-    list: &mut crate::state::pagination::PaginatedList<
-        crate::domain::Issue,
-        crate::state::IssueListIdentity,
-    >,
-    issue: crate::domain::Issue,
-) {
-    let mut issues = list.items().to_vec();
-    issues.retain(|existing| existing.number != issue.number);
-    issues.insert(0, issue);
-    list.replace_items(issues);
 }
 
 #[cfg(test)]

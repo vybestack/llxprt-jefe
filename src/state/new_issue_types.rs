@@ -63,7 +63,7 @@ impl NewIssueTemplate {
 
     /// The body scaffold to prefill when this template is selected. Blank
     /// returns an empty body (the user types from scratch). Returns a static
-    /// slice to avoid allocating on every call (issue #407 OCR).
+    /// slice to avoid allocating on every call (issue #407).
     #[must_use]
     pub fn body_scaffold(self) -> &'static str {
         match self {

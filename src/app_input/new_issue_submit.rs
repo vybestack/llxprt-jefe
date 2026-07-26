@@ -215,7 +215,7 @@ fn apply_labels(
     labels: &[String],
 ) -> Result<(), GhError> {
     // Filter empty/whitespace-only labels in one pass so an accidental blank
-    // entry in the multi-select does not produce a gh error (issue #407 OCR #4).
+    // entry in the multi-select does not produce a gh error (issue #407).
     let desired: Vec<String> = labels
         .iter()
         .filter(|l| !l.trim().is_empty())
@@ -266,7 +266,7 @@ fn apply_milestone(
 }
 
 /// Apply the issue type using the create-response `node_id` directly,
-/// avoiding an extra `fetch_issue_node_info` round-trip (issue #407 OCR #3).
+/// avoiding an extra `fetch_issue_node_info` round-trip (issue #407).
 fn apply_issue_type(client: GhClient, node_id: &str, type_id: Option<&str>) -> Result<(), GhError> {
     let Some(type_id) = type_id else {
         return Ok(());

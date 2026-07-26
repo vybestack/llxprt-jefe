@@ -173,19 +173,18 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
         if body_focused { rc.bright } else { rc.fg },
         sel,
     ));
-    // Render body lines (up to a reasonable cap for the dialog).
-    let body_lines: Vec<&str> = body_text.lines().collect();
+    // Render body lines (up to a reasonable cap for the dialog). Use
+    // split('\n') rather than lines() so a trailing newline produces a
+    // visible empty line the caret can land on.
+    let all_body_lines: Vec<&str> = body_text.split('\n').collect();
     let cap = 12usize;
-    // Compute the caret line once before the loop (issue #407 OCR). The line
+    // Compute the caret line once before the loop (issue #407). The line
     // index is the number of '\n' chars before the cursor — robust for empty
     // lines and trailing newlines where `str::lines()` undercounts.
-    let caret_line = if body_focused {
-        char_offset(body_text.as_str(), body_cursor)
-    } else {
-        usize::MAX
-    };
-    for (i, line) in body_lines.iter().take(cap).enumerate() {
-        let is_caret_line = i == caret_line;
+    let caret_line: Option<usize> =
+        body_focused.then(|| char_offset(body_text.as_str(), body_cursor));
+    for (i, line) in all_body_lines.iter().take(cap).enumerate() {
+        let is_caret_line = caret_line.is_some_and(|cl| cl == i);
         let display = if is_caret_line {
             format!("{line}▌")
         } else {
@@ -204,7 +203,7 @@ pub fn NewIssueForm(props: &NewIssueFormProps) -> impl Into<AnyElement<'static>>
             sel,
         ));
     }
-    if body_lines.len() > cap {
+    if all_body_lines.len() > cap {
         all_lines.push(selectable_line(
             "  ... (truncated)",
             {

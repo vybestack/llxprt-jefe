@@ -496,19 +496,16 @@ pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     lines.push(format!("  {:<16} [...]", "Body"));
     let body_focused = d.focus == crate::state::NewIssueDialogFocus::Body;
     let cap = 12usize;
-    // Count total lines once for the truncation check, then only collect the
-    // first `cap` lines to avoid allocating a Vec for the whole body (issue
-    // #407 OCR).
-    let total_body_lines = d.body_text.lines().count();
-    let body_lines: Vec<&str> = d.body_text.lines().take(cap).collect();
-    // Compute the caret line once before the loop (issue #407 OCR).
-    let caret_line = if body_focused {
-        char_offset_body(&d.body_text, d.body_cursor)
-    } else {
-        usize::MAX
-    };
+    // Use split('\n') rather than lines() so a trailing newline produces a
+    // visible empty line that the caret can land on. lines() drops the final
+    // empty segment, which would hide the caret on the last line.
+    let all_body_lines: Vec<&str> = d.body_text.split('\n').collect();
+    let total_body_lines = all_body_lines.len();
+    let body_lines: &[&str] = &all_body_lines[..cap.min(all_body_lines.len())];
+    let caret_line: Option<usize> =
+        body_focused.then(|| char_offset_body(&d.body_text, d.body_cursor));
     for (i, line) in body_lines.iter().enumerate() {
-        let is_caret_line = i == caret_line;
+        let is_caret_line = caret_line.is_some_and(|cl| cl == i);
         let display = if is_caret_line {
             format!("{line}▌")
         } else {

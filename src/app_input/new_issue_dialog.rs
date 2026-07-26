@@ -62,7 +62,7 @@ pub fn resolve_new_issue_dialog_key(modal: &ModalState, key_event: &KeyEvent) ->
         KeyCode::Enter => Some(resolve_enter(focus)),
         // Tab always cycles field focus so the user can navigate out of the
         // body editor; Down moves the body cursor when Body is focused
-        // (issue #407 OCR).
+        // (issue #407).
         KeyCode::Tab => Some(AppEvent::NewIssueFocusNext),
         KeyCode::Down => Some(resolve_down(focus)),
         KeyCode::BackTab => Some(AppEvent::NewIssueFocusPrev),
@@ -89,7 +89,7 @@ fn resolve_enter(focus: NewIssueDialogFocus) -> AppEvent {
 }
 
 /// Down moves the body cursor down when Body is focused; otherwise cycles
-/// focus forward (issue #407 OCR).
+/// focus forward (issue #407).
 fn resolve_down(focus: NewIssueDialogFocus) -> AppEvent {
     match focus {
         NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorDown,
@@ -98,7 +98,7 @@ fn resolve_down(focus: NewIssueDialogFocus) -> AppEvent {
 }
 
 /// Up moves the body cursor up when Body is focused; otherwise cycles focus
-/// backward (issue #407 OCR).
+/// backward (issue #407).
 fn resolve_up(focus: NewIssueDialogFocus) -> AppEvent {
     match focus {
         NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorUp,
@@ -160,7 +160,12 @@ fn resolve_space(focus: NewIssueDialogFocus) -> Option<AppEvent> {
         NewIssueDialogFocus::Type => Some(AppEvent::NewIssueTypeNext),
         NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleChar(' ')),
         NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyChar(' ')),
-        _ => None,
+        // Multi-select pickers are not implemented in this slice; Space is a
+        // no-op until they are.
+        NewIssueDialogFocus::Labels
+        | NewIssueDialogFocus::Milestone
+        | NewIssueDialogFocus::Project
+        | NewIssueDialogFocus::Assignees => None,
     }
 }
 
