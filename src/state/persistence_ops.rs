@@ -73,12 +73,18 @@ impl AppState {
             correlation,
             ..
         } = issued;
-        match effect {
-            Effect::Persistence(PersistenceEffect::PersistState {
+        // `take_staged_persist` only yields `Effect::Persistence`, and
+        // destructuring the inner variant keeps this exhaustive: a new
+        // persistence effect must decide how it reaches the worker rather than
+        // silently returning `None` and stranding its pending ledger record.
+        let Effect::Persistence(persistence) = effect else {
+            return None;
+        };
+        match persistence {
+            PersistenceEffect::PersistState {
                 candidate,
                 revision,
-            }) => Some((candidate, revision, correlation)),
-            _ => None,
+            } => Some((candidate, revision, correlation)),
         }
     }
 
