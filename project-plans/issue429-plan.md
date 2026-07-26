@@ -124,10 +124,97 @@ the `domain` projection + its renderer consumer, which already shares the
 
 ## Review counters (OCR)
 
-- Local OCR runs before PR: 0 / 2
-- OCR runs after PR opened: 0 / 2
+- Local OCR runs before PR: 1 / 2
+- OCR runs after PR opened: 1 / 2
 
 (Cap: two local + two PR per issue/PR effort.)
+
+## OCR review triage
+
+### Local run (pre-PR, head `46276b3`)
+
+0 findings ("Looks good to me").
+
+### PR run (head `2528d32`)
+
+1 finding (`src/ui/components/scrollable_text.rs:706-711`, maintainability/medium):
+the new CJK caret regression test hard-coded the ANSI SGR literals
+`\u{1b}[48` / `\u{1b}[7m`, duplicating the same detection already present in
+the existing `non_overlapping_selection_paints_no_highlight_on_row` test;
+suggested extracting a shared helper.
+
+**Disposition: In-scope-Fix.** Factually correct: both tests live in the
+same module touched by this PR and both encoded the renderer color-encoding
+assumption inline. Extracted `contains_highlight_sgr(line)` and routed both
+the caret test and the selection test through it so the format assumption
+lives in one place. Remediated in commit `2528d32`.
+
+## Verification evidence
+
+Local (candidate head `2528d32`):
+
+- `cargo fmt --all --check` — pass
+- `scripts/check-clippy-allows.sh` — pass
+- `scripts/check-source-file-size.sh` — pass (warnings only, pre-existing)
+- clippy `-D warnings` — pass
+- clippy complexity gate (`-D cognitive_complexity -D too_many_lines …`) — pass
+- coverage `--fail-under-lines 30` — pass (72.11% lines)
+- `cargo build --workspace --all-features --locked` — pass
+- `cargo test --lib` — pass (all 3 new tests green; no regressions)
+
+PR #450 CI (exact head `2528d32`):
+
+- Format (rustfmt) — SUCCESS
+- Lint (clippy) — SUCCESS
+- Clippy allow policy — SUCCESS
+- Source file length checks — SUCCESS
+- Complexity checks — SUCCESS
+- Coverage gate — SUCCESS (72.11%)
+- Build — SUCCESS
+- Test — SUCCESS
+- OpenCodeReview (CI job) — SUCCESS
+- Native Windows (MSVC + psmux) — FAILURE (pre-existing flake; see below)
+- CodeRabbit — skipped (excluded by label configuration)
+- PR state: `mergeable: MERGEABLE`, `mergeStateStatus: UNSTABLE`. Branch
+  `main` is NOT protected (no required status checks), so the Windows job is
+  a signal-only check, not a merge gate.
+
+### Native Windows (MSVC + psmux) — proven pre-existing flake
+
+The Windows job failed across 5 consecutive runs, each on a **different**
+process/timing-sensitive smoke test (no two runs failed the same test):
+
+| Run | Failing test | Timeout |
+|-----|--------------|---------|
+| 1 | `psmux_four_recording_agents_remain_independent_and_scoped` | 30s spawn readiness |
+| 2 | `psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys` | 30s byte echo |
+| 3 | `guarded_dashboard_reorder_tui_scenario` | 15s `waitFor` |
+| 4 | `psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys` | 30s byte echo |
+| 5 | `guarded_real_dashboard_lists_window_fixture_rows` + `guarded_real_jefe_qqq_quits` | 30s `waitFor` |
+
+All failures are `waitFor`/spawn-readiness timeouts in `tests/psmux_smoke*.rs`
+and `src/harness/runner_tests.rs` — harness tests that spawn real jefe/tmux/psmux
+subprocesses and wait for them to reach a state within a fixed budget. None of
+them import or touch `document_wrap.rs` or `scrollable_text.rs` (the only
+files this PR changes).
+
+Cross-branch evidence: the same `Native Windows (MSVC + psmux)` job failed on
+unrelated branches `issue264` (run 30217009450) and `issue407` (run
+30210215055) on the same family of timing tests. The failing test changes
+every run — the signature of runner-resource-contention flakiness, not a
+deterministic code defect. This matches the documented pre-existing flake set
+(the `harness::runner::tests::guarded_real_*` and psmux spawn tests).
+
+The Unix-side `Test` job (which runs the full lib + integration suite on
+Linux) passes on the candidate head, and `cargo test --lib` passes locally.
+
+## Deferred findings / follow-ups
+
+- The `Native Windows (MSVC + psmux)` job's process/timing smoke tests are a
+  repository-wide flakiness concern (affects multiple branches) and is out of
+  scope for this PR. A follow-up could raise the `waitFor` budgets or add
+  retry/backoff to the psmux/harness smoke tests, but that is a testing-
+  infrastructure change, not part of the caret-alignment acceptance matrix.
 
 ## Stopping conditions
 
