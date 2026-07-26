@@ -150,6 +150,14 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 | candidate | `make ci-check` | fmt, clippy-allow policy, source-size, both Clippy gates, and coverage all pass (coverage 71.98% lines against a 30% floor). The run ended on `settings_edit_fixture_executes_configured_editor_as_argv`. |
 | candidate vs base | 12x `cargo test --test harness_v1_fixtures` on base | the same fixture is a pre-existing real-PTY timing flake: base `53b891c` failed 1/12 with the identical `E005 ... not observed within 15000 ms` blank-frame signature. Passes deterministically in isolation on the candidate (19/19). Both flaky tests share one cause — a real spawned process missing a fixed deadline under parallel load — and neither touches the GitHub dispatch boundary this change modifies. |
 
+## Scope review (mandatory: 26 files vs the 25-file target)
+
+The PR is 26 changed files and +1,052 net lines against its merge base, one file over the 25-file review trigger and well inside the 1,500-line target and the 40-file / 2,500-line hard stop.
+
+Cause: two files were added after the branch opened, both forced by integrating `origin/main` rather than by discretionary scope. `src/app_input/new_issue_submit.rs` is the issue-407 route that merged mid-flight and had to be migrated to compile. `src/app_input/issues_comments_dispatch.rs` exists because absorbing that route pushed `issues_dispatch.rs` to 865 lines, past the 850-line handler boundary; the comment-pagination route was moved out instead of relaxing the limit.
+
+Reviewability is unaffected: 21 of the 26 files are mechanical single-route conversions to the same helper, and the extracted module is a move with no behavior change. Continuing without splitting.
+
 ## Deferred findings and follow-ups
 
 - Pending route-coverage decision.
