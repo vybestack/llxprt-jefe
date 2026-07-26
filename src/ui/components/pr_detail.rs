@@ -259,10 +259,6 @@ pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps 
     let composer = composer_from_inline_state(inputs.inline_state);
     let text_box_active = composer.is_some();
 
-    let scroll_rows =
-        crate::layout::pr_detail_document_viewport_rows(detail_viewport_rows, text_box_active);
-    let composer_rows = detail_viewport_rows.saturating_sub(scroll_rows);
-
     let (header_rows, detail_content) = if let Some(detail) = inputs.detail {
         loaded_pr_content(
             detail,
@@ -275,6 +271,13 @@ pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps 
         empty_pr_content()
     };
 
+    let document_display_rows =
+        super::doc_wrap::wrap_document(&detail_content.text, inputs.detail_content_width).len();
+    let rows = crate::layout::contextual_detail_rows(
+        detail_viewport_rows,
+        document_display_rows,
+        text_box_active,
+    );
     let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
         text,
         byte_cursor,
@@ -287,7 +290,7 @@ pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps 
         content: detail_content.text,
         content_cursor: detail_content.cursor,
         scroll_offset: inputs.scroll_offset,
-        viewport_rows: scroll_rows,
+        viewport_rows: rows.document,
         content_line_offset: HEADER_ROWS,
         max_line_width: inputs.detail_content_width,
         focused: inputs.focused,
@@ -295,6 +298,6 @@ pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps 
         colors: inputs.colors,
         selection: inputs.selection,
         composer: composer_props,
-        composer_rows,
+        composer_rows: rows.composer,
     }
 }

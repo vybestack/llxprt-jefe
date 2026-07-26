@@ -290,7 +290,21 @@ impl AppState {
             return;
         };
         let viewport = self.pr_detail_scroll_viewport_rows();
-        let desired = crate::layout::reveal_range_scroll_offset(
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+        );
+        let content_width = if self.prs_state.detail_content_width == 0 {
+            usize::from(crate::layout::prs_detail_content_width(120))
+        } else {
+            self.prs_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        let desired = crate::domain::document_wrap::reveal_content_line_range(
+            &rows,
             item_start,
             item_end,
             self.prs_state.detail_scroll_offset,
@@ -312,14 +326,23 @@ impl AppState {
         let Some(detail) = &self.prs_state.pr_detail else {
             return 0;
         };
-        crate::pr_detail_content::pr_detail_content_line_count(
+        let content = crate::pr_detail_content::build_pr_detail_content(
             detail,
             self.prs_state.detail_subfocus,
             &self.prs_state.inline_state,
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
+        );
+        let content_width = if self.prs_state.detail_content_width == 0 {
+            usize::from(crate::layout::prs_detail_content_width(120))
+        } else {
+            self.prs_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        crate::domain::document_wrap::max_content_line_scroll_offset(
+            &rows,
+            self.pr_detail_scroll_viewport_rows(),
         )
-        .saturating_sub(self.pr_detail_scroll_viewport_rows())
     }
 
     // ---- Navigation dispatch ----

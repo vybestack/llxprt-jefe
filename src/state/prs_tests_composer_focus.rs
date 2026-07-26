@@ -479,6 +479,45 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
     );
 }
 
+#[test]
+fn wrapped_pr_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+        panic!("expected loaded detail");
+    };
+    detail.body = format!("wrapped head {} wrapped tail", "segment ".repeat(30));
+    state.prs_state.detail_viewport_rows = 20;
+    state.prs_state.detail_content_width = 20;
+
+    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .unwrap_or_else(|| panic!("expected loaded detail")),
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        false,
+        false,
+    );
+    let rows = crate::domain::document_wrap::wrap_document(&content.text, 20);
+    let first =
+        crate::domain::document_wrap::line_first_row(&rows, state.prs_state.detail_scroll_offset);
+    let help_row = rows
+        .iter()
+        .position(|row| row.text.contains("Alt+Enter submit"))
+        .unwrap_or_else(|| panic!("expected composer help row"));
+    let viewport = crate::layout::pr_detail_document_viewport_rows(20, true);
+
+    assert!(state.prs_state.detail_scroll_offset > 0);
+    assert!(help_row < first + viewport);
+    assert_eq!(
+        state.prs_state.detail_scroll_offset,
+        state.pr_detail_max_scroll_offset()
+    );
+}
+
 /// HIGH-2: While a mutation is pending, pressing Esc/Cancel MUST close the
 /// composer (inline_state → None) and clear mutation_pending — it must NOT be
 /// swallowed by the early-return guard and leave the composer frozen.

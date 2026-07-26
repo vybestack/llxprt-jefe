@@ -23,7 +23,8 @@ mod close_reason_chooser;
 /// helpers (`header_highlight`, `header_row`) live here so both detail panes
 /// share one source of truth.
 pub(crate) mod detail_pane;
-pub mod doc_wrap;
+/// Compatibility re-export for the shared document geometry projection.
+pub use crate::domain::document_wrap as doc_wrap;
 /// Generic bordered filter bar with labeled `[value]` fields and action hints.
 /// Domain layers (`filter_controls` for Issues, `pr_filter_controls` for PRs)
 /// project into [`FilterBarProps`] and delegate rendering through

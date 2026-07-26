@@ -229,6 +229,54 @@ fn long_comment_wraps_across_rendered_rows() {
     );
 }
 
+/// PR contextual composers share the wrapped-display-row allocation policy
+/// with Issues, so short wrapped context is not padded to the pane bottom.
+#[test]
+fn contextual_pr_document_uses_wrapped_display_rows_at_narrow_width() {
+    let mut detail = bare_pr_detail();
+    detail.body = format!(
+        "wrapped-context-head {} wrapped-context-tail",
+        "narrow body segment ".repeat(2)
+    );
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    };
+    let pane_height = 40;
+    let content_width = 32;
+    let props = pr_detail_props(PrDetailProjectionInputs {
+        detail: Some(&detail),
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &inline,
+        detail_loading: false,
+        comments_loading: false,
+        focused: true,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        colors: ThemeColors::default(),
+        viewport_rows: Some(pane_height),
+        selection: None,
+    });
+    let detail_rows = crate::layout::detail_body_viewport_rows(usize::from(pane_height));
+    let document_capacity = crate::layout::pr_detail_document_viewport_rows(detail_rows, true);
+    let display_rows = super::doc_wrap::wrap_document(&props.content, content_width).len();
+
+    assert!(
+        display_rows > props.content.lines().count(),
+        "fixture must wrap at the narrow content width"
+    );
+    assert!(
+        display_rows < document_capacity,
+        "fixture must leave room for contextual allocation to shrink"
+    );
+    assert_eq!(props.viewport_rows, display_rows);
+    assert_eq!(
+        props.composer_rows,
+        crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
+    );
+}
+
 /// Count the background-color SGR sequences (`48;2;` truecolor or `48;5;`
 /// indexed) in a component's ANSI output. Used to prove the caret's
 /// reverse-video cell adds background fills beyond the baseline chrome.

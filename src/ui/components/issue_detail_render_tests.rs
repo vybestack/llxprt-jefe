@@ -219,6 +219,50 @@ fn active_issue_new_comment_on_short_detail_starts_after_comments() {
     );
 }
 
+/// Contextual allocation follows the same wrapped display rows that
+/// `ScrollableText` renders instead of shrinking to the logical-line count.
+#[test]
+fn contextual_issue_document_uses_wrapped_display_rows_at_narrow_width() {
+    let mut detail = issue_detail_with_comment();
+    detail.body = format!(
+        "wrapped-context-head {} wrapped-context-tail",
+        "narrow body segment ".repeat(8)
+    );
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    };
+    let pane_height = 40;
+    let content_width = 20;
+    let props = issue_detail_props(IssueDetailProjectionInputs {
+        issue_detail: Some(&detail),
+        detail_subfocus: DetailSubfocus::NewComment,
+        inline_state: &inline,
+        comments_loading: false,
+        focused: true,
+        scroll_offset: 0,
+        colors: ThemeColors::default(),
+        available_height: Some(pane_height),
+        available_width: Some(content_width),
+        selection: None,
+    });
+    let detail_rows = crate::layout::detail_body_viewport_rows(usize::from(pane_height));
+    let document_capacity = crate::layout::issue_detail_document_viewport_rows(detail_rows, true);
+    let display_rows =
+        super::doc_wrap::wrap_document(&props.content, usize::from(content_width)).len();
+
+    assert!(
+        display_rows > props.content.lines().count(),
+        "fixture must wrap at the narrow content width"
+    );
+    assert_eq!(props.viewport_rows, document_capacity.min(display_rows));
+    assert_eq!(
+        props.composer_rows,
+        crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
+    );
+}
+
 /// Long single-line Issues composer drafts must keep the caret-owned tail visible
 /// through TextBox even when the parent detail scroll offset is stale.
 #[test]

@@ -185,7 +185,20 @@ impl AppState {
             return;
         };
         let viewport = self.issues_detail_scroll_viewport_rows();
-        let desired = crate::layout::reveal_range_scroll_offset(
+        let content = crate::issue_detail_content::build_detail_content(
+            detail,
+            self.issues_state.detail_subfocus,
+            &self.issues_state.inline_state,
+            self.issues_state.loading.comments,
+        );
+        let content_width = if self.issues_state.detail_content_width == 0 {
+            usize::from(crate::layout::issues_detail_content_width(120))
+        } else {
+            self.issues_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        let desired = crate::domain::document_wrap::reveal_content_line_range(
+            &rows,
             item_start,
             item_end,
             self.issues_state.detail_scroll_offset,
