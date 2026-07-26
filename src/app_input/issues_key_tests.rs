@@ -310,7 +310,7 @@ fn test_enter_in_issue_list_focuses_detail() {
 /// @plan PLAN-20260329-ISSUES-MODE.P11
 /// @requirement REQ-ISS-010
 #[test]
-fn test_n_opens_new_issue_composer_from_issue_list() {
+fn test_n_opens_new_issue_dialog_from_issue_list() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('n')));
     assert!(matches!(event, Some(AppEvent::OpenNewIssueDialog)));
@@ -318,7 +318,7 @@ fn test_n_opens_new_issue_composer_from_issue_list() {
 
 /// `N` in IssueList focus dispatches OpenNewIssueDialog (issue #407).
 #[test]
-fn test_upper_n_opens_new_issue_composer_from_issue_list() {
+fn test_upper_n_opens_new_issue_dialog_from_issue_list() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('N')));
     assert!(matches!(event, Some(AppEvent::OpenNewIssueDialog)));

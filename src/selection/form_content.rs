@@ -496,14 +496,18 @@ pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     lines.push(format!("  {:<16} [...]", "Body"));
     let body_focused = d.focus == crate::state::NewIssueDialogFocus::Body;
     let cap = 12usize;
-    let body_lines: Vec<&str> = d.body_text.lines().collect();
+    // Count total lines once for the truncation check, then only collect the
+    // first `cap` lines to avoid allocating a Vec for the whole body (issue
+    // #407 OCR).
+    let total_body_lines = d.body_text.lines().count();
+    let body_lines: Vec<&str> = d.body_text.lines().take(cap).collect();
     // Compute the caret line once before the loop (issue #407 OCR).
     let caret_line = if body_focused {
         char_offset_body(&d.body_text, d.body_cursor)
     } else {
         usize::MAX
     };
-    for (i, line) in body_lines.iter().take(cap).enumerate() {
+    for (i, line) in body_lines.iter().enumerate() {
         let is_caret_line = i == caret_line;
         let display = if is_caret_line {
             format!("{line}▌")
@@ -512,7 +516,7 @@ pub fn new_issue_form_content_lines(state: &AppState) -> Option<Vec<String>> {
         };
         lines.push(format!("  {display}"));
     }
-    if body_lines.len() > cap {
+    if total_body_lines > cap {
         lines.push("  ... (truncated)".to_string());
     }
     lines.push(String::new());

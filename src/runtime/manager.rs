@@ -666,6 +666,8 @@ impl TmuxRuntimeManager {
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
+        // Enumerate the launch tree for PID-reuse-safe orphan reaping (issue #332).
+        session.worker_identities = super::orphan::capture_worker_identities(captured_pid);
         session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 
