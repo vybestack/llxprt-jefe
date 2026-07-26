@@ -324,7 +324,6 @@ pub enum IssuesMessage {
         target: EditorTarget,
     },
     // ── New Issue dialog (issue #407) ─────────────────────────────────
-    OpenNewIssueDialog,
     NewIssueTemplateNext,
     NewIssueTypeNext,
     NewIssueTitleChar(char),
@@ -533,16 +532,6 @@ pub enum IssuesMessage {
         error: String,
     },
 }
-///
-/// @plan PLAN-20260624-PR-MODE.P03
-///
-/// @requirement REQ-PR-001
-/// @requirement REQ-PR-002
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-008
-/// @requirement REQ-PR-010
-/// @requirement REQ-PR-012
-/// @pseudocode component-004 lines 02-35
 #[derive(Debug, Clone)]
 pub enum PullRequestsMessage {
     EnterMode,

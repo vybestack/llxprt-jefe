@@ -502,7 +502,7 @@ impl AppMessage {
     fn is_new_issue_dialog_data_event(event: &AppEvent) -> bool {
         matches!(
             event,
-            AppEvent::OpenNewIssueDialog
+            AppEvent::OpenNewIssueComposer
                 | AppEvent::NewIssueTemplateNext
                 | AppEvent::NewIssueTypeNext
                 | AppEvent::NewIssueTitleChar(_)

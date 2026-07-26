@@ -326,7 +326,6 @@ impl IssuesMessage {
     /// events to `from_app_event_mutation_and_agent`.
     fn from_app_event_new_issue_dialog(event: AppEvent) -> Self {
         match event {
-            AppEvent::OpenNewIssueDialog => Self::OpenNewIssueDialog,
             AppEvent::NewIssueTemplateNext => Self::NewIssueTemplateNext,
             AppEvent::NewIssueTypeNext => Self::NewIssueTypeNext,
             AppEvent::NewIssueTitleChar(c) => Self::NewIssueTitleChar(c),
@@ -809,7 +808,6 @@ impl IssuesMessage {
     /// messages to `into_app_event_mutation_and_agent`.
     fn into_app_event_new_issue_dialog(self) -> AppEvent {
         match self {
-            Self::OpenNewIssueDialog => AppEvent::OpenNewIssueDialog,
             Self::NewIssueTemplateNext => AppEvent::NewIssueTemplateNext,
             Self::NewIssueTypeNext => AppEvent::NewIssueTypeNext,
             Self::NewIssueTitleChar(c) => AppEvent::NewIssueTitleChar(c),

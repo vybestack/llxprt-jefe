@@ -265,20 +265,6 @@ pub struct Repository {
     pub agent_ids: Vec<AgentId>,
 }
 
-// =============================================================================
-// Pull Requests Mode domain entities
-//
-// @plan PLAN-20260624-PR-MODE.P03
-// @requirement REQ-PR-006
-// @requirement REQ-PR-008
-// @requirement REQ-PR-009
-// Non-serde transient types mirroring Issue/IssueDetail. Reuses IssueComment
-// for PR comments (GitHub PRs are issues for the conversation-comment API).
-// =============================================================================
-
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-009
 /// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrState {

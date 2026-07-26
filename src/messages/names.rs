@@ -180,7 +180,6 @@ message_names!(IssuesMessage {
     Self::OpenNewCommentComposer => "OpenNewCommentComposer",
     Self::OpenReplyComposer { .. } => "OpenReplyComposer",
     Self::OpenInlineEditor { .. } => "OpenInlineEditor",
-    Self::OpenNewIssueDialog => "OpenNewIssueDialog",
     Self::NewIssueTemplateNext => "NewIssueTemplateNext",
     Self::NewIssueTypeNext => "NewIssueTypeNext",
     Self::NewIssueTitleChar(_) => "NewIssueTitleChar",
@@ -370,9 +369,7 @@ use crate::state::AppEvent;
 pub fn is_new_issue_dialog_app_event(event: &AppEvent) -> bool {
     matches!(
         event,
-        AppEvent::OpenNewIssueDialog
-            | AppEvent::NewIssueTemplateNext
-            | AppEvent::NewIssueTypeNext
+        |AppEvent::NewIssueTemplateNext| AppEvent::NewIssueTypeNext
             | AppEvent::NewIssueTitleChar(_)
             | AppEvent::NewIssueTitleBackspace
             | AppEvent::NewIssueTitleDelete
@@ -405,9 +402,7 @@ pub fn is_new_issue_dialog_app_event(event: &AppEvent) -> bool {
 pub fn is_new_issue_dialog_msg(message: &IssuesMessage) -> bool {
     matches!(
         message,
-        IssuesMessage::OpenNewIssueDialog
-            | IssuesMessage::NewIssueTemplateNext
-            | IssuesMessage::NewIssueTypeNext
+        |IssuesMessage::NewIssueTemplateNext| IssuesMessage::NewIssueTypeNext
             | IssuesMessage::NewIssueTitleChar(_)
             | IssuesMessage::NewIssueTitleBackspace
             | IssuesMessage::NewIssueTitleDelete

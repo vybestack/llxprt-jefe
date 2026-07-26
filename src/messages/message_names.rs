@@ -156,7 +156,6 @@ message_names!(IssuesMessage {
     Self::OpenNewCommentComposer => "OpenNewCommentComposer",
     Self::OpenReplyComposer { .. } => "OpenReplyComposer",
     Self::OpenInlineEditor { .. } => "OpenInlineEditor",
-    Self::OpenNewIssueDialog => "OpenNewIssueDialog",
     Self::NewIssueTemplateNext => "NewIssueTemplateNext",
     Self::NewIssueTypeNext => "NewIssueTypeNext",
     Self::NewIssueTitleChar(_) => "NewIssueTitleChar",
