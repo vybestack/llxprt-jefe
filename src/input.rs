@@ -83,8 +83,7 @@ fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
         | ModalState::EditAgent { .. }
-        | ModalState::WorkflowDispatch { .. }
-        | ModalState::NewIssue { .. } => Some(InputMode::Form),
+        | ModalState::WorkflowDispatch { .. } => Some(InputMode::Form),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }

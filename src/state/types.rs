@@ -268,15 +268,6 @@ pub enum ModalState {
     Auth {
         state: AuthDialogState,
     },
-    /// New Issue form modal (issue #407). A full-screen form modal mirroring
-    /// the existing `NewAgent`/`NewRepository` convention. Carries the draft
-    /// state for the create-then-apply-properties pipeline. `repository_id`
-    /// is captured at open time so the dialog stays bound to the repo that
-    /// was selected when `n` was pressed (mirrors `NewAgent.repository_id`).
-    NewIssue {
-        repository_id: RepositoryId,
-        state: NewIssueDialogState,
-    },
 }
 
 /// Screen mode variants.

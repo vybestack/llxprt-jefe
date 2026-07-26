@@ -16,7 +16,8 @@
 use crate::domain::{CloseReason, ListRequestId, RepositoryId};
 
 use super::{
-    AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PriorAgentFocus,
+    AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus,
+    NewIssueDialogState, PriorAgentFocus,
 };
 
 /// Aggregate state for Issues Mode.
@@ -50,6 +51,11 @@ pub struct IssuesState {
     /// flight (issue #214). Guards against duplicate requests and drives the UI
     /// banner.
     pub rewrite_pending: bool,
+    /// Inline New Issue form state (issue #407). When `Some`, the inline
+    /// composer in the issue detail pane renders the rich new-issue form
+    /// (template/type/title/body/labels/milestone/project/assignees). This
+    /// replaces the former `ModalState::NewIssue` full-screen dialog.
+    pub new_issue_form: Option<NewIssueDialogState>,
     /// Property editor overlay state (issue #175).
     pub property_editor: Option<super::IssuePropertyEditorState>,
     /// Pending property mutation staleness guard (issue #175).

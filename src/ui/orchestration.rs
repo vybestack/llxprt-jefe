@@ -7,7 +7,6 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::screens::NewIssueForm;
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, TerminalManagerScreen,
     ThemePickerScreen,
@@ -344,7 +343,6 @@ pub fn build_modal_element(
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }
-        ModalState::NewIssue { .. } => Some(form_modal!(NewIssueForm, snapshot, colors)),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }

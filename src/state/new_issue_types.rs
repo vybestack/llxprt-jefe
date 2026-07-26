@@ -1,9 +1,9 @@
-//! New Issue dialog form-field types (issue #407).
+//! New Issue inline form-field types (issue #407).
 //!
 //! Extracted from `types.rs` (like `form_types.rs`/`issues_types.rs`) to keep
 //! `types.rs` under the source-file-size hard limit. These are the draft
-//! state carried by [`super::ModalState::NewIssue`] and the focus/cursor
-//! helpers for the form modal.
+//! state carried by [`crate::state::IssuesState::new_issue_form`] and the
+//! focus/cursor helpers for the inline new-issue composer.
 
 /// A selectable issue type in the New Issue dialog (issue #407).
 ///
@@ -147,12 +147,12 @@ impl NewIssueDialogFocus {
     }
 }
 
-/// Draft state for the New Issue dialog (issue #407).
+/// Draft state for the inline New Issue form (issue #407).
 ///
 /// Pure reducer state: no I/O. The `app_input` layer reads this on submit
 /// and drives the `create_issue` + post-create property-edit pipeline.
 /// Sticky milestone/project defaults are restored from `RepoPreferences`
-/// when the dialog opens and remembered back on a successful submit.
+/// when the form opens and remembered back on a successful submit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NewIssueDialogState {
     /// Currently-selected built-in template (Blank/Bug/Feature/Task).

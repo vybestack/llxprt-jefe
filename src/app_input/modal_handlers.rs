@@ -298,15 +298,6 @@ pub fn handle_mode_form_key(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    if let super::new_issue_dialog::DialogKey::Handled(evt) =
-        super::new_issue_dialog::resolve_key_for_modal(app_state, key_event)
-    {
-        if let Some(evt) = evt {
-            apply_and_persist(app_state, ctx, evt);
-        }
-        return true;
-    }
-
     let app_event = match key_event.code {
         KeyCode::Esc => Some(AppEvent::CloseModal),
         KeyCode::Enter => {

@@ -16,7 +16,7 @@ mod issues_subfocus_dispatch;
 mod list_navigation;
 mod modal_handlers;
 mod new_agent_submit;
-mod new_issue_dialog;
+
 mod new_issue_submit;
 mod normal;
 mod persist_focus;

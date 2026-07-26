@@ -8,7 +8,10 @@
 
 use iocraft::prelude::*;
 
-use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus, IssuePropertyKind};
+use jefe::state::{
+    AppEvent, AppState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, IssuePropertyKind,
+    NewIssueDialogFocus,
+};
 
 use super::issues_filter::resolve_filter_key_event;
 use super::list_navigation::issues_page_item_count;
@@ -64,6 +67,21 @@ fn resolve_issues_key_event_for_size(
     }
 
     if state.issues_state.inline_state != InlineState::None {
+        // Issue #407: when the inline New Issue form is open (alongside the
+        // composer), route keys through the dedicated new-issue dialog
+        // resolver so template/type/title/body/labels/milestone/project/
+        // assignees fields each get their own typed events.
+        if state.issues_state.new_issue_form.is_some()
+            && matches!(
+                state.issues_state.inline_state,
+                InlineState::Composer {
+                    target: ComposerTarget::NewIssue,
+                    ..
+                }
+            )
+        {
+            return resolve_new_issue_inline_key_event(state, key_event);
+        }
         return resolve_inline_key_event(key_event);
     }
 
@@ -114,6 +132,136 @@ fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Home => Some(AppEvent::InlineCursorHome),
         KeyCode::End => Some(AppEvent::InlineCursorEnd),
         _ => None,
+    }
+}
+
+/// Resolve a key against the inline New Issue form (issue #407). Mirrors
+/// the logic in `app_input/new_issue_dialog.rs` but reads from
+/// `issues_state.new_issue_form` instead of the removed modal variant.
+fn resolve_new_issue_inline_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    let form = state.issues_state.new_issue_form.as_ref()?;
+    let focus = form.focus;
+    let submit = matches!(
+        key_event.code,
+        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::ALT)
+            || key_event.modifiers.contains(KeyModifiers::CONTROL)
+    );
+    if submit {
+        return Some(AppEvent::NewIssueSubmit);
+    }
+    match key_event.code {
+        KeyCode::Esc => Some(AppEvent::NewIssueCancel),
+        KeyCode::Enter => Some(resolve_new_issue_enter(focus)),
+        KeyCode::Tab => Some(AppEvent::NewIssueFocusNext),
+        KeyCode::BackTab => Some(AppEvent::NewIssueFocusPrev),
+        KeyCode::Down => Some(resolve_new_issue_down(focus)),
+        KeyCode::Up => Some(resolve_new_issue_up(focus)),
+        KeyCode::Left => resolve_new_issue_left(focus),
+        KeyCode::Right => resolve_new_issue_right(focus),
+        KeyCode::Home => resolve_new_issue_home(focus),
+        KeyCode::End => resolve_new_issue_end(focus),
+        KeyCode::Backspace => resolve_new_issue_backspace(focus),
+        KeyCode::Delete => resolve_new_issue_delete(focus),
+        KeyCode::Char(' ') => resolve_new_issue_space(focus),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            resolve_new_issue_char(focus, c)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_enter(focus: NewIssueDialogFocus) -> AppEvent {
+    match focus {
+        NewIssueDialogFocus::Body => AppEvent::NewIssueBodyNewline,
+        _ => AppEvent::NewIssueSubmit,
+    }
+}
+
+fn resolve_new_issue_down(focus: NewIssueDialogFocus) -> AppEvent {
+    match focus {
+        NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorDown,
+        _ => AppEvent::NewIssueFocusNext,
+    }
+}
+
+fn resolve_new_issue_up(focus: NewIssueDialogFocus) -> AppEvent {
+    match focus {
+        NewIssueDialogFocus::Body => AppEvent::NewIssueBodyCursorUp,
+        _ => AppEvent::NewIssueFocusPrev,
+    }
+}
+
+fn resolve_new_issue_left(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleCursorLeft),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyCursorLeft),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_right(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleCursorRight),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyCursorRight),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_home(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleCursorHome),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyCursorHome),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_end(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleCursorEnd),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyCursorEnd),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_backspace(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleBackspace),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyBackspace),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_delete(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleDelete),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyDelete),
+        _ => None,
+    }
+}
+
+fn resolve_new_issue_space(focus: NewIssueDialogFocus) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Template => Some(AppEvent::NewIssueTemplateNext),
+        NewIssueDialogFocus::Type => Some(AppEvent::NewIssueTypeNext),
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleChar(' ')),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyChar(' ')),
+        NewIssueDialogFocus::Labels
+        | NewIssueDialogFocus::Milestone
+        | NewIssueDialogFocus::Project
+        | NewIssueDialogFocus::Assignees => None,
+    }
+}
+
+fn resolve_new_issue_char(focus: NewIssueDialogFocus, c: char) -> Option<AppEvent> {
+    match focus {
+        NewIssueDialogFocus::Title => Some(AppEvent::NewIssueTitleChar(c)),
+        NewIssueDialogFocus::Body => Some(AppEvent::NewIssueBodyChar(c)),
+        NewIssueDialogFocus::Template
+        | NewIssueDialogFocus::Type
+        | NewIssueDialogFocus::Labels
+        | NewIssueDialogFocus::Milestone
+        | NewIssueDialogFocus::Project
+        | NewIssueDialogFocus::Assignees => None,
     }
 }
 
@@ -285,7 +433,7 @@ fn resolve_issue_list_key_event(
         KeyCode::Home => Some(AppEvent::IssuesNavigateHome),
         KeyCode::End => Some(AppEvent::IssuesNavigateEnd),
         KeyCode::Enter => Some(AppEvent::IssuesEnter),
-        KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueDialog),
+        KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
         KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
         KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),

@@ -36,8 +36,6 @@ pub enum OverlayPane {
     CloseReasonChooser,
     /// Issue delete confirmation (positioned overlay inside the workspace). Issue #182.
     IssueDeleteConfirm,
-    /// New Issue dialog form (full-screen overlay). Issue #407.
-    NewIssueForm,
 }
 
 impl OverlayPane {
@@ -55,7 +53,6 @@ impl OverlayPane {
             Self::PropertyEditor => Some(SelectablePane::PropertyEditor),
             Self::CloseReasonChooser => Some(SelectablePane::CloseReasonChooser),
             Self::IssueDeleteConfirm => Some(SelectablePane::IssueDeleteConfirm),
-            Self::NewIssueForm => Some(SelectablePane::NewIssueForm),
         }
     }
 
@@ -66,11 +63,7 @@ impl OverlayPane {
     #[must_use]
     pub const fn is_full_screen(self) -> bool {
         match self {
-            Self::HelpModal
-            | Self::AgentForm
-            | Self::RepositoryForm
-            | Self::ConfirmModal
-            | Self::NewIssueForm => true,
+            Self::HelpModal | Self::AgentForm | Self::RepositoryForm | Self::ConfirmModal => true,
             Self::None
             | Self::AgentChooser
             | Self::MergeChooser

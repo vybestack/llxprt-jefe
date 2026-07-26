@@ -3,7 +3,7 @@
 use crate::issue_detail_content::{ISSUE_REPLY_ANCHOR, build_detail_content};
 
 use super::{
-    AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus,
+    AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
     inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical,
 };
 
@@ -237,12 +237,12 @@ impl AppState {
             AppEvent::OpenNewIssueComposer => {
                 let opened = self.issues_state.inline_state == InlineState::None;
                 if opened {
-                    self.issues_state.issue_focus = IssueFocus::IssueList;
-                    self.issues_state.inline_state = InlineState::Composer {
-                        target: ComposerTarget::NewIssue,
-                        text: String::new(),
-                        cursor: 0,
-                    };
+                    // Issue #407: open the inline New Issue form alongside the
+                    // composer. The form carries the rich field state
+                    // (template/type/title/body/labels/milestone/project/
+                    // assignees); the composer keeps the existing inline
+                    // editor contract so key routing/rendering still work.
+                    self.open_new_issue_dialog();
                 }
                 (true, opened)
             }

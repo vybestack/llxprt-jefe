@@ -1,7 +1,8 @@
-//! New Issue dialog submit pipeline (issue #407).
+//! New Issue inline form submit pipeline (issue #407).
 //!
-//! On `NewIssueSubmit`, reads the open `ModalState::NewIssue` state, validates
-//! the title, marks the issue mutation pending, then spawns a gh task that:
+//! On `NewIssueSubmit`, reads the open `issues_state.new_issue_form` state,
+//! validates the title, marks the issue mutation pending, then spawns a gh
+//! task that:
 //!   1. Creates the issue via `GhClient::create_issue` (title + body).
 //!   2. Applies labels, milestone, assignees, and issue type against the
 //!      newly-created issue using the existing `edit_properties` machinery.
@@ -16,7 +17,7 @@ use jefe::domain::RepositoryId;
 use jefe::github::{
     CreatedIssue, GhClient, GhError, PropertyEditTarget, compute_assignee_diff, compute_label_diff,
 };
-use jefe::state::{AppEvent, ModalState};
+use jefe::state::AppEvent;
 
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
@@ -71,9 +72,7 @@ struct SubmitParams {
 
 fn resolve_submit_params(app_state: &AppStateHandle) -> Option<SubmitParams> {
     let state = app_state.read();
-    let ModalState::NewIssue { state: dialog, .. } = &state.modal else {
-        return None;
-    };
+    let dialog = state.issues_state.new_issue_form.as_ref()?;
     let (owner, repo) = super::issues_dispatch::resolve_gh_repo(&state);
     if owner.is_empty() || repo.is_empty() {
         return None;

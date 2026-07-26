@@ -1,46 +1,58 @@
-//! New Issue dialog reducer operations (issue #407).
+//! New Issue inline form reducer operations (issue #407).
 //!
-//! Pure state transitions for `ModalState::NewIssue`. No I/O — the
-//! `app_input` layer reads the dialog state on submit and drives the
+//! Pure state transitions for `IssuesState::new_issue_form`. No I/O — the
+//! `app_input` layer reads the form state on submit and drives the
 //! create-then-apply-properties pipeline. Sticky milestone/project defaults
 //! are restored from `RepoPreferences` on open and remembered back on a
 //! successful submit (via `remember_new_issue_preferences`).
 
 use super::AppState;
-use super::types::{ModalState, NewIssueDialogState};
+use super::types::NewIssueDialogState;
 use crate::domain::RepositoryId;
 use crate::state::events::AppEvent;
 use crate::state::util::{delete_char_at, delete_char_before, insert_char_at};
 
 impl AppState {
-    /// Open the New Issue dialog (issue #407 A1). Restores sticky
-    /// milestone/project from per-repo preferences.
+    /// Open the inline New Issue form (issue #407 A1). Restores sticky
+    /// milestone/project from per-repo preferences and sets the inline
+    /// composer state. When no repository is selected the form still opens
+    /// with blank defaults (properties are applied on submit).
     pub(super) fn open_new_issue_dialog(&mut self) {
-        let Some(repository_id) = self.selected_repository_id().cloned() else {
-            return;
-        };
-        let prefs = self.user_preferences.for_repo(&repository_id);
+        let (milestone, project_ids) = self
+            .selected_repository_id()
+            .map(|rid| {
+                let prefs = self.user_preferences.for_repo(rid);
+                (
+                    prefs.last_new_issue_milestone.clone(),
+                    prefs.last_new_issue_project_ids.clone(),
+                )
+            })
+            .unwrap_or_default();
         let state = NewIssueDialogState {
-            milestone: prefs.last_new_issue_milestone.clone(),
-            project_ids: prefs.last_new_issue_project_ids.clone(),
+            milestone,
+            project_ids,
             ..NewIssueDialogState::default()
         };
-        self.modal = ModalState::NewIssue {
-            repository_id,
-            state,
+        self.issues_state.issue_focus = super::IssueFocus::IssueList;
+        self.issues_state.inline_state = super::InlineState::Composer {
+            target: super::ComposerTarget::NewIssue,
+            text: String::new(),
+            cursor: 0,
         };
+        self.issues_state.new_issue_form = Some(state);
     }
 
-    /// Close the New Issue dialog and discard the draft (issue #407 A11).
+    /// Close the inline New Issue form and discard the draft (issue #407 A11).
     pub(super) fn close_new_issue_dialog(&mut self) {
-        if matches!(self.modal, ModalState::NewIssue { .. }) {
-            self.modal = ModalState::None;
+        if self.issues_state.new_issue_form.is_some() {
+            self.issues_state.new_issue_form = None;
+            self.issues_state.inline_state = super::InlineState::None;
         }
     }
 
-    /// Apply a New Issue dialog event. Returns `true` if handled.
+    /// Apply a New Issue form event. Returns `true` if handled.
     pub(super) fn apply_new_issue_dialog_event(&mut self, event: &AppEvent) -> bool {
-        if !matches!(self.modal, ModalState::NewIssue { .. }) {
+        if self.issues_state.new_issue_form.is_none() {
             return false;
         }
         match event {
@@ -127,11 +139,7 @@ impl AppState {
     }
 
     fn with_dialog_mut<R>(&mut self, f: impl FnOnce(&mut NewIssueDialogState) -> R) -> Option<R> {
-        if let ModalState::NewIssue { state, .. } = &mut self.modal {
-            Some(f(state))
-        } else {
-            None
-        }
+        self.issues_state.new_issue_form.as_mut().map(f)
     }
 
     fn new_issue_template_next(&mut self) -> bool {
@@ -324,9 +332,13 @@ impl AppState {
     /// Submit validation (issue #407 A10). The actual create pipeline is
     /// spawned by the `app_input` layer after the reducer signals readiness;
     /// here we only validate the title is non-empty and clear/block
-    /// accordingly. Returns `true` (handled) when the dialog is open.
+    /// accordingly. Returns `true` (handled) when the form is open.
     fn new_issue_submit(&mut self) -> bool {
-        let title_empty = matches!(&self.modal, ModalState::NewIssue { state, .. } if state.title_text.trim().is_empty());
+        let title_empty = self
+            .issues_state
+            .new_issue_form
+            .as_ref()
+            .is_some_and(|d| d.title_text.trim().is_empty());
         if title_empty {
             self.with_dialog_mut(|d| {
                 d.error = Some("Issue title cannot be empty".to_string());
@@ -345,7 +357,7 @@ impl AppState {
 
     /// Apply a successful New Issue create (issue #407 A9): insert the issue
     /// into the local list, remember the sticky milestone/project, and close
-    /// the dialog.
+    /// the form.
     fn apply_new_issue_created(
         &mut self,
         scope_repo_id: RepositoryId,
@@ -354,13 +366,10 @@ impl AppState {
     ) {
         // Staleness guard: only apply if the mutation is still pending and
         // the repo has not changed.
-        if !self
-            .issues_state
-            .mutation_pending
-            .as_ref()
-            .is_some_and(|p| p.id == mutation_id)
-            || self.selected_repository_id() != Some(&scope_repo_id)
-        {
+        let Some(pending) = self.issues_state.mutation_pending.as_ref() else {
+            return;
+        };
+        if pending.id != mutation_id || self.selected_repository_id() != Some(&scope_repo_id) {
             return;
         }
         let issue_number = issue.number;
@@ -377,13 +386,13 @@ impl AppState {
         self.issues_state.draft_notice = Some(format!("Created issue #{issue_number}"));
         self.issues_state.error = None;
         self.issues_state.mutation_pending = None;
-        // Remember sticky milestone/project before closing the dialog.
+        // Remember sticky milestone/project before closing the form.
         self.remember_new_issue_preferences();
         self.close_new_issue_dialog();
     }
 
     /// Apply a New Issue create failure (issue #407 A10): surface the error in
-    /// the open dialog and clear the pending mutation so the user can retry.
+    /// the open form and clear the pending mutation so the user can retry.
     /// When `issue_number` is `Some`, the issue was created but a property
     /// failed — the error message includes the number so the user can finish
     /// the properties by hand.
@@ -394,13 +403,10 @@ impl AppState {
         issue_number: Option<u64>,
         error: String,
     ) {
-        if !self
-            .issues_state
-            .mutation_pending
-            .as_ref()
-            .is_some_and(|p| p.id == mutation_id)
-            || self.selected_repository_id() != Some(&scope_repo_id)
-        {
+        let Some(pending) = self.issues_state.mutation_pending.as_ref() else {
+            return;
+        };
+        if pending.id != mutation_id || self.selected_repository_id() != Some(&scope_repo_id) {
             return;
         }
         self.issues_state.mutation_pending = None;
