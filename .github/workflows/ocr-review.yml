@@ -691,6 +691,42 @@ jobs:
               return null;
             }
 
+            // Recursively collect every `status` string in the OCR JSON so a
+            // nested per-file `completed_with_errors` is never hidden by a
+            // top-level `success`. Mirrors ocr-review-local's extract_status.
+            function extractStatuses(value, into = []) {
+              if (Array.isArray(value)) {
+                for (const item of value) extractStatuses(item, into);
+              } else if (value && typeof value === 'object') {
+                for (const [key, child] of Object.entries(value)) {
+                  if (key === 'status' && typeof child === 'string') {
+                    into.push(child);
+                  }
+                  extractStatuses(child, into);
+                }
+              }
+              return into;
+            }
+
+            // Four-state coverage classification so a zero-exit run that
+            // reports completed_with_errors is never summarized as clean.
+            // Mirrors ocr-review-local's coverage mapping.
+            function classifyCoverage(parsed, exitCode) {
+              if (exitCode !== 0) return 'failed';
+              const statuses = parsed ? extractStatuses(parsed) : [];
+              if (statuses.length === 0) return 'unknown';
+              if (statuses.some((status) => status === 'completed_with_errors')) {
+                return 'partial';
+              }
+              if (statuses.every((status) => status === 'success')) {
+                return 'complete_best_effort';
+              }
+              return 'unknown';
+            }
+
+            let ocrCoverage = 'unknown';
+            let coverageParsed = null;
+
             function parseFindings(raw) {
               const trimmed = raw.trim();
               if (!trimmed) {
@@ -776,19 +812,35 @@ jobs:
             } else if (exitCode === 0) {
               try {
                 const raw = fs.readFileSync('ocr-result.json', 'utf8');
+                // Capture the full parsed envelope (not just the comments
+                // array) so the coverage classifier can read status fields.
+                try {
+                  coverageParsed = JSON.parse(raw.trim());
+                } catch (envelopeErr) {
+                  coverageParsed = null;
+                  core.info(`Could not parse OCR envelope for coverage classification: ${envelopeErr.message || envelopeErr}`);
+                }
                 const parsed = parseFindings(raw);
                 if (parsed) {
                   findings = parsed;
                 } else {
                   ran = false;
                 }
+                ocrCoverage = classifyCoverage(coverageParsed, exitCode);
+                // ran reflects whether findings were usable; a parseable but
+                // partial/unknown run stays ran=true but must never read clean.
+                if (ocrCoverage === 'failed' || ocrCoverage === 'unknown') {
+                  core.info(`OCR coverage classified as ${ocrCoverage}; summary will reflect incomplete coverage.`);
+                }
               } catch (parseErr) {
                 markInfrastructureFailure('parse', `OCR output could not be parsed: ${parseErr.message || parseErr}`);
                 core.warning(redactSecretDiagnostics(`Failed to parse OCR JSON output: ${parseErr.message || parseErr}`));
                 ran = false;
+                ocrCoverage = classifyCoverage(null, exitCode);
               }
             } else {
               core.warning(`Skipping OCR output parsing because phase ${phase} already recorded exit code ${exitCode}.`);
+              ocrCoverage = classifyCoverage(null, exitCode);
             }
 
             // Deduplicate exact candidates inside the current result before
@@ -939,12 +991,39 @@ jobs:
 
             // Build the sticky summary, including lineless findings.
             const artifactLine =
-              'Artifacts: `ocr-review-output` contains raw JSON, stdout, stderr, preview, phase, and exit-code diagnostics.';
+              'Artifacts: `ocr-review-output` contains raw JSON, stdout, stderr, preview, phase, exit-code diagnostics, and reproducibility manifests.';
+            // Coverage caveat: a run that did not reach complete_best_effort
+            // must never be summarized as clean. The "No findings." line is
+              // only honest when coverage is complete_best_effort; otherwise the
+              // run is incomplete and the summary must say so even with zero
+              // findings.
+            const coverageCaveat = (() => {
+              switch (ocrCoverage) {
+                case 'partial':
+                  return 'OCR completed with errors; coverage is partial and findings may be incomplete.';
+                case 'unknown':
+                  return 'OCR coverage could not be determined; treat this run as incomplete.';
+                case 'failed':
+                  return 'OCR coverage failed.';
+                case 'complete_best_effort':
+                default:
+                  return null;
+              }
+            })();
             let statusLine;
             if (!ran) {
               statusLine = policyFailure
                 ? `OCR policy failure: ${policyFailure}`
                 : 'OCR failed to run or parse output.';
+            } else if (coverageCaveat && findings.length === 0) {
+              // Zero findings but incomplete coverage is NOT a clean run.
+              statusLine = coverageCaveat;
+            } else if (coverageCaveat) {
+              const overflow = lineless.length - linelessOriginalCount;
+              const findingPart = overflow > 0
+                ? `${findings.length} finding(s) (${postedInline} posted inline, ${overflow} moved to summary).`
+                : `${findings.length} finding(s) (${postedInline} posted inline).`;
+              statusLine = `${findingPart} ${coverageCaveat}`;
             } else if (findings.length === 0) {
               statusLine = 'No findings.';
             } else {
@@ -963,6 +1042,7 @@ jobs:
               `- OCR version: \`${ocrVersion}\``,
               `- Phase: \`${diagnosticPhase}\``,
               `- Exit code: \`${exitCode}\``,
+              `- Coverage: \`${ocrCoverage}\``,
               `- Run: ${runUrl}`,
               `- ${statusLine}`,
               `- ${artifactLine}`,
