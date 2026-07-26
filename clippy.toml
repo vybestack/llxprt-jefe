@@ -1,6 +1,12 @@
 # Clippy configuration for Jefe
 # Enforces project-standard complexity limits.
 
+# Minimum Supported Rust Version — mirrors .github/clippy/clippy.toml so
+# local clippy runs (without CLIPPY_CONF_DIR) apply the same MSRV-aware lint
+# decisions as CI (e.g. from_mins is const-stable since 1.91, so the
+# duration_suboptimal_units suggestion is suppressed under this MSRV).
+msrv = "1.75"
+
 # Maximum cognitive complexity per function
 cognitive-complexity-threshold = 15
 
