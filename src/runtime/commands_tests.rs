@@ -525,6 +525,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
+        managed_bin_dir: None,
     };
     let args = local_pane_command_args(&plan_no_env);
     assert_eq!(args[0], "env");
@@ -544,6 +545,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,
+        managed_bin_dir: None,
     };
     let args = local_pane_command_args(&plan_with_env);
     let scrub_end = args

@@ -6,6 +6,7 @@
 use crate::domain::AgentId;
 
 use super::agent_executable::AgentExecutableError;
+use super::llxprt_install::LlxprtInstallError;
 use super::multiplexer::MultiplexerError;
 use super::package_probe::NpmPackageAvailabilityError;
 
@@ -22,6 +23,8 @@ pub enum RuntimeError {
     AgentExecutable(AgentExecutableError),
     /// npm or the requested LLxprt package is unavailable on the effective target.
     NpmPackageAvailability(NpmPackageAvailabilityError),
+    /// The jefe-managed LLxprt version install failed locally (issue #425).
+    LlxprtInstall(LlxprtInstallError),
     /// Local multiplexer dependency or policy failure.
     Multiplexer(MultiplexerError),
     /// Failed to execute remote SSH session lifecycle command.
@@ -52,6 +55,7 @@ impl std::fmt::Display for RuntimeError {
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
             Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
             Self::NpmPackageAvailability(error) => write!(f, "agent launch unavailable: {error}"),
+            Self::LlxprtInstall(error) => write!(f, "agent launch unavailable: {error}"),
             Self::Multiplexer(error) => write!(f, "multiplexer dependency failed: {error}"),
             Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),
