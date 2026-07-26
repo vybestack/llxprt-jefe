@@ -180,8 +180,9 @@ In-scope-Fix / Reject / Defer). Starts empty; updated per slice.
 
 | Item | Disposition | Notes |
 |------|-------------|-------|
-| `src/harness/v1/validate.rs:114` clippy `manual_is_multiple_of` | Blocker-Fix (gate-enabling prerequisite) | Pre-existing on `origin/main`; newer clippy (1.97) flags `input.len() % 4 != 0`. One-line mechanical fix to `!input.len().is_multiple_of(4)` required for the clippy gate to pass. |
-| `src/bin/jefe-capture-shim.rs:163` clippy `duration_suboptimal_units` | Blocker-Fix (gate-enabling prerequisite) | Pre-existing on `origin/main`; clippy 1.97 flags `Duration::from_secs(3600)`. One-line fix to `Duration::from_hours(1)` (stable since Rust 1.95; project has no MSRV pin). Required for the clippy gate to pass. |
+| `src/harness/v1/validate.rs:114` clippy `manual_is_multiple_of` | **Reject** (reverted) | Pre-existing on `origin/main`. Local clippy1.97 flags `% 4 != 0`, but CI clippy (`.github/clippy/clippy.toml` with MSRV1.75) does NOT. "Fixing" it with `is_multiple_of` violates MSRV1.75 (`incompatible_msrv`). Left at origin/main state. |
+| `src/bin/jefe-capture-shim.rs:163` clippy `duration_suboptimal_units` | **Reject** (reverted) | Same — pre-existing, not flagged by CI clippy config. Left at origin/main state. |
+| `tests/psmux_smoke.rs` exceeded 1000-line hard limit | **In-scope-Fix** | Moved the new mouse-mode test + helpers to `tests/psmux_smoke_mouse.rs` (self-contained harness mirroring the existing pattern). Both files now under1000 lines. |
 
 ## Review counters (Open Code Review cap: 4 per effort)
 

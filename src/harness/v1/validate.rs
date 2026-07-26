@@ -111,7 +111,7 @@ pub fn validate_secrets(secrets: &[String]) -> Result<(), HarnessError> {
 /// `HAR-E001` for malformed input, `HAR-E002` when the decoded size would
 /// exceed the string bound.
 pub fn decode_base64(field: &str, input: &str) -> Result<Vec<u8>, HarnessError> {
-    if !input.len().is_multiple_of(4) {
+    if input.len() % 4 != 0 {
         return Err(malformed(field));
     }
     if input.len() / 4 * 3 > MAX_STRING_BYTES {
