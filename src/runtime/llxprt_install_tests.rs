@@ -13,10 +13,39 @@ fn selector(value: &str) -> LlxprtNpmPackageSelector {
         .unwrap_or_else(|| panic!("selector fixture must be nonblank"))
 }
 
+/// Write a fixture binary with the execute bit on Unix so the cache-hit check
+/// (which mirrors `AgentExecutableResolver::resolve_unix`) recognizes it. The
+/// file name already includes the Windows `.exe` extension when needed.
+fn write_fixture_bin(bin_dir: &Path, bin_name: &str) {
+    let path = bin_dir.join(bin_name);
+    fs::write(&path, "fixture").unwrap_or_else(|error| panic!("write bin: {error}"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod bin: {error}"));
+    }
+    let _ = path;
+}
+
+/// The fixture binary name including the platform extension so the cache-hit
+/// check (PATHEXT-aware on Windows) recognizes it.
+fn fixture_bin_name() -> String {
+    if cfg!(windows) {
+        format!("{}.exe", llxprt_bin_name())
+    } else {
+        llxprt_bin_name().to_owned()
+    }
+}
+
 /// A test-local cache root isolating each test from the real platform cache.
-fn test_cache_root() -> PathBuf {
+///
+/// Returns the path plus the `TempDir` guard that owns automatic cleanup.
+/// Dropping the guard removes the temp directory, so tests never leak cache
+/// state into the real platform cache or accumulate unbounded temp dirs.
+fn test_cache_root() -> (PathBuf, tempfile::TempDir) {
     let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
-    temp.keep()
+    (temp.path().to_path_buf(), temp)
 }
 
 fn empty_resolver() -> AgentExecutableResolver {
@@ -40,13 +69,7 @@ fn stage_cache_hit(cache: &Path, sel: &LlxprtNpmPackageSelector) -> PathBuf {
     fs::create_dir_all(&bin_dir).unwrap_or_else(|error| panic!("mkdir bin: {error}"));
     // On Windows the executable carries an `.exe` extension; `AgentExecutableResolver`
     // checks PATHEXT when resolving from the managed bin dir.
-    let bin_name = if cfg!(windows) {
-        format!("{llxprt}.exe", llxprt = llxprt_bin_name())
-    } else {
-        llxprt_bin_name().to_owned()
-    };
-    fs::write(bin_dir.join(&bin_name), "fixture")
-        .unwrap_or_else(|error| panic!("write bin: {error}"));
+    write_fixture_bin(&bin_dir, &fixture_bin_name());
     bin_dir
 }
 
@@ -104,7 +127,7 @@ fn resolve_cache_root_ignores_empty_env_override() {
 
 #[test]
 fn install_dir_is_cache_root_plus_version_dir_name() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     assert_eq!(
         install_dir_in(&cache, &sel),
@@ -114,7 +137,7 @@ fn install_dir_is_cache_root_plus_version_dir_name() {
 
 #[test]
 fn bin_dir_is_install_dir_node_modules_bin() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     assert_eq!(
         bin_dir_in(&cache, &sel),
@@ -160,7 +183,7 @@ fn marker_records_effective_install_spec_value() {
 
 #[test]
 fn is_cache_hit_requires_marker_match_and_binary_present() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     let install_dir = install_dir_in(&cache, &sel);
     let bin_dir = bin_dir_in(&cache, &sel);
@@ -173,14 +196,13 @@ fn is_cache_hit_requires_marker_match_and_binary_present() {
     assert!(!is_cache_hit(&install_dir, &bin_dir, &sel));
 
     fs::create_dir_all(&bin_dir).unwrap_or_else(|error| panic!("mkdir bin: {error}"));
-    fs::write(bin_dir.join(llxprt_bin_name()), "fixture")
-        .unwrap_or_else(|error| panic!("write bin: {error}"));
+    write_fixture_bin(&bin_dir, &fixture_bin_name());
     assert!(is_cache_hit(&install_dir, &bin_dir, &sel));
 }
 
 #[test]
 fn is_cache_hit_rejects_stale_marker_for_different_selector() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let old_sel = selector("0.9.0");
     let new_sel = selector("0.10.0");
     let install_dir = install_dir_in(&cache, &new_sel);
@@ -189,14 +211,13 @@ fn is_cache_hit_rejects_stale_marker_for_different_selector() {
     fs::write(install_dir.join(INSTALL_MARKER), marker_contents(&old_sel))
         .unwrap_or_else(|error| panic!("write marker: {error}"));
     fs::create_dir_all(&bin_dir).unwrap_or_else(|error| panic!("mkdir bin: {error}"));
-    fs::write(bin_dir.join(llxprt_bin_name()), "fixture")
-        .unwrap_or_else(|error| panic!("write bin: {error}"));
+    write_fixture_bin(&bin_dir, &fixture_bin_name());
     assert!(!is_cache_hit(&install_dir, &bin_dir, &new_sel));
 }
 
 #[test]
 fn ensure_installed_cache_hit_does_not_reinstall() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     let bin_dir = stage_cache_hit(&cache, &sel);
     let result = ensure_installed_under(&cache, &sel, &empty_resolver(), Duration::from_secs(5));
@@ -205,7 +226,7 @@ fn ensure_installed_cache_hit_does_not_reinstall() {
 
 #[test]
 fn ensure_installed_npm_missing_returns_typed_error() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     let result = ensure_installed_under(&cache, &sel, &empty_resolver(), Duration::from_secs(5));
     let Err(LlxprtInstallError::NpmMissing { selector: sel_name }) = result else {
@@ -222,7 +243,7 @@ fn ensure_installed_writes_marker_and_returns_bin_dir_on_success() {
     // node.exe + npm-cli.js layout, which a test stub cannot provide. The
     // Windows install path is otherwise covered by the cache-hit and
     // error-classification tests.
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0");
     let bin_dir = bin_dir_in(&cache, &sel);
     let staging = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
@@ -276,20 +297,19 @@ fn error_display_is_actionable() {
 
 #[test]
 fn local_managed_bin_dir_returns_bin_dir_for_cache_hit() {
-    // Stage a cache hit under the real cache root so `local_managed_bin_dir`
-    // (which uses the real cache) finds the marker and bin without invoking
-    // npm. A unique selector avoids colliding with other tests that touch
-    // the real cache root.
+    // Drive the cache-root-injected core of `local_managed_bin_dir` against a
+    // private temp cache root: stage a cache hit, then assert the bin dir is
+    // returned without invoking npm. No real platform cache or env mutation.
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.9.0-issue425-fixture");
-    let bin_dir = stage_cache_hit(&cache_root(), &sel);
-    let result = local_managed_bin_dir(&sel);
+    let bin_dir = stage_cache_hit(&cache, &sel);
+    let result = local_managed_bin_dir_under(&cache, &sel);
     assert_eq!(expect_ok(result, "cache hit should succeed"), bin_dir);
-    let _ = fs::remove_dir_all(install_dir_for(&sel));
 }
 
 #[test]
 fn ensure_installed_does_not_overwrite_existing_install_on_repeat_call() {
-    let cache = test_cache_root();
+    let (cache, _guard) = test_cache_root();
     let sel = selector("0.10.0");
     let bin_dir = stage_cache_hit(&cache, &sel);
     let first = ensure_installed_under(&cache, &sel, &empty_resolver(), Duration::from_secs(1));

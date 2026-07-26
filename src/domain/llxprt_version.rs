@@ -175,9 +175,11 @@ impl LlxprtNpmPackageSelector {
 
 /// Reduce a selector value to a cross-platform filesystem-safe directory name.
 ///
-/// Keeps alphanumerics, `.`, `-`, and `_`; any other byte is replaced with `_`
-/// (collapsed). A leading `.` is stripped so the directory is never hidden, and
-/// a Windows-reserved base name (`.`/`..`) is avoided by mapping to `_`.
+/// Keeps ASCII alphanumerics, `.`, `-`, and `_`; any other character is
+/// replaced with `_` (collapsed). All leading dots are stripped so the
+/// directory is never hidden on Unix, and Windows-reserved device names
+/// (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) are neutralized so
+/// `create_dir_all` cannot fail on Windows.
 fn sanitize_version_dir_name(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut prev_underscore = false;
@@ -190,15 +192,29 @@ fn sanitize_version_dir_name(value: &str) -> String {
             prev_underscore = true;
         }
     }
-    let trimmed = out.trim_matches('_');
-    // Map empty / dot-only names (Windows reserved, or hidden-on-Unix) to a
-    // single underscore so the cache directory always exists and is visible.
+    // Strip every leading dot so the dir is never hidden on Unix (a selector
+    // like `..foo` must not become the hidden `.foo`).
+    let no_leading_dots = out.trim_start_matches('.');
+    let trimmed = no_leading_dots.trim_matches('_');
     if trimmed.is_empty() || trimmed.chars().all(|c| c == '.') {
         return "_".to_owned();
     }
-    // A leading `.` would make the dir hidden on Unix; strip it so cache dirs
-    // are always visible regardless of how the selector normalizes.
-    trimmed.strip_prefix('.').unwrap_or(trimmed).to_owned()
+    neutralize_windows_reserved_name(trimmed)
+}
+
+/// Append an underscore to Windows-reserved device base names so they do not
+/// collide with the kernel device namespace (CON, PRN, AUX, NUL, COM1-9,
+/// LPT1-9). On non-Windows targets this is a harmless no-op suffix-free pass.
+fn neutralize_windows_reserved_name(name: &str) -> String {
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.contains(&name.to_ascii_uppercase().as_str()) {
+        format!("{name}_")
+    } else {
+        name.to_owned()
+    }
 }
 
 /// Determine whether an LLxprt agent launch should use npm or the direct
@@ -815,5 +831,26 @@ mod tests {
         assert_eq!(sanitize_version_dir_name(""), "_");
         assert_eq!(sanitize_version_dir_name("a//b"), "a_b");
         assert_eq!(sanitize_version_dir_name("a/b/"), "a_b");
+    }
+
+    #[test]
+    fn sanitize_version_dir_name_strips_all_leading_dots() {
+        // A selector with multiple leading dots must not become a hidden dir
+        // (e.g. `..foo` -> `foo`, never `.foo`).
+        assert_eq!(sanitize_version_dir_name("..foo"), "foo");
+        assert_eq!(sanitize_version_dir_name("...x"), "x");
+    }
+
+    #[test]
+    fn sanitize_version_dir_name_neutralizes_windows_reserved_names() {
+        // Windows device names would fail create_dir_all; the sanitizer
+        // appends an underscore to neutralize them regardless of case.
+        assert_eq!(sanitize_version_dir_name("CON"), "CON_");
+        assert_eq!(sanitize_version_dir_name("con"), "con_");
+        assert_eq!(sanitize_version_dir_name("NUL"), "NUL_");
+        assert_eq!(sanitize_version_dir_name("COM1"), "COM1_");
+        assert_eq!(sanitize_version_dir_name("lpt9"), "lpt9_");
+        // Normal names are untouched.
+        assert_eq!(sanitize_version_dir_name("latest"), "latest");
     }
 }

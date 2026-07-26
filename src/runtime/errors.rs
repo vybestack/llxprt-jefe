@@ -55,7 +55,7 @@ impl std::fmt::Display for RuntimeError {
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
             Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
             Self::NpmPackageAvailability(error) => write!(f, "agent launch unavailable: {error}"),
-            Self::LlxprtInstall(error) => write!(f, "agent launch unavailable: {error}"),
+            Self::LlxprtInstall(error) => write!(f, "llxprt install failed: {error}"),
             Self::Multiplexer(error) => write!(f, "multiplexer dependency failed: {error}"),
             Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),

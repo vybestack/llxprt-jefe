@@ -77,16 +77,14 @@ fn nightly_local_plan_runs_cached_binary_directly() {
         .managed_bin_dir
         .as_ref()
         .unwrap_or_else(|| panic!("managed bin dir must be set for a versioned local launch"));
+    // Assert the full expected suffix so the relative order of cache-root ->
+    // version dir -> node_modules/.bin is fixed, not just that each component
+    // appears somewhere.
     assert!(
-        bin_dir
-            .components()
-            .any(|c| c.as_os_str() == "llxprt-versions"),
-        "managed bin dir must live under the version cache root: {}",
-        bin_dir.display()
-    );
-    assert!(
-        bin_dir.components().any(|c| c.as_os_str() == ".bin"),
-        "managed bin dir must be the node_modules/.bin dir: {}",
+        bin_dir.ends_with(std::path::Path::new(
+            "llxprt-versions/0.10.0-nightly.260712.21cb698b6/node_modules/.bin"
+        )),
+        "managed bin dir must end in the version-cache .bin path: {}",
         bin_dir.display()
     );
     assert!(
@@ -113,7 +111,14 @@ fn local_metacharacter_selector_dir_name_is_filesystem_safe() {
         .unwrap_or_else(|| panic!("selector normalizes"));
     let dir = sel.version_dir_name();
     assert!(
-        !dir.contains('/') && !dir.contains('\\') && !dir.contains(' '),
+        !dir.contains('/')
+            && !dir.contains('\\')
+            && !dir.contains(' ')
+            && !dir.contains(':')
+            && !dir.contains('?')
+            && !dir.contains('*')
+            && !dir.starts_with('.')
+            && !dir.starts_with(' '),
         "version dir name must be filesystem-safe: {dir}"
     );
     remote_dynamic_argv_is_shell_escaped_exactly_once();
@@ -148,6 +153,17 @@ fn remote_versioned_argv_is_complete_and_structural() {
     );
     assert_eq!(plan.args[0], "exec");
     assert_eq!(plan.args[1], "--yes");
+    // Explicitly assert the package spec so a regression in the npm-exec
+    // wrapper is caught even though the local plan no longer uses it.
+    assert_eq!(
+        plan.args[2],
+        format!(
+            "--package={}",
+            LlxprtNpmPackageSelector::normalize("nightly")
+                .unwrap_or_else(|| panic!("selector"))
+                .package_spec()
+        )
+    );
     assert_eq!(plan.args[3], "--");
     assert_eq!(plan.args[4], "llxprt");
 }
@@ -317,7 +333,7 @@ fn latest_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
         .as_ref()
         .unwrap_or_else(|| panic!("managed bin dir set for latest"));
     assert!(
-        bin_dir.components().any(|c| c.as_os_str() == "latest"),
+        bin_dir.ends_with(std::path::Path::new("latest/node_modules/.bin")),
         "latest selector dir name: {}",
         bin_dir.display()
     );
@@ -336,7 +352,7 @@ fn latest_nightly_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
         .as_ref()
         .unwrap_or_else(|| panic!("managed bin dir set for nightly"));
     assert!(
-        bin_dir.components().any(|c| c.as_os_str() == "nightly"),
+        bin_dir.ends_with(std::path::Path::new("nightly/node_modules/.bin")),
         "nightly selector dir name: {}",
         bin_dir.display()
     );

@@ -273,12 +273,7 @@ fn resolve_non_interactive_command(
         );
         let executable = scoped
             .resolve_target(AgentExecutableTarget::Agent(AgentKind::Llxprt))
-            .map_err(|error| {
-                RuntimeError::SpawnFailed(format!(
-                    "cached llxprt binary was not found in the jefe-managed install dir {}: {error}",
-                    bin_dir.display()
-                ))
-            })?;
+            .map_err(RuntimeError::AgentExecutable)?;
         // Run from the managed bin dir so the work_dir's node_modules cannot
         // shadow the pinned version.
         return Ok((executable, owned_args, Some(bin_dir)));

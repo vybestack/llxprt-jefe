@@ -191,11 +191,18 @@ fn is_cache_hit(install_dir: &Path, bin_dir: &Path, selector: &LlxprtNpmPackageS
 }
 
 /// Whether the `node_modules/.bin` directory holds a launchable `llxprt`
-/// binary, accounting for Windows' PATHEXT extensions (`.exe`, `.cmd`, ...).
+/// binary, accounting for Windows' PATHEXT extensions (`.exe`, `.cmd`, ...)
+/// and, on Unix, the execute permission bit. A cached binary without the
+/// execute bit would produce a false cache hit and then fail at launch time
+/// (see `AgentExecutableResolver::resolve_unix`), so it is not counted here.
 fn managed_binary_exists(bin_dir: &Path) -> bool {
     let base = AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name();
-    if bin_dir.join(base).is_file() {
-        return true;
+    if cfg!(unix) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = bin_dir.join(base);
+        return std::fs::metadata(&path).is_ok_and(|metadata| {
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        });
     }
     if cfg!(windows) {
         for ext in [".exe", ".cmd", ".bat", ".ps1"] {
@@ -349,6 +356,25 @@ pub fn local_managed_bin_dir(
     selector: &LlxprtNpmPackageSelector,
 ) -> Result<PathBuf, LlxprtInstallError> {
     ensure_installed(selector)
+}
+
+/// Testable core of [`local_managed_bin_dir`] pinned to an explicit cache root
+/// so tests never touch the real platform cache or mutate the environment.
+#[cfg(test)]
+fn local_managed_bin_dir_under(
+    cache_root: &Path,
+    selector: &LlxprtNpmPackageSelector,
+) -> Result<PathBuf, LlxprtInstallError> {
+    let _guard = match INSTALL_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    ensure_installed_under(
+        cache_root,
+        selector,
+        &AgentExecutableResolver::current(),
+        INSTALL_TIMEOUT,
+    )
 }
 
 /// Resolve an agent executable from a jefe-managed `node_modules/.bin`

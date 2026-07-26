@@ -122,8 +122,29 @@ mod tests {
         assert_eq!(target, AgentExecutableTarget::Agent(AgentKind::Llxprt));
         assert_eq!(args, vec!["--continue".to_owned()]);
         let bin_dir = managed.unwrap_or_else(|| panic!("managed bin dir set"));
-        assert!(bin_dir.components().any(|c| c.as_os_str() == ".bin"));
-        assert!(bin_dir.components().any(|c| c.as_os_str() == "0.9.0"));
+        assert!(
+            bin_dir.ends_with(std::path::Path::new("0.9.0/node_modules/.bin")),
+            "managed bin dir must end in <version>/node_modules/.bin: {}",
+            bin_dir.display()
+        );
+    }
+
+    #[test]
+    fn code_puppy_uvx_launch_has_no_managed_bin_dir() {
+        // A Code Puppy uvx launch never reaches the managed-install path: it
+        // selects `uvx --from <spec> code-puppy` directly. This guards against
+        // a regression where a dormant llxprt_version would route a Code Puppy
+        // launch through the npm cache.
+        let mut sig = test_signature_base();
+        sig.agent_kind = AgentKind::CodePuppy;
+        sig.code_puppy_version = "0.0.361".to_owned();
+        // A dormant llxprt_version must not hijack the Code Puppy path.
+        sig.llxprt_version = LlxprtNpmPackageSelector::normalize("0.9.0");
+        let (target, args, managed) =
+            local_launch_parts(&sig, vec!["--prompt".to_owned(), "rewrite".to_owned()]);
+        assert_eq!(target, AgentExecutableTarget::Uvx);
+        assert_eq!(args[..3], ["--from", "code-puppy==0.0.361", "code-puppy"]);
+        assert!(managed.is_none(), "uvx launches use no managed bin dir");
     }
 
     #[test]
