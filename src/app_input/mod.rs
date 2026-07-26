@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 mod agent_chooser_entries;
+mod dashboard_search;
 mod filter_controls;
 mod issues;
 mod issues_dispatch;
