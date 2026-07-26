@@ -234,7 +234,7 @@ fn repository_record(
     let Some(id) = repository_ids.get(&repository.id).cloned() else {
         return error(format!("repository {} has no durable id", repository.id.0));
     };
-    let values = json_map_to_typed(repository_values(repository)).map_err(map_detail)?;
+    let values = json_map_to_typed(repository_values(repository)?).map_err(map_detail)?;
     let type_id =
         type_id(Some(agent_kind_text(repository.default_agent_kind))).map_err(map_detail)?;
     Ok(RepositoryRecord {
@@ -273,18 +273,18 @@ fn remote_identity(repository: &Repository) -> String {
     )
 }
 
-fn repository_values(repository: &Repository) -> Value {
+fn repository_values(repository: &Repository) -> Projected<Value> {
     let remote = json!({
         "enabled": repository.remote.enabled,
         "login_user": repository.remote.login_user,
         "host": repository.remote.host,
         "port": repository.remote.port,
-        "identity_file": path_text(&repository.remote.identity_file),
+        "identity_file": path_text(&repository.remote.identity_file)?,
         "options": repository.remote.options,
         "run_as_user": repository.remote.run_as_user,
         "setup_env_default": repository.remote.setup_env_default,
     });
-    json!({
+    Ok(json!({
         "slug": repository.slug,
         "default_profile": repository.default_profile,
         "default_code_puppy_model": repository.default_code_puppy_model,
@@ -293,7 +293,7 @@ fn repository_values(repository: &Repository) -> Value {
         "github_issue_pr_repo": repository.github_issue_pr_repo,
         "remote": remote,
         "issue_base_prompt": repository.issue_base_prompt,
-        "transient_agent_dir": path_text(&repository.transient_agent_dir),
+        "transient_agent_dir": path_text(&repository.transient_agent_dir)?,
         "default_code_puppy_yolo": repository.default_code_puppy_yolo,
         "default_llxprt_mode_flags": repository.default_llxprt_mode_flags,
         "transient_max_concurrent": repository.transient_max_concurrent,
@@ -301,7 +301,7 @@ fn repository_values(repository: &Repository) -> Value {
             .default_llxprt_version
             .as_ref()
             .map(|selector| selector.as_str().to_owned()),
-    })
+    }))
 }
 
 fn agent_record(
@@ -320,7 +320,7 @@ fn agent_record(
         ));
     };
     let type_id = type_id(Some(agent_kind_text(agent.agent_kind))).map_err(map_detail)?;
-    let values = json_map_to_typed(agent_values(agent)).map_err(map_detail)?;
+    let values = json_map_to_typed(agent_values(agent)?).map_err(map_detail)?;
     let definition_hash =
         digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(map_detail)?;
     let typed_value_hash = typed_map_hash(&values).map_err(map_detail)?;
@@ -353,13 +353,13 @@ fn agent_record(
     })
 }
 
-fn agent_values(agent: &Agent) -> Value {
-    json!({
+fn agent_values(agent: &Agent) -> Projected<Value> {
+    Ok(json!({
         "display_id": agent.display_id,
         "shortcut_slot": agent.shortcut_slot,
         "name": agent.name,
         "description": agent.description,
-        "work_dir": path_text(&agent.work_dir),
+        "work_dir": path_text(&agent.work_dir)?,
         "profile": agent.profile,
         "code_puppy_model": agent.code_puppy_model,
         "code_puppy_version": agent.code_puppy_version,
@@ -376,7 +376,7 @@ fn agent_values(agent: &Agent) -> Value {
             .as_ref()
             .map(|selector| selector.as_str().to_owned()),
         "origin": agent_origin_text(agent.origin),
-    })
+    }))
 }
 
 fn agent_work_target(agent: &Agent, repository: &Repository) -> String {
@@ -494,6 +494,16 @@ fn pane_focus_text(focus: PaneFocus) -> String {
     .to_owned()
 }
 
-fn path_text(path: &std::path::Path) -> String {
-    path.to_string_lossy().into_owned()
+/// Render a path for the durable document, refusing non-UTF-8 bytes.
+///
+/// A lossy conversion would substitute U+FFFD and silently persist a path that
+/// can never be restored, so the projection fails instead of corrupting it.
+fn path_text(path: &std::path::Path) -> Projected<String> {
+    match path.to_str() {
+        Some(text) => Ok(text.to_owned()),
+        None => error(format!(
+            "path is not valid UTF-8 and cannot be persisted: {}",
+            path.display()
+        )),
+    }
 }

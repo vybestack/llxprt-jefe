@@ -67,12 +67,18 @@ pub fn commit_pure_site(slot: &mut AppState, message: crate::messages::AppMessag
 /// The effects are not executed and not silently dropped: each one is
 /// reported through the state error channel so the violation is observable.
 pub fn reject_unexecuted_effects(slot: &mut AppState, staged: Vec<IssuedEffect>) {
-    if let Some(issued) = staged.first() {
-        slot.error_message = Some(format!(
-            "staged {:?} effect reached a pure apply site and was not executed",
-            issued.effect.family()
-        ));
+    if staged.is_empty() {
+        return;
     }
+    let families: Vec<String> = staged
+        .iter()
+        .map(|issued| format!("{:?}", issued.effect.family()))
+        .collect();
+    slot.error_message = Some(format!(
+        "staged {} effect(s) reached a pure apply site and were not executed: {}",
+        families.len(),
+        families.join(", ")
+    ));
 }
 
 /// Strict test-support commit: yield the next state of a transition that must

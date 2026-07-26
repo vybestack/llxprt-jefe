@@ -483,3 +483,31 @@ fn inverse_preserves_a_disabled_remote_flag() {
         "a stored disabled remote must not be silently re-enabled on restore"
     );
 }
+
+/// A non-UTF-8 path cannot be represented in JSON, so the projection must
+/// refuse it instead of writing U+FFFD replacement characters that never
+/// round-trip back to the original bytes.
+#[test]
+#[cfg(unix)]
+fn forward_refuses_a_work_dir_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let repository = local_repository("r1", "repo", "/srv/repo");
+    let invalid = std::ffi::OsStr::from_bytes(b"/srv/repo/bad\xff\xfename");
+    let mut broken = agent("a1", "r1", "agent", "/srv/repo");
+    broken.work_dir = PathBuf::from(invalid);
+
+    let mut state = AppState::default();
+    state.repositories.push(repository);
+    state.agents.push(broken);
+    state.rebuild_repository_agent_ids();
+
+    let Err(error) = to_durable_state(&state) else {
+        panic!("a non-UTF-8 work_dir must not project into a durable document");
+    };
+    let detail = format!("{error:?}");
+    assert!(
+        detail.contains("UTF-8") || detail.contains("utf-8") || detail.contains("utf8"),
+        "the rejection must explain the encoding problem, got: {detail}"
+    );
+}

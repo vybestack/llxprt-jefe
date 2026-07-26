@@ -310,8 +310,24 @@ fn assert_persisted_fields_match_source(persisted: &jefe::domain::StateV2, state
         state.agents.len(),
         "agents count must match source"
     );
+    // The projection mints durable ids, so agent identity is proven by
+    // order-preserving correspondence to the owning repository rather than by
+    // comparing the runtime id to the durable one.
     for (i, (pa, sa)) in persisted.agents.iter().zip(state.agents.iter()).enumerate() {
-        let _ = (pa, sa, i);
+        let source_repo_index = state
+            .repositories
+            .iter()
+            .position(|repo| repo.id == sa.repository_id)
+            .unwrap_or_else(|| panic!("agent[{i}] source repository must exist"));
+        let durable_repo_id = &persisted.repositories[source_repo_index].id;
+        assert_eq!(
+            &pa.repository_id, durable_repo_id,
+            "agent[{i}] must stay attached to its source repository"
+        );
+        assert!(
+            !pa.id.as_str().is_empty(),
+            "agent[{i}] must carry a durable id"
+        );
     }
     assert_eq!(
         persisted.selection.repository_id.is_some(),

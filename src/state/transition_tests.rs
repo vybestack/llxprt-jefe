@@ -241,6 +241,14 @@ fn exact_runtime_failure_completion_surfaces_a_typed_error_once() {
     );
     assert!(state.pending_effects.is_empty());
 
+    // Debug-string equality is a valid no-op proof only while the `HashSet`
+    // fields hold at most one element, since iteration order is randomized
+    // above that. Assert the precondition rather than letting a future fixture
+    // turn this into a flaky comparison.
+    assert!(
+        state.sticky_dead_agent_ids.len() <= 1 && state.sticky_empty_repository_ids.len() <= 1,
+        "debug-equality comparison requires deterministic hash-set ordering"
+    );
     let before = format!("{state:?}");
     let transition = state
         .apply_message(AppMessage::EffectCompletion(completion.into()))

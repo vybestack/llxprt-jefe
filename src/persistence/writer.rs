@@ -225,6 +225,11 @@ where
         return Err(write_error(&operation.target, error));
     }
     run_phase(before, Phase::SyncParent, &operation.target)?;
+    // The rename already succeeded, so the target holds the new bytes even if
+    // this fails; only the directory entry's durability across a crash is
+    // unconfirmed. Reporting the error keeps that uncertainty visible, so a
+    // retry must re-read the target hash rather than reuse the stale expected
+    // hash it computed before this write.
     sync_parent(parent).map_err(|error| write_error(&operation.target, error))?;
     Ok(WriteOutcome::Authoritative {
         revision: operation.revision,
