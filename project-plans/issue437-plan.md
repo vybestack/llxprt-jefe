@@ -172,7 +172,24 @@ Cause: two files were added after the branch opened, both forced by integrating 
 
 Reviewability is unaffected: 21 of the 26 files are mechanical single-route conversions to the same helper, and the extracted module is a move with no behavior change. Continuing without splitting.
 
+## Exact-head completion
+
+Candidate head `1491370`, PR https://github.com/vybestack/llxprt-jefe/pull/452, base `main`.
+
+| Gate | Result |
+| --- | --- |
+| Acceptance rows A1-A4 | behavioral evidence present (render-thread affinity, silent-route panic capture, hook delegation, late-delivery teardown) |
+| Local verification | rustfmt, both clippy gates, clippy-allow policy, architecture boundary, source-size, coverage, build, and full workspace suite all pass |
+| `errors-mode` TUI scenario | re-run on this head: ok, 9 steps |
+| Required CI | 12 of 12 checks pass, including Native Windows, Coverage gate, and OpenCodeReview; the optional tmux smoke job is skipped by design |
+| Ancestry / conflicts | `origin/main` is an ancestor of the head; merge state CLEAN, MERGEABLE |
+| Reviews | 2 of 2 cycles used; every finding fixed, rejected with evidence, or deferred |
+| Scope ledger | clean; the 26-file scope review is recorded above |
+
+Stopping here per the workflow: accepted behavior is proven and all required gates pass. The two deferred items below are follow-ups, not remaining work on this issue.
+
 ## Deferred findings and follow-ups
 
-- Pending route-coverage decision.
+- Make the worker seam structurally unable to capture iocraft state (non-capturing `fn` pointer plus an owned input DTO). Touches all migrated routes again, so it belongs in its own change.
+- Add per-route panic tests beyond the boundary-level proofs.
 - Any valid review improvement outside the selected acceptance rows will be recorded here and proposed as a follow-up rather than implemented automatically.
