@@ -21,7 +21,6 @@ use serde::Deserialize;
 
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-orphan-fixture");
 const POLL_TIMEOUT: Duration = Duration::from_secs(8);
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -372,10 +371,4 @@ fn format_output(output: &Output) -> String {
         "status: {}\nstdout: {stdout}\nstderr: {stderr}",
         output.status
     )
-}
-
-// Silence unused warnings for helpers reserved for the negative path / Unix.
-#[allow(dead_code)]
-fn _reserved(_os: OsString) {
-    let _ = COMMAND_TIMEOUT;
 }
