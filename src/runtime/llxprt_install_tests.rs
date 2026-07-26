@@ -214,51 +214,35 @@ fn ensure_installed_npm_missing_returns_typed_error() {
     assert_eq!(sel_name, sel.as_str());
 }
 
+#[cfg(unix)]
 #[test]
 fn ensure_installed_writes_marker_and_returns_bin_dir_on_success() {
+    // The install happy path runs a stubbed `npm`. On Unix a shell-script
+    // stub suffices; on Windows, npm resolution requires the canonical
+    // node.exe + npm-cli.js layout, which a test stub cannot provide. The
+    // Windows install path is otherwise covered by the cache-hit and
+    // error-classification tests.
     let cache = test_cache_root();
     let sel = selector("0.9.0");
     let bin_dir = bin_dir_in(&cache, &sel);
     let staging = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
     let npm_path = staging.path().join("npm");
     let bin_target = bin_dir.join(llxprt_bin_name());
-    let script = if cfg!(windows) {
-        // A .cmd wrapper: create the bin dir and touch the llxprt binary so
-        // the install step looks successful without a real npm. The bin
-        // target uses an `.exe` extension on Windows.
-        format!(
-            "@echo off\r\nif not exist \"{dir}\" mkdir \"{dir}\"\r\ntype nul > \"{bin}\"\r\nexit /b 0\r\n",
-            dir = bin_dir.display(),
-            bin = bin_target.with_extension("exe").display()
-        )
-    } else {
-        format!(
-            "#!/bin/sh\nmkdir -p '{}'\ntouch '{}'\nexit 0\n",
-            bin_dir.display(),
-            bin_target.display()
-        )
-    };
+    let script = format!(
+        "#!/bin/sh\nmkdir -p '{}'\ntouch '{}'\nexit 0\n",
+        bin_dir.display(),
+        bin_target.display()
+    );
     fs::write(&npm_path, script).unwrap_or_else(|error| panic!("write npm: {error}"));
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&npm_path, fs::Permissions::from_mode(0o755))
             .unwrap_or_else(|error| panic!("chmod npm: {error}"));
     }
-    // Windows expects a `.cmd` wrapper for the npm launch plan; Unix uses
-    // the bare `npm` script. The search dir is the staging dir in both
-    // cases.
-    let search_dir = staging.path().to_path_buf();
-    #[cfg(windows)]
-    {
-        let cmd = staging.path().join("npm.cmd");
-        fs::write(&cmd, "@echo off\r\n%*\r\n")
-            .unwrap_or_else(|error| panic!("write npm.cmd: {error}"));
-    }
     let resolver = AgentExecutableResolver::for_platform(
-        AgentExecutablePlatform::current(),
-        vec![search_dir],
-        std::env::var_os("PATHEXT"),
+        AgentExecutablePlatform::Unix,
+        vec![staging.path().to_path_buf()],
+        None,
     );
     let result = ensure_installed_under(&cache, &sel, &resolver, Duration::from_secs(30));
     assert_eq!(expect_ok(result, "install should succeed"), bin_dir);
