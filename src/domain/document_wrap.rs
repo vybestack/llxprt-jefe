@@ -26,7 +26,7 @@
 //!
 //! @requirement REQ-DOC-WRAP
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 
 /// One display row produced by wrapping a content document.
 ///
@@ -256,11 +256,18 @@ fn first_line_revealing_row(
 /// Find the display row + relative column that carries the caret at
 /// `(content_line, line_char_col)`, for inline-editor caret placement.
 ///
-/// Returns `(global_row_index, col_within_row)` where `col_within_row` is the
-/// caret column relative to the row's `line_char_start`. The caret belongs to
-/// the row whose `[line_char_start, line_char_end)` contains `line_char_col`,
-/// or — for a caret at a line end — the row ending at that column. Clamps
-/// safely to the line's rows (never panics on a column in a gap).
+/// Returns `(global_row_index, char_offset_within_row)` where
+/// `char_offset_within_row` is the 0-based Unicode SCALAR offset of the caret
+/// column relative to the row's `line_char_start`. This matches the renderer
+/// (`ScrollableText`'s `cursor_row_element`), which slices row text by scalar
+/// position via `chars.iter().take(col)` to paint the glyph under the caret.
+/// Returning a terminal-cell width here instead would shift the caret for wide
+/// (CJK/emoji) and zero-width (combining mark) glyphs (issue #429).
+///
+/// The caret belongs to the row whose `[line_char_start, line_char_end)`
+/// contains `line_char_col`, or — for a caret at a line end — the row ending
+/// at that column. Clamps safely to the line's rows (never panics on a column
+/// in a gap).
 #[must_use]
 pub fn caret_row_for_line_col(
     rows: &[DocDisplayRow],
@@ -281,11 +288,10 @@ pub fn caret_row_for_line_col(
         let r = &rows[idx];
         if line_char_col < r.line_char_end {
             let char_col = line_char_col.saturating_sub(r.line_char_start);
-            let prefix = r.text.chars().take(char_col).collect::<String>();
-            return Some((idx, UnicodeWidthStr::width(prefix.as_str())));
+            return Some((idx, char_col));
         }
         best_idx = idx;
-        best_rel = UnicodeWidthStr::width(r.text.as_str());
+        best_rel = r.text.chars().count();
     }
     Some((best_idx, best_rel))
 }
@@ -293,6 +299,7 @@ pub fn caret_row_for_line_col(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn empty_document_one_row_for_line_zero() {
@@ -382,6 +389,49 @@ mod tests {
     fn caret_row_for_unknown_line_returns_none() {
         let rows = wrap_document("alpha\nbeta", 50);
         assert_eq!(caret_row_for_line_col(&rows, 99, 0), None);
+    }
+
+    /// The inline-editor caret column coordinate is a Unicode SCALAR offset
+    /// relative to the row's `line_char_start`, NOT a terminal-cell width.
+    /// The renderer (`cursor_row_element`) slices the row's chars by scalar
+    /// position to paint the glyph under the caret, so the projection must
+    /// return the scalar offset to match. For wide CJK glyphs (display width
+    /// 2, scalar width 1) the two diverge: a caret between two CJK glyphs is
+    /// at scalar offset 1 but cell-width offset 2. This case must return the
+    /// scalar offset (1), otherwise the rendered caret shifts one cell too
+    /// far right (issue #429).
+    #[test]
+    fn caret_row_for_line_col_returns_char_offset_for_cjk() {
+        // "a甲b丙" fits one row at width 6: [line 0, char range [0,4)].
+        let rows = wrap_document("a甲b丙", 6);
+        assert_eq!(rows.len(), 1, "fixture must fit one row: {rows:?}");
+        // caret at char col 2 lands on 'b'. Its scalar offset within the row
+        // is 2; its cell-width offset would be 3 ('a' + '甲' = 1 + 2 cells).
+        assert_eq!(
+            caret_row_for_line_col(&rows, 0, 2),
+            Some((0, 2)),
+            "caret column must be a scalar offset, not a terminal-cell width"
+        );
+    }
+
+    /// A combining mark (`e\u{301}`) is display width 0 but scalar width 1.
+    /// The caret after it must advance by one scalar offset, not zero. The
+    /// renderer slices one char per scalar, so a zero-width column here would
+    /// paint the caret on the combining mark instead of the following base
+    /// glyph (issue #429).
+    #[test]
+    fn caret_row_for_line_col_counts_combining_marks_as_scalars() {
+        // "e\u{301}x" fits one row: [line 0, char range [0,3)].
+        let rows = wrap_document("e\u{301}x", 4);
+        assert_eq!(rows.len(), 1, "fixture must fit one row: {rows:?}");
+        // caret at char col 2 lands on 'x'. Scalar offset within the row is 2
+        // (base + combining mark); cell-width offset would be 1 (combining
+        // mark contributes 0 cells).
+        assert_eq!(
+            caret_row_for_line_col(&rows, 0, 2),
+            Some((0, 2)),
+            "combining mark must count as one scalar offset"
+        );
     }
 
     #[test]

@@ -669,4 +669,58 @@ mod tests {
             "selection feedback must remain inside the text column: {rendered}"
         );
     }
+
+    /// The inline-editor caret must paint on the glyph that the caret's content
+    /// char column refers to, not one shifted by wide-glyph cell-width math
+    /// (issue #429). For "a甲b丙" with the caret at content col 2 ('b'), the
+    /// rendered prefix before the cursor cell must be exactly "a甲" (the two
+    /// scalars before 'b'). A buggy cell-width projection would include 'b' in
+    /// the prefix and paint the caret on '丙' instead.
+    #[test]
+    fn inline_caret_paints_on_correct_glyph_for_cjk_row() {
+        // "a甲b丙" is 6 display cells, so it fits one row at max_line_width 6.
+        let content = "a甲b丙";
+        let mut elem = element! {
+            Box(width: 8u32, height: 1u32) {
+                ScrollableText(
+                    content: content.to_string(),
+                    scroll_offset: 0usize,
+                    viewport_rows: 1usize,
+                    max_line_width: 6usize,
+                    color: Some(Color::Reset),
+                    bg: None,
+                    cursor_line: Some(0usize),
+                    cursor_col: Some(2usize),
+                    cursor_color: Some(Color::Black),
+                    cursor_bg: Some(Color::White),
+                )
+            }
+        };
+        let mut buf = Vec::new();
+        let canvas = elem.render(Some(8));
+        canvas
+            .write_ansi(&mut buf)
+            .unwrap_or_else(|e| panic!("write_ansi failed: {e}"));
+        let ansi = String::from_utf8_lossy(&buf).to_string();
+        // Find the first row with a background SGR (the cursor cell).
+        let cursor_row = ansi
+            .lines()
+            .find(|line| line.contains("\u{1b}[48") || line.contains("\u{1b}[7m"))
+            .unwrap_or_else(|| {
+                panic!("expected a cursor background SGR, got: {ansi}");
+            });
+        // The VISIBLE text rendered BEFORE the cursor background SGR is the
+        // caret prefix. Extract the substring up to the `\u{1b}[48` cursor-bg
+        // SGR, then strip any preceding SGR codes to leave only glyphs.
+        let cursor_bg_idx = cursor_row
+            .find("\u{1b}[48")
+            .or_else(|| cursor_row.find("\u{1b}[7m"))
+            .unwrap_or(0);
+        let prefix_ansi = &cursor_row[..cursor_bg_idx];
+        let prefix_visible = strip_ansi(prefix_ansi);
+        assert_eq!(
+            prefix_visible, "a甲",
+            "caret prefix must be the scalars before col 2, not shifted by CJK cell width: {ansi}"
+        );
+    }
 }
