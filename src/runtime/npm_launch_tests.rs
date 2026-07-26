@@ -85,10 +85,12 @@ fn nightly_local_plan_prefixes_complete_existing_llxprt_argv() {
 }
 
 fn local_metacharacter_selector_is_one_argument() {
+    // Issue #403: internal whitespace is now stripped by normalization, so
+    // the selector passed to the launch plan is the whitespace-free form.
     let plan = local_launch_plan(&signature(Some("1.0;$(touch nope)`touch no`\nnext")));
     assert_eq!(
         plan.args[2],
-        "--package=@vybestack/llxprt-code@1.0;$(touch nope)`touch no`\nnext"
+        "--package=@vybestack/llxprt-code@1.0;$(touchnope)`touchno`next"
     );
     assert_eq!(plan.args.len(), 13);
     remote_dynamic_argv_is_shell_escaped_exactly_once();
@@ -118,13 +120,15 @@ fn remote_versioned_argv_is_complete_and_structural() {
 }
 
 fn remote_dynamic_argv_is_shell_escaped_exactly_once() {
+    // Issue #403: internal whitespace is now stripped by normalization, so
+    // the selectors used for shell-escape verification are whitespace-free.
     let values = [
-        "with space",
+        "withspace",
         "single'quote",
         "semi;colon",
-        "$(touch injected)",
-        "`touch injected2`",
-        "line\nbreak",
+        "$(touchinjected)",
+        "`touchinjected2`",
+        "linebreak",
     ];
     for value in values {
         let mut sig = signature(Some(value));
@@ -148,8 +152,12 @@ fn remote_shell_receives_adversarial_selector_as_exactly_one_argument() {
     let capture = directory.path().join("argv.bin");
     let injected_one = directory.path().join("injected-one");
     let injected_two = directory.path().join("injected-two");
+    // Issue #403: internal whitespace is stripped by normalization, so the
+    // selector that reaches the shell is whitespace-free. The shell-escape
+    // invariant still holds: the selector is exactly one argument and
+    // command substitution / backticks do not execute.
     let selector = format!(
-        "with space's;$(touch {})`touch {}`\nline",
+        "withspace's;$(touch{})`touch{}`line",
         injected_one.display(),
         injected_two.display()
     );

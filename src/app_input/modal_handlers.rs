@@ -213,6 +213,7 @@ fn confirm_delete_agent(
     id: AgentId,
     delete_work_dir: bool,
 ) {
+    reap_orphan_before_delete(app_state, &id);
     kill_agent_before_delete(ctx, &id);
 
     let mut state = app_state.write();
@@ -239,6 +240,7 @@ fn confirm_delete_repository(
     };
 
     for agent_id in &agent_ids {
+        reap_orphan_before_delete(app_state, agent_id);
         kill_agent_before_delete(ctx, agent_id);
     }
 
@@ -264,25 +266,39 @@ fn kill_agent_before_delete(ctx: &SharedContext, agent_id: &AgentId) {
     }
 }
 
+/// Best-effort reap of any validated orphan worker before deletion (issue #332,
+/// AC16). Reads the agent's recorded worker identities and reaps them alongside
+/// the stale session, all non-fatal — cleanup failures never block record
+/// removal, which `delete_selected_agent` performs regardless.
+fn reap_orphan_before_delete(app_state: &AppStateHandle, agent_id: &AgentId) {
+    let (identities, session_name) = {
+        let state = app_state.read();
+        let agent = state.agents.iter().find(|a| &a.id == agent_id);
+        let Some(binding) = agent.and_then(|a| a.runtime_binding.as_ref()) else {
+            return;
+        };
+        let pair = (
+            binding.worker_identities.clone(),
+            binding.session_name.clone(),
+        );
+        drop(state);
+        pair
+    };
+    jefe::runtime::reap_orphan_session(&identities, &session_name);
+}
+
 pub fn handle_mode_form_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    // New Issue dialog (issue #407) uses dedicated NewIssue* events keyed off
-    // the focused field, not the generic FormChar/FormBackspace used by the
-    // agent/repository forms.
+    if let super::new_issue_dialog::DialogKey::Handled(evt) =
+        super::new_issue_dialog::resolve_key_for_modal(app_state, key_event)
     {
-        let state = app_state.read();
-        if matches!(state.modal, ModalState::NewIssue { .. }) {
-            let evt =
-                super::new_issue_dialog::resolve_new_issue_dialog_key(&state.modal, key_event);
-            drop(state);
-            if let Some(evt) = evt {
-                apply_and_persist(app_state, ctx, evt);
-            }
-            return true;
+        if let Some(evt) = evt {
+            apply_and_persist(app_state, ctx, evt);
         }
+        return true;
     }
 
     let app_event = match key_event.code {

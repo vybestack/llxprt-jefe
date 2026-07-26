@@ -42,6 +42,11 @@ pub enum RuntimeError {
     WriteFailed(String),
     /// Resize failed.
     ResizeFailed(String),
+    /// Relaunch refused because a validated orphan worker descendant is still
+    /// alive and could not be reaped (issue #332). Spawning now would create a
+    /// duplicate `--continue` worker, so the caller must surface this to the
+    /// user rather than spawn.
+    OrphanBlocked(AgentId),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -62,6 +67,11 @@ impl std::fmt::Display for RuntimeError {
             Self::NoAttachedViewer => write!(f, "no attached viewer"),
             Self::WriteFailed(msg) => write!(f, "write failed: {msg}"),
             Self::ResizeFailed(msg) => write!(f, "resize failed: {msg}"),
+            Self::OrphanBlocked(id) => write!(
+                f,
+                "relaunch blocked: orphan worker for agent {} still alive; retry after cleanup",
+                id.0
+            ),
         }
     }
 }

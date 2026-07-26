@@ -5,6 +5,7 @@
 
 #[cfg(unix)]
 mod clippy_allow_policy;
+mod dashboard_search_contracts;
 mod domain_state_contracts;
 mod message_bus_contracts;
 mod ocr_workflow_contracts;

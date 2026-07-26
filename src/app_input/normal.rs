@@ -29,6 +29,21 @@ pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
 }
+
+fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
+    let state = app_state.read();
+    NormalKeySnapshot {
+        pane_focus: state.pane_focus,
+        selected_agent_is_running: state
+            .selected_agent()
+            .is_some_and(jefe::domain::Agent::is_running),
+        selected_repo_id: state
+            .selected_repository()
+            .map(|repository| repository.id.clone()),
+        selected_agent_id: state.selected_agent().map(|agent| agent.id.clone()),
+    }
+}
+
 fn mac_alt_digit_slot(c: char) -> Option<u8> {
     MAC_ALT_DIGIT_SHORTCUTS
         .iter()
@@ -82,7 +97,7 @@ pub fn handle_global_shortcut_key(
     false
 }
 
-fn handle_special_dashboard_mode_key(
+pub(super) fn handle_special_dashboard_mode_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
@@ -106,6 +121,12 @@ pub fn handle_normal_key_event(
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
 ) -> Option<AppEvent> {
+    if let Some(evt) =
+        super::dashboard_search::resolve_dashboard_search_focus(app_state, key_event, screen_mode)
+    {
+        return Some(evt);
+    }
+
     let snapshot = normal_key_snapshot(app_state);
 
     if let KeyHandling::Handled(event) =
@@ -113,27 +134,12 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_issues_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
-    }
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_prs_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
-    }
-    if let KeyHandling::Handled(event) =
-        handle_dashboard_actions_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
-    }
-    if let KeyHandling::Handled(event) =
-        handle_special_dashboard_mode_key(app_state, ctx, key_event, screen_mode)
-    {
-        return event;
-    }
-    if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
+    if let KeyHandling::Handled(event) = super::dashboard_search::resolve_dashboard_mode_entry(
+        app_state,
+        ctx,
+        key_event,
+        screen_mode,
+    ) {
         return event;
     }
     let page_items = dashboard_page_items(app_state, screen_mode);
@@ -149,7 +155,7 @@ pub fn handle_normal_key_event(
     if let KeyHandling::Handled(event) = resolve_mode_key(key_event, screen_mode) {
         return event;
     }
-    if let KeyHandling::Handled(event) = resolve_help_search_key(key_event) {
+    if let KeyHandling::Handled(event) = resolve_help_search_key(key_event, screen_mode) {
         return event;
     }
     if let KeyHandling::Handled(event) = resolve_visibility_key(key_event, screen_mode) {
@@ -167,20 +173,6 @@ pub fn handle_normal_key_event(
         return event;
     }
     None
-}
-
-fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
-    let state = app_state.read();
-    NormalKeySnapshot {
-        pane_focus: state.pane_focus,
-        selected_agent_is_running: state
-            .selected_agent()
-            .is_some_and(jefe::domain::Agent::is_running),
-        selected_repo_id: state
-            .selected_repository()
-            .map(|repository| repository.id.clone()),
-        selected_agent_id: state.selected_agent().map(|agent| agent.id.clone()),
-    }
 }
 
 /// Whether the global quit shortcut (`Ctrl-Q` / rapid `qqq`) should be eligible
@@ -246,7 +238,7 @@ fn issues_quit_shortcut_active(state: &AppState) -> bool {
     matches!(input_mode_for_state(state), InputMode::IssuesNormal)
 }
 
-fn handle_dashboard_issues_key(
+pub(super) fn handle_dashboard_issues_key(
     app_state: &AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
@@ -285,7 +277,7 @@ fn prs_quit_shortcut_active(state: &AppState) -> bool {
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
 /// @pseudocode component-003 lines 05-14
-fn handle_dashboard_prs_key(
+pub(super) fn handle_dashboard_prs_key(
     app_state: &AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
@@ -304,7 +296,7 @@ fn actions_quit_shortcut_active(state: &AppState) -> bool {
     matches!(input_mode_for_state(state), InputMode::ActionsNormal)
 }
 
-fn handle_dashboard_actions_key(
+pub(super) fn handle_dashboard_actions_key(
     app_state: &AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
@@ -327,7 +319,10 @@ fn handle_dashboard_actions_key(
 /// drops and Up/Down move; other keys fall through. When no grab is active,
 /// Space grabs the highlighted item in the Repositories or Agents pane (the
 /// terminal pane is a no-op so Space passes through to the PTY).
-fn resolve_dashboard_grab_key(app_state: &AppStateHandle, key_event: &KeyEvent) -> KeyHandling {
+pub(super) fn resolve_dashboard_grab_key(
+    app_state: &AppStateHandle,
+    key_event: &KeyEvent,
+) -> KeyHandling {
     let state = app_state.read();
     if state.screen_mode != ScreenMode::Dashboard || state.terminal_focused {
         return KeyHandling::Unhandled;
@@ -520,10 +515,16 @@ pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) ->
     }
 }
 
-fn resolve_help_search_key(key_event: &KeyEvent) -> KeyHandling {
+fn resolve_help_search_key(key_event: &KeyEvent, screen_mode: ScreenMode) -> KeyHandling {
     match key_event.code {
         KeyCode::Char('?' | 'h' | 'H') | KeyCode::F(1) => {
             KeyHandling::Handled(Some(AppEvent::OpenHelp))
+        }
+        // Issue #405: `/` on the Dashboard opens the dedicated dashboard
+        // search input (not the SplitScreen modal search). Other screen modes
+        // keep the legacy `OpenSearch` modal binding.
+        KeyCode::Char('/') if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::FocusDashboardSearch))
         }
         KeyCode::Char('/') => KeyHandling::Handled(Some(AppEvent::OpenSearch)),
         _ => KeyHandling::Unhandled,
@@ -620,7 +621,6 @@ fn resolve_enter_key(key_event: &KeyEvent, snapshot: &NormalKeySnapshot) -> KeyH
     if key_event.code != KeyCode::Enter {
         return KeyHandling::Unhandled;
     }
-
     let event = match snapshot.pane_focus {
         PaneFocus::Agents => snapshot
             .selected_agent_id

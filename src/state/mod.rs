@@ -14,8 +14,9 @@ mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
 mod dashboard_grab_ops;
+mod dashboard_search_ops;
 mod dead_preview_ops;
-mod errors_ops;
+pub(crate) mod errors_ops;
 mod errors_types;
 mod events;
 mod form_build;
@@ -25,6 +26,7 @@ mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
+mod form_validation_issue403;
 mod form_workflow_dispatch;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;
@@ -36,10 +38,8 @@ mod issues_property_ops;
 mod list_navigation_ops;
 mod modal_ops;
 mod new_issue_dialog_ops;
-/// Generic deterministic pagination state container (`PaginatedList<T, I>`).
-pub mod pagination;
-/// Coalesced post-mutation refresh scheduling state.
-pub mod post_mutation_refresh;
+pub mod pagination; // `PaginatedList<T, I>` generic deterministic pagination state container
+pub mod post_mutation_refresh; // Coalesced post-mutation refresh scheduling state
 #[cfg(test)]
 mod post_mutation_refresh_tests;
 mod preferences_ops;
@@ -70,6 +70,7 @@ pub mod theme_picker_view;
 pub mod transient_ops;
 mod types;
 mod util;
+pub use errors_ops::capture_runtime_errors;
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
@@ -97,8 +98,6 @@ pub use form_projection::{
 };
 use tracing::{debug, trace};
 impl AppState {
-    /// Reset terminal scrollback state to defaults (fix #4). Called from
-    /// every path that changes the selected agent or repository.
     fn reset_terminal_scrollback(&mut self) {
         self.terminal_history_offset = None;
         self.terminal_viewport_rows = 0;
@@ -181,9 +180,10 @@ impl AppState {
     }
 
     fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
-        !self.hide_idle_repositories
+        (!self.hide_idle_repositories
             || agent.is_running()
-            || self.sticky_dead_agent_ids.contains(&agent.id)
+            || self.sticky_dead_agent_ids.contains(&agent.id))
+            && self.dashboard_search_matches(&agent.name)
     }
 
     pub fn rebuild_repository_agent_ids(&mut self) {
@@ -431,10 +431,12 @@ impl AppState {
             }
             UiNavigationMessage::CyclePaneFocus => self.cycle_pane_focus(),
             UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
-            UiNavigationMessage::ToggleHideIdleRepositories => {
-                self.hide_idle_repositories = !self.hide_idle_repositories;
-                self.dashboard_grab = None;
-                self.normalize_selection_indices();
+            UiNavigationMessage::ToggleHideIdleRepositories => self.toggle_hide_idle_repositories(),
+            UiNavigationMessage::FocusDashboardSearch
+            | UiNavigationMessage::BlurDashboardSearch
+            | UiNavigationMessage::SetDashboardSearchQuery { .. }
+            | UiNavigationMessage::ClearDashboardSearch => {
+                dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
                 self.screen_mode = ScreenMode::Split;

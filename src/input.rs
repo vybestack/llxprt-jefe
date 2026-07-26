@@ -21,6 +21,8 @@ pub enum InputMode {
     ThemePicker,
     /// In-app device-code auth dialog (issue #244).
     Auth,
+    /// Dashboard "search lite" input for repositories and agents (issue #405).
+    DashboardSearch,
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesNormal,
@@ -155,6 +157,8 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
 
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {
         InputMode::TerminalCapture
+    } else if state.dashboard_search.input_focused {
+        InputMode::DashboardSearch
     } else {
         InputMode::Normal
     }

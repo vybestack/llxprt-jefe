@@ -13,6 +13,33 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
 
 use jefe::state::{AppEvent, ModalState, NewIssueDialogFocus};
 
+use super::AppStateHandle;
+
+/// Outcome of resolving a key against the currently-active modal.
+#[derive(Debug)]
+pub enum DialogKey {
+    /// The New Issue dialog handled (consumed) the key; the wrapped event is
+    /// `None` when the key was intentionally a no-op.
+    Handled(Option<AppEvent>),
+    /// The active modal is not the New Issue dialog; the caller should run the
+    /// generic form key handler.
+    NotHandled,
+}
+
+/// Resolve a form-mode key event against the active modal. When the modal is
+/// the New Issue dialog, returns `DialogKey::Handled(event)` so the caller
+/// (`handle_mode_form_key`) can apply + persist without duplicating the modal
+/// check. Returns `DialogKey::NotHandled` for any other modal.
+#[must_use]
+pub fn resolve_key_for_modal(app_state: &AppStateHandle, key_event: &KeyEvent) -> DialogKey {
+    let state = app_state.read();
+    if matches!(state.modal, ModalState::NewIssue { .. }) {
+        DialogKey::Handled(resolve_new_issue_dialog_key(&state.modal, key_event))
+    } else {
+        DialogKey::NotHandled
+    }
+}
+
 /// Resolve a form-mode key event to a New Issue dialog event, or `None` when
 /// the key does not map to a dialog action. The caller is `handle_mode_form_key`
 /// when `state.modal` is `ModalState::NewIssue`.

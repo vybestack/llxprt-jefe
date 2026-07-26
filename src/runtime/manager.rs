@@ -777,6 +777,10 @@ impl RuntimeManager for TmuxRuntimeManager {
             self.attached_agent_id = Some(agent_id.clone());
         }
 
+        // Issue #296: nudge the child to re-advertise its DEC private
+        // mouse-reporting modes and trace the observed post-attach state.
+        self.post_attach_mode_recovery(agent_id);
+
         // Mark new session as attached
         if let Some(session) = self.sessions.get_mut(agent_id) {
             session.attached = true;

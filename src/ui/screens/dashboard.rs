@@ -11,6 +11,7 @@ use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_height
 use crate::runtime::TerminalSnapshot;
 use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
+use crate::ui::util::text_with_caret;
 
 use super::super::components::{
     AgentListSelection, AgentListView, AgentListWindow, KeybindBar, Preview, Sidebar, StatusBar,
@@ -271,6 +272,12 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 selection: selection,
             )
 
+            // Dashboard "search lite" input row (issue #405). Rendered when
+            // the search input is focused or a filter query is active. The
+            // caret marks the cursor while focused; the filter indicator makes
+            // the reduced view obvious even after the input blurs.
+            #(search_input_row(state, &rc))
+
             // Main content area
             Box(
                 flex_direction: FlexDirection::Row,
@@ -309,4 +316,45 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
         }
     }
     .into_any()
+}
+
+/// Build the dashboard search input row (issue #405).
+///
+/// Returns a single-row element when the search input is focused or a filter
+/// query is active, otherwise an empty vector (no row rendered). When focused,
+/// the query is shown with a caret cursor. When blurred with an active query,
+/// the filter indicator string is shown so the reduced view stays obvious.
+fn search_input_row(state: Option<&AppState>, rc: &ResolvedColors) -> Vec<AnyElement<'static>> {
+    let Some(state) = state else {
+        return Vec::new();
+    };
+    let active = state.dashboard_search_active() || state.dashboard_search.input_focused;
+    if !active {
+        return Vec::new();
+    }
+    let content = if state.dashboard_search.input_focused {
+        format!(
+            "/ {}",
+            text_with_caret(
+                &state.dashboard_search.query,
+                state.dashboard_search.query.chars().count()
+            )
+        )
+    } else {
+        crate::ui::dashboard_filter_indicator(state)
+            .unwrap_or_else(|| format!("filter: {:?}", state.dashboard_search.query))
+    };
+    vec![
+        element! {
+            Box(
+                width: 100pct,
+                height: 1u32,
+                background_color: rc.fg,
+                padding_left: 1u32,
+            ) {
+                Text(content: content, color: rc.bg)
+            }
+        }
+        .into_any(),
+    ]
 }

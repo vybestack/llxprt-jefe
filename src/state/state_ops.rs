@@ -71,6 +71,16 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
 }
 
 /// Delete a selected agent from state and optionally remove its working directory.
+///
+/// The work-directory removal guard uses [`work_dir_shared_by_sibling`] which
+/// compares paths via [`crate::services::local_paths_equivalent`] — a
+/// string-based, platform-aware normalization (separators, case, `.`/`..`,
+/// Windows extended-path prefixes). It does **not** canonicalize symlinks or
+/// resolve relative paths to absolute. Work directories that point to the
+/// same physical directory through different symlinked paths will bypass this
+/// guard. This is a known limitation; the guard protects against the
+/// identical/normalized path collision case which is the common failure mode
+/// from duplicate agent names (issue #403).
 pub fn delete_selected_agent(
     state: &mut AppState,
     agent_id: &AgentId,
@@ -89,16 +99,20 @@ pub fn delete_selected_agent(
         .iter()
         .find(|repository| repository.id == removed_agent.repository_id)
         .is_some_and(|repository| repository.remote.enabled);
-    if delete_work_dir
-        && !repository_remote_enabled
-        && removed_agent.work_dir.exists()
-        && let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir)
-    {
-        warn!(
-            error = %e,
-            work_dir = %removed_agent.work_dir.display(),
-            "could not remove work directory"
-        );
+    if delete_work_dir && !repository_remote_enabled && removed_agent.work_dir.exists() {
+        let shared = work_dir_shared_by_sibling(state, &removed_agent);
+        if shared {
+            warn!(
+                work_dir = %removed_agent.work_dir.display(),
+                "skipping work directory removal: another agent shares this directory"
+            );
+        } else if let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir) {
+            warn!(
+                error = %e,
+                work_dir = %removed_agent.work_dir.display(),
+                "could not remove work directory"
+            );
+        }
     }
 
     let selected_repo_id = state
@@ -118,6 +132,17 @@ pub fn delete_selected_agent(
     state.normalize_selection_indices();
 
     Some(removed_agent.id)
+}
+
+/// Whether another agent in the same repository shares the removed agent's
+/// work directory. Used to guard against destructive `remove_dir_all` when
+/// two agents collided on the same work directory (issue #403 Bug 4).
+fn work_dir_shared_by_sibling(state: &AppState, removed: &crate::domain::Agent) -> bool {
+    state.agents.iter().any(|agent| {
+        agent.id != removed.id
+            && agent.repository_id == removed.repository_id
+            && crate::services::local_paths_equivalent(&agent.work_dir, &removed.work_dir)
+    })
 }
 
 #[cfg(test)]
@@ -255,5 +280,133 @@ mod tests {
 
         assert!(!state.has_shell_window(&agent_a));
         assert!(!state.has_shell_window(&agent_b));
+    }
+
+    #[test]
+    fn delete_selected_agent_preserves_shared_work_dir() {
+        // Two agents share the same work directory (issue #403 Bug 1/4).
+        // Deleting one with delete_work_dir=true must NOT remove the
+        // directory because the other agent still depends on it.
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let tmp_dir = tmp.path().to_path_buf();
+
+        let repo_id = RepositoryId("repo-shared".into());
+        let agent_a = AgentId("agent-shared-a".into());
+        let agent_b = AgentId("agent-shared-b".into());
+
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Shared Repo".into(),
+            "shared-repo".into(),
+            PathBuf::from("/tmp/shared-repo"),
+        );
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+
+        for id in [&agent_a, &agent_b] {
+            let mut agent =
+                Agent::new(id.clone(), repo_id.clone(), "Agent".into(), tmp_dir.clone());
+            agent.status = crate::domain::AgentStatus::Running;
+            state.agents.push(agent);
+        }
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_a, true);
+
+        assert_eq!(removed, Some(agent_a));
+        assert_eq!(state.agents.len(), 1, "agent B should remain");
+        assert!(
+            tmp_dir.exists(),
+            "shared work directory must not be removed when another agent uses it"
+        );
+    }
+
+    #[test]
+    fn delete_selected_agent_removes_sole_owner_work_dir() {
+        // A sole-owner agent's work directory should be removed when
+        // delete_work_dir is true.
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let tmp_dir = tmp.path().to_path_buf();
+
+        let repo_id = RepositoryId("repo-sole".into());
+        let agent_id = AgentId("agent-sole".into());
+
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Sole Repo".into(),
+            "sole-repo".into(),
+            PathBuf::from("/tmp/sole-repo"),
+        );
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+
+        let mut agent = Agent::new(
+            agent_id.clone(),
+            repo_id.clone(),
+            "Agent".into(),
+            tmp_dir.clone(),
+        );
+        agent.status = crate::domain::AgentStatus::Running;
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_id, true);
+
+        assert_eq!(removed, Some(agent_id));
+        assert!(
+            !tmp_dir.exists(),
+            "sole-owner work directory should be removed"
+        );
+    }
+
+    #[test]
+    fn delete_selected_agent_tolerates_bogus_work_dir() {
+        // AC17 (issue #332): deletion must remove the agent record even when the
+        // work_dir never existed or is invalid; cleanup remains best-effort and
+        // the opt-in delete_work_dir flag does not error on a missing path.
+        let repo_id = RepositoryId("repo-bogus".into());
+        let agent_id = AgentId("agent-bogus".into());
+        let repository = Repository::new(
+            repo_id.clone(),
+            "Repo".into(),
+            "repo".into(),
+            PathBuf::from("/tmp/repo"),
+        );
+        let bogus_work_dir = std::env::temp_dir().join("jefe-test-bogus-workdir-332");
+        let _ = std::fs::remove_dir_all(&bogus_work_dir);
+        let mut agent = Agent::new(
+            agent_id.clone(),
+            repo_id.clone(),
+            "Bogus Agent".into(),
+            bogus_work_dir.clone(),
+        );
+        agent.status = crate::domain::AgentStatus::Running;
+        let mut state = AppState::default();
+        state.repositories.push(repository);
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+
+        let removed = delete_selected_agent(&mut state, &agent_id, true);
+
+        assert_eq!(removed, Some(agent_id));
+        assert!(
+            state.agents.is_empty(),
+            "agent record must be removed even with a bogus work_dir"
+        );
+        assert!(
+            !bogus_work_dir.exists(),
+            "bogus work_dir should remain absent"
+        );
     }
 }
