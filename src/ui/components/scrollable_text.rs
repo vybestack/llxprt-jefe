@@ -535,6 +535,15 @@ mod tests {
         out
     }
 
+    /// True when `line` carries a selection/cursor background SGR — either an
+    /// extended background code (`\u{1b}[48…m`) or a reverse-video code
+    /// (`\u{1b}[7m`). Centralizing the check keeps the renderer's exact
+    /// color-encoding assumption in one place across the highlight and caret
+    /// regression tests.
+    fn contains_highlight_sgr(line: &str) -> bool {
+        line.contains("\u{1b}[48") || line.contains("\u{1b}[7m")
+    }
+
     /// No wrapped row may exceed the pane column width (text + scrollbar).
     #[test]
     fn no_wrapped_row_exceeds_width() {
@@ -627,11 +636,11 @@ mod tests {
         // Row with selection (alpha) has a background SGR; the next row
         // (charlie) must have NONE.
         assert!(
-            non_blank[0].contains("\u{1b}[48") || non_blank[0].contains("\u{1b}[7m"),
+            contains_highlight_sgr(non_blank[0]),
             "the alpha row must carry a selection highlight SGR: {ansi}"
         );
         assert!(
-            !non_blank[1].contains("\u{1b}[48") && !non_blank[1].contains("\u{1b}[7m"),
+            !contains_highlight_sgr(non_blank[1]),
             "the charlie row must carry NO selection highlight (selection does not overlap it): {ansi}"
         );
     }
@@ -705,13 +714,13 @@ mod tests {
         // Find the first row with a background SGR (the cursor cell).
         let cursor_row = ansi
             .lines()
-            .find(|line| line.contains("\u{1b}[48") || line.contains("\u{1b}[7m"))
+            .find(|line| contains_highlight_sgr(line))
             .unwrap_or_else(|| {
                 panic!("expected a cursor background SGR, got: {ansi}");
             });
         // The VISIBLE text rendered BEFORE the cursor background SGR is the
-        // caret prefix. Extract the substring up to the `\u{1b}[48` cursor-bg
-        // SGR, then strip any preceding SGR codes to leave only glyphs.
+        // caret prefix. Locate the highlight SGR boundary, then strip any
+        // preceding SGR codes to leave only glyphs.
         let cursor_bg_idx = cursor_row
             .find("\u{1b}[48")
             .or_else(|| cursor_row.find("\u{1b}[7m"))
