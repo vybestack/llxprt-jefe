@@ -240,6 +240,7 @@ fn confirm_delete_repository(
     };
 
     for agent_id in &agent_ids {
+        reap_orphan_before_delete(app_state, ctx, agent_id);
         kill_agent_before_delete(ctx, agent_id);
     }
 
