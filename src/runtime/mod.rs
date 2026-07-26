@@ -11,6 +11,7 @@ mod agent_executable;
 mod agent_launcher;
 mod async_attach;
 mod attach;
+mod attach_mode_recovery;
 mod attach_scheduler;
 mod capabilities;
 mod capture_ops;
