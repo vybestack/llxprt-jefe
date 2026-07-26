@@ -180,6 +180,7 @@ fn status_glyph(
 mod tests {
     use super::*;
     use crate::domain::{WorkflowRun, WorkflowRunJob, WorkflowRunStep};
+    use unicode_width::UnicodeWidthStr;
 
     fn run() -> WorkflowRun {
         WorkflowRun {
@@ -255,7 +256,11 @@ mod tests {
         assert_eq!(view.focused_job_index, Some(1));
         assert!(view.content().contains('\u{2713}'));
         assert!(view.content().contains('\u{2717}'));
-        assert!(view.rows.iter().all(|row| row.text.chars().count() <= 10));
+        assert!(
+            view.rows
+                .iter()
+                .all(|row| UnicodeWidthStr::width(row.text.as_str()) <= 10)
+        );
     }
 
     #[test]

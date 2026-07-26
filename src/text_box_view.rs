@@ -172,7 +172,7 @@ fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
 ///
 /// - `byte_cursor` is floored to a UTF-8 char boundary before use.
 /// - Wrapping: each logical line is split into wrapped display rows of at
-///   most `content_width` characters, so long lines fold onto the next row
+///   most `content_width` terminal cells, so long lines fold onto the next row
 ///   instead of scrolling off the right edge.
 /// - Vertical viewport: the caret's wrapped row is always visible;
 ///   `first_visible_row` is the first visible display-row index (derived
@@ -239,7 +239,7 @@ pub fn build_text_box_view(
 /// Build the flat list of wrapped display rows for every logical line, plus
 /// the index of the row that carries the caret (`None` when suppressed, e.g.
 /// `content_width == 0`). Each logical line is wrapped to `content_width`
-/// characters; a trailing caret at the end of a full-width line gets its own
+/// terminal cells; a trailing caret at the end of a full-width line gets its own
 /// empty row so it never overflows the visible width.
 ///
 /// @requirement REQ-PR-009
@@ -262,50 +262,135 @@ fn build_wrapped_display_rows(
         } else {
             0
         };
-        for seg in wrap_line(line, content_width) {
-            let seg_rendered_chars = seg.text.chars().count();
-            let seg_rendered_width = UnicodeWidthStr::width(seg.text.as_str());
-            // A trailing caret at the end of a line that fills the full width
-            // would overflow; emit the full segment row then a trailing empty
-            // row that carries the caret inside the width. With a single-row
-            // viewport that extra row would displace the text, so in that case
-            // keep the caret on the text row itself (clipped, but text visible).
-            let full_width_end = content_width != 0
-                && line_idx == caret.line
-                && seg.end == caret_line_len
-                && seg_rendered_width == content_width
-                && caret.col == seg.end;
-            if full_width_end && viewport_rows >= 2 {
-                display_rows.push(TextBoxRow {
-                    text: seg.text,
-                    caret_col: None,
-                });
-                caret_row_idx = Some(display_rows.len());
-                display_rows.push(TextBoxRow {
-                    text: String::new(),
-                    caret_col: Some(0),
-                });
-                continue;
-            }
-
-            let caret_col = if full_width_end {
-                // Single-row viewport: keep the caret on the text row at the
-                // width boundary (the cell is clipped by the container, but the
-                // text row is not displaced).
-                Some(seg_rendered_chars)
-            } else {
-                caret_col_for_segment(&seg, seg_rendered_width, caret, line_idx, content_width)
-            };
-            if caret_col.is_some() {
-                caret_row_idx = Some(display_rows.len());
-            }
-            display_rows.push(TextBoxRow {
-                text: seg.text,
-                caret_col,
-            });
+        let segments = wrap_line(line, content_width);
+        let line_context = LineWrapContext {
+            caret,
+            line_idx,
+            caret_line_len,
+            content_width,
+            viewport_rows,
+        };
+        let (mut line_rows, line_caret_row) = project_line_segments(&segments, line_context);
+        if let Some(line_caret_row) = line_caret_row {
+            caret_row_idx = Some(display_rows.len().saturating_add(line_caret_row));
         }
+        display_rows.append(&mut line_rows);
     }
     (display_rows, caret_row_idx)
+}
+
+#[derive(Clone, Copy)]
+struct LineWrapContext {
+    caret: TextCaret,
+    line_idx: usize,
+    caret_line_len: usize,
+    content_width: usize,
+    viewport_rows: usize,
+}
+
+fn project_line_segments(
+    segments: &[WrapSegment],
+    context: LineWrapContext,
+) -> (Vec<TextBoxRow>, Option<usize>) {
+    let mut rows = Vec::with_capacity(segments.len().saturating_add(1));
+    let mut caret_row = None;
+    let mut boundary_caret_pending = false;
+    for (segment_index, seg) in segments.iter().enumerate() {
+        let rendered_chars = seg.text.chars().count();
+        let rendered_width = UnicodeWidthStr::width(seg.text.as_str());
+        let hidden_suffix = caret_in_hidden_suffix(seg, rendered_chars, rendered_width, context);
+        let full_width_end = caret_at_full_width_end(seg, rendered_width, context);
+        let trailing_row = (full_width_end || hidden_suffix && segment_index + 1 == segments.len())
+            && context.viewport_rows >= 2;
+        if trailing_row {
+            rows.push(TextBoxRow {
+                text: seg.text.clone(),
+                caret_col: None,
+            });
+            caret_row = Some(rows.len());
+            rows.push(TextBoxRow {
+                text: String::new(),
+                caret_col: Some(0),
+            });
+            continue;
+        }
+        let segment_context = SegmentCaretContext {
+            rendered_chars,
+            rendered_width,
+            hidden_suffix,
+            full_width_end,
+            has_next: segment_index + 1 < segments.len(),
+        };
+        let segment_caret =
+            segment_caret_col(seg, context, segment_context, &mut boundary_caret_pending);
+        if segment_caret.is_some() {
+            caret_row = Some(rows.len());
+        }
+        rows.push(TextBoxRow {
+            text: seg.text.clone(),
+            caret_col: segment_caret,
+        });
+    }
+    (rows, caret_row)
+}
+
+#[derive(Clone, Copy)]
+struct SegmentCaretContext {
+    rendered_chars: usize,
+    rendered_width: usize,
+    hidden_suffix: bool,
+    full_width_end: bool,
+    has_next: bool,
+}
+
+fn segment_caret_col(
+    seg: &WrapSegment,
+    line: LineWrapContext,
+    segment: SegmentCaretContext,
+    boundary_caret_pending: &mut bool,
+) -> Option<usize> {
+    if *boundary_caret_pending {
+        *boundary_caret_pending = false;
+        return Some(0);
+    }
+    if segment.hidden_suffix && segment.has_next {
+        *boundary_caret_pending = true;
+        return None;
+    }
+    if segment.full_width_end {
+        return Some(segment.rendered_chars);
+    }
+    caret_col_for_segment(
+        seg,
+        segment.rendered_width,
+        line.caret,
+        line.line_idx,
+        line.content_width,
+    )
+}
+
+fn caret_at_full_width_end(
+    seg: &WrapSegment,
+    rendered_width: usize,
+    context: LineWrapContext,
+) -> bool {
+    context.content_width != 0
+        && context.line_idx == context.caret.line
+        && seg.end == context.caret_line_len
+        && rendered_width == context.content_width
+        && context.caret.col == seg.end
+}
+
+fn caret_in_hidden_suffix(
+    seg: &WrapSegment,
+    rendered_chars: usize,
+    rendered_width: usize,
+    context: LineWrapContext,
+) -> bool {
+    context.line_idx == context.caret.line
+        && rendered_width == context.content_width
+        && seg.start.saturating_add(rendered_chars) <= context.caret.col
+        && context.caret.col < seg.end
 }
 
 /// Decide whether the caret belongs to one wrapped segment and, if so,
@@ -322,7 +407,7 @@ fn build_wrapped_display_rows(
 /// @requirement REQ-TEXTBOX-WRAP
 fn caret_col_for_segment(
     seg: &WrapSegment,
-    seg_len: usize,
+    seg_width: usize,
     caret: TextCaret,
     line_idx: usize,
     content_width: usize,
@@ -334,12 +419,17 @@ fn caret_col_for_segment(
     // stay grouped by source (segment fields together, caret position alone).
     let caret_at_seg_end = caret.col == seg.end;
     let in_range = seg.start <= caret.col && caret.col < seg.end;
-    let seg_has_room = seg_len < content_width;
+    let seg_has_room = seg_width < content_width;
     let seg_is_empty = seg.start == seg.end;
     let trailing_at_end = caret_at_seg_end && seg_has_room;
     let on_blank_row = seg_is_empty && caret_at_seg_end;
     if in_range || trailing_at_end || on_blank_row {
-        Some(caret.col - seg.start)
+        Some(
+            caret
+                .col
+                .saturating_sub(seg.start)
+                .min(seg.text.chars().count()),
+        )
     } else {
         None
     }
@@ -472,6 +562,17 @@ mod tests {
 
         assert_eq!(v.total_display_rows, 2);
         assert_eq!(v.rows[0].text, "甲乙");
+        assert_eq!(v.rows[1].text, "丙");
+        assert_eq!(v.rows[1].caret_col, Some(0));
+    }
+
+    #[test]
+    fn caret_before_dropped_wrap_space_moves_to_next_display_row() {
+        let text = "甲乙 丙";
+        let v = build_text_box_view(text, "甲乙".len(), 3, 4);
+
+        assert_eq!(v.rows[0].text, "甲乙");
+        assert!(v.rows[0].caret_col.is_none());
         assert_eq!(v.rows[1].text, "丙");
         assert_eq!(v.rows[1].caret_col, Some(0));
     }
@@ -824,7 +925,6 @@ mod tests {
             );
         };
         assert_eq!(caret_row.text, "ab");
-        // The caret column must not exceed the content width.
-        assert!(caret_row.caret_col.unwrap_or(0) <= 10);
+        assert_eq!(caret_row.caret_col, Some(2));
     }
 }
