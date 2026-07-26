@@ -33,8 +33,8 @@ struct AppContext {
     /// Root-owned delivery slot for background GitHub request results.
     gh_deliveries: app_input::GhDeliveryHandle,
     /// Coalescing persistence worker handle (issue #301). When present,
-    /// `persist_state` schedules snapshots here instead of calling
-    /// `save_state` synchronously on the input path.
+    /// `persist_state` schedules durable save requests here instead of
+    /// writing synchronously on the input path.
     persist_handle: jefe::services::persist_worker::PersistHandle,
     /// Async capture worker handle (issue #301 Phase 2). When present, the
     /// render path requests a background capture instead of calling

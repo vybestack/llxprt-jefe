@@ -498,13 +498,11 @@ fn enter_split_mode_clears_dashboard_grab() {
 }
 
 // ============================================================================
-// Persistence: reordered Vec order survives to_persisted_state mapping
+// Persistence: reordered Vec order survives the durable projection
 // ============================================================================
 
 #[test]
 fn reordered_repository_vec_order_matches_persisted_order() {
-    use jefe::persistence::State as PersistedState;
-
     let mut state = create_dashboard_test_state();
     state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
@@ -514,24 +512,17 @@ fn reordered_repository_vec_order_matches_persisted_order() {
         .apply(AppEvent::DashboardGrabMoveDown)
         .committed_pure();
 
-    // Manually mirror to_persisted_state (private to app_input) and verify the
-    // Vec order is preserved — persistence derives directly from the Vec.
-    let persisted = PersistedState {
-        schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
-        repositories: state.repositories.clone(),
-        agents: state.agents.clone(),
-        selected_repository_index: state.selected_repository_index,
-        selected_agent_index: state.selected_agent_index,
-        hide_idle_repositories: state.hide_idle_repositories,
-        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
-        pane_focus: String::new(),
-        terminal_focused: false,
-        user_preferences: state.user_preferences.clone(),
-    };
+    // Project through the real durable path rather than mirroring it, so a
+    // projection that reordered repositories would fail here.
+    let candidate = jefe::state::durable_projection::to_durable_state(&state)
+        .unwrap_or_else(|err| panic!("durable projection: {err}"));
 
-    assert_eq!(persisted.repositories[0].name, "bravo");
-    assert_eq!(persisted.repositories[1].name, "alpha");
-    assert_eq!(persisted.repositories[2].name, "charlie");
+    let names: Vec<&str> = candidate
+        .repositories
+        .iter()
+        .map(|repository| repository.display_name.as_str())
+        .collect();
+    assert_eq!(names, vec!["bravo", "alpha", "charlie"]);
 }
 
 // ============================================================================

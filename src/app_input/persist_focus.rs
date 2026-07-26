@@ -12,8 +12,8 @@ use super::SharedContext;
 /// manager.
 ///
 /// When a coalescing [`PersistHandle`] is present in the context (issue #301),
-/// the snapshot is scheduled for asynchronous durable write instead of calling
-/// `save_state` synchronously. This keeps the input/render path from blocking
+/// the candidate is scheduled for asynchronous durable write instead of
+/// writing on the input path. This keeps the input/render path from blocking
 /// on `fsync`. Persistence failures are surfaced by the background worker
 /// (logged via `tracing::warn`); the input path never blocks on I/O.
 ///
