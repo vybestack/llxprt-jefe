@@ -101,8 +101,27 @@ blockers.)
 
 ## Verification evidence
 
-(to be filled in as gates pass)
+- Local: `actionlint .github/workflows/ci.yml` → exit 0, no warnings.
+- Local: `actionlint .github/workflows/ocr-review.yml` → exit 0 (unchanged,
+  confirms OCR stays PR-only).
+- Diff scope: `.github/workflows/ci.yml` (+2 lines) and this plan only.
+- PR #443 CI (exact head `789d447`), all required checks SUCCESS:
+  - Format (rustfmt) [OK]
+  - Lint (clippy) [OK]
+  - Clippy allow policy [OK]
+  - Source file length checks [OK]
+  - Complexity checks [OK]
+  - Coverage gate [OK]
+  - Build [OK]
+  - Test [OK]
+  - Native Windows (MSVC + psmux) [OK] (5m22s)
+  - Optional TUI smoke (tmux) → SKIPPED (workflow_dispatch-only, by design)
+- OCR (PR): Phase `review`, exit 0, **No findings.**
+- CodeRabbit: excluded by label configuration (no comments).
+- PR state: `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN` (no conflicts).
 
 ## Deferred findings / follow-ups
 
-(none)
+- Branch protection / required status checks for the new `push: [main]` runs
+  is a repository-settings concern (not a workflow-file change) and is
+  intentionally out of scope for this PR.
