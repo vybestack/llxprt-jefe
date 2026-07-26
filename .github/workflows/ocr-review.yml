@@ -1116,6 +1116,151 @@ jobs:
               }
             }
 
+      - name: Build OCR reproducibility manifests
+        # Re-sync rigor from llxprt-code: emit manifest.pre.json (scope, refs,
+        # OCR version, redacted provider config + its sha256, worktree state),
+        # manifest.post.json (exit code, reported statuses, coverage, artifact
+        # hashes), and sha256.txt over uploaded artifacts. Provider fields are
+        # captured by shape only (never the key) and the redaction step below
+        # runs after this so any accidental secret in a manifest is destroyed.
+        if: always()
+        shell: bash
+        env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ env.HEAD_SHA }}
+          OCR_LLM_URL: ${{ vars.OCR_LLM_URL }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const REDACTION = '[REDACTED]';
+
+          const readTrim = (name, fallback = '') => {
+            try { return fs.readFileSync(name, 'utf8').trim(); } catch (_) { return fallback; }
+          };
+          const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+          const fileHash = (name) => {
+            try { return sha256(fs.readFileSync(name)); } catch (_) { return null; }
+          };
+
+          // Provider config by shape only: scheme/host/path, protocol, model,
+          // and a boolean credential presence. The raw key is never written.
+          const urlRaw = process.env.OCR_LLM_URL || '';
+          let urlShape = null;
+          try {
+            if (urlRaw) {
+              const u = new URL(urlRaw);
+              urlShape = `${u.protocol}//${u.host}${u.pathname}`;
+            }
+          } catch (_) {
+            urlShape = 'unparseable';
+          }
+          const providerName = process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic-compatible' : 'openai-compatible';
+          const providerConfig = {
+            provider: providerName,
+            custom_providers: {
+              [providerName]: {
+                url_shape: urlShape,
+                protocol: process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic' : 'openai',
+                model: process.env.OCR_LLM_MODEL || null,
+                credential_present: Boolean(process.env.OCR_LLM_TOKEN),
+              },
+            },
+          };
+          // Best-effort coverage state: re-derive from the result JSON so the
+          // post manifest reports the same classification as the summary.
+          function extractStatuses(value, into = []) {
+            if (Array.isArray(value)) {
+              for (const item of value) extractStatuses(item, into);
+            } else if (value && typeof value === 'object') {
+              for (const [k, child] of Object.entries(value)) {
+                if (k === 'status' && typeof child === 'string') into.push(child);
+                extractStatuses(child, into);
+              }
+            }
+            return into;
+          }
+          function classifyCoverage(parsed, exitCode) {
+            if (exitCode !== 0) return 'failed';
+            const statuses = parsed ? extractStatuses(parsed) : [];
+            if (statuses.length === 0) return 'unknown';
+            if (statuses.some((s) => s === 'completed_with_errors')) return 'partial';
+            if (statuses.every((s) => s === 'success')) return 'complete_best_effort';
+            return 'unknown';
+          }
+          let coverageParsed = null;
+          const exitCode = Number(readTrim('ocr-exit-code.txt', '1')) || 0;
+          let coverage = classifyCoverage(null, exitCode);
+          try {
+            const raw = readTrim('ocr-result.json', '');
+            if (raw) {
+              coverageParsed = JSON.parse(raw);
+              coverage = classifyCoverage(coverageParsed, exitCode);
+            }
+          } catch (_) { coverage = classifyCoverage(null, exitCode); }
+          let reportedStatuses = [];
+          try { reportedStatuses = extractStatuses(coverageParsed); } catch (_) {}
+
+          const configJson = JSON.stringify(providerConfig, null, 2);
+          const pre = {
+            schema: 'ocr-review-manifest-v1',
+            created_at: new Date().toISOString(),
+            repository: process.env.GITHUB_REPOSITORY || null,
+            run_id: process.env.GITHUB_RUN_ID || null,
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT || null,
+            event_name: process.env.GITHUB_EVENT_NAME || null,
+            scope: {
+              mode: 'cumulative',
+              base: process.env.BASE_SHA || null,
+              head: process.env.HEAD_SHA || null,
+            },
+            ocr: {
+              version: readTrim('ocr-version.txt', 'unknown') || 'unknown',
+              phase: readTrim('ocr-phase.txt', 'unknown') || 'unknown',
+              provider: providerConfig,
+              redacted_config_sha256: sha256(JSON.stringify(providerConfig)),
+            },
+            coverage_hint: 'See manifest.post.json for the final coverage classification.',
+          };
+          fs.writeFileSync('manifest.pre.json', `${JSON.stringify(pre, null, 2)}\n`);
+
+          const artifactNames = [
+            'ocr-result.json', 'ocr-stdout.raw', 'ocr-stderr.log', 'ocr-version.txt',
+            'ocr-preview.txt', 'ocr-preview-stderr.log', 'ocr-exit-code.txt',
+            'ocr-phase.txt', 'ocr-infrastructure-failure.txt', 'ocr-policy-failure.txt',
+          ];
+          const hashes = {};
+          for (const name of artifactNames) hashes[name] = fileHash(name);
+          const post = {
+            schema: 'ocr-review-manifest-v1',
+            completed_at: new Date().toISOString(),
+            exit_code: exitCode,
+            reported_statuses: reportedStatuses,
+            coverage,
+            artifacts: hashes,
+            note: 'Coverage is best-effort pending upstream manifest support.',
+          };
+          fs.writeFileSync('manifest.post.json', `${JSON.stringify(post, null, 2)}\n`);
+
+          // sha256.txt over every manifested artifact, including the manifests.
+          const allForHash = [...artifactNames, 'manifest.pre.json', 'manifest.post.json'];
+          const lines = [];
+          for (const name of allForHash) {
+            const digest = fileHash(name);
+            if (digest) lines.push(`${digest}  ${name}`);
+          }
+          fs.writeFileSync('sha256.txt', `${lines.join('\n')}\n`);
+          // Restrict permissions on the manifest triple before upload.
+          for (const name of ['manifest.pre.json', 'manifest.post.json', 'sha256.txt']) {
+            try { fs.chmodSync(name, 0o600); } catch (_) {}
+          }
+          delete process.env.OCR_LLM_TOKEN;
+          delete process.env.OCR_LLM_URL;
+          NODE
+
       - name: Resolve OCR failure classification
         shell: bash
         id: ocr-classification
@@ -1174,6 +1319,10 @@ jobs:
             'ocr-phase.txt',
             'ocr-infrastructure-failure.txt',
             'ocr-policy-failure.txt',
+            // Reproducibility manifests: redact provider fields before upload.
+            'manifest.pre.json',
+            'manifest.post.json',
+            'sha256.txt',
           ];
           const replaceWithRedactionFailure = (fileName, error) => {
             const code = error && error.code ? error.code : 'unknown';
@@ -1239,7 +1388,10 @@ jobs:
             ocr-exit-code.txt \
             ocr-phase.txt \
             ocr-infrastructure-failure.txt \
-            ocr-policy-failure.txt; do
+            ocr-policy-failure.txt \
+            manifest.pre.json \
+            manifest.post.json \
+            sha256.txt; do
             if [ ! -e "$file_name" ]; then
               : > "$file_name"
               missing="${missing}${file_name}"$'\n'
@@ -1280,6 +1432,9 @@ jobs:
             ocr-phase.txt
             ocr-infrastructure-failure.txt
             ocr-policy-failure.txt
+            manifest.pre.json
+            manifest.post.json
+            sha256.txt
           if-no-files-found: warn
 
       - name: Clean up scoped safe.directory
