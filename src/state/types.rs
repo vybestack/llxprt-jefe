@@ -325,6 +325,21 @@ pub struct QuitSequenceState {
     pub last_press: Option<Instant>,
 }
 
+/// Dashboard "search lite" input + query state (issue #405).
+///
+/// Grouped so [`AppState`] stays within the `max-struct-bools` budget. The
+/// query live-filters the repository sidebar and agent pane by `name`
+/// (case-insensitive substring), AND-composed with `hide_idle_repositories`.
+/// Runtime-only — never persisted (a stale filter on startup would contradict
+/// "make it obvious you're filtered").
+#[derive(Debug, Default, Clone)]
+pub struct DashboardSearchState {
+    /// Current query text.
+    pub query: String,
+    /// Whether the search input has keyboard focus.
+    pub input_focused: bool,
+}
+
 /// Application state - single source of truth.
 #[derive(Debug, Default, Clone)]
 pub struct AppState {
@@ -344,6 +359,14 @@ pub struct AppState {
     pub pane_focus: PaneFocus,
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
+
+    /// Dashboard "search lite" state for repositories and agents (issue #405).
+    ///
+    /// Filters the sidebar (by repo `name`) AND the agent pane (by agent
+    /// `name`), case-insensitively, AND-composed with
+    /// `hide_idle_repositories`. Runtime-only — never persisted (a stale
+    /// filter on startup would contradict "make it obvious you're filtered").
+    pub dashboard_search: DashboardSearchState,
 
     /// Agent IDs that were just killed and should remain visible in active-only
     /// mode until the user navigates away. Runtime-only — not persisted.
