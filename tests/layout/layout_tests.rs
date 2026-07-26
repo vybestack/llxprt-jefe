@@ -304,6 +304,38 @@ fn issue_detail_document_viewport_reserves_composer_rows_but_preserves_document_
 }
 
 #[test]
+fn contextual_detail_rows_follow_wrapped_document_and_cap_composer() {
+    assert_eq!(
+        contextual_detail_rows(20, 12, true),
+        ContextualDetailRows {
+            document: 12,
+            composer: 5,
+        }
+    );
+    assert_eq!(
+        contextual_detail_rows(20, 30, true),
+        ContextualDetailRows {
+            document: 15,
+            composer: 5,
+        }
+    );
+    assert_eq!(
+        contextual_detail_rows(4, 10, true),
+        ContextualDetailRows {
+            document: 1,
+            composer: 3,
+        }
+    );
+    assert_eq!(
+        contextual_detail_rows(20, 1, false),
+        ContextualDetailRows {
+            document: 20,
+            composer: 0,
+        }
+    );
+}
+
+#[test]
 fn issue_list_content_width_excludes_sidebar_and_border() {
     assert_eq!(issue_list_content_width(120), 96);
     assert_eq!(issue_list_content_width(10), 0);

@@ -120,6 +120,8 @@ pub struct PullRequestsState {
     pub detail_scroll_offset: usize,
     /// Last rendered detail viewport height in rows.
     pub detail_viewport_rows: usize,
+    /// Last rendered detail content width in terminal cells.
+    pub detail_content_width: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
     /// Merge-method chooser overlay state (issue #92; mirrors AgentChooser).

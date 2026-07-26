@@ -4,6 +4,8 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Pure document wrapping and content-line scroll geometry.
+pub mod document_wrap;
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
 

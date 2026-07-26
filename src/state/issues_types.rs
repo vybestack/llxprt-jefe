@@ -38,6 +38,8 @@ pub struct IssuesState {
     pub detail_scroll_offset: usize,
     /// Last rendered detail viewport height in rows.
     pub detail_viewport_rows: usize,
+    /// Last rendered detail content width in terminal cells.
+    pub detail_content_width: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_ui: IssueFilterUiState,
@@ -236,9 +238,6 @@ impl IssuesState {
     /// Maximum detail scroll offset for a caller-provided viewport row count.
     #[must_use]
     pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
-        if self.issue_detail.is_none() {
-            return 0;
-        }
         let composer_active = matches!(
             self.inline_state,
             InlineState::Composer {
@@ -246,7 +245,23 @@ impl IssuesState {
                 ..
             }
         );
-        self.detail_content_line_count().saturating_sub(
+        let Some(detail) = &self.issue_detail else {
+            return 0;
+        };
+        let content = crate::issue_detail_content::build_detail_content(
+            detail,
+            self.detail_subfocus,
+            &self.inline_state,
+            self.loading.comments,
+        );
+        let content_width = if self.detail_content_width == 0 {
+            usize::from(crate::layout::issues_detail_content_width(120))
+        } else {
+            self.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        crate::domain::document_wrap::max_content_line_scroll_offset(
+            &rows,
             crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
         )
     }

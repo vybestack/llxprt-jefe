@@ -9,7 +9,7 @@
 //! @pseudocode component-004 lines 146-155
 
 use jefe::domain::{PageToken, RepositoryId};
-use jefe::state::{AppEvent, ComposerTarget, InlineState};
+use jefe::state::AppEvent;
 
 use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo_or_error};
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
@@ -94,49 +94,17 @@ enum PrCommentPageRequest {
     Skip,
 }
 
-/// Whether the embedded PR composer TextBox is active for the current state.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 169-176
-fn pr_text_box_active(inline_state: &InlineState) -> bool {
-    matches!(
-        inline_state,
-        InlineState::Composer {
-            target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
-            ..
-        }
-    )
-}
-
-/// Compute the max detail scroll offset using the CANONICAL parity function
-/// `pr_detail_content_line_count` (the exact text the renderer emits for the
-/// current subfocus, inline composer state, and loading flags) minus the
-/// effective read-only document viewport rows. Using the parity function —
-/// rather than a local heuristic — guarantees the comments-dispatch "scrolled
-/// near bottom" check uses the SAME line count and viewport the renderer and
-/// scroll clamp do (MED-8).
+/// Compute the maximum detail offset through the canonical state contract.
+/// State builds the same read-only document as the renderer and projects its
+/// wrapped rows at the boundary-supplied width, so pagination, navigation, and
+/// rendering agree while the stored offset remains content-line based.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
 pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usize {
-    let Some(detail) = state.prs_state.pr_detail.as_ref() else {
-        return 0;
-    };
-    let document_viewport = jefe::layout::pr_detail_document_viewport_rows(
-        state.prs_state.detail_viewport_rows,
-        pr_text_box_active(&state.prs_state.inline_state),
-    );
-    jefe::pr_detail_content::pr_detail_content_line_count(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-    )
-    .saturating_sub(document_viewport)
+    state.pr_detail_max_scroll_offset()
 }
 
 /// Resolve comment-page params or a Skip/Fail outcome from state.

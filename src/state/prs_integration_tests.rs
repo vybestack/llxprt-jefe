@@ -402,32 +402,15 @@ fn assert_stale_comments_page_is_discarded(state: &mut AppState) {
     );
 }
 
-/// Compute the expected PR-detail bottom scroll offset by replicating the
-/// production `scroll_pr_detail_to_bottom` → `pr_max_detail_scroll_offset`
-/// path: the REAL rendered line count from the shared
-/// `pr_detail_content::pr_detail_content_line_count` parity function (for the
-/// current subfocus + inline composer state), then
-/// `saturating_sub(detail_viewport_rows)`.  This deliberately uses the same
-/// parity surface production uses so the assertion follows the real rendered
-/// bottom (reviews, checks, separators, section headers, composer block) and
-/// never the old header+body+comments heuristic that under-scrolled (#56).
+/// Compute the expected PR-detail bottom scroll offset from the canonical
+/// width-aware wrapped-row bound used by detail navigation.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 fn pr_expected_detail_bottom_scroll(state: &AppState) -> usize {
-    let Some(detail) = state.prs_state.pr_detail.as_ref() else {
-        return 0;
-    };
-    crate::pr_detail_content::pr_detail_content_line_count(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-    )
-    .saturating_sub(state.prs_state.detail_viewport_rows)
+    state.pr_detail_max_scroll_offset()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -388,6 +388,42 @@ pub const PR_COMPOSER_VIEWPORT_ROWS: usize = DETAIL_COMPOSER_VIEWPORT_ROWS;
 pub const NEW_COMMENT_COMPOSER_PREFIX: &str = "  │ ";
 pub const REPLY_COMPOSER_PREFIX: &str = "    │ ";
 
+/// Contextual detail-pane rows allocated to the read-only document and editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextualDetailRows {
+    /// Wrapped display rows allocated to the read-only document.
+    pub document: usize,
+    /// Rows allocated to the embedded composer.
+    pub composer: usize,
+}
+
+/// Allocate contextual detail rows from the wrapped document height.
+///
+/// The document remains scrollable in content-line units; wrapping affects
+/// only how much of the pane the render projection occupies. The fixed
+/// document capacity remains the state scroll-bound contract, while a short
+/// document uses only the display rows it actually renders.
+#[must_use]
+pub fn contextual_detail_rows(
+    detail_viewport_rows: usize,
+    document_display_rows: usize,
+    composer_active: bool,
+) -> ContextualDetailRows {
+    if !composer_active {
+        return ContextualDetailRows {
+            document: detail_viewport_rows,
+            composer: 0,
+        };
+    }
+
+    let document_capacity = detail_document_viewport_rows(detail_viewport_rows, true);
+    let document = document_display_rows.min(document_capacity);
+    ContextualDetailRows {
+        document,
+        composer: DETAIL_COMPOSER_VIEWPORT_ROWS.min(detail_viewport_rows.saturating_sub(document)),
+    }
+}
+
 /// Compute rows available to the read-only PR detail document after embedded
 /// local editors reserve rows inside the detail pane.
 ///
