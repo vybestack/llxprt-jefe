@@ -93,11 +93,32 @@ multiple architectural ownership layers and requires no new modules.
 ## Review counters (OCR)
 
 - Local OCR runs before PR: 0 / 2
-- OCR runs after PR opened: 0 / 2
+- OCR runs after PR opened: 1 / 2
 
 (Cap: two local + two PR per issue/PR effort. This change is a ~2-line
 workflow trigger edit; OCR runs will be spent only if the PR review surfaces
 blockers.)
+
+## OCR review triage (PR run, head `e267bf0`)
+
+1 finding (`.github/workflows/ci.yml` lines 1-8, "reliability/medium"):
+suggested adding a workflow `concurrency` block to cancel in-progress runs on
+rapid pushes.
+
+**Disposition: Reject.** Factually incorrect. The workflow already has the
+exact `concurrency` control (lines 17-19) the finding describes:
+
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+It was present before this PR and is unchanged. The finding's quoted
+`existing_code` omits the `concurrency:` block, which does not match the
+actual file. Adopting the suggestion would either create a duplicate key
+(invalid YAML) or weaken the existing, more-specific group key.
+
+No PR change required. No follow-up filed — the concern is already fully
+addressed by existing code.
 
 ## Verification evidence
 
