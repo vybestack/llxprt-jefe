@@ -39,45 +39,90 @@ pub fn redact_value(value: &str) -> String {
 }
 
 /// Mask `scheme://user[:pass]@host` userinfo, preserving the host.
+///
+/// Each URL occurrence is processed independently so a line containing both
+/// an HTTPS URL and a separate SSH/email reference does not have its content
+/// span-corrupted between unrelated `://` and `@` markers.
 fn redact_url_userinfo(value: &str) -> String {
-    let Some(at) = value.find('@') else {
-        return value.to_string();
-    };
-    let scheme_end = match value.find("://") {
-        Some(idx) if idx < at => idx + 3,
-        _ => return value.to_string(),
-    };
     let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..scheme_end]);
-    result.push_str("[redacted]@");
-    result.push_str(&value[at + 1..]);
+    let mut consumed = 0;
+    while let Some(at) = value[consumed..].find('@') {
+        let at_abs = consumed + at;
+        let before_at = &value[consumed..at_abs];
+        let Some(scheme_rel) = before_at.rfind("://") else {
+            let copy_to = at_abs + 1;
+            result.push_str(&value[consumed..copy_to]);
+            consumed = copy_to;
+            continue;
+        };
+        let userinfo = &before_at[scheme_rel + 3..];
+        if userinfo.chars().any(char::is_whitespace) {
+            let copy_to = at_abs + 1;
+            result.push_str(&value[consumed..copy_to]);
+            consumed = copy_to;
+            continue;
+        }
+        let scheme_end = consumed + scheme_rel + 3;
+        result.push_str(&value[consumed..scheme_end]);
+        result.push_str("[redacted]@");
+        consumed = at_abs + 1;
+    }
+    result.push_str(&value[consumed..]);
     result
 }
 
-/// Mask `user@host:` SSH userinfo when there is no `://` scheme.
+/// Mask `user@host:` SSH userinfo, scanning each `@` occurrence
+/// independently so an HTTPS URL elsewhere in the line does not create a
+/// blind spot for a separate SSH-style credential.
 fn redact_ssh_userinfo(value: &str) -> String {
-    let Some(at) = value.find('@') else {
-        return value.to_string();
-    };
-    if value.contains("://") {
-        return value.to_string();
-    }
-    let start = value[..at]
-        .rfind(|c: char| c.is_whitespace() || c == ':')
-        .map_or(0, |i| i + 1);
-    if start >= at || value[at..].find(':').is_none() {
-        return value.to_string();
-    }
     let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..start]);
-    result.push_str("[redacted]");
-    result.push_str(&value[at..]);
+    let mut consumed = 0;
+    while let Some(at) = value[consumed..].find('@') {
+        let at_abs = consumed + at;
+        let before_at = &value[..at_abs];
+        let after_at = &value[at_abs + 1..];
+        let host_end = after_at.find(char::is_whitespace).unwrap_or(after_at.len());
+        if scheme_precedes_at(before_at) || !after_at[..host_end].contains(':') {
+            let copy_to = at_abs + 1;
+            result.push_str(&value[consumed..copy_to]);
+            consumed = copy_to;
+            continue;
+        }
+        let start = before_at
+            .rfind(|c: char| c.is_whitespace() || c == ':')
+            .map_or(0, |i| i + 1);
+        if start >= at_abs || value[start..at_abs].starts_with("[redacted]") {
+            let copy_to = at_abs + 1;
+            result.push_str(&value[consumed..copy_to]);
+            consumed = copy_to;
+            continue;
+        }
+        result.push_str(&value[consumed..start]);
+        result.push_str("[redacted]@");
+        consumed = at_abs + 1;
+    }
+    result.push_str(&value[consumed..]);
     result
+}
+
+/// Whether a `://` URL scheme immediately precedes the `@` at the end of
+/// `before_at` (i.e. this `@` is URL userinfo already handled elsewhere).
+fn scheme_precedes_at(before_at: &str) -> bool {
+    // If there is a `://` with no path separator between it and the `@`, the
+    // `@` belongs to URL userinfo.
+    if let Some(scheme_idx) = before_at.rfind("://") {
+        let between = &before_at[scheme_idx + 3..];
+        // URL userinfo has no whitespace; if any whitespace separates the
+        // scheme from the `@`, the `@` is a separate context.
+        !between.chars().any(char::is_whitespace)
+    } else {
+        false
+    }
 }
 
 /// Mask raw Windows SIDs of the form `S-1-5-21-...`.
 fn redact_windows_sid(value: &str) -> String {
-    replace_first_pattern(value, "S-1-", |rest, _| {
+    replace_all_pattern(value, "S-1-", |rest, _| {
         let mut end = 0;
         for (idx, ch) in rest.char_indices() {
             if ch.is_ascii_digit() || ch == '-' {
@@ -88,7 +133,6 @@ fn redact_windows_sid(value: &str) -> String {
         }
         (end >= 4).then_some(end)
     })
-    .0
 }
 
 /// Mask GitHub PAT/OAuth/app/refresh/fine-grained token shapes.
@@ -102,7 +146,7 @@ fn redact_github_tokens(value: &str) -> String {
 
 /// Replace a `<prefix><token-char-run>` with the prefix plus `[redacted]`.
 fn replace_token_with_prefix(value: &str, prefix: &str) -> String {
-    let (out, _) = replace_first_pattern(value, prefix, |rest, _| {
+    replace_all_pattern(value, prefix, |rest, _| {
         let mut end = 0;
         for (idx, ch) in rest.char_indices() {
             if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -112,8 +156,7 @@ fn replace_token_with_prefix(value: &str, prefix: &str) -> String {
             }
         }
         (end >= 8).then_some(end)
-    });
-    out
+    })
 }
 
 /// Mask a `Bearer <token>` run, preserving the `Bearer` label.
@@ -217,12 +260,19 @@ fn is_credential_char(byte: u8) -> bool {
 }
 
 /// Whether a credential-character run looks like a secret (length + entropy).
+///
+/// Pure-hex runs that exactly match a Git SHA-1 (40 hex chars) or SHA-256
+/// (64 hex chars) commit/checksum are preserved because they are legitimate
+/// diagnostic data, not credentials. A bare hex run of any other length that
+/// is still 32+ chars is treated as a credential blob.
 fn is_credential_like(run: &str) -> bool {
     if run.len() < 32 {
         return false;
     }
     if run.chars().all(|c| c.is_ascii_hexdigit()) {
-        return true;
+        // Preserve common commit/checksum lengths so doctor reports stay
+        // actionable (e.g. `git rev-parse HEAD` output).
+        return !matches!(run.len(), 40 | 64);
     }
     let has_digit = run.chars().any(|c| c.is_ascii_digit());
     let has_alpha = run.chars().any(|c| c.is_ascii_alphabetic());
@@ -252,38 +302,44 @@ fn redact_posix_home(value: &str) -> String {
 }
 
 /// Replace `C:\Users\<user>` Windows profile paths with a structural marker.
+/// Every occurrence is redacted, not just the first.
 fn redact_windows_user_home(value: &str) -> String {
+    const PREFIX: &str = "users\\";
     let lower = value.to_ascii_lowercase();
-    let Some(idx) = lower.find("users\\") else {
-        return value.to_string();
-    };
-    let segment_start = idx + "users\\".len();
-    let segment_end = segment_end(value, segment_start);
-    if segment_end <= segment_start {
-        return value.to_string();
-    }
     let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..segment_start]);
-    result.push_str("[redacted-user]");
-    result.push_str(&value[segment_end..]);
+    let mut consumed = 0;
+    while let Some(relative) = lower[consumed..].find(PREFIX) {
+        let prefix_start = consumed + relative;
+        let segment_start = prefix_start + PREFIX.len();
+        let end = segment_end(value, segment_start);
+        if end <= segment_start {
+            break;
+        }
+        result.push_str(&value[consumed..segment_start]);
+        result.push_str("[redacted-user]");
+        consumed = end;
+    }
+    result.push_str(&value[consumed..]);
     result
 }
 
 /// Replace the path segment immediately following `prefix` with a redaction
-/// marker, preserving `prefix` itself.
+/// marker, preserving `prefix` itself. Every occurrence is redacted.
 fn replace_segment_after(value: &str, prefix: &str) -> String {
-    let Some(idx) = value.find(prefix) else {
-        return value.to_string();
-    };
-    let segment_start = idx + prefix.len();
-    let segment_end = segment_end(value, segment_start);
-    if segment_end <= segment_start {
-        return value.to_string();
-    }
     let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..segment_start]);
-    result.push_str("[redacted-user]");
-    result.push_str(&value[segment_end..]);
+    let mut consumed = 0;
+    while let Some(relative) = value[consumed..].find(prefix) {
+        let prefix_start = consumed + relative;
+        let segment_start = prefix_start + prefix.len();
+        let end = segment_end(value, segment_start);
+        if end <= segment_start {
+            break;
+        }
+        result.push_str(&value[consumed..segment_start]);
+        result.push_str("[redacted-user]");
+        consumed = end;
+    }
+    result.push_str(&value[consumed..]);
     result
 }
 
@@ -301,28 +357,43 @@ fn segment_end(value: &str, segment_start: usize) -> usize {
         }
 }
 
-/// Locate the first occurrence of `pattern` in `value` and, if `consume`
-/// returns a byte end offset, splice in `[redacted]` over `[start..end)`.
-fn replace_first_pattern(
+/// Repeatedly locate occurrences of `pattern` in `value` and, when `consume`
+/// returns a byte end offset, splice in `pattern` + `[redacted]` over
+/// `[start..end)`. Continues scanning after each redaction so every
+/// occurrence of a token/SID/credential is redacted, not just the first.
+fn replace_all_pattern(
     value: &str,
     pattern: &str,
     consume: impl Fn(&str, usize) -> Option<usize>,
-) -> (String, usize) {
-    let Some(start) = value.find(pattern) else {
-        return (value.to_string(), value.len());
-    };
-    let after_pattern = start + pattern.len();
-    let rest = &value[after_pattern..];
-    let Some(relative_end) = consume(rest, pattern.len()) else {
-        return (value.to_string(), value.len());
-    };
-    let absolute_end = after_pattern + relative_end;
+) -> String {
     let mut result = String::with_capacity(value.len());
-    result.push_str(&value[..start]);
-    result.push_str(pattern);
-    result.push_str("[redacted]");
-    result.push_str(&value[absolute_end..]);
-    (result, absolute_end)
+    let mut consumed = 0;
+    let mut search = &value[consumed..];
+    while let Some(relative_start) = search.find(pattern) {
+        let start = consumed + relative_start;
+        let after_pattern = start + pattern.len();
+        let tail = &value[after_pattern..];
+        let next_consumed = if let Some(relative_end) = consume(tail, pattern.len()) {
+            let absolute_end = after_pattern + relative_end;
+            result.push_str(&value[consumed..start]);
+            result.push_str(pattern);
+            result.push_str("[redacted]");
+            absolute_end
+        } else {
+            // Not a credential run; copy through the pattern and continue.
+            result.push_str(&value[consumed..after_pattern]);
+            after_pattern
+        };
+        consumed = next_consumed;
+        search = &value[consumed..];
+    }
+    if consumed < value.len() {
+        result.push_str(&value[consumed..]);
+    }
+    if result.is_empty() {
+        return value.to_string();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -364,10 +435,26 @@ mod tests {
 
     #[test]
     fn redacts_long_hex_credential() {
-        let raw = "credential: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+        // A 48-char hex run is not a standard commit/checksum length, so it is
+        // treated as a credential blob.
+        let raw = "credential: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c";
         let redacted = redact_value(raw);
         assert!(!redacted.contains("9f86d081"));
         assert!(redacted.contains("credential"));
+    }
+
+    #[test]
+    fn preserves_sha1_and_sha256_hex_lengths() {
+        // 40-char (SHA-1) and 64-char (SHA-256) hex runs are legitimate
+        // commit/checksum data and must not be redacted.
+        let sha1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert_eq!(redact_value(sha1), sha1, "SHA-1 commit hash must survive");
+        assert_eq!(
+            redact_value(sha256),
+            sha256,
+            "SHA-256 checksum must survive"
+        );
     }
 
     #[test]

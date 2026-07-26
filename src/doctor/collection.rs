@@ -344,7 +344,11 @@ fn collect_long_path(findings: &mut Vec<DiagnosticFinding>) {
 fn long_path_length_warning(path: &std::path::Path) -> Option<String> {
     const MAX_PATH: usize = 260;
     const WARN_THRESHOLD: usize = 240;
-    let len = path.to_string_lossy().len();
+    // Windows MAX_PATH is defined in UTF-16 code units (WCHARs), not UTF-8
+    // bytes. Measuring with `to_string_lossy().len()` would over-count
+    // non-ASCII characters (e.g. a CJK char is 3 UTF-8 bytes but 1 WCHAR),
+    // producing false-positive warnings. Count UTF-16 code units instead.
+    let len = path_utf16_unit_count(path);
     if len >= MAX_PATH {
         Some(format!(
             "config directory path length {len} reaches or exceeds Windows MAX_PATH ({MAX_PATH})"
@@ -356,6 +360,17 @@ fn long_path_length_warning(path: &std::path::Path) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Count the number of UTF-16 code units required to encode `path`.
+///
+/// Windows path limits are expressed in WCHAR (UTF-16 code unit) counts, so
+/// this is the correct unit for comparing against `MAX_PATH`. Measuring with
+/// `to_string_lossy().len()` (UTF-8 bytes) would over-count non-ASCII
+/// characters (e.g. a CJK character is 3 UTF-8 bytes but 1 WCHAR), producing
+/// false-positive warnings. Returns 0 for the empty path.
+fn path_utf16_unit_count(path: &std::path::Path) -> usize {
+    path.to_string_lossy().encode_utf16().count()
 }
 
 /// The platform label for the report.
@@ -374,4 +389,34 @@ fn platform_label() -> String {
 /// The architecture label for the report.
 fn arch_label() -> String {
     std::env::consts::ARCH.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utf16_unit_count_matches_ascii_byte_length() {
+        // ASCII paths have identical UTF-8 byte and UTF-16 unit counts, so the
+        // helper must not inflate the length for the common case.
+        let path = std::path::Path::new(r"C:\Users\someone\.config\jefe");
+        assert_eq!(path_utf16_unit_count(path), path.to_string_lossy().len());
+    }
+
+    #[test]
+    fn utf16_unit_count_uses_wchar_units_not_utf8_bytes() {
+        // A CJK character is 3 UTF-8 bytes but 1 UTF-16 code unit. Windows
+        // MAX_PATH is defined in WCHARs, so the helper must count 1 per CJK
+        // character, not 3. This guards against false-positive long-path
+        // warnings for non-ASCII profile directories.
+        let path = std::path::Path::new("/home/\u{4e2d}\u{6587}/jefe");
+        let utf16_units = path_utf16_unit_count(path);
+        let utf8_bytes = path.to_string_lossy().len();
+        assert!(
+            utf16_units < utf8_bytes,
+            "UTF-16 unit count ({utf16_units}) must be smaller than the UTF-8 byte count ({utf8_bytes}) for non-ASCII paths"
+        );
+        // The two CJK characters contribute 2 units, not 6 bytes.
+        assert_eq!(utf16_units, utf8_bytes - 4);
+    }
 }

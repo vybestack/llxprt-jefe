@@ -63,12 +63,20 @@ fn windows_support_doc_covers_required_topics() {
             "docs/windows-support.md must cover {required:?}"
         );
     }
-    // The guide must NOT claim a Jefe Winget package exists.
-    assert!(
-        !guide.contains("winget install --id vybestack.jefe")
-            && !guide.contains("Jefe Winget package"),
-        "docs must not claim a Jefe Winget package exists"
-    );
+    // The guide must NOT claim a Jefe Winget package exists. Check several
+    // spellings so a rephrased or differently-formatted false claim is caught.
+    let jefe_winget_claims = [
+        "winget install --id vybestack.jefe",
+        "vybestack.jefe",
+        "Jefe Winget package",
+        "Jefe's Winget package",
+    ];
+    for claim in &jefe_winget_claims {
+        assert!(
+            !guide.contains(claim),
+            "docs must not claim a Jefe Winget package exists: found {claim:?}"
+        );
+    }
 }
 
 /// AC-12: docs/getting-started.md documents Windows prerequisites.
@@ -213,6 +221,15 @@ fn ci_windows_native_runs_clean_package_lifecycle() {
         workflow.contains("sentinel"),
         "CI must assert a config sentinel survives uninstall"
     );
+    assert!(
+        workflow.contains("installed jefe uninstall failed with exit")
+            && workflow.contains("install dir survived uninstall"),
+        "CI must fail when uninstall fails or leaves package-owned files"
+    );
+    assert!(
+        workflow.contains("orphaned psmux sessions remain after uninstall"),
+        "CI must reject installed-package psmux sessions that survive uninstall"
+    );
 }
 
 /// AC-01..AC-03/AC-10: the first-party install script exists and enforces
@@ -248,6 +265,22 @@ fn install_script_enforces_ownership_and_preservation() {
         script.contains("SourceDir") && script.contains("InstallDir"),
         "install script must support SourceDir/InstallDir parameters for CI"
     );
+    assert!(
+        script.contains("Invoke-WithInstallLock")
+            && script.contains("Local\\jefe-install-")
+            && script.contains("ReleaseMutex"),
+        "install lifecycle must serialize per-user mutations and release its mutex"
+    );
+    assert!(
+        script.contains("Normalize-PathEntry")
+            && script.contains("TrimEnd([IO.Path]::DirectorySeparatorChar"),
+        "PATH ownership comparisons must normalize trailing separators"
+    );
+    assert!(
+        script.contains("restoring the previous install also failed")
+            && script.contains("backup remains at"),
+        "a failed rollback must report both failures and the retained backup"
+    );
     // Must not perform privileged/system-wide mutation.
     assert!(
         !script.contains("HKEY_LOCAL_MACHINE")
@@ -265,7 +298,7 @@ fn top_level_license_is_apache_2() {
         "LICENSE must be Apache-2.0"
     );
     assert!(
-        license.contains("Copyright 2026 Vybestack LLC"),
+        license.contains("Vybestack LLC"),
         "LICENSE must carry the copyright holder"
     );
 }

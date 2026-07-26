@@ -10,8 +10,9 @@
 //! - `doctor` is a first-class subcommand recognised by the hand-written parser.
 //! - It accepts the existing global `--config <dir>` / `-c <dir>` flag (and the
 //!   `=` forms) so diagnostics can target an isolated config/state directory.
-//! - It rejects positional operands, repeated `--config`, and any unsupported
-//!   option. In particular there is no `--json` and no `--copy` (non-goals).
+//!   Like the global parser, a repeated `--config` takes the last value.
+//! - It rejects positional operands and any unsupported option. In particular
+//!   there is no `--json` and no `--copy` (non-goals).
 
 use std::path::PathBuf;
 

@@ -349,17 +349,27 @@ jobs:
           New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
           $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
           $installedJefe = Join-Path $installDir 'jefe.exe'
+          $namespace = "jefe-pkg-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           & $harness `
             --scenario dev-docs/tmux-scenarios/startup-quit.json `
             --jefe-bin $installedJefe `
             --config $config `
             --working-dir $working `
-            --session "jefe-pkg-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
+            --session $namespace `
             --out-dir $artifacts 2>&1 |
             Tee-Object -FilePath target/windows-ci/installed-psmux-startup.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir 2>&1 |
             Tee-Object -FilePath target/windows-ci/psmux-uninstall.log
+          if ($LASTEXITCODE -ne 0) { throw "installed jefe uninstall failed with exit $LASTEXITCODE" }
+          if (Test-Path $installDir) { throw 'installed jefe install dir survived uninstall' }
+          # Verify no psmux sessions from this package's namespace survive uninstall.
+          if (Test-Path -LiteralPath env:JEFE_PSMUX_BIN) {
+            $remaining = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
+            if (($LASTEXITCODE -eq 0) -and $remaining) {
+              throw "orphaned psmux sessions remain after uninstall: $remaining"
+            }
+          }
       - name: Clean package lifecycle residue
         if: always()
         continue-on-error: true
@@ -380,7 +390,8 @@ jobs:
           $recordedNamespace = $false
           $detailsFiles = @(
             'target/tmux-harness/windows-startup/multiplexer.txt',
-            'target/tmux-harness/windows-renderer/multiplexer.txt'
+            'target/tmux-harness/windows-renderer/multiplexer.txt',
+            'target/tmux-harness/windows-installed-startup/multiplexer.txt'
           )
           foreach ($details in $detailsFiles) {
             if (Test-Path $details) {

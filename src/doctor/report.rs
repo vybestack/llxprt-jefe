@@ -27,8 +27,10 @@ pub struct DoctorReport {
 impl DoctorReport {
     /// Construct a report from baked-in identity metadata and findings.
     ///
-    /// Returns an error only if the version/commit strings are empty, since a
-    /// report missing its identity metadata cannot satisfy AC-04.
+    /// Returns an error only if the version string is empty. The commit string
+    /// may be empty in development builds without `JEFE_GIT_COMMIT`; the
+    /// renderer surfaces that as `unavailable` rather than fabricating a value,
+    /// satisfying AC-04's "unavailable commit is explicitly reported" contract.
     pub fn new(
         version: String,
         commit: String,
@@ -134,38 +136,43 @@ fn write_header(out: &mut String, _report: &DoctorReport) {
 fn write_identity(out: &mut String, report: &DoctorReport) {
     let _ = writeln!(out);
     let _ = writeln!(out, "Jefe version : {}", report.version());
-    let _ = writeln!(out, "Git commit   : {}", report.commit());
+    // AC-04: an unavailable commit is explicitly reported as unavailable,
+    // never blank or fabricated, so a report attached to an issue is truthful.
+    let commit = report.commit();
+    let commit_label = if commit.trim().is_empty() {
+        "unavailable"
+    } else {
+        commit
+    };
+    let _ = writeln!(out, "Git commit   : {commit_label}");
     let _ = writeln!(out, "Platform     : {}", report.platform());
     let _ = writeln!(out, "Architecture : {}", report.arch());
 }
 
-/// Write one section per finding, redacting each detail before output.
+/// Write one section per finding kind present in the report, redacting each
+/// detail before output. Only kinds that have at least one finding produce a
+/// section, so every section header is followed by at least one finding line.
 fn write_findings(out: &mut String, report: &DoctorReport) {
     let kinds = ordered_section_kinds(report.findings());
     for kind in kinds {
         let _ = writeln!(out);
         let _ = writeln!(out, "{}", kind.label());
-        let wrote_any = write_kind_findings(out, report, kind);
-        if !wrote_any {
-            let _ = writeln!(out, "  (no probe ran for this section)");
-        }
+        write_kind_findings(out, report, kind);
     }
 }
 
-/// Write all findings of `kind`, redacting each detail. Returns whether any
-/// finding was written.
-fn write_kind_findings(out: &mut String, report: &DoctorReport, kind: FindingKind) -> bool {
-    let mut wrote = false;
+/// Write all findings of `kind`, redacting each detail.
+fn write_kind_findings(out: &mut String, report: &DoctorReport, kind: FindingKind) {
     for finding in report.findings().iter().filter(|f| f.kind() == kind) {
         let detail = redact_value(finding.detail());
         let _ = writeln!(out, "  [{}] {}", finding.status().marker(), detail);
-        wrote = true;
     }
-    wrote
 }
 
-/// The stable ordering of section kinds present in the report's findings,
-/// followed by the canonical ordering for kinds that have no finding yet.
+/// The stable ordering of section kinds present in the report's findings.
+///
+/// Only kinds that have at least one finding appear, in canonical order. Kinds
+/// with no finding are omitted, so every emitted section is non-empty.
 fn ordered_section_kinds(findings: &[DiagnosticFinding]) -> Vec<FindingKind> {
     let canonical = [
         FindingKind::Multiplexer,

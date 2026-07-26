@@ -51,7 +51,7 @@ impl LongPathPolicy {
                 .skip(2)
                 .take_while(char::is_ascii_hexdigit)
                 .collect::<String>();
-            if value == "1" || value == "0x1" {
+            if value == "1" {
                 return Self::Enabled;
             }
             if !value.is_empty() {
@@ -163,13 +163,22 @@ fn os_version_label() -> String {
 
 /// Read the `LongPathsEnabled` registry policy via a bounded `reg.exe` query.
 ///
-/// Returns `None` when the value or key is absent, `Some(true)` when enabled,
-/// and `Some(false)` when explicitly disabled. This performs a bounded child
-/// process invocation and parses its textual output through [`LongPathPolicy`].
+/// Returns `Ok(None)` when the value or key is absent, `Ok(Some(true))` when
+/// enabled, and `Ok(Some(false))` when explicitly disabled. Returns `Err` when
+/// `reg.exe` cannot be launched or its output cannot be captured (e.g.
+/// permission denied, missing binary), so a launch failure is distinguishable
+/// from an absent policy rather than collapsing into `Missing`. This performs a
+/// bounded child process invocation and parses its textual output through
+/// [`LongPathPolicy`].
 ///
 /// No new dependency is introduced; `reg.exe` is a standard Windows binary.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] when the registry query process
+/// itself cannot be spawned or its output cannot be collected.
 #[cfg(windows)]
-pub fn read_long_paths_enabled() -> Option<bool> {
+pub fn read_long_paths_enabled() -> Result<Option<bool>, std::io::Error> {
     let output = std::process::Command::new("reg")
         .args([
             "query",
@@ -177,29 +186,35 @@ pub fn read_long_paths_enabled() -> Option<bool> {
             "/v",
             "LongPathsEnabled",
         ])
-        .output()
-        .ok()?;
+        .output()?;
     if !output.status.success() {
-        return None;
+        return Ok(None);
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     match LongPathPolicy::classify(&stdout) {
-        LongPathPolicy::Enabled => Some(true),
-        LongPathPolicy::Disabled => Some(false),
-        LongPathPolicy::Missing => None,
+        LongPathPolicy::Enabled => Ok(Some(true)),
+        LongPathPolicy::Disabled => Ok(Some(false)),
+        LongPathPolicy::Missing => Ok(None),
     }
 }
 
 /// Build the Windows long-path finding by reading the live registry policy.
 ///
-/// On non-Windows targets this is never called; the collector emits a
-/// not-applicable warning instead.
+/// A registry-query launch failure is reported as a `CommandError` finding so
+/// it is not confused with an absent policy; an absent policy remains a
+/// non-blocking warning. On non-Windows targets this is never called; the
+/// collector emits a not-applicable warning instead.
 #[cfg(windows)]
 pub fn windows_long_path_finding() -> DiagnosticFinding {
     match read_long_paths_enabled() {
-        Some(true) => long_path_finding(LongPathPolicy::Enabled),
-        Some(false) => long_path_finding(LongPathPolicy::Disabled),
-        None => long_path_finding(LongPathPolicy::Missing),
+        Ok(Some(true)) => long_path_finding(LongPathPolicy::Enabled),
+        Ok(Some(false)) => long_path_finding(LongPathPolicy::Disabled),
+        Ok(None) => long_path_finding(LongPathPolicy::Missing),
+        Err(error) => DiagnosticFinding::new(
+            FindingKind::LongPath,
+            DiagnosticStatus::CommandError,
+            format!("could not query LongPathsEnabled policy: {error}"),
+        ),
     }
 }
 

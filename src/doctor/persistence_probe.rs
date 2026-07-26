@@ -33,14 +33,23 @@ pub enum PersistenceProbeOutcome {
 /// # Errors
 ///
 /// Returns an error only when the filesystem itself cannot be queried
-/// (e.g. a permission-denied metadata read). Normal writability failures map
-/// to [`PersistenceProbeOutcome::NotWritable`], not `Err`.
+/// (e.g. a permission-denied metadata read). A directory that exists but is
+/// inaccessible must not be reported `Absent`, since that would mislead the
+/// user into believing initialization will succeed; such a stat failure is
+/// surfaced as `Err` instead. Normal writability failures map to
+/// [`PersistenceProbeOutcome::NotWritable`], not `Err`.
 pub fn probe_persistence(dir: &Path) -> Result<PersistenceProbeOutcome, std::io::Error> {
-    if !dir.exists() {
-        return Ok(PersistenceProbeOutcome::Absent);
-    }
-    if !dir.is_dir() {
-        return Ok(PersistenceProbeOutcome::NotWritable);
+    // Use `metadata` rather than the bool `exists`/`is_dir` helpers so a stat
+    // failure (e.g. permission denied) is distinguishable from a genuinely
+    // missing path. `exists` swallows all errors into `false`, which would
+    // report an unreadable directory as `Absent`.
+    match std::fs::metadata(dir) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => return Ok(PersistenceProbeOutcome::NotWritable),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(PersistenceProbeOutcome::Absent);
+        }
+        Err(error) => return Err(error),
     }
     match write_transient_probe(dir) {
         Ok(()) => Ok(PersistenceProbeOutcome::Writable),

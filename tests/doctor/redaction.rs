@@ -38,7 +38,7 @@ fn assert_redacted(raw: &str, fixture: &str) -> String {
 }
 
 #[test]
-fn redacts_windows_username_in_sid_style_path() {
+fn redacts_windows_username_in_user_home_path() {
     // `C:\Users\acoli\...` exposes the local account name.
     let raw = r"C:\Users\acoli\AppData\Local\jefe";
     let redacted = assert_redacted(raw, "acoli");
@@ -160,11 +160,12 @@ fn redacts_secret_environment_variable_value() {
 
 #[test]
 fn redacts_generic_long_hex_credential() {
-    // A long hex/random credential blob with no scheme should still be masked.
-    let raw = "credential: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+    // A 48-char hex credential blob (not a standard commit/checksum length)
+    // with no scheme should still be masked.
+    let raw = "credential: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c";
     let redacted = assert_redacted(
         raw,
-        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c",
     );
     assert!(
         redacted.contains("credential"),
@@ -202,5 +203,152 @@ fn redaction_preserves_purely_structural_content() {
     assert_eq!(
         redacted, raw,
         "non-sensitive structural content must be preserved verbatim"
+    );
+}
+
+// ── Post-PR OCR hardening (issue #264): multiple occurrences, mixed
+//    HTTPS+SSH contexts, userinfo boundary correctness, and legitimate
+//    commit/checksum preservation. ────────────────────────────────────────
+
+#[test]
+fn redacts_every_occurrence_of_a_token_not_just_the_first() {
+    // Two distinct GitHub tokens in one line must both be redacted.
+    let raw = "primary ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD and secondary ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"),
+        "both token occurrences must be redacted: {redacted:?}"
+    );
+    assert!(
+        redacted.matches("[redacted]").count() >= 2,
+        "expected at least two redaction markers: {redacted:?}"
+    );
+}
+
+#[test]
+fn redacts_multiple_home_paths_in_one_line() {
+    let raw = "config at /home/alice/.config and state at /home/bob/.local";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("alice"),
+        "alice must be redacted: {redacted:?}"
+    );
+    assert!(
+        !redacted.contains("bob"),
+        "bob must be redacted: {redacted:?}"
+    );
+}
+
+#[test]
+fn redacts_multiple_raw_sids_in_one_line() {
+    let raw = "owner S-1-5-21-3623811015-3361044348-30300820-1001 and group S-1-5-21-3623811015-3361044348-30300820-1002";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("S-1-5-21-3623811015-3361044348-30300820-1001"),
+        "first SID must be redacted: {redacted:?}"
+    );
+    assert!(
+        !redacted.contains("S-1-5-21-3623811015-3361044348-30300820-1002"),
+        "second SID must be redacted: {redacted:?}"
+    );
+}
+
+#[test]
+fn mixed_https_and_ssh_contexts_both_redacted() {
+    // A line with both an HTTPS URL with userinfo AND a separate SSH-style
+    // reference must redact both credentials while preserving both hosts.
+    let raw = "https://alice@github.com/acme/widgets.git and git@github.com:acme/widgets.git";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("alice@"),
+        "HTTPS userinfo must be redacted in mixed context: {redacted:?}"
+    );
+    assert!(
+        !redacted.contains("git@github.com"),
+        "SSH userinfo must be redacted in mixed context: {redacted:?}"
+    );
+    // Both host references must remain actionable.
+    assert!(
+        redacted.matches("github.com").count() >= 2,
+        "both hosts must survive redaction: {redacted:?}"
+    );
+}
+
+#[test]
+fn redacts_ssh_userinfo_even_when_an_https_url_also_present() {
+    // The SSH redactor must not short-circuit when a `://` scheme appears
+    // elsewhere in the line.
+    let raw = "origin: https://github.com/a/b.git (also git@github.com:a/b.git)";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("git@github.com"),
+        "SSH userinfo must be redacted despite co-occurring HTTPS URL: {redacted:?}"
+    );
+}
+
+#[test]
+fn redacts_multiple_url_userinfo_occurrences() {
+    let raw = "https://alice@github.com/a and https://bob@example.com/b";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("alice@"),
+        "first URL userinfo leaked: {redacted:?}"
+    );
+    assert!(
+        !redacted.contains("bob@"),
+        "second URL userinfo leaked: {redacted:?}"
+    );
+    assert!(redacted.contains("github.com/a"));
+    assert!(redacted.contains("example.com/b"));
+}
+
+#[test]
+fn redacts_multiple_ssh_userinfo_occurrences() {
+    let raw = "git@github.com:a/b.git and deploy@example.com:c/d.git";
+    let redacted = redact_value(raw);
+    assert!(
+        !redacted.contains("git@"),
+        "first SSH userinfo leaked: {redacted:?}"
+    );
+    assert!(
+        !redacted.contains("deploy@"),
+        "second SSH userinfo leaked: {redacted:?}"
+    );
+    assert!(redacted.contains("github.com:a/b.git"));
+    assert!(redacted.contains("example.com:c/d.git"));
+}
+
+#[test]
+fn preserves_sha1_commit_hash() {
+    // A 40-character hex SHA-1 commit hash is legitimate diagnostic data,
+    // not a credential, and must remain visible.
+    let raw = "HEAD commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let redacted = redact_value(raw);
+    assert!(
+        redacted.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a 40-char SHA-1 commit hash must not be redacted: {redacted:?}"
+    );
+}
+
+#[test]
+fn preserves_sha256_checksum() {
+    // A 64-character hex SHA-256 checksum is legitimate diagnostic data and
+    // must remain visible.
+    let raw = "sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    let redacted = redact_value(raw);
+    assert!(
+        redacted.contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        "a 64-char SHA-256 checksum must not be redacted: {redacted:?}"
+    );
+}
+
+#[test]
+fn preserves_sha1_commit_hash_with_short_label() {
+    // Common diagnostic form: "commit <40-hex>".
+    let raw = "commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let redacted = redact_value(raw);
+    assert!(
+        redacted.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "a commit hash after the word 'commit' must not be redacted: {redacted:?}"
     );
 }

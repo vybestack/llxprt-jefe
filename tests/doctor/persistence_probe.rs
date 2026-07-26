@@ -127,6 +127,23 @@ fn probe_existing_directory_is_not_reported_absent() {
     );
 }
 
+#[test]
+fn probe_regular_file_is_not_reported_absent() {
+    // A non-directory entry must never be misclassified as Absent. This pins
+    // that the probe distinguishes a stat-success non-directory from a
+    // genuinely missing path, rather than collapsing everything a bool
+    // `exists()` check cannot describe into Absent.
+    let dir = tempfile::tempdir().test_unwrap("create tempdir for file entry");
+    let file_path = dir.path().join("not-a-dir");
+    std::fs::write(&file_path, b"x").test_unwrap("seed regular file");
+    let outcome = probe_persistence(&file_path).test_unwrap("probe regular file path");
+    assert_eq!(
+        outcome,
+        PersistenceProbeOutcome::NotWritable,
+        "a non-directory entry must be reported NotWritable, never Absent"
+    );
+}
+
 /// Recursively collect the sorted set of relative entry paths under `dir`.
 /// Used to prove a probe leaves the directory tree structurally unchanged.
 fn list_dir_entries(dir: &std::path::Path) -> Vec<String> {

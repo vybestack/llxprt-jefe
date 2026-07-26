@@ -4,7 +4,7 @@
 - Branch: `issue264`
 - Base: `origin/main` at `20f6e76`
 - Issue state: open
-- Review counters: OCR pre-PR 1/2, OCR post-PR 0/2
+- Review counters: OCR pre-PR 1/2, OCR post-PR 1/2
 - Delivery shape: one issue-closing pull request, explicitly approved by the
   maintainer despite crossing the CLI, diagnostic/process, persistence, Windows
   runtime, release automation, documentation, and CI ownership boundaries.
@@ -177,6 +177,103 @@ positives.
 OCR pre-PR runs: 1/2. The bounded review found no blockers. Its two deferred
 hardening suggestions—remove duplicate owned PATH entries and normalize Windows
 checksum line endings—were small, in-scope fixes and are resolved.
+
+### OCR post-PR run 1/2 (artifact target/ocr-30211933113/ocr-result.json, 32 findings)
+
+Exhaustive finding dispositions (by OCR index → file/path → classification):
+
+**Blocker-Fix / In-scope-Fix (implemented, test-first):**
+
+| # | Path / line | Finding | Disposition |
+|---|---|---|---|
+| 4 | ci.yml:361-362 | installed-package uninstall exit not checked; install dir not verified removed | **In-scope-Fix**: added `$LASTEXITCODE` check + `Test-Path $installDir` throw after installed-package uninstall |
+| 6 | ci.yml:352-362 | installed-package psmux namespace not in orphan-evidence scan | **In-scope-Fix**: namespace captured to `$namespace`; post-uninstall `list-sessions` orphan check added; `windows-installed-startup/multiplexer.txt` added to the "Record remaining owned psmux sessions" scan |
+| 7 | jefe-install.ps1:239-243 | no concurrency protection | **In-scope-Fix**: added `Invoke-WithInstallLock` named-mutex (derived from InstallDir) around Install/Upgrade/Uninstall |
+| 8/23 | jefe-install.ps1:191-193 | rollback `Move-Item -ErrorAction SilentlyContinue` hides restoration failure | **In-scope-Fix**: restoration now uses `-ErrorAction Stop` and emits `Write-Warning` on failure |
+| 9 | jefe-install.ps1:84-90 | PATH operands not normalized for trailing separators | **In-scope-Fix**: added `Normalize-PathEntry`; `Test-UserPathEntry` and `Remove-JefeUserPath` compare normalized forms |
+| 11 | collection.rs:344-359 | `long_path_length_warning` uses UTF-8 byte count, not UTF-16 units | **In-scope-Fix**: extracted `path_utf16_unit_count` using `encode_utf16().count()`; 2 unit tests pin WCHAR semantics |
+| 13 | persistence_probe.rs:38-44 | `exists()`/`is_dir()` swallow metadata errors → inaccessible dir misreported Absent | **In-scope-Fix**: switched to `std::fs::metadata`; NotFound → Absent, other stat errors → Err; added integration test |
+| 14 | report.rs:30-49 | doc comment claims commit validated; only version is | **In-scope-Fix**: doc comment corrected to describe actual validation; renderer now displays empty commit as `unavailable` (AC-04) with test |
+| 15 | report.rs:167-188 | `ordered_section_kinds` doc misleading; `(no probe ran)` branch dead | **In-scope-Fix**: doc corrected; dead branch removed; `write_kind_findings` no longer returns bool |
+| 21 | windows_probe.rs:49-56 | dead `value == "0x1"` comparison after `.skip(2)` | **In-scope-Fix**: removed dead comparison |
+| 22 | windows_probe.rs:173-181 | `.ok()?` collapses reg.exe launch error into Missing | **In-scope-Fix**: `read_long_paths_enabled` returns `Result<Option<bool>, io::Error>`; launch failure → CommandError finding distinct from absent policy |
+| 27 | windows_support_contracts.rs:267-270 | license-year hardcoded (2026) | **In-scope-Fix**: asserts copyright holder + Apache-2.0, not a specific year |
+| 28 | windows_support_contracts.rs:67-71 | Jefe-Winget negative assertion too narrow | **In-scope-Fix**: checks multiple spellings (`vybestack.jefe`, `Jefe Winget package`, `Jefe's Winget package`) |
+| 29 | tests/doctor/cli.rs:13-14 | module comment claims doctor rejects repeated `--config`; no test; global parser accepts it | **In-scope-Fix**: comment corrected to match global "last value wins" behavior |
+| 30 | tests/doctor/report.rs:183-209 | `report_applies_redaction_to_findings` tautological fallback | **In-scope-Fix**: asserts the exact redacted label, removing the `contains("config") \|\| contains("home")` fallback |
+| 31 | tests/doctor/report.rs:211-228 | `report_renders_a_finding_status_marker` only checks inequality | **In-scope-Fix**: asserts concrete markers `[x]`/`[+]` with detail text |
+| 32 | tests/doctor/redaction.rs:41 | test name says "sid_style_path" but tests user home | **In-scope-Fix**: renamed to `redacts_windows_username_in_user_home_path` |
+
+**Already addressed locally (prior agent; reviewed sound):**
+
+| # | Path | Finding | Disposition |
+|---|---|---|---|
+| 18 | redaction.rs:42-49 | `redact_url_userinfo` spans-corrupts mixed HTTPS+SSH | **Resolved locally**: bounded per-`@` scheme-context scan handles every URL occurrence; focused mixed and multiple-URL tests pass |
+| 19 | redaction.rs:58-64 | `redact_ssh_userinfo` short-circuits on any `://` | **Resolved locally**: per-`@` independent SSH scan handles every SSH occurrence while skipping already-redacted URL userinfo; focused mixed and multiple-SSH tests pass |
+| 20 | redaction.rs:306-310 | `replace_first_pattern` redacts only first occurrence | **Resolved locally**: replaced by `replace_all_pattern`; multiple-token/SID/home tests pass |
+
+**Reject / Defer:**
+
+| # | Path | Finding | Disposition |
+|---|---|---|---|
+| 1 | release.yml:9-10 | workflow-level `permissions: contents: write` | **Reject**: pre-existing on origin/main; not introduced by this issue |
+| 2 | release.yml (actions) | third-party actions use mutable tags | **Reject**: pre-existing on origin/main; pinning is a repo-wide supply-chain follow-up, not issue-scoped |
+| 3 | release.yml:16-18 | no `timeout-minutes` on build/publish jobs | **Reject**: pre-existing on origin/main; not issue-introduced |
+| 5 | ci.yml:371-373 | cleanup skips uninstall when marker absent | **Reject**: OCR suggests `Remove-Item -Recurse` of an unowned dir when marker absent — violates the ownership-marker refusal and the "never recursively delete an unowned install directory" directive; the existing `continue-on-error` cleanup is the safe contract |
+| 10 | cli.rs:130-136 | `parse_doctor_flags` takes `Peekable` but never peeks | **Defer**: low-severity maintainability; relaxing the bound is cosmetic and not required by any caller |
+| 12 | collection.rs:47-55 | `build_report` copies via `to_vec()` | **Defer**: micro-optimization, not a correctness or security issue |
+| 16 | types.rs:94-98 | `DiagnosticFinding::detail` accepts plain `String` (no compile-time RedactedString) | **Reject/Defer**: `render_report` is the output boundary and applies `redact_value` to every detail with tests proving no leak; a public `RedactedString` newtype is a public-subsystem expansion with no demonstrated bypass |
+| 17 | types.rs:123-125 | `detail()` doc comment wording | **Defer**: the redaction-via-renderer design is intentional and tested; comment rewording is cosmetic |
+| 24 | windows_probe.rs:126-135 | `console_host_label` allocates `String` for static content | **Defer**: micro-optimization; `Cow<'static, str>` would complicate the evidence builder for no behavioral gain |
+| 25 | windows_support_contracts.rs:155-163 | YAML step parsed via substring `find()` | **Reject**: introducing a YAML parser (`serde_yaml`) is a dependency expansion; the substring contract is a deliberate brittle-by-design gate on the exact packaging step |
+| 26 | windows_support_contracts.rs (general) | docs contracts use exact `contains()` | **Reject**: these are intentional durable-contract gates on exact documented commands; normalization would weaken the signal |
+
+**Coverage:** all32 OCR findings accounted for above (18 In-scope-Fix/Blocker-Fix/resolved-locally, 14 Reject/Defer).
+
+## Verification evidence (post-PR OCR remediation)
+
+Local verification run on the issue264 branch after the post-PR OCR fixes
+(Windows host; post-change CI is **not** claimed here):
+
+- `cargo fmt --all` — applied; `cargo fmt --all --check` clean.
+- `cargo test --test doctor` — 79 passed; 0 failed (includes persistence
+  metadata-path distinction, empty-commit-as-unavailable rendering, and
+  multiple-occurrence URL/SSH redaction coverage; strengthened redaction-marker
+  and status-marker tests replaced weaker forms).
+- `cargo test --lib doctor::` — 26 passed; 0 failed (includes the 2 new
+  `path_utf16_unit_count` WCHAR-semantics unit tests).
+- `cargo test --test cli` — 15 passed; 0 failed.
+- `cargo test --test integration -- windows_support_contracts` — 10 passed;
+  0 failed (license-year and Jefe-Winget assertions updated).
+- `cargo clippy --workspace --all-targets --all-features` with
+  `CLIPPY_CONF_DIR=.github/clippy` (stable Clippy) — 0 warnings, 0 errors.
+- PowerShell parser validation of `scripts/jefe-install.ps1` — no parse errors
+  (mutex lock, PATH normalization, rollback restoration).
+- `git diff --check` — clean (no whitespace errors).
+- `scripts/check-source-file-size.sh` — passed with repository soft warnings only.
+- `cargo build --workspace --all-features --locked` — passed.
+- `cargo test --workspace --all-features --locked` — passed with
+  `PSMUX_SESSION`, `PSMUX_TARGET_SESSION`, and `PSMUX_CLAUDE_TEAMMATE_MODE`
+  removed and `RUST_TEST_THREADS=1`; inherited process variables were restored
+  after the run.
+- Canonical `make ci-check` could not be invoked directly because GNU Make is
+  unavailable on this Windows host. Its format, source-size, strict Clippy,
+  complexity Clippy, locked build, and locked test gates were run individually
+  and passed. The Python-backed Clippy-allow policy and llvm-cov coverage gates
+  remain exact-head GitHub CI responsibilities on the corrective push.
+
+Unresolved / deferred items:
+
+- The compile-time `RedactedString` newtype (OCR #16/#17) is classified
+  Reject/Defer: `render_report` is the output boundary and applies
+  `redact_value` to every finding detail with tests proving no leak; no actual
+  bypass was found. Promoting redaction into a public type would expand the
+  public subsystem surface.
+- Workflow-level release permissions/pins/timeouts (OCR #1/#2/#3) and the
+  `serde_yaml` doc-parser suggestion (OCR #25/#26) are pre-existing on
+  `origin/main` and/or dependency-expanding, so they are rejected as
+  out-of-scope for this issue.
+- Changes are uncommitted and not pushed; no commit or PR interaction performed.
 
 ## Verification evidence
 

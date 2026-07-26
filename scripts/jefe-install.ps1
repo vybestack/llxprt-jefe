@@ -81,12 +81,26 @@ function Read-OwnerMetadata([string]$Directory) {
     return $metadata
 }
 
+function Normalize-PathEntry([string]$Entry) {
+    # PATH entries from the registry may carry a trailing directory separator
+    # that $InstallDir is normalized to remove. Trim separators from both
+    # sides of every comparison so an entry like `C:\...\jefe` matches
+    # `C:\...\jefe` and uninstall does not leave a stale PATH reference.
+    return $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+
 function Test-UserPathEntry([string]$Entry) {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     if (-not $userPath) {
         return $false
     }
-    return @($userPath -split ';') -contains $Entry
+    $normalized = Normalize-PathEntry $Entry
+    foreach ($existing in @($userPath -split ';')) {
+        if ((Normalize-PathEntry $existing) -eq $normalized) {
+            return $true
+        }
+    }
+    return $false
 }
 
 function Add-JefeUserPath {
@@ -105,10 +119,11 @@ function Remove-JefeUserPath {
     if (-not $userPath) {
         return
     }
+    $normalized = Normalize-PathEntry $InstallDir
     $entries = [Collections.Generic.List[string]]::new()
     $removed = $false
     foreach ($entry in @($userPath -split ';')) {
-        if ($entry -eq $InstallDir) {
+        if ((Normalize-PathEntry $entry) -eq $normalized) {
             $removed = $true
             continue
         }
@@ -188,11 +203,19 @@ function Publish-Jefe([bool]$RequireExisting) {
         if ($published -and (Test-Path -LiteralPath $InstallDir)) {
             Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
         }
+        $restoreFailure = $null
         if (Test-Path -LiteralPath $backupDir) {
-            Move-Item -LiteralPath $backupDir -Destination $InstallDir -ErrorAction SilentlyContinue
+            try {
+                Move-Item -LiteralPath $backupDir -Destination $InstallDir -ErrorAction Stop
+            } catch {
+                $restoreFailure = $_
+            }
         }
         if (Test-Path -LiteralPath $stageDir) {
             Remove-Item -LiteralPath $stageDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $restoreFailure) {
+            throw "install failed ($failure) and restoring the previous install also failed ($restoreFailure); backup remains at $backupDir"
         }
         throw $failure
     }
@@ -236,8 +259,35 @@ function Uninstall-Jefe {
     Write-OK "removed package-owned files; configuration, state, and psmux sessions were preserved"
 }
 
+function Invoke-WithInstallLock([scriptblock]$Action) {
+    # Serialize concurrent installs targeting the same InstallDir. Two
+    # simultaneous executions could otherwise both stage installations and
+    # race on the final move into InstallDir, corrupting the install or
+    # losing a backup. The mutex name is derived from the normalized path so
+    # distinct install directories are independent.
+    $mutexName = 'Local\jefe-install-' + ($InstallDir -replace '[^A-Za-z0-9]', '_')
+    $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+    try {
+        $acquired = $false
+        try {
+            $mutex.WaitOne()
+            $acquired = $true
+        } catch [System.Threading.AbandonedMutexException] {
+            # A previous process exited while holding the mutex; we still
+            # acquired it on the abandoned exception.
+            $acquired = $true
+        }
+        & $Action
+    } finally {
+        if ($acquired) {
+            $mutex.ReleaseMutex()
+        }
+        $mutex.Dispose()
+    }
+}
+
 switch ($Action) {
-    'Install' { Install-Jefe }
-    'Upgrade' { Upgrade-Jefe }
-    'Uninstall' { Uninstall-Jefe }
+    'Install' { Invoke-WithInstallLock { Install-Jefe } }
+    'Upgrade' { Invoke-WithInstallLock { Upgrade-Jefe } }
+    'Uninstall' { Invoke-WithInstallLock { Uninstall-Jefe } }
 }

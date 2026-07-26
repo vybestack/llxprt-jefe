@@ -45,6 +45,26 @@ fn report_includes_git_commit() {
 }
 
 #[test]
+fn report_reports_empty_commit_as_unavailable_not_blank() {
+    // AC-04: an unavailable commit must be explicitly reported as
+    // unavailable, not fabricated or rendered as a blank identity line that
+    // hides the missing metadata from a user attaching the report to an issue.
+    let report = DoctorReport::new(
+        VERSION.to_string(),
+        String::new(),
+        sample_platform(),
+        sample_arch(),
+        vec![],
+    )
+    .test_unwrap("build report with empty commit");
+    let rendered = render_report(&report);
+    assert!(
+        rendered.contains("unavailable"),
+        "an empty commit must be rendered as 'unavailable', not blank: {rendered:?}"
+    );
+}
+
+#[test]
 fn report_includes_platform_label() {
     let report = sample_report(&[]);
     let rendered = render_report(&report);
@@ -183,9 +203,11 @@ fn report_includes_long_path_section() {
 #[test]
 fn report_applies_redaction_to_findings() {
     // A finding that carries a sensitive home path must not leak it into the
-    // rendered report. `redact_value` is the same function the renderer is
-    // expected to apply, so we prove the wiring by asserting the rendered
-    // output matches a hand-redacted expectation on the sensitive substring.
+    // rendered report, and the renderer must emit the exact redacted label
+    // (not merely a substring that already appears in the raw input). Pinning
+    // the concrete redacted form catches a no-op redactor that the previous
+    // tautological fallback (`contains("config") || contains("home")`) could
+    // not detect, since both substrings are present in the raw fixture.
     let sensitive = "/home/alice/.config/jefe";
     let finding = DiagnosticFinding::new(
         FindingKind::Persistence,
@@ -198,32 +220,31 @@ fn report_applies_redaction_to_findings() {
         !rendered.contains("alice"),
         "rendered report must not leak the username from a finding detail: {rendered:?}"
     );
-    // The structural label the redactor is expected to preserve.
     let expected_label = redact_value(sensitive);
     assert!(
-        rendered.contains(&expected_label)
-            || rendered.contains("config")
-            || rendered.contains("home"),
-        "rendered report must retain a structural label after redaction: {rendered:?}"
+        rendered.contains(&expected_label),
+        "rendered report must contain the exact redacted label {expected_label:?}: {rendered:?}"
     );
 }
 
 #[test]
 fn report_renders_a_finding_status_marker() {
-    // Each finding line should communicate its status (pass/warn/fail) so a
-    // human can scan the report. The exact glyph is an implementation detail;
-    // we assert that a fail finding produces a line that is visibly not a pass.
-    let fail_report = sample_report(&[fail_finding(FindingKind::Multiplexer, "psmux missing")]);
-    let pass_report = sample_report(&[pass_finding(FindingKind::Multiplexer, "psmux ready")]);
-    let fail_rendered = render_report(&fail_report);
-    let pass_rendered = render_report(&pass_report);
-    assert_ne!(
-        fail_rendered, pass_rendered,
-        "a failing finding must render differently from a passing one"
+    // Each finding line communicates its status through the concrete marker
+    // glyph defined by `DiagnosticStatus::marker()` (`+`/`~`/`x`/`!`). Assert
+    // on those exact glyphs rather than only that fail/pass reports differ,
+    // which would pass even if no marker were rendered (the differing detail
+    // text alone would satisfy `assert_ne`).
+    let fail_finding = fail_finding(FindingKind::Multiplexer, "psmux missing");
+    let pass_finding = pass_finding(FindingKind::Multiplexer, "psmux ready");
+    let fail_rendered = render_report(&sample_report(&[fail_finding]));
+    let pass_rendered = render_report(&sample_report(&[pass_finding]));
+    assert!(
+        fail_rendered.contains("[x] psmux missing"),
+        "a failing finding must render the 'x' status marker before its detail: {fail_rendered:?}"
     );
     assert!(
-        fail_rendered.contains("psmux missing") || fail_rendered.contains("missing"),
-        "the finding detail must appear in the report: {fail_rendered:?}"
+        pass_rendered.contains("[+] psmux ready"),
+        "a passing finding must render the '+' status marker before its detail: {pass_rendered:?}"
     );
 }
 
