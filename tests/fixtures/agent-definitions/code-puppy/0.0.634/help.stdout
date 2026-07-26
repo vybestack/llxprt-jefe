@@ -1,0 +1,32 @@
+]11;#000000]10;#6a9955]4;0;#000000]4;1;#6a9955]4;2;#6a9955]4;3;#6a9955]4;4;#6a9955]4;5;#6a9955]4;6;#6a9955]4;7;#6a9955]4;8;#3a5945]4;9;#6a9955]4;10;#00ff00]4;11;#6a9955]4;12;#6a9955]4;13;#6a9955]4;14;#6a9955]4;15;#00ff00usage: code-puppy [-h] [--version] [--interactive] [--prompt PROMPT]
+                  [--agent AGENT] [--model MODEL] [--resume PATH]
+                  [--quick-resume [PATH]] [--no-tools] [--yolo {true,false}]
+                  [--acp]
+                  [command ...]
+
+Code Puppy - A code generation agent
+
+positional arguments:
+  command               Run a single command (deprecated, use -p instead)
+
+options:
+  -h, --help            show this help message and exit
+  --version, -v         Show version and exit
+  --interactive, -i     Run in interactive mode
+  --prompt, -p PROMPT   Execute a single prompt and exit (no interactive mode)
+  --agent, -a AGENT     Specify which agent to use (e.g., --agent code-puppy)
+  --model, -m MODEL     Specify which model to use (e.g., --model gpt-5)
+  --resume, -r PATH     Resume a saved session from a .pkl file (e.g.
+                        ~/.code_puppy/contexts/foo.pkl)
+  --quick-resume, -qr [PATH]
+                        Resume the most recent session for PATH (defaults to
+                        the current directory; scopes to git root + branch
+                        when available)
+  --no-tools            Disable all agent tools and MCP servers for this run
+                        (pure text-in/text-out; equivalent to
+                        CODE_PUPPY_NO_TOOLS=1)
+  --yolo {true,false}   Override YOLO mode for this run without changing
+                        puppy.cfg (/set yolo_mode takes precedence)
+  --acp                 Run as a native agent over the Agent Client Protocol
+                        (ACP), speaking JSON-RPC over stdio.
+]104]111]110

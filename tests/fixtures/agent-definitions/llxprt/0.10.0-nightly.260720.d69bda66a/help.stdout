@@ -1,0 +1,59 @@
+llxprt [promptWords...]
+
+Launch LLxprt CLI
+
+Commands:
+  llxprt [options]            LLxprt Code - Launch an interactive CLI, use -p/--prompt for non-interactive mode
+  llxprt [promptWords...]     Launch LLxprt CLI  [default]
+  llxprt hooks <command>      Manage hooks.
+  llxprt mcp                  Manage MCP servers
+
+Positionals:
+  promptWords  Prompt to run non-interactively  [string]
+
+Options:
+      --telemetry                             Enable telemetry? This flag specifically controls if telemetry is sent. Other --telemetry-* flags set specific values but do not enable telemetry on their own.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [boolean]
+      --telemetry-target                      Set the telemetry target (local or gcp). Overrides settings files.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [string] [choices: "local", "gcp", "local", "gcp"]
+      --telemetry-otlp-endpoint               Set the OTLP endpoint for telemetry. Overrides environment variables and settings files.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [string]
+      --telemetry-log-prompts                 Enable or disable logging of user prompts for telemetry. Overrides settings files.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [boolean]
+      --telemetry-outfile                     Redirect all telemetry output to the specified file.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [string]
+  -c, -c, --checkpointing                     Enables checkpointing of file edits  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [boolean] [default: false]
+      --experimental-acp                      Starts the agent in ACP mode  [boolean]
+      --experimental-ui                       Use experimental terminal UI (requires bun and @vybestack/llxprt-ui)  [boolean]
+      --allowed-mcp-server-names              Allowed MCP server names  [array]
+  -e, -e, --extensions                        A list of extensions to use. If not provided, all extensions are used.  [array]
+  -l, -l, --list-extensions                   List all available extensions and exit.  [boolean]
+      --provider                              The provider to use.  [string]
+      --ide-mode                              Enable or disable IDE mode  [string] [choices: "enable", "disable"]
+      --key                                   API key for the current provider  [string]
+      --keyfile                               Path to file containing API key for the current provider  [string]
+      --key-name                              Load a named API key from the keyring (same as /key load <name>)  [string]
+      --baseurl                               Base URL for the current provider  [string]
+      --proxy                                 Proxy for LLxprt client, like schema://user:password@host:port  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [string]
+      --include-directories                   Additional directories to include in the workspace (comma-separated or multiple --include-directories)  [array]
+      --set                                   Set an ephemeral setting via key=value (can be repeated)  [array]
+      --profile-load                          Load a saved profile configuration on startup  [string]
+      --profile                               Inline JSON profile configuration (alternative to --profile-load for CI/CD)  [string]
+      --load-memory-from-include-directories  If true, when refreshing memory, LLXPRT.md files should be loaded from all directories that are added. If false, LLXPRT.md files should only be loaded from the primary working directory.  [boolean]
+  -d, -d, --debug                             Run in debug mode? (Optional: specify comma-separated namespaces, e.g., llxprt:core:*,llxprt:openai:*)  [string]
+  -m, --model                                 Model  [string]
+  -p, --prompt                                Prompt. Appended to input on stdin (if any).  [string]
+  -i, --prompt-interactive                    Execute the provided prompt and continue in interactive mode  [string]
+      --output-format                         Output format for non-interactive mode (text, json, or stream-json).  [string] [choices: "text", "json", "stream-json"]
+  -s, --sandbox                               Run in sandbox?  [boolean]
+      --sandbox-image                         Sandbox image URI.  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [string]
+      --sandbox-engine                        Sandbox engine (auto|docker|podman|sandbox-exec|none).  [string] [choices: "auto", "docker", "podman", "sandbox-exec", "none"]
+      --sandbox-profile-load                  Load a sandbox profile from ~/.llxprt/sandboxes/<name>.json  [string]
+      --show-memory-usage                     Show memory usage in status bar  [deprecated: Use settings.json instead. This flag will be removed in a future version.] [boolean] [default: false]
+  -y, --yolo                                  Automatically accept all actions (aka YOLO mode, see https://www.youtube.com/watch?v=xvFZjo5PgG0 for more details)?  [boolean] [default: false]
+      --approval-mode                         Set the approval mode: default (prompt for approval), auto_edit (auto-approve edit tools), yolo (auto-approve all tools)  [string] [choices: "default", "auto_edit", "yolo"]
+      --allowed-tools                         Tools that are allowed to run without confirmation  [array]
+      --screen-reader                         Enable screen reader mode for accessibility.  [boolean]
+      --session-summary                       File to write session summary to.  [string]
+      --dumponerror                           Dump request body to ~/.llxprt/dumps/ on API errors.  [boolean] [default: false]
+  -C, --continue                              Resume a previous session. Bare --continue resumes the most recent. --continue <id> resumes a specific session.  [string]
+      --list-sessions                         List recorded sessions for the current project.  [boolean] [default: false]
+      --delete-session                        Delete a recorded session by ID, prefix, or 1-based index.  [string]
+      --nobrowser                             Skip browser OAuth flow, use manual code entry  [boolean] [default: false]
+  -v, --version                               Show version number  [boolean]
+  -h, --help                                  Show help  [boolean]
