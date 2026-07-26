@@ -17,6 +17,8 @@
 //! @requirement REQ-PR-010
 //! @pseudocode component-001 lines 169-176
 
+use unicode_width::UnicodeWidthStr;
+
 /// A caret cell expressed in logical `(line, col)` coordinates within the
 /// source text (char column, not byte offset).
 ///
@@ -261,10 +263,8 @@ fn build_wrapped_display_rows(
             0
         };
         for seg in wrap_line(line, content_width) {
-            // Use the RENDERED length (after trimming trailing spaces), not the
-            // source extent, so a full-width segment whose trailing spaces were
-            // trimmed is not mistaken for an exact-width row.
-            let seg_rendered_len = seg.text.chars().count();
+            let seg_rendered_chars = seg.text.chars().count();
+            let seg_rendered_width = UnicodeWidthStr::width(seg.text.as_str());
             // A trailing caret at the end of a line that fills the full width
             // would overflow; emit the full segment row then a trailing empty
             // row that carries the caret inside the width. With a single-row
@@ -273,7 +273,7 @@ fn build_wrapped_display_rows(
             let full_width_end = content_width != 0
                 && line_idx == caret.line
                 && seg.end == caret_line_len
-                && seg_rendered_len == content_width
+                && seg_rendered_width == content_width
                 && caret.col == seg.end;
             if full_width_end && viewport_rows >= 2 {
                 display_rows.push(TextBoxRow {
@@ -292,9 +292,9 @@ fn build_wrapped_display_rows(
                 // Single-row viewport: keep the caret on the text row at the
                 // width boundary (the cell is clipped by the container, but the
                 // text row is not displaced).
-                Some(seg_rendered_len)
+                Some(seg_rendered_chars)
             } else {
-                caret_col_for_segment(&seg, seg_rendered_len, caret, line_idx, content_width)
+                caret_col_for_segment(&seg, seg_rendered_width, caret, line_idx, content_width)
             };
             if caret_col.is_some() {
                 caret_row_idx = Some(display_rows.len());
@@ -465,6 +465,39 @@ mod tests {
         assert_eq!(caret_row.text, "");
         assert_eq!(caret_row.caret_col, Some(0));
     }
+    #[test]
+    fn cjk_wraps_by_cells_and_maps_caret_to_the_shared_source_range() {
+        let text = "甲乙丙";
+        let v = build_text_box_view(text, "甲乙".len(), 3, 4);
+
+        assert_eq!(v.total_display_rows, 2);
+        assert_eq!(v.rows[0].text, "甲乙");
+        assert_eq!(v.rows[1].text, "丙");
+        assert_eq!(v.rows[1].caret_col, Some(0));
+    }
+
+    #[test]
+    fn combining_marks_stay_with_their_base_and_keep_scalar_caret_mapping() {
+        let text = "e\u{301}x";
+        let v = build_text_box_view(text, "e\u{301}".len(), 3, 1);
+
+        assert_eq!(v.total_display_rows, 2);
+        assert_eq!(v.rows[0].text, "e\u{301}");
+        assert_eq!(v.rows[1].text, "x");
+        assert_eq!(v.rows[1].caret_col, Some(0));
+    }
+
+    #[test]
+    fn exact_cell_width_cjk_line_moves_end_caret_to_trailing_row() {
+        let text = "甲乙";
+        let v = build_text_box_view(text, text.len(), 3, 4);
+
+        assert_eq!(v.rows[0].text, text);
+        assert!(v.rows[0].caret_col.is_none());
+        assert_eq!(v.rows[1].text, "");
+        assert_eq!(v.rows[1].caret_col, Some(0));
+    }
+
     /// Multibyte input must not panic and the caret column must count chars.
     ///
     /// @plan PLAN-20260624-PR-MODE.P14
