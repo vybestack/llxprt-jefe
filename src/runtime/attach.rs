@@ -96,6 +96,9 @@ pub struct AttachedViewer {
     child: Arc<Mutex<Box<dyn PtyChild + Send + Sync>>>,
     /// Reader thread handle.
     _reader_thread: JoinHandle<()>,
+    /// Last-applied terminal dimensions (issue #296 mode-recovery nudge).
+    rows: u16,
+    cols: u16,
 }
 
 fn rgb_to_iocraft(rgb: ansi::Rgb) -> iocraft::Color {
@@ -609,6 +612,8 @@ impl AttachedViewer {
             dirty,
             child,
             _reader_thread: reader_thread,
+            rows,
+            cols,
         })
     }
 
@@ -683,13 +688,13 @@ impl AttachedViewer {
 
         // Also update the terminal model
         if let Ok(mut term) = self.term.lock() {
-            let before = mouse_reporting_bits(term.mode());
+            let before = mouse_reporting_bits(*term.mode());
             let new_size = TermDimensions {
                 cols: cols as usize,
                 rows: rows as usize,
             };
             term.resize(new_size);
-            let after = mouse_reporting_bits(term.mode());
+            let after = mouse_reporting_bits(*term.mode());
             // Issue #296 diagnostics: resize is a lifecycle boundary that can
             // affect terminal modes. Trace any mouse-reporting transition.
             if before != after {
@@ -718,6 +723,43 @@ impl AttachedViewer {
         mode.contains(TermMode::MOUSE_MODE)
             || mode.contains(TermMode::SGR_MOUSE)
             || mode.contains(TermMode::UTF8_MOUSE)
+    }
+
+    /// Nudge the attached child to re-advertise its DEC private mouse-reporting
+    /// modes after attach settles (issue #296).
+    ///
+    /// A freshly spawned `AttachedViewer` builds a blank `Term` with cleared
+    /// mouse bits; reporting is only recovered if the child re-emits DEC
+    /// private mouse modes (`?1000h`, `?1002h`, `?1006h`) through the PTY
+    /// stream after attach. On Windows ConPTY, those mode sequences can be
+    /// consumed before Jefe observes them, leaving `mouse_reporting_active()`
+    /// stuck at false and routing the LLxprt child's mouse input to Jefe
+    /// selection instead of the PTY.
+    ///
+    /// This performs a same-dimension resize, which delivers a window-change
+    /// event to the child and prompts a well-behaved TUI (e.g. LLxprt) to
+    /// repaint and re-emit its DEC private modes. The nudge is best-effort:
+    /// failures are logged and ignored so they never block attach completion.
+    pub fn nudge_for_mode_recovery(&self) {
+        let (rows, cols) = self.stored_dimensions();
+        debug!(
+            rows,
+            cols, "issuing post-attach mode-recovery nudge (same-size resize)"
+        );
+        if let Err(error) = self.resize(rows, cols) {
+            debug!(%error, "post-attach mode-recovery nudge failed (non-fatal)");
+        }
+    }
+
+    /// Current terminal dimensions, read from the live terminal model with a
+    /// fallback to the spawn-time dimensions (issue #296).
+    fn stored_dimensions(&self) -> (u16, u16) {
+        if let Ok(term) = self.term.lock() {
+            let rows = u16::try_from(term.screen_lines()).unwrap_or(self.rows);
+            let cols = u16::try_from(term.columns()).unwrap_or(self.cols);
+            return (rows, cols);
+        }
+        (self.rows, self.cols)
     }
 
     /// Whether the attached application has bracketed paste enabled.
@@ -825,11 +867,11 @@ fn process_pty_read(
     dirty: &AtomicBool,
 ) {
     if let Ok(mut term) = term.lock() {
-        let before = mouse_reporting_bits(term.mode());
+        let before = mouse_reporting_bits(*term.mode());
         for byte in bytes {
             parser.advance(&mut *term, *byte);
         }
-        let after = mouse_reporting_bits(term.mode());
+        let after = mouse_reporting_bits(*term.mode());
         if before != after {
             trace!(
                 before = ?before,
@@ -848,7 +890,7 @@ fn process_pty_read(
 /// Returns a tuple of booleans for `(MOUSE_MODE, SGR_MOUSE, UTF8_MOUSE)` so
 /// trace output is small and diffable without leaking the full `TermMode`.
 #[must_use]
-fn mouse_reporting_bits(mode: &TermMode) -> (bool, bool, bool) {
+fn mouse_reporting_bits(mode: TermMode) -> (bool, bool, bool) {
     (
         mode.contains(TermMode::MOUSE_MODE),
         mode.contains(TermMode::SGR_MOUSE),

@@ -112,6 +112,14 @@ impl TmuxRuntimeManager {
         self.viewer = Some(viewer);
         self.attached_agent_id = Some(agent_id.clone());
 
+        // Issue #296: nudge the child to re-advertise its DEC private
+        // mouse-reporting modes so a freshly spawned viewer (blank Term with
+        // cleared mouse bits) does not leave LLxprt stuck in non-reporting
+        // fallback. Best-effort; failures are logged inside the nudge.
+        if let Some(viewer) = self.viewer.as_ref() {
+            viewer.nudge_for_mode_recovery();
+        }
+
         // Issue #296 diagnostics: a freshly spawned AttachedViewer builds a
         // blank Term with cleared mouse bits; reporting is only recovered if
         // the child re-emits DEC private mouse modes through the PTY stream

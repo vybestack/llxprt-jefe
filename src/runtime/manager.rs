@@ -329,6 +329,27 @@ impl TmuxRuntimeManager {
         self.lifecycle_counter.fetch_add(1, Ordering::Relaxed) + 1
     }
 
+    /// Issue #296: nudge the attached child to re-advertise its DEC private
+    /// mouse-reporting modes, then trace the observed post-attach state.
+    ///
+    /// A freshly spawned `AttachedViewer` builds a blank `Term` with cleared
+    /// mouse bits; reporting is only recovered if the child re-emits DEC
+    /// private mouse modes through the PTY stream after attach. On Windows
+    /// ConPTY those mode sequences can be consumed before Jefe observes them.
+    /// The same-size resize nudge delivers a window-change event that prompts
+    /// a well-behaved TUI to repaint and re-emit its modes. Best-effort:
+    /// failures are logged inside the nudge and never block attach completion.
+    fn post_attach_mode_recovery(&self, agent_id: &AgentId) {
+        if let Some(viewer) = self.viewer.as_ref() {
+            viewer.nudge_for_mode_recovery();
+        }
+        debug!(
+            agent_id = %agent_id.0,
+            mouse_reporting = self.mouse_reporting_active(),
+            "attach: viewer installed"
+        );
+    }
+
     /// Enforce clipboard passthrough for `session_name` if not already done.
     ///
     /// Memoized per session name so the tmux option commands run at most once
@@ -777,15 +798,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             self.attached_agent_id = Some(agent_id.clone());
         }
 
-        // Issue #296 diagnostics: trace the observed mouse-reporting state at
-        // attach completion. A freshly spawned viewer starts with cleared
-        // mouse bits; reporting is only recovered if the child re-emits DEC
-        // private mouse modes through the PTY stream after attach.
-        debug!(
-            agent_id = %agent_id.0,
-            mouse_reporting = self.mouse_reporting_active(),
-            "attach: viewer installed"
-        );
+        // Issue #296: nudge the child to re-advertise its DEC private
+        // mouse-reporting modes and trace the observed post-attach state.
+        self.post_attach_mode_recovery(agent_id);
 
         // Mark new session as attached
         if let Some(session) = self.sessions.get_mut(agent_id) {

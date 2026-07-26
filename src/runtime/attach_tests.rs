@@ -138,8 +138,12 @@ fn process_pty_read_advances_terminal_model() {
 #[test]
 fn mouse_reporting_bits_false_on_fresh_term() {
     let term = test_term();
-    let guard = term.lock().expect("term lock should succeed");
-    let bits = mouse_reporting_bits(guard.mode());
+    let bits = {
+        let Ok(guard) = term.lock() else {
+            panic!("term lock should succeed");
+        };
+        mouse_reporting_bits(*guard.mode())
+    };
     assert_eq!(bits, (false, false, false));
 }
 
@@ -160,8 +164,12 @@ fn mouse_reporting_bits_flip_on_dec_private_mode_enable() {
     process_pty_read(b"\x1b[?1000h", &mut parser, &term, &dirty);
     process_pty_read(b"\x1b[?1006h", &mut parser, &term, &dirty);
 
-    let guard = term.lock().expect("term lock should succeed");
-    let bits = mouse_reporting_bits(guard.mode());
+    let bits = {
+        let Ok(guard) = term.lock() else {
+            panic!("term lock should succeed");
+        };
+        mouse_reporting_bits(*guard.mode())
+    };
     // MOUSE_MODE composite is NOT fully set (needs click+motion+drag);
     // SGR_MOUSE IS set by ?1006h. mouse_reporting_active() ORs these so it
     // still returns true via SGR_MOUSE.

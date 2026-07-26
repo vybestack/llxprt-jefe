@@ -180,7 +180,8 @@ In-scope-Fix / Reject / Defer). Starts empty; updated per slice.
 
 | Item | Disposition | Notes |
 |------|-------------|-------|
-| (empty) | — | — |
+| `src/harness/v1/validate.rs:114` clippy `manual_is_multiple_of` | Blocker-Fix (gate-enabling prerequisite) | Pre-existing on `origin/main`; newer clippy (1.97) flags `input.len() % 4 != 0`. One-line mechanical fix to `!input.len().is_multiple_of(4)` required for the clippy gate to pass. |
+| `src/bin/jefe-capture-shim.rs:163` clippy `duration_suboptimal_units` | Blocker-Fix (gate-enabling prerequisite) | Pre-existing on `origin/main`; clippy 1.97 flags `Duration::from_secs(3600)`. One-line fix to `Duration::from_hours(1)` (stable since Rust 1.95; project has no MSRV pin). Required for the clippy gate to pass. |
 
 ## Review counters (Open Code Review cap: 4 per effort)
 
