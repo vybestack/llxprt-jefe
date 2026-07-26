@@ -511,3 +511,40 @@ fn forward_refuses_a_work_dir_that_is_not_utf8() {
         "the rejection must explain the encoding problem, got: {detail}"
     );
 }
+
+/// A remembered pairing is only durable when the agent actually belongs to the
+/// repository it is remembered under. The ownership predicate in
+/// `project_last_selected` is not a redundant presence check: both ids resolve
+/// successfully here, and only the cross-repository ownership test rejects the
+/// stale pairing.
+#[test]
+fn forward_drops_a_remembered_agent_owned_by_another_repository() {
+    let mut state = AppState::default();
+    state
+        .repositories
+        .push(local_repository("r1", "first", "/srv/first"));
+    state
+        .repositories
+        .push(local_repository("r2", "second", "/srv/second"));
+    state
+        .agents
+        .push(agent("a1", "r1", "first agent", "/srv/first"));
+    state
+        .agents
+        .push(agent("a2", "r2", "second agent", "/srv/second"));
+    state.rebuild_repository_agent_ids();
+    // r1 remembers an agent that lives in r2.
+    state.last_selected_agent_by_repo = vec![(
+        crate::domain::RepositoryId("r1".to_owned()),
+        crate::domain::AgentId("a2".to_owned()),
+    )];
+
+    let Ok(durable) = to_durable_state(&state) else {
+        panic!("the state must project");
+    };
+    assert!(
+        durable.last_selected_agent_by_repo.is_empty(),
+        "a cross-repository remembered selection must not be persisted, got: {:?}",
+        durable.last_selected_agent_by_repo
+    );
+}
