@@ -323,7 +323,7 @@ pub enum IssuesMessage {
     OpenInlineEditor {
         target: EditorTarget,
     },
-    // ── New Issue dialog (issue #407) ─────────────────────────────────
+    // ── New Issue form (issue #407) ──────────────────────────────────
     NewIssueTemplateNext,
     NewIssueTypeNext,
     NewIssueTitleChar(char),
@@ -532,6 +532,8 @@ pub enum IssuesMessage {
         error: String,
     },
 }
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
 #[derive(Debug, Clone)]
 pub enum PullRequestsMessage {
     EnterMode,

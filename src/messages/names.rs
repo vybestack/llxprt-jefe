@@ -369,7 +369,8 @@ use crate::state::AppEvent;
 pub(super) fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
     matches!(
         event,
-        |AppEvent::NewIssueTemplateNext| AppEvent::NewIssueTypeNext
+        AppEvent::NewIssueTemplateNext
+            | AppEvent::NewIssueTypeNext
             | AppEvent::NewIssueTitleChar(_)
             | AppEvent::NewIssueTitleBackspace
             | AppEvent::NewIssueTitleDelete
@@ -402,7 +403,8 @@ pub(super) fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
 pub fn is_new_issue_form_msg(message: &IssuesMessage) -> bool {
     matches!(
         message,
-        |IssuesMessage::NewIssueTemplateNext| IssuesMessage::NewIssueTypeNext
+        IssuesMessage::NewIssueTemplateNext
+            | IssuesMessage::NewIssueTypeNext
             | IssuesMessage::NewIssueTitleChar(_)
             | IssuesMessage::NewIssueTitleBackspace
             | IssuesMessage::NewIssueTitleDelete

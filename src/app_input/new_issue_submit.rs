@@ -208,6 +208,8 @@ impl std::fmt::Display for NewIssueCreateError {
     }
 }
 
+impl std::error::Error for NewIssueCreateError {}
+
 fn apply_labels(
     client: GhClient,
     target: PropertyEditTarget,

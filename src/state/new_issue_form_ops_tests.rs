@@ -183,6 +183,75 @@ fn submit_with_empty_title_keeps_form_open_and_surfaces_error() {
     );
 }
 
+/// A9: A successful submit inserts the issue into the list, closes the form,
+/// shows a draft notice, clears `mutation_pending`, and remembers sticky
+/// milestone/project preferences.
+#[test]
+fn new_issue_created_closes_form_inserts_issue_and_remembers_preferences() {
+    use crate::domain::{Issue, IssueState};
+
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
+    if let Some(form) = state.issues_state.new_issue_form.as_mut() {
+        form.title_text = "My new issue".to_string();
+        form.milestone = Some("v9.9".to_string());
+        form.project_ids = vec!["PVT_42".to_string()];
+    }
+    // Simulate the app_input layer marking the mutation pending (it does this
+    // before spawning the create task).
+    state.issues_state.next_mutation_id = 1;
+    state.issues_state.mutation_pending = Some(crate::state::IssueMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        id: 1,
+        target: InlineState::None,
+    });
+    let issue = Issue {
+        number: 77,
+        node_id: "I_node".to_string(),
+        title: "My new issue".to_string(),
+        state: IssueState::Open,
+        author_login: "tester".to_string(),
+        updated_at: "2026-07-25T00:00:00Z".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: String::new(),
+        milestone: String::new(),
+        module: String::new(),
+        comment_count: 0,
+        body: String::new(),
+        state_reason: None,
+    };
+    let state = state
+        .apply(AppEvent::NewIssueCreated {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            mutation_id: 1,
+            issue: Box::new(issue),
+        })
+        .committed_pure();
+    assert!(
+        state.issues_state.new_issue_form.is_none(),
+        "form must be closed after a successful create"
+    );
+    assert_eq!(
+        state.issues_state.mutation_pending, None,
+        "mutation_pending must be cleared"
+    );
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("Created issue #77"),
+        "draft notice must announce the new issue number"
+    );
+    assert_eq!(state.issues_state.issues().len(), 1);
+    assert_eq!(state.issues_state.issues()[0].number, 77);
+    let prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("repo-1".to_string()));
+    assert_eq!(prefs.last_new_issue_milestone, Some("v9.9".to_string()));
+    assert_eq!(prefs.last_new_issue_project_ids, vec!["PVT_42".to_string()]);
+}
+
 /// A13: After a successful submit, sticky milestone/project preferences are
 /// remembered for the current repo.
 #[test]

@@ -138,9 +138,7 @@ impl AppState {
                 });
         }
     }
-}
 
-impl AppState {
     /// Snapshot the inline New Issue form's milestone/project into per-repo
     /// preferences (issue #407 A13). Called by the submit pipeline after a
     /// successful create. No-op when no repo is selected or the form is

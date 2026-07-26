@@ -178,7 +178,11 @@ pub struct NewIssueFormState {
     pub labels: Vec<String>,
     /// Available labels for the repo (populated async).
     pub available_labels: Vec<String>,
-    /// Selected milestone (`None` = blankable). Sticky across opens.
+    /// Selected milestone (`None` = blankable). Stores the milestone **title**
+    /// (display name), which is what `gh issue edit --milestone` accepts. The
+    /// `gh` CLI's `--milestone` flag matches by title, not GraphQL node id, so
+    /// the value flows directly to `GhClient::set_milestone` without id
+    /// resolution. Sticky across opens.
     pub milestone: Option<String>,
     /// Available milestones for the repo (populated async).
     pub available_milestones: Vec<String>,
