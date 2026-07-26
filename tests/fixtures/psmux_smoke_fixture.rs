@@ -42,7 +42,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
     output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
-    output.write_all(b"\x1b[?1000h\x1b[?1006h\x1b[?2004h\x1b[?1049hALT_SCREEN\r\n")?;
+    output.write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?1049hALT_SCREEN\r\n")?;
     output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
     output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
