@@ -255,10 +255,10 @@ impl AppState {
         self.issues_state.property_editor = None;
         self.issues_state.property_mutation_pending = None;
         // Issue #407: a repo change closes the inline New Issue form (A14)
-        // since its sticky defaults and option sets are repo-scoped.
+        // since its sticky defaults and option sets are repo-scoped. The
+        // inline_state is already cleared above when it was active.
         if self.issues_state.new_issue_form.is_some() {
             self.issues_state.new_issue_form = None;
-            self.issues_state.inline_state = InlineState::None;
         }
         self.issues_state.list.clear();
         if let Some(detail) = &mut self.issues_state.issue_detail {

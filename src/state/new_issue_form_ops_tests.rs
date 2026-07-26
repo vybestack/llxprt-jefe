@@ -166,6 +166,10 @@ fn repo_change_closes_new_issue_form() {
         state.issues_state.new_issue_form.is_none(),
         "repo change must close the New Issue form"
     );
+    assert!(
+        matches!(state.issues_state.inline_state, InlineState::None),
+        "repo change must also clear the inline composer state"
+    );
 }
 
 /// A10 (negative): Submitting with an empty title surfaces a footer error and
