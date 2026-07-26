@@ -10,7 +10,8 @@ use jefe::messages::{AppMessage, IssuesMessage};
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, issues_dispatch, update_detail_viewport_rows,
+    AppStateHandle, SharedContext, apply_and_persist, issues_comments_dispatch,
+    update_detail_viewport_rows,
 };
 
 /// Dispatch Issues detail scroll and subfocus messages.
@@ -31,6 +32,6 @@ pub(super) fn dispatch_issues_detail_scroll_or_subfocus(
     update_detail_viewport_rows(app_state);
     apply_and_persist(app_state, ctx, AppEvent::from(AppMessage::Issues(message)));
     if is_scroll_down {
-        issues_dispatch::load_more_comments(app_state, ctx);
+        issues_comments_dispatch::load_more_comments(app_state, ctx);
     }
 }

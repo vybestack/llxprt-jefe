@@ -4,6 +4,7 @@ mod agent_chooser_entries;
 mod dashboard_search;
 mod filter_controls;
 mod issues;
+mod issues_comments_dispatch;
 mod issues_dispatch;
 mod issues_filter;
 mod issues_lifecycle;
