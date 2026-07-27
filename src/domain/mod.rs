@@ -4,6 +4,9 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Transport-neutral observation semantic values (issue #476 J1 slice).
+pub mod observation;
+
 /// Pure document wrapping and content-line scroll geometry.
 pub mod document_wrap;
 /// Shared validated target-resolution predicates for remote settings.

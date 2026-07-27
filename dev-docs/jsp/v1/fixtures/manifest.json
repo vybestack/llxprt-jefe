@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "kind": "fixture-manifest",
+  "version": "jsp-v1-j1",
+  "description": "JSP/1 snapshot compliance corpus for issue 476 J1 slice. Each entry names a fixture file and its expected parse result.",
+  "fixtures": [
+    {
+      "name": "snapshot_full",
+      "file": "snapshot_full.json",
+      "expected": "ok",
+      "rows": ["S1", "S5"],
+      "description": "Canonical full snapshot exercising every required field with supported authoritative/inferred known states, known-empty (null) optional entities, and known-non-empty todos."
+    },
+    {
+      "name": "snapshot_identity_distinct",
+      "file": "snapshot_identity_distinct.json",
+      "expected": "ok",
+      "rows": ["S3"],
+      "description": "Same repository/path as snapshot_full but distinct agent_id/lifecycle_generation/source_epoch/pid so the live observation key stays distinct."
+    },
+    {
+      "name": "snapshot_field_states",
+      "file": "snapshot_field_states.json",
+      "expected": "ok",
+      "rows": ["S4"],
+      "description": "Exhaustive field-state coverage: inferred unknown, authoritative degraded, known-empty todos (revision 1, zero items), authoritative known source-error state, explicit permission wait."
+    },
+    {
+      "name": "snapshot_bounds",
+      "file": "snapshot_bounds.json",
+      "expected": "ok",
+      "rows": ["S2"],
+      "description": "At-limit agent_id (128 bytes) and minimal valid todos. Exercises the upper inclusive bound for identity strings."
+    },
+    {
+      "name": "snapshot_forbidden_fields",
+      "file": "snapshot_forbidden_fields.json",
+      "expected": "error",
+      "error_code": "JSP-E001",
+      "rows": ["S5", "S6"],
+      "description": "Valid snapshot shape plus forbidden credential (publisher_token, observer_token) and forbidden control/raw fields (raw_transcript, draft, control). Closed parser must reject at ingress."
+    },
+    {
+      "name": "snapshot_closed_grammar",
+      "file": "snapshot_closed_grammar.json",
+      "expected": "error",
+      "error_code": "JSP-E001",
+      "rows": ["S2"],
+      "description": "Valid snapshot with an unknown top-level field and an unknown nested field inside native_session. Closed-object semantics must reject unknown fields."
+    },
+    {
+      "name": "snapshot_semantic_failure",
+      "file": "snapshot_semantic_failure.json",
+      "expected": "error",
+      "error_code": "JSP-E005",
+      "rows": ["S4", "S5"],
+      "description": "Producer-supplied stale tool phase (stale is a transport-health overlay, not a producer value) and otherwise valid shape. Must fail semantic validation with no payload echoed."
+    }
+  ]
+}

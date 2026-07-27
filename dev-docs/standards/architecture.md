@@ -49,6 +49,12 @@ architecture variants (`*_v2`, `new_*`) unless explicitly approved.
   See [Persistence and Runtime](./persistence-and-runtime.md).
 - **Theme layer** (`src/theme/`) owns theme loading, selection, and fallback.
   See [Display and UI](./display-and-ui.md).
+- **JSP wire-boundary layer** (`src/jsp/`) owns the external JSP/1 snapshot
+  parser. It depends only on `domain::observation` (transport-neutral semantic
+  values), the standard library, and existing `serde`/`serde_json`. Private
+  closed wire DTOs convert to domain types only after complete validation.
+  The parser performs no I/O or logging and returns typed errors without
+  echoing payload values. See `dev-docs/jsp/v1/specification.md`.
 
 ---
 
@@ -234,6 +240,7 @@ main.rs ──> ui/ ──> theme/ (for ResolvedColors)
 ui/     ──> text_box_view/ (pure projection)
 state/  ──> messages/ ──> domain/
 persistence/ ──> domain/
+jsp/    ──> domain/ (transport-neutral observation values)
 ```
 
 | Module              | May depend on (project-internal)                          |
@@ -245,6 +252,7 @@ persistence/ ──> domain/
 | `runtime/`          | Nothing project-internal (uses iocraft types for `Color`).|
 | `state/`            | `domain/`, `messages/`.                                   |
 | `text_box_view/`    | Nothing project-internal (pure projection).               |
+| `jsp/`              | `domain/observation` only (external wire boundary).       |
 | `ui/`               | `domain/`, `theme/`, `text_box_view/`, other pure views.  |
 | `main.rs`           | Wires everything together.                                |
 
