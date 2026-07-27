@@ -599,4 +599,55 @@ mod tests {
             );
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_kill_resolution_ignores_untrusted_path_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // The security invariant: resolve(LocalTool::Kill) searches ONLY
+        // trusted_unix_directories(), never PATH. A fake kill in an untrusted
+        // directory must not be resolved even if that directory exists on disk
+        // and contains an executable named "kill".
+        //
+        // We cannot mutate PATH (Rust 2024 forbids set_var), but we can prove
+        // the decision logic: requires_trusted_path() gates Kill/Ps to the
+        // trusted list, and resolve_in over the trusted list never visits any
+        // temp directory.
+        let untrusted = tempfile::Builder::new()
+            .prefix("jefe path-injection ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create path-injection directory: {error}"));
+        let fake_kill = untrusted.path().join("kill");
+        std::fs::write(&fake_kill, b"#!/bin/sh
+echo pwned
+")
+            .unwrap_or_else(|error| panic!("write fake kill: {error}"));
+        std::fs::set_permissions(&fake_kill, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod fake kill: {error}"));
+
+        // requires_trusted_path() is the gate that makes resolve() use
+        // trusted_unix_directories() instead of PATH for Kill/Ps.
+        assert!(LocalTool::Kill.requires_trusted_path());
+
+        // The trusted list never contains a temp directory.
+        let trusted = trusted_unix_directories();
+        assert!(
+            !trusted.contains(&untrusted.path().to_path_buf()),
+            "temp directory must not appear in the trusted list"
+        );
+
+        // Searching only the trusted list never resolves the fake kill. If a
+        // real kill exists in /bin or /usr/bin it resolves; otherwise NotFound.
+        // Either way the fake is never selected.
+        let resolved = resolve_in(LocalTool::Kill, ToolPlatform::Unix, &trusted, None, None);
+        match resolved {
+            Ok(path) => assert_ne!(
+                path, fake_kill,
+                "fake kill in untrusted directory must not be resolved"
+            ),
+            Err(LocalToolError::NotFound { tool }) => assert_eq!(tool, LocalTool::Kill),
+            Err(other) => panic!("expected NotFound or trusted kill, got {other:?}"),
+        }
+    }
 }
