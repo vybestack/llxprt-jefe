@@ -28,6 +28,9 @@ mod form_projection;
 mod form_runtime;
 mod form_validation_issue403;
 mod form_workflow_dispatch;
+/// Definition-driven typed form projection and deterministic reducer.
+pub mod generated_form;
+mod generated_form_projection;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;
 mod issues_inline_ops;

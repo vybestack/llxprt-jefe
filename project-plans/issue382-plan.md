@@ -333,3 +333,31 @@ The runtime adapter remains product-agnostic and bounded. It executes only valid
 The production-connected status tests initially failed because startup exposed only the two legacy installed kinds and had no four-definition availability projection. S4 now publishes all registry definitions immediately, schedules process probes through the existing post-commit effect worker, applies only matching generation results, and renders a pure textual status projection on the dashboard. Missing definitions remain visible as NotFound; required-capability failures remain visible and disabled with the exact reason; optional capability absence does not disable the agent.
 
 Regression evidence proves startup renders before a hanging probe completes and stale probe completions do not apply. The previously failing real TUI startup, restart, and sticky-kill scenarios pass after moving probe execution out of app initialization. `cargo test -q --test issue382_behavior` passes 30 tests, strict workspace Clippy passes, `make quick-check` passes, and unchanged `make ci-check` passes.
+
+## S5 generated typed form model (2026-07-26)
+
+### S5 RED evidence
+
+A focused integration target, `tests/generated_form_model.rs`, now exercises the
+production form-generation boundary for all seven field kinds, declaration
+order, defaults and metadata, typed reducer edits/toggles, visibility and focus,
+validation, active/signature value projection, unknown IDs, and typed disabled
+capability reasons. Before production implementation, the exact focused run
+failed as intended:
+
+```text
+$ cargo test --test generated_form_model --no-run
+error[E0432]: unresolved import `jefe::state::generated_form`
+ --> tests/generated_form_model.rs:6:18
+  |
+6 | use jefe::state::generated_form::{
+  |                  ^^^^^^^^^^^^^^ could not find `generated_form` in `state`
+error: could not compile `jefe` (test "generated_form_model") due to 1 previous error
+```
+
+This is the S5 RED: tests are connected to a missing production projection and
+reducer module rather than duplicating form policy in test helpers.
+
+### S5 GREEN evidence
+
+`GeneratedForm` now projects validated definition fields in declaration order into typed drafts, preserves hidden values while excluding them from active/signature projections, derives visible focus order, exposes unavailable capability reasons without hiding fields, and applies typed edits without I/O or product branches. `cargo test -q --test generated_form_model` passes all focused tests, the issue behavior target remains green, strict workspace Clippy passes, and both `make quick-check` and unchanged `make ci-check` pass.
