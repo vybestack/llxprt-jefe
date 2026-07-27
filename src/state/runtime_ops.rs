@@ -6,7 +6,8 @@
 //! executed by the root shell after every state guard is released, never here.
 
 use crate::domain::effects::{
-    Effect, EffectCompletion, EffectFamily, EffectResponse, RetryPolicy, RuntimeEffect, SemanticKey,
+    AgentAvailabilityProbe, Effect, EffectCompletion, EffectFamily, EffectResponse, ProbeEffect,
+    ProbeResponse, RetryPolicy, RuntimeEffect, SemanticKey,
 };
 use crate::domain::{AgentId, AgentStatus, Id};
 use crate::messages::RuntimeMessage;
@@ -98,6 +99,28 @@ impl AppState {
         }
     }
 
+    pub(super) fn stage_agent_availability_probes(&mut self, probes: Vec<AgentAvailabilityProbe>) {
+        let Ok(owner) = Id::parse(RUNTIME_EFFECT_OWNER) else {
+            self.error_message =
+                Some("BUG: builtin agent probe effect owner id failed validation".to_owned());
+            return;
+        };
+        for probe in probes {
+            let semantic_key =
+                SemanticKey::new(EffectFamily::AgentProbe, probe.definition.id.as_str());
+            let effect = Effect::AgentProbe(ProbeEffect::CheckAgentAvailability(probe));
+            if let Err(error) = self.register_pending_effect(
+                owner.clone(),
+                semantic_key,
+                effect,
+                RetryPolicy::Never,
+            ) {
+                self.error_message = Some(error.to_string());
+                return;
+            }
+        }
+    }
+
     /// Apply a typed post-commit effect completion (issue #381 CW01-11).
     ///
     /// An exact five-field correlation match applies once and clears the
@@ -109,6 +132,28 @@ impl AppState {
             CompletionOutcome::Applied => match &completion.result {
                 Ok(EffectResponse::Persistence(response)) => {
                     self.apply_persistence_response(*response);
+                }
+                Ok(EffectResponse::AgentProbe(ProbeResponse::Availability {
+                    availability,
+                    generation,
+                })) => {
+                    let subject = completion.correlation.semantic_key.subject();
+                    let applied = self
+                        .agent_type_availability
+                        .iter_mut()
+                        .find(|observation| observation.type_id().as_str() == subject)
+                        .is_some_and(|observation| {
+                            observation.apply_probe_result(*generation, *availability.clone())
+                        });
+                    if applied {
+                        let definitions =
+                            crate::domain::agent_definition::AgentDefinition::shipped();
+                        self.installed_agent_kinds =
+                            crate::agent_detection::compatible_legacy_agent_kinds(
+                                &self.agent_type_availability,
+                                &definitions,
+                            );
+                    }
                 }
                 Ok(_) => {}
                 Err(error) => {

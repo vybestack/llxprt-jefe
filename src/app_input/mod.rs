@@ -66,6 +66,7 @@ mod worker_panic;
 
 mod agent_runtime;
 mod availability;
+pub use availability::observe_startup_agent_availability;
 mod clone_identity;
 mod fresh_prompt;
 mod issue_git_prep;

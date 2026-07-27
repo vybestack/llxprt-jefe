@@ -19,6 +19,77 @@
 //! handling — the helper accepts either an explicit slice or derives the list
 //! under the state read-lock.
 
+use std::path::Path;
+
+use jefe::agent_candidate::AgentCandidateResolver;
+use jefe::agent_candidate_path::PathSnapshot;
+use jefe::agent_registry::AgentTypeRegistry;
+use jefe::agent_status_view::AgentAvailabilityObservation;
+use jefe::domain::agent_definition::Availability;
+use jefe::domain::effects::AgentAvailabilityProbe;
+
+/// Candidate-only startup publication plus deferred process probes.
+pub struct StartupAgentAvailability {
+    pub observations: Vec<AgentAvailabilityObservation>,
+    pub probes: Vec<AgentAvailabilityProbe>,
+}
+
+/// Resolve every immutable shipped definition without spawning a process.
+///
+/// Package selectors are intentionally blank in S4; selector participation is
+/// owned by S12. Resolved definitions publish a pending row and a typed effect
+/// request. Unresolved definitions publish final NotFound and no process effect.
+pub fn observe_startup_agent_availability<F>(
+    registry: &AgentTypeRegistry,
+    repository_root: &Path,
+    is_enabled: F,
+) -> StartupAgentAvailability
+where
+    F: Fn(&jefe::domain::agent_definition::AgentTypeId) -> bool,
+{
+    let path = PathSnapshot::current();
+    observe_agent_availability_with_path(registry, repository_root, &path, is_enabled)
+}
+
+fn observe_agent_availability_with_path<F>(
+    registry: &AgentTypeRegistry,
+    repository_root: &Path,
+    path: &PathSnapshot,
+    is_enabled: F,
+) -> StartupAgentAvailability
+where
+    F: Fn(&jefe::domain::agent_definition::AgentTypeId) -> bool,
+{
+    let resolver = AgentCandidateResolver::new(path, repository_root.to_path_buf());
+    let mut observations = Vec::with_capacity(registry.definitions().len());
+    let mut probes = Vec::with_capacity(registry.definitions().len());
+    for (index, definition) in registry.definitions().iter().enumerate() {
+        let resolution = resolver.resolve(definition);
+        let generation = u64::try_from(index).map_or(u64::MAX, |value| value.saturating_add(1));
+        let enabled = is_enabled(&definition.id);
+        if resolution.is_resolved() {
+            observations.push(AgentAvailabilityObservation::pending(
+                definition, enabled, generation,
+            ));
+            probes.push(AgentAvailabilityProbe {
+                definition: Box::new(definition.clone()),
+                resolution,
+                generation,
+            });
+        } else {
+            observations.push(AgentAvailabilityObservation::new(
+                definition,
+                enabled,
+                Availability::NotFound,
+            ));
+        }
+    }
+    StartupAgentAvailability {
+        observations,
+        probes,
+    }
+}
+
 use jefe::domain::{AgentKind, RemoteRepositorySettings};
 
 use super::AppStateHandle;
@@ -133,6 +204,50 @@ mod tests {
             host: "build.example.com".to_owned(),
             ..Default::default()
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_publication_does_not_execute_a_hanging_probe() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use jefe::runtime::AgentExecutablePlatform;
+
+        let temp = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must be created: {error}"));
+        let executable = temp.path().join("hanging-agent");
+        std::fs::write(&executable, b"#!/bin/sh\nwhile :; do :; done\n")
+            .unwrap_or_else(|error| panic!("probe fixture must be written: {error}"));
+        let mut permissions = std::fs::metadata(&executable)
+            .unwrap_or_else(|error| panic!("probe fixture metadata must exist: {error}"))
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions)
+            .unwrap_or_else(|error| panic!("probe fixture must be executable: {error}"));
+
+        let mut definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.codex")
+            .unwrap_or_else(|| panic!("Codex definition must be shipped"));
+        definition.candidates = vec![jefe::domain::agent_definition::ExecutableCandidate {
+            kind: jefe::domain::agent_definition::CandidateKind::PathName {
+                name: "hanging-agent".to_owned(),
+            },
+            value: "hanging-agent".into(),
+        }];
+        let registry = AgentTypeRegistry::publish(vec![definition])
+            .unwrap_or_else(|error| panic!("fixture registry must publish: {error}"));
+        let path = PathSnapshot::for_platform(
+            AgentExecutablePlatform::Unix,
+            vec![temp.path().to_path_buf()],
+            None,
+        );
+
+        let startup = observe_agent_availability_with_path(&registry, temp.path(), &path, |_| true);
+
+        assert_eq!(startup.observations.len(), 1);
+        assert_eq!(startup.probes.len(), 1);
+        assert_eq!(startup.observations[0].pending_generation(), Some(1));
     }
 
     #[test]

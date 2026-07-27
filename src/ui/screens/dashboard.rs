@@ -14,8 +14,8 @@ use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::util::text_with_caret;
 
 use super::super::components::{
-    AgentListSelection, AgentListView, AgentListWindow, KeybindBar, Preview, Sidebar, StatusBar,
-    TerminalView, agent_list_props, selectable_list_element,
+    AgentListSelection, AgentListView, AgentListWindow, AgentTypesStatus, KeybindBar, Preview,
+    Sidebar, StatusBar, TerminalView, agent_list_props, selectable_list_element,
 };
 
 /// Props for the dashboard screen.
@@ -163,7 +163,24 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
         .and_then(|s| s.selection_snapshot.clone())
         .or_else(|| props.terminal_snapshot.clone());
 
-    let workspace = if shell_overlay_active {
+    let show_agent_types = state
+        .is_some_and(|state| state.agents.is_empty() && !state.agent_type_availability.is_empty());
+    let workspace = if show_agent_types {
+        vec![element! {
+            Box(
+                flex_grow: 1.0_f32,
+                height: 100pct,
+            ) {
+                AgentTypesStatus(
+                    observations: state.map_or_else(
+                        Vec::new,
+                        |state| state.agent_type_availability.clone(),
+                    ),
+                    colors: colors.clone(),
+                )
+            }
+        }]
+    } else if shell_overlay_active {
         vec![element! {
             Box(
                 flex_direction: FlexDirection::Column,

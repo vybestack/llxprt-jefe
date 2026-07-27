@@ -93,6 +93,20 @@ fn run_startup_session_host_cleanup(state: &AppState, runtime: &TmuxRuntimeManag
         });
 }
 
+fn agent_type_enabled(
+    settings: &jefe::persistence::settings_document::PublishedSettings,
+    type_id: &jefe::domain::agent_definition::AgentTypeId,
+) -> bool {
+    let Ok(owner_id) = jefe::domain::Id::parse(type_id.as_str()) else {
+        return true;
+    };
+    settings
+        .agents
+        .get(&owner_id)
+        .and_then(|owner| owner.enabled)
+        .unwrap_or(true)
+}
+
 fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
     let caps = PlatformCapabilities::current();
     let mut normalized_agent_count = 0usize;
@@ -280,14 +294,72 @@ fn process_liveness_for_binding(
 /// Load persisted state and settings into `app_state` exactly once.
 ///
 /// Reconciles any agents that were persisted as Running against actual live
+fn restore_persisted_state(
+    state: &mut AppState,
+    persisted: jefe::state::durable_projection::RestoredState,
+) {
+    state.repositories = persisted.repositories;
+    state.agents = persisted.agents;
+    state.selected_repository_index = persisted.selected_repository_index;
+    state.selected_agent_index = persisted.selected_agent_index;
+    state.hide_idle_repositories = persisted.hide_idle_repositories;
+    state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
+    state.durable_revision = persisted.revision;
+    state.dormant_records = persisted.dormant_records;
+    state.pane_focus = persisted.pane_focus;
+    state.terminal_focused =
+        persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
+    state.user_preferences = persisted.user_preferences;
+}
+
+fn observe_agent_types(
+    state: &mut AppState,
+    settings: &jefe::persistence::settings_document::PublishedSettings,
+) -> Vec<jefe::domain::effects::IssuedEffect> {
+    let repository_root = state.selected_repository().map_or_else(
+        || std::path::PathBuf::from("."),
+        |repository| repository.base_dir.clone(),
+    );
+    match jefe::agent_registry::AgentTypeRegistry::shipped() {
+        Ok(registry) => {
+            let startup = crate::app_input::observe_startup_agent_availability(
+                &registry,
+                &repository_root,
+                |type_id| agent_type_enabled(settings, type_id),
+            );
+            state.installed_agent_kinds = jefe::agent_detection::compatible_legacy_agent_kinds(
+                &startup.observations,
+                registry.definitions(),
+            );
+            state.agent_type_availability = startup.observations;
+            jefe::state::transition::commit_in_place(
+                state,
+                jefe::messages::AppMessage::RepositoryAgent(
+                    jefe::messages::RepositoryAgentMessage::ProbeAgentAvailability(startup.probes),
+                ),
+            )
+        }
+        Err(error) => {
+            append_warning(
+                state,
+                format!("Agent type registry could not be published: {error}"),
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
-pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
+pub fn init_app_state(
+    app_state: &mut HookState<AppState>,
+    ctx: &SharedContext,
+) -> Vec<jefe::domain::effects::IssuedEffect> {
     let multiplexer_warning = windows_multiplexer_startup_warning();
     let Some(ctx_arc) = ctx else {
-        return;
+        return Vec::new();
     };
     let Ok(ctx_guard) = ctx_arc.lock() else {
-        return;
+        return Vec::new();
     };
 
     let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
@@ -304,33 +376,12 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         });
 
     let mut state = app_state.write();
-    state.repositories = persisted.repositories;
-    state.agents = persisted.agents;
-    state.installed_agent_kinds = jefe::agent_detection::installed_agent_kinds().to_vec();
-    state.selected_repository_index = persisted.selected_repository_index;
-    state.selected_agent_index = persisted.selected_agent_index;
-    state.hide_idle_repositories = persisted.hide_idle_repositories;
-    state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
-    // The durable revision read from disk is the watermark later saves build
-    // on, so an acknowledged write can be told apart from one that lost a race.
-    state.durable_revision = persisted.revision;
-    state.dormant_records = persisted.dormant_records;
-    // Restore the persisted pane focus and terminal-focus so an explicitly
-    // focused view survives restart (issue #160). `terminal_focused` is only
-    // meaningful when the terminal pane is active, so clamp an inconsistent
-    // persisted pair (terminal_focused=true but pane != Terminal) back to false;
-    // the per-keypress defensive guard in app_shell would clear it anyway.
-    state.pane_focus = persisted.pane_focus;
-    state.terminal_focused =
-        persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
-    state.user_preferences = persisted.user_preferences;
+    restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
-    // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
-    // settings.toml is the source of truth; this runtime copy is read every
-    // render frame by the terminal view.
     state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
+    let agent_probe_effects = observe_agent_types(&mut state, &ctx_guard.published_settings);
 
     // Log platform engine diagnostic at startup.
     tracing::info!("{}", platform_engine_diagnostic());
@@ -370,6 +421,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
             warn!(error = %e, theme = %settings.theme, "could not activate saved theme");
         }
     }
+    agent_probe_effects
 }
 
 /// Find Running agents whose tmux sessions no longer exist.
@@ -881,6 +933,7 @@ mod tests {
             binding_evidence(Some(&binding), &agent.id, &signature),
             BindingEvidence::Coherent
         );
+
         binding.session_name = "jefe-wrong-agent".to_owned();
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),
@@ -904,6 +957,25 @@ mod tests {
         );
         binding_evidence_rejects_different_llxprt_selector();
         binding_evidence_rejects_different_code_puppy_version();
+    }
+
+    #[test]
+    fn published_agent_enablement_is_separate_from_availability() {
+        let catalog = jefe::config_owners::builtin_owner_catalog()
+            .unwrap_or_else(|error| panic!("owner catalog must publish: {error}"));
+        let migration = jefe::persistence::migration::migrate_settings(
+            b"settings_schema = 2\n[agents.\"core.codex\"]\nenabled = false\n",
+            &catalog,
+        )
+        .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"));
+        let type_id = jefe::domain::agent_definition::AgentTypeId::parse("core.codex")
+            .unwrap_or_else(|error| panic!("type id must parse: {error}"));
+
+        assert!(!agent_type_enabled(migration.published(), &type_id));
+
+        let absent = jefe::domain::agent_definition::AgentTypeId::parse("core.llxprt")
+            .unwrap_or_else(|error| panic!("type id must parse: {error}"));
+        assert!(agent_type_enabled(migration.published(), &absent));
     }
 
     fn binding_evidence_rejects_different_code_puppy_version() {

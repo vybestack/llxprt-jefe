@@ -262,6 +262,9 @@ impl AppMessage {
             AppEvent::ToggleDeleteWorkDir => {
                 Self::RepositoryAgent(RepositoryAgentMessage::ToggleDeleteWorkDir)
             }
+            AppEvent::ProbeAgentAvailability(probes) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::ProbeAgentAvailability(probes))
+            }
             other => Self::from_issues_event(other),
         }
     }
@@ -673,6 +676,9 @@ impl From<RepositoryAgentMessage> for AppEvent {
             RepositoryAgentMessage::OpenEditAgent(id) => Self::OpenEditAgent(id),
             RepositoryAgentMessage::OpenDeleteAgent(id) => Self::OpenDeleteAgent(id),
             RepositoryAgentMessage::ToggleDeleteWorkDir => Self::ToggleDeleteWorkDir,
+            RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
+                Self::ProbeAgentAvailability(probes)
+            }
         }
     }
 }

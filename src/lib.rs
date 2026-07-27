@@ -13,6 +13,7 @@ pub mod agent_candidate_fingerprint;
 pub mod agent_candidate_path;
 pub mod agent_detection;
 pub mod agent_registry;
+pub mod agent_status_view;
 /// Detects whether the console font supports rounded-corner box-drawing
 /// glyphs and falls back to single-line borders when it does not (issue #497).
 pub mod border_capability;

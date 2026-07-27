@@ -134,6 +134,9 @@ impl AppState {
                 };
             }
             RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
+            RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
+                self.stage_agent_availability_probes(probes);
+            }
         }
     }
 

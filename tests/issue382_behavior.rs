@@ -32,11 +32,12 @@ use issue382::probe_fixtures::assert_all_retained_probe_fixtures;
 use jefe::agent_candidate::{AgentCandidateResolver, CandidateResolution};
 use jefe::agent_candidate_path::PathSnapshot;
 use jefe::agent_registry::AgentTypeRegistry;
+use jefe::agent_status_view::{AgentAvailabilityObservation, project_agent_type_statuses};
 use jefe::domain::agent_definition::type_id::CandidateKind as S2CandidateKind;
 use jefe::domain::agent_definition::{
     AgentDefinition, AgentLaunchPlan, AgentTypeId, Availability, CandidateKind,
     ExecutableCandidate, Operation, OperationMatrix, Preflight, ProbeErrorCode, ProbeSpec,
-    RemoteTarget, Support, Target,
+    RemoteTarget, Target,
 };
 use jefe::harness::v1::parse_scenario_v1;
 
@@ -229,14 +230,26 @@ fn capability_gate() {
     parse_scenario("agent-incompatible-zero-spawn.json");
     // Contract: IF a required capability is absent, Jefe shall show
     // incompatible and emit zero launch effects.
-    // RED: Support is the closed per-cell availability contract.
-    let unsupported = Support::Unsupported {
-        reason: "missing required capability".to_string(),
-    };
-    assert!(
-        unsupported.is_unsupported(),
-        "absent capability must be unsupported"
+    let definition = AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == "core.code-puppy")
+        .unwrap_or_else(|| panic!("Code Puppy definition must be shipped"));
+    let observation = AgentAvailabilityObservation::new(
+        &definition,
+        true,
+        Availability::InstalledIncompatible {
+            reason: "missing required capability: interactive".to_string(),
+            generation: 7,
+        },
     );
+    let projected = project_agent_type_statuses(&[observation]);
+    assert_eq!(projected.len(), 1, "one definition projects exactly once");
+    assert_eq!(projected[0].status_text, "Incompatible");
+    assert_eq!(
+        projected[0].reason.as_deref(),
+        Some("missing required capability: interactive")
+    );
+    assert!(!projected[0].create_enabled, "incompatible cannot create");
 }
 
 // ---- CW02-05: status projection ----
@@ -246,11 +259,128 @@ fn status_projection() {
     parse_scenario("agent-status-cartesian.json");
     // Contract: WHEN status renders, Jefe shall project every
     // enablement/availability pair exactly once.
-    // RED: Availability is the closed status contract rendered by the UI.
-    let not_found = Availability::NotFound;
-    assert!(not_found.is_not_found(), "NotFound is a distinct status");
+    let definition = AgentDefinition::shipped()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("a shipped definition must exist"));
+    let availabilities = [
+        Availability::NotFound,
+        Availability::InstalledCompatible {
+            identity: "fixture identity".to_string(),
+            capabilities: vec!["optional-present".to_string()],
+            generation: 1,
+        },
+        Availability::InstalledIncompatible {
+            reason: "missing required capability: required-id".to_string(),
+            generation: 2,
+        },
+        Availability::ProbeError {
+            code: ProbeErrorCode::Agte202,
+            reason: "invalid UTF-8".to_string(),
+            generation: 3,
+        },
+    ];
+    let mut observations = Vec::new();
+    for enabled in [false, true] {
+        for availability in availabilities.clone() {
+            observations.push(AgentAvailabilityObservation::new(
+                &definition,
+                enabled,
+                availability,
+            ));
+        }
+    }
+
+    let projected = project_agent_type_statuses(&observations);
+
+    assert_eq!(
+        projected.len(),
+        8,
+        "the complete 2 x 4 matrix projects once"
+    );
+    for (row, source) in projected.iter().zip(&observations) {
+        assert_eq!(row.display_name, source.display_name());
+        assert_eq!(row.enabled, source.enabled());
+        assert_eq!(
+            row.create_enabled,
+            source.enabled()
+                && matches!(
+                    source.availability(),
+                    Availability::InstalledCompatible { .. }
+                )
+        );
+    }
+    assert_eq!(
+        projected
+            .iter()
+            .filter(|row| row.status_text == "Not found")
+            .count(),
+        2
+    );
+
+    assert!(projected.iter().any(|row| {
+        row.error_code == Some("AGT-E202") && row.reason.as_deref() == Some("invalid UTF-8")
+    }));
 }
 
+#[test]
+fn stale_availability_completion_is_a_no_op() {
+    use jefe::domain::effects::{
+        AgentAvailabilityProbe, EffectCompletion, EffectResponse, ProbeResponse,
+    };
+    use jefe::messages::{AppMessage, RepositoryAgentMessage};
+
+    let definition = AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == "core.codex")
+        .unwrap_or_else(|| panic!("Codex definition must be shipped"));
+    let state = jefe::state::AppState {
+        agent_type_availability: vec![AgentAvailabilityObservation::pending(&definition, true, 1)],
+        ..jefe::state::AppState::default()
+    };
+    let first = state
+        .apply_message(AppMessage::RepositoryAgent(
+            RepositoryAgentMessage::ProbeAgentAvailability(vec![AgentAvailabilityProbe {
+                definition: Box::new(definition.clone()),
+                resolution: CandidateResolution::NotFound(Vec::new()),
+                generation: 1,
+            }]),
+        ))
+        .unwrap_or_else(|error| panic!("first probe request must commit: {error}"));
+    let stale_correlation = first.effects[0].correlation.clone();
+    let mut state = first.next_state;
+    state.agent_type_availability =
+        vec![AgentAvailabilityObservation::pending(&definition, true, 2)];
+    let second = state
+        .apply_message(AppMessage::RepositoryAgent(
+            RepositoryAgentMessage::ProbeAgentAvailability(vec![AgentAvailabilityProbe {
+                definition: Box::new(definition),
+                resolution: CandidateResolution::NotFound(Vec::new()),
+                generation: 2,
+            }]),
+        ))
+        .unwrap_or_else(|error| panic!("replacement probe request must commit: {error}"));
+    let before = format!("{:?}", second.next_state);
+    let completion = EffectCompletion {
+        correlation: stale_correlation,
+        result: Ok(EffectResponse::AgentProbe(ProbeResponse::Availability {
+            availability: Box::new(Availability::InstalledCompatible {
+                identity: "stale identity".to_owned(),
+                capabilities: Vec::new(),
+                generation: 1,
+            }),
+            generation: 1,
+        })),
+    };
+
+    let after = second
+        .next_state
+        .apply_message(AppMessage::EffectCompletion(Box::new(completion)))
+        .unwrap_or_else(|error| panic!("stale completion must commit as a no-op: {error}"));
+
+    assert_eq!(format!("{:?}", after.next_state), before);
+    assert!(after.effects.is_empty());
+}
 // ---- CW02-06: local plan golden ----
 
 #[test]
@@ -416,8 +546,30 @@ fn claude_entry_gate() {
     let claude = &AGENTS[2];
     assert_probe_identity(claude);
     assert_provenance(claude);
-    let status = Availability::NotFound;
-    assert!(status.is_not_found(), "absent Claude publishes NotFound");
+    let registry =
+        AgentTypeRegistry::shipped().unwrap_or_else(|error| panic!("shipped registry: {error}"));
+    let definition = registry
+        .definitions()
+        .iter()
+        .find(|definition| definition.display_name == "Claude Code")
+        .unwrap_or_else(|| panic!("Claude definition must remain published"));
+    let resolution = CandidateResolution::NotFound(Vec::new());
+    let result = jefe::runtime::run_local_agent_probe(definition, &resolution, 9);
+    assert!(
+        result.availability().is_not_found(),
+        "an unresolved Claude candidate publishes NotFound"
+    );
+    assert!(
+        result.executable_fingerprint().is_none(),
+        "NotFound returns before any executable process evidence can exist"
+    );
+    let projected = project_agent_type_statuses(&[AgentAvailabilityObservation::new(
+        definition,
+        true,
+        result.availability().clone(),
+    )]);
+    assert_eq!(projected[0].status_text, "Not found");
+    assert!(!projected[0].create_enabled);
 }
 
 // ---- CW02-17: package runner selector ----

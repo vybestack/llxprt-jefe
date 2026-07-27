@@ -139,6 +139,8 @@ pub enum RepositoryAgentMessage {
     OpenEditAgent(AgentId),
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
+    /// Stage startup availability probes for post-commit execution.
+    ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
 }
 /// Runtime lifecycle messages.
 #[derive(Debug, Clone)]

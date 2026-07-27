@@ -324,3 +324,12 @@ to the missing production runtime contract rather than a test-only parser.
 - `make ci-check` passed unchanged, including format, policy, source-size, strict stable Clippy, architecture, coverage, locked build, and all tests.
 
 The runtime adapter remains product-agnostic and bounded. It executes only validated definition argv, captures stdout and stderr concurrently with independent limits, applies typed local/remote timeout contracts, rechecks executable fingerprints, and returns generation-bearing availability without touching reducer state or any launch side effect.
+
+
+## S4 availability/status projection (2026-07-26)
+
+### RED and GREEN evidence
+
+The production-connected status tests initially failed because startup exposed only the two legacy installed kinds and had no four-definition availability projection. S4 now publishes all registry definitions immediately, schedules process probes through the existing post-commit effect worker, applies only matching generation results, and renders a pure textual status projection on the dashboard. Missing definitions remain visible as NotFound; required-capability failures remain visible and disabled with the exact reason; optional capability absence does not disable the agent.
+
+Regression evidence proves startup renders before a hanging probe completes and stale probe completions do not apply. The previously failing real TUI startup, restart, and sticky-kill scenarios pass after moving probe execution out of app initialization. `cargo test -q --test issue382_behavior` passes 30 tests, strict workspace Clippy passes, `make quick-check` passes, and unchanged `make ci-check` passes.

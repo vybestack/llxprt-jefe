@@ -15,6 +15,7 @@ pub(crate) mod actions_detail;
 pub(crate) mod actions_list;
 mod agent_chooser;
 mod agent_list;
+mod agent_types_status;
 /// @requirement issue #188
 mod close_reason_chooser;
 /// Generic bordered, header + scrollable + optional-composer detail pane.
@@ -111,6 +112,7 @@ pub use actions_list::{
 };
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentListSelection, AgentListView, AgentListWindow, agent_list_props};
+pub use agent_types_status::{AgentTypesStatus, AgentTypesStatusProps};
 /// @requirement issue #188
 pub use close_reason_chooser::{
     CloseReasonChooser, CloseReasonChooserProps, close_reason_chooser_lines,

@@ -358,8 +358,10 @@ pub struct AppState {
     // Data
     pub repositories: Vec<crate::domain::Repository>,
     pub agents: Vec<crate::domain::Agent>,
-    /// Runtime availability snapshot detected once during startup.
+    /// Legacy runtime availability snapshot consumed by pre-cutover forms and launch gates.
     pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
+    /// Definition-driven runtime availability observed once during startup.
+    pub agent_type_availability: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
 
     // Selection
     pub selected_repository_index: Option<usize>,

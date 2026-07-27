@@ -90,6 +90,7 @@ message_names!(RepositoryAgentMessage {
     Self::OpenEditAgent(_) => "OpenEditAgent",
     Self::OpenDeleteAgent(_) => "OpenDeleteAgent",
     Self::ToggleDeleteWorkDir => "ToggleDeleteWorkDir",
+    Self::ProbeAgentAvailability(_) => "ProbeAgentAvailability",
 });
 
 message_names!(RuntimeMessage {

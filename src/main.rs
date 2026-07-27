@@ -28,6 +28,7 @@ use jefe::theme::FileThemeManager;
 /// Shared application context passed to the root component.
 struct AppContext {
     persistence: jefe::persistence::FilePersistenceManager,
+    published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
@@ -226,6 +227,7 @@ fn main() {
         state_path: startup.paths.state.path.clone(),
     };
     let themes_dir = startup.paths.themes.clone();
+    let published_settings = startup.settings;
     let persistence = startup.manager;
 
     // Initialize structured logging only after persistence has validated.
@@ -253,6 +255,7 @@ fn main() {
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         persistence,
+        published_settings,
         theme_manager,
         runtime,
         gh_client: jefe::github::GhClient::new(),
