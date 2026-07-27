@@ -357,6 +357,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        persisted_launch_signature: None,
         origin: crate::domain::AgentOrigin::Persistent,
         llxprt_version: None,
     };
@@ -410,6 +411,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        persisted_launch_signature: None,
         origin: crate::domain::AgentOrigin::Persistent,
         llxprt_version: None,
     };

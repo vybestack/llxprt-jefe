@@ -195,6 +195,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,
+        persisted_launch_signature: None,
         origin: crate::domain::AgentOrigin::Persistent,
     })
 }

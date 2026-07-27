@@ -181,7 +181,11 @@ fn binding_evidence(
     binding: Option<&jefe::domain::RuntimeBinding>,
     agent_id: &AgentId,
     signature: &LaunchSignature,
+    durable_signature_matches: bool,
 ) -> BindingEvidence {
+    if !durable_signature_matches {
+        return BindingEvidence::Inconsistent;
+    }
     let Some(binding) = binding else {
         return BindingEvidence::Legacy;
     };
@@ -217,14 +221,6 @@ fn classify_startup(
         return StartupClassification::Orphaned;
     }
     if binding == BindingEvidence::Inconsistent {
-        // A live session is ground truth: the agent is still running even if
-        // the persisted binding signature drifted (e.g. a new binary recomputed
-        // LaunchSignature fields differently). Returning Running lets
-        // restore_runtime_sessions reattach the live session and refresh the
-        // binding instead of marking the agent Dead (issue #323).
-        if session == SessionEvidence::Alive {
-            return StartupClassification::Running;
-        }
         return StartupClassification::Inconsistent;
     }
     if !remote && process == ProcessLiveness::ReusedPid {
@@ -246,15 +242,32 @@ fn classify_startup(
     }
 }
 
+fn durable_signature_matches(agent: &Agent, repository: &jefe::domain::Repository) -> bool {
+    match agent.persisted_launch_signature.as_ref() {
+        None => true,
+        Some(persisted) => {
+            jefe::state::durable_projection::current_launch_signature(agent, repository)
+                .is_ok_and(|current| current == *persisted)
+        }
+    }
+}
+
 fn classify_agent_startup(
     agent: &Agent,
+    repository: &jefe::domain::Repository,
     signature: &LaunchSignature,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
     let session = runtime
         .session_liveness_for_signature(&agent.id, signature)
         .into();
-    let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id, signature);
+    let durable_signature_matches = durable_signature_matches(agent, repository);
+    let binding = binding_evidence(
+        agent.runtime_binding.as_ref(),
+        &agent.id,
+        signature,
+        durable_signature_matches,
+    );
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
     } else {
@@ -446,7 +459,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
             continue;
         };
         let signature = launch_signature_for_agent(agent, repository);
-        match classify_agent_startup(agent, &signature, runtime) {
+        match classify_agent_startup(agent, repository, &signature, runtime) {
             StartupClassification::Orphaned => {
                 // Dead pane with surviving validated worker descendants
                 // (issue #332): reap the orphan tree and remove the stale
@@ -527,7 +540,7 @@ fn restore_one_agent(
         binding.and_then(|value| value.process_identity),
     );
 
-    match classify_agent_startup(agent, &signature, runtime) {
+    match classify_agent_startup(agent, &repository, &signature, runtime) {
         StartupClassification::Stopped
         | StartupClassification::Stale
         | StartupClassification::Inconsistent
@@ -741,6 +754,21 @@ mod tests {
     }
 
     #[test]
+    fn durable_signature_rejects_changed_values_and_target() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        let current =
+            jefe::state::durable_projection::current_launch_signature(&agent, &repository)
+                .unwrap_or_else(|error| panic!("fixture signature must project: {error}"));
+        agent.persisted_launch_signature = Some(current);
+        assert!(durable_signature_matches(&agent, &repository));
+
+        agent.code_puppy_model = "changed-model".to_owned();
+        assert!(!durable_signature_matches(&agent, &repository));
+        agent.code_puppy_model.clear();
+        agent.work_dir = std::path::PathBuf::from("/tmp/changed-target");
+        assert!(!durable_signature_matches(&agent, &repository));
+    }
+    #[test]
     fn legacy_pid_only_binding_uses_conservative_native_probe() {
         let pid = std::process::id();
         assert_eq!(
@@ -866,10 +894,9 @@ mod tests {
     }
 
     #[test]
-    fn live_session_survives_mismatched_binding_for_reattach() {
-        // Issue #323: a live tmux session must not be killed just because the
-        // persisted binding signature drifted. The session is the ground truth;
-        // the binding can be refreshed during restore.
+    fn live_session_with_mismatched_binding_is_rejected() {
+        // A live session is reattachable only when its persisted launch
+        // signature still matches current definition, values, and target.
         for liveness in [
             ProcessLiveness::Alive,
             ProcessLiveness::Dead,
@@ -883,8 +910,8 @@ mod tests {
                     liveness,
                     jefe::runtime::OrphanClassification::NoOrphan,
                 ),
-                StartupClassification::Running,
-                "Alive session with Inconsistent binding and {liveness:?} process should be Running"
+                StartupClassification::Inconsistent,
+                "live session with inconsistent signature and {liveness:?} process must not reattach"
             );
         }
     }
@@ -930,29 +957,29 @@ mod tests {
             worker_identities: Vec::new(),
         };
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Coherent
         );
 
         binding.session_name = "jefe-wrong-agent".to_owned();
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Inconsistent
         );
         binding.session_name = RuntimeSession::session_name_for(&agent.id);
         binding.launch_signature.profile = "wrong-profile".to_owned();
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Inconsistent
         );
         binding.launch_signature = signature.clone();
         binding.pid = Some(42);
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Inconsistent
         );
         assert_eq!(
-            binding_evidence(None, &agent.id, &signature),
+            binding_evidence(None, &agent.id, &signature, true),
             BindingEvidence::Legacy
         );
         binding_evidence_rejects_different_llxprt_selector();
@@ -996,7 +1023,7 @@ mod tests {
             worker_identities: Vec::new(),
         };
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Inconsistent
         );
     }
@@ -1021,7 +1048,7 @@ mod tests {
             worker_identities: Vec::new(),
         };
         assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
+            binding_evidence(Some(&binding), &agent.id, &signature, true),
             BindingEvidence::Inconsistent
         );
     }

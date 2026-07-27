@@ -315,6 +315,7 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
             worker_identities: Vec::new(),
             lifecycle_generation: record.runtime.invocation_generation,
         });
+    agent.persisted_launch_signature = Some(record.launch_signature.clone());
     agent
 }
 

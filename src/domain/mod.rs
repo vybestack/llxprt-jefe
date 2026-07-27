@@ -748,6 +748,9 @@ pub struct Agent {
     pub llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
+    /// Runtime-only durable signature used to reject stale restoration.
+    #[serde(skip)]
+    pub persisted_launch_signature: Option<LaunchSignatureV1>,
     /// Whether this agent is persistent or transient (created on-the-fly,
     /// not persisted, cleaned up on exit).
     #[serde(default)]
@@ -920,6 +923,7 @@ impl Agent {
             llxprt_version: None,
             status: AgentStatus::default(),
             runtime_binding: None,
+            persisted_launch_signature: None,
             origin: AgentOrigin::default(),
         }
     }

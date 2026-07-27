@@ -21,8 +21,8 @@ use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,
 };
 use values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path, stable_id,
-    type_id, typed_map_hash,
+    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path,
+    shipped_definition_hash, stable_id, type_id, typed_map_hash,
 };
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, FILE_LIMIT, PATH_LIMIT, Severity};
@@ -34,7 +34,6 @@ use crate::domain::{
     RepositoryRecord, RuntimeRecord, Selection, StateV2, TypedMap,
 };
 
-const DEFINITION_VERSION: &str = "1";
 const DORMANT_REASON: &str = "schema-1 owner or field is unavailable in schema 2";
 
 /// Result of parsing current state or migrating one schema-1 candidate.
@@ -417,8 +416,7 @@ fn migrate_agent_record(
     let type_id = type_id(source.agent_kind.as_deref()).map_err(malformed_vec)?;
     let values = agent_values(source, &type_id, home_expanded.then_some(work_target))
         .map_err(malformed_vec)?;
-    let definition_hash =
-        digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(malformed_vec)?;
+    let definition_hash = shipped_definition_hash(&type_id).map_err(malformed_vec)?;
     let typed_value_hash = typed_map_hash(&values).map_err(malformed_vec)?;
     let target_fingerprint =
         digest_parts(&[&repository.identity, work_target]).map_err(malformed_vec)?;

@@ -306,7 +306,7 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "d9c86254b9b69126f482605301dd73ff1b2e81454f4a0ddb74c2dbc0ea79a313"
+        "a0a288dd14a1e19e0ac9abdffdae321f538b10e659a840e1eb8a388b10b24062"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),

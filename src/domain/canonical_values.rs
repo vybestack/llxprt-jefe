@@ -39,6 +39,15 @@ pub fn digest_parts(parts: &[&str]) -> Result<Sha256Digest, String> {
     Sha256Digest::parse(&hash_parts(parts)).map_err(|error| error.to_string())
 }
 
+/// Resolve the canonical digest of a shipped agent definition by durable type id.
+pub fn shipped_definition_hash(type_id: &Id) -> Result<Sha256Digest, String> {
+    let definition = super::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .ok_or_else(|| format!("unknown shipped agent definition {}", type_id.as_str()))?;
+    Sha256Digest::parse(&definition.sha256().to_hex()).map_err(|error| error.to_string())
+}
+
 /// Digest raw `bytes`.
 pub fn digest_bytes(bytes: &[u8]) -> Result<Sha256Digest, String> {
     Sha256Digest::parse(&Sha256::digest(bytes).to_string()).map_err(|error| error.to_string())
@@ -182,6 +191,21 @@ fn typed_to_runtime_json(value: &TypedValue) -> Value {
 pub fn typed_field<'a>(values: &'a TypedMap, field: &str) -> Option<&'a TypedValue> {
     let key = Id::parse(&field.replace('_', "-")).ok()?;
     values.get(&key)
+}
+
+/// Canonical local target identity used by migration and current projection.
+pub fn canonical_local_target(path: &std::path::Path) -> Result<String, String> {
+    let canonical = match std::fs::canonicalize(path) {
+        Ok(canonical) => canonical,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && path.is_absolute() => {
+            path.to_path_buf()
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    canonical
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "canonical local target is not valid UTF-8".to_owned())
 }
 
 /// Encode the canonical, unambiguous remote target for a repository.

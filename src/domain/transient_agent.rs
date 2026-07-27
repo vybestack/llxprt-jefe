@@ -50,6 +50,7 @@ impl Agent {
             agent_kind: signature.agent_kind,
             status: AgentStatus::Queued,
             runtime_binding: None,
+            persisted_launch_signature: None,
             origin: AgentOrigin::Transient,
             llxprt_version: signature.llxprt_version.clone(),
         }
@@ -96,6 +97,7 @@ impl Agent {
             agent_kind: repo.default_agent_kind,
             status: AgentStatus::Queued,
             runtime_binding: None,
+            persisted_launch_signature: None,
             origin: AgentOrigin::Transient,
             llxprt_version: repo.default_llxprt_version.clone(),
         }

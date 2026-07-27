@@ -618,3 +618,31 @@ Nine focused migration tests, durable restore regressions, the production
 migration scenario remains structurally parsed by the acceptance test; its
 Linux-only runtime path will be exercised with the other TUI convergence
 scenarios in S15.
+
+
+## S14 durable restore reconciliation (2026-07-27)
+
+### S14 RED evidence
+
+Startup previously trusted a live tmux session even when persisted binding data
+was inconsistent, and schema-2 launch signatures used a placeholder definition
+version rather than the shipped definition digest. The retained sticky-session
+real-TUI test became RED when durable signature comparison was connected: its
+schema-1 migration and current projection disagreed on local target identity,
+so startup correctly refused reattachment. A focused migration/restore regression
+isolated the mismatch to canonical versus lexical local paths.
+
+### S14 GREEN evidence
+
+Schema-1 migration and current projection now stamp the actual shipped definition
+SHA-256 and share canonical local target identity semantics. Restore retains the
+persisted `LaunchSignatureV1` as runtime-only evidence, and startup recomputes the
+current definition/value/target signature before considering a session
+reattachable. A mismatch is classified inconsistent even when tmux is alive, so
+`revive_agent_session` and manager registration remain unreachable; agents with
+no durable V1 retain the bounded legacy compatibility behavior until S15.
+Matching schema-2 and migrated schema-1 signatures round-trip exactly. Changed
+typed values or work targets fail the comparison. Focused migration, projection,
+restore, and startup tests pass, as does the real sticky-session tmux scenario
+after fixing canonical local identity. Strict workspace/all-target Clippy passes;
+full quick and exact-head verification are recorded at the slice gate.

@@ -14,7 +14,7 @@ use crate::domain::{
     UserPreferences,
 };
 use crate::persistence::state_v2::StateDocument;
-use crate::state::durable_projection::to_durable_state;
+use crate::state::durable_projection::{current_launch_signature, to_durable_state};
 use crate::state::durable_restore::from_durable_state;
 use crate::state::{AppState, PaneFocus};
 
@@ -372,6 +372,77 @@ fn inverse_synthesizes_status_and_binding_from_last_known() {
     assert!(restored.agents[2].runtime_binding.is_none());
 }
 
+#[test]
+fn restored_launch_signature_matches_current_projection() {
+    let state = sample_state();
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+
+    for agent in &restored.agents {
+        let repository = restored
+            .repositories
+            .iter()
+            .find(|repository| repository.id == agent.repository_id)
+            .value_or_panic("restored agent repository");
+        let current = current_launch_signature(agent, repository)
+            .value_or_panic("current launch signature projects");
+        assert_eq!(agent.persisted_launch_signature.as_ref(), Some(&current));
+    }
+}
+
+#[test]
+fn migrated_schema1_launch_signature_matches_current_projection() {
+    let source = serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "repositories": [{
+            "id": "testrepo",
+            "name": "testrepo",
+            "slug": "testrepo",
+            "base_dir": "/tmp"
+        }],
+        "agents": [{
+            "id": "agent-sticky",
+            "repository_id": "testrepo",
+            "display_id": "#1",
+            "name": "StickyAgent",
+            "work_dir": "/tmp",
+            "agent_kind": "llxprt",
+            "pass_continue": true,
+            "status": "running",
+            "runtime_binding": {
+                "session_name": "jefe-sticky",
+                "launch_signature": {
+                    "work_dir": "/tmp",
+                    "profile": "",
+                    "code_puppy_model": "",
+                    "code_puppy_version": "",
+                    "code_puppy_yolo": null,
+                    "code_puppy_quick_resume": false,
+                    "mode_flags": [],
+                    "llxprt_debug": "",
+                    "pass_continue": true,
+                    "sandbox_enabled": false,
+                    "sandbox_engine": "podman",
+                    "sandbox_flags": "--cpus=2 --memory=12288m --pids-limit=256",
+                    "remote": { "enabled": false },
+                    "agent_kind": "llxprt",
+                    "llxprt_version": null
+                },
+                "lifecycle_generation": 0
+            }
+        }]
+    }))
+    .value_or_panic("schema-1 fixture serializes");
+    let migrated = crate::persistence::migration::migrate_state(&source)
+        .value_or_panic("schema-1 fixture migrates");
+    let restored = from_durable_state(migrated.state()).value_or_panic("migration restores");
+    let current = current_launch_signature(&restored.agents[0], &restored.repositories[0])
+        .value_or_panic("current launch signature projects");
+    assert_eq!(
+        restored.agents[0].persisted_launch_signature.as_ref(),
+        Some(&current)
+    );
+}
 #[test]
 fn round_trip_is_idempotent_in_canonical_bytes() {
     let mut state = sample_state();

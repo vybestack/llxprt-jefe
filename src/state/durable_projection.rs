@@ -15,8 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde_json::{Value, json};
 
 use crate::domain::canonical_values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path, stable_id,
-    type_id, typed_map_hash,
+    canonical_local_target, canonical_remote_target, digest_parts, json_map_to_typed,
+    normalize_remote_path, shipped_definition_hash, stable_id, type_id, typed_map_hash,
 };
 use crate::domain::{
     Agent, AgentDefaults, AgentId, AgentKind, AgentOrigin, AgentRecord, AgentStatus, DormantRecord,
@@ -25,9 +25,6 @@ use crate::domain::{
     RuntimeRecord, STATE_SCHEMA_V2, Selection, StateV2, TypedMap, UserPreferences,
 };
 use crate::state::{AppState, PaneFocus};
-
-/// Version tag stamped into every projected [`LaunchSignatureV1`].
-const DEFINITION_VERSION: &str = "1";
 
 /// Runtime fields restored from a durable document.
 ///
@@ -312,6 +309,27 @@ fn repository_version_selector(repository: &Repository) -> String {
     }
 }
 
+/// Compute the durable launch signature for current agent values and target.
+pub fn current_launch_signature(
+    agent: &Agent,
+    repository: &Repository,
+) -> Projected<LaunchSignatureV1> {
+    let type_id = type_id(Some(agent_kind_text(agent.agent_kind))).map_err(map_detail)?;
+    let values = json_map_to_typed(agent_values(agent)?).map_err(map_detail)?;
+    let definition_hash = shipped_definition_hash(&type_id).map_err(map_detail)?;
+    let typed_value_hash = typed_map_hash(&values).map_err(map_detail)?;
+    let work_target = agent_work_target(agent, repository)?;
+    let repository_identity = repository_identity(repository)?;
+    let target_fingerprint =
+        digest_parts(&[&repository_identity, &work_target]).map_err(map_detail)?;
+    Ok(LaunchSignatureV1 {
+        version: 1,
+        definition_hash,
+        typed_value_hash,
+        target_fingerprint,
+    })
+}
+
 fn agent_record(
     agent: &Agent,
     repository: &Repository,
@@ -329,12 +347,7 @@ fn agent_record(
     };
     let type_id = type_id(Some(agent_kind_text(agent.agent_kind))).map_err(map_detail)?;
     let values = json_map_to_typed(agent_values(agent)?).map_err(map_detail)?;
-    let definition_hash =
-        digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(map_detail)?;
-    let typed_value_hash = typed_map_hash(&values).map_err(map_detail)?;
-    let work_target = agent_work_target(agent, repository);
-    let target_fingerprint =
-        digest_parts(&[&repository_identity(repository), &work_target]).map_err(map_detail)?;
+    let launch_signature = current_launch_signature(agent, repository)?;
     let (session_id, invocation_generation) =
         agent.runtime_binding.as_ref().map_or((None, 0), |binding| {
             (
@@ -347,12 +360,7 @@ fn agent_record(
         repository_id,
         type_id,
         values,
-        launch_signature: LaunchSignatureV1 {
-            version: 1,
-            definition_hash,
-            typed_value_hash,
-            target_fingerprint,
-        },
+        launch_signature,
         runtime: RuntimeRecord {
             session_id,
             invocation_generation,
@@ -399,19 +407,19 @@ fn agent_version_selector(agent: &Agent) -> String {
     }
 }
 
-fn agent_work_target(agent: &Agent, repository: &Repository) -> String {
-    let work_dir = agent.work_dir.to_string_lossy();
+fn agent_work_target(agent: &Agent, repository: &Repository) -> Projected<String> {
     if repository.remote.enabled {
-        normalize_remote_path(&work_dir)
-    } else {
-        work_dir.into_owned()
+        return Ok(normalize_remote_path(&agent.work_dir.to_string_lossy()));
     }
+    canonical_local_target(&agent.work_dir).map_err(map_detail)
 }
 
-fn repository_identity(repository: &Repository) -> String {
+fn repository_identity(repository: &Repository) -> Projected<String> {
     match repository_location(repository) {
-        RepositoryLocation::Local(local) => local.local_path,
-        RepositoryLocation::Remote(remote) => remote.remote_target,
+        RepositoryLocation::Local(local) => {
+            canonical_local_target(std::path::Path::new(&local.local_path)).map_err(map_detail)
+        }
+        RepositoryLocation::Remote(remote) => Ok(remote.remote_target),
     }
 }
 
