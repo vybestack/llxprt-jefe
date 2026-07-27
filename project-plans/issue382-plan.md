@@ -587,3 +587,34 @@ The scenario parses through the schema-1 acceptance gate; direct `tmux_scenario`
 execution on this macOS host correctly returns `HAR-E005` because the retained
 scenario explicitly targets Linux, so no cross-platform skip is claimed as TUI
 runtime success.
+
+## S13 one-way selector migration (2026-07-27)
+
+### S13 RED evidence
+
+The production-connected `agent_migration_golden` previously parsed the retained
+schema-1 scenario but asserted only strict type-id parsing. Focused migration
+coverage was added for LLxprt, Code Puppy, blank/direct selectors, unknown agent
+kinds, deterministic repeated migration, schema-2 reapplication, malformed
+input, and runtime restoration from the generic map. The old projection emitted
+legacy selector keys and could not satisfy the generic `version_selector`
+authority.
+
+### S13 GREEN evidence
+
+The schema-1 adapter now maps legacy selector fields into the single generic
+`version_selector` typed value according to the legacy agent type, while all
+schema-2 projection and restoration paths read and write only that generic key.
+Blank/null selectors become an empty string and retain direct-launch semantics.
+Unknown agent kinds do not become executable records: their exact source JSON
+value is retained as one dormant schema-1 record. Source array indices are kept
+separately so removing a dormant unknown agent cannot shift a later selected
+agent. Reapplying migration to schema 2 is a no-op, and deterministic source
+migration produces identical state.
+
+Nine focused migration tests, durable restore regressions, the production
+`agent_migration_golden`, strict locked workspace/all-target Clippy,
+`make quick-check`, formatting/diff checks, and the source-size gate pass. The
+migration scenario remains structurally parsed by the acceptance test; its
+Linux-only runtime path will be exercised with the other TUI convergence
+scenarios in S15.

@@ -843,6 +843,7 @@ fn generation_property() {
 #[test]
 fn agent_migration_golden() {
     parse_scenario("agent-legacy-migration.json");
+    issue382::schema1_migration::assert_migration_contract();
     // Contract: WHEN schema-1 records migrate, Jefe shall preserve known typed
     // values and exact dormant unknown records.
     // S1 contract: AgentTypeId replaces AgentKind with strict validation.

@@ -288,7 +288,7 @@ fn repository_values(repository: &Repository) -> Projected<Value> {
         "slug": repository.slug,
         "default_profile": repository.default_profile,
         "default_code_puppy_model": repository.default_code_puppy_model,
-        "default_code_puppy_version": repository.default_code_puppy_version,
+        "version_selector": repository_version_selector(repository),
         "github_repo": repository.github_repo,
         "github_issue_pr_repo": repository.github_issue_pr_repo,
         "remote": remote,
@@ -297,11 +297,19 @@ fn repository_values(repository: &Repository) -> Projected<Value> {
         "default_code_puppy_yolo": repository.default_code_puppy_yolo,
         "default_llxprt_mode_flags": repository.default_llxprt_mode_flags,
         "transient_max_concurrent": repository.transient_max_concurrent,
-        "default_llxprt_version": repository
+    }))
+}
+
+/// Generic selector for a repository's declared default agent kind.
+fn repository_version_selector(repository: &Repository) -> String {
+    match repository.default_agent_kind {
+        AgentKind::CodePuppy => repository.default_code_puppy_version.clone(),
+        AgentKind::Llxprt => repository
             .default_llxprt_version
             .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
-    }))
+            .map(|selector| selector.as_str().to_owned())
+            .unwrap_or_default(),
+    }
 }
 
 fn agent_record(
@@ -362,7 +370,7 @@ fn agent_values(agent: &Agent) -> Projected<Value> {
         "work_dir": path_text(&agent.work_dir)?,
         "profile": agent.profile,
         "code_puppy_model": agent.code_puppy_model,
-        "code_puppy_version": agent.code_puppy_version,
+        "version_selector": agent_version_selector(agent),
         "code_puppy_yolo": agent.code_puppy_yolo,
         "code_puppy_quick_resume": agent.code_puppy_quick_resume,
         "mode_flags": agent.mode_flags,
@@ -371,12 +379,24 @@ fn agent_values(agent: &Agent) -> Projected<Value> {
         "sandbox_enabled": agent.sandbox_enabled,
         "sandbox_engine": sandbox_engine_text(agent.sandbox_engine),
         "sandbox_flags": agent.sandbox_flags,
-        "llxprt_version": agent
-            .llxprt_version
-            .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
         "origin": agent_origin_text(agent.origin),
     }))
+}
+
+/// Generic selector for the agent's declared kind.
+///
+/// Mirrors the migration: LLxprt's selector comes from `llxprt_version`, Code
+/// Puppy's from `code_puppy_version`. A blank/None selector is preserved as an
+/// empty string so direct-launch semantics round-trip losslessly.
+fn agent_version_selector(agent: &Agent) -> String {
+    match agent.agent_kind {
+        AgentKind::CodePuppy => agent.code_puppy_version.clone(),
+        AgentKind::Llxprt => agent
+            .llxprt_version
+            .as_ref()
+            .map(|selector| selector.as_str().to_owned())
+            .unwrap_or_default(),
+    }
 }
 
 fn agent_work_target(agent: &Agent, repository: &Repository) -> String {

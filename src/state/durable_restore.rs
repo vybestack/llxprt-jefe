@@ -200,8 +200,10 @@ fn restore_repository(record: &RepositoryRecord) -> Projected<Repository> {
         default_profile: typed_string(values, "default_profile").unwrap_or_default(),
         default_code_puppy_model: typed_string(values, "default_code_puppy_model")
             .unwrap_or_default(),
-        default_code_puppy_version: typed_string(values, "default_code_puppy_version")
-            .unwrap_or_default(),
+        default_code_puppy_version: repository_default_code_puppy_version(
+            values,
+            &record.agent_defaults.type_id,
+        ),
         github_repo: typed_string(values, "github_repo").unwrap_or_default(),
         github_issue_pr_repo: typed_string(values, "github_issue_pr_repo").unwrap_or_default(),
         remote,
@@ -216,10 +218,37 @@ fn restore_repository(record: &RepositoryRecord) -> Projected<Repository> {
         transient_max_concurrent: typed_integer(values, "transient_max_concurrent")
             .and_then(|value| u32::try_from(value).ok())
             .unwrap_or(0),
-        default_llxprt_version: typed_string(values, "default_llxprt_version")
-            .and_then(|value| crate::domain::LlxprtNpmPackageSelector::normalize(&value)),
+        default_llxprt_version: repository_default_llxprt_version(
+            values,
+            &record.agent_defaults.type_id,
+        ),
         agent_ids: Vec::new(),
     })
+}
+
+/// Derive the repository's LLxprt default selector from the authoritative
+/// generic `version_selector` field when the repository's declared agent kind
+/// is LLxprt. A Code Puppy repository carries no LLxprt default.
+fn repository_default_llxprt_version(
+    values: &TypedMap,
+    type_id: &crate::domain::Id,
+) -> Option<crate::domain::LlxprtNpmPackageSelector> {
+    if type_id.as_str() != "core.llxprt" {
+        return None;
+    }
+    typed_string(values, "version_selector")
+        .and_then(|value| crate::domain::LlxprtNpmPackageSelector::normalize(&value))
+}
+
+/// Derive the repository's Code Puppy default selector from the authoritative
+/// generic `version_selector` field when the repository's declared agent kind
+/// is Code Puppy.
+fn repository_default_code_puppy_version(values: &TypedMap, type_id: &crate::domain::Id) -> String {
+    if type_id.as_str() == "core.code-puppy" {
+        typed_string(values, "version_selector").unwrap_or_default()
+    } else {
+        String::new()
+    }
 }
 
 fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
@@ -239,7 +268,6 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
     agent.description = typed_string(values, "description").unwrap_or_default();
     agent.profile = typed_string(values, "profile").unwrap_or_default();
     agent.code_puppy_model = typed_string(values, "code_puppy_model").unwrap_or_default();
-    agent.code_puppy_version = typed_string(values, "code_puppy_version").unwrap_or_default();
     agent.code_puppy_yolo = typed_bool(values, "code_puppy_yolo");
     agent.code_puppy_quick_resume = typed_bool(values, "code_puppy_quick_resume").unwrap_or(false);
     agent.mode_flags = typed_string_list(values, "mode_flags").unwrap_or_default();
@@ -253,8 +281,19 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
         agent.sandbox_flags = flags;
     }
     agent.agent_kind = agent_kind_from_type(&record.type_id);
-    agent.llxprt_version = typed_string(values, "llxprt_version")
-        .and_then(|value| crate::domain::LlxprtNpmPackageSelector::normalize(&value));
+    // The generic `version_selector` is authoritative. The product-specific
+    // runtime field is derived from it based on the migrated type id, so no
+    // runtime compatibility adapter reads the old selector field names.
+    let version_selector = typed_string(values, "version_selector").unwrap_or_default();
+    match agent.agent_kind {
+        crate::domain::AgentKind::CodePuppy => {
+            agent.code_puppy_version = version_selector;
+        }
+        crate::domain::AgentKind::Llxprt => {
+            agent.llxprt_version =
+                crate::domain::LlxprtNpmPackageSelector::normalize(&version_selector);
+        }
+    }
     agent.origin = typed_string(values, "origin")
         .and_then(|value| agent_origin_from_text(&value))
         .unwrap_or(AgentOrigin::Persistent);

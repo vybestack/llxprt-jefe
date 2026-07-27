@@ -104,12 +104,17 @@ fn current_state(bytes: &[u8]) -> Result<StateMigration, Vec<Diagnostic>> {
 }
 
 fn migrate_schema1_value(value: Value) -> Result<StateMigration, Vec<Diagnostic>> {
+    let raw_agents = value
+        .get("agents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let source: Schema1State =
         serde_json::from_value(value).map_err(|error| vec![malformed(error.to_string())])?;
     if source.schema_version != 1 {
         return Err(vec![malformed("unsupported schema_version")]);
     }
-    let (state, mut diagnostics) = migrate_schema1(source)?;
+    let (state, mut diagnostics) = migrate_schema1(source, raw_agents)?;
     diagnostics.sort();
     let encoded = serde_json::to_vec(&state).map_err(|error| vec![malformed(error.to_string())])?;
     let document = StateDocument::parse(&encoded)?;
@@ -128,15 +133,24 @@ struct MigratedRepository {
 }
 
 struct MigratedAgent {
+    source_index: usize,
     source_id: String,
     source_repository_id: String,
     record: AgentRecord,
 }
 
-fn migrate_schema1(source: Schema1State) -> Result<(StateV2, Vec<Diagnostic>), Vec<Diagnostic>> {
+fn migrate_schema1(
+    source: Schema1State,
+    raw_agents: Vec<Value>,
+) -> Result<(StateV2, Vec<Diagnostic>), Vec<Diagnostic>> {
     let mut dormant_records = Vec::new();
     let repositories = migrate_repositories(source.repositories, &mut dormant_records)?;
-    let agents = migrate_agents(source.agents, &repositories, &mut dormant_records)?;
+    let agents = migrate_agents(
+        source.agents,
+        raw_agents,
+        &repositories,
+        &mut dormant_records,
+    )?;
     let mut diagnostics = Vec::new();
     let selection = migrate_selection(
         source.selected_repository_index,
@@ -193,8 +207,8 @@ fn migrate_repositories(
             stable_id("repo", &[&identity, &ordinal_text]).map_err(malformed_vec)?
         };
         *ordinal += 1;
-        let values = repository_values(&source).map_err(malformed_vec)?;
         let type_id = type_id(source.default_agent_kind.as_deref()).map_err(malformed_vec)?;
+        let values = repository_values(&source, &type_id).map_err(malformed_vec)?;
         let location = repository_location(&source, &identity);
         record_unknowns("schema1.repository", Some(&id), source.unknown, dormant)?;
         record_unknowns(
@@ -278,7 +292,7 @@ fn repository_location(source: &Schema1Repository, identity: &str) -> Repository
     }
 }
 
-fn repository_values(source: &Schema1Repository) -> Result<TypedMap, String> {
+fn repository_values(source: &Schema1Repository, type_id: &Id) -> Result<TypedMap, String> {
     let remote = json!({
         "enabled": source.remote.enabled,
         "login_user": source.remote.login_user,
@@ -289,11 +303,16 @@ fn repository_values(source: &Schema1Repository) -> Result<TypedMap, String> {
         "run_as_user": source.remote.run_as_user,
         "setup_env_default": source.remote.setup_env_default,
     });
+    // The generic `version_selector` carries the legacy repository default
+    // selector for the declared agent kind. LLxprt and Code Puppy each had a
+    // distinct legacy field; the generic field is authoritative and the
+    // runtime derives the product-specific value from the type id.
+    let version_selector = repository_version_selector(source, type_id);
     json_map_to_typed(json!({
         "slug": source.slug,
         "default_profile": source.default_profile,
         "default_code_puppy_model": source.default_code_puppy_model,
-        "default_code_puppy_version": source.default_code_puppy_version,
+        "version_selector": version_selector,
         "github_repo": source.github_repo,
         "github_issue_pr_repo": source.github_issue_pr_repo,
         "remote": remote,
@@ -302,19 +321,40 @@ fn repository_values(source: &Schema1Repository) -> Result<TypedMap, String> {
         "default_code_puppy_yolo": source.default_code_puppy_yolo,
         "default_llxprt_mode_flags": source.default_llxprt_mode_flags,
         "transient_max_concurrent": source.transient_max_concurrent,
-        "default_llxprt_version": source.default_llxprt_version,
     }))
+}
+
+/// Pick the legacy repository selector that matches the migrated agent kind.
+///
+/// Returns an empty string for a blank selector so direct-launch semantics
+/// survive losslessly: a null/empty `default_llxprt_version` is not lost but
+/// represented as a blank generic selector.
+fn repository_version_selector(source: &Schema1Repository, type_id: &Id) -> String {
+    let llxprt = source
+        .default_llxprt_version
+        .as_deref()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    if type_id.as_str() == "core.code-puppy" {
+        source.default_code_puppy_version.clone()
+    } else {
+        llxprt
+    }
 }
 
 fn migrate_agents(
     sources: Vec<Schema1Agent>,
+    raw_sources: Vec<Value>,
     repositories: &[MigratedRepository],
     dormant: &mut Vec<DormantRecord>,
 ) -> Result<Vec<MigratedAgent>, Vec<Diagnostic>> {
+    if sources.len() != raw_sources.len() {
+        return Err(vec![malformed("schema-1 agent source alignment failed")]);
+    }
     let mut collisions = BTreeMap::<(String, String), u64>::new();
     let mut claimed_ids = BTreeSet::<Id>::new();
     let mut agents = Vec::with_capacity(sources.len());
-    for source in sources {
+    for (source_index, (source, raw_source)) in sources.into_iter().zip(raw_sources).enumerate() {
         let repository = resolve_repository(&source.repository_id, repositories)?;
         let (work_target, home_expanded) = agent_work_target(&source, repository)?;
         let source_identity = agent_source_identity(&source, &work_target);
@@ -345,10 +385,20 @@ fn migrate_agents(
             .map_err(malformed_vec)?
         };
         *ordinal += 1;
+        // An unknown schema-1 agent kind cannot become an executable schema-2
+        // agent, because schema-2 carries a strict type id. Preserve the entire
+        // agent record as a single dormant entry so the user does not lose it,
+        // rather than failing the whole migration. The record's stable id is
+        // the migrated agent id so the durable document can reference it.
+        if type_id(source.agent_kind.as_deref()).is_err() {
+            record_unknown_agent(&source, raw_source, &id, dormant);
+            continue;
+        }
         let record =
             migrate_agent_record(&source, repository, &work_target, home_expanded, id.clone())?;
         record_unknowns("schema1.agent", Some(&id), source.unknown, dormant)?;
         agents.push(MigratedAgent {
+            source_index,
             source_id: source.id,
             source_repository_id: source.repository_id,
             record,
@@ -365,8 +415,8 @@ fn migrate_agent_record(
     id: Id,
 ) -> Result<AgentRecord, Vec<Diagnostic>> {
     let type_id = type_id(source.agent_kind.as_deref()).map_err(malformed_vec)?;
-    let values =
-        agent_values(source, home_expanded.then_some(work_target)).map_err(malformed_vec)?;
+    let values = agent_values(source, &type_id, home_expanded.then_some(work_target))
+        .map_err(malformed_vec)?;
     let definition_hash =
         digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(malformed_vec)?;
     let typed_value_hash = typed_map_hash(&values).map_err(malformed_vec)?;
@@ -418,9 +468,15 @@ fn last_known_runtime(status: Option<&Value>) -> LastKnownRuntime {
 
 fn agent_values(
     source: &Schema1Agent,
+    type_id: &Id,
     work_dir_override: Option<&str>,
 ) -> Result<TypedMap, String> {
     let work_dir = work_dir_override.map_or(source.work_dir.as_path(), Path::new);
+    // The generic `version_selector` is the authoritative selector field. The
+    // legacy LLxprt/Code Puppy selector moves into it losslessly based on the
+    // migrated agent kind; a blank/null selector is preserved as a blank
+    // string so direct-launch semantics survive.
+    let version_selector = agent_version_selector(source, type_id);
     json_map_to_typed(json!({
         "display_id": source.display_id,
         "shortcut_slot": source.shortcut_slot,
@@ -429,7 +485,7 @@ fn agent_values(
         "work_dir": work_dir,
         "profile": source.profile,
         "code_puppy_model": source.code_puppy_model,
-        "code_puppy_version": source.code_puppy_version,
+        "version_selector": version_selector,
         "code_puppy_yolo": source.code_puppy_yolo,
         "code_puppy_quick_resume": source.code_puppy_quick_resume,
         "mode_flags": source.mode_flags,
@@ -438,9 +494,21 @@ fn agent_values(
         "sandbox_enabled": source.sandbox_enabled,
         "sandbox_engine": source.sandbox_engine,
         "sandbox_flags": source.sandbox_flags,
-        "llxprt_version": source.llxprt_version,
         "origin": source.origin.as_deref().unwrap_or("persistent"),
     }))
+}
+
+/// Pick the legacy agent selector that matches the migrated agent kind.
+fn agent_version_selector(source: &Schema1Agent, type_id: &Id) -> String {
+    if type_id.as_str() == "core.code-puppy" {
+        source.code_puppy_version.clone()
+    } else {
+        source
+            .llxprt_version
+            .as_deref()
+            .map(str::to_owned)
+            .unwrap_or_default()
+    }
 }
 
 fn agent_work_target(
@@ -479,12 +547,7 @@ fn migrate_selection(
         "/selected_repository_index",
         diagnostics,
     );
-    let mut agent_id = selected_id(
-        agent_index,
-        agents.iter().map(|item| &item.record.id).collect(),
-        "/selected_agent_index",
-        diagnostics,
-    );
+    let mut agent_id = selected_agent_id(agent_index, agents, diagnostics);
     if let (Some(repository_id), Some(selected_agent)) = (&repository_id, &agent_id)
         && agents.iter().any(|agent| {
             &agent.record.id == selected_agent && &agent.record.repository_id != repository_id
@@ -519,6 +582,22 @@ fn selected_id(
         ));
         None
     }
+}
+
+fn selected_agent_id(
+    index: Option<usize>,
+    agents: &[MigratedAgent],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<Id> {
+    let index = index?;
+    if let Some(agent) = agents.iter().find(|agent| agent.source_index == index) {
+        return Some(agent.record.id.clone());
+    }
+    diagnostics.push(repair_warning(
+        "/selected_agent_index",
+        "selected agent is unavailable after migration",
+    ));
+    None
 }
 
 fn migrate_last_selected(
@@ -637,6 +716,24 @@ fn record_unknowns(
         });
     }
     Ok(())
+}
+
+fn record_unknown_agent(
+    source: &Schema1Agent,
+    raw_value: Value,
+    id: &Id,
+    dormant: &mut Vec<DormantRecord>,
+) {
+    dormant.push(DormantRecord {
+        kind: format!(
+            "schema1.agent.unknown-kind.{}",
+            source.agent_kind.as_deref().unwrap_or("none")
+        ),
+        stable_id: Some(id.clone()),
+        raw_schema: 1,
+        reason: DORMANT_REASON.to_owned(),
+        raw_value,
+    });
 }
 
 fn resolve_repository<'a>(
