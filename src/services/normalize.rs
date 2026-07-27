@@ -28,13 +28,43 @@ impl LocalPathPlatform {
 }
 
 /// Compare local paths without changing either user-visible value.
+///
+/// When both paths exist on disk, symlinks are resolved via
+/// [`std::fs::canonicalize`] before comparison so that two paths pointing at
+/// the same physical directory through different symlinked routes are
+/// recognized as equivalent (issue #424). If either path does not exist (for
+/// example, a work directory that has not been materialized yet) or
+/// canonicalization otherwise fails, the comparison falls back to the
+/// string-based platform normalizer.
 #[must_use]
 pub fn local_paths_equivalent(left: &Path, right: &Path) -> bool {
-    local_paths_equivalent_for_platform(
-        &left.to_string_lossy(),
-        &right.to_string_lossy(),
-        LocalPathPlatform::current(),
-    )
+    match (
+        canonicalize_for_comparison(left),
+        canonicalize_for_comparison(right),
+    ) {
+        (Some(left_canon), Some(right_canon)) => local_paths_equivalent_for_platform(
+            &left_canon.to_string_lossy(),
+            &right_canon.to_string_lossy(),
+            LocalPathPlatform::current(),
+        ),
+        // Best-effort fallback: at least one path does not exist or cannot be
+        // canonicalized, so symlink resolution is impossible. Use the existing
+        // string-based normalization which still handles separators, case,
+        // `.`/`..`, and Windows extended-path prefixes.
+        _ => local_paths_equivalent_for_platform(
+            &left.to_string_lossy(),
+            &right.to_string_lossy(),
+            LocalPathPlatform::current(),
+        ),
+    }
+}
+
+/// Resolve a path to its canonical filesystem form, stripping any symlinks.
+///
+/// Returns `None` when the path does not exist or canonicalization fails, so
+/// that callers can fall back to a string-based comparison.
+fn canonicalize_for_comparison(path: &Path) -> Option<std::path::PathBuf> {
+    std::fs::canonicalize(path).ok()
 }
 
 #[must_use]
@@ -503,6 +533,55 @@ mod tests {
     #[test]
     fn normalize_profile_trims_surrounding_whitespace() {
         assert_eq!(normalize_profile("  custom  "), "custom");
+    }
+
+    #[test]
+    fn symlinked_paths_to_same_physical_directory_are_equivalent() {
+        let tmp = std::env::temp_dir();
+        let real = tmp.join(format!("jefe-424-real-{}", std::process::id()));
+        let link = tmp.join(format!("jefe-424-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&real);
+        let _ = std::fs::remove_dir_all(&link);
+        if std::fs::create_dir_all(&real).is_err() {
+            let _ = std::fs::remove_dir_all(&real);
+            let _ = std::fs::remove_dir_all(&link);
+            return;
+        }
+        // Create a symlink `link` -> `real`. On Windows this requires either
+        // developer mode or admin privileges; if it fails, skip the test
+        // rather than failing, since the capability is environment-dependent.
+        #[cfg(unix)]
+        let created = std::os::unix::fs::symlink(&real, &link).is_ok();
+        #[cfg(windows)]
+        let created = std::os::windows::fs::symlink_dir(&real, &link).is_ok();
+        if !created {
+            let _ = std::fs::remove_dir_all(&real);
+            let _ = std::fs::remove_dir_all(&link);
+            return;
+        }
+        // Both `real` and `link` resolve to the same physical directory.
+        // Without symlink canonicalization a string-based comparison sees
+        // different path components and returns false.
+        assert!(
+            local_paths_equivalent(&real, &link),
+            "a symlink and its target must be recognized as equivalent"
+        );
+        let _ = std::fs::remove_dir_all(&real);
+        let _ = std::fs::remove_dir_all(&link);
+    }
+
+    #[test]
+    fn nonexistent_paths_fall_back_to_string_comparison() {
+        // Neither path exists, so canonicalization is impossible. The
+        // comparison must still work via the existing string normalizer.
+        assert!(local_paths_equivalent(
+            std::path::Path::new("/this/does/not/exist/repo/"),
+            std::path::Path::new("/this/does/not/exist/repo"),
+        ));
+        assert!(!local_paths_equivalent(
+            std::path::Path::new("/this/does/not/exist/repo"),
+            std::path::Path::new("/this/does/not/exist/other"),
+        ));
     }
 
     #[test]
