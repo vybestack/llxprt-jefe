@@ -51,9 +51,10 @@ impl LocalTool {
     /// Security-sensitive probe tools (`kill`, `ps`) participate in process
     /// liveness decisions, so a manipulated `PATH` must not silently
     /// substitute an untrusted executable under the selected deployment
-    /// policy.
+    /// policy. This applies only on Unix where the probe tools shell out; on
+    /// Windows the native Win32 probe path does not resolve `kill` or `ps`.
     const fn requires_trusted_path(self) -> bool {
-        matches!(self, Self::Kill | Self::Ps)
+        cfg!(unix) && matches!(self, Self::Kill | Self::Ps)
     }
 }
 
@@ -198,7 +199,10 @@ const BOUNDED_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// [`BoundedRunError::Io`] / [`BoundedRunError::Pipe`] if the captured output
 /// cannot be collected.
 pub fn run_bounded(mut command: Command, timeout: Duration) -> Result<Output, BoundedRunError> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(BoundedRunError::Spawn)?;
     let stdout = take_pipe(child.stdout.take(), &mut child, "stdout")?;
     let stderr = take_pipe(child.stderr.take(), &mut child, "stderr")?;
