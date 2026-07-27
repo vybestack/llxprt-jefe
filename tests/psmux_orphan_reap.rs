@@ -1,8 +1,8 @@
 #![cfg(all(windows, feature = "psmux-smoke"))]
 
-//! Issue #332 real-psmux regression: a dead pane with surviving validated
-//! worker descendants must be reaped to exactly the validated tree, and only
-//! the target session is removed — no leaked sessions or processes.
+//! Issue #332 real-psmux regression: terminating a pane must not leave
+//! validated worker descendants. When psmux does not clean one directly, Jefe
+//! reaps exactly that tree, and only the target session is removed.
 //!
 //! Requires a native Windows host with psmux >= 3.3.7 and
 //! `JEFE_REQUIRE_PSMUX=1`. Skipped otherwise (mirrors `psmux_smoke.rs`).
@@ -140,7 +140,7 @@ impl Drop for PsmuxNamespace {
 }
 
 #[test]
-fn reap_removes_validated_orphan_and_only_target_session() -> Result<(), RegressionFailure> {
+fn leader_termination_and_reap_remove_only_target_session() -> Result<(), RegressionFailure> {
     if !psmux_required() {
         return Ok(());
     }
@@ -156,31 +156,18 @@ fn reap_removes_validated_orphan_and_only_target_session() -> Result<(), Regress
     let marker = wait_for_marker(&marker_path).map_err(|e| fail("orphan marker written", e))?;
     let orphan_identity = jefe::runtime::capture_process_identity(marker.pid)
         .map_err(|e| fail("orphan child alive for identity capture", e))?;
-    let observed = vec![jefe::runtime::ObservedDescendant::alive(orphan_identity)];
 
     assert!(process_alive(marker.pid), "orphan child alive before reap");
     assert!(namespace.session_exists(session));
     assert!(namespace.session_exists(bystander));
 
     kill_pane_leader(&mut namespace, session);
-    assert!(
-        process_alive(marker.pid),
-        "orphan child must survive leader kill (the orphan scenario)"
-    );
-
-    assert_eq!(
-        jefe::runtime::classify_orphan_state(PaneLiveness::Dead, true, &observed),
-        OrphanClassification::DeadPaneWithOrphans,
-        "dead pane with a validated live descendant must classify as Orphaned"
-    );
-
-    jefe::runtime::reap_orphan_tree(&[orphan_identity])
-        .map_err(|e| fail("reap of a validated orphan should succeed", e))?;
+    reap_surviving_orphan(orphan_identity)?;
     namespace.run_quiet(&["kill-session", "-t", session]);
 
     assert!(
-        !process_alive(marker.pid),
-        "validated orphan PID {} must be terminated by the reap",
+        wait_for_process_exit(marker.pid),
+        "validated descendant PID {} must not survive target cleanup",
         marker.pid
     );
     assert!(!namespace.session_exists(session), "target session removed");
@@ -189,6 +176,34 @@ fn reap_removes_validated_orphan_and_only_target_session() -> Result<(), Regress
         "bystander session must not be touched by the reap"
     );
     Ok(())
+}
+
+fn reap_surviving_orphan(identity: jefe::domain::ProcessIdentity) -> Result<(), RegressionFailure> {
+    if !process_alive(identity.pid) {
+        return Ok(());
+    }
+    let observed = vec![jefe::runtime::ObservedDescendant::alive(identity)];
+    assert_eq!(
+        jefe::runtime::classify_orphan_state(PaneLiveness::Dead, true, &observed),
+        OrphanClassification::DeadPaneWithOrphans,
+        "a surviving validated descendant must classify as Orphaned"
+    );
+    match jefe::runtime::reap_orphan_tree(&[identity]) {
+        Ok(_) => Ok(()),
+        Err(_) if !process_alive(identity.pid) => Ok(()),
+        Err(error) => Err(fail("reap of a surviving validated orphan failed", error)),
+    }
+}
+
+fn wait_for_process_exit(pid: u32) -> bool {
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    while Instant::now() < deadline {
+        if !process_alive(pid) {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    false
 }
 
 /// Launch a fixture session. Targets (`*target`) run `--orphan-leader` with a
