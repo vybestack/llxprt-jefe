@@ -69,8 +69,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if args.next().is_some() {
                 return Err("unexpected extra argument".into());
             }
-            #[cfg(windows)]
-            establish_host_job()?;
             run_session_host(&marker_path)
         }
         "--worker" => {
@@ -89,6 +87,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn run_session_host(marker_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     // Establish Job containment exactly as the production private pane host
     // does (`run_launch_plan`). Host death closes the handle and reaps the tree.
+    #[cfg(windows)]
     establish_host_job()?;
 
     let current_exe = std::env::current_exe()?;
