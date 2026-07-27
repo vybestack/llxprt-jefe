@@ -1,0 +1,38 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 200,
+    "wait_timeout_ms": 15000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "No issues found" },
+    { "key": "n" },
+    { "waitFor": "New Issue" },
+    { "capture": "form-open" },
+    { "type": "HelloTitle" },
+    { "waitFor": "HelloTitle" },
+    { "expect": "HelloTitle" },
+    { "capture": "title-typed" },
+    { "key": "Tab" },
+    { "type": "Body line one" },
+    { "key": "Enter" },
+    { "type": "Body line two" },
+    { "waitFor": "Body line two" },
+    { "expect": "Body line one" },
+    { "expect": "Body line two" },
+    { "capture": "body-typed" },
+    { "key": "Backspace" },
+    { "wait": 200 },
+    { "capture": "after-backspace" },
+    { "key": "Escape" },
+    { "waitFor": "No issue selected" },
+    { "capture": "after-cancel" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

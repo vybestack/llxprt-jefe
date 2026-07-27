@@ -13,7 +13,7 @@ use crate::domain::{IssueDetail, IssueState};
 use crate::issue_detail_content::{DetailContent, build_detail_content, build_new_issue_content};
 use crate::layout::DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::selection::{SelectablePane, TextSelection};
-use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
+use crate::state::{ComposerTarget, DetailSubfocus, InlineState, NewIssueFormFocus};
 use crate::theme::ThemeColors;
 
 use super::detail_pane::{
@@ -77,6 +77,10 @@ pub struct IssueDetailProjectionInputs<'a> {
     pub detail_subfocus: DetailSubfocus,
     /// Active inline editor/composer state.
     pub inline_state: &'a InlineState,
+    /// Active New Issue form, when the New Issue composer is open (issue #454).
+    /// The composer renders the focused field's text from this form instead of
+    /// the stale `inline_state.text`, which the #407 rework stopped syncing.
+    pub new_issue_form: Option<&'a crate::state::NewIssueFormState>,
     /// Whether comments are loading.
     pub comments_loading: bool,
     /// Whether this pane is focused.
@@ -238,10 +242,6 @@ fn new_issue_composer_rows(
 #[must_use]
 pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPaneProps {
     let detail_vp_rows = detail_viewport_rows(inputs.available_height);
-    let composer = composer_from_inline_state(inputs.inline_state);
-    let composer_active = composer.is_some();
-    let content_width = detail_content_width(inputs.available_width);
-
     let showing_new_issue_composer = matches!(
         inputs.inline_state,
         InlineState::Composer {
@@ -249,6 +249,18 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
             ..
         }
     );
+    // The New Issue composer's editable text lives on the form's focused
+    // field, not on `inline_state.text` (issue #454): the #407 rework split
+    // the single composer draft into title/body form fields but left the
+    // renderer reading the now-stale `inline_state.text`. Override the
+    // composer projection with the focused field so typed text is visible.
+    let composer = if showing_new_issue_composer {
+        new_issue_composer_from_form(inputs.new_issue_form)
+    } else {
+        composer_from_inline_state(inputs.inline_state)
+    };
+    let composer_active = composer.is_some();
+    let content_width = detail_content_width(inputs.available_width);
 
     let (header_rows, detail_content) = if showing_new_issue_composer {
         new_issue_composer_content(inputs.inline_state)
@@ -297,6 +309,40 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
         composer: composer_props,
         composer_rows,
     }
+}
+
+/// Project the New Issue composer `(text, byte_cursor, prefix)` from the
+/// focused form field (issue #454). Only Title and Body carry editable text;
+/// the picker fields (Template/Type/Labels/Milestone/Project/Assignees) have
+/// no inline text, so the composer renders the most recently edited text
+/// field (Title by default) to keep the caret visible while cycling pickers.
+fn new_issue_composer_from_form(
+    form: Option<&crate::state::NewIssueFormState>,
+) -> Option<(String, usize, &'static str)> {
+    let form = form?;
+    let (text, char_cursor) = match form.focus {
+        NewIssueFormFocus::Body => (&form.body_text, form.body_cursor),
+        // Title is the default editable surface; picker fields fall back to
+        // it so the composer keeps a visible caret and the user's in-progress
+        // title while cycling Template/Type/etc.
+        NewIssueFormFocus::Title
+        | NewIssueFormFocus::Template
+        | NewIssueFormFocus::Type
+        | NewIssueFormFocus::Labels
+        | NewIssueFormFocus::Milestone
+        | NewIssueFormFocus::Project
+        | NewIssueFormFocus::Assignees => (&form.title_text, form.title_cursor),
+    };
+    // The composer cursor is a byte offset; the form stores a char offset.
+    let byte_cursor = text
+        .char_indices()
+        .nth(char_cursor)
+        .map_or_else(|| text.len(), |(byte_idx, _)| byte_idx);
+    Some((
+        text.clone(),
+        byte_cursor,
+        crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
+    ))
 }
 
 #[cfg(test)]

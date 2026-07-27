@@ -22,6 +22,7 @@ fn new_issue_props_at_width(
         issue_detail: None,
         detail_subfocus: DetailSubfocus::Body,
         inline_state: &inline,
+        new_issue_form: None,
         comments_loading: false,
         focused: true,
         scroll_offset: 0,

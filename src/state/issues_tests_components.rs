@@ -266,7 +266,8 @@ fn test_issue_detail_inline_composer_visible() {
     );
 }
 
-/// P13 Test 9b: OpenNewIssueComposer transitions inline_state to Composer(NewIssue).
+/// P13 Test 9b: OpenNewIssueComposer transitions inline_state to Composer(NewIssue)
+/// and focuses the detail pane so the typed title is visible (issue #454).
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13
 /// @requirement REQ-ISS-010
@@ -289,7 +290,23 @@ fn test_issue_list_new_issue_composer_visible() {
         "expected Composer(NewIssue), got {:?}",
         state.issues_state.inline_state
     );
-    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+    // The detail pane must own focus so the composer border renders focused
+    // and the first keystroke lands in the title field (issue #454).
+    assert_eq!(
+        state.issues_state.issue_focus,
+        IssueFocus::IssueDetail,
+        "OpenNewIssueComposer must focus the detail pane"
+    );
+    let form = state
+        .issues_state
+        .new_issue_form
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected new_issue_form to be Some"));
+    assert_eq!(
+        form.focus,
+        crate::state::NewIssueFormFocus::Title,
+        "form must default focus to Title so typing is immediately visible"
+    );
 }
 
 /// P13 Test 10: UpdateDraftFilter sets values in draft_filter fields.
