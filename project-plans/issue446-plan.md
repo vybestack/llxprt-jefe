@@ -75,7 +75,7 @@
 | Persistence migration | `src/persistence/migration.rs` | Owns interpretation and canonicalization of legacy schema-1 local paths |
 | Delivery record | `project-plans/issue446-plan.md` | Acceptance, scope, review, and verification ledger |
 | Runtime qualification | `src/runtime/multiplexer.rs`, `src/runtime/multiplexer_tests.rs` | Rejects psmux 3.3.6 before sessions can leak and gives 3.3.7 upgrade guidance |
-| Harness qualification | `src/harness/psmux_driver.rs`, `src/harness/psmux_driver_tests.rs`, `tests/psmux_smoke.rs`, `tests/psmux_orphan_reap.rs` | Keeps real native-Windows tests on the same supported lifecycle release |
+| Harness qualification | `src/harness/psmux_driver.rs`, `src/harness/psmux_driver_tests.rs`, `tests/psmux_smoke.rs`, `tests/psmux_orphan_reap.rs`, `tests/psmux_smoke_mouse.rs` | Keeps real native-Windows tests on the same supported lifecycle release and stabilizes attached-input qualification under runner load |
 | Native Windows CI/docs | `.github/workflows/ci.yml`, `CONTRIBUTING.md`, `dev-docs/testing/{psmux-smoke,tmux-harness}.md`, `tests/core/tmux_harness_docs_contracts.rs` | Pins/checksums 3.3.7 and prevents policy drift |
 
 ## Scope ledger
@@ -87,7 +87,7 @@
 | Existing `services::expand_tilde` cannot be imported by persistence without reversing the architecture DAG | In-scope—Fix | Keep a bounded private legacy-migration helper rather than introducing cross-layer coupling or a new shared public abstraction |
 | Remote `~/...` must not use the local home | Blocker—Fix | Preserve by branching on repository locality and prove A3 |
 
-Current scope: 15 files, 383 added / 39 deleted lines including this plan; no scope-budget review trigger. `src/persistence/migration.rs` is 751 lines, above the warning threshold but below the enforced 1,000-line hard limit.
+Current scope: 16 files, 520 added / 93 deleted lines including this plan; no scope-budget review trigger. `src/persistence/migration.rs` is 751 lines, above the warning threshold but below the enforced 1,000-line hard limit.
 
 ## Review counters
 
@@ -107,7 +107,7 @@ Current scope: 15 files, 383 added / 39 deleted lines including this plan; no sc
 | Full required suite | Passed | Exact-head format, strict all-target/all-feature Clippy, locked all-feature build, locked all-feature workspace tests with `JEFE_REQUIRE_PSMUX=1`, and `git diff --check` all exited 0 on psmux 3.3.7. |
 | First PR CI attempt | Blocker remediated | Native Windows proved psmux 3.3.7 may terminate a detached descendant itself when the pane leader dies; the legacy integration test incorrectly required that child to survive. The test now accepts direct psmux cleanup or applies Jefe's validated reap if a descendant remains, while always requiring no leaked target process/session and an untouched bystander. The focused test passes five consecutive native runs. |
 | Second PR CI attempt | Blocker remediated | The orphan target passed, then the psmux smoke retry fixture still returned the obsolete supported version `tmux 3.3.6`; its expected successful recovery is updated to the required `tmux 3.3.7`. |
-| Third PR CI attempt | Blocker remediated | Native Windows twice observed the fixture's output/mouse modes before psmux's attached input relay accepted Page-key bytes. The unchanged focused test passed locally, confirming a load-dependent transport-readiness race. The real-transport test now establishes input readiness with a child-echoed probe before asserting PageUp/PageDown and SGR sequences. |
+| Third PR CI attempt | Blocker remediated | Native Windows twice observed the fixture's output/mouse modes before psmux's attached input relay accepted Page-key bytes. A child-echoed probe proved simple input arrived, but batched escape sequences were still dropped under load and reproduced locally. The real-transport test now paces each exact sequence byte and retries through a bounded child-echoed delivery loop; ten consecutive focused runs and the serial psmux suite pass. |
 | Bounded review | Passed | GLM review found no Blocker or Reject findings; A1–A4 and planned scope were confirmed. Both permitted post-PR OCR workflows reported success with no policy or infrastructure failure and emitted no issue-specific findings. |
 
 ## Review triage and deferred findings
@@ -121,4 +121,4 @@ Current scope: 15 files, 383 added / 39 deleted lines including this plan; no sc
 | Four real-psmux harness tests time out before creating sessions on psmux 3.3.6 | Blocker—Fix | Reclassified after the reporter identified it as part of issue #446 and authorized the expansion; psmux 3.3.7 fixes the real-session test and is now required |
 | Native Windows CI expected the detached fixture child to survive pane-leader termination | Blocker—Fix | psmux 3.3.7 correctly cleaned the child directly, making the old orphan-only premise obsolete. The test now verifies the accepted A5 outcome across both valid implementations: direct psmux cleanup, or Jefe classification/reaping when a validated descendant survives. |
 | Loader-retry smoke fixture still recovered to psmux 3.3.6 | Blocker—Fix | Update the success fixture and assertion to 3.3.7 so the retry behavior is tested against the supported minimum rather than intentionally failing qualification. |
-| Native Windows mouse smoke sent semantic input immediately after observing output modes | Blocker—Fix | psmux can publish pane output before its attached input relay is accepting bytes under CI load. Establish a child-echoed input-readiness barrier first, then retain the exact Page-key and SGR byte assertions. |
+| Native Windows mouse smoke wrote semantic escape sequences as single PTY batches | Blocker—Fix | psmux 3.3.7 can drop batched attached-input escape sequences under load even after a simple byte reaches the child. Pace each exact byte and retry through a bounded child-echoed delivery loop while retaining the sequence-byte assertions. |
