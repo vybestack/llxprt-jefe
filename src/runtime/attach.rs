@@ -499,16 +499,37 @@ fn attach_command(
             cmd.arg(arg);
         }
         cmd.arg("attach-session");
-        if !cfg!(windows) {
-            cmd.arg("-t");
-        }
-        // psmux 3.3.6 ignores `attach-session -t`; its positional target is
-        // resolved correctly. Upstream tmux continues to receive `-t` above.
+        // psmux 3.3.7 (the supported minimum) accepts the explicit `attach-session
+        // -t <session>` target form, so the session name is always passed via `-t`
+        // on every platform. Upstream tmux uses the identical flag.
+        cmd.arg("-t");
         cmd.arg(session_name);
         cmd
     };
+    scrub_inherited_multiplexer_env(&mut cmd);
     cmd.env("TERM", "xterm-256color");
     Ok(cmd)
+}
+
+/// Strip inherited tmux/psmux session-routing variables from an attach
+/// `CommandBuilder` so the attaching client never appears nested inside a
+/// parent multiplexer session. `PSMUX_SESSION`/`PSMUX_TARGET_SESSION` share the
+/// exact same list the native Windows `MultiplexerPlan::command` scrubs; the
+/// tmux variables are always scrubbed because the attach client must run
+/// against Jefe's private socket/namespace regardless of platform.
+/// `PSMUX_CLAUDE_TEAMMATE_MODE` and `PSMUX_CONFIG_FILE` are intentionally
+/// retained: team mode is not session routing and the plan already carries
+/// `-f NUL`.
+fn scrub_inherited_multiplexer_env(cmd: &mut CommandBuilder) {
+    for variable in [
+        "TMUX",
+        "TMUX_PANE",
+        "TMUX_TMPDIR",
+        super::multiplexer::PSMUX_INHERITED_SESSION_VARS[0],
+        super::multiplexer::PSMUX_INHERITED_SESSION_VARS[1],
+    ] {
+        cmd.env_remove(variable);
+    }
 }
 
 fn open_pty(rows: u16, cols: u16) -> Result<PtyPair, RuntimeError> {

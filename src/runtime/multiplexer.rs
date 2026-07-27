@@ -16,6 +16,15 @@ const WINDOWS_INSTALL_GUIDANCE: &str =
 const UNIX_INSTALL_GUIDANCE: &str =
     "install upstream tmux with your operating system package manager";
 
+/// Inherited psmux session-routing variables that must be scrubbed from any
+/// native Windows local command so Jefe never appears nested inside a parent
+/// psmux session. `PSMUX_CLAUDE_TEAMMATE_MODE` and `PSMUX_CONFIG_FILE` are
+/// intentionally retained: team mode is not session routing, and the plan's
+/// base args already carry `-f NUL`. `pub(super)` so the local attach command
+/// builder can share the exact same list instead of duplicating it.
+pub(super) const PSMUX_INHERITED_SESSION_VARS: [&str; 2] =
+    ["PSMUX_SESSION", "PSMUX_TARGET_SESSION"];
+
 /// Local operating-system policy used to select a multiplexer implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalPlatform {
@@ -275,10 +284,20 @@ impl MultiplexerPlan {
     }
 
     /// Build a process command carrying this plan's executable and base args.
+    ///
+    /// On native Windows, inherited psmux session-routing variables
+    /// (`PSMUX_SESSION`/`PSMUX_TARGET_SESSION`) are scrubbed so Jefe never
+    /// appears nested inside a parent psmux session even when its own process
+    /// was launched from inside one. Unix is unaffected.
     #[must_use]
     pub fn command(&self) -> Command {
         let mut command = Command::new(&self.executable);
         command.args(&self.base_args);
+        if self.platform == LocalPlatform::Windows {
+            for variable in PSMUX_INHERITED_SESSION_VARS {
+                command.env_remove(variable);
+            }
+        }
         command
     }
 
