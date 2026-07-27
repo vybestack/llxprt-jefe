@@ -275,7 +275,10 @@ fn test_issue_detail_inline_composer_visible() {
 fn test_issue_list_new_issue_composer_visible() {
     let mut state = AppState::default();
     state.issues_state.inline_state = InlineState::None;
-    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    // Start from IssueList (the default) so the assertion proves the event
+    // transitions focus to IssueDetail, rather than confirming a no-op
+    // when the pre-condition already matches (issue #454).
+    state.issues_state.issue_focus = IssueFocus::IssueList;
 
     let state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
 
