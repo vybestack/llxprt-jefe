@@ -906,6 +906,9 @@ impl PullRequestsMessage {
         if let Some(event) = self.thread_to_app_event() {
             return event;
         }
+        if Self::is_pr_property_message(&self) {
+            return self.into_app_event_property();
+        }
         match self {
             Self::OpenMergeChooser => AppEvent::PrOpenMergeChooser,
             Self::MergeNavigate(NavDir::Up | NavDir::Prev) => AppEvent::PrMergeNavigateUp,
@@ -950,26 +953,33 @@ impl PullRequestsMessage {
                 pr_number,
                 error,
             },
-            Self::OpenPropertyEditor { .. }
-            | Self::PropertyEditorNavigateUp
-            | Self::PropertyEditorNavigateDown
-            | Self::PropertyEditorToggle
-            | Self::PropertyEditorConfirm
-            | Self::PropertyEditorCancel
-            | Self::PropertyEditorTitleChar(_)
-            | Self::PropertyEditorTitleBackspace
-            | Self::PropertyEditorTitleDelete
-            | Self::PropertyEditorTitleCursorLeft
-            | Self::PropertyEditorTitleCursorRight
-            | Self::PropertyEditorTitleCursorHome
-            | Self::PropertyEditorTitleCursorEnd
-            | Self::PropertyEditorOptionsLoaded { .. }
-            | Self::PropertyEditorOptionsFailed { .. }
-            | Self::PropertyEditSucceeded { .. }
-            | Self::PostMutationRefreshStarted
-            | Self::PropertyEditFailed { .. }
-            | Self::PropertyEditorValidationError { .. } => self.into_app_event_property(),
             _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),
         }
+    }
+
+    /// Whether a message is a PR property-editor variant (routed out of merge).
+    fn is_pr_property_message(message: &Self) -> bool {
+        matches!(
+            message,
+            Self::OpenPropertyEditor { .. }
+                | Self::PropertyEditorNavigateUp
+                | Self::PropertyEditorNavigateDown
+                | Self::PropertyEditorToggle
+                | Self::PropertyEditorConfirm
+                | Self::PropertyEditorCancel
+                | Self::PropertyEditorTitleChar(_)
+                | Self::PropertyEditorTitleBackspace
+                | Self::PropertyEditorTitleDelete
+                | Self::PropertyEditorTitleCursorLeft
+                | Self::PropertyEditorTitleCursorRight
+                | Self::PropertyEditorTitleCursorHome
+                | Self::PropertyEditorTitleCursorEnd
+                | Self::PropertyEditorOptionsLoaded { .. }
+                | Self::PropertyEditorOptionsFailed { .. }
+                | Self::PropertyEditSucceeded { .. }
+                | Self::PostMutationRefreshStarted
+                | Self::PropertyEditFailed { .. }
+                | Self::PropertyEditorValidationError { .. }
+        )
     }
 }
