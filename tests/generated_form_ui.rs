@@ -69,7 +69,10 @@ fn selected_definition_generates_visible_unsupported_cells_and_fields() {
         .filter(|field| field.visible())
         .map(|field| field.id().as_str())
         .collect();
-    assert_eq!(ids, vec!["model", "permission_mode", "prompt"]);
+    assert_eq!(
+        ids,
+        vec!["model", "permission_mode", "version_selector", "prompt"]
+    );
     assert!(form.draft().fields()[0].disabled_reason().is_some());
 }
 

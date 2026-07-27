@@ -303,10 +303,10 @@ fn npm_candidate_nonblank_selector_participates_when_runner_present() {
         vec![npm_candidate("@scope/pkg", "bin")],
     );
     let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
-    let selector = VersionSelector::from_string(PackageRunnerKind::Npm, "1.2.3")
+    let selector = VersionSelector::normalize("1.2.3")
         .unwrap_or_else(|error| panic!("valid selector: {error}"));
-    let resolver =
-        AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo")).with_npm_selector(selector);
+    let resolver = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(selector);
     let CandidateResolution::Resolved(picked) = resolver.resolve(&def) else {
         panic!("nonblank selector + present runner must resolve");
     };
@@ -323,10 +323,10 @@ fn npm_candidate_absent_runner_is_skipped_typed() {
     // No npm in PATH.
     let def = definition("core.no-npm", vec![npm_candidate("@scope/pkg", "bin")]);
     let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
-    let selector = VersionSelector::from_string(PackageRunnerKind::Npm, "latest")
+    let selector = VersionSelector::normalize("latest")
         .unwrap_or_else(|error| panic!("valid selector: {error}"));
-    let resolver =
-        AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo")).with_npm_selector(selector);
+    let resolver = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(selector);
     let CandidateResolution::NotFound(skips) = resolver.resolve(&def) else {
         panic!("absent npm must skip");
     };
@@ -351,10 +351,10 @@ fn uvx_candidate_absent_runner_is_skipped_typed() {
     let candidate = uvx_candidate("code-puppy", "code-puppy");
     let def = definition("core.no-uvx", vec![candidate]);
     let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
-    let selector = VersionSelector::from_string(PackageRunnerKind::Uvx, "1.0.0")
+    let selector = VersionSelector::normalize("1.0.0")
         .unwrap_or_else(|error| panic!("valid selector: {error}"));
-    let resolver =
-        AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo")).with_uvx_selector(selector);
+    let resolver = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(selector);
     let CandidateResolution::NotFound(skips) = resolver.resolve(&def) else {
         panic!("absent uvx must skip");
     };
@@ -398,17 +398,17 @@ fn resolved_candidate_fingerprints_canonical_path_size_mtime_and_dev_ino() {
 
 #[test]
 fn version_selector_blank_for_empty_string() {
-    let sel = VersionSelector::from_string(PackageRunnerKind::Npm, "")
+    let sel = VersionSelector::normalize("")
         .unwrap_or_else(|error| panic!("empty is blank, not error: {error}"));
-    assert!(!sel.has_npm());
-    let sel = VersionSelector::from_string(PackageRunnerKind::Npm, "   ")
+    assert!(sel.is_direct());
+    let sel = VersionSelector::normalize("   ")
         .unwrap_or_else(|error| panic!("whitespace-only is blank: {error}"));
-    assert!(!sel.has_npm());
+    assert!(sel.is_direct());
 }
 
 #[test]
 fn version_selector_rejects_nul_byte() {
-    let Err(err) = VersionSelector::from_string(PackageRunnerKind::Npm, "a\u{0}b") else {
+    let Err(err) = VersionSelector::normalize("a\u{0}b") else {
         panic!("NUL rejected");
     };
     assert_eq!(err, super::VersionSelectorError::Nul);
@@ -428,6 +428,108 @@ fn resolution_is_resolved_predicate() {
     let skip = CandidateResolution::NotFound(vec![]);
     assert!(!skip.is_resolved());
     assert!(skip.resolved().is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_package_suppresses_direct_candidates_and_retains_metadata() {
+    let Ok(dir) = tempfile::tempdir() else {
+        panic!("tempdir must be created");
+    };
+    make_executable(&dir, "agent");
+    make_executable(&dir, "npm");
+    let def = definition(
+        "core.exclusive",
+        vec![path_name("agent"), npm_candidate("@scope/package", "agent")],
+    );
+    let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
+    let selector = VersionSelector::normalize("latest nightly")
+        .unwrap_or_else(|error| panic!("selector: {error}"));
+    let resolver = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(selector);
+    let CandidateResolution::Resolved(candidate) = resolver.resolve(&def) else {
+        panic!("package candidate must resolve without direct fallback");
+    };
+    assert_eq!(candidate.index(), 1);
+    let package = candidate
+        .package()
+        .unwrap_or_else(|| panic!("package metadata"));
+    assert_eq!(package.runner(), PackageRunnerKind::Npm);
+    assert_eq!(package.package(), "@scope/package");
+    assert_eq!(package.binary(), "agent");
+    assert_eq!(package.package_spec(), "@scope/package@nightly");
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_package_with_absent_runner_never_falls_back_to_direct() {
+    let Ok(dir) = tempfile::tempdir() else {
+        panic!("tempdir must be created");
+    };
+    make_executable(&dir, "agent");
+    let def = definition(
+        "core.no-fallback",
+        vec![path_name("agent"), npm_candidate("package", "agent")],
+    );
+    let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
+    let selector =
+        VersionSelector::normalize("2.0.0").unwrap_or_else(|error| panic!("selector: {error}"));
+    let resolver = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(selector);
+    let CandidateResolution::NotFound(skips) = resolver.resolve(&def) else {
+        panic!("absent selected runner must be NotFound");
+    };
+    assert!(matches!(
+        skips.as_slice(),
+        [
+            CandidateSkip::DirectSuppressedBySelector { index: 0 },
+            CandidateSkip::RunnerAbsent {
+                index: 1,
+                runner: PackageRunnerKind::Npm,
+            }
+        ]
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn selector_change_advances_probe_generation_key() {
+    let Ok(dir) = tempfile::tempdir() else {
+        panic!("tempdir must be created");
+    };
+    make_executable(&dir, "npm");
+    let def = definition("core.generation", vec![npm_candidate("package", "agent")]);
+    let snapshot = snapshot_unix(vec![dir.path().to_path_buf()]);
+    let first = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(
+            VersionSelector::normalize("1.0.0").unwrap_or_else(|error| panic!("selector: {error}")),
+        )
+        .resolve(&def);
+    let second = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
+        .with_version_selector(
+            VersionSelector::normalize("2.0.0").unwrap_or_else(|error| panic!("selector: {error}")),
+        )
+        .resolve(&def);
+    let first_key = first
+        .resolved()
+        .unwrap_or_else(|| panic!("first candidate"))
+        .generation_key(&def);
+    let second_key = second
+        .resolved()
+        .unwrap_or_else(|| panic!("second candidate"))
+        .generation_key(&def);
+    assert_eq!(
+        super::next_probe_generation(Some(&first_key), &first_key, 7),
+        Ok(7)
+    );
+    assert_eq!(
+        super::next_probe_generation(Some(&first_key), &second_key, 7),
+        Ok(8)
+    );
+    assert_eq!(
+        super::next_probe_generation(Some(&first_key), &second_key, u64::MAX),
+        Err(super::ProbeGenerationOverflow)
+    );
 }
 
 // ---- PATH snapshot reuse: one snapshot, many definitions ----

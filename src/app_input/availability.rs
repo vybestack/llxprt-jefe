@@ -235,6 +235,9 @@ mod tests {
             },
             value: "hanging-agent".into(),
         }];
+        definition
+            .agent_fields
+            .retain(|field| field.id != "version_selector");
         let registry = AgentTypeRegistry::publish(vec![definition])
             .unwrap_or_else(|error| panic!("fixture registry must publish: {error}"));
         let path = PathSnapshot::for_platform(

@@ -27,23 +27,10 @@
   "steps": [
     {
       "op": "capture",
-      "name": "npm-runner",
-      "path": "bin/npm",
+      "name": "claude",
+      "path": "bin/claude",
       "behavior": {
-        "stdout": "npm exec -> resolved\n",
-        "stderr": "",
-        "exit_code": 0,
-        "stdin_limit": 0,
-        "hang": false,
-        "spawn_child_hang": false
-      }
-    },
-    {
-      "op": "capture",
-      "name": "uvx-runner",
-      "path": "bin/uvx",
-      "behavior": {
-        "stdout": "uvx --from code-puppy==0.0.634 -> code-puppy\n",
+        "stdout": "2.1.212 (Claude Code)\n",
         "stderr": "",
         "exit_code": 0,
         "stdin_limit": 0,
@@ -58,38 +45,18 @@
       "cwd": "repo"
     },
     { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "Codex", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "Claude", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "Code Puppy", "timeout_ms": 15000 },
-    {
-      "op": "assert-capture",
-      "capture": {
-        "name": "npm-runner",
-        "invocation": 1,
-        "argv": ["npm", "exec", "--yes", "--package=@vybestack/llxprt-code@latest", "--", "llxprt"],
-        "env": [],
-        "cwd": "${workspace}/repo",
-        "stdout": "npm exec -> resolved\n",
-        "exit_code": 0
-      }
-    },
-    {
-      "op": "assert-capture",
-      "capture": {
-        "name": "uvx-runner",
-        "invocation": 1,
-        "argv": ["uvx", "--from", "code-puppy==0.0.634", "code-puppy"],
-        "env": [],
-        "cwd": "${workspace}/repo",
-        "stdout": "uvx --from code-puppy==0.0.634 -> code-puppy\n",
-        "exit_code": 0
-      }
-    },
+    { "op": "wait", "source": "frame", "literal": "> Claude Code", "timeout_ms": 15000 },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "New Agent", "timeout_ms": 15000 },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt", "Codex", "Claude", "Code Puppy"],
-      "absent": ["error"]
+      "contains": [
+        "Claude Code",
+        "Version Selector: []",
+        "Prompt: []",
+        "[Create disabled]"
+      ],
+      "absent": ["npm exec", "uvx --from", "Package Runner"]
     },
     { "op": "finish" }
   ],

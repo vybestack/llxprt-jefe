@@ -527,3 +527,63 @@ they explicitly target Linux, so this macOS host cannot claim direct runtime
 success. Existing `AgentKind` issue/PR orchestration remains the compatibility
 path until the approved S15 convergence replaces it with this typed seam rather
 than maintaining two permanent authorities.
+
+## S12 sequencing clarification (2026-07-27)
+
+The retained `agent-version-selector.json` fixture was internally inconsistent:
+it asserted local `npm exec` without configuring a selector, while approved D3
+requires local Jefe-managed exact installs and reserves audited runner argv for
+remote execution. It also attempted executable-route evidence before S15 makes
+the generic route authoritative. The delivery agent resolved this implementation
+detail without expanding product scope: D3 remains authoritative; S12 proves the
+generic selector/package boundary with production-connected Rust tests and a
+selector-form scenario contract, and S15 completes the sole-route TUI execution
+capture. The scenario will not claim impossible startup package invocations.
+
+## S12 package selectors (2026-07-27)
+
+### S12 RED evidence
+
+The production-connected `package_runner_selector` acceptance was first changed
+from its placeholder `CandidateKind::is_package_runner` assertion to require the
+owned normalized selector contract, four signature-bearing `version_selector`
+fields, the generation transition function, and the generic package runtime
+boundary. The exact focused command
+`cargo test --test issue382_behavior package_runner_selector --no-run` exited
+101: `next_probe_generation` and `runtime::package_runtime` were unresolved and
+`VersionSelector::normalize` did not exist. No S12 production implementation
+existed at that point.
+
+### S12 GREEN evidence
+
+S12 replaces the bounded `Box::leak` selector stub with one owned generic
+selector and carries its package, binary, runner, and effective selector through
+candidate resolution. Blank selectors exclusively resolve direct candidates;
+selected package candidates exclusively resolve their declared runner, so an
+absent runner is typed `NotFound` with no direct fallback. Candidate generation
+identity now includes definition digest, candidate index, runner executable and
+wrapper, physical fingerprint, and complete package selection.
+
+The generic package boundary validates the completed immutable plan's operation,
+target, typed values, definition, candidate, and probe generation before any
+managed npm install. Local npm uses a collision-resistant exact Jefe cache keyed
+by declared package, binary, and effective selector; local uvx remains a closed
+structural prefix. Remote npm/uvx prefixes are structural `OsString` elements
+and are serialized only by the existing audited remote transcript serializer.
+The generic probe adapter prepares and executes the selected managed npm binary
+or structural uvx invocation rather than probing the runner's own version. The
+legacy LLxprt cache API and layout remain unchanged for bounded compatibility
+until S15 sole-route convergence.
+
+Focused GREEN commands passed: six package-runtime tests (managed npm,
+structural uvx, audited remote npm, selected npm/uvx agent probes, and
+unsupported zero-effect ordering), 34 candidate/path/fingerprint tests, and the
+`package_runner_selector` acceptance. The TUI scenario now proves the generated
+`Version Selector` field/form contract without claiming startup npm/uvx
+execution that cannot be routed authoritatively until S15. Strict locked
+all-feature/all-target Clippy, the locked all-feature build/test suite,
+`make quick-check`, formatting/diff checks, and the source-size gate also pass.
+The scenario parses through the schema-1 acceptance gate; direct `tmux_scenario`
+execution on this macOS host correctly returns `HAR-E005` because the retained
+scenario explicitly targets Linux, so no cross-platform skip is claimed as TUI
+runtime success.

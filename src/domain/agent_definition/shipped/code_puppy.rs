@@ -51,7 +51,10 @@ pub fn build() -> AgentDefinition {
             },
         },
         repository_fields: vec![sig_string_field("model"), optional_bool_field("yolo", None)],
-        agent_fields: vec![bool_field("interactive")],
+        agent_fields: vec![
+            sig_string_field("version_selector"),
+            bool_field("interactive"),
+        ],
         emitters: vec![
             Emitter::Option {
                 name: "--model".to_string(),

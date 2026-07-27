@@ -63,6 +63,7 @@ pub fn validate_definition(
         });
     }
     validate_emitters(&def.emitters, &def.repository_fields, &def.agent_fields)?;
+    validate_package_selector_contract(def)?;
     validate_probe(&def.probe).map_err(|err| DefinitionError::Probe(Box::new(err)))?;
     validate_visibility_graph(&def.repository_fields)?;
     validate_visibility_graph(&def.agent_fields)?;
@@ -142,6 +143,44 @@ fn validate_emitters(
         }
     }
     Ok(())
+}
+
+const PACKAGE_SELECTOR_FIELD_ID: &str = "version_selector";
+
+fn validate_package_selector_contract(
+    def: &super::definition::AgentDefinition,
+) -> Result<(), DefinitionError> {
+    let has_package_candidate = def
+        .candidates
+        .iter()
+        .any(|candidate| candidate.kind.is_package_runner());
+    let selector_fields = def
+        .agent_fields
+        .iter()
+        .filter(|field| field.id == PACKAGE_SELECTOR_FIELD_ID)
+        .collect::<Vec<_>>();
+    let selector_emitted = def
+        .emitters
+        .iter()
+        .any(|emitter| emitter.field() == Some(PACKAGE_SELECTOR_FIELD_ID));
+    let valid_selector = match selector_fields.as_slice() {
+        [field] => {
+            field.kind == super::fields::FieldKind::String
+                && field.launch_signature
+                && !field.required
+                && field.default.is_none()
+                && !selector_emitted
+        }
+        _ => false,
+    };
+    if has_package_candidate == valid_selector
+        && (has_package_candidate || selector_fields.is_empty())
+    {
+        return Ok(());
+    }
+    Err(DefinitionError::UnknownField {
+        field: "package candidates require one optional, non-emitting, signature-bearing agent string field named version_selector".to_string(),
+    })
 }
 
 fn validate_visibility_graph(fields: &[super::fields::Field]) -> Result<(), DefinitionError> {

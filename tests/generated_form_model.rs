@@ -62,6 +62,9 @@ fn comprehensive_definition() -> AgentDefinition {
     definition.repository_fields = vec![
         gate, optional, name, retries, mode, workspace, tags, detail, notes,
     ];
+    definition
+        .candidates
+        .retain(|candidate| !candidate.kind.is_package_runner());
     definition.agent_fields = vec![field("agent_note", FieldKind::String)];
     definition.emitters.clear();
     definition

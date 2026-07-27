@@ -151,3 +151,33 @@ fn candidate_kind_package_runner_rejects_empty_package() {
     };
     assert!(candidate.validate().is_err(), "empty package rejected");
 }
+
+#[test]
+fn candidate_kind_package_runner_rejects_unsafe_package_and_binary() {
+    let unsafe_package = ExecutableCandidate {
+        kind: CandidateKind::NpmPackage {
+            package: "package name".to_string(),
+            binary: "agent".to_string(),
+        },
+        value: std::path::PathBuf::from("agent"),
+    };
+    assert_eq!(
+        unsafe_package.validate(),
+        Err(CandidateValidateError::PackageUnsafe)
+    );
+
+    for binary in ["../agent", "dir/agent", "dir\\agent", "agent name", "."] {
+        let unsafe_binary = ExecutableCandidate {
+            kind: CandidateKind::UvxPackage {
+                package: "agent-package".to_string(),
+                binary: binary.to_string(),
+            },
+            value: std::path::PathBuf::from(binary),
+        };
+        assert_eq!(
+            unsafe_binary.validate(),
+            Err(CandidateValidateError::BinaryUnsafe),
+            "binary {binary:?} must be rejected"
+        );
+    }
+}

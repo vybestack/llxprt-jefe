@@ -57,7 +57,10 @@ pub fn build() -> AgentDefinition {
                 ],
             ),
         ],
-        agent_fields: vec![sig_string_field("prompt")],
+        agent_fields: vec![
+            sig_string_field("version_selector"),
+            sig_string_field("prompt"),
+        ],
         emitters: claude_emitters(),
     })
 }

@@ -49,6 +49,8 @@ mod multiplexer;
 mod non_interactive;
 mod orphan;
 mod package_probe;
+/// Generic package-backed invocation and preparation boundary (issue #382 S12).
+pub mod package_runtime;
 mod pane_capture;
 mod preflight;
 mod process;
@@ -79,7 +81,9 @@ pub use agent_preflight::{
     InspectOutcome, PreflightCleared, PreparationOutcome, ProcessSandboxInspector,
     SandboxInspector, UnavailableReason, prepare_execution,
 };
-pub use agent_probe::{AgentProbeResult, AgentProbeTarget, run_local_agent_probe};
+pub use agent_probe::{
+    AgentProbeResult, AgentProbeTarget, run_local_agent_probe, run_local_agent_probe_with_cache,
+};
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{

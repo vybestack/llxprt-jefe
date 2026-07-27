@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use crate::agent_candidate::{CandidateResolution, ResolvedCandidate};
+use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution, ResolvedCandidate};
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
 use crate::domain::agent_definition::limits::{LOCAL_PROBE_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS};
 use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
@@ -47,6 +47,7 @@ impl AgentProbeTarget {
 pub struct AgentProbeResult {
     availability: Availability,
     executable_fingerprint: Option<CandidateFingerprint>,
+    candidate_generation_key: Option<CandidateGenerationKey>,
     definition_sha256: DefinitionSha256,
 }
 
@@ -61,6 +62,12 @@ impl AgentProbeResult {
     #[must_use]
     pub const fn executable_fingerprint(&self) -> Option<&CandidateFingerprint> {
         self.executable_fingerprint.as_ref()
+    }
+
+    /// Candidate and selector identity that produced this probe result.
+    #[must_use]
+    pub const fn candidate_generation_key(&self) -> Option<&CandidateGenerationKey> {
+        self.candidate_generation_key.as_ref()
     }
 
     /// Hash of the exact validated definition used by this probe.
@@ -82,19 +89,57 @@ pub fn run_local_agent_probe(
     resolution: &CandidateResolution,
     requested_generation: u64,
 ) -> AgentProbeResult {
+    run_local_agent_probe_with_cache(
+        definition,
+        resolution,
+        requested_generation,
+        &super::package_runtime::managed_package_cache_root(),
+    )
+}
+
+/// Injectable package-cache variant used by production-connected tests.
+#[must_use]
+pub fn run_local_agent_probe_with_cache(
+    definition: &AgentDefinition,
+    resolution: &CandidateResolution,
+    requested_generation: u64,
+    package_cache_root: &Path,
+) -> AgentProbeResult {
     let definition_sha256 = definition.sha256();
     let CandidateResolution::Resolved(candidate) = resolution else {
         return AgentProbeResult {
             availability: Availability::NotFound,
             executable_fingerprint: None,
+            candidate_generation_key: None,
             definition_sha256,
         };
     };
-    let fingerprint = candidate.fingerprint().clone();
-    let availability = probe_resolved(definition, candidate, requested_generation);
+    let candidate_generation_key = candidate.generation_key(definition);
+    let prepared = super::package_runtime::prepare_local_probe(candidate, package_cache_root);
+    let fingerprint = prepared
+        .as_ref()
+        .ok()
+        .and_then(|invocation| invocation.as_ref())
+        .and_then(|invocation| invocation.fingerprint())
+        .cloned()
+        .unwrap_or_else(|| candidate.fingerprint().clone());
+    let availability = match prepared {
+        Ok(invocation) => probe_resolved(
+            definition,
+            candidate,
+            invocation.as_ref(),
+            requested_generation,
+        ),
+        Err(error) => probe_error(
+            ProbeErrorCode::Agte202,
+            error.to_string(),
+            requested_generation,
+        ),
+    };
     AgentProbeResult {
         availability,
         executable_fingerprint: Some(fingerprint),
+        candidate_generation_key: Some(candidate_generation_key),
         definition_sha256,
     }
 }
@@ -102,6 +147,7 @@ pub fn run_local_agent_probe(
 fn probe_resolved(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
+    invocation: Option<&super::package_runtime::PackageInvocation>,
     generation: u64,
 ) -> Availability {
     if let Err(error) = definition.validate() {
@@ -114,22 +160,31 @@ fn probe_resolved(
         .total_timeout()
         .min(Duration::from_millis(definition.probe.timeout_ms));
     let deadline = Instant::now() + timeout;
-    let identity = match run_identity(definition, candidate, deadline) {
+    let identity = match run_identity(definition, candidate, invocation, deadline) {
         Ok(identity) => identity,
         Err(failure) => return failure.into_availability(generation),
     };
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    run_capabilities(definition, candidate, identity, deadline, generation)
+    run_capabilities(
+        definition, candidate, invocation, identity, deadline, generation,
+    )
 }
 
 fn run_identity(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
+    invocation: Option<&super::package_runtime::PackageInvocation>,
     deadline: Instant,
 ) -> Result<String, ProbeFailure> {
-    let output = execute_probe(candidate, &definition.probe.argv, deadline, "identity")?;
+    let output = execute_probe(
+        candidate,
+        invocation,
+        &definition.probe.argv,
+        deadline,
+        "identity",
+    )?;
     let selected = select_stream(&output, definition.probe.stream)?;
     parse_identity(&selected, &definition.probe).map_err(ProbeFailure::Evidence)
 }
@@ -137,6 +192,7 @@ fn run_identity(
 fn run_capabilities(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
+    invocation: Option<&super::package_runtime::PackageInvocation>,
     identity: String,
     deadline: Instant,
     generation: u64,
@@ -144,10 +200,11 @@ fn run_capabilities(
     let Some(probe) = &definition.probe.capabilities else {
         return compatible(identity, Vec::new(), generation);
     };
-    let evaluation = match execute_capability_probe(definition, candidate, probe, deadline) {
-        Ok(evaluation) => evaluation,
-        Err(failure) => return failure.into_availability(generation),
-    };
+    let evaluation =
+        match execute_capability_probe(definition, candidate, invocation, probe, deadline) {
+            Ok(evaluation) => evaluation,
+            Err(failure) => return failure.into_availability(generation),
+        };
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
@@ -163,10 +220,11 @@ fn run_capabilities(
 fn execute_capability_probe(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
+    invocation: Option<&super::package_runtime::PackageInvocation>,
     probe: &CapabilityProbe,
     deadline: Instant,
 ) -> Result<crate::domain::agent_definition::CapabilityEvaluation, ProbeFailure> {
-    let output = execute_probe(candidate, &probe.argv, deadline, "capability")?;
+    let output = execute_probe(candidate, invocation, &probe.argv, deadline, "capability")?;
     let selected = select_stream(&output, probe.stream)?;
     parse_capabilities(
         &selected,
@@ -179,6 +237,7 @@ fn execute_capability_probe(
 
 fn execute_probe(
     candidate: &ResolvedCandidate,
+    invocation: Option<&super::package_runtime::PackageInvocation>,
     argv: &[String],
     deadline: Instant,
     phase: &str,
@@ -187,7 +246,18 @@ fn execute_probe(
         return Err(ProbeFailure::Timeout);
     }
     let arguments: Vec<OsString> = argv.iter().map(OsString::from).collect();
-    let command = command_for_candidate(candidate, &arguments);
+    let command = match invocation {
+        Some(invocation) => {
+            let mut package_arguments = invocation.prefix().to_vec();
+            package_arguments.extend(arguments);
+            command_for_path(
+                invocation.executable(),
+                invocation.wrapper_kind(),
+                &package_arguments,
+            )
+        }
+        None => command_for_candidate(candidate, &arguments),
+    };
     let output = run_probe_process(command, deadline).map_err(ProbeFailure::Process)?;
     validate_process_output(output, phase)
 }
@@ -237,7 +307,11 @@ fn command_for_candidate(candidate: &ResolvedCandidate, argv: &[OsString]) -> Co
     command_for_path(candidate.executable(), candidate.wrapper_kind(), argv)
 }
 
-fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString]) -> Command {
+pub(super) fn command_for_path(
+    path: &Path,
+    wrapper: AgentWrapperKind,
+    argv: &[OsString],
+) -> Command {
     match wrapper {
         AgentWrapperKind::Direct => command_with_args(path.as_os_str(), argv),
         AgentWrapperKind::CommandScript => {

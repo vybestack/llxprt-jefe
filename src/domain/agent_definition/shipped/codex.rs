@@ -52,7 +52,10 @@ pub fn build() -> AgentDefinition {
                 &["read-only", "workspace-write", "danger-full-access"],
             ),
         ],
-        agent_fields: vec![sig_string_field("prompt")],
+        agent_fields: vec![
+            sig_string_field("version_selector"),
+            sig_string_field("prompt"),
+        ],
         emitters: codex_emitters(),
     })
 }

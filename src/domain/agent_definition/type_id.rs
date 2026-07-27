@@ -235,8 +235,23 @@ impl CandidateKind {
                 if package.is_empty() || package.len() > STRING_VALUE_BYTE_LIMIT {
                     return Err(CandidateValidateError::PackageLength);
                 }
+                if package
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace())
+                {
+                    return Err(CandidateValidateError::PackageUnsafe);
+                }
                 if binary.is_empty() || binary.len() > STRING_VALUE_BYTE_LIMIT {
                     return Err(CandidateValidateError::BinaryLength);
+                }
+                if binary == "."
+                    || binary == ".."
+                    || binary
+                        .chars()
+                        .any(|character| character.is_control() || character.is_whitespace())
+                    || binary.contains(['/', '\\'])
+                {
+                    return Err(CandidateValidateError::BinaryUnsafe);
                 }
             }
         }
@@ -257,8 +272,12 @@ pub enum CandidateValidateError {
     UnsafeRelative,
     /// Package-runner package length is outside 1..=4096 bytes.
     PackageLength,
+    /// Package-runner package contains whitespace or control characters.
+    PackageUnsafe,
     /// Package-runner binary length is outside 1..=4096 bytes.
     BinaryLength,
+    /// Package-runner binary is not one safe path component.
+    BinaryUnsafe,
 }
 
 impl fmt::Display for CandidateValidateError {
@@ -269,7 +288,11 @@ impl fmt::Display for CandidateValidateError {
             Self::ValueLength => "repository-llxprt value must be 1..=4096 bytes",
             Self::UnsafeRelative => "repository-llxprt value must be a safe relative path",
             Self::PackageLength => "package-runner package must be 1..=4096 bytes",
+            Self::PackageUnsafe => {
+                "package-runner package must not contain whitespace or control characters"
+            }
             Self::BinaryLength => "package-runner binary must be 1..=4096 bytes",
+            Self::BinaryUnsafe => "package-runner binary must be one safe path component",
         };
         f.write_str(msg)
     }

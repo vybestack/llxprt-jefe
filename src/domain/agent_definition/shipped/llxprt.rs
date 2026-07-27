@@ -58,7 +58,10 @@ pub fn build() -> AgentDefinition {
             },
         },
         repository_fields: vec![sig_string_field("profile"), bool_field("yolo")],
-        agent_fields: vec![bool_field("prompt_interactive")],
+        agent_fields: vec![
+            sig_string_field("version_selector"),
+            bool_field("prompt_interactive"),
+        ],
         emitters: vec![
             Emitter::Option {
                 name: "--profile-load".to_string(),

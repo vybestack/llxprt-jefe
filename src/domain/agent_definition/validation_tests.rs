@@ -202,3 +202,39 @@ fn total_field_bounds_equals_two_per_scope_bounds() {
         "total form field bound must equal twice the per-scope bound"
     );
 }
+
+fn package_candidate() -> ExecutableCandidate {
+    ExecutableCandidate {
+        kind: CandidateKind::NpmPackage {
+            package: "agent-package".to_string(),
+            binary: "agent".to_string(),
+        },
+        value: std::path::PathBuf::from("npm"),
+    }
+}
+
+#[test]
+fn package_candidate_requires_generic_selector_contract() {
+    let mut def = base_def();
+    def.candidates = vec![package_candidate()];
+    assert!(validate_definition(&def).is_err());
+
+    def.agent_fields = vec![string_field("version_selector")];
+    assert!(validate_definition(&def).is_ok());
+
+    def.agent_fields[0].launch_signature = false;
+    assert!(validate_definition(&def).is_err());
+}
+
+#[test]
+fn selector_without_package_or_with_emitter_is_rejected() {
+    let mut def = base_def();
+    def.agent_fields = vec![string_field("version_selector")];
+    assert!(validate_definition(&def).is_err());
+
+    def.candidates = vec![package_candidate()];
+    def.emitters = vec![Emitter::Positional {
+        field: "version_selector".to_string(),
+    }];
+    assert!(validate_definition(&def).is_err());
+}

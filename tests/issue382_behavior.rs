@@ -29,7 +29,9 @@ use issue382::probe_fixtures::assert_all_retained_probe_fixtures;
 
 // The closed production contract module the issue mandates. It does not exist
 // on `origin/main`; this import is the RED trigger.
-use jefe::agent_candidate::{AgentCandidateResolver, CandidateResolution};
+use jefe::agent_candidate::{
+    AgentCandidateResolver, CandidateResolution, CandidateSkip, PackageRunnerKind, VersionSelector,
+};
 use jefe::agent_candidate_path::PathSnapshot;
 use jefe::agent_registry::AgentTypeRegistry;
 use jefe::agent_status_view::{AgentAvailabilityObservation, project_agent_type_statuses};
@@ -938,19 +940,47 @@ fn claude_entry_gate() {
 #[test]
 fn package_runner_selector() {
     parse_scenario("agent-version-selector.json");
-    // Contract: WHEN a nonblank version selector is set for an npm/uvx-package
-    // candidate, Jefe shall plan the exact package-runner argv and reprobe
-    // under a new generation.
-    // RED: the typed package-runner candidate kinds generalize the LLxprt npm
-    // selector and Code Puppy uvx selector.
-    let npm = CandidateKind::NpmPackage {
-        package: "@vybestack/llxprt-code".to_string(),
-        binary: "llxprt".to_string(),
-    };
-    let uvx = CandidateKind::UvxPackage {
-        package: "code-puppy".to_string(),
-        binary: "code-puppy".to_string(),
-    };
-    assert!(npm.is_package_runner(), "npm-package is a package runner");
-    assert!(uvx.is_package_runner(), "uvx-package is a package runner");
+    let definitions = AgentDefinition::shipped();
+    assert_eq!(definitions.len(), 4);
+    for definition in &definitions {
+        let selector_fields = definition
+            .agent_fields
+            .iter()
+            .filter(|field| field.id == "version_selector")
+            .collect::<Vec<_>>();
+        assert_eq!(selector_fields.len(), 1, "{} selector field", definition.id);
+        assert!(selector_fields[0].launch_signature);
+        assert!(
+            definition
+                .emitters
+                .iter()
+                .all(|emitter| emitter.field() != Some("version_selector")),
+            "selector is package metadata, never a definition argv emitter"
+        );
+    }
+
+    let blank = VersionSelector::normalize(" \t\u{200b} ")
+        .unwrap_or_else(|error| panic!("blank selector: {error}"));
+    assert!(blank.is_direct());
+    let latest = VersionSelector::normalize("LATEST")
+        .unwrap_or_else(|error| panic!("latest selector: {error}"));
+    let nightly = VersionSelector::normalize("Latest Nightly")
+        .unwrap_or_else(|error| panic!("nightly selector: {error}"));
+    let explicit = VersionSelector::normalize(" 1.2.\n3 ")
+        .unwrap_or_else(|error| panic!("explicit selector: {error}"));
+    assert_eq!(latest.effective(PackageRunnerKind::Npm), Some("latest"));
+    assert_eq!(nightly.effective(PackageRunnerKind::Npm), Some("nightly"));
+    assert_eq!(explicit.effective(PackageRunnerKind::Npm), Some("1.2.3"));
+    assert_eq!(
+        latest.package_spec(PackageRunnerKind::Uvx, "python-agent"),
+        Some("python-agent".to_string())
+    );
+    assert_eq!(
+        explicit.package_spec(PackageRunnerKind::Uvx, "python-agent"),
+        Some("python-agent==1.2.3".to_string())
+    );
+
+    let _ = CandidateSkip::PackageSelectorBlank { index: 0 };
+    #[cfg(unix)]
+    issue382::package_selector::assert_runtime_matrix(&definitions, assert_golden_local_plan);
 }
