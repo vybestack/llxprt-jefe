@@ -11,13 +11,15 @@
 
 use std::process::Command;
 
+use crate::support::TestResultExt;
+
 #[test]
 fn clippy_allow_policy_passes_on_repo() {
     let output = Command::new("cargo")
         .args(["xtask", "check", "clippy-allows"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output();
-    let output = output.expect("`cargo xtask check clippy-allows` should be runnable");
+        .output()
+        .test_unwrap("`cargo xtask check clippy-allows` should be runnable");
 
     assert!(
         output.status.success(),
