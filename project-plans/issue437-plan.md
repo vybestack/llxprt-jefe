@@ -109,7 +109,7 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 ## Review counters
 
 - Pre-PR Open Code Review: 1 / 2 (22 files, 7 comments; a first attempt with a `A..B` range reviewed 0 files and was not counted as coverage)
-- Post-PR Open Code Review: 1 / 2 (CI OpenCodeReview on the PR head; 15 inline comments)
+- Post-PR Open Code Review: 2 / 2 (limit reached; 15 + 16 inline comments, all triaged)
 - Independent Rust review: 1
 - Review/remediation cycles total: 2 / 2 (limit reached; no further review rounds)
 
@@ -171,6 +171,27 @@ The PR is 26 changed files and +1,052 net lines against its merge base, one file
 Cause: two files were added after the branch opened, both forced by integrating `origin/main` rather than by discretionary scope. `src/app_input/new_issue_submit.rs` is the issue-407 route that merged mid-flight and had to be migrated to compile. `src/app_input/issues_comments_dispatch.rs` exists because absorbing that route pushed `issues_dispatch.rs` to 865 lines, past the 850-line handler boundary; the comment-pagination route was moved out instead of relaxing the limit.
 
 Reviewability is unaffected: 21 of the 26 files are mechanical single-route conversions to the same helper, and the extracted module is a move with no behavior change. Continuing without splitting.
+
+## Post-PR review triage, round 2 (CI OpenCodeReview on the docs-only head)
+
+The review budget (2 cycles) is spent; this round ran automatically because CI re-triggers OCR on every push. All 16 comments were still triaged.
+
+| # | Finding | Disposition | Action |
+| --- | --- | --- | --- |
+| 24 | `mark_comment_failure_pending` drops the failure event when `begin_issue_comment_page` returns `None` | Reject (pre-existing) | Verified against base `c14a223`: the `?` on `begin_issue_comment_page` and the `Option` return predate this PR. The extraction moved the function verbatim; no behavior changed. Recorded as a follow-up candidate rather than smuggled in here. |
+| 25 | Merge-methods load has an empty panic handler, so users silently fall back to "all available" | Reject (pre-existing, intentional) | Verified against base: the chooser's graceful fallback is the established behavior and the code comment already states it. Changing it is a UX decision outside this issue. `record_worker_panic` still records the panic on the Errors screen, so it is no longer invisible. |
+| 26 | `COMMENT_PAGE_SIZE` could drift from the issue-list page size | Defer | Fair, but adding `static_assertions` is a dependency change requiring approval, and the two constants are three lines apart with a comment binding them. |
+| 27 | `MISSING_DETAIL_REPO_MSG` widened to `pub(super)` leaks a string | Defer | Narrow visibility widening forced by the 850-line boundary extraction; `pub(super)` is still crate-internal. Not worth a further refactor at this stage of the PR. |
+| 28 | `assignment_abandoned` defined after its call site | Reject | This is the deliberate convention adopted across all 32 routes in this PR after clippy's `items_after_statements` finding; helpers sit below the dispatcher they serve. Consistency beats local reordering. |
+| 29 | Wrap `apply`/`on_panic` in `catch_unwind` | Reject (repeat of 19) | Same reasoning: containment is scoped to external `gh` work on purpose so reducer bugs stay loud. |
+| 30 | Breaking API change to `&mut AppStateHandle`; add a compat shim | Reject (repeat of 22) | Crate-internal functions, no external consumers; the suggested shim would reintroduce the aliasing this PR removes. |
+| 31 | Double clone in the PR property-edit paths | Reject (repeat of 23) | Both clones are consumed by distinct closures. |
+| 32 | Audit all callers of the property-edit dispatchers | Reject | Already guaranteed: a missed call site is a compile error, and the workspace builds clean on this head. |
+| 33 | Extra `owner_repo` clone in `issues_send` | Reject | Same ownership constraint; two closures each need an owned copy. |
+| 34 | Document that "abandoned" now covers both panics and queue-unavailable | In-scope-Fix | Accepted and recorded here: the abandoned wording deliberately spans both causes, and the appended message carries the specific one. |
+| 35 | `install_hook` captures the previous hook once; later hooks are not delegated to | Defer | Correct in principle. Jefe installs no other hook, and the `Once` guard is what makes delegation deterministic under concurrency. A dynamic strategy is a design change, not a fix. |
+| 36 | Threads spawned inside `work` do not inherit containment | Defer | Accurate limitation. No migrated route spawns threads inside `work`; all blocking work is a direct `gh` call. |
+| 37-39 | Three comments confirming the `spawn_gh_work` split and early-return path are correct | Acknowledged | No action needed. |
 
 ## Exact-head completion
 
