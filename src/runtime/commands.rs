@@ -717,6 +717,7 @@ fn local_launch_command(
     session_name: &str,
     work_dir: &Path,
     launch: &LocalLaunchPlan,
+    session_host_root: Option<&Path>,
 ) -> Result<Command, RuntimeError> {
     let multiplexer = MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
     let mut cmd = multiplexer.command();
@@ -726,12 +727,9 @@ fn local_launch_command(
         .arg(session_name)
         .arg("-c")
         .arg(work_dir);
-
     let executable = if let Some(bin_dir) = &launch.managed_bin_dir {
         // Issue #425: resolve the cached `llxprt` binary from the jefe-managed
-        // install dir so the work directory's `node_modules` cannot shadow
-        // the pinned version. `try_local_create_session` already ran
-        // `ensure_installed` so the bin dir exists.
+        // install dir so the work directory's `node_modules` cannot shadow it.
         super::llxprt_install::resolve_managed_executable(bin_dir, launch.executable)?
     } else {
         AgentExecutableResolver::current()
@@ -743,34 +741,44 @@ fn local_launch_command(
         &executable,
         &launch.env,
         &launch.args,
+        session_host_root.map(|root| (root, session_name)),
         &mut cmd,
     )?;
     Ok(cmd)
 }
 
-/// Drive `MultiplexerPlan::agent_pane_command_args`, converting env and args
-/// to `OsString` and forwarding them to `cmd`. Split out so `local_launch_command`
-/// stays compact.
+/// Build the multiplexer pane-command argv. Issue #467: on Windows with an
+/// explicit session-host root, stage `current_exe()` and launch the staged
+/// copy; otherwise the direct agent launch path is preserved (AC9).
 fn multiplexer_pane_args(
     multiplexer: &MultiplexerPlan,
     executable: &super::agent_executable::ResolvedAgentExecutable,
     env: &[(String, String)],
     args: &[String],
+    session_host: Option<(&Path, &str)>,
     cmd: &mut Command,
 ) -> Result<(), RuntimeError> {
-    let pane_args = args.iter().map(OsString::from).collect::<Vec<_>>();
-    let environment = env
+    let pane_args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let environment: Vec<(OsString, OsString)> = env
         .iter()
-        .map(|(key, value)| (OsString::from(key), OsString::from(value)))
-        .collect::<Vec<_>>();
-    for arg in multiplexer
-        .agent_pane_command_args(executable, &pane_args, &environment)
-        .map_err(RuntimeError::Multiplexer)?
-    {
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+        .collect();
+    let pane_command = super::session_host::resolve_local_pane_command(
+        multiplexer,
+        executable,
+        &pane_args,
+        &environment,
+        session_host,
+    )?;
+    for arg in pane_command {
         cmd.arg(arg);
     }
     Ok(())
 }
+
+// Re-exported for the local-launch staging-decision test.
+#[cfg(test)]
+use super::session_host::session_host_stage_request;
 
 /// Build the Unix pane-command argv for remote shell construction and
 /// regression tests. Local runtime launch uses `MultiplexerPlan::pane_command_args`
@@ -802,19 +810,17 @@ fn try_local_create_session(
     work_dir: &Path,
     signature: &LaunchSignature,
     attempt: u8,
+    session_host_root: Option<&Path>,
 ) -> Result<(), LocalCreateFailure> {
     let plan = local_launch_plan(signature);
     if let Some(selector) = commands_launch_parts::versioned_local_selector(signature) {
         // Issue #425: ensure the jefe-managed install exists before resolving
-        // the cached binary. The install happens here (not in
-        // `local_launch_command`) so a failure surfaces as a launch failure
-        // with the typed install error rather than a missing-binary
-        // SpawnFailed.
+        // the cached binary so a failure surfaces as a typed install error.
         super::llxprt_install::ensure_installed(selector)
             .map_err(|error| LocalCreateFailure::Runtime(RuntimeError::LlxprtInstall(error)))?;
     }
-    let mut cmd =
-        local_launch_command(session_name, work_dir, &plan).map_err(LocalCreateFailure::Runtime)?;
+    let mut cmd = local_launch_command(session_name, work_dir, &plan, session_host_root)
+        .map_err(LocalCreateFailure::Runtime)?;
     debug!(session_name = %session_name, attempt, "create_session invoking local multiplexer new-session");
 
     let output = cmd
@@ -851,16 +857,13 @@ fn local_spawn_error(session_name: &str, attempt: u8, stderr: String) -> Runtime
     RuntimeError::SpawnFailed(format!("tmux new-session failed: {stderr}"))
 }
 
-/// Create a new detached tmux session running llxprt.
-///
-/// The session runs `llxprt` directly (not a shell), so when llxprt exits,
-/// the tmux session becomes "dead" until explicit relaunch.
-///
-/// @pseudocode component-002 lines 01-06
+/// Create a detached agent session, staging the Windows pane host below the
+/// supplied root while leaving remote and Unix launch paths unchanged.
 pub fn create_session(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
+    session_host_root: Option<&Path>,
 ) -> Result<(), RuntimeError> {
     debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
     if remote_is_enabled(&signature.remote) {
@@ -877,13 +880,11 @@ pub fn create_session(
         .map_err(RuntimeError::Multiplexer)?;
 
     let _ = kill_session(session_name);
-    match try_local_create_session(session_name, work_dir, signature, 0) {
+    match try_local_create_session(session_name, work_dir, signature, 0, session_host_root) {
         Ok(()) => return Ok(()),
         Err(LocalCreateFailure::Runtime(error)) => return Err(error),
         Err(LocalCreateFailure::Command(stderr)) if is_tmux_fork_broken(&stderr) => {
             debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after multiplexer fork failure");
-            // Scoped recovery: kill only this one target session in Jefe's
-            // private isolation handle. Never terminate the whole server.
             let _ = kill_session(session_name);
         }
         Err(LocalCreateFailure::Command(stderr)) => {
@@ -891,7 +892,7 @@ pub fn create_session(
         }
     }
 
-    match try_local_create_session(session_name, work_dir, signature, 1) {
+    match try_local_create_session(session_name, work_dir, signature, 1, session_host_root) {
         Ok(()) => Ok(()),
         Err(LocalCreateFailure::Runtime(error)) => Err(error),
         Err(LocalCreateFailure::Command(stderr)) => Err(local_spawn_error(session_name, 1, stderr)),

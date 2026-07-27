@@ -185,6 +185,19 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
     true
 }
 
+fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRuntimeManager {
+    state_path.parent().map_or_else(
+        || TmuxRuntimeManager::new(rows, cols),
+        |parent| {
+            TmuxRuntimeManager::with_session_host_root(
+                rows,
+                cols,
+                parent.join(jefe::runtime::SESSION_HOST_ROOT_SEGMENT),
+            )
+        },
+    )
+}
+
 fn main() {
     run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
@@ -230,7 +243,7 @@ fn main() {
 
     let mut theme_manager = FileThemeManager::new();
     theme_manager.load_from_dir(&themes_dir);
-    let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
+    let runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
 
     let persist_handle =
         jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));

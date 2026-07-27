@@ -105,9 +105,31 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
         command.env_remove(variable);
     }
     command.envs(payload.environment);
+
+    // Issue #467 Slice 3 (AC6): on Windows the private pane host owns a
+    // kill-on-close Job Object and assigns itself before spawning the worker so
+    // the whole descendant tree inherits containment. The guard is held until
+    // `status()` returns; host death closes the handle and the kernel reaps the
+    // tree, while normal worker completion still returns the exit status. A
+    // failure to establish containment is typed and refuses spawn so a host can
+    // never start a tree it cannot contain. Unix behaviour is unchanged.
+    #[cfg(windows)]
+    let _containment = establish_worker_containment()?;
+
     command
         .status()
         .map_err(|_| AgentLauncherError::LaunchFailed)
+}
+
+#[cfg(windows)]
+fn establish_worker_containment() -> Result<super::job_object::JobContainment, AgentLauncherError> {
+    super::job_object::JobContainment::enable_for_current_process().map_err(|error| {
+        tracing::error!(
+            error = %error,
+            "windows job object containment unavailable; refusing to spawn agent worker"
+        );
+        AgentLauncherError::ContainmentUnavailable
+    })
 }
 fn valid_launch_plan_path(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
@@ -210,6 +232,11 @@ pub enum AgentLauncherError {
     InvalidPlanPayload,
     CleanupFailed,
     LaunchFailed,
+    /// Windows Job Object containment could not be established before spawning
+    /// the worker (issue #467 Slice 3). Worker spawn is refused so a host can
+    /// never start a descendant tree it cannot reliably contain.
+    #[cfg(windows)]
+    ContainmentUnavailable,
 }
 
 impl std::fmt::Display for AgentLauncherError {
@@ -233,6 +260,10 @@ impl std::fmt::Display for AgentLauncherError {
             }
             Self::CleanupFailed => formatter.write_str("internal agent launch plan cleanup failed"),
             Self::LaunchFailed => formatter.write_str("agent process could not be started"),
+            #[cfg(windows)]
+            Self::ContainmentUnavailable => formatter.write_str(
+                "windows job object containment could not be established for agent worker",
+            ),
         }
     }
 }
