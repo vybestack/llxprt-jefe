@@ -619,10 +619,13 @@ mod tests {
             .tempdir()
             .unwrap_or_else(|error| panic!("create path-injection directory: {error}"));
         let fake_kill = untrusted.path().join("kill");
-        std::fs::write(&fake_kill, b"#!/bin/sh
+        std::fs::write(
+            &fake_kill,
+            b"#!/bin/sh
 echo pwned
-")
-            .unwrap_or_else(|error| panic!("write fake kill: {error}"));
+",
+        )
+        .unwrap_or_else(|error| panic!("write fake kill: {error}"));
         std::fs::set_permissions(&fake_kill, std::fs::Permissions::from_mode(0o755))
             .unwrap_or_else(|error| panic!("chmod fake kill: {error}"));
 
