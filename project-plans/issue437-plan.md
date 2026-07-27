@@ -195,7 +195,7 @@ The review budget (2 cycles) is spent; this round ran automatically because CI r
 
 ## Exact-head completion
 
-Candidate head `1491370`, PR https://github.com/vybestack/llxprt-jefe/pull/452, base `main`.
+Candidate head `issue437` rebased onto `ff9b6e3`, PR https://github.com/vybestack/llxprt-jefe/pull/452, base `main`.
 
 | Gate | Result |
 | --- | --- |
@@ -203,7 +203,8 @@ Candidate head `1491370`, PR https://github.com/vybestack/llxprt-jefe/pull/452, 
 | Local verification | rustfmt, both clippy gates, clippy-allow policy, architecture boundary, source-size, coverage, build, and full workspace suite all pass |
 | `errors-mode` TUI scenario | re-run on this head: ok, 9 steps |
 | Required CI | 12 of 12 checks pass, including Native Windows, Coverage gate, and OpenCodeReview; the optional tmux smoke job is skipped by design |
-| Ancestry / conflicts | `origin/main` is an ancestor of the head; merge state CLEAN, MERGEABLE |
+| Ancestry / conflicts | rebased onto `ff9b6e3` after mainline drift; `origin/main` is an ancestor of the head; merge state CLEAN, MERGEABLE |
+| Known-flaky suite note | Two real-process harness tests (`harness_v1_fixtures::settings_edit_fixture_executes_configured_editor_as_argv`, `harness::tmux_driver::tests::real_jefe_session_uses_isolated_config_when_binary_available`) fail intermittently under full parallel workspace load. Reproduced on unmodified `origin/main` (1 of 6 full runs), so this is pre-existing environmental flakiness in the multiplexer harness, not a regression from this PR. Neither test is touched by this change. |
 | Reviews | 2 of 2 cycles used; every finding fixed, rejected with evidence, or deferred |
 | Scope ledger | clean; the 26-file scope review is recorded above |
 
