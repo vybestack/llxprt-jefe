@@ -382,6 +382,25 @@ fn ocr_deduplicates_findings_before_posting() {
 }
 
 // ---------------------------------------------------------------------------
+// Issue #464: manifest builder has no undeclared action-runtime dependencies
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ocr_manifest_builder_uses_dependency_free_workflow_commands() {
+    let content = read_workflow();
+    let step = step_body(&content, "Build OCR reproducibility manifests");
+
+    assert!(
+        !step.contains("require('@actions/core')") && !step.contains("require(\"@actions/core\")"),
+        "Plain-shell manifest Node must not import @actions/core, which is not installed in the repository module path"
+    );
+    assert!(
+        step.contains("::warning::"),
+        "Manifest diagnostics must retain GitHub Actions warning semantics without @actions/core"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Criterion 10: preserve existing protections
 // ---------------------------------------------------------------------------
 

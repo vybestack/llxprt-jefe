@@ -1145,7 +1145,14 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const crypto = require('crypto');
-          const core = require('@actions/core');
+
+          const escapeWorkflowCommand = (value) => String(value)
+            .replaceAll('%', '%25')
+            .replaceAll('\r', '%0D')
+            .replaceAll('\n', '%0A');
+          const warning = (message) => {
+            process.stdout.write(`::warning::${escapeWorkflowCommand(message)}\n`);
+          };
 
           const readTrim = (name, fallback = '') => {
             try { return fs.readFileSync(name, 'utf8').trim(); } catch (_) { return fallback; }
@@ -1283,7 +1290,7 @@ jobs:
           // observable rather than silently swallowed.
           for (const name of ['manifest.pre.json', 'manifest.post.json', 'sha256.txt']) {
             try { fs.chmodSync(name, 0o600); } catch (chmodErr) {
-              core.warning(`Could not chmod 0o600 on ${name}: ${chmodErr.message || chmodErr}`);
+              warning(`Could not chmod 0o600 on ${name}: ${chmodErr.message || chmodErr}`);
             }
           }
           // Step-level process.env mutations do not persist across steps in
