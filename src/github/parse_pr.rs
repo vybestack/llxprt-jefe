@@ -221,7 +221,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         .unwrap_or(false);
     let review_decision = node.get("reviewDecision").and_then(parse_review_decision);
     let checks_status = parse_checks_rollup(&rollup_nodes(node.get("statusCheckRollup")));
-    let mergeable = parse_mergeable_enum(node.get("mergeable"));
+    let mergeable = parse_mergeable_value(node.get("mergeable"));
     PullRequest {
         number,
         title,
@@ -275,7 +275,7 @@ fn str_field(value: &Value, field: &str) -> String {
         .to_string()
 }
 
-/// Parse the GraphQL `mergeable` field into a tri-state bool.
+/// Parse the GraphQL/JSON `mergeable` field into a tri-state bool.
 ///
 /// Accepts both shapes returned by `gh`:
 /// - GraphQL enum strings: `MERGEABLE`→`Some(true)`, `CONFLICTING`→`Some(false)`,
@@ -286,7 +286,7 @@ fn str_field(value: &Value, field: &str) -> String {
 /// Used by both the list parser (issue #314) and the detail parser so detail
 /// views do not silently drop mergeable when GraphQL returns the enum string.
 #[must_use]
-pub fn parse_mergeable_enum(value: Option<&Value>) -> Option<bool> {
+pub fn parse_mergeable_value(value: Option<&Value>) -> Option<bool> {
     match value? {
         Value::Bool(b) => Some(*b),
         Value::String(token) => match token.as_str() {
@@ -394,7 +394,7 @@ pub fn parse_pull_request_detail_json(
         reviews,
         checks,
         comments: exhausted_comments(Vec::new()),
-        mergeable: parse_mergeable_enum(value.get("mergeable")),
+        mergeable: parse_mergeable_value(value.get("mergeable")),
         merge_state_status: value
             .get("mergeStateStatus")
             .and_then(Value::as_str)
@@ -927,23 +927,57 @@ pub fn parse_thread_reply_json(stdout: &str) -> Result<IssueComment, GhError> {
 
 #[cfg(test)]
 mod mergeable_parse_tests {
-    use super::parse_mergeable_enum;
+    use super::{parse_mergeable_value, parse_pull_request_detail_json};
     use serde_json::json;
 
     #[test]
     fn enum_strings_map_like_list_parser() {
-        assert_eq!(parse_mergeable_enum(Some(&json!("MERGEABLE"))), Some(true));
+        assert_eq!(parse_mergeable_value(Some(&json!("MERGEABLE"))), Some(true));
         assert_eq!(
-            parse_mergeable_enum(Some(&json!("CONFLICTING"))),
+            parse_mergeable_value(Some(&json!("CONFLICTING"))),
             Some(false)
         );
-        assert_eq!(parse_mergeable_enum(Some(&json!("UNKNOWN"))), None);
-        assert_eq!(parse_mergeable_enum(None), None);
+        assert_eq!(parse_mergeable_value(Some(&json!("UNKNOWN"))), None);
+        assert_eq!(parse_mergeable_value(None), None);
     }
 
     #[test]
     fn boolean_json_still_parses_for_detail_fixtures() {
-        assert_eq!(parse_mergeable_enum(Some(&json!(true))), Some(true));
-        assert_eq!(parse_mergeable_enum(Some(&json!(false))), Some(false));
+        assert_eq!(parse_mergeable_value(Some(&json!(true))), Some(true));
+        assert_eq!(parse_mergeable_value(Some(&json!(false))), Some(false));
+    }
+
+    fn minimal_detail_json(mergeable: serde_json::Value) -> String {
+        json!({
+            "number": 1,
+            "title": "t",
+            "state": "OPEN",
+            "mergedAt": null,
+            "author": {"login": "a"},
+            "createdAt": "",
+            "updatedAt": "",
+            "headRefName": "h",
+            "baseRefName": "m",
+            "isDraft": false,
+            "labels": [],
+            "assignees": [],
+            "milestone": null,
+            "body": "",
+            "url": "",
+            "reviewDecision": null,
+            "statusCheckRollup": [],
+            "reviews": [],
+            "mergeable": mergeable,
+            "mergeStateStatus": "CLEAN"
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn detail_json_accepts_graphql_enum_string() {
+        let detail =
+            parse_pull_request_detail_json(&minimal_detail_json(json!("CONFLICTING")), "o/r")
+                .expect("detail should parse");
+        assert_eq!(detail.mergeable, Some(false));
     }
 }
