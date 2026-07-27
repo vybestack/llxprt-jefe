@@ -255,7 +255,7 @@ fn usage_error(command: &str, reason: &str) -> CommandFailed {
 // Exposed for unit/integration tests that assert command plans without
 // spawning processes.
 pub mod plans {
-    use super::{build_plan, complexity_plan, fmt_plan, lint_plan, test_plan, CI_STEPS};
+    use super::{CI_STEPS, build_plan, complexity_plan, fmt_plan, lint_plan, test_plan};
     use crate::process::CommandPlan;
 
     #[must_use]
