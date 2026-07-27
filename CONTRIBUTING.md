@@ -96,11 +96,21 @@ namespace-scoped cleanup. Failure diagnostics are written beneath
 ## Code review demand
 
 Keep active work in a draft PR (or use the documented WIP markers), run the
-required exact-head local gate, and push that verified head before marking the
-PR ready and adding the `review-ready` label. The
+required exact-head local gate, and push that verified head before marking
+the PR ready and adding the `review-ready` label. The
 [CodeRabbit review-demand policy](dev-docs/code-review-demand.md) defines the
 explicit trigger, automatic-review limits, deliberate manual reruns,
 reviewed-head coverage, and immutable measurement events.
+
+## pr-review delivery process
+
+When posting a review under your own account (rather than relying solely on
+the bot signals), follow the
+[pr-review delivery process](dev-docs/code-review-process.md): an OCR CLI
+pass plus independent source analysis, cross-verified against the current
+source, delivered as a CodeRabbit-style holistic verdict with severity-tiered
+findings and the Rust guardrail-confirmation checklist. It consumes the
+CodeRabbit and OCR signals; it does not replace either.
 
 ## Standards
 
