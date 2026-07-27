@@ -177,7 +177,7 @@ pub fn parse_unified_diff(patch: Option<&str>) -> ParsedDiff {
                 return ParsedDiff::Malformed(format!("invalid patch row: {row}"));
             }
         } else {
-            return ParsedDiff::Malformed("patch row appears before a hunk header".to_owned());
+            return ParsedDiff::Malformed(format!("patch row appears before a hunk header: {row}"));
         }
     }
     if let Some(builder) = current {

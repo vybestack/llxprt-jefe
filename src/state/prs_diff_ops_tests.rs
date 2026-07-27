@@ -961,3 +961,39 @@ fn head_sha_mismatch_rejects_changes_loaded_completion() {
     );
     assert_eq!(state.prs_state.changes.files.len(), 1);
 }
+/// In FullFile mode before the blob arrives, the content view shows a single
+/// placeholder row. `pr_changes_document_len` must report the matching length
+/// so navigation keeps the selection on it instead of clearing it (issue #376
+/// OCR finding). Before the fix it returned 0 and `move_selection` cleared the
+/// selection on the first arrow press.
+#[test]
+fn content_navigation_in_full_file_mode_before_blob_load_keeps_selection() {
+    let mut state = prs_state_with_detail("repo-1", 376);
+    state = apply(state, AppEvent::PrOpenChanges);
+    let request_id = state
+        .prs_state
+        .changes
+        .pending
+        .as_ref()
+        .map_or(0, |pending| pending.request_id);
+    state = apply(
+        state,
+        AppEvent::PrChangesLoaded(PrChangesLoadedPayload {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 376,
+            request_id,
+            head_sha: "sha123".to_string(),
+            files: vec![changed_file("src/main.rs")],
+            truncated: false,
+        }),
+    );
+    state = apply(state, AppEvent::PrChangesFocusContent);
+    state = apply(state, AppEvent::PrChangesToggleView);
+    assert_eq!(state.prs_state.changes.view_mode, PrDiffViewMode::FullFile);
+    assert!(state.prs_state.changes.blobs.is_empty());
+    assert_eq!(state.prs_state.changes.selected_row, Some(0));
+    for msg in [AppEvent::PrNavigateDown, AppEvent::PrNavigateUp] {
+        state = apply(state, msg);
+        assert_eq!(state.prs_state.changes.selected_row, Some(0));
+    }
+}

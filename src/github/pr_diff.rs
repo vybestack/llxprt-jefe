@@ -67,9 +67,20 @@ pub fn parse_pr_files_json(json: &str) -> Result<Vec<PrFileChange>, GhError> {
 }
 
 /// Parse a GraphQL immutable blob response into explicit display content.
+///
+/// Checks for a top-level GraphQL `errors` array before decoding `data`, so
+/// GitHub-side failures (rate limit, auth, missing access) surface their
+/// actionable message instead of a generic "response object missing" parse
+/// error (issue #376 OCR finding).
 pub fn parse_pr_blob_json(json: &str) -> Result<crate::domain::PrFileBlob, GhError> {
     let value: serde_json::Value = serde_json::from_str(json)
         .map_err(|error| GhError::ParseError(format!("pull-request blob: {error}")))?;
+    if let Some(messages) = graphql_blob_error_messages(&value) {
+        return Err(GhError::ApiError(format!(
+            "pull-request blob: {}",
+            messages.join("; ")
+        )));
+    }
     let blob = value.pointer("/data/repository/object").ok_or_else(|| {
         GhError::ParseError("pull-request blob: response object missing".to_string())
     })?;
@@ -95,6 +106,30 @@ pub fn parse_pr_blob_json(json: &str) -> Result<crate::domain::PrFileBlob, GhErr
         .and_then(serde_json::Value::as_str)
         .map(|text| crate::domain::PrFileBlob::Text(text.to_string()))
         .ok_or_else(|| GhError::ParseError("pull-request blob: text missing".to_string()))
+}
+
+/// Extract non-empty GraphQL error messages from a blob response, if any.
+///
+/// Mirrors `graphql_error_messages` in `issue_lifecycle.rs`: GitHub's GraphQL
+/// API returns HTTP 200 with a top-level `{"errors": [...]}` array on
+/// rate-limit, auth, and access failures. Surfacing these messages lets the
+/// caller distinguish a real API failure from a missing `data.repository.object`.
+fn graphql_blob_error_messages(value: &serde_json::Value) -> Option<Vec<String>> {
+    let errors = value.get("errors")?.as_array()?;
+    let messages: Vec<String> = errors
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from)
+        })
+        .collect();
+    if messages.is_empty() {
+        None
+    } else {
+        Some(messages)
+    }
 }
 
 /// Accumulate changed-file pages bounded by GitHub's documented limit.

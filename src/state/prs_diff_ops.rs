@@ -522,7 +522,12 @@ impl AppState {
                 .iter()
                 .find(|entry| entry.blob_sha == file.blob_sha)
             else {
-                return 0;
+                // FullFile mode before the blob arrives: the content view
+                // renders a single "Loading full file…" placeholder row (see
+                // `clamp_pr_changes_selected_row`). Report the matching length
+                // so navigation keeps the selection on that row instead of
+                // clearing it (issue #376 OCR finding).
+                return 1;
             };
             crate::pr_diff_content::build_full_document(file, &entry.blob)
         } else {

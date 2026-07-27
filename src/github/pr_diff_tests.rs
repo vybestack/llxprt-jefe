@@ -59,6 +59,31 @@ fn parses_text_binary_and_truncated_blob_states() {
     );
 }
 
+#[test]
+fn parse_pr_blob_json_surfaces_graphql_errors_array() {
+    let json = r#"{"errors":[{"message":"rate limited"}]}"#;
+    let error = parse_pr_blob_json(json)
+        .err()
+        .unwrap_or_else(|| panic!("GraphQL errors must produce an error"));
+    let message = error.to_string();
+    assert!(
+        message.contains("rate limited"),
+        "blob parser must surface the GraphQL error message, got: {message}"
+    );
+}
+
+#[test]
+fn parse_pr_blob_json_graphql_errors_precedence_over_missing_data() {
+    let json = r#"{"errors":[{"message":"FORBIDDEN"}]}"#;
+    let error = parse_pr_blob_json(json)
+        .err()
+        .unwrap_or_else(|| panic!("GraphQL errors must take precedence over missing data"));
+    assert!(
+        error.to_string().contains("FORBIDDEN"),
+        "GraphQL errors must surface before the generic missing-object error, got: {error}"
+    );
+}
+
 // ── Bounded pagination accumulator contracts (issue #376 A2) ────────────────
 
 /// Build the JSON array string for one page of `count` files, each carrying an
@@ -135,7 +160,7 @@ fn clone_error(error: &GhError) -> GhError {
 #[test]
 fn full_first_page_followed_by_short_page_accumulates_in_order() {
     const PER_PAGE: u32 = 2;
-    let per_page_count = usize::try_from(PER_PAGE).unwrap_or(2);
+    let per_page_count = PER_PAGE as usize;
     let schedule = [
         ScheduledPage::Body(files_page_json(1, per_page_count)),
         // Strictly shorter second page terminates accumulation.
@@ -174,7 +199,7 @@ fn short_first_page_terminates_without_truncation() {
 #[test]
 fn thirty_full_pages_report_truncated() {
     const PER_PAGE: u32 = 2;
-    let per_page_count = usize::try_from(PER_PAGE).unwrap_or(2);
+    let per_page_count = PER_PAGE as usize;
     let mut schedule = Vec::with_capacity(30);
     for page in 1..=30u32 {
         schedule.push(ScheduledPage::Body(files_page_json(page, per_page_count)));
@@ -199,7 +224,7 @@ fn thirty_full_pages_report_truncated() {
 #[test]
 fn error_on_later_page_returns_err_without_partial_result() {
     const PER_PAGE: u32 = 2;
-    let per_page_count = usize::try_from(PER_PAGE).unwrap_or(2);
+    let per_page_count = PER_PAGE as usize;
     let schedule = [
         ScheduledPage::Body(files_page_json(1, per_page_count)),
         ScheduledPage::Error(GhError::NetworkError("page 2 unreachable".to_owned())),
@@ -215,7 +240,7 @@ fn error_on_later_page_returns_err_without_partial_result() {
 #[test]
 fn malformed_json_on_later_page_returns_parse_err_without_partial_result() {
     const PER_PAGE: u32 = 2;
-    let per_page_count = usize::try_from(PER_PAGE).unwrap_or(2);
+    let per_page_count = PER_PAGE as usize;
     let schedule = [
         ScheduledPage::Body(files_page_json(1, per_page_count)),
         ScheduledPage::Body("{not json}".to_owned()),

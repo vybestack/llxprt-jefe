@@ -231,7 +231,7 @@ fn build_one_sided_full_document(
     let patch = parse_unified_diff(file.patch.as_deref());
     let patch_available = matches!(patch, ParsedDiff::Hunks(_));
     let commentable = if patch_available {
-        patch_lines_for_side(file, side)
+        patch_lines_for_side(&patch, side)
     } else {
         BTreeSet::new()
     };
@@ -251,10 +251,10 @@ fn build_one_sided_full_document(
     DiffDocument { rows }
 }
 
-fn patch_lines_for_side(file: &PrFileChange, side: DiffAnchorSide) -> BTreeSet<u32> {
+fn patch_lines_for_side(patch: &ParsedDiff, side: DiffAnchorSide) -> BTreeSet<u32> {
     let mut lines = BTreeSet::new();
-    if let ParsedDiff::Hunks(hunks) = parse_unified_diff(file.patch.as_deref()) {
-        for line in hunks.into_iter().flat_map(|hunk| hunk.lines) {
+    if let ParsedDiff::Hunks(hunks) = patch {
+        for line in hunks.iter().flat_map(|hunk| &hunk.lines) {
             let number = match side {
                 DiffAnchorSide::Left => line.old_line,
                 DiffAnchorSide::Right => line.new_line,

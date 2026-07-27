@@ -551,8 +551,14 @@ fn pr_a_resolve_completion_does_not_mutate_pr_b_after_pr_switch() {
         })
         .committed_pure();
 
-    // The pending was cleared by the scope_repo_id check, but PR #2's thread
-    // T1 at index 0 must NOT be resolved because pr_number doesn't match.
+    // The scope_repo_id matches (same repo), so the completion proceeds past
+    // that guard. The pr_number guard (issue #376) then rejects the write-back
+    // to PR #2's thread. The pending slot must also be cleared so it does not
+    // leak stale data after the dropped completion.
+    assert!(
+        state.prs_state.thread_resolve_pending.is_none(),
+        "pending must be cleared when completion arrives for a stale PR number"
+    );
     let resolved = state
         .prs_state
         .pr_detail
@@ -563,5 +569,43 @@ fn pr_a_resolve_completion_does_not_mutate_pr_b_after_pr_switch() {
     assert!(
         !resolved,
         "PR #1 resolve completion must not mutate PR #2's thread"
+    );
+}
+
+/// A failed resolve completion arriving after a PR switch must also clear the
+/// pending slot (issue #376 OCR finding). Without this, the pending stays
+/// occupied indefinitely and the user never sees feedback.
+#[test]
+fn pr_a_resolve_failure_clears_pending_after_pr_switch() {
+    let mut state = state_with_two_threads();
+    state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 0 })
+        .committed_pure();
+    let request_id = state
+        .prs_state
+        .thread_resolve_pending
+        .as_ref()
+        .unwrap_or_else(|| panic!("pending"))
+        .request_id;
+
+    // User navigates to PR #2 before the mutation completes.
+    let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+        panic!("detail must exist");
+    };
+    detail.number = 2;
+
+    // Resolve failure for PR #1 arrives.
+    state = state
+        .apply(AppEvent::PrThreadResolveFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            request_id,
+            error: "network error".to_string(),
+        })
+        .committed_pure();
+
+    assert!(
+        state.prs_state.thread_resolve_pending.is_none(),
+        "pending must be cleared when failure arrives for a stale PR number"
     );
 }

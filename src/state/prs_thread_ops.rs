@@ -171,6 +171,11 @@ impl AppState {
             return;
         }
         if !self.pr_thread_resolve_pr_matches(pending.pr_number) {
+            // Stale completion: the user navigated to a different PR before the
+            // mutation completed. Drop the pending slot so it cannot leak and
+            // block future resolve actions (issue #376). No write-back or error
+            // is surfaced — the target PR is no longer loaded.
+            self.prs_state.thread_resolve_pending = None;
             return;
         }
         let thread_id = pending.thread_id.clone();
@@ -207,6 +212,11 @@ impl AppState {
             return;
         }
         if !self.pr_thread_resolve_pr_matches(pending.pr_number) {
+            // Stale failure: the user navigated to a different PR before the
+            // mutation failed. Drop the pending slot so it cannot leak and
+            // block future resolve actions (issue #376). No error is surfaced
+            // — the target PR is no longer loaded.
+            self.prs_state.thread_resolve_pending = None;
             return;
         }
         self.prs_state.thread_resolve_pending = None;

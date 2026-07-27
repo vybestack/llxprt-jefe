@@ -63,7 +63,10 @@ fn changes_keys_drill_down_navigation_and_back() {
 
 #[test]
 fn changes_file_list_consumes_focus_keys_without_a_selection() {
-    let state = state_with_focus(PrFocus::PrChanges);
+    let mut state = state_with_focus(PrFocus::PrChanges);
+    // Explicitly assert FileList focus so the test does not silently test the
+    // wrong state if the enum's default changes (issue #376 OCR finding).
+    state.prs_state.changes.focus = PrChangesFocus::FileList;
     assert!(resolve_prs_key_event(&state, &key(KeyCode::Enter)).is_none());
     assert!(resolve_prs_key_event(&state, &key(KeyCode::Tab)).is_none());
     assert!(resolve_prs_key_event(&state, &key(KeyCode::BackTab)).is_none());

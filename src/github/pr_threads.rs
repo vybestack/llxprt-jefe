@@ -212,7 +212,8 @@ impl GhClient {
         ]
     }
 
-    /// Create one single-line pull-request review comment on an exact diff side.
+    /// Create one pull-request review comment on an exact diff side. The body
+    /// may span multiple lines.
     pub fn create_pr_review_comment(
         &self,
         owner: &str,

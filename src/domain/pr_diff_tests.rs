@@ -50,6 +50,19 @@ fn distinguishes_unavailable_empty_and_malformed_patches() {
 }
 
 #[test]
+fn malformed_before_hunk_header_includes_the_offending_row() {
+    let row = "+line before a hunk";
+    let result = parse_unified_diff(Some(row));
+    let ParsedDiff::Malformed(message) = result else {
+        panic!("expected Malformed, got {result:?}");
+    };
+    assert!(
+        message.contains(row),
+        "malformed message must include the offending row, got: {message}"
+    );
+}
+
+#[test]
 fn rejects_unrecognized_patch_row_prefixes() {
     assert!(matches!(
         parse_unified_diff(Some("@@ -1 +1 @@\n?unexpected")),
