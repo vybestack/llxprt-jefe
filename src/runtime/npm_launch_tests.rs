@@ -7,18 +7,11 @@ use crate::domain::{LlxprtNpmPackageSelector, SandboxEngine};
 /// verbatim prefix stripped (issue #432). Mirrors the production
 /// `strip_verbatim_prefix` helper so argv assertions track the real argv
 /// instead of the raw canonicalize output.
+#[cfg(windows)]
 fn canonicalize_for_arg(path: &Path) -> PathBuf {
     let canonical = std::fs::canonicalize(path)
         .unwrap_or_else(|error| panic!("canonicalize {}: {error}", path.display()));
-    #[cfg(windows)]
-    {
-        super::super::agent_executable::strip_verbatim_prefix(&canonical)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = &canonical;
-        canonical
-    }
+    super::super::agent_executable::strip_verbatim_prefix(&canonical)
 }
 
 fn signature(selector: Option<&str>) -> LaunchSignature {

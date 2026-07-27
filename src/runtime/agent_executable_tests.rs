@@ -21,18 +21,11 @@ fn write_candidate(directory: &TempDir, name: &str) -> PathBuf {
 /// stores it: canonicalized, then on Windows with the `\\?\` verbatim prefix
 /// stripped (issue #432). Centralizing this keeps the test assertions aligned
 /// with the production helper instead of re-implementing the strip.
+#[cfg(windows)]
 fn expected_canonical(path: PathBuf) -> PathBuf {
     let canonical = std::fs::canonicalize(&path)
         .unwrap_or_else(|error| panic!("canonicalize {}: {error}", path.display()));
-    #[cfg(windows)]
-    {
-        super::agent_executable::strip_verbatim_prefix(&canonical)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = &canonical;
-        canonical
-    }
+    super::agent_executable::strip_verbatim_prefix(&canonical)
 }
 
 #[test]
