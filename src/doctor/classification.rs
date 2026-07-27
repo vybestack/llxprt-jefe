@@ -128,6 +128,14 @@ mod tests {
     }
 
     #[test]
+    fn required_blocker_failure_blocks() {
+        // A single failed required startup check must dominate the outcome so
+        // `is_required_blocker()` or the outcome mapping cannot regress silently.
+        let findings = [finding(FindingKind::Multiplexer, DiagnosticStatus::Fail)];
+        assert_eq!(classify_doctor(&findings), DoctorOutcome::BlockingFailure);
+    }
+
+    #[test]
     fn command_error_dominates_blocking_failure() {
         let findings = [
             finding(FindingKind::Multiplexer, DiagnosticStatus::Fail),

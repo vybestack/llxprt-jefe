@@ -54,8 +54,8 @@ pub fn probe_persistence(dir: &Path) -> Result<PersistenceProbeOutcome, std::io:
     match write_transient_probe(dir) {
         Ok(()) => Ok(PersistenceProbeOutcome::Writable),
         Err(error) => {
-            // A transient probe that could not be removed is still a writability
-            // signal; best-effort cleanup is attempted inside write_transient_probe.
+            // Any error from the transient probe (including cleanup failure) is
+            // treated as NotWritable to avoid false-positive writability claims.
             let _ = error;
             Ok(PersistenceProbeOutcome::NotWritable)
         }

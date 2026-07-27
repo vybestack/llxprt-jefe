@@ -93,6 +93,10 @@ fn redacts_url_userinfo() {
     let raw = "https://alice@github.com/acme/widgets.git";
     let redacted = assert_redacted(raw, "alice@");
     assert!(
+        redacted.contains("[redacted]@github.com"),
+        "the redacted userinfo marker and host must survive: {redacted:?}"
+    );
+    assert!(
         redacted.contains("github.com"),
         "the host must survive redaction so the origin stays actionable: {redacted:?}"
     );
@@ -116,6 +120,10 @@ fn redacts_url_embedded_password() {
 fn redacts_ssh_url_userinfo() {
     let raw = "git@github.com:acme/widgets.git";
     let redacted = assert_redacted(raw, "git@");
+    assert!(
+        redacted.contains("[redacted]@github.com"),
+        "the redacted SSH userinfo marker must survive: {redacted:?}"
+    );
     assert!(
         redacted.contains("github.com"),
         "the host must survive SSH userinfo redaction: {redacted:?}"
@@ -306,6 +314,10 @@ fn redacts_multiple_url_userinfo_occurrences() {
         !redacted.contains("bob@"),
         "second URL userinfo leaked: {redacted:?}"
     );
+    assert!(
+        redacted.matches("[redacted]@").count() >= 2,
+        "each redacted URL must carry a structured marker: {redacted:?}"
+    );
     assert!(redacted.contains("github.com/a"));
     assert!(redacted.contains("example.com/b"));
 }
@@ -321,6 +333,10 @@ fn redacts_multiple_ssh_userinfo_occurrences() {
     assert!(
         !redacted.contains("deploy@"),
         "second SSH userinfo leaked: {redacted:?}"
+    );
+    assert!(
+        redacted.matches("[redacted]@").count() >= 2,
+        "each redacted SSH reference must carry a structured marker: {redacted:?}"
     );
     assert!(redacted.contains("github.com:a/b.git"));
     assert!(redacted.contains("example.com:c/d.git"));

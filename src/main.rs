@@ -123,6 +123,9 @@ fn run_doctor_and_exit(config_dir: Option<&std::path::Path>) {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let _ = writeln!(handle, "{rendered}");
+    // `std::process::exit` runs no destructors, so flush the locked handle
+    // explicitly to guarantee the report reaches piped/non-TTY consumers.
+    let _ = handle.flush();
     std::process::exit(i32::from(outcome.exit_code().as_u8()));
 }
 

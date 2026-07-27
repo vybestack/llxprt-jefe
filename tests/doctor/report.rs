@@ -138,6 +138,75 @@ Long-path support
     }
 }
 
+#[test]
+fn report_renders_sections_in_canonical_order_regardless_of_input() {
+    // Findings supplied out of canonical order must still render under their
+    // canonical section header sequence so a shuffled collector cannot reorder
+    // the report. Git and Multiplexer are deliberately reversed relative to the
+    // canonical header order.
+    let findings = [
+        pass_finding(FindingKind::Git, "fixture-git"),
+        pass_finding(FindingKind::Multiplexer, "fixture-mux"),
+    ];
+    let rendered = render_report(&sample_report(&findings));
+    let mux_pos = rendered.find("Multiplexer");
+    let git_pos = rendered.find(
+        "
+Git
+",
+    );
+    let (Some(mux_pos), Some(git_pos)) = (mux_pos, git_pos) else {
+        panic!("both canonical headers must be present: {rendered:?}");
+    };
+    assert!(
+        mux_pos < git_pos,
+        "Multiplexer section must precede Git regardless of input order: {rendered:?}"
+    );
+}
+
+#[test]
+fn report_groups_multiple_findings_of_one_kind_under_one_header() {
+    // Two findings of the same kind must both render under a single section
+    // header so the renderer neither drops duplicates nor emits a header per
+    // finding.
+    let findings = [
+        pass_finding(FindingKind::Git, "fixture-git-a"),
+        pass_finding(FindingKind::Git, "fixture-git-b"),
+    ];
+    let rendered = render_report(&sample_report(&findings));
+    assert_eq!(
+        rendered
+            .matches(
+                "
+Git
+"
+            )
+            .count(),
+        1,
+        "a single Git header must render for multiple Git findings: {rendered:?}"
+    );
+    assert!(
+        rendered.contains("fixture-git-a") && rendered.contains("fixture-git-b"),
+        "both Git findings must render: {rendered:?}"
+    );
+}
+
+#[test]
+fn minimal_report_is_renderable_with_unknown_identity() {
+    // The last-resort fallback constructor must produce a valid report whose
+    // identity is explicitly unknown and whose body renders without findings.
+    let report = DoctorReport::minimal(sample_platform(), sample_arch());
+    let rendered = render_report(&report);
+    assert!(
+        rendered.contains("unknown"),
+        "minimal report must surface unknown version/commit: {rendered:?}"
+    );
+    assert!(
+        !rendered.contains("fixture"),
+        "minimal report must not carry stray findings: {rendered:?}"
+    );
+}
+
 // ── Redaction is applied before rendering (AC-09 wiring) ───────────────────
 
 #[test]
