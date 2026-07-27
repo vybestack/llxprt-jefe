@@ -115,7 +115,7 @@ session printed by the scenario file or CLI defaults.
 
 ### Native Windows with psmux
 
-Install psmux 3.3.6 or newer, then run the same scenario JSON from PowerShell:
+Install psmux 3.3.7 or newer, then run the same scenario JSON from PowerShell:
 
 ```powershell
 cargo build --workspace --all-features --locked

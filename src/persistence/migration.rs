@@ -4,7 +4,7 @@
 //! and is returned semantically unchanged. This reader performs no writes.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
@@ -220,6 +220,30 @@ fn migrate_repositories(
     Ok(repositories)
 }
 
+fn expand_legacy_home(path: &Path) -> Option<PathBuf> {
+    let text = path.to_str()?;
+    let windows_suffix = cfg!(windows).then(|| text.strip_prefix(r"~\")).flatten();
+    let suffix = if text == "~" {
+        ""
+    } else {
+        text.strip_prefix("~/").or(windows_suffix)?
+    };
+    // Do not reinterpret an MSYS-style HOME as a native Windows path.
+    let mut home = host_home()?;
+    if cfg!(windows) && home.to_string_lossy().starts_with('/') {
+        return None;
+    }
+    home.push(suffix);
+    Some(home)
+}
+
+fn host_home() -> Option<PathBuf> {
+    cfg!(windows)
+        .then(|| std::env::var_os("USERPROFILE").map(Into::into))
+        .flatten()
+        .or_else(|| std::env::var_os("HOME").map(Into::into))
+}
+
 fn repository_identity(source: &Schema1Repository) -> Result<String, Vec<Diagnostic>> {
     let base_dir = path_text(&source.base_dir)?;
     if source.remote.enabled {
@@ -236,7 +260,9 @@ fn repository_identity(source: &Schema1Repository) -> Result<String, Vec<Diagnos
             base_dir,
         ));
     }
-    let identity = physical_identity(&source.base_dir).map_err(|error| vec![*error.diagnostic])?;
+    let expanded = expand_legacy_home(&source.base_dir);
+    let effective = expanded.as_deref().unwrap_or(&source.base_dir);
+    let identity = physical_identity(effective).map_err(|error| vec![*error.diagnostic])?;
     path_text(identity.canonical_path()).map(str::to_owned)
 }
 
@@ -290,7 +316,7 @@ fn migrate_agents(
     let mut agents = Vec::with_capacity(sources.len());
     for source in sources {
         let repository = resolve_repository(&source.repository_id, repositories)?;
-        let work_target = agent_work_target(&source, repository)?;
+        let (work_target, home_expanded) = agent_work_target(&source, repository)?;
         let source_identity = agent_source_identity(&source, &work_target);
         let key = (repository.record.id.to_string(), source_identity.clone());
         let ordinal = collisions.entry(key).or_default();
@@ -319,7 +345,8 @@ fn migrate_agents(
             .map_err(malformed_vec)?
         };
         *ordinal += 1;
-        let record = migrate_agent_record(&source, repository, &work_target, id.clone())?;
+        let record =
+            migrate_agent_record(&source, repository, &work_target, home_expanded, id.clone())?;
         record_unknowns("schema1.agent", Some(&id), source.unknown, dormant)?;
         agents.push(MigratedAgent {
             source_id: source.id,
@@ -334,10 +361,12 @@ fn migrate_agent_record(
     source: &Schema1Agent,
     repository: &MigratedRepository,
     work_target: &str,
+    home_expanded: bool,
     id: Id,
 ) -> Result<AgentRecord, Vec<Diagnostic>> {
     let type_id = type_id(source.agent_kind.as_deref()).map_err(malformed_vec)?;
-    let values = agent_values(source).map_err(malformed_vec)?;
+    let values =
+        agent_values(source, home_expanded.then_some(work_target)).map_err(malformed_vec)?;
     let definition_hash =
         digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(malformed_vec)?;
     let typed_value_hash = typed_map_hash(&values).map_err(malformed_vec)?;
@@ -387,13 +416,17 @@ fn last_known_runtime(status: Option<&Value>) -> LastKnownRuntime {
     }
 }
 
-fn agent_values(source: &Schema1Agent) -> Result<TypedMap, String> {
+fn agent_values(
+    source: &Schema1Agent,
+    work_dir_override: Option<&str>,
+) -> Result<TypedMap, String> {
+    let work_dir = work_dir_override.map_or(source.work_dir.as_path(), Path::new);
     json_map_to_typed(json!({
         "display_id": source.display_id,
         "shortcut_slot": source.shortcut_slot,
         "name": source.name,
         "description": source.description,
-        "work_dir": source.work_dir,
+        "work_dir": work_dir,
         "profile": source.profile,
         "code_puppy_model": source.code_puppy_model,
         "code_puppy_version": source.code_puppy_version,
@@ -413,15 +446,16 @@ fn agent_values(source: &Schema1Agent) -> Result<TypedMap, String> {
 fn agent_work_target(
     source: &Schema1Agent,
     repository: &MigratedRepository,
-) -> Result<String, Vec<Diagnostic>> {
+) -> Result<(String, bool), Vec<Diagnostic>> {
     let path = path_text(&source.work_dir)?;
     if repository.remote {
-        Ok(normalize_remote_path(path))
-    } else {
-        let identity =
-            physical_identity(&source.work_dir).map_err(|error| vec![*error.diagnostic])?;
-        path_text(identity.canonical_path()).map(str::to_owned)
+        return Ok((normalize_remote_path(path), false));
     }
+    let expanded = expand_legacy_home(&source.work_dir);
+    let effective = expanded.as_deref().unwrap_or(&source.work_dir);
+    let identity = physical_identity(effective).map_err(|error| vec![*error.diagnostic])?;
+    let target = path_text(identity.canonical_path()).map(str::to_owned)?;
+    Ok((target, expanded.is_some()))
 }
 
 fn agent_source_identity(source: &Schema1Agent, work_target: &str) -> String {

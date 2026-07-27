@@ -6,7 +6,9 @@ MSYS2, Git Bash, Docker, or a Unix shell.
 
 ## Supported version
 
-The minimum qualified version is **psmux 3.3.6**. Install it with:
+The minimum qualified version is **psmux 3.3.7**. Version 3.3.6 can leak
+processes and hang one-shot `new-session` commands; 3.3.7 contains the upstream
+process-teardown and command-reliability fixes. Install it with:
 
 ```powershell
 winget install marlocarlo.psmux
@@ -29,9 +31,9 @@ the suite never contacts the default server and never invokes bare
 
 ## Compatibility matrix
 
-| Jefe contract | Command exercised | Qualified 3.3.6 behavior |
+| Jefe contract | Command exercised | Qualified 3.3.7 behavior |
 | --- | --- | --- |
-| Version policy | `psmux -V` | Emits `tmux 3.3.6`; parsed and minimum-enforced |
+| Version policy | `psmux -V` | Emits `tmux 3.3.7`; parsed and minimum-enforced |
 | Isolated server | `psmux -L <name> ...` | Namespaces cannot see or terminate each other's sessions |
 | Session creation and geometry | `new-session -d -s <session> -x 100 -y 32 -c <dir> <fixture>` | Starts a native process in the explicit Unicode/space-containing directory |
 | Session liveness | `has-session -t <session>` | Success while the owned session exists |
@@ -41,10 +43,10 @@ the suite never contacts the default server and never invokes bare
 | Prefix passthrough | `set-option -t <session> prefix None` and `prefix2 None` | Accepts the options used for transparent control-key forwarding |
 | Dead-pane retention | `set-option -t <session> remain-on-exit on` | Retains exited panes and reports `pane_dead=1` |
 | Clipboard passthrough | `set-option -g set-clipboard on`; global/pane `allow-passthrough on` | Accepts Jefe's clipboard and escape-passthrough options |
-| Harness history | `set-option -wt <session> history-limit 2000`; `#{history_size}` | Accepts the configured capacity; detached 3.3.6 reports `history_size=0` while bounded `capture-pane -S` still returns pane output |
-| Literal and named input | `send-keys -l ...`; `send-keys ... Enter Escape Tab Up Down C-c C-d` | Delivers literal UTF-8, Enter, Tab, Ctrl-C, and Ctrl-D; accepts Escape/arrows but detached 3.3.6 does not forward those keys to the raw fixture |
+| Harness history | `set-option -wt <session> history-limit 2000`; `#{history_size}` | Accepts the configured capacity; detached 3.3.7 reports `history_size=0` while bounded `capture-pane -S` still returns pane output |
+| Literal and named input | `send-keys -l ...`; `send-keys ... Enter Escape Tab Up Down C-c C-d` | Delivers literal UTF-8, Enter, Tab, Ctrl-C, and Ctrl-D; accepts Escape/arrows but detached 3.3.7 does not forward those keys to the raw fixture |
 | Screen/history capture | `capture-pane -p -S <start> -E - -t <session>` | Returns visible output and bounded scrollback |
-| Resize request | `resize-window -t <session> -x 90 -y 28` | Command succeeds; detached 3.3.6 retains its initial `100x32` geometry until an attached client supplies size |
+| Resize request | `resize-window -t <session> -x 90 -y 28` | Command succeeds; detached 3.3.7 retains its initial `100x32` geometry until an attached client supplies size |
 | Session cleanup | `kill-session -t <session>` | Terminates only the selected session |
 | Namespace cleanup | `psmux -L <name> kill-server` | Terminates only the explicitly named namespace |
 | Mouse-mode advertisement observation (#296) | `AttachedViewer::spawn_with_plan` over a fixture emitting `\x1b[?1000h ?1002h ?1006h` | Jefe's embedded terminal model observes the advertised DEC private mouse modes and reports `mouse_reporting_active() == true` after attach |
@@ -52,7 +54,7 @@ the suite never contacts the default server and never invokes bare
 | SGR mouse byte delivery (#296) | `AttachedViewer::write_input(b"\x1b[<0;1;1M")` | The SGR mouse sequence reaches the child intact |
 
 The detached resize result is recorded rather than overstated: the command is
-accepted, but psmux 3.3.6 continues to report the creation geometry without an
+accepted, but psmux 3.3.7 continues to report the creation geometry without an
 attached client. Interactive resize through ConPTY belongs to the attachment
 qualification work.
 

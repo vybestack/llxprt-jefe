@@ -30,7 +30,7 @@ fn tmux_harness_guide_documents_native_windows_psmux_contract() {
     let guide = read_repo_text("dev-docs/testing/tmux-harness.md");
     for required in [
         "Native Windows with psmux",
-        "psmux 3.3.6",
+        "psmux 3.3.7",
         "JEFE_PSMUX_BIN",
         "unique `psmux -L <namespace>`",
         "multiplexer.txt",
@@ -54,7 +54,7 @@ fn native_windows_ci_gates_psmux_and_startup_scenario() {
         "cargo test --features psmux-smoke --test psmux_smoke -- --nocapture",
         "dev-docs/tmux-scenarios/startup-quit.json",
         "JEFE_REQUIRE_PSMUX: \"1\"",
-        "PSMUX_VERSION: \"3.3.6\"",
+        "PSMUX_VERSION: \"3.3.7\"",
         "timeout-minutes:",
         "target/psmux-smoke",
         "target/tmux-harness",
@@ -68,8 +68,13 @@ fn native_windows_ci_gates_psmux_and_startup_scenario() {
         workflow.contains("psmux-v$env:PSMUX_VERSION-windows-x64.zip")
             && workflow.contains("releases/download/v$env:PSMUX_VERSION/$archiveName")
             && workflow
-                .contains("a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947"),
+                .contains("60ff7b236f64184921cef3c1ff2611aa5a36fcc7ed8e2a58e968b8ded57f6028"),
         "native Windows CI must pin and checksum the qualified psmux release"
+    );
+    assert!(
+        workflow.contains("Where-Object { $_ -eq \"tmux $env:PSMUX_VERSION\" }")
+            && workflow.contains("if ($null -eq $versionLine)"),
+        "native Windows CI must accept psmux metadata after the qualified tmux version line"
     );
 }
 
