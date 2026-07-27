@@ -231,7 +231,11 @@ fn join_reader(
 ) -> Result<Vec<u8>, BoundedRunError> {
     reader
         .join()
-        .map_err(|_| BoundedRunError::Io(std::io::Error::other("output reader terminated unexpectedly")))?
+        .map_err(|_| {
+            BoundedRunError::Io(std::io::Error::other(
+                "output reader terminated unexpectedly",
+            ))
+        })?
         .map_err(BoundedRunError::Io)
 }
 
@@ -492,10 +496,8 @@ mod tests {
     fn run_bounded_returns_output_for_a_fast_exiting_command() {
         let mut command = std::process::Command::new("sh");
         command.args(["-c", "printf hello; exit 0"]);
-        let output =
-            run_bounded(command, std::time::Duration::from_secs(2)).unwrap_or_else(|error| {
-                panic!("run_bounded fast-path failed: {error}")
-            });
+        let output = run_bounded(command, std::time::Duration::from_secs(2))
+            .unwrap_or_else(|error| panic!("run_bounded fast-path failed: {error}"));
         assert!(output.status.success());
         assert_eq!(output.stdout, b"hello");
     }
