@@ -87,7 +87,7 @@
 | Existing `services::expand_tilde` cannot be imported by persistence without reversing the architecture DAG | In-scope—Fix | Keep a bounded private legacy-migration helper rather than introducing cross-layer coupling or a new shared public abstraction |
 | Remote `~/...` must not use the local home | Blocker—Fix | Preserve by branching on repository locality and prove A3 |
 
-Current scope: 16 files, 520 added / 93 deleted lines including this plan; no scope-budget review trigger. `src/persistence/migration.rs` is 751 lines, above the warning threshold but below the enforced 1,000-line hard limit.
+Current scope: 16 files, 505 added / 78 deleted lines including this plan; no scope-budget review trigger. `src/persistence/migration.rs` is 751 lines, above the warning threshold but below the enforced 1,000-line hard limit.
 
 ## Review counters
 
