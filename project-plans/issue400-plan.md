@@ -76,14 +76,21 @@ the render-path liveness poll indefinitely).
 
 | Item | Status |
 |---|---|
-| `src/local_command.rs` — Kill/Ps + `run_bounded` | Slice 1 |
+| `src/local_command.rs` — Kill/Ps + `run_bounded` + trusted-path policy | Slices 1, 3, 4 |
 | `src/runtime/process.rs` — resolve + bound probes | Slice 2 |
 | `src/runtime/process_tests.rs` — updated structural + new boundary tests | Slice 2 |
 
-Changed files: 3 (target well under 25). Estimated net lines: ~250 (well under
-1500).
+Changed files: 4 (incl. plan). Net lines: +538 / -20 (well under 25-file and
+1,500-line budgets).
 
 ## Review counters
 
-- OCR local (pre-PR): 0 / 2
+- OCR local (pre-PR): 2 / 2 used
+  - Run #1: 3 findings — 1 Blocker-Fix (trusted-path, fixed in Slice 3),
+    2 Defer (macOS `.ok()?` observability — pre-existing pattern; shared
+    `PROBE_TIMEOUT` — non-critical).
+  - Run #2: 4 findings — 2 In-scope-Fix (Unix-only trust gate, `Stdio::null`
+    stdin — fixed in Slice 4), 1 Defer (macOS `.ok()?` observability — same
+    as run #1), 1 Reject (process-group kill — speculative for leaf probe
+    tools, out of scope).
 - OCR post-PR: 0 / 2
