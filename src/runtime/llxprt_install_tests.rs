@@ -317,3 +317,274 @@ fn ensure_installed_does_not_overwrite_existing_install_on_repeat_call() {
     assert_eq!(expect_ok(first, "first hit"), bin_dir);
     assert_eq!(expect_ok(second, "second hit"), bin_dir);
 }
+
+// ── Issue #432 AC9: install diagnostics name the phase, exit code, and timeout ─
+//
+// The install path must distinguish a nonzero npm exit from a timeout so the
+// user can tell whether resolution/install ran and failed vs. never completed.
+// `run_npm_install` already labels nonzero exits as
+// `npm install exited with status <code>` and surfaces bounded npm stderr, and
+// a timeout surfaces as `jefe llxprt install: timed out after Ns` (the capture
+// context). These tests lock that contract so a future change cannot collapse
+// the phases into a generic error.
+
+#[cfg(unix)]
+#[test]
+fn install_failed_diagnostic_names_nonzero_exit_status_and_phase() {
+    // Stage a stub `npm` that exits 42 with a stderr line, then drive
+    // ensure_installed_under and assert the diagnostic identifies the install
+    // phase, the exit code, and the (bounded) npm stderr.
+    let (cache, _cache_guard) = test_cache_root();
+    let staging = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    let npm_path = staging.path().join("npm");
+    let script = "#!/bin/sh\necho 'E404 no such package' >&2\nexit 42\n";
+    fs::write(&npm_path, script).unwrap_or_else(|error| panic!("write npm stub: {error}"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&npm_path, fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod npm stub: {error}"));
+    }
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Unix,
+        vec![staging.path().to_path_buf()],
+        None,
+    );
+    let sel = selector("0.9.0");
+    let result = ensure_installed_under(&cache, &sel, &resolver, Duration::from_secs(30));
+    let Err(LlxprtInstallError::InstallFailed {
+        selector: sel_name,
+        diagnostic,
+    }) = result
+    else {
+        panic!("expected InstallFailed, got {result:?}");
+    };
+    assert_eq!(sel_name, sel.as_str());
+    assert!(
+        diagnostic.contains("npm install exited with status 42"),
+        "diagnostic must name the install phase + exit code: {diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("E404 no such package"),
+        "diagnostic must include bounded npm stderr: {diagnostic}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn install_failed_diagnostic_names_timeout_phase_distinctly() {
+    // Stage a stub `npm` that sleeps past the timeout, then assert the
+    // diagnostic identifies the install phase as a timeout (not a generic
+    // capture error and not a nonzero exit).
+    let (cache, _cache_guard) = test_cache_root();
+    let staging = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    let npm_path = staging.path().join("npm");
+    let script = "#!/bin/sh\nsleep 30\nexit 0\n";
+    fs::write(&npm_path, script).unwrap_or_else(|error| panic!("write npm stub: {error}"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&npm_path, fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod npm stub: {error}"));
+    }
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Unix,
+        vec![staging.path().to_path_buf()],
+        None,
+    );
+    let sel = selector("0.9.0");
+    // Sub-second timeout so the test stays fast; the stub sleeps for 30s.
+    let result = ensure_installed_under(&cache, &sel, &resolver, Duration::from_millis(500));
+    let Err(LlxprtInstallError::InstallFailed { diagnostic, .. }) = result else {
+        panic!("expected InstallFailed on timeout, got {result:?}");
+    };
+    assert!(
+        diagnostic.contains("jefe llxprt install"),
+        "timeout diagnostic must name the install phase: {diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("timed out"),
+        "timeout diagnostic must say 'timed out': {diagnostic}"
+    );
+    assert!(
+        !diagnostic.contains("exited with status"),
+        "timeout must not be reported as a nonzero exit: {diagnostic}"
+    );
+}
+
+// ── Issue #432: Windows canonical-layout install behavioral coverage ───────
+//
+// #425's managed-install fix landed in #431 about 11 hours after #432 was
+// filed and resolves the original "Version=latest reports unavailable" failure
+// on the reporting Windows machine (verified by running exactly what
+// `ensure_installed` constructs — `node.exe npm-cli.js install` from a neutral
+// jefe-owned dir against a hand-written package.json pinning `latest`).
+//
+// What #431 did NOT add is the Windows-specific behavioral evidence called out
+// by #432 AC4/AC5: the install happy-path test was `#[cfg(unix)]`-only, with
+// an explicit note that "on Windows, npm resolution requires the canonical
+// node.exe + npm-cli.js layout, which a test stub cannot provide." The tests
+// below close that gap by staging the canonical layout (a hardlinked real
+// `node.exe` plus a JavaScript `npm-cli.js` stub that the real node runs) and
+// driving the real `ensure_installed_under` subprocess, so the Jefe-specific
+// execution context — the structured `node.exe <npm-cli.js> install` argv, the
+// jefe-owned install cwd, and the bounded install phase — is exercised
+// end-to-end rather than only asserted as constructed argv.
+//
+// The hardlink keeps the test self-contained (no ~100 MB copy) and the
+// `JEFE_REQUIRE_NODE_INSTALL` gate mirrors the existing `JEFE_REQUIRE_PSMUX`
+// convention: the test skips when system node is unavailable on the runner,
+// but is required (panics) when CI sets the env var.
+
+#[cfg(windows)]
+mod windows_canonical_install {
+    use super::*;
+    use crate::domain::AgentKind;
+    use crate::runtime::agent_executable::AgentExecutableTarget;
+    use std::ffi::OsString;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// Locate the real system `node.exe` by scanning PATH, mirroring how an
+    /// end user's environment provides it. Returns `None` when node is not on
+    /// PATH so the test can skip on runners without Node (unless explicitly
+    /// required via `JEFE_REQUIRE_NODE_INSTALL=1`).
+    fn locate_system_node() -> Option<PathBuf> {
+        let path = std::env::var_os("PATH")?;
+        for directory in std::env::split_paths(&path) {
+            let candidate = directory.join("node.exe");
+            if candidate.is_file()
+                && Command::new(&candidate)
+                    .arg("--version")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    /// Stage the canonical Windows npm layout in `staging`:
+    /// - `node.exe` — a hardlink to the real system node so the resolver's
+    ///   `canonicalize(<dir>/node.exe)` succeeds AND the binary actually runs.
+    /// - `npm.cmd` — a minimal wrapper file so `AgentExecutableResolver`
+    ///   selects this directory and computes the script launch plan.
+    /// - `node_modules/npm/bin/npm-cli.js` — a JavaScript stub run by the real
+    ///   node that performs the install side effect (create `node_modules/.bin`
+    ///   and write `llxprt.cmd`), mirroring what a real `npm install` leaves
+    ///   behind for a package that ships a `llxprt` bin entry.
+    ///
+    /// Returns `Some(resolver)` scoped to the staging dir, or `None` when node
+    /// is unavailable and not required (skip), or panics when required but
+    /// unavailable.
+    fn stage_canonical_npm(staging: &Path) -> Option<AgentExecutableResolver> {
+        let node = locate_system_node()?;
+        let staged_node = staging.join("node.exe");
+        // A hardlink avoids a multi-MB copy and works whenever staging lives
+        // on the same volume as the system node (the common case for both
+        // local dev and Windows CI). If it fails, fall through to the skip
+        // path unless the test is explicitly required.
+        if std::fs::hard_link(&node, &staged_node).is_err() {
+            return require_node_install_or_skip();
+        }
+        // The resolver only inspects npm.cmd's existence + the canonical
+        // node/npm-cli.js neighbors; it does not execute npm.cmd.
+        std::fs::write(staging.join("npm.cmd"), "@echo off\r\nrem stub\r\n")
+            .unwrap_or_else(|error| panic!("write npm.cmd stub: {error}"));
+        let cli_dir = staging.join("node_modules").join("npm").join("bin");
+        std::fs::create_dir_all(&cli_dir).unwrap_or_else(|error| panic!("mkdir cli: {error}"));
+        // The stub runs with cwd = jefe install dir (set by run_npm_install)
+        // and argv = ["install"]. It creates node_modules/.bin/llxprt.cmd in
+        // the cwd so the cache-hit check recognizes the install, exactly as a
+        // real npm install of @vybestack/llxprt-code would.
+        let stub = concat!(
+            "const fs=require('fs');const path=require('path');",
+            "const binDir=path.join(process.cwd(),'node_modules','.bin');",
+            "fs.mkdirSync(binDir,{recursive:true});",
+            "fs.writeFileSync(path.join(binDir,'llxprt.cmd'),'@echo off\\r\\n');",
+            "process.exit(0);"
+        );
+        std::fs::write(cli_dir.join("npm-cli.js"), stub)
+            .unwrap_or_else(|error| panic!("write npm-cli.js stub: {error}"));
+        let resolver = AgentExecutableResolver::for_platform(
+            AgentExecutablePlatform::Windows,
+            vec![staging.to_path_buf()],
+            Some(OsString::from(".CMD")),
+        );
+        Some(resolver)
+    }
+
+    fn require_node_install_or_skip<T>() -> Option<T> {
+        assert!(
+            std::env::var_os("JEFE_REQUIRE_NODE_INSTALL").is_none(),
+            "JEFE_REQUIRE_NODE_INSTALL is set but the canonical Windows npm layout could not \
+             be staged (system node.exe unavailable or cross-volume hardlink failed)"
+        );
+        None
+    }
+
+    fn assert_canonical_layout_then_run(sel_value: &str) {
+        let staging = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+        let Some(resolver) = stage_canonical_npm(staging.path()) else {
+            return;
+        };
+        let (cache, _cache_guard) = test_cache_root();
+        let sel = selector(sel_value);
+        let expected_bin_dir = bin_dir_in(&cache, &sel);
+        // Sanity: the resolver recognizes the canonical layout as npm before
+        // we rely on it for the install subprocess. This pins #258's
+        // structured-argument contract (no cmd.exe mediation) at the point the
+        // install path consumes it.
+        let npm_executable = resolver
+            .resolve_target(AgentExecutableTarget::Npm)
+            .unwrap_or_else(|error| panic!("resolve canonical npm layout: {error}"));
+        assert!(
+            npm_executable.script_launch_plan().is_some(),
+            "canonical Windows npm layout must resolve to a node.exe + npm-cli.js script plan"
+        );
+
+        let result = ensure_installed_under(&cache, &sel, &resolver, Duration::from_secs(60));
+        let returned_bin_dir =
+            expect_ok(result, "ensure_installed_under should succeed on Windows");
+        assert_eq!(returned_bin_dir, expected_bin_dir);
+
+        // AC5/AC6: the install actually ran from the jefe-owned install cwd
+        // (no repo worktree node_modules/.npmrc dependency) and produced the
+        // cached llxprt bin plus the selector-matching marker.
+        let llxprt_cmd = expected_bin_dir.join(format!(
+            "{}.cmd",
+            AgentExecutableTarget::Agent(AgentKind::Llxprt).binary_name()
+        ));
+        assert!(
+            llxprt_cmd.is_file(),
+            "managed install must produce llxprt.cmd in node_modules/.bin: {}",
+            llxprt_cmd.display()
+        );
+        let marker_path = install_dir_in(&cache, &sel).join(INSTALL_MARKER);
+        assert_eq!(
+            std::fs::read_to_string(&marker_path)
+                .unwrap_or_else(|error| panic!("read marker: {error}")),
+            marker_contents(&sel),
+            "marker must record the effective selector"
+        );
+    }
+
+    #[test]
+    fn windows_canonical_install_succeeds_for_latest_sentinel() {
+        // AC1: Version=latest installs the dist-tag and stages the cached bin.
+        assert_canonical_layout_then_run("latest");
+    }
+
+    #[test]
+    fn windows_canonical_install_succeeds_for_latest_nightly_sentinel() {
+        // AC2: latest nightly maps to the nightly dist-tag.
+        assert_canonical_layout_then_run("latest nightly");
+    }
+
+    #[test]
+    fn windows_canonical_install_succeeds_for_pinned_version() {
+        // AC2: an explicit pinned version also installs.
+        assert_canonical_layout_then_run("0.9.0");
+    }
+}

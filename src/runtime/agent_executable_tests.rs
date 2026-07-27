@@ -17,6 +17,24 @@ fn write_candidate(directory: &TempDir, name: &str) -> PathBuf {
     path
 }
 
+/// Build the expected canonical path the way `canonical_script_launch_plan`
+/// stores it: canonicalized, then on Windows with the `\\?\` verbatim prefix
+/// stripped (issue #432). Centralizing this keeps the test assertions aligned
+/// with the production helper instead of re-implementing the strip.
+fn expected_canonical(path: PathBuf) -> PathBuf {
+    let canonical = std::fs::canonicalize(&path)
+        .unwrap_or_else(|error| panic!("canonicalize {}: {error}", path.display()));
+    #[cfg(windows)]
+    {
+        super::agent_executable::strip_verbatim_prefix(&canonical)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = &canonical;
+        canonical
+    }
+}
+
 #[test]
 
 fn windows_resolution_follows_pathext_directory_and_extension_order() {
@@ -138,11 +156,13 @@ fn windows_npm_resolution_reuses_command_wrapper_policy() {
     assert_eq!(executable.target(), AgentExecutableTarget::Npm);
     assert_eq!(
         plan.runtime(),
-        std::fs::canonicalize(node).unwrap_or_else(|error| panic!("node: {error}"))
+        expected_canonical(node),
+        "runtime path must be the de-prefixed canonical form (issue #432)"
     );
     assert_eq!(
         plan.entrypoint(),
-        std::fs::canonicalize(cli).unwrap_or_else(|error| panic!("cli: {error}"))
+        expected_canonical(cli),
+        "entrypoint path must be the de-prefixed canonical form (issue #432)"
     );
 }
 
@@ -279,10 +299,13 @@ fn windows_official_llxprt_wrapper_resolves_to_canonical_bun_entrypoint_plan() {
     let plan = executable
         .script_launch_plan()
         .unwrap_or_else(|| panic!("official wrapper must produce a canonical script plan"));
-    let expected_bun = std::fs::canonicalize(directory.path().join(LLXPRT_BUN_REL))
-        .unwrap_or_else(|error| panic!("canonical bun: {error}"));
-    let expected_entry = std::fs::canonicalize(directory.path().join(LLXPRT_ENTRYPOINT_REL))
-        .unwrap_or_else(|error| panic!("canonical entry: {error}"));
+    // Issue #432: on Windows the stored runtime/entrypoint paths are the
+    // canonicalize output with the `\\?\` verbatim prefix stripped (Node's
+    // module loader mishandles the verbatim prefix). Build the expected
+    // values through the same helper so the assertion tracks the production
+    // path rather than re-implementing the strip.
+    let expected_bun = expected_canonical(directory.path().join(LLXPRT_BUN_REL));
+    let expected_entry = expected_canonical(directory.path().join(LLXPRT_ENTRYPOINT_REL));
     assert_eq!(executable.path(), directory.path().join("llxprt.cmd"));
     assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
     assert_eq!(plan.runtime(), expected_bun);

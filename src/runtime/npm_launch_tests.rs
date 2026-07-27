@@ -2,6 +2,25 @@ use super::super::agent_executable::AgentExecutableTarget;
 use super::*;
 use crate::domain::{LlxprtNpmPackageSelector, SandboxEngine};
 
+/// Canonicalize a path the way the launch plan stores it for use as a
+/// structured argument: canonicalized, then on Windows with the `\\?\`
+/// verbatim prefix stripped (issue #432). Mirrors the production
+/// `strip_verbatim_prefix` helper so argv assertions track the real argv
+/// instead of the raw canonicalize output.
+fn canonicalize_for_arg(path: &Path) -> PathBuf {
+    let canonical = std::fs::canonicalize(path)
+        .unwrap_or_else(|error| panic!("canonicalize {}: {error}", path.display()));
+    #[cfg(windows)]
+    {
+        super::super::agent_executable::strip_verbatim_prefix(&canonical)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = &canonical;
+        canonical
+    }
+}
+
 fn signature(selector: Option<&str>) -> LaunchSignature {
     LaunchSignature {
         work_dir: Path::new("/tmp/work").to_path_buf(),
@@ -281,10 +300,8 @@ fn windows_npm_cmd_bypasses_cmd_and_preserves_adversarial_argv() {
         &executable,
         &[std::ffi::OsString::from("exec"), selector.clone()],
     );
-    let canonical_node =
-        std::fs::canonicalize(&node).unwrap_or_else(|error| panic!("canonical node: {error}"));
-    let canonical_cli =
-        std::fs::canonicalize(&cli).unwrap_or_else(|error| panic!("canonical cli: {error}"));
+    let canonical_node = canonicalize_for_arg(&node);
+    let canonical_cli = canonicalize_for_arg(&cli);
     let args = command.get_args().collect::<Vec<_>>();
     assert_eq!(command.get_program(), canonical_node);
     assert_eq!(
@@ -413,10 +430,8 @@ fn windows_official_llxprt_script_plan_launches_bun_with_entrypoint_first_argume
             prompt,
         ],
     );
-    let canonical_bun =
-        std::fs::canonicalize(&bun).unwrap_or_else(|error| panic!("canonical bun: {error}"));
-    let canonical_entry =
-        std::fs::canonicalize(&entry).unwrap_or_else(|error| panic!("canonical entry: {error}"));
+    let canonical_bun = canonicalize_for_arg(&bun);
+    let canonical_entry = canonicalize_for_arg(&entry);
     let args = command.get_args().collect::<Vec<_>>();
     assert_eq!(command.get_program(), canonical_bun.as_path());
     assert_eq!(args.len(), 4);
