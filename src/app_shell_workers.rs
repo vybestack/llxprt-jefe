@@ -361,7 +361,9 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
     LAST_HISTORY_LINES.with(|cell| {
         let mut slot = cell.borrow_mut();
         let refresh = match slot.as_ref() {
-            Some((aid, gen, _)) => aid != &attached_agent || *gen != generation,
+            Some((aid, cached_generation, _)) => {
+                aid != &attached_agent || *cached_generation != generation
+            }
             None => true,
         };
         if refresh {
