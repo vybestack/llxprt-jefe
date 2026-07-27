@@ -69,9 +69,10 @@ A review's coverage state must be reported honestly. OCR coverage is one of:
   best-effort signal rather than a recall guarantee.
 - **partial** — OCR reports `completed_with_errors` for at least one file.
   Findings may still be useful, but the review did not complete cleanly.
-- **failed** — the OCR command failed (nonzero exit) or produced no parseable
-  output.
-- **unknown** — coverage could not be determined from the result.
+- **failed** — the OCR command failed (nonzero exit).
+- **unknown** — coverage could not be determined from the result, including a
+  zero-exit run whose result JSON could not be parsed or whose statuses could
+  not be classified.
 
 A `partial`, `unknown`, or `failed` run is never summarized as clean, even
 when it reports zero findings. The CI sticky summary surfaces the coverage
