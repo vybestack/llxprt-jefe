@@ -95,7 +95,6 @@ fn plan_uses_ssh_t_not_tt() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -124,7 +123,6 @@ fn plan_targets_remote_host_user() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -148,7 +146,6 @@ fn plan_applies_run_as_user() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -182,7 +179,6 @@ fn plan_does_not_write_prompt_to_disk() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -223,7 +219,6 @@ fn plan_does_not_create_local_workdir() {
         .plan(&PlanInputs {
             work_dir: &local_marker,
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -237,52 +232,27 @@ fn plan_does_not_create_local_workdir() {
 }
 
 #[test]
-fn plan_dirty_stop_emits_no_cleanup() {
+fn plan_dirty_emits_no_cleanup() {
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: true,
             not_on_default: false,
             origin_mismatch: false,
         })
         .value_or_panic("plan");
-    // Dirty + Stop: the planner short-circuits with NO operations at all —
-    // no reset/clean, no checkout, no prompt write. Assert emptiness directly
-    // (not a vacuous `.all()`) so an accidental no-op/log op would be caught.
+    // Dirty: the planner short-circuits with NO operations at all —
+    // no reset/clean, no checkout, no prompt write. The confirm path
+    // force-reclones (issue #479), so no in-place discard is planned.
+    // Assert emptiness directly (not a vacuous `.all()`) so an accidental
+    // no-op/log op would be caught.
     assert!(
         ops.is_empty(),
-        "Stop policy must emit no ops at all: {ops:?}"
+        "dirty prep must emit no ops at all: {ops:?}"
     );
-}
-
-#[test]
-fn plan_dirty_discard_emits_cleanup_then_prep() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner
-        .plan(&PlanInputs {
-            work_dir: Path::new(PLAN_WORK_DIR),
-            identity: Some(&identity()),
-            policy: DirtyPolicy::Discard,
-            presence: WorkdirPresence::Git,
-            is_dirty: true,
-            not_on_default: false,
-            origin_mismatch: false,
-        })
-        .value_or_panic("plan");
-    // Discard: reset --hard + clean -fd first, then checkout, then prompt.
-    let reset_idx = ops
-        .iter()
-        .position(|op| op.ssh_argv.iter().any(|a| a.contains("git reset")))
-        .value_or_panic("a reset op must be planned");
-    let checkout_idx = ops
-        .iter()
-        .position(|op| op.ssh_argv.iter().any(|a| a.contains("git checkout")))
-        .value_or_panic("a checkout op must be planned");
-    assert!(reset_idx < checkout_idx, "reset before checkout");
 }
 
 #[test]
@@ -292,7 +262,6 @@ fn plan_clone_when_missing() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
             not_on_default: false,
@@ -325,7 +294,6 @@ fn plan_absent_without_identity_emits_no_ops() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: None,
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
             not_on_default: false,
@@ -347,7 +315,6 @@ fn plan_https_url_regardless_of_remote_enabled() {
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Absent,
             is_dirty: false,
             not_on_default: false,
@@ -377,13 +344,12 @@ fn plan_https_url_regardless_of_remote_enabled() {
 #[test]
 fn plan_origin_mismatch_short_circuits() {
     // PlanInputs with origin_mismatch=true must short-circuit: no
-    // checkout/pull/prompt op planned, mirroring Dirty+Stop.
+    // checkout/pull/prompt op planned, mirroring the dirty short-circuit.
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: false,
@@ -453,7 +419,6 @@ fn plan_not_git_is_a_hard_error_not_empty() {
     let result = planner.plan(&PlanInputs {
         work_dir: Path::new(PLAN_WORK_DIR),
         identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
         presence: WorkdirPresence::NotGit,
         is_dirty: false,
         not_on_default: false,
@@ -473,16 +438,16 @@ fn plan_not_git_is_a_hard_error_not_empty() {
 
 // ── Issue #338: not-on-default-branch planner behavior ─────────────
 
-/// Clean but not on the default branch with Stop: the planner must
-/// short-circuit with no ops at all, mirroring the dirty+Stop behavior.
+/// Clean but not on the default branch: the planner must short-circuit with
+/// no ops at all, mirroring the dirty short-circuit. The confirm path
+/// force-reclones (issue #479), so no in-place discard is planned.
 #[test]
-fn plan_not_on_default_stop_emits_no_cleanup() {
+fn plan_not_on_default_emits_no_cleanup() {
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
             work_dir: Path::new(PLAN_WORK_DIR),
             identity: Some(&identity()),
-            policy: DirtyPolicy::Stop,
             presence: WorkdirPresence::Git,
             is_dirty: false,
             not_on_default: true,
@@ -491,43 +456,6 @@ fn plan_not_on_default_stop_emits_no_cleanup() {
         .value_or_panic("plan");
     assert!(
         ops.is_empty(),
-        "Stop policy on a clean non-default branch must emit no ops: {ops:?}"
-    );
-}
-
-/// Clean but not on the default branch with Discard: the planner must emit
-/// the checkout script (to switch to the default branch),
-/// but NO reset/clean op (the tree is clean, only a branch switch is needed).
-#[test]
-fn plan_not_on_default_discard_emits_checkout_without_cleanup() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner
-        .plan(&PlanInputs {
-            work_dir: Path::new(PLAN_WORK_DIR),
-            identity: Some(&identity()),
-            policy: DirtyPolicy::Discard,
-            presence: WorkdirPresence::Git,
-            is_dirty: false,
-            not_on_default: true,
-            origin_mismatch: false,
-        })
-        .value_or_panic("plan");
-    assert!(!ops.is_empty(), "Discard must emit checkout + prompt ops");
-    // No dedicated cleanup op — the tree is clean, so no reset+clean step.
-    // (The checkout script itself contains a reset --hard fallback for the
-    // linked-worktree edge case, but that is NOT the destructive cleanup.)
-    for op in &ops {
-        for arg in &op.ssh_argv {
-            assert!(
-                !arg.contains("git clean -fd"),
-                "clean non-default branch must not trigger git clean -fd: {arg}"
-            );
-        }
-    }
-    // The checkout script must be present.
-    assert!(
-        ops.iter()
-            .any(|op| { op.ssh_argv.iter().any(|a| a.contains("git fetch origin")) }),
-        "Discard must emit a fetch+checkout op: {ops:?}"
+        "a clean non-default branch must emit no ops: {ops:?}"
     );
 }
