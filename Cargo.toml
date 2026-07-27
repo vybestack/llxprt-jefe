@@ -1,3 +1,11 @@
+# Workspace definition (issue #459): the root `jefe` package plus the local
+# `xtask` task runner. `default-members` keeps plain `cargo build`/`cargo test`
+# scoped to the shipping package so contributors do not build xtask by default.
+[workspace]
+members = ["xtask"]
+default-members = ["."]
+resolver = "3"
+
 [package]
 name = "jefe"
 version = "0.0.32"

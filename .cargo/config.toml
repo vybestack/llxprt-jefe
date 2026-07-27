@@ -1,2 +1,7 @@
 [build]
 incremental = false
+
+# Allow `cargo xtask <command>` without requiring an external cargo-xtask
+# installation (issue #459). The alias runs the workspace xtask binary.
+[alias]
+xtask = "run --package xtask --"
