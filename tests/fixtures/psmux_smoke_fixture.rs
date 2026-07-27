@@ -13,7 +13,8 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    skip_official_entrypoint(&mut args);
     let marker = fixture_marker(&mut args)?;
     if marker.as_deref() == Some("--record") {
         let output = args.next().ok_or("record mode requires an output path")?;
@@ -70,6 +71,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if byte[0] == 0x04 {
             return Ok(());
         }
+    }
+}
+
+fn skip_official_entrypoint(args: &mut std::iter::Peekable<impl Iterator<Item = String>>) {
+    if args.peek().is_some_and(|first| {
+        Path::new(first)
+            .file_name()
+            .is_some_and(|name| name == "index.ts")
+    }) {
+        let _ = args.next();
     }
 }
 

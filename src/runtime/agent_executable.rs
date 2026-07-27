@@ -1,6 +1,7 @@
 //! Platform-owned resolution of launchable local executables used by agent sessions.
 
 use std::ffi::{OsStr, OsString};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::domain::AgentKind;
@@ -12,6 +13,14 @@ const UNIX_REMEDIATION: &str = "install an executable runtime on PATH and restar
 const NPM_REMEDIATION: &str = "install Node.js with npm on PATH and restart Jefe";
 const UVX_REMEDIATION: &str = "install uv with uvx on PATH and restart Jefe";
 const NPM_LAYOUT_REMEDIATION: &str = "install the official Node.js npm layout (npm.cmd/npm.bat beside node.exe and node_modules/npm/bin/npm-cli.js) or put npm.exe on PATH, then restart Jefe";
+const LLXPRT_OFFICIAL_LAYOUT_REMEDIATION: &str = "reinstall @vybestack/llxprt-code so its bundled bun.exe and index.ts ship beside llxprt.cmd, then restart Jefe";
+const LLXPRT_NATIVE_LAUNCHER_MARKER: &str =
+    "LLXPRT_NATIVE_LAUNCHER owned by @vybestack/llxprt-code";
+const MAX_WRAPPER_MARKER_READ_BYTES: u64 = 8 * 1_024;
+const LLXPRT_BUN_REL: &str = "node_modules/@vybestack/llxprt-code/node_modules/bun/bin/bun.exe";
+const LLXPRT_ENTRYPOINT_REL: &str = "node_modules/@vybestack/llxprt-code/index.ts";
+const NPM_NODE_REL: &str = "node.exe";
+const NPM_CLI_REL: &str = "node_modules/npm/bin/npm-cli.js";
 
 /// Operating-system executable-resolution policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,24 +91,28 @@ pub enum AgentWrapperKind {
     PowerShellScript,
 }
 
-/// Direct Node.js invocation retained for an official Windows npm wrapper layout.
+/// Direct script runtime and entrypoint invocation for an official Windows
+/// command-wrapper layout.
+///
+/// This supports npm's Node/npm-cli.js and LLxprt's bundled Bun/index.ts while
+/// bypassing `cmd.exe` so the full argument vector survives intact.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalNpmLaunchPlan {
-    node: PathBuf,
-    cli: PathBuf,
+pub struct CanonicalScriptLaunchPlan {
+    runtime: PathBuf,
+    entrypoint: PathBuf,
 }
 
-impl CanonicalNpmLaunchPlan {
-    /// Canonical path to the Node.js executable.
+impl CanonicalScriptLaunchPlan {
+    /// Canonical path to the script runtime executable (node.exe or bun.exe).
     #[must_use]
-    pub fn node(&self) -> &Path {
-        &self.node
+    pub fn runtime(&self) -> &Path {
+        &self.runtime
     }
 
-    /// Canonical path to npm's JavaScript CLI entry point.
+    /// Canonical path to the script entry point (npm-cli.js or index.ts).
     #[must_use]
-    pub fn cli(&self) -> &Path {
-        &self.cli
+    pub fn entrypoint(&self) -> &Path {
+        &self.entrypoint
     }
 }
 
@@ -109,7 +122,7 @@ pub struct ResolvedAgentExecutable {
     target: AgentExecutableTarget,
     path: PathBuf,
     wrapper_kind: AgentWrapperKind,
-    npm_launch_plan: Option<CanonicalNpmLaunchPlan>,
+    script_launch_plan: Option<CanonicalScriptLaunchPlan>,
 }
 
 impl ResolvedAgentExecutable {
@@ -140,10 +153,11 @@ impl ResolvedAgentExecutable {
         self.wrapper_kind
     }
 
-    /// Validated direct Node.js launch plan for an official Windows npm script.
+    /// Validated canonical script runtime + entrypoint plan for an official
+    /// Windows wrapper layout, when one was recognized.
     #[must_use]
-    pub fn npm_launch_plan(&self) -> Option<&CanonicalNpmLaunchPlan> {
-        self.npm_launch_plan.as_ref()
+    pub fn script_launch_plan(&self) -> Option<&CanonicalScriptLaunchPlan> {
+        self.script_launch_plan.as_ref()
     }
 }
 
@@ -226,30 +240,32 @@ impl AgentExecutableResolver {
         target: AgentExecutableTarget,
     ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
         let extensions = windows_extensions(self.pathext.as_deref());
-        let mut rejected_npm_script = false;
+        let mut rejection: Option<AgentExecutableError> = None;
         for directory in &self.directories {
             for (extension, wrapper_kind) in &extensions {
                 let path = directory.join(format!("{}{extension}", target.binary_name()));
                 if path.is_file() {
-                    if target == AgentExecutableTarget::Npm
-                        && *wrapper_kind == AgentWrapperKind::CommandScript
-                    {
-                        if let Some(plan) = canonical_npm_launch_plan(directory) {
-                            return Ok(resolved_npm_script(path, plan));
+                    match canonical_script_plan(target, *wrapper_kind, directory, &path) {
+                        CanonicalScriptOutcome::Plan(plan) => {
+                            return Ok(resolved_script(target, path, *wrapper_kind, plan));
                         }
-                        rejected_npm_script = true;
-                        continue;
+                        CanonicalScriptOutcome::Unmarked => {
+                            return Ok(resolved(target, path, *wrapper_kind));
+                        }
+                        CanonicalScriptOutcome::Reject(error) => {
+                            if target == AgentExecutableTarget::Npm {
+                                rejection = Some(error);
+                                continue;
+                            }
+                            // A marked official wrapper is authoritative: surface package
+                            // corruption instead of silently launching another PATH entry.
+                            return Err(error);
+                        }
                     }
-                    return Ok(resolved(target, path, *wrapper_kind));
                 }
             }
         }
-        if rejected_npm_script {
-            return Err(AgentExecutableError::NonCanonicalNpmWrapper {
-                remediation: NPM_LAYOUT_REMEDIATION,
-            });
-        }
-        Err(self.missing(target))
+        Err(rejection.unwrap_or_else(|| self.missing(target)))
     }
 
     fn missing(&self, target: AgentExecutableTarget) -> AgentExecutableError {
@@ -284,6 +300,11 @@ pub enum AgentExecutableError {
         /// Action the user can take to install a structurally safe npm layout.
         remediation: &'static str,
     },
+    /// A marked official LLxprt wrapper exists but its bundled runtime/entrypoint layout is incomplete.
+    NonCanonicalOfficialLlxprtWrapper {
+        /// Action the user can take to restore the official native-launcher layout.
+        remediation: &'static str,
+    },
 }
 
 impl std::fmt::Display for AgentExecutableError {
@@ -301,6 +322,10 @@ impl std::fmt::Display for AgentExecutableError {
                 formatter,
                 "npm wrapper is not in a supported official Node.js layout; {remediation}"
             ),
+            Self::NonCanonicalOfficialLlxprtWrapper { remediation } => write!(
+                formatter,
+                "LLxprt wrapper is marked as an official native launcher but its layout is incomplete; {remediation}"
+            ),
         }
     }
 }
@@ -316,29 +341,101 @@ fn resolved(
         target,
         path,
         wrapper_kind,
-        npm_launch_plan: None,
+        script_launch_plan: None,
     }
 }
 
-fn resolved_npm_script(
+fn resolved_script(
+    target: AgentExecutableTarget,
     path: PathBuf,
-    npm_launch_plan: CanonicalNpmLaunchPlan,
+    wrapper_kind: AgentWrapperKind,
+    plan: CanonicalScriptLaunchPlan,
 ) -> ResolvedAgentExecutable {
     ResolvedAgentExecutable {
-        target: AgentExecutableTarget::Npm,
+        target,
         path,
-        wrapper_kind: AgentWrapperKind::CommandScript,
-        npm_launch_plan: Some(npm_launch_plan),
+        wrapper_kind,
+        script_launch_plan: Some(plan),
     }
 }
 
-fn canonical_npm_launch_plan(directory: &Path) -> Option<CanonicalNpmLaunchPlan> {
-    let node = std::fs::canonicalize(directory.join("node.exe")).ok()?;
-    let cli = std::fs::canonicalize(directory.join("node_modules/npm/bin/npm-cli.js")).ok()?;
-    if !node.is_file() || !cli.is_file() {
+enum CanonicalScriptOutcome {
+    Plan(CanonicalScriptLaunchPlan),
+    Unmarked,
+    Reject(AgentExecutableError),
+}
+
+fn canonical_script_plan(
+    target: AgentExecutableTarget,
+    wrapper_kind: AgentWrapperKind,
+    directory: &Path,
+    wrapper_path: &Path,
+) -> CanonicalScriptOutcome {
+    if wrapper_kind != AgentWrapperKind::CommandScript {
+        return CanonicalScriptOutcome::Unmarked;
+    }
+    if target == AgentExecutableTarget::Npm {
+        return canonical_npm_outcome(directory);
+    }
+    if matches!(target, AgentExecutableTarget::Agent(AgentKind::Llxprt)) {
+        return official_llxprt_outcome(directory, wrapper_path);
+    }
+    CanonicalScriptOutcome::Unmarked
+}
+
+fn canonical_npm_outcome(directory: &Path) -> CanonicalScriptOutcome {
+    match canonical_script_launch_plan(directory, NPM_NODE_REL, NPM_CLI_REL) {
+        Some(plan) => CanonicalScriptOutcome::Plan(plan),
+        None => CanonicalScriptOutcome::Reject(AgentExecutableError::NonCanonicalNpmWrapper {
+            remediation: NPM_LAYOUT_REMEDIATION,
+        }),
+    }
+}
+
+fn official_llxprt_outcome(directory: &Path, wrapper_path: &Path) -> CanonicalScriptOutcome {
+    if !wrapper_carries_native_launcher_marker(wrapper_path) {
+        return CanonicalScriptOutcome::Unmarked;
+    }
+    match canonical_script_launch_plan(directory, LLXPRT_BUN_REL, LLXPRT_ENTRYPOINT_REL) {
+        Some(plan) => CanonicalScriptOutcome::Plan(plan),
+        None => CanonicalScriptOutcome::Reject(
+            AgentExecutableError::NonCanonicalOfficialLlxprtWrapper {
+                remediation: LLXPRT_OFFICIAL_LAYOUT_REMEDIATION,
+            },
+        ),
+    }
+}
+
+fn canonical_script_launch_plan(
+    directory: &Path,
+    runtime_rel: &str,
+    entrypoint_rel: &str,
+) -> Option<CanonicalScriptLaunchPlan> {
+    let runtime = std::fs::canonicalize(directory.join(runtime_rel)).ok()?;
+    let entrypoint = std::fs::canonicalize(directory.join(entrypoint_rel)).ok()?;
+    if !runtime.is_file() || !entrypoint.is_file() {
         return None;
     }
-    Some(CanonicalNpmLaunchPlan { node, cli })
+    Some(CanonicalScriptLaunchPlan {
+        runtime,
+        entrypoint,
+    })
+}
+
+fn wrapper_carries_native_launcher_marker(wrapper_path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(wrapper_path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(MAX_WRAPPER_MARKER_READ_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_WRAPPER_MARKER_READ_BYTES
+    {
+        return false;
+    }
+    std::str::from_utf8(&bytes).is_ok_and(|text| text.contains(LLXPRT_NATIVE_LAUNCHER_MARKER))
 }
 
 fn windows_extensions(pathext: Option<&OsStr>) -> Vec<(String, AgentWrapperKind)> {

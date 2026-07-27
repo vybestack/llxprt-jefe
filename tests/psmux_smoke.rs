@@ -436,6 +436,9 @@ fn psmux_command_contract_rejects_invalid_command_with_diagnostics() {
     assert!(report.contains("psmux version:"), "report: {report}");
 }
 
+#[path = "psmux_smoke/official_llxprt.rs"]
+mod official_llxprt;
+
 #[test]
 fn psmux_supports_jefe_runtime_and_harness_command_surface() {
     let Some((executable, version_text)) = qualified_psmux() else {
