@@ -29,6 +29,17 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 
 #[test]
+fn capture_tail_preserves_reading_order_and_character_boundaries() {
+    let capture = format!("discard-{}-end", "αβ".repeat(90));
+    let expected = capture
+        .chars()
+        .skip(capture.chars().count().saturating_sub(160))
+        .collect::<String>();
+
+    assert_eq!(capture_tail(&capture), expected);
+}
+
+#[test]
 fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
@@ -210,10 +221,16 @@ fn poll_marker_and_mouse_reporting(
     } else {
         format!("marker {needle} not seen within {cap:?}")
     };
-    Err(format!(
-        "{stage}; capture tail: {}",
-        last.chars().rev().take(160).collect::<String>()
-    ))
+    Err(format!("{stage}; capture tail: {}", capture_tail(&last)))
+}
+
+fn capture_tail(capture: &str) -> &str {
+    let start = capture
+        .char_indices()
+        .rev()
+        .nth(159)
+        .map_or(0, |(index, _)| index);
+    &capture[start..]
 }
 
 fn write_input_until_captured(
