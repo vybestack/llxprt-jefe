@@ -12,6 +12,7 @@ mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;
 mod pty_encoding;
+mod terminal_init;
 
 use std::io::Write;
 use std::sync::Arc;
@@ -258,6 +259,8 @@ fn main() {
         persist_handle,
         capture_handle,
     }));
+
+    let _console_guard = terminal_init::prepare_console_for_unicode();
 
     smol::block_on(async {
         let mut app = element!(app_shell::App(context: Some(context)));
