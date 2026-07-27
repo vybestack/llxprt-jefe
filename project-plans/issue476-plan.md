@@ -265,9 +265,14 @@ abstraction, or a budget breach.
 
 ## Review counters and finding policy
 
-- Local Open Code Review: 0 of 2 used.
+- Local Open Code Review: 1 of 2 used (`--commit df909a9`, 20 files, 19
+  comments). An earlier invocation passed the range positionally, which this
+  `ocr` build does not accept: it reviewed 0 files and reported "Looks good to
+  me". That run examined nothing and is not counted. Always confirm the
+  "Will review (N)" count with `ocr review --preview --commit <sha>` first.
 - Pull-request Open Code Review: 0 of 2 used.
-- Independent review/remediation cycles: 0 of 2 used.
+- Independent review/remediation cycles: 1 of 2 used (architect review of
+  `df909a9`, plus the OCR run above; both triaged and remediated in `88a790a`).
 
 Each finding is classified as Blocker-Fix, In-scope-Fix, Reject, or Defer. A
 reviewer suggestion does not authorize scope expansion.
@@ -278,19 +283,25 @@ J1 implementation is complete on branch `issue476` (from `4ed77d5`). RED was
 captured first: the integration compliance test failed to compile with E0433
 (`jefe::jsp` module missing) before any production code existed.
 
-GREEN on the candidate head:
+GREEN on the candidate head (`88a790a`, after review remediation):
 
-- `cargo test --test jsp_v1_snapshot_compliance` — 18 passed, 0 failed.
-- `cargo test --lib jsp` — 13 passed, 0 failed.
-- `cargo test --lib observation` — 8 passed, 0 failed.
+- `cargo test --test jsp_v1_snapshot_compliance` — 23 passed, 0 failed.
 - `cargo test --workspace --all-features --locked` — 0 failures across all
-  targets.
+  targets (2,433 lib tests, 772 core, 352 integration, and the rest).
+- `cargo build --workspace --all-features --locked` — clean.
 - `cargo fmt --all --check` — clean.
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings` — no
   warnings.
-- `cargo xtask check source-size` — no new warning or failure; the largest new
-  file is 612 lines.
+- `cargo xtask check source-size` — pass; no JSP file appears in the warning
+  list. The largest new file is `validate.rs` at 649 lines, under the 750-line
+  warn threshold.
 - `cargo xtask check architecture` — pass.
+- `cargo xtask check clippy-allows` — pass; no suppression attributes added.
+
+The five behavioral tests added during remediation were confirmed RED against
+the pre-remediation parser before the fixes landed: the nested forbidden-field
+and duplicate-key documents parsed successfully, and the two diagnostic-path
+assertions observed the wrong field names.
 - `cargo xtask check clippy-allows` — pass.
 
 One integration TUI scenario (`ui::dashboard_reorder_tui`) failed once under
@@ -332,6 +343,58 @@ Stop and request another decision if implementation needs:
 - integration with wrong ancestry, contract-set mainline drift, or required
   verification that cannot complete on the candidate head.
 
+## Review findings and triage
+
+Two independent reviews ran against `df909a9`. Both reproduced their claims by
+executing the parser rather than reading it. Remediation landed in `88a790a`.
+
+### Blocker-Fix (all resolved)
+
+| Finding | Resolution |
+| --- | --- |
+| `current_wait.value` was read by hand and ignored sibling members, so credential, transcript, and control fields parsed successfully inside it and escaped all field bounds. | Routed through a closed `WaitPayload` DTO. Covered by `s5_forbidden_fields_nested_in_a_field_value_fail_closed` and a `snapshot_nested_forbidden_fields` fixture. |
+| Duplicate keys inside `value`/`last_value` were silently resolved last-wins, contradicting the specification and offering a route past the stale-phase rejection. | Added a strict value reader that rejects duplicate keys at any depth. Covered by `s5_duplicate_keys_inside_a_field_value_fail_closed`. |
+
+### In-scope-Fix (all resolved)
+
+| Finding | Resolution |
+| --- | --- |
+| The post-deserialization schema/kind gate was unreachable and emitted a different message than the live gate. | `schema` and `kind` are now closed wire types; the dead gate is gone. |
+| `degraded` diagnostics reported `.value.` when the producer sent `last_value`. | Diagnostics carry the member actually read. Covered by `s6_degraded_diagnostics_name_the_last_value_member`. |
+| `source_terminal_state` diagnostics reported `source_error_state`. | The payload helper takes the caller's field path. Covered by `s6_source_terminal_diagnostics_name_their_own_field`. |
+| The corpus covered two of six error codes, so an external implementation could pass every fixture while getting bounds, versioning, and identity wrong. | Added `JSP-E002`, `JSP-E003`, and `JSP-E004` fixtures. |
+| The manifest-driven diagnostic test skipped silently when an error fixture parsed. | It now fails instead of passing vacuously. |
+| `check_bound` described todo counts as byte lengths. | Added `check_count_bound` with count wording. |
+| `limits`/`parse`/`validate`/`wire` were publicly reachable despite the documented contract. | Made private; only `contract` and `error` remain public. |
+| `Provenance` carried unused serde derives, letting it deserialize outside the wire layer. | Derives removed. |
+| `DiagnosticCode` was documented as a closed inventory but only bound-checked. | Documentation corrected to describe an opaque bounded label. |
+
+### Reject
+
+- Make `Snapshot` fields private with accessors. The parser is the only
+  constructor and the guarantee that nothing partially validated escapes was
+  independently confirmed to hold at the crate boundary. Later slices consume
+  these fields directly, and thirteen accessors would add surface without
+  adding safety.
+- Turn `SourceSequence`/`Cursor` into newtypes and split `SupportedState` into
+  three DTOs. Both restructure a contract that behaves correctly today; the
+  illegal-combination rejection is proven by test.
+- Add a `diagnostic_path` member to the field state. This confuses the
+  producer's degraded-value anchor with the parser's own error paths.
+- `Category::Eof` does not exist. It does exist in serde_json 1.0 and the code
+  compiles; this claim is factually wrong.
+- Reject pid `0`. J1 treats pid as descriptive metadata, and process liveness
+  is deliberately Jefe-runtime-owned rather than producer-asserted.
+
+### Defer
+
+- `JSP-E006` has no production call site yet. It is reserved for the snapshot
+  semantic invariants that arrive with events in J2.
+- `ObservationKey` is constructed and unwrapped without carrying its stated
+  meaning. Its purpose appears once the observation map is keyed in J3.
+- Enforce `TodoList`/`CurrentTurn` invariants in the types themselves rather
+  than only in the parser. Worth doing when a second construction path exists.
+
 ## Deferred findings and follow-ups
 
-No review findings or follow-up issues have been recorded yet.
+The Defer rows above are the only outstanding items; none blocks this slice.
