@@ -1,25 +1,36 @@
 //! Tests for the agent-driven new-issue draft rewrite reducer (issue #214).
 
 use crate::state::transition::TransitionExt;
-use crate::state::{AppEvent, ComposerTarget, IssueFocus};
-use crate::state::{AppState, InlineState};
+use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, IssueFocus};
+use crate::state::{NewIssueFormFocus, NewIssueFormState};
 
+/// Build a state with the NewIssue composer open and the form's focused field
+/// seeded with `draft`. Issue #454: the rendered draft lives on the form, so
+/// the test harness must populate `new_issue_form` (not inline_state.text).
 fn state_with_new_issue_composer(draft: &str) -> AppState {
     let mut state = AppState::default();
     state.issues_state.active = true;
-    state.issues_state.issue_focus = IssueFocus::IssueList;
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewIssue,
-        text: draft.to_owned(),
-        cursor: draft.len(),
+        text: String::new(),
+        cursor: 0,
     };
+    state.issues_state.new_issue_form = Some(NewIssueFormState {
+        title_text: draft.to_owned(),
+        title_cursor: draft.chars().count(),
+        focus: NewIssueFormFocus::Title,
+        ..NewIssueFormState::default()
+    });
     state
 }
 
+/// The composer text now mirrors the focused form field (issue #454).
 fn composer_text(state: &AppState) -> Option<String> {
-    match &state.issues_state.inline_state {
-        InlineState::Composer { text, .. } => Some(text.clone()),
-        _ => None,
+    let form = state.issues_state.new_issue_form.as_ref()?;
+    match form.focus {
+        NewIssueFormFocus::Body => Some(form.body_text.clone()),
+        _ => Some(form.title_text.clone()),
     }
 }
 
@@ -70,10 +81,16 @@ fn rewrite_succeeded_replaces_composer_text_and_drops_pending() {
         composer_text(&state).as_deref(),
         Some("Polished title\n\nDetailed body.")
     );
-    // Cursor at end (byte length of replaced text).
-    if let InlineState::Composer { cursor, text, .. } = &state.issues_state.inline_state {
-        assert_eq!(*cursor, text.len());
-    }
+    // Cursor at end of the rewritten title (char count, issue #454).
+    let form = state
+        .issues_state
+        .new_issue_form
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected new_issue_form to be Some"));
+    assert_eq!(
+        form.title_cursor,
+        "Polished title\n\nDetailed body.".chars().count()
+    );
     assert_eq!(
         state.issues_state.draft_notice.as_deref(),
         Some("Issue draft rewritten by agent")
@@ -95,7 +112,11 @@ fn rewrite_succeeded_preserves_other_composer_targets_unchanged() {
             text: "rewritten".to_owned(),
         })
         .committed_pure();
-    assert_eq!(composer_text(&state).as_deref(), Some("comment"));
+    // The inline composer text is preserved (no form is open for NewComment).
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "comment"),
+        other => panic!("expected NewComment composer, got {other:?}"),
+    }
     // pending still cleared
     assert!(!state.issues_state.rewrite_pending);
     // Cursor must be untouched by the stale success.
@@ -116,14 +137,17 @@ fn rewrite_failed_clears_pending_and_preserves_draft() {
     assert!(!state.issues_state.rewrite_pending);
     // Original draft preserved.
     assert_eq!(composer_text(&state).as_deref(), Some("my draft"));
-    // Cursor must be untouched by the failure.
-    if let InlineState::Composer { cursor, .. } = &state.issues_state.inline_state {
-        assert_eq!(
-            *cursor,
-            "my draft".len(),
-            "cursor must be unchanged on failure"
-        );
-    }
+    // Cursor must be untouched by the failure (issue #454 char cursor).
+    let form = state
+        .issues_state
+        .new_issue_form
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected new_issue_form to be Some"));
+    assert_eq!(
+        form.title_cursor,
+        "my draft".chars().count(),
+        "cursor must be unchanged on failure"
+    );
     assert!(
         state
             .issues_state

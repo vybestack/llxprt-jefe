@@ -32,9 +32,16 @@ impl AppState {
         let state = NewIssueFormState {
             milestone,
             project_ids,
+            // Land on Title so the first keystroke types into the title
+            // (issue #454): the Template picker has no inline text, so the
+            // pre-#407 "type immediately" contract regressed when the form
+            // opened on the Template focus.
+            focus: super::NewIssueFormFocus::Title,
             ..NewIssueFormState::default()
         };
-        self.issues_state.issue_focus = super::IssueFocus::IssueList;
+        // The form renders inside the detail pane and captures all keyboard
+        // input while open, so the detail pane must read as focused (issue #454).
+        self.issues_state.issue_focus = super::IssueFocus::IssueDetail;
         self.issues_state.inline_state = super::InlineState::Composer {
             target: super::ComposerTarget::NewIssue,
             text: String::new(),
@@ -48,6 +55,10 @@ impl AppState {
         if self.issues_state.new_issue_form.is_some() {
             self.issues_state.new_issue_form = None;
             self.issues_state.inline_state = super::InlineState::None;
+            // Return focus to the issue list now that the detail-pane form is
+            // gone (issue #454): open_new_issue_form moved focus to the detail
+            // pane, so close must move it back.
+            self.issues_state.issue_focus = super::IssueFocus::IssueList;
         }
     }
 

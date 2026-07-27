@@ -3,7 +3,9 @@
 //! @requirement REQ-ISS-009
 
 use crate::domain::{IssueComment, IssueDetail, IssueState};
-use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
+use crate::state::{
+    ComposerTarget, DetailSubfocus, InlineState, NewIssueFormFocus, NewIssueFormState,
+};
 use crate::theme::ThemeColors;
 use crate::ui::components::{IssueDetailProjectionInputs, detail_pane_element, issue_detail_props};
 
@@ -47,6 +49,7 @@ struct RenderParams<'a> {
     detail: &'a IssueDetail,
     subfocus: DetailSubfocus,
     inline_state: &'a InlineState,
+    new_issue_form: Option<&'a NewIssueFormState>,
     scroll_offset: usize,
     pane_height: u16,
     cols: u16,
@@ -61,6 +64,7 @@ fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
                     issue_detail: Some(p.detail),
                     detail_subfocus: p.subfocus,
                     inline_state: p.inline_state,
+                    new_issue_form: p.new_issue_form,
                     comments_loading: false,
                     focused: true,
                     scroll_offset: p.scroll_offset,
@@ -147,6 +151,7 @@ fn active_issue_new_comment_renders_text_box_text_and_caret_with_stale_offset() 
         detail: &detail,
         subfocus: DetailSubfocus::NewComment,
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 999,
         pane_height: 28,
         cols: 80,
@@ -160,6 +165,7 @@ fn active_issue_new_comment_renders_text_box_text_and_caret_with_stale_offset() 
         detail: &detail,
         subfocus: DetailSubfocus::NewComment,
         inline_state: &InlineState::None,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 28,
         cols: 80,
@@ -168,6 +174,7 @@ fn active_issue_new_comment_renders_text_box_text_and_caret_with_stale_offset() 
         detail: &detail,
         subfocus: DetailSubfocus::NewComment,
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 28,
         cols: 80,
@@ -190,6 +197,7 @@ fn active_issue_new_comment_on_short_detail_starts_after_comments() {
         detail: &detail,
         subfocus: DetailSubfocus::NewComment,
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 36,
         cols: 80,
@@ -239,6 +247,7 @@ fn contextual_issue_document_uses_wrapped_display_rows_at_narrow_width() {
         issue_detail: Some(&detail),
         detail_subfocus: DetailSubfocus::NewComment,
         inline_state: &inline,
+        new_issue_form: None,
         comments_loading: false,
         focused: true,
         scroll_offset: 0,
@@ -279,6 +288,7 @@ fn active_issue_new_comment_long_line_keeps_tail_visible_with_stale_offset() {
         detail: &detail,
         subfocus: DetailSubfocus::NewComment,
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 999,
         pane_height: 28,
         cols: 32,
@@ -327,6 +337,7 @@ fn active_issue_reply_renders_text_box_text_and_caret() {
         detail: &detail,
         subfocus: DetailSubfocus::Comment(0),
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 999,
         pane_height: 28,
         cols: 80,
@@ -340,6 +351,7 @@ fn active_issue_reply_renders_text_box_text_and_caret() {
         detail: &detail,
         subfocus: DetailSubfocus::Comment(0),
         inline_state: &InlineState::None,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 28,
         cols: 80,
@@ -348,6 +360,7 @@ fn active_issue_reply_renders_text_box_text_and_caret() {
         detail: &detail,
         subfocus: DetailSubfocus::Comment(0),
         inline_state: &inline,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 28,
         cols: 80,
@@ -363,14 +376,23 @@ fn new_issue_composer_wraps_long_text_via_text_box() {
     let long_text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string();
     let inline = InlineState::Composer {
         target: ComposerTarget::NewIssue,
-        text: long_text.clone(),
-        cursor: long_text.len(),
+        text: String::new(),
+        cursor: 0,
+    };
+    // The New Issue composer renders the focused form field (issue #454), so
+    // the long draft must live on the form's title, not on inline_state.text.
+    let form = NewIssueFormState {
+        title_text: long_text.clone(),
+        title_cursor: long_text.chars().count(),
+        focus: NewIssueFormFocus::Title,
+        ..NewIssueFormState::default()
     };
     let cols: u16 = 40;
     let rendered = render_detail(RenderParams {
         detail: &detail,
         subfocus: DetailSubfocus::Body,
         inline_state: &inline,
+        new_issue_form: Some(&form),
         scroll_offset: 0,
         pane_height: 24,
         cols,
@@ -405,19 +427,28 @@ fn new_issue_composer_renders_caret_via_text_box() {
         detail: &detail,
         subfocus: DetailSubfocus::Body,
         inline_state: &InlineState::None,
+        new_issue_form: None,
         scroll_offset: 0,
         pane_height: 24,
         cols: 80,
     });
     let inline = InlineState::Composer {
         target: ComposerTarget::NewIssue,
-        text: "hello".to_string(),
-        cursor: 5,
+        text: String::new(),
+        cursor: 0,
+    };
+    // The New Issue composer renders the focused form field (issue #454).
+    let form = NewIssueFormState {
+        title_text: "hello".to_string(),
+        title_cursor: 5,
+        focus: NewIssueFormFocus::Title,
+        ..NewIssueFormState::default()
     };
     let with_caret = background_sgr_count(RenderParams {
         detail: &detail,
         subfocus: DetailSubfocus::Body,
         inline_state: &inline,
+        new_issue_form: Some(&form),
         scroll_offset: 0,
         pane_height: 24,
         cols: 80,
@@ -425,5 +456,61 @@ fn new_issue_composer_renders_caret_via_text_box() {
     assert!(
         with_caret > baseline,
         "new-issue TextBox caret must add background SGR ({with_caret}) beyond baseline ({baseline})"
+    );
+}
+
+/// Regression for issue #454: the New Issue composer must render the focused
+/// form field's text. Before the fix the projection read `inline_state.text`
+/// (always empty for NewIssue), so typed characters vanished from the screen
+/// even though `NewIssueTitleChar` updated `form.title_text` correctly.
+#[test]
+fn new_issue_composer_renders_focused_form_field_text() {
+    let detail = issue_detail_with_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: String::new(),
+        cursor: 0,
+    };
+    let title = "HelloTitle".to_string();
+    let form = NewIssueFormState {
+        title_text: title.clone(),
+        title_cursor: title.chars().count(),
+        focus: NewIssueFormFocus::Title,
+        ..NewIssueFormState::default()
+    };
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        new_issue_form: Some(&form),
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    assert!(
+        rendered.contains("HelloTitle"),
+        "new-issue composer must render the typed title text: {rendered}"
+    );
+
+    // The body field must render too when it is focused.
+    let body = "Body line one".to_string();
+    let body_form = NewIssueFormState {
+        body_text: body.clone(),
+        body_cursor: body.chars().count(),
+        focus: NewIssueFormFocus::Body,
+        ..NewIssueFormState::default()
+    };
+    let rendered_body = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        new_issue_form: Some(&body_form),
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    assert!(
+        rendered_body.contains("Body line one"),
+        "new-issue composer must render the typed body text: {rendered_body}"
     );
 }

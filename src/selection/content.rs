@@ -156,6 +156,7 @@ fn issue_detail_lines(state: &AppState) -> PaneContent {
             issue_detail: state.issues_state.issue_detail.as_ref(),
             detail_subfocus: state.issues_state.detail_subfocus,
             inline_state: &state.issues_state.inline_state,
+            new_issue_form: state.issues_state.new_issue_form.as_ref(),
             comments_loading: state.issues_state.loading.comments,
             focused: false,
             scroll_offset: state.issues_state.detail_scroll_offset,

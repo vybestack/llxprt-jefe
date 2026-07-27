@@ -15,7 +15,7 @@
 //! - `IssueRewriteFailed`: clear the pending flag and surface the error as a
 //!   non-fatal draft notice so the original draft is preserved.
 
-use crate::state::{AppEvent, AppState, ComposerTarget, InlineState};
+use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, NewIssueFormFocus};
 
 impl AppState {
     pub(super) fn apply_issue_rewrite_event(&mut self, event: AppEvent) -> bool {
@@ -48,19 +48,21 @@ impl AppState {
                 // is dropped — only the pending flag is cleared so the state
                 // never gets stuck waiting. The pending flag is always cleared
                 // so a future request is never permanently blocked.
-                if let InlineState::Composer {
-                    target: ComposerTarget::NewIssue,
-                    ref mut text,
-                    ref mut cursor,
-                } = self.issues_state.inline_state
-                {
-                    *text = replaced;
-                    // Drop the caret at the end of the rewritten text. The
-                    // cursor is a byte offset (see `insert_inline_char`).
-                    *cursor = text.len();
-                    self.issues_state.draft_notice =
-                        Some("Issue draft rewritten by agent".to_owned());
+                //
+                // Issue #454: the rendered draft lives on the focused form
+                // field (title/body), not inline_state.text. Write the
+                // rewritten text into the form so the renderer shows it.
+                let stale = !matches!(
+                    self.issues_state.inline_state,
+                    InlineState::Composer {
+                        target: ComposerTarget::NewIssue,
+                        ..
+                    }
+                );
+                if stale {
+                    return true;
                 }
+                self.apply_rewrite_succeeded(replaced);
                 true
             }
             AppEvent::IssueRewriteFailed { error } => {
@@ -81,6 +83,26 @@ impl AppState {
             }
             _ => false,
         }
+    }
+
+    /// Apply a successful rewrite to the focused form field (issue #454).
+    ///
+    /// The rendered draft lives on `new_issue_form`'s focused field (title
+    /// or body), so the rewritten text must land there — not on the legacy
+    /// `inline_state.text`. Picker fields fall back to the title so the
+    /// rewrite is always visible.
+    fn apply_rewrite_succeeded(&mut self, replaced: String) {
+        let Some(form) = self.issues_state.new_issue_form.as_mut() else {
+            return;
+        };
+        if form.focus == NewIssueFormFocus::Body {
+            form.body_text = replaced;
+            form.body_cursor = form.body_text.chars().count();
+        } else {
+            form.title_text = replaced;
+            form.title_cursor = form.title_text.chars().count();
+        }
+        self.issues_state.draft_notice = Some("Issue draft rewritten by agent".to_owned());
     }
 }
 

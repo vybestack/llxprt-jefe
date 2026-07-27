@@ -10,7 +10,7 @@ use jefe::domain::{AgentKind, Repository, RepositoryId};
 use jefe::state::AppEvent;
 use jefe::state::AppState;
 use jefe::state::transition::TransitionExt;
-use jefe::state::{ComposerTarget, InlineState};
+use jefe::state::{ComposerTarget, InlineState, NewIssueFormFocus, NewIssueFormState};
 use std::path::PathBuf;
 
 fn base_state() -> AppState {
@@ -32,9 +32,18 @@ fn with_new_issue_draft(state: AppState, text: &str) -> AppState {
     let mut state = state;
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewIssue,
-        text: text.to_string(),
-        cursor: text.len(),
+        text: String::new(),
+        cursor: 0,
     };
+    // Issue #454: the rendered draft lives on the focused form field, so the
+    // resolver reads from `new_issue_form` (title by default), not
+    // `inline_state.text`.
+    state.issues_state.new_issue_form = Some(NewIssueFormState {
+        title_text: text.to_string(),
+        title_cursor: text.chars().count(),
+        focus: NewIssueFormFocus::Title,
+        ..NewIssueFormState::default()
+    });
     state
 }
 
@@ -62,6 +71,9 @@ fn resolves_none_for_new_comment_composer() {
         text: "draft".to_string(),
         cursor: 5,
     };
+    // A NewComment composer has no NewIssue form, so the resolver must not
+    // treat the leftover title text as a NewIssue draft (issue #454).
+    state.issues_state.new_issue_form = None;
     assert!(resolve_or_panic(&state).is_none());
 }
 

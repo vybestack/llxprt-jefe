@@ -14,7 +14,7 @@
 
 use jefe::domain::{LaunchSignature, Repository, build_rewrite_instruction};
 use jefe::runtime::run_non_interactive;
-use jefe::state::{AppEvent, AppState, InlineState};
+use jefe::state::{AppEvent, AppState};
 use tempfile::NamedTempFile;
 
 use super::{
@@ -173,14 +173,20 @@ fn resolve_rewrite_context_from_state(state: &AppState) -> Result<Option<Rewrite
 
 /// The current NewIssue composer draft text, or `None` if the composer is not
 /// active for a new issue or the draft is empty.
+///
+/// Issue #454: the rendered draft lives on the focused form field, so read
+/// from `new_issue_form` (title/body) instead of the now-empty
+/// `inline_state.text`.
 fn new_issue_composer_draft(state: &AppState) -> Option<String> {
-    match &state.issues_state.inline_state {
-        InlineState::Composer {
-            target: jefe::state::ComposerTarget::NewIssue,
-            text,
-            ..
-        } if !text.trim().is_empty() => Some(text.clone()),
-        _ => None,
+    let form = state.issues_state.new_issue_form.as_ref()?;
+    let draft = match form.focus {
+        jefe::state::NewIssueFormFocus::Body => &form.body_text,
+        _ => &form.title_text,
+    };
+    if draft.trim().is_empty() {
+        None
+    } else {
+        Some(draft.clone())
     }
 }
 

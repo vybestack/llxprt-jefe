@@ -87,6 +87,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let issue_detail = state.and_then(|s| s.issues_state.issue_detail.clone());
     let detail_subfocus = state.map_or_else(Default::default, |s| s.issues_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.issues_state.inline_state.clone());
+    let new_issue_form = state.and_then(|s| s.issues_state.new_issue_form.clone());
     let comments_loading = state.is_some_and(|s| s.issues_state.loading.comments);
     let detail_scroll_offset = state.map_or(0, |s| s.issues_state.detail_scroll_offset);
     let detail_focused = issue_focus == IssueFocus::IssueDetail;
@@ -322,6 +323,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                 issue_detail: issue_detail.as_ref(),
                                 detail_subfocus,
                                 inline_state: &inline_state,
+                                new_issue_form: new_issue_form.as_ref(),
                                 comments_loading,
                                 focused: detail_focused,
                                 scroll_offset: detail_scroll_offset,
