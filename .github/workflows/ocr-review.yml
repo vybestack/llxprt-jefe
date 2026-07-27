@@ -843,6 +843,15 @@ jobs:
               ocrCoverage = classifyCoverage(null, exitCode);
             }
 
+            // Persist the four-state coverage classification so the manifest
+            // step reads a single source of truth instead of recomputing it.
+            // This keeps the sticky summary and the manifest.post.json in sync.
+            try {
+              fs.writeFileSync('ocr-coverage.txt', `${ocrCoverage}\n`);
+            } catch (coveragePersistErr) {
+              core.warning(`Could not persist OCR coverage for the manifest step: ${coveragePersistErr.message || coveragePersistErr}`);
+            }
+
             // Deduplicate exact candidates inside the current result before
             // batch posting so a single OCR run cannot post two identical
             // inline comments or two identical lineless findings. The dedup key
@@ -1152,7 +1161,12 @@ jobs:
           try {
             if (urlRaw) {
               const u = new URL(urlRaw);
-              urlShape = `${u.protocol}//${u.host}${u.pathname}`;
+              // Capture only the shape, never the full pathname: a provider
+              // fingerprint needs scheme + host + the first path segment only.
+              // Truncating prevents any secret embedded deeper in the path
+              // from being written to the manifest.
+              const firstSegment = u.pathname.split('/').filter(Boolean)[0] || '';
+              urlShape = `${u.protocol}//${u.host}${firstSegment ? '/' + firstSegment : ''}`;
             }
           } catch (_) {
             urlShape = 'unparseable';
@@ -1169,8 +1183,10 @@ jobs:
               },
             },
           };
-          // Best-effort coverage state: re-derive from the result JSON so the
-          // post manifest reports the same classification as the summary.
+          // Best-effort reported-status extraction for the manifest. The
+          // coverage classification itself is read from ocr-coverage.txt,
+          // which the posting step writes as the single source of truth, so
+          // the sticky summary and the manifest never drift.
           function extractStatuses(value, into = []) {
             if (Array.isArray(value)) {
               for (const item of value) extractStatuses(item, into);
@@ -1182,7 +1198,17 @@ jobs:
             }
             return into;
           }
-          function classifyCoverage(parsed, exitCode) {
+          // Parse the exit code defensively: an empty or non-numeric
+          // ocr-exit-code.txt must not coerce to 0 (success). Treat an
+          // unparseable value as a nonzero failure so coverage classifies as
+          // failed rather than silently clean.
+          const rawExit = readTrim('ocr-exit-code.txt', '');
+          const parsedExit = Number(rawExit);
+          const exitCode = (rawExit !== '' && Number.isInteger(parsedExit)) ? parsedExit : 1;
+          // Single source of truth: prefer the coverage value the posting step
+          // persisted. Fall back to recomputing only if that file is missing
+          // (e.g. the posting step crashed before writing it).
+          function fallbackCoverage(parsed, exitCode) {
             if (exitCode !== 0) return 'failed';
             const statuses = parsed ? extractStatuses(parsed) : [];
             if (statuses.length === 0) return 'unknown';
@@ -1191,21 +1217,15 @@ jobs:
             return 'unknown';
           }
           let coverageParsed = null;
-          // Parse the exit code defensively: an empty or non-numeric
-          // ocr-exit-code.txt must not coerce to 0 (success). Treat an
-          // unparseable value as a nonzero failure so coverage classifies as
-          // failed rather than silently clean.
-          const rawExit = readTrim('ocr-exit-code.txt', '');
-          const parsedExit = Number(rawExit);
-          const exitCode = (rawExit !== '' && Number.isInteger(parsedExit)) ? parsedExit : 1;
-          let coverage = classifyCoverage(null, exitCode);
           try {
             const raw = readTrim('ocr-result.json', '');
-            if (raw) {
-              coverageParsed = JSON.parse(raw);
-              coverage = classifyCoverage(coverageParsed, exitCode);
-            }
-          } catch (_) { coverage = classifyCoverage(null, exitCode); }
+            if (raw) coverageParsed = JSON.parse(raw);
+          } catch (_) { coverageParsed = null; }
+          const persistedCoverage = readTrim('ocr-coverage.txt', '').trim();
+          const knownCoverage = new Set(['complete_best_effort', 'partial', 'failed', 'unknown']);
+          const coverage = knownCoverage.has(persistedCoverage)
+            ? persistedCoverage
+            : fallbackCoverage(coverageParsed, exitCode);
           let reportedStatuses = [];
           try { reportedStatuses = extractStatuses(coverageParsed); } catch (_) {}
 
