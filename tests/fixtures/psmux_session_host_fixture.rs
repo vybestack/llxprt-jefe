@@ -69,6 +69,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if args.next().is_some() {
                 return Err("unexpected extra argument".into());
             }
+            #[cfg(windows)]
+            establish_host_job()?;
             run_session_host(&marker_path)
         }
         "--worker" => {
@@ -157,13 +159,6 @@ fn establish_host_job() -> Result<(), Box<dyn std::error::Error>> {
     // Leak the handle: this process owns the Job for its whole lifetime. Drop
     // would close the handle prematurely and defeat the test.
     std::mem::forget(job);
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn establish_host_job() -> Result<(), Box<dyn std::error::Error>> {
-    // Unix is structurally out of scope for #467; the fixture is only built
-    // under the psmux-smoke feature which is windows-gated.
     Ok(())
 }
 

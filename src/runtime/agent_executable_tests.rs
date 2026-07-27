@@ -410,8 +410,7 @@ fn agent_launcher_error_names_windows_containment_refusal() {
         for variant in variants {
             assert!(
                 !variant.to_string().contains("containment"),
-                "Unix launch errors must not mention containment: {}",
-                variant
+                "Unix launch errors must not mention containment: {variant}"
             );
         }
     }

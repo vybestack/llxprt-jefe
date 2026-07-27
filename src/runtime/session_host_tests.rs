@@ -251,6 +251,37 @@ fn staging_leaves_unrelated_temp_artifacts_for_other_attempts_untouched() {
 }
 
 #[test]
+fn concurrent_staging_of_the_same_image_is_idempotent() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+    let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
+    let source = write_default_source(&source_dir);
+
+    let paths = std::thread::scope(|scope| {
+        let first = scope.spawn(|| stage_session_host(root.path(), "jefe-agent-1", &source));
+        let second = scope.spawn(|| stage_session_host(root.path(), "jefe-agent-1", &source));
+        [
+            first
+                .join()
+                .unwrap_or_else(|_| panic!("first staging thread panicked")),
+            second
+                .join()
+                .unwrap_or_else(|_| panic!("second staging thread panicked")),
+        ]
+    });
+    let first = paths[0]
+        .as_ref()
+        .unwrap_or_else(|error| panic!("first concurrent staging: {error}"));
+    let second = paths[1]
+        .as_ref()
+        .unwrap_or_else(|error| panic!("second concurrent staging: {error}"));
+    assert_eq!(first, second);
+    assert_eq!(
+        fs::read(first).unwrap_or_else(|error| panic!("read staged image: {error}")),
+        b"jefe-image-v1"
+    );
+}
+
+#[test]
 fn staging_preserves_staged_copy_after_source_is_replaced() {
     // AC4: a staged/running copy must permit replacing the source image.
     let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
@@ -389,48 +420,24 @@ fn cleanup_session_directory_rejects_unsanitizable_session_name_without_touching
 }
 
 #[test]
-fn cleanup_session_directory_reports_retained_when_directory_cannot_be_removed() {
-    // AC7: cleanup failures are best-effort and retained for retry. On Unix we
-    // simulate an unwritable root by revoking the directory's write permission
-    // so the recursive remove fails; on Windows the host filesystem does not
-    // honor the chmod contract, so this test is Unix-only.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
-        let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
-        let source = write_default_source(&source_dir);
-        let staged = stage_session_fixture(&root, &source, "jefe-locked");
+fn cleanup_session_directory_reports_retained_when_artifact_cannot_be_removed_as_directory() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+    let session_path = root.path().join("jefe-locked");
+    fs::write(&session_path, b"interrupted artifact")
+        .unwrap_or_else(|error| panic!("write invalid session artifact: {error}"));
 
-        // Revoke write on the root so the session subdirectory cannot be
-        // unlinked. Restore it afterwards so TempDir::drop can clean up.
-        let meta =
-            std::fs::metadata(root.path()).unwrap_or_else(|error| panic!("root metadata: {error}"));
-        let mut perms = meta.permissions();
-        perms.set_mode(0o555);
-        std::fs::set_permissions(root.path(), perms.clone())
-            .unwrap_or_else(|error| panic!("revoke root write: {error}"));
+    let outcome =
+        crate::runtime::session_host::cleanup_session_directory(root.path(), "jefe-locked")
+            .unwrap_or_else(|error| panic!("cleanup should retain on failure, not error: {error}"));
 
-        let outcome =
-            crate::runtime::session_host::cleanup_session_directory(root.path(), "jefe-locked")
-                .unwrap_or_else(|error| {
-                    panic!("cleanup should retain on failure, not error: {error}")
-                });
-
-        // Restore write for TempDir drop. Best-effort; the assertion below is
-        // the contract we care about.
-        perms.set_mode(0o755);
-        let _ = std::fs::set_permissions(root.path(), perms);
-
-        assert!(
-            matches!(outcome, SessionCleanupOutcome::RetainedForRetry),
-            "cleanup failure must be retained for retry, got {outcome:?}"
-        );
-        assert!(
-            staged.exists(),
-            "retained session directory must still exist after a failed cleanup"
-        );
-    }
+    assert!(
+        matches!(outcome, SessionCleanupOutcome::RetainedForRetry),
+        "cleanup failure must be retained for retry, got {outcome:?}"
+    );
+    assert!(
+        session_path.exists(),
+        "retained session artifact must still exist after failed directory cleanup"
+    );
 }
 
 // ── Issue #467 Slice 2: startup cleanup (AC8) ──────────────────────────────

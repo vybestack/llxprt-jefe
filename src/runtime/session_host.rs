@@ -215,6 +215,12 @@ fn stage_with_plan(
     })?;
 
     if fs::rename(&temp_path, plan.staged_path()).is_err() {
+        // Another launcher may have won the same content-addressed rename.
+        // Treat that as success; all contenders wrote identical digest bytes.
+        if plan.staged_path().is_file() {
+            let _ = fs::remove_file(&temp_path);
+            return Ok(plan.staged_path().to_path_buf());
+        }
         // Best-effort cleanup of our temp file before surfacing the failure;
         // a leftover temp from this attempt would be reclaimed on retry.
         let _ = fs::remove_file(&temp_path);

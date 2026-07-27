@@ -313,8 +313,15 @@ fn resolved_fixture(
     } else {
         "code-puppy"
     };
-    std::fs::write(directory.path().join(binary), b"fixture")
+    let binary_path = directory.path().join(binary);
+    std::fs::write(&binary_path, b"fixture")
         .unwrap_or_else(|error| panic!("runtime fixture should be written: {error}"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&binary_path, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("runtime fixture should be executable: {error}"));
+    }
     let executable =
         AgentExecutableResolver::for_platform(platform, vec![directory.path().to_path_buf()], None)
             .resolve(AgentKind::CodePuppy)

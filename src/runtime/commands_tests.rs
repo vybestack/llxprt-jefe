@@ -15,7 +15,7 @@ fn remote_attach_plan_uses_direct_ssh_and_excludes_local_psmux_namespace() {
         login_user: "ubuntu".to_owned(),
         host: "linux.example".to_owned(),
         port: Some(2222),
-        identity_file: std::path::PathBuf::from(r"C:\Keys Î©\agent key"),
+        identity_file: std::path::PathBuf::from(r"C:\Keys Ω\agent key"),
         options: vec!["Compression=yes".to_owned()],
         ..crate::domain::RemoteRepositorySettings::default()
     };
@@ -183,7 +183,7 @@ fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
 /// [`local_pane_command_args`] so the llxprt child never sees a stale debug
 /// flag.
 ///
-/// Drives the real production path (`local_launch_plan` â†’
+/// Drives the real production path (`local_launch_plan` →
 /// `local_pane_command_args`) rather than re-deriving the env vector inline,
 /// so a regression in the env-building logic (a new condition, a renamed key)
 /// is caught here (#173).
@@ -324,7 +324,7 @@ fn command_capture_timeout_terminates_descendant_process_group() {
 /// [`local_pane_command_args`] verbatim (single argv entry, no extra quoting),
 /// so the llxprt child inherits the intended debug level.
 ///
-/// Drives the real production path (`local_launch_plan` â†’
+/// Drives the real production path (`local_launch_plan` →
 /// `local_pane_command_args`) instead of re-deriving the env vector inline
 /// (#173).
 #[test]
@@ -604,10 +604,10 @@ fn remote_launch_command_scrubs_tmux_env_from_pane() {
 /// `SANDBOX_FLAGS` must reach the local pane command as a single raw
 /// `SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256` argv entry (no
 /// shell quoting), because tmux passes each argv element to `sh -c` as one
-/// token â€” shell-quoting the value would embed literal quote chars in the env
+/// token — shell-quoting the value would embed literal quote chars in the env
 /// var the agent child sees.
 ///
-/// Drives the real production path (`local_launch_plan` â†’
+/// Drives the real production path (`local_launch_plan` →
 /// `local_pane_command_args`) with `sandbox_enabled: true` and asserts the raw
 /// argv entry appears, rather than re-deriving `format!` output (#173).
 #[test]
@@ -738,7 +738,7 @@ fn code_puppy_launch_uses_only_supported_args() {
     assert!(!pane_args.iter().any(|arg| arg == "--profile-load"));
 }
 
-// â”€â”€ Code Puppy strict args (issue #184) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Code Puppy strict args (issue #184) ───────────────────────────────────
 //
 // Code Puppy outputs interactive mode plus its typed YOLO value for normal
 // launches, and appends one positional instruction for fresh sends. Arbitrary
@@ -817,7 +817,7 @@ fn code_puppy_discards_unrecognized_positional_flags() {
     assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 }
 
-// â”€â”€ Issue #198: history-aware capture-pane argv builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Issue #198: history-aware capture-pane argv builder ───────────────────
 //
 // `capture-pane -p -S -<N> -E -` captures the last N lines of tmux scrollback
 // history including the visible pane. The argv builder is a pure function so
@@ -883,7 +883,7 @@ fn capture_pane_history_argv_zero_lines_clamps_to_one() {
     };
     assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
 }
-// â”€â”€ Issue #465: Windows psmux root-table PageUp unbind â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Issue #465: Windows psmux root-table PageUp unbind ────────────────────
 //
 // `configure_prefix_with` must unbind `PageUp` from the psmux root table on
 // Windows so the default `PageUp -> copy-mode -u` binding cannot consume bare
@@ -927,7 +927,7 @@ fn windows_configure_prefix_unbinds_page_up_from_root_table() {
     }
 }
 
-// â”€â”€ Issue #467 Slice 2: local launch host-staging decision (AC1, AC9) â”€â”€â”€â”€â”€â”€
+// Issue #467 Slice 2: local launch host-staging decision (AC1, AC9)
 //
 // On native Windows, a fresh local creation with an explicit session-host root
 // stages std::env::current_exe() below the manager's root and the psmux pane
