@@ -14,8 +14,6 @@
 //! a local observation-health overlay applied by Jefe transport in a later
 //! slice. Producers cannot assert `stale`.
 
-use serde::{Deserialize, Serialize};
-
 // ---------------------------------------------------------------------------
 // Field-state type aliases exported for the typed snapshot contract.
 // ---------------------------------------------------------------------------
@@ -52,8 +50,7 @@ pub type SourceErrorField = FieldState<SourceErrorValue>;
 /// `Inferred` means the producer derived it from other evidence. Both are
 /// distinct from `Unsupported`, which is a separate field state rather than a
 /// provenance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Provenance {
     Authoritative,
     Inferred,
@@ -150,8 +147,9 @@ impl<T> FieldState<T> {
 // Bounded newtype strings
 // ---------------------------------------------------------------------------
 
-/// A stable diagnostic code drawn from a closed inventory. Diagnostic-only;
-/// never echoes producer payload text.
+/// A bounded producer-supplied diagnostic code. It is an opaque correlation
+/// label only: Jefe never interprets it and never echoes it in parser
+/// diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticCode(pub(crate) String);
 

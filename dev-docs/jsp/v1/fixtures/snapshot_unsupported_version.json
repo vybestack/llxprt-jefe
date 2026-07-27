@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "kind": "snapshot",
+  "agent_id": "agent-future",
+  "lifecycle_generation": 1,
+  "source_epoch": "epoch-008",
+  "source_sequence": 1,
+  "cursor": 0,
+  "bridge_observed_ms": 1785921990000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 4343,
+    "display_name": "future-worker"
+  },
+  "process_binding": "unsupported",
+  "native_activity": "unsupported",
+  "current_wait": "unsupported",
+  "current_turn": "unsupported",
+  "todos": "unsupported",
+  "last_displayed_assistant_message": "unsupported",
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": "unsupported"
+}

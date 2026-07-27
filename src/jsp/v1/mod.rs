@@ -18,10 +18,10 @@
 
 pub mod contract;
 pub mod error;
-pub mod limits;
-pub mod parse;
-pub mod validate;
-pub mod wire;
+mod limits;
+mod parse;
+mod validate;
+mod wire;
 
 pub use contract::{Cursor, ObservationKey, Snapshot, SourceSequence};
 pub use error::{JspCode, JspError};

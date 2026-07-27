@@ -55,6 +55,38 @@
       "error_code": "JSP-E005",
       "rows": ["S4", "S5"],
       "description": "Producer-supplied stale tool phase (stale is a transport-health overlay, not a producer value) and otherwise valid shape. Must fail semantic validation with no payload echoed."
+    },
+    {
+      "name": "snapshot_nested_forbidden_fields",
+      "file": "snapshot_nested_forbidden_fields.json",
+      "expected": "error",
+      "error_code": "JSP-E001",
+      "rows": ["S5", "S6"],
+      "description": "Forbidden credential, transcript, and control members nested inside current_wait.value rather than at the top level. The closed contract applies at every depth, so these must be rejected at ingress and never echoed."
+    },
+    {
+      "name": "snapshot_over_bound",
+      "file": "snapshot_over_bound.json",
+      "expected": "error",
+      "error_code": "JSP-E002",
+      "rows": ["S2"],
+      "description": "Tool label one byte over the 256-byte inclusive bound. Limit-plus-one input must fail before a contract value is returned."
+    },
+    {
+      "name": "snapshot_unsupported_version",
+      "file": "snapshot_unsupported_version.json",
+      "expected": "error",
+      "error_code": "JSP-E003",
+      "rows": ["S2"],
+      "description": "Otherwise-valid document declaring schema 2. There is no legacy or unknown-version fallback."
+    },
+    {
+      "name": "snapshot_invalid_identity",
+      "file": "snapshot_invalid_identity.json",
+      "expected": "error",
+      "error_code": "JSP-E004",
+      "rows": ["S3"],
+      "description": "Zero lifecycle_generation. The live observation key requires a positive generation, and this is an identity violation rather than a shape error."
     }
   ]
 }

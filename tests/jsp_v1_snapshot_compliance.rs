@@ -333,6 +333,108 @@ fn s5_forbidden_fields_fail_closed() {
     );
 }
 
+/// Build a snapshot document whose `current_wait` field carries the supplied
+/// raw JSON field-state, with every other field `unsupported`.
+fn snapshot_with_wait_state(field_state: &str) -> Vec<u8> {
+    format!(
+        r#"{{"schema":1,"kind":"snapshot","agent_id":"a","lifecycle_generation":1,"source_epoch":"e","source_sequence":1,"cursor":0,"bridge_observed_ms":1,"native_session":{{"repository":"r","path":"p","agent_kind":"llxprt","pid":1,"display_name":"d"}},"process_binding":"unsupported","native_activity":"unsupported","current_wait":{field_state},"current_turn":"unsupported","todos":"unsupported","last_displayed_assistant_message":"unsupported","last_created_tool_call":"unsupported","source_terminal_state":"unsupported","source_error_state":"unsupported"}}"#
+    )
+    .into_bytes()
+}
+
+/// S5: forbidden credential and control fields fail closed even when nested
+/// inside a field value rather than at the top level.
+///
+/// The top-level envelope is closed by `deny_unknown_fields`; this proves the
+/// same guarantee holds one level down, inside `current_wait.value`.
+#[test]
+fn s5_forbidden_fields_nested_in_a_field_value_fail_closed() {
+    let forbidden = [
+        r#"{"reason":"permission","publisher_token":"supersecret"}"#,
+        r#"{"reason":"permission","observer_token":"supersecret"}"#,
+        r#"{"reason":"permission","raw_transcript":"leaked"}"#,
+        r#"{"reason":"permission","draft":"leaked"}"#,
+        r#"{"reason":"permission","control":"kill"}"#,
+    ];
+    for payload in forbidden {
+        let field_state =
+            format!(r#"{{"provenance":"authoritative","availability":"known","value":{payload}}}"#);
+        let bytes = snapshot_with_wait_state(&field_state);
+        let error = parse_snapshot(&bytes)
+            .err()
+            .unwrap_or_else(|| panic!("nested forbidden field must fail: {payload}"));
+        assert_eq!(
+            error.code(),
+            JspCode::EClosedShape,
+            "nested forbidden field must fail closed: {payload}"
+        );
+        let detail = error.detail();
+        for token in ["supersecret", "leaked", "kill"] {
+            assert!(
+                !detail.contains(token),
+                "diagnostic leaked token '{token}': {detail}"
+            );
+        }
+    }
+}
+
+/// S5: a legal wait payload still parses, so the closed DTO did not
+/// over-tighten the accepted shape.
+#[test]
+fn s5_legal_wait_payload_still_parses() {
+    let bytes = snapshot_with_wait_state(
+        r#"{"provenance":"authoritative","availability":"known","value":{"reason":"permission"}}"#,
+    );
+    parse_snapshot(&bytes).unwrap_or_else(|err| panic!("legal wait payload must parse: {err}"));
+}
+
+/// S1/S5: duplicate object keys inside a field value are rejected rather than
+/// silently resolved last-wins.
+///
+/// A closed wire contract must give one meaning to one byte sequence; without
+/// this, `"phase":"succeeded","phase":"failed"` would quietly become `failed`.
+#[test]
+fn s5_duplicate_keys_inside_a_field_value_fail_closed() {
+    let duplicates = [
+        r#"{"state":"idle","state":"acting"}"#,
+        r#"{"state":"idle","state":"idle"}"#,
+    ];
+    for payload in duplicates {
+        let field_state =
+            format!(r#"{{"provenance":"authoritative","availability":"known","value":{payload}}}"#);
+        let bytes = snapshot_with_activity_state(&field_state);
+        let error = parse_snapshot(&bytes)
+            .err()
+            .unwrap_or_else(|| panic!("duplicate nested key must fail: {payload}"));
+        assert_eq!(
+            error.code(),
+            JspCode::EClosedShape,
+            "duplicate nested key must fail closed: {payload}"
+        );
+    }
+}
+
+/// S6: a `degraded` diagnostic names `last_value`, not `value`, so a producer
+/// is pointed at the member it actually sent.
+#[test]
+fn s6_degraded_diagnostics_name_the_last_value_member() {
+    let bytes = snapshot_with_activity_state(
+        r#"{"provenance":"inferred","availability":"degraded","last_value":{"state":"bogus"},"as_of_ms":5,"diagnostic_code":"X"}"#,
+    );
+    let error = parse_snapshot(&bytes)
+        .err()
+        .unwrap_or_else(|| panic!("unknown degraded activity state must fail"));
+    let detail = error.detail();
+    assert!(
+        detail.contains("last_value"),
+        "degraded diagnostic must name last_value: {detail}"
+    );
+    assert!(
+        !detail.contains(".value."),
+        "degraded diagnostic must not name the value member: {detail}"
+    );
+}
+
 /// Build a snapshot document whose `native_activity` field carries the supplied
 /// raw JSON field-state, with every other field `unsupported`.
 fn snapshot_with_activity_state(field_state: &str) -> Vec<u8> {
@@ -441,17 +543,50 @@ fn s6_error_diagnostics_never_echo_payload() {
         let path = fixtures_dir().join(&entry.file);
         let bytes = fs::read(&path)
             .unwrap_or_else(|_| panic!("fixture {} exists at {}", entry.name, path.display()));
-        if let Err(error) = parse_snapshot(&bytes) {
-            let detail = error.detail();
-            for token in forbidden_tokens {
-                assert!(
-                    !detail.contains(token),
-                    "fixture {} diagnostic leaked token '{token}': {detail}",
-                    entry.name
-                );
-            }
+        // A fixture that parses instead of failing must break this test rather
+        // than skip it, or a regression that accepts forbidden input would go
+        // undetected here.
+        let error = parse_snapshot(&bytes).err().unwrap_or_else(|| {
+            panic!(
+                "fixture {} is declared an error fixture but parsed successfully",
+                entry.name
+            )
+        });
+        let detail = error.detail();
+        for token in forbidden_tokens {
+            assert!(
+                !detail.contains(token),
+                "fixture {} diagnostic leaked token '{token}': {detail}",
+                entry.name
+            );
         }
     }
+}
+
+/// S6: `source_terminal_state` diagnostics name that field, not the sibling
+/// `source_error_state` that shares its payload shape.
+#[test]
+fn s6_source_terminal_diagnostics_name_their_own_field() {
+    let oversized = "s".repeat(2049);
+    let field_state = format!(
+        r#"{{"provenance":"authoritative","availability":"known","value":{{"summary":"{oversized}","code":"E"}}}}"#
+    );
+    let json = format!(
+        r#"{{"schema":1,"kind":"snapshot","agent_id":"a","lifecycle_generation":1,"source_epoch":"e","source_sequence":1,"cursor":0,"bridge_observed_ms":1,"native_session":{{"repository":"r","path":"p","agent_kind":"llxprt","pid":1,"display_name":"d"}},"process_binding":"unsupported","native_activity":"unsupported","current_wait":"unsupported","current_turn":"unsupported","todos":"unsupported","last_displayed_assistant_message":"unsupported","last_created_tool_call":"unsupported","source_terminal_state":{field_state},"source_error_state":"unsupported"}}"#
+    );
+    let error = parse_snapshot(json.as_bytes())
+        .err()
+        .unwrap_or_else(|| panic!("oversized terminal summary must fail"));
+    assert_eq!(error.code(), JspCode::EBound);
+    let detail = error.detail();
+    assert!(
+        detail.contains("source_terminal_state"),
+        "diagnostic must name source_terminal_state: {detail}"
+    );
+    assert!(
+        !detail.contains("source_error_state"),
+        "diagnostic must not name the sibling field: {detail}"
+    );
 }
 
 /// Sanity: the error type implements the expected stable-code surface.

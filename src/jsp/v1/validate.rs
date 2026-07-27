@@ -18,11 +18,10 @@ use crate::domain::observation::{
 
 use super::contract::{ObservationKey, Snapshot};
 use super::error::JspError;
-use super::limits::{ACCEPTED_SCHEMA, SNAPSHOT_KIND};
 use super::wire::{
     AvailabilityKindWire, CurrentTurnPayload, DisplayedMessagePayload, FieldLimits, FieldWire,
     NativeActivityPayload, NativeSessionWire, ProcessBindingPayload, ProvenanceWire, SnapshotWire,
-    SourceErrorPayload, SupportedState, TodoItemWire, TodosPayload, ToolCallPayload,
+    SourceErrorPayload, SupportedState, TodoItemWire, TodosPayload, ToolCallPayload, WaitPayload,
 };
 
 /// Convert a fully-deserialized wire snapshot into a typed domain snapshot.
@@ -31,8 +30,7 @@ use super::wire::{
 /// passed `deny_unknown_fields` and structural deserialization; it applies
 /// schema/kind gates, identity invariants, bounds, closed-enum parsing, and
 /// field-state semantics.
-pub(crate) fn convert(wire: SnapshotWire) -> Result<Snapshot, JspError> {
-    validate_schema_and_kind(&wire)?;
+pub fn convert(wire: SnapshotWire) -> Result<Snapshot, JspError> {
     let identity = build_identity(&wire)?;
     let native_session = build_native_session(&wire.native_session)?;
     let process_binding = convert_process_binding(&wire.process_binding)?;
@@ -61,22 +59,6 @@ pub(crate) fn convert(wire: SnapshotWire) -> Result<Snapshot, JspError> {
         source_terminal_state: source_terminal,
         source_error_state: source_error,
     })
-}
-
-/// Reject the document if schema or kind is wrong. This is the version/kind
-/// gate (decision 1): unknown schema/kind fails with `JSP-E003`.
-fn validate_schema_and_kind(wire: &SnapshotWire) -> Result<(), JspError> {
-    if wire.schema != ACCEPTED_SCHEMA {
-        return Err(JspError::unsupported_version(format!(
-            "snapshot.schema: unsupported schema version (accepted: {ACCEPTED_SCHEMA})"
-        )));
-    }
-    if wire.kind != SNAPSHOT_KIND {
-        return Err(JspError::unsupported_version(format!(
-            "snapshot.kind: unsupported kind (accepted: \"{SNAPSHOT_KIND}\")"
-        )));
-    }
-    Ok(())
 }
 
 /// Build and validate the live observation identity (decision 2/3).
@@ -137,8 +119,9 @@ fn convert_process_binding(field: &FieldWire) -> Result<ProcessBindingField, Jsp
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.process_binding", state, |value| {
-        let payload: ProcessBindingPayload = parse_payload("snapshot.process_binding", value)?;
+    let availability = build_availability("snapshot.process_binding", state, |slot, value| {
+        let payload: ProcessBindingPayload =
+            parse_payload(&slot.root("snapshot.process_binding"), value)?;
         Ok(ProcessBinding {
             pid: payload.pid,
             started_at_ms: payload.started_at_ms,
@@ -172,7 +155,7 @@ fn supported_state(field: &FieldWire) -> Option<&SupportedState> {
 fn build_availability<T>(
     path: &str,
     state: &SupportedState,
-    build_known: impl Fn(&serde_json::Value) -> Result<T, JspError>,
+    build_known: impl Fn(&ValueSlot, &serde_json::Value) -> Result<T, JspError>,
 ) -> Result<Availability<T>, JspError> {
     match state.availability {
         AvailabilityKindWire::Unknown => {
@@ -182,18 +165,47 @@ fn build_availability<T>(
         AvailabilityKindWire::Known => {
             reject_degraded_only_fields(path, state)?;
             let value = require_value(path, state)?;
-            Ok(Availability::Known(build_known(value)?))
+            Ok(Availability::Known(build_known(&ValueSlot::Value, value)?))
         }
         AvailabilityKindWire::Degraded => {
             let last_value = require_last_value(path, state)?;
             let as_of_ms = require_as_of_ms(path, state)?;
             let diagnostic_code = require_diagnostic_code(path, state)?;
             Ok(Availability::Degraded {
-                last_value: build_known(last_value)?,
+                last_value: build_known(&ValueSlot::LastValue, last_value)?,
                 as_of_ms,
                 diagnostic_code,
             })
         }
+    }
+}
+
+/// Which member of a supported field state a value was read from.
+///
+/// Diagnostics must name the member the producer actually sent, so a `degraded`
+/// payload reports `last_value` rather than `value`.
+pub enum ValueSlot {
+    Value,
+    LastValue,
+}
+
+impl ValueSlot {
+    /// The JSON member name for this slot.
+    const fn member(&self) -> &'static str {
+        match self {
+            Self::Value => "value",
+            Self::LastValue => "last_value",
+        }
+    }
+
+    /// Build the diagnostic path for a leaf inside this slot.
+    fn path(&self, field_path: &str, leaf: &str) -> String {
+        format!("{field_path}.{}.{leaf}", self.member())
+    }
+
+    /// Build the diagnostic path for the slot itself.
+    fn root(&self, field_path: &str) -> String {
+        format!("{field_path}.{}", self.member())
     }
 }
 
@@ -293,10 +305,14 @@ fn convert_native_activity(field: &FieldWire) -> Result<NativeActivityField, Jsp
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.native_activity", state, |value| {
-        let payload: NativeActivityPayload = parse_payload("snapshot.native_activity", value)?;
+    let availability = build_availability("snapshot.native_activity", state, |slot, value| {
+        let payload: NativeActivityPayload =
+            parse_payload(&slot.root("snapshot.native_activity"), value)?;
         let activity = NativeActivityState::from_wire(&payload.state).ok_or_else(|| {
-            JspError::field_state("snapshot.native_activity.state: unsupported activity state")
+            JspError::field_state(format!(
+                "{}: unsupported activity state",
+                slot.path("snapshot.native_activity", "state")
+            ))
         })?;
         Ok(NativeActivityValue { state: activity })
     })?;
@@ -317,11 +333,11 @@ fn convert_current_wait(field: &FieldWire) -> Result<CurrentWaitField, JspError>
             "snapshot.current_wait: degraded availability is not valid for wait state",
         ));
     }
-    let availability = build_availability("snapshot.current_wait", state, |value| {
+    let availability = build_availability("snapshot.current_wait", state, |slot, value| {
         if value.is_null() {
             Ok(None)
         } else {
-            let reason = parse_wait_reason("snapshot.current_wait", value)?;
+            let reason = parse_wait_reason(&slot.root("snapshot.current_wait"), value)?;
             Ok(Some(Wait { reason }))
         }
     })?;
@@ -337,8 +353,9 @@ fn convert_current_turn(field: &FieldWire) -> Result<CurrentTurnField, JspError>
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.current_turn", state, |value| {
-        let payload: CurrentTurnPayload = parse_payload("snapshot.current_turn", value)?;
+    let availability = build_availability("snapshot.current_turn", state, |slot, value| {
+        let payload: CurrentTurnPayload =
+            parse_payload(&slot.root("snapshot.current_turn"), value)?;
         Ok(CurrentTurn {
             elapsed_ms: payload.elapsed_ms,
         })
@@ -355,21 +372,22 @@ fn convert_todos(field: &FieldWire) -> Result<TodosField, JspError> {
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.todos", state, |value| {
-        let payload: TodosPayload = parse_payload("snapshot.todos", value)?;
+    let availability = build_availability("snapshot.todos", state, |slot, value| {
+        let payload: TodosPayload = parse_payload(&slot.root("snapshot.todos"), value)?;
         if payload.revision == 0 {
-            return Err(JspError::field_state(
-                "snapshot.todos.value.revision: must be a positive integer",
-            ));
+            return Err(JspError::field_state(format!(
+                "{}: must be a positive integer",
+                slot.path("snapshot.todos", "revision")
+            )));
         }
-        super::limits::check_bound(
-            "snapshot.todos.value.items",
+        super::limits::check_count_bound(
+            &slot.path("snapshot.todos", "items"),
             payload.items.len(),
             FieldLimits::TODOS,
         )?;
         let mut items = Vec::with_capacity(payload.items.len());
         for (index, item) in payload.items.iter().enumerate() {
-            items.push(parse_todo_item(index, item)?);
+            items.push(parse_todo_item(slot, index, item)?);
         }
         Ok(TodoList {
             revision: payload.revision,
@@ -383,8 +401,12 @@ fn convert_todos(field: &FieldWire) -> Result<TodosField, JspError> {
 }
 
 /// Parse a single todo item with text bound.
-fn parse_todo_item(index: usize, item: &TodoItemWire) -> Result<TodoItem, JspError> {
-    let path = format!("snapshot.todos.value.items[{index}].text");
+fn parse_todo_item(
+    slot: &ValueSlot,
+    index: usize,
+    item: &TodoItemWire,
+) -> Result<TodoItem, JspError> {
+    let path = slot.path("snapshot.todos", &format!("items[{index}].text"));
     let text = parse_bounded_text(&path, &item.text, FieldLimits::TODO_TEXT, BoundedText)?;
     Ok(TodoItem {
         text,
@@ -401,11 +423,11 @@ fn convert_last_message(field: &FieldWire) -> Result<LastMessageField, JspError>
     let availability = build_availability(
         "snapshot.last_displayed_assistant_message",
         state,
-        |value| {
-            let payload: DisplayedMessagePayload =
-                parse_payload("snapshot.last_displayed_assistant_message", value)?;
+        |slot, value| {
+            let field = "snapshot.last_displayed_assistant_message";
+            let payload: DisplayedMessagePayload = parse_payload(&slot.root(field), value)?;
             let content = parse_bounded_text(
-                "snapshot.last_displayed_assistant_message.value.content",
+                &slot.path(field, "content"),
                 &payload.content,
                 FieldLimits::DISPLAYED_CONTENT,
                 BoundedText,
@@ -428,10 +450,12 @@ fn convert_last_tool(field: &FieldWire) -> Result<LastToolField, JspError> {
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.last_created_tool_call", state, |value| {
-        let payload: ToolCallPayload = parse_payload("snapshot.last_created_tool_call", value)?;
-        parse_tool_value(&payload)
-    })?;
+    let availability =
+        build_availability("snapshot.last_created_tool_call", state, |slot, value| {
+            let payload: ToolCallPayload =
+                parse_payload(&slot.root("snapshot.last_created_tool_call"), value)?;
+            parse_tool_value(slot, &payload)
+        })?;
     Ok(FieldState::Supported {
         provenance,
         availability,
@@ -439,16 +463,20 @@ fn convert_last_tool(field: &FieldWire) -> Result<LastToolField, JspError> {
 }
 
 /// Parse a tool-call value payload into the typed value.
-fn parse_tool_value(payload: &ToolCallPayload) -> Result<ToolCallValue, JspError> {
+fn parse_tool_value(
+    slot: &ValueSlot,
+    payload: &ToolCallPayload,
+) -> Result<ToolCallValue, JspError> {
+    let field = "snapshot.last_created_tool_call";
     let label = parse_bounded_text(
-        "snapshot.last_created_tool_call.value.label",
+        &slot.path(field, "label"),
         &payload.label,
         FieldLimits::TOOL_LABEL,
         ToolLabel,
     )?;
     let phase = ToolPhase::from_wire(&payload.phase).ok_or_else(|| {
         // `stale` and any unknown phase land here: field-state violation.
-        JspError::field_state("snapshot.last_created_tool_call.value.phase: unsupported phase")
+        JspError::field_state(format!("{}: unsupported phase", slot.path(field, "phase")))
     })?;
     Ok(ToolCallValue { label, phase })
 }
@@ -464,15 +492,20 @@ fn convert_source_terminal(field: &FieldWire) -> Result<SourceTerminalField, Jsp
             "snapshot.source_terminal_state: degraded availability is not valid",
         ));
     }
-    let availability = build_availability("snapshot.source_terminal_state", state, |value| {
-        if value.is_null() {
-            Ok(None)
-        } else {
-            let payload: SourceErrorPayload =
-                parse_payload("snapshot.source_terminal_state", value)?;
-            Ok(Some(parse_source_error(&payload)?))
-        }
-    })?;
+    let availability =
+        build_availability("snapshot.source_terminal_state", state, |slot, value| {
+            if value.is_null() {
+                Ok(None)
+            } else {
+                let root = slot.root("snapshot.source_terminal_state");
+                let payload: SourceErrorPayload = parse_payload(&root, value)?;
+                Ok(Some(parse_source_error(
+                    slot,
+                    "snapshot.source_terminal_state",
+                    &payload,
+                )?))
+            }
+        })?;
     Ok(FieldState::Supported {
         provenance,
         availability,
@@ -485,14 +518,15 @@ fn convert_source_error(field: &FieldWire) -> Result<SourceErrorField, JspError>
         return Ok(FieldState::Unsupported);
     };
     let provenance = convert_provenance(&state.provenance);
-    let availability = build_availability("snapshot.source_error_state", state, |value| {
+    let availability = build_availability("snapshot.source_error_state", state, |slot, value| {
         if value.is_null() {
             return Err(JspError::field_state(
                 "snapshot.source_error_state: known null is not valid; use unsupported",
             ));
         }
-        let payload: SourceErrorPayload = parse_payload("snapshot.source_error_state", value)?;
-        parse_source_error(&payload)
+        let root = slot.root("snapshot.source_error_state");
+        let payload: SourceErrorPayload = parse_payload(&root, value)?;
+        parse_source_error(slot, "snapshot.source_error_state", &payload)
     })?;
     Ok(FieldState::Supported {
         provenance,
@@ -501,15 +535,22 @@ fn convert_source_error(field: &FieldWire) -> Result<SourceErrorField, JspError>
 }
 
 /// Parse a source-error payload with bound checks.
-fn parse_source_error(payload: &SourceErrorPayload) -> Result<SourceErrorValue, JspError> {
+///
+/// The caller supplies its own field path so diagnostics name the field the
+/// producer actually sent rather than a sibling that shares this payload shape.
+fn parse_source_error(
+    slot: &ValueSlot,
+    field_path: &str,
+    payload: &SourceErrorPayload,
+) -> Result<SourceErrorValue, JspError> {
     let summary = parse_bounded_string(
-        "snapshot.source_error_state.value.summary",
+        &slot.path(field_path, "summary"),
         &payload.summary,
         FieldLimits::DIAGNOSTIC_SUMMARY,
         DiagnosticSummary,
     )?;
     let code = parse_bounded_text(
-        "snapshot.source_error_state.value.code",
+        &slot.path(field_path, "code"),
         &payload.code,
         FieldLimits::ERROR_CODE,
         BoundedText,
@@ -522,17 +563,13 @@ fn parse_source_error(payload: &SourceErrorPayload) -> Result<SourceErrorValue, 
 // ---------------------------------------------------------------------------
 
 /// Parse a wait reason from a known-wait JSON object.
+///
+/// The payload goes through the closed [`WaitPayload`] DTO, so unknown members
+/// (including credential and control fields) fail as a closed-shape violation
+/// exactly as they do for every other field value.
 fn parse_wait_reason(path: &str, value: &serde_json::Value) -> Result<WaitReason, JspError> {
-    let obj = value
-        .as_object()
-        .ok_or_else(|| JspError::closed_shape(format!("{path}.value: expected a wait object")))?;
-    let reason_value = obj
-        .get("reason")
-        .ok_or_else(|| JspError::closed_shape(format!("{path}.value.reason: missing field")))?;
-    let reason_str = reason_value
-        .as_str()
-        .ok_or_else(|| JspError::closed_shape(format!("{path}.value.reason: expected a string")))?;
-    WaitReason::from_wire(reason_str)
+    let payload: WaitPayload = parse_payload(path, value)?;
+    WaitReason::from_wire(&payload.reason)
         .ok_or_else(|| JspError::field_state(format!("{path}.value.reason: unsupported reason")))
 }
 

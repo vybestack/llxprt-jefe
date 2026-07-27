@@ -11,10 +11,13 @@
 //! string `"unsupported"` or an object with `provenance` and `availability`
 //! (plus `value`/`last_value`/`as_of_ms`/`diagnostic_code` as appropriate).
 
+use std::fmt;
+
 use serde::Deserialize;
+use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 
 use super::limits::{
-    MAX_AGENT_KIND_BYTES, MAX_DIAGNOSTIC_CODE_BYTES, MAX_DIAGNOSTIC_SUMMARY_BYTES,
+    ACCEPTED_SCHEMA, MAX_AGENT_KIND_BYTES, MAX_DIAGNOSTIC_CODE_BYTES, MAX_DIAGNOSTIC_SUMMARY_BYTES,
     MAX_DISPLAY_NAME_BYTES, MAX_DISPLAYED_CONTENT_BYTES, MAX_ERROR_CODE_BYTES, MAX_ID_BYTES,
     MAX_PATH_BYTES, MAX_REPOSITORY_BYTES, MAX_TODO_TEXT_BYTES, MAX_TODOS, MAX_TOOL_LABEL_BYTES,
 };
@@ -30,7 +33,7 @@ use super::limits::{
 /// behavior we want.
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum UnsupportedMarker {
+pub enum UnsupportedMarker {
     Unsupported,
 }
 
@@ -40,7 +43,7 @@ pub(crate) enum UnsupportedMarker {
 /// `"unsupported"` or a supported-state object.
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub(crate) enum FieldWire {
+pub enum FieldWire {
     Unsupported(UnsupportedMarker),
     Supported(Box<SupportedState>),
 }
@@ -64,30 +67,30 @@ pub(crate) enum FieldWire {
 /// null").
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SupportedState {
-    pub(crate) provenance: ProvenanceWire,
-    pub(crate) availability: AvailabilityKindWire,
+pub struct SupportedState {
+    pub provenance: ProvenanceWire,
+    pub availability: AvailabilityKindWire,
     #[serde(default)]
-    pub(crate) value: Present,
+    pub value: Present,
     #[serde(default)]
-    pub(crate) last_value: Present,
+    pub last_value: Present,
     #[serde(default)]
-    pub(crate) as_of_ms: Option<u64>,
+    pub as_of_ms: Option<u64>,
     #[serde(default)]
-    pub(crate) diagnostic_code: Option<String>,
+    pub diagnostic_code: Option<String>,
 }
 
 /// Wrapper that tracks whether a field was present in the JSON and, if so,
 /// its value (including explicit `null`).
 ///
-/// Implements `Deserialize` manually via a `deserialize_any`-backed visitor so
-/// that an explicit JSON `null` produces `Present { present: true, value: Null }`
-/// while an absent field (via `#[serde(default)]`) produces
+/// Implements `Deserialize` manually via [`StrictValue`] so that an explicit
+/// JSON `null` produces `Present { present: true, value: Null }` while an
+/// absent field (via `#[serde(default)]`) produces
 /// `Present { present: false, value: Null }`.
 #[derive(Default, Clone, Debug)]
-pub(crate) struct Present {
-    pub(crate) present: bool,
-    pub(crate) value: serde_json::Value,
+pub struct Present {
+    pub present: bool,
+    pub value: serde_json::Value,
 }
 
 impl<'de> Deserialize<'de> for Present {
@@ -95,7 +98,7 @@ impl<'de> Deserialize<'de> for Present {
     where
         D: serde::Deserializer<'de>,
     {
-        let value = serde_json::Value::deserialize(deserializer)?;
+        let StrictValue(value) = StrictValue::deserialize(deserializer)?;
         Ok(Self {
             present: true,
             value,
@@ -103,9 +106,106 @@ impl<'de> Deserialize<'de> for Present {
     }
 }
 
+/// A JSON value that rejects duplicate object keys anywhere in its subtree.
+///
+/// `serde_json::Value` resolves duplicate keys last-wins. Capturing a payload
+/// through a plain `Value` would therefore let a producer send the same member
+/// twice and have the closed payload DTO see only the final occurrence, so the
+/// same bytes could mean different things to different JSON libraries. This
+/// wrapper keeps duplicate rejection uniform with the top-level envelope, which
+/// `deny_unknown_fields` already covers.
+pub struct StrictValue(pub serde_json::Value);
+
+impl<'de> Deserialize<'de> for StrictValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StrictValueVisitor)
+    }
+}
+
+/// Visitor building a [`StrictValue`], rejecting duplicate object keys.
+struct StrictValueVisitor;
+
+impl<'de> Visitor<'de> for StrictValueVisitor {
+    type Value = StrictValue;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a JSON value without duplicate object keys")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::Bool(value)))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::from(value)))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::from(value)))
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+        let number = serde_json::Number::from_f64(value)
+            .ok_or_else(|| E::custom("number is not representable in JSON"))?;
+        Ok(StrictValue(serde_json::Value::Number(number)))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::String(value.to_owned())))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::String(value)))
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::Null))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(StrictValue(serde_json::Value::Null))
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        StrictValue::deserialize(deserializer)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut items = Vec::new();
+        while let Some(StrictValue(item)) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(StrictValue(serde_json::Value::Array(items)))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut object = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let StrictValue(value) = map.next_value()?;
+            // The key itself is producer payload and is never echoed.
+            if object.insert(key, value).is_some() {
+                return Err(A::Error::custom("duplicate object key"));
+            }
+        }
+        Ok(StrictValue(serde_json::Value::Object(object)))
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum ProvenanceWire {
+pub enum ProvenanceWire {
     Authoritative,
     Inferred,
 }
@@ -113,7 +213,7 @@ pub(crate) enum ProvenanceWire {
 /// The availability discriminator string: `known`, `unknown`, or `degraded`.
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum AvailabilityKindWire {
+pub enum AvailabilityKindWire {
     Known,
     Unknown,
     Degraded,
@@ -123,47 +223,91 @@ pub(crate) enum AvailabilityKindWire {
 // Top-level envelope
 // ---------------------------------------------------------------------------
 
+/// The single accepted schema version, enforced during deserialization.
+///
+/// [`parse`](super::parse) probes the raw discriminators first so an
+/// unsupported version reports `JSP-E003`; this type is what makes the closed
+/// envelope itself unable to hold any other version.
+pub struct AcceptedSchema;
+
+impl<'de> Deserialize<'de> for AcceptedSchema {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        if value == ACCEPTED_SCHEMA {
+            Ok(Self)
+        } else {
+            Err(D::Error::custom("unsupported schema version"))
+        }
+    }
+}
+
+/// The single accepted top-level document kind.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotKindWire {
+    Snapshot,
+}
+
 /// The closed top-level snapshot envelope.
+///
+/// `schema` and `kind` are validated by their own closed types during
+/// deserialization, so they are never read afterwards.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SnapshotWire {
-    pub(crate) schema: u64,
-    pub(crate) kind: String,
-    pub(crate) agent_id: String,
-    pub(crate) lifecycle_generation: u64,
-    pub(crate) source_epoch: String,
-    pub(crate) source_sequence: u64,
-    pub(crate) cursor: u64,
-    pub(crate) bridge_observed_ms: u64,
-    pub(crate) native_session: NativeSessionWire,
-    pub(crate) process_binding: FieldWire,
-    pub(crate) native_activity: FieldWire,
-    pub(crate) current_wait: FieldWire,
-    pub(crate) current_turn: FieldWire,
-    pub(crate) todos: FieldWire,
-    pub(crate) last_displayed_assistant_message: FieldWire,
-    pub(crate) last_created_tool_call: FieldWire,
-    pub(crate) source_terminal_state: FieldWire,
-    pub(crate) source_error_state: FieldWire,
+pub struct SnapshotWire {
+    #[serde(rename = "schema")]
+    pub _schema: AcceptedSchema,
+    #[serde(rename = "kind")]
+    pub _kind: SnapshotKindWire,
+    pub agent_id: String,
+    pub lifecycle_generation: u64,
+    pub source_epoch: String,
+    pub source_sequence: u64,
+    pub cursor: u64,
+    pub bridge_observed_ms: u64,
+    pub native_session: NativeSessionWire,
+    pub process_binding: FieldWire,
+    pub native_activity: FieldWire,
+    pub current_wait: FieldWire,
+    pub current_turn: FieldWire,
+    pub todos: FieldWire,
+    pub last_displayed_assistant_message: FieldWire,
+    pub last_created_tool_call: FieldWire,
+    pub source_terminal_state: FieldWire,
+    pub source_error_state: FieldWire,
 }
 
 /// Native session metadata object (closed).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct NativeSessionWire {
-    pub(crate) repository: String,
-    pub(crate) path: String,
-    pub(crate) agent_kind: String,
-    pub(crate) pid: u32,
-    pub(crate) display_name: String,
+pub struct NativeSessionWire {
+    pub repository: String,
+    pub path: String,
+    pub agent_kind: String,
+    pub pid: u32,
+    pub display_name: String,
 }
 
 /// Process-binding value payload: `{ "pid": u32, "started_at_ms": u64 }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ProcessBindingPayload {
-    pub(crate) pid: u32,
-    pub(crate) started_at_ms: u64,
+pub struct ProcessBindingPayload {
+    pub pid: u32,
+    pub started_at_ms: u64,
+}
+
+/// Current-wait value payload: `{ "reason": string }`.
+///
+/// Like every other value payload this is a closed DTO, so credential, control,
+/// and transcript members inside `current_wait.value` are rejected at ingress
+/// rather than silently ignored.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaitPayload {
+    pub reason: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -173,70 +317,70 @@ pub(crate) struct ProcessBindingPayload {
 /// Native activity value payload: `{ "state": "idle" | "thinking" | "acting" }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct NativeActivityPayload {
-    pub(crate) state: String,
+pub struct NativeActivityPayload {
+    pub state: String,
 }
 
 /// Current-turn payload: `{ "elapsed_ms": u64 }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct CurrentTurnPayload {
-    pub(crate) elapsed_ms: u64,
+pub struct CurrentTurnPayload {
+    pub elapsed_ms: u64,
 }
 
 /// Todos payload: `{ "revision": u64, "items": [TodoItemWire] }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TodosPayload {
-    pub(crate) revision: u64,
-    pub(crate) items: Vec<TodoItemWire>,
+pub struct TodosPayload {
+    pub revision: u64,
+    pub items: Vec<TodoItemWire>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TodoItemWire {
-    pub(crate) text: String,
-    pub(crate) completed: bool,
+pub struct TodoItemWire {
+    pub text: String,
+    pub completed: bool,
 }
 
 /// Last-displayed-assistant-message payload.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct DisplayedMessagePayload {
-    pub(crate) content: String,
-    pub(crate) committed_ms: u64,
+pub struct DisplayedMessagePayload {
+    pub content: String,
+    pub committed_ms: u64,
 }
 
 /// Last-created-tool-call payload: `{ "label": string, "phase": string }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ToolCallPayload {
-    pub(crate) label: String,
-    pub(crate) phase: String,
+pub struct ToolCallPayload {
+    pub label: String,
+    pub phase: String,
 }
 
 /// Source-error-state payload: `{ "summary": string, "code": string }`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SourceErrorPayload {
-    pub(crate) summary: String,
-    pub(crate) code: String,
+pub struct SourceErrorPayload {
+    pub summary: String,
+    pub code: String,
 }
 
 /// All field-bound constants grouped for the validator.
-pub(crate) struct FieldLimits;
+pub struct FieldLimits;
 
 impl FieldLimits {
-    pub(crate) const ID: usize = MAX_ID_BYTES;
-    pub(crate) const TODOS: usize = MAX_TODOS;
-    pub(crate) const TODO_TEXT: usize = MAX_TODO_TEXT_BYTES;
-    pub(crate) const DISPLAYED_CONTENT: usize = MAX_DISPLAYED_CONTENT_BYTES;
-    pub(crate) const DIAGNOSTIC_SUMMARY: usize = MAX_DIAGNOSTIC_SUMMARY_BYTES;
-    pub(crate) const TOOL_LABEL: usize = MAX_TOOL_LABEL_BYTES;
-    pub(crate) const REPOSITORY: usize = MAX_REPOSITORY_BYTES;
-    pub(crate) const PATH: usize = MAX_PATH_BYTES;
-    pub(crate) const AGENT_KIND: usize = MAX_AGENT_KIND_BYTES;
-    pub(crate) const DISPLAY_NAME: usize = MAX_DISPLAY_NAME_BYTES;
-    pub(crate) const DIAGNOSTIC_CODE: usize = MAX_DIAGNOSTIC_CODE_BYTES;
-    pub(crate) const ERROR_CODE: usize = MAX_ERROR_CODE_BYTES;
+    pub const ID: usize = MAX_ID_BYTES;
+    pub const TODOS: usize = MAX_TODOS;
+    pub const TODO_TEXT: usize = MAX_TODO_TEXT_BYTES;
+    pub const DISPLAYED_CONTENT: usize = MAX_DISPLAYED_CONTENT_BYTES;
+    pub const DIAGNOSTIC_SUMMARY: usize = MAX_DIAGNOSTIC_SUMMARY_BYTES;
+    pub const TOOL_LABEL: usize = MAX_TOOL_LABEL_BYTES;
+    pub const REPOSITORY: usize = MAX_REPOSITORY_BYTES;
+    pub const PATH: usize = MAX_PATH_BYTES;
+    pub const AGENT_KIND: usize = MAX_AGENT_KIND_BYTES;
+    pub const DISPLAY_NAME: usize = MAX_DISPLAY_NAME_BYTES;
+    pub const DIAGNOSTIC_CODE: usize = MAX_DIAGNOSTIC_CODE_BYTES;
+    pub const ERROR_CODE: usize = MAX_ERROR_CODE_BYTES;
 }

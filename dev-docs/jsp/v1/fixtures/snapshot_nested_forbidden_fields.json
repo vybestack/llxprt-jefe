@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "agent-nested-evil",
+  "lifecycle_generation": 1,
+  "source_epoch": "epoch-010",
+  "source_sequence": 1,
+  "cursor": 0,
+  "bridge_observed_ms": 1785922010000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 4545,
+    "display_name": "nested-evil-worker"
+  },
+  "process_binding": "unsupported",
+  "native_activity": "unsupported",
+  "current_wait": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": {
+      "reason": "permission",
+      "publisher_token": "supersecret",
+      "observer_token": "supersecret",
+      "raw_transcript": "leaked",
+      "draft": "leaked",
+      "control": "kill"
+    }
+  },
+  "current_turn": "unsupported",
+  "todos": "unsupported",
+  "last_displayed_assistant_message": "unsupported",
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": "unsupported"
+}

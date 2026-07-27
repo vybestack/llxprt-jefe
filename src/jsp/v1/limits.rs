@@ -48,7 +48,29 @@ pub fn check_bound(
 ) -> Result<(), crate::jsp::v1::error::JspError> {
     if len > max {
         Err(crate::jsp::v1::error::JspError::bound(format!(
-            "{path}: length {len} exceeds maximum {max}"
+            "{path}: length {len} bytes exceeds maximum {max} bytes"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Validate that an item count is within the inclusive bound.
+///
+/// Counts are reported as counts rather than byte lengths so a producer can
+/// tell which bound it violated.
+///
+/// # Errors
+///
+/// Returns a `JSP-E002` bound error if `count > max`.
+pub fn check_count_bound(
+    path: &str,
+    count: usize,
+    max: usize,
+) -> Result<(), crate::jsp::v1::error::JspError> {
+    if count > max {
+        Err(crate::jsp::v1::error::JspError::bound(format!(
+            "{path}: {count} entries exceeds maximum {max} entries"
         )))
     } else {
         Ok(())

@@ -36,9 +36,13 @@ fields for a snapshot:
 | `source_terminal_state` | field   | yes      | See §11.                                           |
 | `source_error_state`    | field   | yes      | See §12.                                           |
 
-Unknown top-level fields, duplicate fields, wrong types, trailing data,
-non-integer numeric values, and non-object top-level values all fail with
-`JSP-E001`. There is no legacy or unknown-version fallback.
+Unknown fields, duplicate fields, wrong types, trailing data, non-integer
+numeric values, and non-object top-level values all fail with `JSP-E001`. This
+applies at every level of the document, including inside a field state's
+`value` and `last_value` payloads: a member that is not part of the closed
+payload shape is rejected rather than ignored, and the same key sent twice is
+rejected rather than resolved last-wins. There is no legacy or unknown-version
+fallback.
 
 ### 1.1 Field-state algebra
 
@@ -155,7 +159,8 @@ means "waiting with an explicit unresolved reason":
 ```
 
 Silence and elapsed time never create waiting (decision 7). An explicit wait
-object is required.
+object is required. `reason` is the only member of the wait object; any other
+member fails with `JSP-E001`.
 
 ## 7. Current turn
 
@@ -227,7 +232,12 @@ Last tool means the most recently created native tool item (decision 8).
 }
 ```
 
-`known` with `value: null` means no terminal error state.
+`known` with `value: null` means no terminal error state. A non-null value uses
+the same closed payload as §12:
+
+```json
+"value": { "summary": <bounded string>, "code": <bounded string> }
+```
 
 ## 12. Source error state
 
