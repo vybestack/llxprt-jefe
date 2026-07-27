@@ -70,6 +70,7 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     );
 
     assert_attached_viewer_observes_mouse_reporting(&viewer);
+    assert_attached_input_ready(&mut namespace, session, &viewer);
     assert_page_keys_delivered_as_csi_tilde(&mut namespace, session, &viewer);
     assert_sgr_mouse_delivered_intact(&mut namespace, session, &viewer);
 
@@ -92,6 +93,38 @@ fn assert_attached_viewer_observes_mouse_reporting(viewer: &AttachedViewer) {
     assert!(
         observed,
         "AttachedViewer never observed mouse reporting after fixture advertised 1000/1002/1006"
+    );
+}
+
+/// Wait for the attached psmux client to forward input before asserting the
+/// semantic key sequences. Output can reach the viewer before psmux's input
+/// relay is ready on a loaded Windows runner, so terminal-mode observation alone
+/// is not an input-readiness barrier.
+fn assert_attached_input_ready(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    viewer: &AttachedViewer,
+) {
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    let mut last = String::new();
+    while Instant::now() < deadline {
+        assert!(
+            viewer.is_alive(),
+            "AttachedViewer exited before its input relay became ready"
+        );
+        viewer
+            .write_input(b"j")
+            .unwrap_or_else(|error| panic!("write input-readiness probe: {error}"));
+        last = namespace
+            .capture(session)
+            .unwrap_or_else(|error| panic!("capture input-readiness probe: {error}"));
+        if last.contains("PSMUX_BYTE_6A") {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    panic!(
+        "attached input relay did not forward the readiness probe within {POLL_TIMEOUT:?}:\n{last}"
     );
 }
 
