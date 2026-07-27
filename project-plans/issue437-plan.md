@@ -109,7 +109,7 @@ The all-routes option must replace this section with child-slice/stacked-PR cont
 ## Review counters
 
 - Pre-PR Open Code Review: 1 / 2 (22 files, 7 comments; a first attempt with a `A..B` range reviewed 0 files and was not counted as coverage)
-- Post-PR Open Code Review: 2 / 2 (limit reached; 15 + 16 inline comments, all triaged)
+- Post-PR Open Code Review: 2 / 2 budgeted; CI re-triggers OCR automatically on every push, producing 4 total runs and 52 inline comments. All triaged; no additional review was requested.
 - Independent Rust review: 1
 - Review/remediation cycles total: 2 / 2 (limit reached; no further review rounds)
 
@@ -192,6 +192,24 @@ The review budget (2 cycles) is spent; this round ran automatically because CI r
 | 35 | `install_hook` captures the previous hook once; later hooks are not delegated to | Defer | Correct in principle. Jefe installs no other hook, and the `Once` guard is what makes delegation deterministic under concurrency. A dynamic strategy is a design change, not a fix. |
 | 36 | Threads spawned inside `work` do not inherit containment | Defer | Accurate limitation. No migrated route spawns threads inside `work`; all blocking work is a direct `gh` call. |
 | 37-39 | Three comments confirming the `spawn_gh_work` split and early-return path are correct | Acknowledged | No action needed. |
+
+## Post-PR review triage, rounds 3-4 (automatic CI OpenCodeReview re-runs)
+
+CI re-triggers OCR on every push, so two further rounds ran after the budget was spent. All 21 comments were triaged; several made falsifiable claims that were checked against the code rather than accepted.
+
+| # | Finding | Disposition | Evidence |
+| --- | --- | --- | --- |
+| 40 | `describe` takes `&Box<dyn Any + Send>`, an unnecessary indirection | In-scope-Fix | Correct. Changed to `&dyn Any`; clippy then required `&*payload` at the call site, confirming the coercion was real. |
+| 41 | "New issue submit abandoned" uses a verb as a noun | In-scope-Fix | Correct for a user-facing string. Changed to "submission". |
+| 42 | Dead code: `let repo_id = repo.id.clone();` in `dispatch_workflow_run` | Reject | No such binding exists. The function uses the `scope_repo_id` parameter throughout; the only clones are `scope_repo_id.clone()` and `panic_scope_repo_id`. Clippy's `unused_variables` would fail the build if it existed. |
+| 43 | `resume_unwind` invokes the panic hook, so `a_location_from_earlier_work_is_not_reused` will fail | Reject | Factually wrong. `std/src/panic.rs:362` documents `resume_unwind` as "Triggers a panic without invoking the panic hook." The named test passes; the whole module is 10/10 green. |
+| 44 | `spawn_device_auth_flow` requires `&mut` but its caller holds a shared reference, so it "will fail to compile" | Reject | The sole caller (`modal_handlers.rs:137`) already holds `&mut` — the preceding line calls `apply_and_persist(app_state, ...)`, which requires it. The workspace compiles clean. |
+| 45 | Auth panics are double-reported (Errors screen + dialog) | Reject | Intentional and distinct. `record_worker_panic` writes the diagnostic to the Errors screen; `report_auth_failed` unsticks the modal so the user can retry. Removing either leaves the dialog hung or the panic undiagnosable. |
+| 46-52 | Double clone of params/action/scope/dispatched across seven routes; suggestions to borrow, use `Cow`, or clone lazily | Reject | `delivery_handle_or_report` takes `report: impl FnOnce(...)`, so it consumes its reporter; the panic handler passed to `spawn_gh_work` must be a separate `'static` `FnOnce`. Two independent `FnOnce` values cannot share one owned capture. The suggested lazy construction would require the reporter to outlive the call, which the signature forbids. These are one small clone per user-initiated request, not a hot path. |
+| 53 | Revert the property-edit and `prs_mutation` dispatchers to `&AppStateHandle` | Reject | Repeat of 22/30. The `&mut` is what makes the render-thread ownership explicit; `AppStateHandle` is `Copy`, so this constrains nothing at runtime. |
+| 54 | Verify no test or log parser matches the old "task panicked" wording | Reject (already verified) | `grep` over `src/`, `tests/`, `dev-docs/`, `docs/` finds no remaining match except the Errors-screen title `"Background task panicked"`, which is deliberate and asserted at `gh_async.rs:494`. |
+| 55 | Preserve "panicked" for real panics and reserve "abandoned" for queue unavailability | Reject | This is the inverse of finding 15, which was accepted for being correct. One verb covers both causes and the appended message carries the specific one; the Errors entry title still distinguishes a genuine panic. |
+| 56 | `INSTALL.call_once` costs an atomic check per `contain` call | Reject | Micro-optimization on a path that spawns a subprocess and performs network I/O. The `Once` is what makes hook installation race-free. |
 
 ## Exact-head completion
 

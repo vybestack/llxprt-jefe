@@ -61,11 +61,11 @@ pub(super) fn contain<T>(work: impl FnOnce() -> T) -> Result<T, String> {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
     CONTAINED.with(|flag| flag.set(restore));
     let location = LOCATION.with(|slot| slot.borrow_mut().take());
-    result.map_err(|payload| describe(&payload, location))
+    result.map_err(|payload| describe(&*payload, location))
 }
 
 /// Render a panic payload and its recorded location as one diagnostic line.
-fn describe(payload: &Box<dyn std::any::Any + Send>, location: Option<String>) -> String {
+fn describe(payload: &dyn std::any::Any, location: Option<String>) -> String {
     let message = payload
         .downcast_ref::<String>()
         .map(String::as_str)

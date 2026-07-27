@@ -64,7 +64,7 @@ fn submit_abandoned(
                 scope_repo_id,
                 mutation_id,
                 issue_number: None,
-                error: format!("New issue submit abandoned: {message}"),
+                error: format!("New issue submission abandoned: {message}"),
             },
         );
     }
