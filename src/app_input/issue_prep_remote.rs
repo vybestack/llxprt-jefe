@@ -88,9 +88,10 @@ impl RemotePrepPlanner {
     ///
     /// The sequence mirrors the local prep:
     /// 1. detect git worktree (if not, clone if identity present);
-    /// 2. dirty check;
-    /// 3. if dirty and Discard, reset+clean;
-    /// 4. resolve default branch, fetch, checkout.
+    /// 2. dirty / not-on-default check (short-circuits to `Dirty` so the
+    ///    caller opens the confirm modal; the confirm path then force-reclones
+    ///    via `plan_force_reclone`, issue #479);
+    /// 3. resolve default branch, fetch, checkout.
     ///
     /// This is pure — it does not inspect the remote filesystem. Callers
     /// supply `presence`, `is_dirty`, and `origin_mismatch` to drive the
@@ -124,7 +125,8 @@ impl RemotePrepPlanner {
         }
 
         // Origin mismatch short-circuits before any destructive op, mirroring
-        // the Dirty short-circuit. The caller opens the confirm modal.
+        // the dirty / not-on-default short-circuit below. The caller opens the
+        // confirm modal.
         if is_git && *origin_mismatch {
             return Ok(ops);
         }

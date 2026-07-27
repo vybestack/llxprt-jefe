@@ -315,6 +315,10 @@ fn prepare_confirm_send_target(
 /// default branch regardless of how dirty the previous working copy was
 /// (uncommitted changes, stale feature-branch commits, etc.).
 ///
+/// The deletion removes the entire working-copy directory including any
+/// uncommitted `.jefe/`/`.llxprt/` metadata; only tracked owned metadata is
+/// restored by the fresh clone.
+///
 /// The clone identity is resolved BEFORE any destructive action: if the
 /// agent/repository was deleted or `github_repo` became invalid while the
 /// modal was open, the working copy is NOT destroyed.

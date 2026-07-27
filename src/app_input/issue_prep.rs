@@ -190,7 +190,7 @@ pub(super) fn force_reclone_local_with_url(
     // clone/prep error that hides the destruction.
     ensure_workdir_cloned(work_dir, Some(clone_url))
         .map_err(|e| format!("After removing the mismatched work_dir, the clone failed (the original working copy at {} is already gone): {e}", work_dir.display()))?;
-    run_local_policy_and_prep(work_dir)
+    run_local_prep(work_dir)
         .map_err(|e| format!("After force-recloning {} (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))
 }
 
@@ -205,7 +205,7 @@ fn prepare_local(work_dir: &Path, identity: Option<&CloneIdentity>) -> Result<Pr
             return Ok(PrepOutcome::OriginMismatch { actual, expected });
         }
     }
-    run_local_policy_and_prep(work_dir)
+    run_local_prep(work_dir)
 }
 
 /// Shared local sequence after the worktree exists: dirty check → prep.
@@ -216,7 +216,7 @@ fn prepare_local(work_dir: &Path, identity: Option<&CloneIdentity>) -> Result<Pr
 /// [`PrepOutcome::Dirty`] so the caller opens the confirm modal; the confirm
 /// path then force-reclones (issue #479), so there is no in-place discard
 /// here.
-fn run_local_policy_and_prep(work_dir: &Path) -> Result<PrepOutcome, String> {
+fn run_local_prep(work_dir: &Path) -> Result<PrepOutcome, String> {
     let dirty = is_workdir_dirty(work_dir)?;
     // Only evaluate branch position when clean: a dirty tree triggers the
     // modal regardless of which branch it is on.
