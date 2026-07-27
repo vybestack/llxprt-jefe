@@ -1,0 +1,427 @@
+name: 'LLxprt PR Review'
+
+# Automated PR walkthrough pipeline. Ported from llxprt-code
+# (vybestack/llxprt-code) as part of jefe issue #451.
+#
+# Triggered on pull_request_target so it runs with the base branch's trusted
+# workflow code and secrets, never the PR head's. The PR head is fetched into
+# a local ref and read for diffs; it is never checked out as the working
+# tree, and no make/cargo/npm-repo-scripts run against it.
+#
+# jefe adaptation: LLM config is sourced from jefe's existing OCR_LLM_* repo
+# variables/secret (the same provider/model jefe's OCR review uses), mapped
+# into the llxprt CLI's expected env. No new repo variables or secrets are
+# introduced by this workflow.
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - edited
+
+concurrency:
+  group: 'llxprt-pr-review-${{ github.event.pull_request.number }}'
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  REPO: '${{ github.repository }}'
+
+jobs:
+  mergeability-gate:
+    name: 'Mergeability gate'
+    uses: './.github/workflows/_pr-mergeability-gate.yml'
+    with:
+      check-mergeability: true
+      pull-request-number: "${{ format('{0}', github.event.pull_request.number) }}"
+      expected-head-sha: '${{ github.event.pull_request.head.sha }}'
+
+  review:
+    name: 'Run LLxprt review'
+    needs:
+      - 'mergeability-gate'
+    if: ${{ needs.mergeability-gate.outputs.should-run == 'true' }}
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 60
+    env:
+      PR_NUMBER: '${{ github.event.pull_request.number }}'
+      GH_TOKEN: '${{ github.token }}'
+      GITHUB_TOKEN: '${{ github.token }}'
+      # jefe adaptation: map jefe's existing OCR_LLM_* config onto the llxprt
+      # CLI's expected env. The stepfun endpoint used by jefe's OCR review is
+      # OpenAI-compatible, so provider "openai" + that base URL works.
+      OPENAI_BASE_URL: '${{ vars.OCR_LLM_URL }}'
+      LLXPRT_DEFAULT_MODEL: '${{ vars.OCR_LLM_MODEL }}'
+      LLXPRT_STRONG_MODEL: '${{ vars.OCR_LLM_MODEL }}'
+      LLXPRT_DEFAULT_PROVIDER: 'openai'
+      LLXPRT_CONTEXT_LIMIT: '256000'
+      LLXPRT_DEBUG: 'llxprt:*'
+      DEBUG_OUTPUT: 'stderr'
+    steps:
+      - name: 'Checkout base revision'
+        uses: 'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8' # ratchet:actions/checkout@v5
+        with:
+          ref: '${{ github.event.pull_request.base.sha }}'
+          fetch-depth: 0
+
+      - name: 'Prepare review workspace'
+        run: |
+          set -euo pipefail
+          mkdir -p review/issues
+          : > review/comment.md
+
+      - name: 'Fetch pull request head'
+        id: 'fetch_head'
+        env:
+          HEAD_REF_VALUE: '${{ github.event.pull_request.head.ref }}'
+          HEAD_REPO_VALUE: '${{ github.event.pull_request.head.repo.full_name }}'
+          EXPECTED_HEAD_SHA: '${{ github.event.pull_request.head.sha }}'
+        run: |
+          set -euo pipefail
+          pr_ref="refs/pr/${PR_NUMBER}"
+          head_repo="${HEAD_REPO_VALUE:-${REPO}}"
+          head_ref="${HEAD_REF_VALUE:-}"
+          if [[ -z "$head_ref" ]]; then
+            echo "Head ref is unavailable for PR ${PR_NUMBER}; aborting." >&2
+            exit 1
+          fi
+
+          if [[ "${head_repo}" == "${REPO}" ]]; then
+            git fetch --no-tags --prune origin "${head_ref}:${pr_ref}"
+          else
+            git remote add pr "https://x-access-token:${GITHUB_TOKEN}@github.com/${head_repo}.git"
+            git fetch --no-tags --prune pr "${head_ref}:${pr_ref}"
+          fi
+
+          base_sha='${{ github.event.pull_request.base.sha }}'
+          head_sha="$(git rev-parse "${pr_ref}")"
+          if [[ "${head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+            echo "Fetched PR head changed from event SHA ${EXPECTED_HEAD_SHA} to ${head_sha}; aborting." >&2
+            exit 1
+          fi
+
+          # Compute the merge-base so diffs only contain changes the PR
+          # actually introduced, not unrelated main-branch activity.
+          merge_base="$(git merge-base "${base_sha}" "${head_sha}")"
+
+          {
+            echo "PR_HEAD_REF=${pr_ref}"
+            echo "PR_HEAD_SHA=${head_sha}"
+            echo "BASE_SHA=${base_sha}"
+            echo "MERGE_BASE=${merge_base}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "head_sha=${head_sha}"
+            echo "base_sha=${base_sha}"
+            echo "merge_base=${merge_base}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 'Collect PR metadata and ensure linked issue'
+        id: 'issue_gate'
+        run: |
+          set -euo pipefail
+          pr_json='review/pr.json'
+          gh pr view "${PR_NUMBER}" \
+            --json number,title,url,body,isDraft,closingIssuesReferences,additions,deletions,changedFiles,commits,author,headRefName,baseRefName,labels \
+            > "${pr_json}"
+
+          jq -r '
+            [
+              (.closingIssuesReferences // [] | map(.number | tostring)),
+              ((.body // "") | [match("#([0-9]+)"; "g") | .captures[0].string] // [])
+            ]
+            | add
+            | unique
+            | .[]
+          ' "${pr_json}" > review/issue_numbers.txt
+
+          issues_file='review/issue_numbers.txt'
+          if [[ ! -s "${issues_file}" ]]; then
+            {
+              echo "<!-- llxprt-walkthrough -->"
+              echo "## LLxprt PR Review blocked"
+              echo
+              echo "- No linked issues were detected in this PR's description."
+              echo "- Please reference an existing issue with text such as \`Fixes #123\` so the automated walkthrough knows what problem to evaluate."
+              echo "- The PR has been returned to draft to prevent accidental merges without an issue."
+            } > review/comment.md
+            if [[ "$(jq -r '.isDraft' "${pr_json}")" != "true" ]]; then
+              gh pr ready "${PR_NUMBER}" --undo >/dev/null 2>&1 || true
+            fi
+            echo "should_review=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mapfile -t issue_numbers < "${issues_file}"
+          if [[ "${#issue_numbers[@]}" -eq 0 ]]; then
+            echo "should_review=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for issue in "${issue_numbers[@]}"; do
+            gh issue view "${issue}" \
+              --json number,title,url,body,state,labels \
+              > "review/issues/${issue}.json"
+          done
+
+          issues_csv="$(IFS=, ; echo "${issue_numbers[*]}")"
+          echo "ISSUE_NUMBERS=${issues_csv}" >> "$GITHUB_ENV"
+          echo "should_review=true" >> "$GITHUB_OUTPUT"
+
+      - name: 'Detect documentation-only change'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        run: |
+          set -euo pipefail
+          diff_list="review/changed-list.txt"
+          git diff --name-only "${MERGE_BASE}" "${PR_HEAD_SHA}" > "${diff_list}"
+          docs_only=true
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              docs/*|dev-docs/*|README.md|README.*|*.md|*.mdx|*.rst|*.txt|*.adoc|project-plans/*)
+                ;;
+              *)
+                docs_only=false
+                break
+                ;;
+            esac
+          done < "${diff_list}"
+          echo "DOCS_ONLY=${docs_only}" >> "$GITHUB_ENV"
+
+      - name: 'Install LLxprt CLI nightly'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        run: npm install -g @vybestack/llxprt-code@nightly
+
+      - name: 'Check API quota and select optimal key'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        id: 'quota'
+        run: node scripts/ci-quota-check.mjs
+        env:
+          # jefe has no KEY_VAR_NAME; the quota script takes the non-Synthetic
+          # branch and writes selected_key=primary. The selected key is then
+          # resolved in the walkthrough step from jefe's existing OCR secret.
+          KEY_VAR_NAME: ''
+          OPENAI_API_KEY: '${{ secrets.OCR_LLM_AUTH_TOKEN }}'
+          OPENAI_API_KEY_2: ''
+
+      - name: 'Capture CI status'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        id: 'ci_wait'
+        run: |
+          set -euo pipefail
+          ci_status="pending"
+          ci_conclusion="pending"
+          ci_url="N/A"
+          runs_json="$(gh api -X GET "/repos/${REPO}/actions/workflows/ci.yml/runs" \
+            -F event="pull_request" \
+            -F head_sha="${PR_HEAD_SHA}" \
+            -F per_page=50)"
+          run_record="$(jq -c '.workflow_runs | sort_by(.run_number) | last // {}' <<<"${runs_json}")"
+          ci_id="$(jq -r '.id // ""' <<<"${run_record}")"
+          if [[ -n "${ci_id}" && "${ci_id}" != "null" ]]; then
+            ci_status="$(jq -r '.status // "unknown"' <<<"${run_record}")"
+            ci_conclusion="$(jq -r '.conclusion // "pending"' <<<"${run_record}")"
+            ci_url="$(jq -r '.html_url // "N/A"' <<<"${run_record}")"
+            echo "CI run ${ci_id} status=${ci_status}, conclusion=${ci_conclusion}."
+            if [[ "${ci_status}" != "completed" ]]; then
+              echo "CI run is still ${ci_status}; continuing review without waiting for completion."
+            fi
+          else
+            echo "No CI run has started yet for head SHA ${PR_HEAD_SHA}; continuing review with status pending."
+          fi
+          {
+            echo "CI_STATUS=${ci_status}"
+            echo "CI_CONCLUSION=${ci_conclusion:-unknown}"
+            echo "CI_RUN_URL=${ci_url:-N/A}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "ci_status=${ci_status}"
+            echo "ci_conclusion=${ci_conclusion:-unknown}"
+            echo "ci_url=${ci_url:-N/A}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 'Capture coverage summary comment'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        run: |
+          set -euo pipefail
+          coverage_file='review/coverage-comment.txt'
+          gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | contains("<!-- code-coverage-summary -->")) | .body' \
+            > "${coverage_file}" || true
+          if [[ -s "${coverage_file}" ]]; then
+            tail -n 1 "${coverage_file}" > review/coverage-latest.txt
+          else
+            : > review/coverage-latest.txt
+          fi
+
+      - name: 'Generate diff artifacts'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        run: |
+          set -euo pipefail
+          git diff --stat "${MERGE_BASE}" "${PR_HEAD_SHA}" > review/diffstat.txt
+          git diff --name-status --no-renames "${MERGE_BASE}" "${PR_HEAD_SHA}" > review/changed-files.txt
+          git diff --numstat "${MERGE_BASE}" "${PR_HEAD_SHA}" > review/numstat.txt
+          # Keep full diff for agent exploration - agent can selectively read what it needs
+          git diff -U3 "${MERGE_BASE}" "${PR_HEAD_SHA}" > review/diff.patch
+          grep -Ei '(/tests?/|__tests__|\.spec\.|\.test\.|_tests\.rs|_test\.rs)' review/changed-files.txt > review/test-files.txt || true
+
+          # Generate per-file diffs and an authoritative path manifest.
+          # The manifest preserves paths containing legitimate double underscores.
+          mkdir -p review/diffs
+          : > review/diff-manifest.txt
+          while IFS=$'\t' read -r _ filename; do
+            [[ -z "$filename" ]] && continue
+            safe_name="${filename//\//__}"
+            printf '%s.diff\t%s\n' "${safe_name}" "${filename}" >> review/diff-manifest.txt
+            git diff "${MERGE_BASE}" "${PR_HEAD_SHA}" -- "$filename" > "review/diffs/${safe_name}.diff" 2>/dev/null || true
+          done < review/changed-files.txt
+
+      - name: 'Build review context'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016,SC2026
+          node --eval '
+          const fs = require("fs");
+          const path = require("path");
+
+          const pr = JSON.parse(fs.readFileSync("review/pr.json", "utf8"));
+          const issuesDir = "review/issues";
+          let issues = [];
+          if (fs.existsSync(issuesDir)) {
+            issues = fs
+              .readdirSync(issuesDir)
+              .filter((file) => file.endsWith(".json"))
+              .map((file) =>
+                JSON.parse(fs.readFileSync(path.join(issuesDir, file), "utf8")),
+              )
+              .sort((a, b) => Number(a.number) - Number(b.number));
+          }
+
+          const clean = (text, limit) => {
+            if (!text) return "";
+            const trimmed = text.trim();
+            return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed;
+          };
+
+          const readIfExists = (filePath, fallback) =>
+            fs.existsSync(filePath) && fs.statSync(filePath).size
+              ? fs.readFileSync(filePath, "utf8")
+              : fallback;
+
+          const coverageSection = readIfExists(
+            "review/coverage-latest.txt",
+            "No coverage summary comment was found on this PR yet.",
+          );
+
+          const issueSection = issues.length
+            ? issues
+                .map((issue) => {
+                  const maxIssueBody = 8000;
+                  const rawBody = (issue.body || "").trim() || "(no body)";
+                  const fullBody = rawBody.length > maxIssueBody ? rawBody.slice(0, maxIssueBody) + "..." : rawBody;
+                  return `### Issue #${issue.number}: ${issue.title}\n**State**: ${issue.state}\n\n${fullBody}`;
+                })
+                .join("\n\n")
+            : "No issues were expanded (this should not happen).";
+
+          const prBody =
+            clean(pr.body || "", 1000) || "No PR description provided.";
+
+          // Create context.md - PR metadata and issue information for agent orientation
+          const context = [
+            "# PR Review Context",
+            "",
+            "## Pull Request Metadata",
+            "- **Repository**: " + process.env.REPO,
+            "- **PR Number**: #" + pr.number,
+            "- **Title**: " + pr.title,
+            "- **Author**: " + ((pr.author && pr.author.login) || "unknown"),
+            "- **Branch**: " + pr.baseRefName + " ← " + pr.headRefName,
+            "- **Changes**: +" + pr.additions + " -" + pr.deletions + " across " + pr.changedFiles + " files (" + pr.commits + " commits)",
+            "- **CI Status**: " + (process.env.CI_STATUS || "unknown") + " / " + (process.env.CI_CONCLUSION || "unknown"),
+            "- **CI Run**: " + (process.env.CI_RUN_URL || "N/A"),
+            "- **Documentation-only**: " + (process.env.DOCS_ONLY || "unknown"),
+            "",
+            "## PR Description",
+            prBody,
+            "",
+            "## Linked Issues",
+            issueSection,
+            "",
+            "## Coverage Information",
+            coverageSection,
+            "",
+            "## Available Artifacts",
+            "The following files are available in the `review/` directory for your exploration:",
+            "- `review/diffstat.txt` - High-level summary of changes per file",
+            "- `review/changed-files.txt` - List of changed files with status (A/M/D)",
+            "- `review/numstat.txt` - Lines added/removed per file",
+            "- `review/test-files.txt` - Test files that were modified",
+            "- `review/diff.patch` - Full unified diff of all changes",
+            "- `review/diffs/` - Per-file diffs (filename with / replaced by __)",
+            "- `review/issues/` - Full JSON data for each linked issue",
+            "- `review/pr.json` - Full PR metadata",
+            "",
+            "You can also use `read_file` to examine any source file in the repository when you need more context.",
+          ].join("\n");
+
+          fs.writeFileSync("review/context.md", context);
+          '
+
+      - name: 'Run walkthrough pipeline'
+        if: steps.issue_gate.outputs.should_review == 'true'
+        env:
+          # jefe: the selected key always resolves to jefe's existing OCR
+          # secret (the quota script takes the non-Synthetic branch).
+          OPENAI_API_KEY: '${{ secrets.OCR_LLM_AUTH_TOKEN }}'
+        run: |
+          set -euo pipefail
+          # The orchestrator writes its own generic fallback comment to
+          # review/comment.md on failure. Redirect stderr to a log artifact
+          # only — never into the comment (would leak sanitized secrets or
+          # internal diagnostics to the public PR).
+          node scripts/pr-review-walkthrough.mjs 2> >(tee review/walkthrough-error.log >&2)
+
+      - name: 'Upload walkthrough diagnostics'
+        if: failure()
+        uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' # ratchet:actions/upload-artifact@v4
+        with:
+          name: 'walkthrough-diagnostics-${{ github.run_attempt }}'
+          path: |
+            review/walkthrough-error.log
+            review/parse-failure-raw-*.txt
+            review/parse-failure-info-*.json
+          if-no-files-found: 'ignore'
+          retention-days: 3
+
+      - name: 'Ensure fallback comment'
+        if: always()
+        run: |
+          if [[ ! -s review/comment.md ]]; then
+            {
+              echo "<!-- llxprt-walkthrough -->"
+              echo "## LLxprt PR Review unavailable"
+              echo "The walkthrough pipeline could not complete. Please inspect the workflow logs."
+            } > review/comment.md
+          fi
+
+      - name: 'Post walkthrough comment'
+        if: always()
+        uses: 'thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b' # v3.0.1
+        with:
+          file-path: 'review/comment.md'
+          comment-tag: 'llxprt-walkthrough'
+          github-token: '${{ github.token }}'
