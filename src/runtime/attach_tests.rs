@@ -4,6 +4,7 @@
 //! Issue #179 coverage: default-color transparency in `snapshot_cell_style`.
 
 use super::*;
+use std::ffi::OsStr;
 
 /// Build a minimal terminal model for testing `process_pty_read`.
 fn test_term() -> Arc<Mutex<Term<RuntimeListener>>> {
@@ -513,5 +514,137 @@ fn cursor_on_default_cell_keeps_concrete_colors() {
         style.bg,
         iocraft::Color::Reset,
         "cursor cell bg must be concrete (visible cursor)"
+    );
+}
+
+// ── Issue #456 regression: attach command inherits no multiplexer sessions ──
+
+/// The private env-scrub helper must remove every inherited tmux/psmux
+/// session-routing variable even when the builder carried an explicit value.
+/// `CommandBuilder::get_env` reads the merged env map, so injecting first and
+/// scrubbing afterwards proves the removal deterministically without depending
+/// on the test process environment.
+#[test]
+fn scrub_helper_removes_inherited_session_routing_variables() {
+    let mut cmd = CommandBuilder::new("tmux");
+    // Inject every scrubbed variable so the test has something concrete to
+    // prove removed. Without injection an absent variable would also report
+    // `None`, which would not distinguish a real scrub from a no-op.
+    cmd.env("TMUX", "/tmp/jefe.sock,123,0");
+    cmd.env("TMUX_PANE", "%5");
+    cmd.env("TMUX_TMPDIR", "/tmp");
+    cmd.env("PSMUX_SESSION", "parent-session");
+    cmd.env("PSMUX_TARGET_SESSION", "parent-target");
+    // A non-scrubbed psmux variable must survive.
+    cmd.env("PSMUX_CLAUDE_TEAMMATE_MODE", "1");
+
+    scrub_inherited_multiplexer_env(&mut cmd);
+
+    for variable in [
+        "TMUX",
+        "TMUX_PANE",
+        "TMUX_TMPDIR",
+        "PSMUX_SESSION",
+        "PSMUX_TARGET_SESSION",
+    ] {
+        assert!(
+            cmd.get_env(variable).is_none(),
+            "{variable} must be scrubbed from the attach command environment"
+        );
+    }
+    assert_eq!(
+        cmd.get_env("PSMUX_CLAUDE_TEAMMATE_MODE"),
+        Some(OsStr::new("1")),
+        "PSMUX_CLAUDE_TEAMMATE_MODE must be retained"
+    );
+}
+
+/// `attach_command` for a Windows local plan must build the production argv
+/// with the plan's executable, base args, and an explicit
+/// `attach-session -t <session>`. The scrubbed variables are verified separately
+/// by `scrub_helper_removes_inherited_session_routing_variables`.
+#[test]
+fn attach_command_windows_plan_uses_explicit_target_form() {
+    use crate::runtime::multiplexer::{LocalPlatform, MultiplexerIsolation, MultiplexerPlan};
+    use std::path::PathBuf;
+
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
+        MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
+
+    let cmd = attach_command("issue456", None, Some(&plan))
+        .unwrap_or_else(|error| panic!("attach_command should build: {error}"));
+
+    let argv: Vec<&OsStr> = cmd
+        .get_argv()
+        .iter()
+        .map(std::ffi::OsString::as_os_str)
+        .collect();
+    assert_eq!(
+        argv,
+        [
+            OsStr::new("C:/Program Files/psmux/psmux.exe"),
+            OsStr::new("-f"),
+            OsStr::new("NUL"),
+            OsStr::new("-L"),
+            OsStr::new("jefe-0123456789abcdef"),
+            OsStr::new("attach-session"),
+            OsStr::new("-t"),
+            OsStr::new("issue456"),
+        ],
+        "attach_command must always emit attach-session -t <session> on Windows"
+    );
+    assert_eq!(
+        cmd.get_env("TERM"),
+        Some(OsStr::new("xterm-256color")),
+        "attach_command must still set TERM"
+    );
+}
+
+/// `attach_command` for a Unix local plan must also use the explicit
+/// `attach-session -t <session>` form. The scrubbed variables are verified
+/// separately by `scrub_helper_removes_inherited_session_routing_variables`
+/// since `attach_command` calls the same private helper.
+#[test]
+fn attach_command_unix_plan_uses_explicit_target_form() {
+    use crate::runtime::multiplexer::{LocalPlatform, MultiplexerIsolation, MultiplexerPlan};
+    use std::path::PathBuf;
+
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Unix,
+        PathBuf::from("/usr/bin/tmux"),
+        MultiplexerIsolation::Socket(PathBuf::from("/tmp/jefe.sock")),
+    )
+    .unwrap_or_else(|error| panic!("unix plan should be valid: {error}"));
+
+    let cmd = attach_command("issue456", None, Some(&plan))
+        .unwrap_or_else(|error| panic!("attach_command should build: {error}"));
+
+    let argv: Vec<&OsStr> = cmd
+        .get_argv()
+        .iter()
+        .map(std::ffi::OsString::as_os_str)
+        .collect();
+    assert_eq!(
+        argv,
+        [
+            OsStr::new("/usr/bin/tmux"),
+            OsStr::new("-f"),
+            OsStr::new("/dev/null"),
+            OsStr::new("-S"),
+            OsStr::new("/tmp/jefe.sock"),
+            OsStr::new("attach-session"),
+            OsStr::new("-t"),
+            OsStr::new("issue456"),
+        ],
+        "attach_command must always emit attach-session -t <session> on Unix"
+    );
+    assert_eq!(
+        cmd.get_env("TERM"),
+        Some(OsStr::new("xterm-256color")),
+        "attach_command must still set TERM"
     );
 }

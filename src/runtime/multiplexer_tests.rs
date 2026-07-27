@@ -380,3 +380,129 @@ fn unix_agent_pane_command_has_no_staged_host_path() {
         "Unix must reject the Windows-only staged-host path: {result:?}"
     );
 }
+// ── Issue #456 regression: scrub inherited psmux session variables ──────
+//
+// Jefe may itself run from inside a psmux session, in which case it inherits
+// `PSMUX_SESSION`/`PSMUX_TARGET_SESSION`. Any native Windows local command
+// must scrub these so psmux does not refuse to start with
+// `sessions should be nested with care`. `std::process::Command::get_envs`
+// reports removed entries as `(key, None)`, which lets the scrub be proven
+// deterministically without touching the test process environment.
+
+#[test]
+fn windows_command_scrubs_inherited_psmux_session_variables() {
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
+        MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
+
+    // `command()` rebuilds a fresh `std::process::Command`; `env_remove` marks
+    // the variable as removed regardless of whether it was in the parent env,
+    // and `get_envs` surfaces that removal as `(key, None)`.
+    let command = plan.command();
+    let envs: std::collections::HashMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
+
+    for variable in ["PSMUX_SESSION", "PSMUX_TARGET_SESSION"] {
+        assert_eq!(
+            envs.get(OsStr::new(variable)),
+            Some(&None),
+            "{variable} must be marked removed on the Windows plan command"
+        );
+    }
+}
+
+#[test]
+fn windows_command_preserves_base_args_and_executable_after_scrub() {
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
+        MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
+    let command = plan.command();
+
+    assert_eq!(
+        command.get_program(),
+        Path::new("C:/Program Files/psmux/psmux.exe")
+    );
+    let args: Vec<&OsStr> = command.get_args().collect();
+    assert_eq!(
+        args,
+        [
+            OsStr::new("-f"),
+            OsStr::new("NUL"),
+            OsStr::new("-L"),
+            OsStr::new("jefe-0123456789abcdef")
+        ]
+    );
+}
+
+#[test]
+fn windows_command_retains_non_session_psmux_variables() {
+    // PSMUX_CLAUDE_TEAMMATE_MODE is not session routing and PSMUX_CONFIG_FILE
+    // is already covered by `-f NUL`; both must be retained (not removed).
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
+        MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
+    let mut command = plan.command();
+    command.env("PSMUX_CLAUDE_TEAMMATE_MODE", "1");
+    command.env("PSMUX_CONFIG_FILE", "NUL");
+    let envs: std::collections::HashMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
+    assert_eq!(
+        envs.get(OsStr::new("PSMUX_CLAUDE_TEAMMATE_MODE")),
+        Some(&Some(OsStr::new("1"))),
+        "team-mode variable must not be scrubbed"
+    );
+    assert_eq!(
+        envs.get(OsStr::new("PSMUX_CONFIG_FILE")),
+        Some(&Some(OsStr::new("NUL"))),
+        "config-file variable must not be scrubbed"
+    );
+}
+
+#[test]
+fn unix_command_does_not_scrub_psmux_session_variables() {
+    // Unix uses upstream tmux on a private socket; psmux session variables are
+    // irrelevant there, so the command must not mark any env removals.
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Unix,
+        PathBuf::from("/usr/bin/tmux"),
+        MultiplexerIsolation::Socket(PathBuf::from("/tmp/jefe.sock")),
+    )
+    .unwrap_or_else(|error| panic!("unix plan should be valid: {error}"));
+    let command = plan.command();
+
+    assert_eq!(command.get_program(), Path::new("/usr/bin/tmux"));
+    let args: Vec<&OsStr> = command.get_args().collect();
+    assert_eq!(
+        args,
+        [
+            OsStr::new("-f"),
+            OsStr::new("/dev/null"),
+            OsStr::new("-S"),
+            OsStr::new("/tmp/jefe.sock")
+        ]
+    );
+    let removed: Vec<&OsStr> = command
+        .get_envs()
+        .filter_map(|(key, value)| value.is_none().then_some(key))
+        .collect();
+    assert!(
+        removed.is_empty(),
+        "unix plan command must not remove any environment variables, got {removed:?}"
+    );
+}
+
+#[test]
+fn psmux_inherited_session_vars_constant_is_exact_session_routing_set() {
+    // Guards against accidental widening of the scrub list.
+    assert_eq!(
+        super::multiplexer::PSMUX_INHERITED_SESSION_VARS,
+        ["PSMUX_SESSION", "PSMUX_TARGET_SESSION"]
+    );
+}
