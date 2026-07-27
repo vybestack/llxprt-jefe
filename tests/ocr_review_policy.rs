@@ -55,12 +55,18 @@ fn upload_artifact_paths(workflow: &str) -> Vec<String> {
             if following_trimmed.is_empty() {
                 continue;
             }
-            let following_indent = following.len() - following_trimmed.trim_start().len();
+            // Indentation must be measured on the trimmed line so trailing
+            // whitespace cannot inflate the count.
+            let following_indent = following_trimmed.len() - following_trimmed.trim_start().len();
             if following_indent <= block_indent {
                 break;
             }
+            // Inside a `path: |` literal block scalar every non-empty line is
+            // literal content; only comments are non-content. Do not skip lines
+            // starting with '-', which would drop legitimately hyphen-leading
+            // artifact paths.
             let candidate = following_trimmed.trim();
-            if candidate.starts_with('#') || candidate.starts_with('-') {
+            if candidate.starts_with('#') {
                 continue;
             }
             paths.push(candidate.to_string());

@@ -1278,12 +1278,17 @@ jobs:
             if (digest) lines.push(`${digest}  ${name}`);
           }
           fs.writeFileSync('sha256.txt', `${lines.join('\n')}\n`);
-          // Restrict permissions on the manifest triple before upload.
+          // Restrict permissions on the manifest triple before upload. A chmod
+          // failure is non-fatal (the upload still works) but should be
+          // observable rather than silently swallowed.
           for (const name of ['manifest.pre.json', 'manifest.post.json', 'sha256.txt']) {
-            try { fs.chmodSync(name, 0o600); } catch (_) {}
+            try { fs.chmodSync(name, 0o600); } catch (chmodErr) {
+              core.warning(`Could not chmod 0o600 on ${name}: ${chmodErr.message || chmodErr}`);
+            }
           }
-          delete process.env.OCR_LLM_TOKEN;
-          delete process.env.OCR_LLM_URL;
+          // Step-level process.env mutations do not persist across steps in
+          // GitHub Actions, and secrets are scoped to the steps that declare
+          // them, so there is no manual cleanup to do here.
           NODE
 
       - name: Resolve OCR failure classification
