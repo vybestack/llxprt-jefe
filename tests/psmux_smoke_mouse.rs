@@ -13,7 +13,10 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jefe::runtime::{AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan};
+use jefe::runtime::{
+    AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan,
+    configure_prefix_for_passthrough_with_plan,
+};
 
 /// Ceiling for a byte to traverse a real PTY and appear in a pane capture.
 ///
@@ -61,6 +64,12 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
         MultiplexerIsolation::Namespace(namespace.name.clone()),
     )
     .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+
+    // Issue #465: apply the production prefix + root-table unbind policy so
+    // psmux's default `PageUp -> copy-mode -u` root binding is removed before
+    // the test writes Page-key sequences through the attached viewer.
+    configure_prefix_for_passthrough_with_plan(session, &plan)
+        .unwrap_or_else(|error| panic!("configure production prefix policy: {error}"));
 
     let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, &plan)
         .unwrap_or_else(|error| panic!("spawn AttachedViewer: {error}"));
