@@ -1,9 +1,12 @@
 //! Typed local process-instance liveness service.
 
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use std::time::Duration;
 
 use crate::domain::ProcessIdentity;
+#[cfg(unix)]
 use crate::local_command::{self, BoundedRunError, LocalTool, LocalToolError};
 
 /// Deadline for a single process-identity subprocess probe.
@@ -11,6 +14,7 @@ use crate::local_command::{self, BoundedRunError, LocalTool, LocalToolError};
 /// Bounds both the Unix `kill -0` probe and the macOS `ps -o lstart=` token
 /// capture so a hung or manipulated executable cannot block startup or the
 /// render-path liveness poll indefinitely.
+#[cfg(unix)]
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Platform observation before comparison with persisted identity.
