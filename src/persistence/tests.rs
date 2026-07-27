@@ -787,6 +787,8 @@ fn user_preferences_roundtrip() {
                 issue_filter_field_index: 3,
                 pr_filter_field_index: 5,
                 last_merge_method: Some(MergeMethod::Squash),
+                last_new_issue_milestone: Some("v1.2".to_string()),
+                last_new_issue_project_ids: vec!["PVT_1".to_string()],
             },
         )],
     };

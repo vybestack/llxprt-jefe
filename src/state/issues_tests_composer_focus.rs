@@ -143,6 +143,49 @@ fn test_open_new_comment_composer_scrolls_to_bottom() {
     );
 }
 
+#[test]
+fn wrapped_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
+    let Some(detail) = state.issues_state.issue_detail.as_mut() else {
+        panic!("expected loaded detail");
+    };
+    detail.body = format!("wrapped head {} wrapped tail", "segment ".repeat(30));
+    state.issues_state.detail_viewport_rows = 20;
+    state.issues_state.detail_content_width = 20;
+
+    let state = state
+        .apply(AppEvent::OpenNewCommentComposer)
+        .committed_pure();
+    let content = crate::issue_detail_content::build_detail_content(
+        state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .unwrap_or_else(|| panic!("expected loaded detail")),
+        state.issues_state.detail_subfocus,
+        &state.issues_state.inline_state,
+        false,
+    );
+    let rows = crate::domain::document_wrap::wrap_document(&content.text, 20);
+    let first = crate::domain::document_wrap::line_first_row(
+        &rows,
+        state.issues_state.detail_scroll_offset,
+    );
+    let help_row = rows
+        .iter()
+        .position(|row| row.text.contains("Alt+Enter submit"))
+        .unwrap_or_else(|| panic!("expected composer help row"));
+    let viewport = crate::layout::issue_detail_document_viewport_rows(20, true);
+
+    assert!(state.issues_state.detail_scroll_offset > 0);
+    assert!(help_row < first + viewport);
+    assert_eq!(
+        state.issues_state.detail_scroll_offset,
+        state.issues_state.max_detail_scroll_offset()
+    );
+}
+
 /// Issue #56: When the composer is blocked by exclusivity (an editor is already
 /// active), opening the new-comment composer must NOT change subfocus or scroll.
 #[test]

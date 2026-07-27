@@ -32,7 +32,7 @@ impl AppState {
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 169-176
     pub(super) fn scroll_pr_detail_to_bottom(&mut self) {
-        self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
+        self.prs_state.detail_scroll_offset = self.pr_detail_max_scroll_offset();
     }
 
     /// Scroll to the stable read-only Reply anchor rendered for the active
@@ -58,43 +58,27 @@ impl AppState {
         if viewport == 0 {
             return;
         }
-        let max_offset = content.text.lines().count().saturating_sub(viewport);
-        if let Some(line_idx) = content
+        let Some(anchor_line) = content
             .text
             .lines()
             .position(|line| line == crate::pr_detail_content::PR_REPLY_ANCHOR)
-        {
-            let desired = line_idx.saturating_sub(viewport.saturating_sub(1));
-            self.prs_state.detail_scroll_offset = desired.min(max_offset);
-        }
-    }
-
-    /// Compute the maximum detail scroll offset from the REAL rendered content
-    /// length (the exact text `build_pr_detail_content` emits for the current
-    /// subfocus and inline composer state) minus the viewport prop.
-    ///
-    /// Using the shared `pr_detail_content_line_count` parity function — rather
-    /// than a heuristic — guarantees that scrolling to the bottom on composer
-    /// open lands on the same offset the scroll clamp uses, so the composer
-    /// stays on-screen and a later page-down does not jump (#56). Like Issues
-    /// mode, the reducer NEVER wraps, so the count is the unwrapped line count
-    /// the renderer also sees (truncation does not change line counts).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 169-176
-    fn pr_max_detail_scroll_offset(&self) -> usize {
-        let Some(detail) = &self.prs_state.pr_detail else {
-            return 0;
+        else {
+            return;
         };
-        crate::pr_detail_content::pr_detail_content_line_count(
-            detail,
-            self.prs_state.detail_subfocus,
-            &self.prs_state.inline_state,
-            self.prs_state.loading.detail,
-            self.prs_state.loading.comments,
-        )
-        .saturating_sub(self.pr_detail_scroll_viewport_rows())
+        let content_width = if self.prs_state.detail_content_width == 0 {
+            usize::from(crate::layout::prs_detail_content_width(120))
+        } else {
+            self.prs_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        let desired = crate::domain::document_wrap::reveal_content_line_range(
+            &rows,
+            anchor_line,
+            anchor_line,
+            self.prs_state.detail_scroll_offset,
+            viewport,
+        );
+        self.prs_state.detail_scroll_offset = desired.min(self.pr_detail_max_scroll_offset());
     }
 
     /// Borrow the active (text, cursor) pair from the inline composer/editor.

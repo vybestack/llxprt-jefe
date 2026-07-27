@@ -227,7 +227,9 @@ impl AppState {
 
 /// Whether a newly created (always-open) issue belongs in the current committed
 /// list filter. Closed-only views stay unchanged; Open/All/default show it.
-fn created_issue_visible_in_committed_filter(filter: &crate::domain::IssueFilter) -> bool {
+pub(super) fn created_issue_visible_in_committed_filter(
+    filter: &crate::domain::IssueFilter,
+) -> bool {
     !matches!(
         filter
             .state
@@ -238,7 +240,7 @@ fn created_issue_visible_in_committed_filter(filter: &crate::domain::IssueFilter
 
 /// Prepend `issue` to the list (or replace an existing row with the same
 /// number) so create success does not wait on a racy GitHub list reload.
-fn prepend_or_replace_created_issue(
+pub(super) fn prepend_or_replace_created_issue(
     list: &mut crate::state::pagination::PaginatedList<
         crate::domain::Issue,
         crate::state::IssueListIdentity,

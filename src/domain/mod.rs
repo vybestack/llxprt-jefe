@@ -4,6 +4,8 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Pure document wrapping and content-line scroll geometry.
+pub mod document_wrap;
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
 
@@ -265,20 +267,6 @@ pub struct Repository {
     pub agent_ids: Vec<AgentId>,
 }
 
-// =============================================================================
-// Pull Requests Mode domain entities
-//
-// @plan PLAN-20260624-PR-MODE.P03
-// @requirement REQ-PR-006
-// @requirement REQ-PR-008
-// @requirement REQ-PR-009
-// Non-serde transient types mirroring Issue/IssueDetail. Reuses IssueComment
-// for PR comments (GitHub PRs are issues for the conversation-comment API).
-// =============================================================================
-
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-009
 /// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrState {
@@ -598,6 +586,14 @@ pub struct RepoPreferences {
     /// confirms a merge; the chooser then defaults to Merge).
     #[serde(default)]
     pub last_merge_method: Option<MergeMethod>,
+    /// Last-used milestone in the New Issue dialog (issue #407). Sticky:
+    /// restored when the dialog opens, remembered on a successful submit.
+    #[serde(default)]
+    pub last_new_issue_milestone: Option<String>,
+    /// Last-used Projects V2 node ids in the New Issue dialog (issue #407).
+    /// Sticky: restored when the dialog opens, remembered on submit.
+    #[serde(default)]
+    pub last_new_issue_project_ids: Vec<String>,
 }
 
 impl Default for RepoPreferences {
@@ -610,6 +606,8 @@ impl Default for RepoPreferences {
             issue_filter_field_index: 0,
             pr_filter_field_index: 0,
             last_merge_method: None,
+            last_new_issue_milestone: None,
+            last_new_issue_project_ids: Vec::new(),
         }
     }
 }

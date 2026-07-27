@@ -28,6 +28,7 @@ mod errors_conversion;
 pub use errors::ErrorsMessage;
 mod event_conversion;
 mod names;
+pub use names::is_new_issue_form_msg;
 mod terminal_manager;
 mod terminal_manager_conversion;
 pub use terminal_manager::TerminalManagerMessage;
@@ -323,6 +324,50 @@ pub enum IssuesMessage {
     OpenInlineEditor {
         target: EditorTarget,
     },
+    // ── New Issue form (issue #407) ──────────────────────────────────
+    NewIssueTemplateNext,
+    NewIssueTypeNext,
+    NewIssueTitleChar(char),
+    NewIssueTitleBackspace,
+    NewIssueTitleDelete,
+    NewIssueTitleCursorLeft,
+    NewIssueTitleCursorRight,
+    NewIssueTitleCursorHome,
+    NewIssueTitleCursorEnd,
+    NewIssueBodyChar(char),
+    NewIssueBodyNewline,
+    NewIssueBodyBackspace,
+    NewIssueBodyDelete,
+    NewIssueBodyCursorLeft,
+    NewIssueBodyCursorRight,
+    NewIssueBodyCursorUp,
+    NewIssueBodyCursorDown,
+    NewIssueBodyCursorHome,
+    NewIssueBodyCursorEnd,
+    NewIssueFocusNext,
+    NewIssueFocusPrev,
+    NewIssueSubmit,
+    NewIssueCancel,
+    NewIssueOptionsLoaded {
+        labels: Vec<String>,
+        milestones: Vec<String>,
+        types: Vec<crate::state::IssueType>,
+        assignees: Vec<String>,
+    },
+    NewIssueOptionsFailed {
+        error: String,
+    },
+    NewIssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue: Box<Issue>,
+    },
+    NewIssueCreateFailed {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue_number: Option<u64>,
+        error: String,
+    },
     InlineChar(char),
     InlineNewline,
     InlineBackspace,
@@ -488,16 +533,8 @@ pub enum IssuesMessage {
         error: String,
     },
 }
-///
-/// @plan PLAN-20260624-PR-MODE.P03
-///
-/// @requirement REQ-PR-001
-/// @requirement REQ-PR-002
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-008
-/// @requirement REQ-PR-010
-/// @requirement REQ-PR-012
-/// @pseudocode component-004 lines 02-35
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
 #[derive(Debug, Clone)]
 pub enum PullRequestsMessage {
     EnterMode,
