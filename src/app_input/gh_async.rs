@@ -185,6 +185,7 @@ pub(super) fn delivery_handle_or_report(
 ) -> Option<GhDeliveryHandle> {
     let deliveries = gh_delivery_handle(ctx);
     if deliveries.is_none() {
+        tracing::warn!("dropping a GitHub request: no root delivery queue is installed");
         report(
             app_state,
             ctx,

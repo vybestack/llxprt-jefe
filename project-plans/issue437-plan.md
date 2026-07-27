@@ -211,6 +211,17 @@ CI re-triggers OCR on every push, so two further rounds ran after the budget was
 | 55 | Preserve "panicked" for real panics and reserve "abandoned" for queue unavailability | Reject | This is the inverse of finding 15, which was accepted for being correct. One verb covers both causes and the appended message carries the specific one; the Errors entry title still distinguishes a genuine panic. |
 | 56 | `INSTALL.call_once` costs an atomic check per `contain` call | Reject | Micro-optimization on a path that spawns a subprocess and performs network I/O. The `Once` is what makes hook installation race-free. |
 
+## Post-PR review triage, round 5 (automatic CI OpenCodeReview re-run)
+
+Eleven comments; six explicitly confirm the new delivery/panic contract is correct. The remainder:
+
+| # | Finding | Disposition | Evidence |
+| --- | --- | --- | --- |
+| 57 | `delivery_handle_or_report` returns `None` with no logging or metrics, making dropped requests invisible to operators | In-scope-Fix | Fair. The path reported to the user but left no operator trace. Added a `tracing::warn!` before the reporter runs. |
+| 58 | The Actions abandoned path leaves the UI stuck in a loading state because the result handlers do not clear the pending marker | Reject | Falsified by construction. `list_abandoned` routes an `Err` through the same handler as a real failure, producing `ActionsRunsPageLoadFailed` -> `fail_runs_page_load` -> `PaginatedList::accept_failure`, which sets `pending = None`. `is_loading()` is *derived* from `pending` (`paginated_list.rs:299`), so clearing pending clears loading; there is no separate flag to miss. |
+| 59 | The `prs_mutation` dispatchers have no findable call sites, implying dynamic dispatch or external consumers that will fail to compile | Reject | Every one has exactly one in-repo call site: `dispatch_pr_comment_create` at `prs_mutation.rs:73`, `handle_pr_thread_resolve` at `prs_orchestration.rs:111`, and likewise for the thread reply/resolve pair. There is no dynamic dispatch; the crate is a binary with no external consumers, and the workspace compiles clean. |
+| 60 | Collapsing "panicked" and "abandoned" obscures the root cause; preserve panic-specific wording | Reject | Third restatement of the same suggestion (see 15, 55). One verb is accurate for a handler with two triggers; the appended message carries the specific cause, the Errors entry title distinguishes a genuine panic, and `worker_panic::contain` adds the payload and source location. |
+
 ## Exact-head completion
 
 Candidate head `issue437` rebased onto `ff9b6e3`, PR https://github.com/vybestack/llxprt-jefe/pull/452, base `main`.
