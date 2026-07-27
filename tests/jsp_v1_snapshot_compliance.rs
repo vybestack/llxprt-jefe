@@ -149,15 +149,19 @@ fn assert_expected_identity(fixture_name: &str, snapshot: &jefe::jsp::v1::Snapsh
     );
 }
 
-/// S1: the canonical full snapshot yields exact typed identity, cursor, and
-/// semantic fields with provenance and availability.
-#[test]
-fn s1_canonical_full_snapshot_has_exact_typed_fields() {
+/// Parse the canonical full fixture, which every S1 assertion builds on.
+fn canonical_full_snapshot() -> jefe::jsp::v1::Snapshot {
     let path = fixtures_dir().join("snapshot_full.json");
     let bytes =
         fs::read(&path).unwrap_or_else(|_| panic!("full fixture exists at {}", path.display()));
-    let snapshot =
-        parse_snapshot(&bytes).unwrap_or_else(|err| panic!("full snapshot must parse: {err}"));
+    parse_snapshot(&bytes).unwrap_or_else(|err| panic!("full snapshot must parse: {err}"))
+}
+
+/// S1: the canonical full snapshot yields the exact typed identity and
+/// ordering fields.
+#[test]
+fn s1_canonical_full_snapshot_has_exact_identity_and_ordering() {
+    let snapshot = canonical_full_snapshot();
 
     assert_eq!(snapshot.identity.agent_id.as_str(), "agent-alex");
     assert_eq!(snapshot.identity.lifecycle_generation, 7);
@@ -165,6 +169,13 @@ fn s1_canonical_full_snapshot_has_exact_typed_fields() {
     assert_eq!(snapshot.cursor, 41);
     assert_eq!(snapshot.source_sequence, 42);
     assert_eq!(snapshot.bridge_observed_ms, 1_785_921_964_000);
+}
+
+/// S1: the canonical full snapshot yields the exact descriptive session
+/// metadata, none of which participates in the observation key.
+#[test]
+fn s1_canonical_full_snapshot_has_exact_session_metadata() {
+    let snapshot = canonical_full_snapshot();
 
     assert_eq!(
         snapshot.native_session.repository.as_str(),
@@ -174,6 +185,13 @@ fn s1_canonical_full_snapshot_has_exact_typed_fields() {
     assert_eq!(snapshot.native_session.agent_kind.as_str(), "llxprt");
     assert_eq!(snapshot.native_session.pid, 12_345);
     assert_eq!(snapshot.native_session.display_name.as_str(), "main-worker");
+}
+
+/// S1: the canonical full snapshot yields exact typed semantic fields with
+/// their provenance and availability.
+#[test]
+fn s1_canonical_full_snapshot_has_exact_typed_fields() {
+    let snapshot = canonical_full_snapshot();
 
     let FieldState::Supported {
         provenance,
