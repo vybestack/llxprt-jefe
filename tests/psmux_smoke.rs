@@ -883,11 +883,11 @@ fn version_probe_stops_immediately_on_non_retryable_failure() {
 fn version_probe_recovers_after_loader_transient() {
     let sequence = vec![
         Ok(probe_output(0xc000_0142, "", "first transient")),
-        Ok(probe_output(0, "tmux 3.3.6\n", "")),
+        Ok(probe_output(0, "tmux 3.3.7\n", "")),
     ];
     let outcome = run_probe_sequence(sequence);
     let ((version, diagnostics), probes, sleeps) = assert_probe_ok(outcome);
-    assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.6", 2, 1));
+    assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.7", 2, 1));
     assert_eq!(diagnostics.len(), 2);
     assert!(diagnostics[0].contains("first transient"));
 }

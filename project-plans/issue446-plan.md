@@ -92,7 +92,7 @@ Current scope: 15 files, 383 added / 39 deleted lines including this plan; no sc
 ## Review counters
 
 - Pre-PR Open Code Review runs: 0 / 2.
-- Post-PR Open Code Review runs: 1 / 2 (the first PR-head workflow completed successfully; no issue-specific findings were emitted).
+- Post-PR Open Code Review runs: 2 / 2 (both PR-head workflows completed successfully; no issue-specific findings were emitted). The cap is reached; no additional OCR review may be requested.
 
 ## Verification evidence
 
@@ -106,7 +106,8 @@ Current scope: 15 files, 383 added / 39 deleted lines including this plan; no sc
 | Quick verification | Passed | GNU Make was unavailable on this Windows host; direct equivalent `cargo fmt --all`, `cargo check -q`, and `cargo test -q` passed (3,812 tests across targets/doctests) |
 | Full required suite | Passed | Exact-head format, strict all-target/all-feature Clippy, locked all-feature build, locked all-feature workspace tests with `JEFE_REQUIRE_PSMUX=1`, and `git diff --check` all exited 0 on psmux 3.3.7. |
 | First PR CI attempt | Blocker remediated | Native Windows proved psmux 3.3.7 may terminate a detached descendant itself when the pane leader dies; the legacy integration test incorrectly required that child to survive. The test now accepts direct psmux cleanup or applies Jefe's validated reap if a descendant remains, while always requiring no leaked target process/session and an untouched bystander. The focused test passes five consecutive native runs. |
-| Bounded review | Passed | GLM review found no Blocker or Reject findings; A1–A4 and planned scope were confirmed. The first post-PR OCR workflow reported success with no policy or infrastructure failure and emitted no issue-specific findings. |
+| Second PR CI attempt | Blocker remediated | The orphan target passed, then the psmux smoke retry fixture still returned the obsolete supported version `tmux 3.3.6`; its expected successful recovery is updated to the required `tmux 3.3.7`. |
+| Bounded review | Passed | GLM review found no Blocker or Reject findings; A1–A4 and planned scope were confirmed. Both permitted post-PR OCR workflows reported success with no policy or infrastructure failure and emitted no issue-specific findings. |
 
 ## Review triage and deferred findings
 
@@ -118,3 +119,4 @@ Current scope: 15 files, 383 added / 39 deleted lines including this plan; no sc
 | Canonical work targets unify empty-id agents expressed with tilde versus absolute home paths | Reject | Intended physical-identity behavior and consistent with repository migration semantics |
 | Four real-psmux harness tests time out before creating sessions on psmux 3.3.6 | Blocker—Fix | Reclassified after the reporter identified it as part of issue #446 and authorized the expansion; psmux 3.3.7 fixes the real-session test and is now required |
 | Native Windows CI expected the detached fixture child to survive pane-leader termination | Blocker—Fix | psmux 3.3.7 correctly cleaned the child directly, making the old orphan-only premise obsolete. The test now verifies the accepted A5 outcome across both valid implementations: direct psmux cleanup, or Jefe classification/reaping when a validated descendant survives. |
+| Loader-retry smoke fixture still recovered to psmux 3.3.6 | Blocker—Fix | Update the success fixture and assertion to 3.3.7 so the retry behavior is tested against the supported minimum rather than intentionally failing qualification. |
