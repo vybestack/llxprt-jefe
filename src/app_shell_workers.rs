@@ -281,6 +281,48 @@ pub fn history_lines_under_contention(last_good: Option<&[String]>) -> Vec<Strin
     last_good.map(<[String]>::to_vec).unwrap_or_default()
 }
 
+fn last_history_under_contention() -> Vec<String> {
+    LAST_HISTORY_LINES.with(|cell| {
+        history_lines_under_contention(cell.borrow().as_ref().map(|(_, _, lines)| lines.as_ref()))
+    })
+}
+
+fn store_last_history_if_changed(agent: &AgentId, generation: u64, lines: &[String]) {
+    LAST_HISTORY_LINES.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let refresh = match slot.as_ref() {
+            Some((aid, cached_generation, _)) => aid != agent || *cached_generation != generation,
+            None => true,
+        };
+        if refresh {
+            *slot = Some((agent.clone(), generation, Arc::<[String]>::from(lines)));
+        }
+    });
+}
+
+fn request_capture_if_needed(
+    handle: &CaptureHandle,
+    attached_agent: &AgentId,
+    session_name: String,
+    generation: u64,
+) {
+    let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
+        let prev = cell.borrow();
+        let changed = prev
+            .as_ref()
+            .is_some_and(|(a, g)| a != attached_agent || *g != generation)
+            || prev.is_none();
+        drop(prev);
+        if changed {
+            *cell.borrow_mut() = Some((attached_agent.clone(), generation));
+        }
+        changed
+    });
+    if need_request {
+        handle.request(attached_agent.clone(), session_name, generation);
+    }
+}
+
 /// Read history lines from the runtime cache (issue #301 Phase 2).
 ///
 /// The render path calls this instead of `capture_history` (which shells out
@@ -288,17 +330,10 @@ pub fn history_lines_under_contention(last_good: Option<&[String]>) -> Vec<Strin
 /// 1. Requests a background capture via the `CaptureHandle` (cheap, no I/O).
 /// 2. Reads the runtime's `HistoryCache` directly (non-blocking).
 ///
-/// Per-frame lock optimization: `CaptureHandle::request()` deduplicates by
-/// `(agent_id, session_name, generation)`, but it still acquires a mutex and
-/// clones `AgentId`/`String` on every call. To reduce lock contention on the
-/// render hot path, the last requested `(agent_id, generation)` is cached in
-/// a thread-local and `request()` is only called when the generation changes.
-///
 /// Contended `try_lock` and exact-generation cache misses preserve prior lines
-/// (matching [`try_capture_history_geometry_from_cache`]'s fallback policy) so
-/// scrollback / selection do not flash empty during attach or worker activity.
-/// Last-good scrollback is refreshed only when `(agent_id, generation)`
-/// changes so the success path does not double-clone large histories every frame.
+/// (matching [`try_capture_history_geometry_from_cache`]'s fallback policy).
+/// Last-good scrollback is shared via `Arc` and refreshed only when
+/// `(agent_id, generation)` changes.
 #[must_use]
 pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> Vec<String> {
     let Some(ctx_arc) = ctx else {
@@ -309,15 +344,8 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         tracing::trace!(
             "capture_history_from_cache: ctx try_lock contended; preserving last-good scrollback"
         );
-        return LAST_HISTORY_LINES.with(|cell| {
-            history_lines_under_contention(
-                cell.borrow()
-                    .as_ref()
-                    .map(|(_, _, lines)| lines.as_slice()),
-            )
-        });
+        return last_history_under_contention();
     };
-    let handle: &CaptureHandle = &ctx_guard.capture_handle;
     let Some(agent_id) = ctx_guard.runtime.attached_agent() else {
         clear_last_history_lines();
         return Vec::new();
@@ -329,23 +357,12 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
     let attached_agent = agent_id.clone();
     let session_name = session.session_name.clone();
     let generation = ctx_guard.runtime.output_generation();
-    // Only call request() when the (agent_id, generation) pair has changed
-    // since the last frame, reducing mutex contention on the render path.
-    let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
-        let prev = cell.borrow();
-        let changed = prev
-            .as_ref()
-            .is_some_and(|(a, g)| a != &attached_agent || *g != generation)
-            || prev.is_none();
-        drop(prev);
-        if changed {
-            *cell.borrow_mut() = Some((attached_agent.clone(), generation));
-        }
-        changed
-    });
-    if need_request {
-        handle.request(attached_agent.clone(), session_name, generation);
-    }
+    request_capture_if_needed(
+        &ctx_guard.capture_handle,
+        &attached_agent,
+        session_name,
+        generation,
+    );
     let lines = resolve_cached_history_lines(
         ctx_guard
             .runtime
@@ -356,20 +373,7 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
             .history_cache_fallback(&attached_agent)
             .map(Vec::as_slice),
     );
-    // Refresh last-good only when the attached session generation changes so
-    // steady-state frames avoid a second full scrollback clone.
-    LAST_HISTORY_LINES.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let refresh = match slot.as_ref() {
-            Some((aid, cached_generation, _)) => {
-                aid != &attached_agent || *cached_generation != generation
-            }
-            None => true,
-        };
-        if refresh {
-            *slot = Some((attached_agent, generation, lines.clone()));
-        }
-    });
+    store_last_history_if_changed(&attached_agent, generation, &lines);
     lines
 }
 
@@ -438,7 +442,7 @@ thread_local! {
     /// Last successfully resolved scrollback for an attached `(agent, generation)`.
     /// Refreshed only when that pair changes so steady-state frames avoid a
     /// second full-history clone; used when `try_lock` is contended.
-    static LAST_HISTORY_LINES: std::cell::RefCell<Option<(AgentId, u64, Vec<String>)>> =
+    static LAST_HISTORY_LINES: std::cell::RefCell<Option<(AgentId, u64, Arc<[String]>)>> =
         const { std::cell::RefCell::new(None) };
 }
 
