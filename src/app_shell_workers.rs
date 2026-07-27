@@ -432,6 +432,9 @@ pub fn try_capture_history_geometry_from_cache(
     Some((history_count, live_rows))
 }
 
+/// Cached scrollback keyed by the attached agent and output generation.
+type LastHistoryEntry = (AgentId, u64, Arc<[String]>);
+
 thread_local! {
     /// Cache of the last (agent_id, generation) requested by
     /// `capture_history_from_cache` to avoid redundant `CaptureHandle::request`
@@ -442,7 +445,7 @@ thread_local! {
     /// Last successfully resolved scrollback for an attached `(agent, generation)`.
     /// Refreshed only when that pair changes so steady-state frames avoid a
     /// second full-history clone; used when `try_lock` is contended.
-    static LAST_HISTORY_LINES: std::cell::RefCell<Option<(AgentId, u64, Arc<[String]>)>> =
+    static LAST_HISTORY_LINES: std::cell::RefCell<Option<LastHistoryEntry>> =
         const { std::cell::RefCell::new(None) };
 }
 
