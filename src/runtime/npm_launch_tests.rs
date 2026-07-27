@@ -371,3 +371,67 @@ fn latest_nightly_sentinel_remote_uses_nightly_dist_tag() {
         .unwrap_or_else(|error| panic!("nightly remote plan: {error}"));
     assert_eq!(plan.args[2], "--package=@vybestack/llxprt-code@nightly");
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_official_llxprt_script_plan_launches_bun_with_entrypoint_first_argument() {
+    use super::super::agent_executable::{AgentExecutablePlatform, AgentExecutableResolver};
+    use std::ffi::{OsStr, OsString};
+
+    const MARKER: &str = "LLXPRT_NATIVE_LAUNCHER owned by @vybestack/llxprt-code";
+    const BUN_REL: &str = "node_modules/@vybestack/llxprt-code/node_modules/bun/bin/bun.exe";
+    const ENTRY_REL: &str = "node_modules/@vybestack/llxprt-code/index.ts";
+
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    let wrapper = directory.path().join("llxprt.cmd");
+    std::fs::write(
+        &wrapper,
+        format!("@echo off\r\nrem {MARKER}\r\n").as_bytes(),
+    )
+    .unwrap_or_else(|error| panic!("write wrapper: {error}"));
+    let bun = directory.path().join(BUN_REL);
+    let entry = directory.path().join(ENTRY_REL);
+    for path in [&bun, &entry] {
+        std::fs::create_dir_all(path.parent().unwrap_or_else(|| directory.path()))
+            .unwrap_or_else(|error| panic!("create fixture dir: {error}"));
+        std::fs::write(path, b"fixture").unwrap_or_else(|error| panic!("write fixture: {error}"));
+    }
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(std::ffi::OsString::from(".CMD")),
+    );
+    let executable = resolver
+        .resolve(crate::domain::AgentKind::Llxprt)
+        .unwrap_or_else(|error| panic!("resolve official wrapper: {error}"));
+    let prompt = OsString::from("x".repeat(8_092));
+    let command = super::super::agent_launcher::command_for_executable(
+        &executable,
+        &[
+            OsString::from("--profile-load"),
+            OsString::from("p"),
+            prompt,
+        ],
+    );
+    let canonical_bun =
+        std::fs::canonicalize(&bun).unwrap_or_else(|error| panic!("canonical bun: {error}"));
+    let canonical_entry =
+        std::fs::canonicalize(&entry).unwrap_or_else(|error| panic!("canonical entry: {error}"));
+    let args = command.get_args().collect::<Vec<_>>();
+    assert_eq!(command.get_program(), canonical_bun.as_path());
+    assert_eq!(args.len(), 4);
+    assert_eq!(args[0], canonical_entry.as_os_str());
+    assert_eq!(args[1], OsStr::new("--profile-load"));
+    assert_eq!(args[2], OsStr::new("p"));
+    assert_eq!(args[3].len(), 8_092);
+    assert!(
+        !args.iter().any(|arg| *arg == wrapper.as_os_str()),
+        "wrapper must not appear in argv"
+    );
+    assert!(
+        !command
+            .get_program()
+            .to_str()
+            .is_some_and(|program| program.eq_ignore_ascii_case("cmd.exe"))
+    );
+}

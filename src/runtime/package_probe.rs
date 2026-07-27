@@ -251,7 +251,8 @@ fn local_resolution_error(
             target: "local machine".to_owned(),
             selector: selector.as_str().to_owned(),
         },
-        error @ AgentExecutableError::NonCanonicalNpmWrapper { .. } => {
+        error @ (AgentExecutableError::NonCanonicalNpmWrapper { .. }
+        | AgentExecutableError::NonCanonicalOfficialLlxprtWrapper { .. }) => {
             let (target, selector, diagnostic) =
                 failure_fields("local machine", selector, &error.to_string());
             NpmPackageAvailabilityError::ProbeFailure {

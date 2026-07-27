@@ -48,6 +48,7 @@ the suite never contacts the default server and never invokes bare
 | Screen/history capture | `capture-pane -p -S <start> -E - -t <session>` | Returns visible output and bounded scrollback |
 | Resize request | `resize-window -t <session> -x 90 -y 28` | Command succeeds; detached 3.3.7 retains its initial `100x32` geometry until an attached client supplies size |
 | Session cleanup | `kill-session -t <session>` | Terminates only the selected session |
+| Official LLxprt agent launch (#433) | `jefe --jefe-internal-agent-launch <plan>` through `new-session`, resolving marked `llxprt.cmd` to bundled Bun + `index.ts` | Delivers a #425-sized 8,092-byte prompt as one intact process argument without crossing `cmd.exe`'s line limit |
 | Namespace cleanup | `psmux -L <name> kill-server` | Terminates only the explicitly named namespace |
 | Mouse-mode advertisement observation (#296) | `AttachedViewer::spawn_with_plan` over a fixture emitting `\x1b[?1000h ?1002h ?1006h` | Jefe's embedded terminal model observes the advertised DEC private mouse modes and reports `mouse_reporting_active() == true` after attach |
 | Page-key byte delivery (#296) | `AttachedViewer::write_input(b"\x1b[5~")` / `b"\x1b[6~")` | The exact `CSI 5~` / `CSI 6~` byte sequences reach the child (not arrow sequences `CSI A` / `CSI B`) |

@@ -21,15 +21,15 @@ static LAUNCH_PLAN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct AgentLaunchPayload {
     path: PathBuf,
     wrapper: AgentWrapperKindPayload,
-    npm_launch: Option<NpmLaunchPayload>,
+    script_launch: Option<ScriptLaunchPayload>,
     args: Vec<OsString>,
     environment: Vec<(OsString, OsString)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct NpmLaunchPayload {
-    node: PathBuf,
-    cli: PathBuf,
+struct ScriptLaunchPayload {
+    runtime: PathBuf,
+    entrypoint: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub fn write_launch_plan(
     let payload = AgentLaunchPayload {
         path: executable.path().to_path_buf(),
         wrapper: executable.wrapper_kind().into(),
-        npm_launch: npm_launch_payload(executable),
+        script_launch: script_launch_payload(executable),
         args: args.to_vec(),
         environment: environment.to_vec(),
     };
@@ -148,23 +148,25 @@ pub(super) fn command_for_executable(
     command_for_payload(&AgentLaunchPayload {
         path: executable.path().to_path_buf(),
         wrapper: executable.wrapper_kind().into(),
-        npm_launch: npm_launch_payload(executable),
+        script_launch: script_launch_payload(executable),
         args: args.to_vec(),
         environment: Vec::new(),
     })
 }
 
-fn npm_launch_payload(executable: &ResolvedAgentExecutable) -> Option<NpmLaunchPayload> {
-    executable.npm_launch_plan().map(|plan| NpmLaunchPayload {
-        node: plan.node().to_path_buf(),
-        cli: plan.cli().to_path_buf(),
-    })
+fn script_launch_payload(executable: &ResolvedAgentExecutable) -> Option<ScriptLaunchPayload> {
+    executable
+        .script_launch_plan()
+        .map(|plan| ScriptLaunchPayload {
+            runtime: plan.runtime().to_path_buf(),
+            entrypoint: plan.entrypoint().to_path_buf(),
+        })
 }
 
 fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
-    if let Some(npm_launch) = &payload.npm_launch {
-        let mut command = Command::new(&npm_launch.node);
-        command.arg(&npm_launch.cli).args(&payload.args);
+    if let Some(script_launch) = &payload.script_launch {
+        let mut command = Command::new(&script_launch.runtime);
+        command.arg(&script_launch.entrypoint).args(&payload.args);
         return command;
     }
     match payload.wrapper {

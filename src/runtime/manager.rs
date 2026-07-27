@@ -890,11 +890,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         super::shell_window::close_all_manager_shell_windows()
     }
 }
-
-#[cfg(test)]
-#[path = "manager_tests.rs"]
-mod tests;
-
 #[cfg(test)]
 #[path = "history_tests.rs"]
 mod history_tests;
+#[cfg(test)]
+#[path = "manager_tests.rs"]
+mod tests;

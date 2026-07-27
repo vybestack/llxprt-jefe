@@ -44,7 +44,7 @@ mod stub_manager;
 
 pub use agent_executable::{
     AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
-    AgentWrapperKind, CanonicalNpmLaunchPlan, ResolvedAgentExecutable,
+    AgentWrapperKind, CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach::AttachedViewer;

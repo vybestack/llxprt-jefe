@@ -129,7 +129,7 @@ fn windows_npm_resolution_reuses_command_wrapper_policy() {
     let executable = resolver
         .resolve_target(AgentExecutableTarget::Npm)
         .unwrap_or_else(|error| panic!("npm.cmd should resolve: {error}"));
-    let Some(plan) = executable.npm_launch_plan() else {
+    let Some(plan) = executable.script_launch_plan() else {
         panic!("npm.cmd must retain a canonical direct Node.js plan");
     };
 
@@ -137,11 +137,11 @@ fn windows_npm_resolution_reuses_command_wrapper_policy() {
     assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
     assert_eq!(executable.target(), AgentExecutableTarget::Npm);
     assert_eq!(
-        plan.node(),
+        plan.runtime(),
         std::fs::canonicalize(node).unwrap_or_else(|error| panic!("node: {error}"))
     );
     assert_eq!(
-        plan.cli(),
+        plan.entrypoint(),
         std::fs::canonicalize(cli).unwrap_or_else(|error| panic!("cli: {error}"))
     );
 }
@@ -234,4 +234,136 @@ fn windows_npm_resolution_rejects_noncanonical_command_wrapper() {
     assert!(diagnostic.contains("official Node.js layout"));
     assert!(diagnostic.contains("node.exe"));
     assert!(diagnostic.contains("npm-cli.js"));
+}
+
+const LLXPRT_WRAPPER_MARKER: &str = "LLXPRT_NATIVE_LAUNCHER owned by @vybestack/llxprt-code";
+const LLXPRT_BUN_REL: &str = "node_modules/@vybestack/llxprt-code/node_modules/bun/bin/bun.exe";
+const LLXPRT_ENTRYPOINT_REL: &str = "node_modules/@vybestack/llxprt-code/index.ts";
+
+fn write_official_llxprt_wrapper(directory: &TempDir, include_bun: bool, include_entry: bool) {
+    let wrapper = directory.path().join("llxprt.cmd");
+    let body = format!(
+        "@echo off\r\nrem {LLXPRT_WRAPPER_MARKER}\r\nrem official launcher\r\nexit /b 0\r\n"
+    );
+    std::fs::write(&wrapper, body.as_bytes())
+        .unwrap_or_else(|error| panic!("write official wrapper: {error}"));
+    if include_bun {
+        let bun = directory.path().join(LLXPRT_BUN_REL);
+        std::fs::create_dir_all(bun.parent().unwrap_or_else(|| directory.path()))
+            .unwrap_or_else(|error| panic!("create bun dir: {error}"));
+        std::fs::write(&bun, b"fixture")
+            .unwrap_or_else(|error| panic!("write bun fixture: {error}"));
+    }
+    if include_entry {
+        let entry = directory.path().join(LLXPRT_ENTRYPOINT_REL);
+        std::fs::create_dir_all(entry.parent().unwrap_or_else(|| directory.path()))
+            .unwrap_or_else(|error| panic!("create entry dir: {error}"));
+        std::fs::write(&entry, b"fixture")
+            .unwrap_or_else(|error| panic!("write entry fixture: {error}"));
+    }
+}
+
+#[test]
+fn windows_official_llxprt_wrapper_resolves_to_canonical_bun_entrypoint_plan() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    write_official_llxprt_wrapper(&directory, true, true);
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    );
+
+    let executable = resolver
+        .resolve(AgentKind::Llxprt)
+        .unwrap_or_else(|error| panic!("official wrapper should resolve: {error}"));
+    let plan = executable
+        .script_launch_plan()
+        .unwrap_or_else(|| panic!("official wrapper must produce a canonical script plan"));
+    let expected_bun = std::fs::canonicalize(directory.path().join(LLXPRT_BUN_REL))
+        .unwrap_or_else(|error| panic!("canonical bun: {error}"));
+    let expected_entry = std::fs::canonicalize(directory.path().join(LLXPRT_ENTRYPOINT_REL))
+        .unwrap_or_else(|error| panic!("canonical entry: {error}"));
+    assert_eq!(executable.path(), directory.path().join("llxprt.cmd"));
+    assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
+    assert_eq!(plan.runtime(), expected_bun);
+    assert_eq!(plan.entrypoint(), expected_entry);
+}
+
+#[test]
+fn windows_official_llxprt_wrapper_missing_bun_fails_safely() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    write_official_llxprt_wrapper(&directory, false, true);
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    );
+
+    let error = resolver
+        .resolve(AgentKind::Llxprt)
+        .err()
+        .unwrap_or_else(|| panic!("incomplete official layout must fail"));
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("LLxprt"));
+    assert!(diagnostic.contains("reinstall"));
+    assert!(!diagnostic.contains("prompt"));
+}
+
+#[test]
+fn windows_official_llxprt_wrapper_missing_entrypoint_fails_safely() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    write_official_llxprt_wrapper(&directory, true, false);
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    );
+
+    let error = resolver
+        .resolve(AgentKind::Llxprt)
+        .err()
+        .unwrap_or_else(|| panic!("incomplete official layout must fail"));
+    assert!(error.to_string().contains("reinstall"));
+}
+
+#[test]
+fn windows_unmarked_llxprt_cmd_retains_command_script_behavior() {
+    let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("temp dir: {error}"));
+    write_candidate(&directory, "llxprt.cmd");
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    );
+
+    let executable = resolver
+        .resolve(AgentKind::Llxprt)
+        .unwrap_or_else(|error| panic!("unmarked wrapper should resolve: {error}"));
+    assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
+    assert!(
+        executable.script_launch_plan().is_none(),
+        "unmarked wrapper must not produce a canonical script plan"
+    );
+}
+
+#[test]
+fn windows_oversized_marked_llxprt_wrapper_is_not_treated_as_official() {
+    let directory =
+        TempDir::new().unwrap_or_else(|error| panic!("create oversized wrapper dir: {error}"));
+    let wrapper = directory.path().join("llxprt.cmd");
+    let mut body = format!("@echo off\r\nrem {LLXPRT_WRAPPER_MARKER}\r\n").into_bytes();
+    body.resize(8 * 1_024 + 1, b'x');
+    std::fs::write(&wrapper, body)
+        .unwrap_or_else(|error| panic!("write oversized wrapper: {error}"));
+
+    let executable = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![directory.path().to_path_buf()],
+        Some(OsString::from(".CMD")),
+    )
+    .resolve(AgentKind::Llxprt)
+    .unwrap_or_else(|error| panic!("oversized wrapper should remain launchable: {error}"));
+
+    assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
+    assert!(executable.script_launch_plan().is_none());
 }
