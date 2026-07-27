@@ -1448,24 +1448,35 @@ jobs:
 
       - name: Recompute manifest checksums over redacted bytes
         # sha256.txt must describe the exact bytes that are uploaded. It is
-        # first written before the redaction step (over pre-redaction bytes);
+        # first written in the Node manifest step (over pre-redaction bytes);
         # redaction rewrites manifest.pre.json, manifest.post.json, and
-        # sha256.txt itself. Recompute it here over the final, redacted
-        # manifest triple so the uploaded checksums match the uploaded files.
+        # sha256.txt itself. Recompute it here over the final, redacted bytes
+        # of every uploaded artifact so the checksums match the upload set.
         shell: bash
         if: always()
         run: |
           set -euo pipefail
           : > sha256.txt
-          for name in manifest.pre.json manifest.post.json; do
+          for name in \
+            ocr-result.json \
+            ocr-stdout.raw \
+            ocr-stderr.log \
+            ocr-version.txt \
+            ocr-preview.txt \
+            ocr-preview-stderr.log \
+            ocr-exit-code.txt \
+            ocr-phase.txt \
+            ocr-infrastructure-failure.txt \
+            ocr-policy-failure.txt \
+            manifest.pre.json \
+            manifest.post.json; do
             if [ -s "$name" ]; then
               digest=$(sha256sum "$name" | cut -d' ' -f1)
               printf '%s  %s\n' "$digest" "$name" >> sha256.txt
             fi
           done
-          # Self-hash last so sha256.txt also carries its own checksum line is
-          # intentionally omitted (a file cannot contain its own hash); the two
-          # manifest checksums are the auditable pair.
+          # sha256.txt does not self-hash (a file cannot contain its own
+          # checksum); the listed artifact checksums are the auditable set.
 
       - name: Upload OCR artifacts
         if: ${{ always() && steps.redact-ocr-artifacts.outcome == 'success' }}
