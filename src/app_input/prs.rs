@@ -374,14 +374,14 @@ fn handle_pr_changes_key(
                 && state.prs_state.changes.focus == PrChangesFocus::FileList
             {
                 Some(AppEvent::PrChangesRetryFiles)
-            } else if state.prs_state.changes.blob_error.is_some()
-                && state.prs_state.changes.focus == PrChangesFocus::Content
-                && selected_changes_thread(state).is_none()
-            {
-                Some(AppEvent::PrChangesRetryBlob)
             } else if state.prs_state.changes.focus == PrChangesFocus::Content {
-                selected_changes_thread(state)
-                    .map(|thread_index| AppEvent::PrOpenThreadReplyComposer { thread_index })
+                let selected_thread = selected_changes_thread(state);
+                if state.prs_state.changes.blob_error.is_some() && selected_thread.is_none() {
+                    Some(AppEvent::PrChangesRetryBlob)
+                } else {
+                    selected_thread
+                        .map(|thread_index| AppEvent::PrOpenThreadReplyComposer { thread_index })
+                }
             } else {
                 None
             }
