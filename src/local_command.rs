@@ -44,6 +44,17 @@ impl LocalTool {
             Self::Ps => "JEFE_PS_BIN",
         }
     }
+
+    /// Whether this tool must resolve from trusted system directories rather
+    /// than the full `PATH`.
+    ///
+    /// Security-sensitive probe tools (`kill`, `ps`) participate in process
+    /// liveness decisions, so a manipulated `PATH` must not silently
+    /// substitute an untrusted executable under the selected deployment
+    /// policy.
+    const fn requires_trusted_path(self) -> bool {
+        matches!(self, Self::Kill | Self::Ps)
+    }
 }
 
 /// Host executable-resolution policy.
@@ -96,14 +107,18 @@ impl std::error::Error for LocalToolError {}
 /// Resolve a local tool to an explicit executable path.
 pub fn resolve(tool: LocalTool) -> Result<PathBuf, LocalToolError> {
     let override_path = std::env::var_os(tool.override_name()).map(PathBuf::from);
-    let paths = std::env::var_os("PATH")
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            std::env::split_paths(&value)
-                .filter(|path| !path.as_os_str().is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let paths = if tool.requires_trusted_path() {
+        trusted_unix_directories()
+    } else {
+        std::env::var_os("PATH")
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                std::env::split_paths(&value)
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
     resolve_in(
         tool,
         ToolPlatform::current(),
@@ -111,6 +126,22 @@ pub fn resolve(tool: LocalTool) -> Result<PathBuf, LocalToolError> {
         std::env::var_os("PATHEXT"),
         override_path,
     )
+}
+
+/// Return the portable set of trusted system directories used to resolve
+/// security-sensitive probe executables.
+///
+/// Only canonical absolute system directories are searched, never the full
+/// `PATH`, so a manipulated `PATH` cannot substitute an untrusted `kill` or
+/// `ps` under the selected deployment policy.
+fn trusted_unix_directories() -> Vec<PathBuf> {
+    [
+        PathBuf::from("/bin"),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/sbin"),
+        PathBuf::from("/usr/sbin"),
+    ]
+    .into()
 }
 
 /// Construct a command using an explicitly resolved executable.
@@ -519,5 +550,49 @@ mod tests {
         let command = std::process::Command::new(&missing);
         let result = run_bounded(command, std::time::Duration::from_secs(1));
         assert!(matches!(result, Err(BoundedRunError::Spawn(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_probe_tools_resolve_only_from_trusted_system_directories() {
+        // Kill and Ps are security-sensitive probe tools: they must resolve
+        // only from canonical system directories, never from arbitrary PATH
+        // entries that an attacker could influence. This is the trust policy
+        // that prevents a manipulated PATH from silently substituting an
+        // untrusted probe executable under the selected deployment policy.
+        assert!(LocalTool::Kill.requires_trusted_path());
+        assert!(LocalTool::Ps.requires_trusted_path());
+
+        // Non-security tools continue to use the full PATH.
+        assert!(!LocalTool::Git.requires_trusted_path());
+        assert!(!LocalTool::Gh.requires_trusted_path());
+        assert!(!LocalTool::Ssh.requires_trusted_path());
+
+        // The trusted directory list contains only canonical absolute system
+        // directories — never user-writable or PATH-injected locations.
+        let trusted = trusted_unix_directories();
+        assert!(trusted.iter().all(|dir| dir.is_absolute()));
+        assert!(trusted.iter().any(|dir| dir == &PathBuf::from("/bin")));
+        assert!(trusted.iter().any(|dir| dir == &PathBuf::from("/usr/bin")));
+
+        // An untrusted directory is never in the trusted list, so a malicious
+        // executable placed there cannot be resolved through resolve().
+        let untrusted = tempfile::Builder::new()
+            .prefix("jefe untrusted probe ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create untrusted probe directory: {error}"));
+        assert!(!trusted.contains(&untrusted.path().to_path_buf()));
+
+        // The real system kill binary resolves from the trusted list when it
+        // exists there (CI and dev hosts have /bin/kill or /usr/bin/kill).
+        let resolved = resolve_in(LocalTool::Kill, ToolPlatform::Unix, &trusted, None, None);
+        if let Ok(path) = resolved {
+            let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+            assert!(
+                trusted.contains(&parent),
+                "kill must resolve from a trusted directory, got {}",
+                path.display()
+            );
+        }
     }
 }
