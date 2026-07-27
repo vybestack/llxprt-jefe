@@ -2,8 +2,10 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 const WINDOWS_DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
 
@@ -16,6 +18,10 @@ pub enum LocalTool {
     Gh,
     /// OpenSSH command-line client.
     Ssh,
+    /// Unix `kill` utility used by the local process-identity probe.
+    Kill,
+    /// Unix `ps` utility used by the macOS process-identity probe.
+    Ps,
 }
 
 impl LocalTool {
@@ -24,6 +30,8 @@ impl LocalTool {
             Self::Git => "git",
             Self::Gh => "gh",
             Self::Ssh => "ssh",
+            Self::Kill => "kill",
+            Self::Ps => "ps",
         }
     }
 
@@ -32,6 +40,8 @@ impl LocalTool {
             Self::Git => "JEFE_GIT_BIN",
             Self::Gh => "JEFE_GH_BIN",
             Self::Ssh => "JEFE_SSH_BIN",
+            Self::Kill => "JEFE_KILL_BIN",
+            Self::Ps => "JEFE_PS_BIN",
         }
     }
 }
@@ -106,6 +116,140 @@ pub fn resolve(tool: LocalTool) -> Result<PathBuf, LocalToolError> {
 /// Construct a command using an explicitly resolved executable.
 pub fn command(tool: LocalTool) -> Result<Command, LocalToolError> {
     resolve(tool).map(Command::new)
+}
+
+/// Failure from a bounded subprocess invocation.
+#[derive(Debug)]
+pub enum BoundedRunError {
+    /// The subprocess could not be spawned.
+    Spawn(std::io::Error),
+    /// The deadline elapsed before the subprocess exited; the child was killed.
+    Timeout,
+    /// The subprocess exited but its output could not be captured.
+    Io(std::io::Error),
+    /// A piped standard stream was unexpectedly missing.
+    Pipe(&'static str),
+}
+
+impl fmt::Display for BoundedRunError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Spawn(error) => write!(formatter, "spawn failed: {error}"),
+            Self::Timeout => write!(formatter, "subprocess exceeded its deadline"),
+            Self::Io(error) => write!(formatter, "subprocess I/O failed: {error}"),
+            Self::Pipe(name) => write!(formatter, "{name} pipe was unavailable"),
+        }
+    }
+}
+
+impl std::error::Error for BoundedRunError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Spawn(error) | Self::Io(error) => Some(error),
+            Self::Timeout | Self::Pipe(_) => None,
+        }
+    }
+}
+
+const BOUNDED_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Run a command to completion, killing and reaping it once `timeout` elapses.
+///
+/// Mirrors the bounded executor in `ssh.rs`: spawn with piped stdout/stderr,
+/// poll `try_wait` against an `Instant` deadline, then kill and reap the child
+/// on timeout. No stdin is written. Used by the local process-identity probe so
+/// a hung or manipulated `kill`/`ps` cannot block startup or the render-path
+/// liveness poll indefinitely.
+///
+/// # Errors
+/// Returns [`BoundedRunError::Spawn`] if the child cannot be spawned,
+/// [`BoundedRunError::Timeout`] if the deadline elapses, or
+/// [`BoundedRunError::Io`] / [`BoundedRunError::Pipe`] if the captured output
+/// cannot be collected.
+pub fn run_bounded(mut command: Command, timeout: Duration) -> Result<Output, BoundedRunError> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(BoundedRunError::Spawn)?;
+    let stdout = take_pipe(child.stdout.take(), &mut child, "stdout")?;
+    let stderr = take_pipe(child.stderr.take(), &mut child, "stderr")?;
+    let stdout_reader = read_pipe(stdout);
+    let stderr_reader = read_pipe(stderr);
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => {
+                return Err(stop_execution(
+                    &mut child,
+                    stdout_reader,
+                    stderr_reader,
+                    BoundedRunError::Timeout,
+                ));
+            }
+            Ok(None) => std::thread::sleep(BOUNDED_POLL_INTERVAL),
+            Err(error) => {
+                return Err(stop_execution(
+                    &mut child,
+                    stdout_reader,
+                    stderr_reader,
+                    BoundedRunError::Io(error),
+                ));
+            }
+        }
+    };
+    let stdout = join_reader(stdout_reader)?;
+    let stderr = join_reader(stderr_reader)?;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn take_pipe<T: Read + Send + 'static>(
+    pipe: Option<T>,
+    child: &mut std::process::Child,
+    name: &'static str,
+) -> Result<T, BoundedRunError> {
+    pipe.ok_or_else(|| {
+        terminate_child(child);
+        BoundedRunError::Pipe(name)
+    })
+}
+
+fn read_pipe<T: Read + Send + 'static>(
+    mut pipe: T,
+) -> std::thread::JoinHandle<std::io::Result<Vec<u8>>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        pipe.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })
+}
+
+fn join_reader(
+    reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Vec<u8>, BoundedRunError> {
+    reader
+        .join()
+        .map_err(|_| BoundedRunError::Io(std::io::Error::other("output reader terminated unexpectedly")))?
+        .map_err(BoundedRunError::Io)
+}
+
+fn stop_execution(
+    child: &mut std::process::Child,
+    stdout: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    error: BoundedRunError,
+) -> BoundedRunError {
+    terminate_child(child);
+    let _ = join_reader(stdout);
+    let _ = join_reader(stderr);
+    error
+}
+
+fn terminate_child(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn resolve_in(
@@ -259,5 +403,119 @@ mod tests {
             None,
         );
         assert_eq!(resolved, Ok(executable));
+    }
+
+    #[cfg(unix)]
+    fn write_unix_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, b"#!/bin/sh\nexit 0\n")
+            .unwrap_or_else(|error| panic!("write tool fixture: {error}"));
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|error| panic!("chmod tool fixture: {error}"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_resolves_kill_from_trusted_directory() {
+        let root = tempfile::Builder::new()
+            .prefix("jefe kill probe ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create kill directory: {error}"));
+        let executable = root.path().join("kill");
+        write_unix_executable(&executable);
+        let resolved = resolve_in(
+            LocalTool::Kill,
+            ToolPlatform::Unix,
+            &[root.path().to_path_buf()],
+            None,
+            None,
+        );
+        assert_eq!(resolved, Ok(executable));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_resolves_ps_from_trusted_directory() {
+        let root = tempfile::Builder::new()
+            .prefix("jefe ps probe ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create ps directory: {error}"));
+        let executable = root.path().join("ps");
+        write_unix_executable(&executable);
+        let resolved = resolve_in(
+            LocalTool::Ps,
+            ToolPlatform::Unix,
+            &[root.path().to_path_buf()],
+            None,
+            None,
+        );
+        assert_eq!(resolved, Ok(executable));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_kill_override_is_preserved_and_invalid_is_rejected() {
+        let root = tempfile::Builder::new()
+            .prefix("jefe kill override ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create override directory: {error}"));
+        let valid = root.path().join("custom-kill");
+        write_unix_executable(&valid);
+        let resolved = resolve_in(
+            LocalTool::Kill,
+            ToolPlatform::Unix,
+            &[],
+            None,
+            Some(valid.clone()),
+        );
+        assert_eq!(resolved, Ok(valid));
+
+        let missing = root.path().join("nope");
+        let invalid = resolve_in(
+            LocalTool::Kill,
+            ToolPlatform::Unix,
+            &[],
+            None,
+            Some(missing.clone()),
+        );
+        assert_eq!(
+            invalid,
+            Err(LocalToolError::InvalidOverride {
+                tool: LocalTool::Kill,
+                path: missing,
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_bounded_returns_output_for_a_fast_exiting_command() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "printf hello; exit 0"]);
+        let output =
+            run_bounded(command, std::time::Duration::from_secs(2)).unwrap_or_else(|error| {
+                panic!("run_bounded fast-path failed: {error}")
+            });
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"hello");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_bounded_times_out_and_reaps_a_hanging_subprocess() {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", "trap 'exit 0' TERM; sleep 30"]);
+        let timeout = std::time::Duration::from_millis(200);
+        let result = run_bounded(command, timeout);
+        assert!(matches!(result, Err(BoundedRunError::Timeout)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_bounded_reports_spawn_failure() {
+        let missing = std::env::temp_dir().join("jefe-no-such-probe-binary");
+        let command = std::process::Command::new(&missing);
+        let result = run_bounded(command, std::time::Duration::from_secs(1));
+        assert!(matches!(result, Err(BoundedRunError::Spawn(_))));
     }
 }
