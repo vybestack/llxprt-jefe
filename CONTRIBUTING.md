@@ -23,7 +23,7 @@ Requirements:
 For tight local loops:
 
 ```sh
-make quick-check
+cargo xtask quick
 # = cargo fmt && cargo check -q && cargo test -q
 ```
 
@@ -32,12 +32,12 @@ make quick-check
 Before pushing, reproduce the full CI gate locally:
 
 ```sh
-make build
+cargo xtask ci
 ```
 
-`make build` is an alias of `make ci-check`, which runs: format check,
-clippy-allow policy, source-file-size policy, clippy complexity gates, the 30%
-line-coverage gate, a workspace build, and the full test suite. See
+`cargo xtask ci` runs: format check, clippy-allow policy, source-file-size
+policy, architecture policy, clippy complexity gates, the 30% line-coverage
+gate, a workspace build, and the full test suite. See
 [Testing and Quality](dev-docs/standards/testing-and-quality.md) for every job.
 
 ## Reproduce the native Windows CI gate

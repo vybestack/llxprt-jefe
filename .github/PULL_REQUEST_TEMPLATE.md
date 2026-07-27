@@ -29,14 +29,17 @@ The items below map 1:1 to the CI jobs in
 [.github/workflows/ci.yml](workflows/ci.yml); `make ci-check` runs them all, but
 they are listed so a failure can be traced to the matching gate:
 
-- [ ] **Format** — `cargo fmt --all --check`
-- [ ] **Clippy allow policy** — `scripts/check-clippy-allows.sh` (no tracked `#[allow(clippy::...)]` outside the allowlist)
-- [ ] **Source file length** — `scripts/check-source-file-size.sh` (hard limit 1000 lines, warn at 750)
-- [ ] **Lint** — `CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- [ ] **Complexity** — `CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::too_many_arguments -D clippy::type_complexity -D clippy::struct_excessive_bools`
-- [ ] **Coverage** — `cargo llvm-cov --workspace --all-features --summary-only --ignore-filename-regex '(/vendor/|/tmp/|/rustc-)' --fail-under-lines 30` (requires `cargo-llvm-cov`; the [Makefile](../Makefile) wires up `LLVM_COV`/`LLVM_PROFDATA` for you)
-- [ ] **Build** — `cargo build --workspace --all-features --locked`
-- [ ] **Tests** — `cargo test --workspace --all-features --locked`
+- [ ] **Format** — `cargo xtask fmt`
+- [ ] **Clippy allow policy** — `cargo xtask check clippy-allows` (no tracked `#[allow(clippy::...)]` outside the allowlist)
+- [ ] **Source file length** — `cargo xtask check source-size` (hard limit 1000 lines, warn at 750)
+- [ ] **Architecture boundary policy** — `cargo xtask check architecture`
+- [ ] **Lint** — `cargo xtask lint`
+- [ ] **Complexity** — `cargo xtask complexity`
+- [ ] **Coverage** — `cargo xtask coverage` (requires `cargo-llvm-cov`; xtask discovers the stable toolchain's `LLVM_COV`/`LLVM_PROFDATA` automatically)
+- [ ] **Build** — `cargo xtask build`
+- [ ] **Tests** — `cargo xtask test`
+
+Or run the aggregate: `cargo xtask ci`.
 
 Optional (only if the change touches runtime/UI):
 

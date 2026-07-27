@@ -69,10 +69,11 @@ above:
 2. Create/refresh plan using [`workflow/PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md).
 3. Use [`workflow/COORDINATING.md`](./workflow/COORDINATING.md) to execute
    phases in strict sequence.
-4. Ensure all quality gates pass (`make ci-check`), covering:
-   - `cargo fmt --all --check`
-   - `scripts/check-clippy-allows.sh`
-   - `scripts/check-source-file-size.sh`
+4. Ensure all quality gates pass (`cargo xtask ci`), covering:
+   - format check
+   - clippy-allow policy
+   - source-size policy
+   - architecture policy
    - clippy complexity gates
    - coverage (`--fail-under-lines 30`)
    - `cargo build --workspace --all-features --locked`
