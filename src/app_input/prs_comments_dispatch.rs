@@ -2,7 +2,7 @@
 //!
 //! Extracted from `prs_dispatch.rs` to keep handler modules under the
 //! architecture per-file line limit. All `gh` I/O runs off the UI thread via
-//! `spawn_gh_task_with_panic`.
+//! `gh_async::spawn_gh_work`.
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-010
@@ -44,27 +44,39 @@ pub(super) fn load_more_pr_comments(app_state: &mut AppStateHandle, ctx: &Shared
     };
     let dispatched = DispatchedPrCommentPageParams { params, request_id };
 
-    let panic_params = dispatched.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_comment_page_event(&ctx, &dispatched);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrCommentsPageFailed {
-                    scope_repo_id: panic_params.params.scope_repo_id,
-                    pr_number: panic_params.params.pr_number,
-                    request_id: panic_params.request_id,
-                    error: format!("GitHub PR comments task panicked: {message}"),
-                },
-            );
-        },
+        comment_page_abandoned(dispatched.clone()),
+    ) else {
+        return;
+    };
+    let panic_params = dispatched.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_comment_page_event(ctx, &dispatched),
+        apply_and_persist,
+        comment_page_abandoned(panic_params),
     );
+}
+
+/// Report an abandoned PR comments page so the pending marker is cleared.
+fn comment_page_abandoned(
+    dispatched: DispatchedPrCommentPageParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrCommentsPageFailed {
+                scope_repo_id: dispatched.params.scope_repo_id,
+                pr_number: dispatched.params.pr_number,
+                request_id: dispatched.request_id,
+                error: format!("GitHub PR comments abandoned: {message}"),
+            },
+        );
+    }
 }
 
 /// @plan PLAN-20260624-PR-MODE.P11

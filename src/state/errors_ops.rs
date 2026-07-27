@@ -158,6 +158,35 @@ impl AppState {
     }
 }
 
+/// Unix epoch seconds used to stamp a captured error.
+fn now_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}", d.as_secs()))
+        .unwrap_or_default()
+}
+
+/// Record a contained background-worker panic on the errors screen (issue #437).
+///
+/// Worker panics are recoverable but must never reach the terminal, because
+/// the default panic hook writes over the running interface. Recording them
+/// here keeps the copyable report — including its source location — available
+/// even for routes that intentionally fail silently, and never steals the
+/// current screen or selection.
+///
+/// This is deliberately not deduplicated: each panic is a distinct occurrence,
+/// unlike the sticky error slots that `capture_runtime_errors` samples.
+pub fn capture_worker_panic(state: &mut AppState, detail: &str) {
+    let snap_to_newest = !state.errors_state.active;
+    state.errors_state.push(
+        "Background task panicked".to_string(),
+        detail.to_string(),
+        crate::domain::ErrorSource::Other,
+        now_timestamp(),
+        snap_to_newest,
+    );
+}
+
 /// Capture runtime errors into the errors ring buffer (issue #292).
 ///
 /// Called from `finalize_message` after every reducer step. Inspects all known
@@ -182,10 +211,7 @@ pub fn capture_runtime_errors(state: &mut AppState) {
         return;
     }
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("{}", d.as_secs()))
-        .unwrap_or_default();
+    let timestamp = now_timestamp();
 
     if let Some(ref msg) = state.error_message {
         // `error_message` is a catch-all slot written from many subsystems

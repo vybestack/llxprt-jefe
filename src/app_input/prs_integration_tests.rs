@@ -760,7 +760,7 @@ fn it_missing_github_repo_shows_inline_config_error() {
 // ═════════════════════════════════════════════════════════════════════════
 
 /// Checkpoint 16: PR list/detail loaders go through the async wrapper
-/// (`spawn_gh_task_with_panic`), never a blocking call on the UI thread. Since
+/// (`gh_async::spawn_gh_work`), never a blocking call on the UI thread. Since
 /// `AppStateHandle` cannot be constructed in unit tests and we MUST NOT spawn
 /// real threads or invoke the real `gh` binary, we assert the closest
 /// OBSERVABLE synchronous pre-spawn state: the loader path constructs the
@@ -776,7 +776,7 @@ fn it_missing_github_repo_shows_inline_config_error() {
 /// request builder the async wrapper reads) rather than calling `run_gh`
 /// inline, and that the call does NOT block to fetch data synchronously.
 ///
-/// NOTE: the actual off-thread spawn via `gh_async::spawn_gh_task_with_panic`
+/// NOTE: the actual off-thread spawn via `gh_async::spawn_gh_work`
 /// is not runtime-observable in a unit test (no spawn-recording seam — matching
 /// the documented convention in `app_input_tests.rs`), so the
 /// synchronous-return + pending-marker + by-name wiring is the strongest

@@ -1,7 +1,7 @@
 //! Issues-mode property-edit dispatch helpers (issue #175).
 //!
 //! Mirrors `issues_mutation.rs`. On `PropertyEditorConfirm`, reads the editor
-//! state, spawns the gh task via `spawn_gh_task_with_panic`, delivers
+//! state, spawns the gh task via `gh_async::spawn_gh_work`, delivers
 //! success/failure events, then on success triggers the silent detail refresh.
 
 use jefe::domain::RepositoryId;
@@ -151,34 +151,47 @@ fn report_missing_repo(
 }
 
 fn dispatch_issue_property_edit(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     repo: IssueRepoTarget,
     action: IssuePropertyAction,
     request_id: u64,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = issue_property_edit_event(&ctx, &repo, &action, request_id);
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::IssuePropertyEditFailed {
-                    scope_repo_id: panic_action.scope_repo_id,
-                    issue_number: panic_action.issue_number,
-                    kind: panic_action.kind,
-                    request_id,
-                    error: format!("GitHub property edit task panicked: {message}"),
-                },
-            );
-        },
+        property_edit_abandoned(action.clone(), request_id),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| issue_property_edit_event(ctx, &repo, &action, request_id),
+        dispatch_app_event,
+        property_edit_abandoned(panic_action, request_id),
     );
+}
+
+/// Report an abandoned property edit so the editor never stays in-flight.
+fn property_edit_abandoned(
+    action: IssuePropertyAction,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::IssuePropertyEditFailed {
+                scope_repo_id: action.scope_repo_id,
+                issue_number: action.issue_number,
+                kind: action.kind,
+                request_id,
+                error: format!("GitHub property edit abandoned: {message}"),
+            },
+        );
+    }
 }
 
 fn issue_property_edit_event(
@@ -325,33 +338,45 @@ fn execute_issue_type_edit(
 
 /// Handle property editor options loading (async fetch of repo labels/assignees/
 /// milestones/issue types). Called from the dispatch layer when the editor opens.
-pub fn handle_issue_property_options_load(app_state: &AppStateHandle, ctx: &SharedContext) {
+pub fn handle_issue_property_options_load(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let Some(params) = resolve_options_load_params(app_state) else {
         return;
     };
+
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, options_abandoned(params.clone()))
+    else {
+        return;
+    };
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = options_load_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, _message| {
-            // H5: deliver OptionsFailed, NOT empty OptionsLoaded
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::IssuePropertyEditorOptionsFailed {
-                    scope_repo_id: panic_params.scope_repo_id.clone(),
-                    issue_number: panic_params.issue_number,
-                    kind: panic_params.kind,
-                    request_id: panic_params.request_id,
-                    error: "Options fetch task panicked".to_string(),
-                },
-            );
-        },
+        move |ctx| options_load_event(ctx, &params),
+        apply_and_persist,
+        options_abandoned(panic_params),
     );
+}
+
+/// Report an abandoned options fetch.
+///
+/// H5: deliver OptionsFailed, NOT empty OptionsLoaded.
+fn options_abandoned(
+    params: OptionsLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::IssuePropertyEditorOptionsFailed {
+                scope_repo_id: params.scope_repo_id.clone(),
+                issue_number: params.issue_number,
+                kind: params.kind,
+                request_id: params.request_id,
+                error: format!("Options fetch abandoned: {message}"),
+            },
+        );
+    }
 }
 
 #[derive(Clone)]

@@ -157,23 +157,35 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     }
 
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let report_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
+            apply_and_persist(
+                app_state,
+                ctx,
+                detail_load_panic_event(&report_params, message),
+            );
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = detail_load_event(&ctx, params);
+        move |ctx| detail_load_event(ctx, params),
+        move |app_state, ctx, event| {
             // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
             if let AppEvent::IssueDetailLoadFailed { error, .. } = &event
-                && super::auth_remediation::offer_auth_remediation(&mut app_state, &ctx, error)
+                && super::auth_remediation::offer_auth_remediation(app_state, ctx, error)
             {
                 return;
             }
-            apply_and_persist(&mut app_state, &ctx, event);
+            apply_and_persist(app_state, ctx, event);
         },
-        move |mut app_state, ctx, message| {
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 detail_load_panic_event(&panic_params, message),
             );
         },
@@ -200,18 +212,28 @@ pub(super) fn load_issue_detail_silent_refresh(
     }
 
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    let report_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, _message| {
+            apply_and_persist(
+                app_state,
+                ctx,
+                detail_silent_refresh_failed_event(&report_params),
+            );
+        })
+    else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = detail_silent_refresh_event(&ctx, params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, _message| {
+        move |ctx| detail_silent_refresh_event(ctx, params),
+        apply_and_persist,
+        move |app_state, ctx, _message| {
             // On panic: silently clear the pending marker (no visible error).
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 detail_silent_refresh_failed_event(&panic_params),
             );
         },
@@ -345,14 +367,14 @@ fn missing_detail_repo_event(params: &DetailLoadParams, error: &str) -> AppEvent
 }
 
 /// Default message when no tracker is configured (distinct from malformed).
-const MISSING_DETAIL_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
+pub(super) const MISSING_DETAIL_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
 
 fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEvent {
     AppEvent::IssueDetailLoadFailed {
         scope_repo_id: params.scope_repo_id.clone(),
         issue_number: params.issue_number,
         request_id: params.request_id,
-        error: format!("GitHub issue detail task panicked: {message}"),
+        error: format!("GitHub issue detail request abandoned: {message}"),
     }
 }
 
@@ -372,198 +394,6 @@ pub(super) struct DetailLoadParams {
 /// Gather detail-load params from state (returns None if no issue selected).
 pub(super) fn issue_detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
     detail_load_params(app_state)
-}
-
-/// Load the next comments page when the detail view is scrolled to the bottom.
-pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let mut params = match comment_page_params(app_state) {
-        CommentPageRequest::Ready(params) => params,
-        CommentPageRequest::Fail(event) => {
-            if let Some(event) = mark_comment_failure_pending(app_state, event) {
-                apply_and_persist(app_state, ctx, event);
-            }
-            return;
-        }
-        CommentPageRequest::Skip => return,
-    };
-
-    let request_id = {
-        let mut state = app_state.write();
-        state.begin_issue_comment_page(
-            &params.scope_repo_id,
-            params.issue_number,
-            params.cursor.clone(),
-        )
-    };
-    let Some(request_id) = request_id else {
-        return;
-    };
-    params.request_id = request_id;
-
-    let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            let event = comment_page_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::IssueCommentsPageFailed {
-                    scope_repo_id: panic_params.scope_repo_id,
-                    issue_number: panic_params.issue_number,
-                    request_id: panic_params.request_id,
-                    request_cursor: panic_params.cursor,
-                    error: format!("GitHub comments task panicked: {message}"),
-                },
-            );
-        },
-    );
-}
-
-fn mark_comment_failure_pending(
-    app_state: &mut AppStateHandle,
-    event: AppEvent,
-) -> Option<AppEvent> {
-    let AppEvent::IssueCommentsPageFailed {
-        scope_repo_id,
-        issue_number,
-        request_cursor,
-        error,
-        ..
-    } = event
-    else {
-        return None;
-    };
-    let request_id = app_state.write().begin_issue_comment_page(
-        &scope_repo_id,
-        issue_number,
-        request_cursor.clone(),
-    )?;
-    Some(AppEvent::IssueCommentsPageFailed {
-        scope_repo_id,
-        issue_number,
-        request_id,
-        request_cursor,
-        error,
-    })
-}
-
-/// Return the GraphQL cursor for issue comments.
-///
-/// Comment pagination is cursor-only. `PageNumber` is a REST-list token and is
-/// intentionally rejected here rather than translated into unrelated behavior.
-fn issue_comment_cursor(token: &PageToken) -> Option<String> {
-    match token {
-        PageToken::Cursor(cursor) => Some(cursor.clone()),
-        PageToken::PageNumber(_) | PageToken::Done => None,
-    }
-}
-
-fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
-    let state = app_state.read();
-    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
-        return CommentPageRequest::Skip;
-    };
-    if !detail.comments.has_more() || state.issues_state.loading.comments {
-        return CommentPageRequest::Skip;
-    }
-    if state.issues_state.detail_scroll_offset < state.issues_state.max_detail_scroll_offset() {
-        return CommentPageRequest::Skip;
-    }
-    let scope_repo_id = current_scope_repo_id(&state);
-    let issue_number = detail.number;
-    let requested_cursor = issue_comment_cursor(detail.comments.next_page());
-    let tracker = match jefe::domain::GitHubRepoRef::parse(&detail.repo_owner_name) {
-        Ok(Some(tracker)) => tracker,
-        Ok(None) => {
-            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                request_id: 0,
-                request_cursor: requested_cursor,
-                error: MISSING_DETAIL_REPO_MSG.to_owned(),
-            });
-        }
-        Err(error) => {
-            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                request_id: 0,
-                request_cursor: requested_cursor,
-                error: error.to_string(),
-            });
-        }
-    };
-    let params = CommentPageParams {
-        scope_repo_id,
-        issue_number,
-        owner: tracker.owner().to_owned(),
-        repo: tracker.repo().to_owned(),
-        cursor: requested_cursor,
-        page_size: 30,
-        request_id: 0,
-    };
-    drop(state);
-    CommentPageRequest::Ready(params)
-}
-
-fn comment_page_event(ctx: &SharedContext, params: &CommentPageParams) -> AppEvent {
-    let result = github_client(ctx).map(|client| {
-        client.list_comments(
-            &params.owner,
-            &params.repo,
-            params.issue_number,
-            params.cursor.as_deref(),
-            params.page_size,
-        )
-    });
-
-    match result {
-        Some(Ok(response)) => AppEvent::IssueCommentsPageLoaded {
-            scope_repo_id: params.scope_repo_id.clone(),
-            issue_number: params.issue_number,
-            request_id: params.request_id,
-            request_cursor: params.cursor.clone(),
-            comments: response.comments,
-            cursor: response.cursor,
-            has_more: response.has_more,
-        },
-        Some(Err(error)) => AppEvent::IssueCommentsPageFailed {
-            scope_repo_id: params.scope_repo_id.clone(),
-            issue_number: params.issue_number,
-            request_id: params.request_id,
-            request_cursor: params.cursor.clone(),
-            error: error.to_string(),
-        },
-        None => AppEvent::IssueCommentsPageFailed {
-            scope_repo_id: params.scope_repo_id.clone(),
-            issue_number: params.issue_number,
-            request_id: params.request_id,
-            request_cursor: params.cursor.clone(),
-            error: "Application context unavailable".to_string(),
-        },
-    }
-}
-
-#[derive(Clone)]
-struct CommentPageParams {
-    scope_repo_id: jefe::domain::RepositoryId,
-    issue_number: u64,
-    owner: String,
-    repo: String,
-    cursor: Option<String>,
-    page_size: u32,
-    request_id: u64,
-}
-
-enum CommentPageRequest {
-    Ready(CommentPageParams),
-    Fail(AppEvent),
-    Skip,
 }
 
 /// Format a `SendPayload` into a markdown issue prompt for the agent.
@@ -805,21 +635,7 @@ pub(super) fn resume_issue_post_mutation_refresh(
 
 #[cfg(test)]
 mod tests {
-    use super::{issue_comment_cursor, preview_body_from_list};
-    use jefe::domain::PageToken;
-
-    #[test]
-    fn issue_comment_cursor_rejects_rest_page_tokens() {
-        assert_eq!(issue_comment_cursor(&PageToken::PageNumber(2)), None);
-    }
-
-    #[test]
-    fn issue_comment_cursor_extracts_graphql_cursor() {
-        assert_eq!(
-            issue_comment_cursor(&PageToken::Cursor("next".to_string())),
-            Some("next".to_string())
-        );
-    }
+    use super::preview_body_from_list;
 
     #[test]
     fn empty_list_preview_body_prompts_for_detail_load() {
