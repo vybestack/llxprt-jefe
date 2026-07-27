@@ -976,8 +976,11 @@ mod mergeable_parse_tests {
     #[test]
     fn detail_json_accepts_graphql_enum_string() {
         let detail =
-            parse_pull_request_detail_json(&minimal_detail_json(json!("CONFLICTING")), "o/r")
-                .expect("detail should parse");
+            match parse_pull_request_detail_json(&minimal_detail_json(json!("CONFLICTING")), "o/r")
+            {
+                Ok(detail) => detail,
+                Err(error) => panic!("detail should parse: {error}"),
+            };
         assert_eq!(detail.mergeable, Some(false));
     }
 }
