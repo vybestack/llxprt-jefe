@@ -258,6 +258,29 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
     }
 }
 
+/// Resolve history lines from exact-generation cache, falling back to any
+/// generation for the same agent. Pure helper so render/selection callers and
+/// unit tests share one policy (avoids flashing empty scrollback on a cold
+/// exact miss while a prior capture still exists).
+#[must_use]
+pub(crate) fn resolve_cached_history_lines(
+    exact: Option<&[String]>,
+    fallback: Option<&[String]>,
+) -> Vec<String> {
+    exact
+        .or(fallback)
+        .map(<[String]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// Under `AppContext` lock contention, keep the last successfully read
+/// scrollback instead of returning an empty vec (which flashes the pane and
+/// can corrupt mouse selection copy mid-frame).
+#[must_use]
+pub(crate) fn history_lines_under_contention(last_good: Option<&[String]>) -> Vec<String> {
+    last_good.map(<[String]>::to_vec).unwrap_or_default()
+}
+
 /// Read history lines from the runtime cache (issue #301 Phase 2).
 ///
 /// The render path calls this instead of `capture_history` (which shells out
@@ -270,19 +293,28 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
 /// clones `AgentId`/`String` on every call. To reduce lock contention on the
 /// render hot path, the last requested `(agent_id, generation)` is cached in
 /// a thread-local and `request()` is only called when the generation changes.
+///
+/// Contended `try_lock` and exact-generation cache misses preserve prior lines
+/// (matching [`try_capture_history_geometry_from_cache`]'s fallback policy) so
+/// scrollback / selection do not flash empty during attach or worker activity.
 #[must_use]
 pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> Vec<String> {
     let Some(ctx_arc) = ctx else {
+        clear_last_history_lines();
         return Vec::new();
     };
     let Ok(ctx_guard) = ctx_arc.try_lock() else {
-        tracing::trace!("capture_history_from_cache: ctx try_lock contended; returning empty");
-        return Vec::new();
+        tracing::trace!(
+            "capture_history_from_cache: ctx try_lock contended; preserving last-good scrollback"
+        );
+        return LAST_HISTORY_LINES
+            .with(|cell| history_lines_under_contention(cell.borrow().as_deref()));
     };
     let handle: &CaptureHandle = &ctx_guard.capture_handle;
     let (attached_agent, session_name, generation) = match ctx_guard.runtime.attached_agent() {
         Some(agent_id) => {
             let Some(session) = ctx_guard.runtime.get_session(agent_id) else {
+                clear_last_history_lines();
                 return Vec::new();
             };
             (
@@ -291,7 +323,10 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
                 ctx_guard.runtime.output_generation(),
             )
         }
-        None => return Vec::new(),
+        None => {
+            clear_last_history_lines();
+            return Vec::new();
+        }
     };
     // Only call request() when the (agent_id, generation) pair has changed
     // since the last frame, reducing mutex contention on the render path.
@@ -310,21 +345,38 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
     if need_request {
         handle.request(attached_agent.clone(), session_name, generation);
     }
-    ctx_guard
-        .runtime
-        .history_cache_get(&attached_agent, generation)
-        .cloned()
-        .unwrap_or_default()
+    let lines = resolve_cached_history_lines(
+        ctx_guard
+            .runtime
+            .history_cache_get(&attached_agent, generation)
+            .map(Vec::as_slice),
+        ctx_guard
+            .runtime
+            .history_cache_fallback(&attached_agent)
+            .map(Vec::as_slice),
+    );
+    LAST_HISTORY_LINES.with(|cell| {
+        *cell.borrow_mut() = Some(lines.clone());
+    });
+    lines
+}
+
+fn clear_last_history_lines() {
+    LAST_HISTORY_LINES.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
 /// Try to read cached history geometry for the attached session without a
 /// multiplexer subprocess. Contention, no attachment, and a cold cache all
 /// return `None` so mouse routing preserves its prior geometry (issue #374 S3).
 ///
-/// Unlike [`capture_history_from_cache`], this preserves prior geometry on a
-/// cold miss: callers (mouse scroll/selection geometry) can return early
-/// instead of zeroing `history_count`, which would clear the scroll offset
-/// and jump to follow-tail during attach.
+/// Unlike a cold exact-generation miss that used to zero history lines in
+/// [`capture_history_from_cache`], this preserves prior geometry on a cold
+/// miss: callers (mouse scroll/selection geometry) can return early instead
+/// of zeroing `history_count`, which would clear the scroll offset and jump
+/// to follow-tail during attach. (`capture_history_from_cache` now also
+/// falls back and preserves last-good under contention.)
 #[must_use]
 pub fn try_capture_history_geometry_from_cache(
     ctx: Option<&Arc<std::sync::Mutex<AppContext>>>,
@@ -370,6 +422,12 @@ thread_local! {
     /// calls on every render frame (issue #301 review feedback).
     static LAST_CAPTURE_REQUEST: std::cell::RefCell<Option<(AgentId, u64)>> =
         const { std::cell::RefCell::new(None) };
+
+    /// Last successfully resolved scrollback lines for the attached agent.
+    /// Used when `try_lock` is contended so the render/selection path does not
+    /// flash empty mid-frame.
+    static LAST_HISTORY_LINES: std::cell::RefCell<Option<Vec<String>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Synchronously flush the persist worker's pending snapshot.
@@ -403,4 +461,44 @@ pub fn shutdown_flush_capture(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
     // last good snapshot, and a synchronous capture on shutdown would block
     // the exit path.
     let _ = ctx_guard.capture_handle.take_pending();
+}
+
+#[cfg(test)]
+mod history_cache_resolve_tests {
+    use super::{history_lines_under_contention, resolve_cached_history_lines};
+
+    #[test]
+    fn resolve_prefers_exact_generation_over_fallback() {
+        let exact = vec!["exact".to_string()];
+        let fallback = vec!["fallback".to_string()];
+        assert_eq!(
+            resolve_cached_history_lines(Some(exact.as_slice()), Some(fallback.as_slice())),
+            exact
+        );
+    }
+
+    #[test]
+    fn resolve_uses_fallback_when_exact_missing() {
+        let fallback = vec!["keep".to_string(), "scrollback".to_string()];
+        assert_eq!(
+            resolve_cached_history_lines(None, Some(fallback.as_slice())),
+            fallback
+        );
+    }
+
+    #[test]
+    fn resolve_empty_when_both_missing() {
+        assert!(resolve_cached_history_lines(None, None).is_empty());
+    }
+
+    #[test]
+    fn contention_preserves_last_good_lines() {
+        let last = vec!["prior".to_string()];
+        assert_eq!(history_lines_under_contention(Some(last.as_slice())), last);
+    }
+
+    #[test]
+    fn contention_empty_when_no_prior() {
+        assert!(history_lines_under_contention(None).is_empty());
+    }
 }
