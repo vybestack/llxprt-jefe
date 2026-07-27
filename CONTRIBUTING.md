@@ -102,6 +102,12 @@ PR ready and adding the `review-ready` label. The
 explicit trigger, automatic-review limits, deliberate manual reruns,
 reviewed-head coverage, and immutable measurement events.
 
+The [OpenCodeReview finding-evaluation process](dev-docs/code-review-process.md)
+defines how to treat OCR output: classify every finding's validity
+(valid/partial/invalid/unverifiable), record a disposition
+(fix/explain/defer/user-judgment), report coverage honestly, and compare runs
+only when their inputs match.
+
 ## Standards
 
 The authoritative standards live under [`dev-docs/standards/`](dev-docs/standards/):
