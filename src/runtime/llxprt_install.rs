@@ -308,7 +308,8 @@ fn run_npm_install(
             let selector = selector.as_str().to_owned();
             match error {
                 AgentExecutableError::NotFound { .. }
-                | AgentExecutableError::NonCanonicalNpmWrapper { .. } => {
+                | AgentExecutableError::NonCanonicalNpmWrapper { .. }
+                | AgentExecutableError::NonCanonicalOfficialLlxprtWrapper { .. } => {
                     LlxprtInstallError::NpmMissing { selector }
                 }
             }
