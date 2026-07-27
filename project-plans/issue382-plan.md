@@ -390,3 +390,28 @@ startup probe through wide/narrow rendering and focus restoration. Focused UI
 tests pass, `make quick-check` passes, and strict workspace/all-target Clippy
 passes. Full exact-head `make ci-check` is recorded below after this ledger
 update.
+
+## S7 immutable local launch planning (2026-07-26)
+
+### S7 RED evidence
+
+`tests/agent_local_plan.rs` and the production-connected `local_plan_golden`
+acceptance test were added against the missing `runtime::agent_plan` boundary.
+The focused target initially failed to compile because no typed local planner,
+request, field-value collection, or outcome contract existed.
+
+### S7 GREEN evidence
+
+A definition-generic pure planner now validates current compatible probe evidence
+and generations, resolves local operation/target support before preparation,
+canonicalizes the local working directory, validates typed field values, and
+emits `OsString` argv/env elements in definition declaration order. The
+environment starts empty and accepts only explicit typed environment emitters;
+unsupported or invalid input returns a typed zero-effect outcome. Every plan is
+stamped with type ID, definition SHA-256, executable, probe/target generations,
+preflight contract, typed-value hash, target fingerprint, and signature. The
+focused 17-test planner matrix and production `local_plan_golden` pass for all
+four shipped definitions; strict workspace/all-target Clippy and `make
+quick-check` pass. Remote serialization, execution, stale recheck, preflight
+side effects, fresh-send orchestration, migration, and package-cache
+specialization remain outside this slice.

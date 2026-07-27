@@ -9,6 +9,8 @@
 
 mod agent_executable;
 mod agent_launcher;
+/// Definition-driven immutable local launch plan generation (issue #382 S7).
+pub mod agent_plan;
 mod agent_probe;
 mod agent_probe_parse;
 mod agent_probe_process;

@@ -383,21 +383,182 @@ fn stale_availability_completion_is_a_no_op() {
 }
 // ---- CW02-06: local plan golden ----
 
+/// Build a compatible probe availability for a definition.
+fn probe_compatible(definition: &AgentDefinition, generation: u64) -> Availability {
+    let capabilities: Vec<String> = definition
+        .probe
+        .capabilities
+        .as_ref()
+        .map(|probe| probe.tokens.iter().map(|token| token.id.clone()).collect())
+        .unwrap_or_default();
+    Availability::InstalledCompatible {
+        identity: "fixture-identity".to_string(),
+        capabilities,
+        generation,
+    }
+}
+
+/// Assert that the production planner produces a fixture-golden immutable
+/// local plan for one definition+operation pair, returning the plan.
+fn assert_golden_local_plan(
+    definition: &AgentDefinition,
+    operation: Operation,
+    executable: &str,
+    values: &jefe::runtime::agent_plan::LaunchFieldValues,
+) -> AgentLaunchPlan {
+    use jefe::runtime::agent_plan::{PlanOutcome, PlanRequest, plan_local_launch};
+    let request = PlanRequest {
+        definition,
+        operation,
+        target: Target::Local {
+            canonical_cwd: std::path::PathBuf::from("/srv/project"),
+        },
+        executable: std::path::PathBuf::from(executable),
+        probe: probe_compatible(definition, 1),
+        probe_generation: 1,
+        target_generation: 1,
+        values,
+        preflight: Preflight::default(),
+    };
+    match plan_local_launch(&request) {
+        PlanOutcome::Supported(plan) => *plan,
+        PlanOutcome::Unsupported { reason } => {
+            panic!(
+                "{} {:?} must be supported: {reason}",
+                definition.display_name, operation
+            );
+        }
+        PlanOutcome::Error(error) => {
+            panic!(
+                "{} {:?} plan failed: {error}",
+                definition.display_name, operation
+            );
+        }
+    }
+}
+
 #[test]
 fn local_plan_golden() {
     parse_scenario("agent-local-operation-matrix.json");
-    // Contract: WHEN a supported local operation is submitted, Jefe shall
-    // produce the fixture-golden argv/env/cwd plan.
     for agent in AGENTS {
         assert_probe_identity(agent);
     }
-    // RED: AgentLaunchPlan is the immutable local plan contract; its target
-    // must carry a canonical local cwd.
-    let target = Target::Local {
-        canonical_cwd: std::path::PathBuf::from("/srv/project"),
+    let registry =
+        AgentTypeRegistry::shipped().unwrap_or_else(|error| panic!("shipped registry: {error}"));
+    let find = |id: &str| {
+        registry
+            .definitions()
+            .iter()
+            .find(|d| d.id.as_str() == id)
+            .unwrap_or_else(|| panic!("{id} shipped"))
     };
-    assert!(target.is_local(), "local plan targets a canonical cwd");
-    let _ = Operation::Normal;
+    assert_llxprt_golden(find("core.llxprt"));
+    assert_code_puppy_golden(find("core.code-puppy"));
+    assert_codex_golden(find("core.codex"));
+    assert_claude_golden(find("core.claude-code"));
+}
+
+fn argv_of(plan: &AgentLaunchPlan) -> Vec<String> {
+    plan.argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
+
+fn assert_llxprt_golden(llxprt: &AgentDefinition) {
+    use jefe::domain::agent_definition::FieldValue;
+    use jefe::runtime::agent_plan::LaunchFieldValues;
+    let mut values = LaunchFieldValues::new();
+    values.set_repository("profile", FieldValue::String("dev".to_string()));
+    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    let plan = assert_golden_local_plan(llxprt, Operation::Normal, "/opt/bin/llxprt", &values);
+    assert_eq!(plan.type_id, llxprt.id);
+    assert_eq!(plan.definition_sha256, llxprt.sha256());
+    assert_eq!(plan.probe_generation, 1);
+    assert_eq!(plan.target_generation, 1);
+    assert_eq!(plan.executable, std::path::PathBuf::from("/opt/bin/llxprt"));
+    assert!(plan.signature_excludes_secrets());
+    let argv = argv_of(&plan);
+    assert!(argv.contains(&"--profile-load".to_string()));
+    assert!(argv.contains(&"--prompt-interactive".to_string()));
+    assert!(argv.contains(&"dev".to_string()));
+    assert!(plan.env.is_empty(), "no ambient env vars in plan");
+}
+
+fn assert_code_puppy_golden(code_puppy: &AgentDefinition) {
+    use jefe::domain::agent_definition::FieldValue;
+    use jefe::runtime::agent_plan::LaunchFieldValues;
+    let mut values = LaunchFieldValues::new();
+    values.set_repository("model", FieldValue::String("gpt-4o".to_string()));
+    values.set_agent("interactive", FieldValue::Boolean(true));
+    let plan = assert_golden_local_plan(
+        code_puppy,
+        Operation::Normal,
+        "/home/u/.local/bin/code-puppy",
+        &values,
+    );
+    let argv = argv_of(&plan);
+    assert!(argv.contains(&"--model".to_string()));
+    assert!(argv.contains(&"--interactive".to_string()));
+}
+
+fn assert_codex_golden(codex: &AgentDefinition) {
+    use jefe::domain::agent_definition::{FieldValue, Support};
+    use jefe::runtime::agent_plan::LaunchFieldValues;
+    {
+        let mut values = LaunchFieldValues::new();
+        values.set_repository("model", FieldValue::String("o4-mini".to_string()));
+        values.set_agent("prompt", FieldValue::String("hello".to_string()));
+        let plan = assert_golden_local_plan(codex, Operation::Normal, "/opt/bin/codex", &values);
+        let argv = argv_of(&plan);
+        assert!(argv.contains(&"--model".to_string()));
+        assert_eq!(argv.last(), Some(&"hello".to_string()));
+    }
+    assert_codex_fresh_issue_unsupported(codex);
+    let _ = Support::unsupported("x"); // exercise the type
+}
+
+fn assert_codex_fresh_issue_unsupported(codex: &AgentDefinition) {
+    use jefe::runtime::agent_plan::{
+        LaunchFieldValues, PlanOutcome, PlanRequest, plan_local_launch,
+    };
+    let values = LaunchFieldValues::new();
+    let request = PlanRequest {
+        definition: codex,
+        operation: Operation::FreshIssue,
+        target: Target::Local {
+            canonical_cwd: std::path::PathBuf::from("/srv/project"),
+        },
+        executable: std::path::PathBuf::from("/opt/bin/codex"),
+        probe: probe_compatible(codex, 1),
+        probe_generation: 1,
+        target_generation: 1,
+        values: &values,
+        preflight: Preflight::default(),
+    };
+    match plan_local_launch(&request) {
+        PlanOutcome::Unsupported { reason } => {
+            assert!(reason.contains("not fixture-verified"), "reason: {reason}");
+            assert!(
+                codex.operations.fresh_issue.supported.is_unsupported(),
+                "definition declares fresh_issue unsupported"
+            );
+        }
+        other => panic!("Codex FreshIssue must be unsupported, got {other:?}"),
+    }
+}
+
+fn assert_claude_golden(claude: &AgentDefinition) {
+    use jefe::domain::agent_definition::FieldValue;
+    use jefe::runtime::agent_plan::LaunchFieldValues;
+    let mut values = LaunchFieldValues::new();
+    values.set_repository("model", FieldValue::String("sonnet".to_string()));
+    values.set_agent("prompt", FieldValue::String("hello".to_string()));
+    let plan =
+        assert_golden_local_plan(claude, Operation::Normal, "/usr/local/bin/claude", &values);
+    let argv = argv_of(&plan);
+    assert!(argv.contains(&"--model".to_string()));
+    assert_eq!(argv.last(), Some(&"hello".to_string()));
 }
 
 // ---- CW02-07: remote plan contract ----
