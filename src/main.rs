@@ -111,6 +111,24 @@ fn write_startup_error(
     let _ = writeln!(handle, "jefe config migrate-state{suffix}");
 }
 
+/// Run the read-only `jefe doctor` diagnostics, write the redacted report to
+/// locked stdout, and exit with the typed outcome code (issue #264).
+///
+/// Dispatched before logging/TUI initialization so it never starts a session
+/// or mutates persistence state.
+fn run_doctor_and_exit(config_dir: Option<&std::path::Path>) {
+    let report = jefe::doctor::collect(config_dir);
+    let outcome = jefe::doctor::classify_doctor(report.findings());
+    let rendered = jefe::doctor::render_report(&report);
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let _ = writeln!(handle, "{rendered}");
+    // `std::process::exit` runs no destructors, so flush the locked handle
+    // explicitly to guarantee the report reaches piped/non-TTY consumers.
+    let _ = handle.flush();
+    std::process::exit(i32::from(outcome.exit_code().as_u8()));
+}
+
 fn run_internal_agent_launch_if_requested() {
     let mut args = std::env::args();
     let _program = args.next();
@@ -174,6 +192,11 @@ fn main() {
     };
     if dispatch_recovery_command(&cli_args) {
         return;
+    }
+
+    // Dispatch doctor before startup persistence, logging, or TUI initialization.
+    if cli_args.is_doctor() {
+        run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
     let startup = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {

@@ -35,6 +35,16 @@ pub struct CliArgs {
     pub config_dir: Option<PathBuf>,
     /// Provider-free recovery command, when selected.
     pub command: Option<ConfigCommand>,
+    /// `doctor` subcommand was requested (issue #264).
+    pub doctor: bool,
+}
+
+impl CliArgs {
+    /// Whether the parsed arguments request the `doctor` subcommand.
+    #[must_use]
+    pub const fn is_doctor(&self) -> bool {
+        self.doctor
+    }
 }
 
 /// Error produced while parsing command-line arguments.
@@ -72,7 +82,11 @@ impl std::error::Error for CliError {}
 pub const USAGE: &str = "\
 jefe - terminal manager for multiple llxprt coding agents
 
-Usage: jefe [OPTIONS]
+Usage: jefe [OPTIONS] [COMMAND]
+
+Commands:
+  doctor              Run read-only local readiness diagnostics and exit
+  config <COMMAND>    Run provider-free configuration recovery
 
 Options:
   -c, --config <DIR>  Use <DIR> for settings.toml, state.json, and themes/,
@@ -85,7 +99,7 @@ Options:
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if a value-taking flag is missing its value or if an
+/// Returns [`CliError`] if a value-taking flag is missing its value or an
 /// unknown argument is supplied.
 pub fn parse_args<I, S>(args: I) -> Result<CliArgs, CliError>
 where
@@ -93,10 +107,14 @@ where
     S: Into<String>,
 {
     let mut result = CliArgs::default();
-    let mut iter = args.into_iter().map(Into::into);
+    let mut iter = args.into_iter().map(Into::into).peekable();
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "doctor" => {
+                result.doctor = true;
+                parse_doctor_flags(&mut iter, &mut result)?;
+            }
             "--version" | "-V" => result.version = true,
             "--help" | "-h" => result.help = true,
             "--config" | "-c" => set_config_value(&mut result, &arg, iter.next())?,
@@ -106,6 +124,23 @@ where
     }
 
     Ok(result)
+}
+
+/// Parse the trailing flags accepted by the `doctor` subcommand.
+fn parse_doctor_flags<I>(
+    iter: &mut std::iter::Peekable<I>,
+    result: &mut CliArgs,
+) -> Result<(), CliError>
+where
+    I: Iterator<Item = String>,
+{
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--config" | "-c" => set_config_value(result, &arg, iter.next())?,
+            other => parse_config_equals(result, other)?,
+        }
+    }
+    Ok(())
 }
 
 fn set_config_value(

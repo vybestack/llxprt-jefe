@@ -5,11 +5,26 @@ This tutorial follows one complete path through Jefe: add a repository, create o
 The screenshots use a deterministic local fixture named `vybestack/llxprt-jefe`, issue 352, and PR 353 so every image tells one consistent story. **Do not send or merge those literal upstream items unless you maintain that repository.** In the steps below, use a repository you own and select the issue and PR produced in that repository.
 
 For the full list of fields, keys, and alternate configurations, use the [UI and configuration reference](overview.md).
-
 ## Before you start
 
-Install Jefe, `tmux`, the GitHub CLI (`gh`), and both runtimes used in this walkthrough: `llxprt` and `code-puppy`. Configure their provider credentials before continuing.
+Install Jefe, the multiplexer for your platform (`tmux` on macOS/Linux,
+`psmux` on Windows), the GitHub CLI (`gh`), and both runtimes used in this
+walkthrough: `llxprt` and `code-puppy`. Configure their provider credentials
+before continuing.
 
+### Windows prerequisites
+
+On native Windows, install psmux with the qualified Winget package id:
+
+```powershell
+winget install --id marlocarlo.psmux --exact
+```
+
+Then install Jefe from the portable GitHub Release zip and launch it from
+PowerShell. See [Windows support](windows-support.md) for the full native
+Windows guide.
+
+### Authenticate and fork
 Authenticate the GitHub CLI, then fork `vybestack/llxprt-jefe` into your own account if you do not already have a writable tutorial repository:
 
     gh auth login

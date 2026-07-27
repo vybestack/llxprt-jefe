@@ -16,6 +16,8 @@ pub mod clipboard;
 pub mod config_owners;
 /// Resolved dashboard Git display data shared by rendering and selection copy.
 pub mod dashboard_git_info;
+/// Read-only local readiness diagnostics for `jefe doctor` (issue #264).
+pub mod doctor;
 pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
