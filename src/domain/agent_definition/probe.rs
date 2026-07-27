@@ -748,14 +748,14 @@ fn token_boundary_match(haystack: &str, needle: &str) -> bool {
     while let Some(offset) = haystack[start..].find(needle) {
         let abs_start = start + offset;
         let abs_end = abs_start + needle.len();
-        let left_ok = haystack[..abs_start]
-            .chars()
-            .next_back()
-            .map_or(true, |ch| !is_token_char(ch));
-        let right_ok = haystack[abs_end..]
-            .chars()
-            .next()
-            .map_or(true, |ch| !is_token_char(ch));
+        let left_ok = match haystack[..abs_start].chars().next_back() {
+            Some(ch) => !is_token_char(ch),
+            None => true,
+        };
+        let right_ok = match haystack[abs_end..].chars().next() {
+            Some(ch) => !is_token_char(ch),
+            None => true,
+        };
         if left_ok && right_ok {
             return true;
         }

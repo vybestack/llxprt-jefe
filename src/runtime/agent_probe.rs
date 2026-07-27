@@ -1,0 +1,396 @@
+//! Definition-driven local agent probe adapter (issue #382 S3c/S3d).
+//!
+//! This boundary validates immutable definition/candidate inputs, rechecks the
+//! physical executable fingerprint around fixed-argv probes, and returns a
+//! generation-stamped availability result. It owns no registry or application
+//! state and does not construct launch plans.
+
+use std::ffi::{OsStr, OsString};
+use std::path::Path;
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use crate::agent_candidate::{CandidateResolution, ResolvedCandidate};
+use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::domain::agent_definition::limits::{LOCAL_PROBE_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS};
+use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
+use crate::domain::agent_definition::{
+    AgentDefinition, Availability, DefinitionSha256, ProbeErrorCode,
+};
+
+use super::agent_executable::AgentWrapperKind;
+use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
+use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
+
+/// Probe target class with its total process budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentProbeTarget {
+    /// Local executable probe.
+    Local,
+    /// Remote probe contract; execution is owned by a later remote adapter.
+    Remote,
+}
+
+impl AgentProbeTarget {
+    /// Maximum total duration for all identity/capability processes.
+    #[must_use]
+    pub const fn total_timeout(self) -> Duration {
+        match self {
+            Self::Local => Duration::from_millis(LOCAL_PROBE_TIMEOUT_MS),
+            Self::Remote => Duration::from_millis(REMOTE_PROBE_TIMEOUT_MS),
+        }
+    }
+}
+
+/// Availability plus the immutable evidence that produced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProbeResult {
+    availability: Availability,
+    executable_fingerprint: Option<CandidateFingerprint>,
+    definition_sha256: DefinitionSha256,
+}
+
+impl AgentProbeResult {
+    /// Runtime availability classification.
+    #[must_use]
+    pub const fn availability(&self) -> &Availability {
+        &self.availability
+    }
+
+    /// Physical executable fingerprint, absent only for NotFound.
+    #[must_use]
+    pub const fn executable_fingerprint(&self) -> Option<&CandidateFingerprint> {
+        self.executable_fingerprint.as_ref()
+    }
+
+    /// Hash of the exact validated definition used by this probe.
+    #[must_use]
+    pub const fn definition_sha256(&self) -> &DefinitionSha256 {
+        &self.definition_sha256
+    }
+}
+
+/// Execute a local definition probe with one shared deadline.
+///
+/// NotFound is returned before command construction. A resolved candidate is
+/// fingerprint-checked before the first process and immediately after every
+/// process. The caller owns the monotonic generation counter; this adapter
+/// preserves the exact requested stamp on every attempted outcome.
+#[must_use]
+pub fn run_local_agent_probe(
+    definition: &AgentDefinition,
+    resolution: &CandidateResolution,
+    requested_generation: u64,
+) -> AgentProbeResult {
+    let definition_sha256 = definition.sha256();
+    let CandidateResolution::Resolved(candidate) = resolution else {
+        return AgentProbeResult {
+            availability: Availability::NotFound,
+            executable_fingerprint: None,
+            definition_sha256,
+        };
+    };
+    let fingerprint = candidate.fingerprint().clone();
+    let availability = probe_resolved(definition, candidate, requested_generation);
+    AgentProbeResult {
+        availability,
+        executable_fingerprint: Some(fingerprint),
+        definition_sha256,
+    }
+}
+
+fn probe_resolved(
+    definition: &AgentDefinition,
+    candidate: &ResolvedCandidate,
+    generation: u64,
+) -> Availability {
+    if let Err(error) = definition.validate() {
+        return probe_error(ProbeErrorCode::Agte201, error.to_string(), generation);
+    }
+    if fingerprint_changed(candidate) {
+        return stale_error(generation);
+    }
+    let timeout = AgentProbeTarget::Local
+        .total_timeout()
+        .min(Duration::from_millis(definition.probe.timeout_ms));
+    let deadline = Instant::now() + timeout;
+    let identity = match run_identity(definition, candidate, deadline) {
+        Ok(identity) => identity,
+        Err(failure) => return failure.into_availability(generation),
+    };
+    if fingerprint_changed(candidate) {
+        return stale_error(generation);
+    }
+    run_capabilities(definition, candidate, identity, deadline, generation)
+}
+
+fn run_identity(
+    definition: &AgentDefinition,
+    candidate: &ResolvedCandidate,
+    deadline: Instant,
+) -> Result<String, ProbeFailure> {
+    let output = execute_probe(candidate, &definition.probe.argv, deadline, "identity")?;
+    let selected = select_stream(&output, definition.probe.stream)?;
+    parse_identity(&selected, &definition.probe).map_err(ProbeFailure::Evidence)
+}
+
+fn run_capabilities(
+    definition: &AgentDefinition,
+    candidate: &ResolvedCandidate,
+    identity: String,
+    deadline: Instant,
+    generation: u64,
+) -> Availability {
+    let Some(probe) = &definition.probe.capabilities else {
+        return compatible(identity, Vec::new(), generation);
+    };
+    let evaluation = match execute_capability_probe(definition, candidate, probe, deadline) {
+        Ok(evaluation) => evaluation,
+        Err(failure) => return failure.into_availability(generation),
+    };
+    if fingerprint_changed(candidate) {
+        return stale_error(generation);
+    }
+    if let Some(missing) = evaluation.missing_required.first() {
+        return Availability::InstalledIncompatible {
+            reason: format!("missing required capability: {missing}"),
+            generation,
+        };
+    }
+    compatible(identity, evaluation.present, generation)
+}
+
+fn execute_capability_probe(
+    definition: &AgentDefinition,
+    candidate: &ResolvedCandidate,
+    probe: &CapabilityProbe,
+    deadline: Instant,
+) -> Result<crate::domain::agent_definition::CapabilityEvaluation, ProbeFailure> {
+    let output = execute_probe(candidate, &probe.argv, deadline, "capability")?;
+    let selected = select_stream(&output, probe.stream)?;
+    parse_capabilities(
+        &selected,
+        definition.probe.max_bytes,
+        probe,
+        &definition.probe.required,
+    )
+    .map_err(ProbeFailure::Evidence)
+}
+
+fn execute_probe(
+    candidate: &ResolvedCandidate,
+    argv: &[String],
+    deadline: Instant,
+    phase: &str,
+) -> Result<ProbeProcessOutput, ProbeFailure> {
+    if Instant::now() >= deadline {
+        return Err(ProbeFailure::Timeout);
+    }
+    let arguments: Vec<OsString> = argv.iter().map(OsString::from).collect();
+    let command = command_for_candidate(candidate, &arguments);
+    let output = run_probe_process(command, deadline).map_err(ProbeFailure::Process)?;
+    validate_process_output(output, phase)
+}
+
+fn validate_process_output(
+    output: ProbeProcessOutput,
+    phase: &str,
+) -> Result<ProbeProcessOutput, ProbeFailure> {
+    if output.stdout.truncated || output.stderr.truncated {
+        return Err(ProbeFailure::Truncated);
+    }
+    if output.status.success() {
+        return Ok(output);
+    }
+    let detail = output.status.code().map_or_else(
+        || format!("{phase} probe terminated by signal"),
+        |code| format!("{phase} probe exited with status {code}"),
+    );
+    Err(ProbeFailure::Failed(detail))
+}
+
+fn select_stream(
+    output: &ProbeProcessOutput,
+    stream: ProbeStream,
+) -> Result<Vec<u8>, ProbeFailure> {
+    match stream {
+        ProbeStream::Stdout => Ok(output.stdout.bytes.clone()),
+        ProbeStream::Stderr => Ok(output.stderr.bytes.clone()),
+        ProbeStream::Combined => {
+            let Some(capacity) = output
+                .stdout
+                .bytes
+                .len()
+                .checked_add(output.stderr.bytes.len())
+            else {
+                return Err(ProbeFailure::Truncated);
+            };
+            let mut combined = Vec::with_capacity(capacity);
+            combined.extend_from_slice(&output.stdout.bytes);
+            combined.extend_from_slice(&output.stderr.bytes);
+            Ok(combined)
+        }
+    }
+}
+
+fn command_for_candidate(candidate: &ResolvedCandidate, argv: &[OsString]) -> Command {
+    command_for_path(candidate.executable(), candidate.wrapper_kind(), argv)
+}
+
+fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString]) -> Command {
+    match wrapper {
+        AgentWrapperKind::Direct => command_with_args(path.as_os_str(), argv),
+        AgentWrapperKind::CommandScript => {
+            let program = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
+            let mut command = Command::new(program);
+            command.args(["/D", "/S", "/C"]).arg(path).args(argv);
+            command
+        }
+        AgentWrapperKind::PowerShellScript => {
+            let program = std::env::var_os("JEFE_POWERSHELL_BIN")
+                .unwrap_or_else(|| OsString::from("powershell.exe"));
+            let mut command = Command::new(program);
+            command
+                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+                .arg(path)
+                .args(argv);
+            command
+        }
+    }
+}
+
+fn command_with_args(program: &OsStr, argv: &[OsString]) -> Command {
+    let mut command = Command::new(program);
+    command.args(argv);
+    command
+}
+
+fn fingerprint_changed(candidate: &ResolvedCandidate) -> bool {
+    match capture_fingerprint(candidate.executable()) {
+        Some(current) => &current != candidate.fingerprint(),
+        None => true,
+    }
+}
+
+fn capture_fingerprint(path: &Path) -> Option<CandidateFingerprint> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let metadata = std::fs::metadata(&canonical).ok()?;
+    let mtime_secs = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        });
+    let (dev, ino) = capture_dev_ino(&metadata);
+    Some(CandidateFingerprint::new(
+        canonical,
+        dev,
+        ino,
+        metadata.len(),
+        mtime_secs,
+    ))
+}
+
+#[cfg(unix)]
+fn capture_dev_ino(metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
+    use std::os::unix::fs::MetadataExt;
+    (Some(metadata.dev()), Some(metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn capture_dev_ino(_metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
+    (None, None)
+}
+
+fn compatible(identity: String, capabilities: Vec<String>, generation: u64) -> Availability {
+    Availability::InstalledCompatible {
+        identity,
+        capabilities,
+        generation,
+    }
+}
+
+fn probe_error(code: ProbeErrorCode, reason: String, generation: u64) -> Availability {
+    Availability::ProbeError {
+        code,
+        reason,
+        generation,
+    }
+}
+
+fn stale_error(generation: u64) -> Availability {
+    probe_error(
+        ProbeErrorCode::Agte203,
+        "candidate fingerprint changed; reprobe required".to_string(),
+        generation,
+    )
+}
+
+enum ProbeFailure {
+    Timeout,
+    Truncated,
+    Process(ProbeProcessError),
+    Evidence(ProbeEvidenceError),
+    Failed(String),
+}
+
+impl ProbeFailure {
+    fn into_availability(self, generation: u64) -> Availability {
+        let reason = match self {
+            Self::Timeout | Self::Process(ProbeProcessError::Timeout) => {
+                "probe timed out".to_string()
+            }
+            Self::Truncated => "probe stream was truncated".to_string(),
+            Self::Process(ProbeProcessError::Failed(detail))
+            | Self::Failed(detail)
+            | Self::Evidence(ProbeEvidenceError::Bounds(detail)) => detail,
+            Self::Evidence(ProbeEvidenceError::InvalidUtf8) => {
+                "probe stream is not valid UTF-8".to_string()
+            }
+            Self::Evidence(ProbeEvidenceError::MalformedFraming) => {
+                "probe has malformed framing".to_string()
+            }
+            Self::Evidence(ProbeEvidenceError::IdentityMismatch) => {
+                "probe identity mismatch".to_string()
+            }
+        };
+        probe_error(ProbeErrorCode::Agte202, reason, generation)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use std::path::Path;
+
+    use super::{AgentWrapperKind, command_for_path};
+
+    #[test]
+    fn wrapper_commands_preserve_fixed_argv_elements() {
+        let path = Path::new("C:/agent/probe.cmd");
+        let argv = [OsString::from("--version"), OsString::from("literal value")];
+        let direct = command_for_path(path, AgentWrapperKind::Direct, &argv);
+        assert_eq!(direct.get_program(), path.as_os_str());
+        let direct_args = direct.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            direct_args,
+            argv.iter().map(OsString::as_os_str).collect::<Vec<_>>()
+        );
+
+        let command_script = command_for_path(path, AgentWrapperKind::CommandScript, &argv);
+        let command_args = command_script.get_args().collect::<Vec<_>>();
+        assert_eq!(command_args[0..3], ["/D", "/S", "/C"]);
+        assert_eq!(command_args[3], path.as_os_str());
+        assert_eq!(command_args[4..], argv);
+
+        let powershell = command_for_path(path, AgentWrapperKind::PowerShellScript, &argv);
+        let powershell_args = powershell.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            powershell_args[0..4],
+            ["-NoLogo", "-NoProfile", "-NonInteractive", "-File"]
+        );
+        assert_eq!(powershell_args[4], path.as_os_str());
+        assert_eq!(powershell_args[5..], argv);
+    }
+}

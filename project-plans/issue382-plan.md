@@ -287,3 +287,40 @@ already declared `agent_definition` (S1); no further domain wiring was needed.
   remove (the pre-S2 tree had none); the real boundary is the generic resolver.
 - Package-runner plan argv belongs to S12; S2 only proves the runner resolves
   and (when requested) fingerprints it.
+
+## S3c/S3d runtime probe execution (2026-07-26)
+
+### S3c/S3d RED evidence
+
+The production-connected `issue382_behavior` target now discovers and executes
+all four retained release fixtures through the runtime boundary, and focused
+fake-executable tests cover concurrent stdout/stderr draining, typed local and
+remote timeout contracts, local timeout, nonzero exit, independent stream
+truncation, invalid UTF-8, overlong lines, malformed framing, identity mismatch,
+required versus optional capabilities, deterministic stream selection,
+NotFound zero-spawn behavior, executable fingerprint change, and requested
+probe generations.
+
+Before the runtime adapter existed, the exact focused compile run failed as
+intended:
+
+```text
+$ cargo test --test issue382_behavior --no-run
+error[E0432]: unresolved import `jefe::runtime::AgentProbeTarget`
+error[E0432]: unresolved imports `jefe::runtime::AgentProbeResult`,
+               `jefe::runtime::run_local_agent_probe`
+error: could not compile `jefe` (test "issue382_behavior")
+```
+
+This is the S3c/S3d RED: fixture playback and failure-path tests are connected
+to the missing production runtime contract rather than a test-only parser.
+
+### S3c/S3d GREEN evidence
+
+- `cargo test -q runtime::agent_probe` passed.
+- `cargo test -q --test issue382_behavior` passed all 29 production-connected issue tests.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` passed.
+- `make quick-check` passed the full quick suite.
+- `make ci-check` passed unchanged, including format, policy, source-size, strict stable Clippy, architecture, coverage, locked build, and all tests.
+
+The runtime adapter remains product-agnostic and bounded. It executes only validated definition argv, captures stdout and stderr concurrently with independent limits, applies typed local/remote timeout contracts, rechecks executable fingerprints, and returns generation-bearing availability without touching reducer state or any launch side effect.

@@ -21,6 +21,7 @@ mod issue382;
 
 use std::collections::BTreeSet;
 
+use issue382::agent_probe_runtime::assert_exact_four_fixture_playback;
 use issue382::fixtures::{
     AGENTS, SCENARIO_ROOT, assert_probe_identity, assert_provenance, read_scenario, repo_path,
 };
@@ -205,6 +206,7 @@ fn probe_parser_four_agents() {
     // selected by fixture name. Its exact --version bytes must identify the
     // agent, and authored --help literals must reproduce all capabilities.
     assert_all_retained_probe_fixtures();
+    assert_exact_four_fixture_playback();
     let _spec = ProbeSpec::default();
 }
 

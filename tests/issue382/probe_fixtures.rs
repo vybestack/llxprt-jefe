@@ -85,7 +85,7 @@ fn dynamic_identity_stream(definition: &AgentDefinition) -> Vec<u8> {
     }
 }
 
-fn retained_fixture_dirs() -> Vec<PathBuf> {
+pub(super) fn retained_fixture_dirs() -> Vec<PathBuf> {
     let root = repo_path(FIXTURE_ROOT);
     let mut fixtures = Vec::new();
     for agent in read_dirs(&root) {
@@ -275,12 +275,12 @@ fn assert_capture_argv(provenance: &Value, capture: &str, expected_tail: &[Strin
     assert_eq!(provenance["captures"][capture]["exit_code"], 0);
 }
 
-fn read_json(path: &Path) -> Value {
+pub(super) fn read_json(path: &Path) -> Value {
     serde_json::from_slice(&read_bytes(path))
         .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
 }
 
-fn read_bytes(path: &Path) -> Vec<u8> {
+pub(super) fn read_bytes(path: &Path) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
 }
 

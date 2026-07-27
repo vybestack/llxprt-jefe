@@ -9,6 +9,9 @@
 
 mod agent_executable;
 mod agent_launcher;
+mod agent_probe;
+mod agent_probe_parse;
+mod agent_probe_process;
 mod async_attach;
 mod attach;
 mod attach_mode_recovery;
@@ -55,6 +58,7 @@ pub use agent_executable::{
     AgentWrapperKind, CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
+pub use agent_probe::{AgentProbeResult, AgentProbeTarget, run_local_agent_probe};
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
