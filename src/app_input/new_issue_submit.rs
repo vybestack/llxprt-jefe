@@ -34,27 +34,40 @@ pub fn handle_new_issue_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
         return;
     }
     let mutation_id = begin_mutation(app_state, ctx, params.scope_repo_id.clone());
-    let panic_scope = params.scope_repo_id.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = create_and_apply_event(&ctx, &params, mutation_id);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::NewIssueCreateFailed {
-                    scope_repo_id: panic_scope,
-                    mutation_id,
-                    issue_number: None,
-                    error: format!("New issue task panicked: {message}"),
-                },
-            );
-        },
+        submit_abandoned(params.scope_repo_id.clone(), mutation_id),
+    ) else {
+        return;
+    };
+    let panic_scope = params.scope_repo_id.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| create_and_apply_event(ctx, &params, mutation_id),
+        apply_and_persist,
+        submit_abandoned(panic_scope, mutation_id),
     );
+}
+
+/// Report an abandoned new-issue submit so the mutation never stays pending.
+fn submit_abandoned(
+    scope_repo_id: RepositoryId,
+    mutation_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::NewIssueCreateFailed {
+                scope_repo_id,
+                mutation_id,
+                issue_number: None,
+                error: format!("New issue submission abandoned: {message}"),
+            },
+        );
+    }
 }
 
 #[derive(Clone)]

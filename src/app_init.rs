@@ -38,6 +38,34 @@ fn append_warning(state: &mut AppState, warning: String) {
     });
 }
 
+/// Run the issue #467 AC8 startup session-host cleanup.
+///
+/// Supplies the persisted `RuntimeBinding.session_name` references for every
+/// Running agent and probes live local sessions before any directory is
+/// deleted. Remote sessions never own a local host image and are excluded
+/// from the reference set because their session-host directory is never
+/// staged. A cleanup failure is logged and never aborts startup.
+fn run_startup_session_host_cleanup(state: &AppState, runtime: &TmuxRuntimeManager) {
+    let Some(root) = runtime.session_host_root() else {
+        return;
+    };
+    let persisted_references: Vec<String> = state
+        .agents
+        .iter()
+        .filter(|agent| agent.status == AgentStatus::Running)
+        .filter_map(|agent| agent.runtime_binding.as_ref())
+        .map(|binding| binding.session_name.clone())
+        .collect();
+    // The manager probes live local sessions before deletion; a session whose
+    // probe cannot be classified is retained rather than risk deleting a live
+    // session whose probe transiently failed.
+    let probe = jefe::runtime::session_liveness;
+    let _ = jefe::runtime::startup_cleanup_session_hosts(root, &persisted_references, probe)
+        .map_err(|error| {
+            warn!(error = %error, "session-host startup cleanup failed; retained for next startup");
+        });
+}
+
 fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
     let caps = PlatformCapabilities::current();
     let mut normalized_agent_count = 0usize;
@@ -282,6 +310,12 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     let normalized_engines = normalize_persisted_sandbox_engines(&mut state);
 
     let dead_ids = reconcile_running_agents(&state, &ctx_guard.runtime);
+    // Issue #467 AC8: sweep the session-host root before applying
+    // reconciliations so unreferenced/dead directories and interrupted staging
+    // temps are reclaimed, while live psmux sessions and persisted-reference
+    // directories are retained. Best-effort: a failure is logged and never
+    // aborts startup.
+    run_startup_session_host_cleanup(&state, &ctx_guard.runtime);
     let should_persist = apply_dead_reconciliations(&mut state, dead_ids, normalized_engines);
     // The persist worker is not running yet, so startup reconciliation writes
     // its candidate synchronously through the manager.

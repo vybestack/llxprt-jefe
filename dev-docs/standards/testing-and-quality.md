@@ -142,39 +142,38 @@ include tests that verify it.
 
 ## Verification Suite
 
-### Fast iteration (`make quick-check`)
+### Fast iteration (`cargo xtask quick`)
 
 For tight local loops (does not run the full CI gates):
 
 ```sh
-make quick-check
+cargo xtask quick
 # = cargo fmt && cargo check -q && cargo test -q
 ```
 
-### Full pre-merge gate (`make ci-check`, aliased as `make build`)
+### Full pre-merge gate (`cargo xtask ci`)
 
 Run this before pushing. It reproduces every CI gate locally:
 
 ```sh
-make build
-# alias of:
-make ci-check
+cargo xtask ci
 ```
 
-`make ci-check` runs, in order:
+`cargo xtask ci` runs, in order:
 
 1. `cargo fmt --all --check`
-2. `scripts/check-clippy-allows.sh` — zero-tolerance clippy-allow policy.
-3. `scripts/check-source-file-size.sh` — source-file length policy.
-4. `CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings`
-5. Complexity-only clippy pass (stable toolchain): `rustup run stable cargo clippy ... -A clippy::all -A clippy::pedantic -A clippy::nursery -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::too_many_arguments -D clippy::type_complexity -D clippy::struct_excessive_bools`
-6. `rustup run stable cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 30` (ignoring `vendor/`, `tmp/`, `rustc-`).
-7. `cargo build --workspace --all-features --locked`
-8. `cargo test --workspace --all-features --locked`
+2. `cargo xtask check clippy-allows` — zero-tolerance clippy-allow policy.
+3. `cargo xtask check source-size` — source-file length policy.
+4. `cargo xtask check architecture` — architecture boundary policy.
+5. Strict clippy (`CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings`)
+6. Complexity-only clippy pass (stable toolchain): `rustup run stable cargo clippy ... -A clippy::all -A clippy::pedantic -A clippy::nursery -D clippy::cognitive_complexity -D clippy::too_many_lines -D clippy::too_many_arguments -D clippy::type_complexity -D clippy::struct_excessive_bools`
+7. Coverage gate (`cargo xtask coverage` — stable toolchain `cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 30`, ignoring `vendor/`, `tmp/`, `rustc-`).
+8. `cargo build --workspace --all-features --locked`
+9. `cargo test --workspace --all-features --locked`
 
-The Makefile pins the **stable** toolchain for all clippy and coverage steps via
-`rustup run stable` so local results match CI exactly. The `CLIPPY_CONF_DIR=.github/clippy`
-prefix points clippy at the CI config mirror.
+The xtask runner pins the **stable** toolchain for all clippy and coverage steps
+via `rustup run stable` so local results match CI exactly. The
+`CLIPPY_CONF_DIR=.github/clippy` prefix points clippy at the CI config mirror.
 
 ### CI Jobs (`.github/workflows/ci.yml`)
 
@@ -184,12 +183,14 @@ The CI workflow runs these jobs on every pull request to `main`:
 |------------------------|-----------------------------------------------------------------------------------------------|
 | `fmt`                  | `cargo fmt --all --check`                                                                     |
 | `lint`                 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` (`CLIPPY_CONF_DIR=.github/clippy`) |
-| `clippy_allow_policy`  | `scripts/check-clippy-allows.sh` — blocks first-party clippy allow/expect attributes.        |
-| `source_file_size`     | `scripts/check-source-file-size.sh` — enforces the 1000-line hard / 750-line warn limits.    |
+| `clippy_allow_policy`  | `cargo xtask check clippy-allows` — blocks first-party clippy allow/expect attributes.        |
+| `source_file_size`     | `cargo xtask check source-size` — enforces the 1000-line hard / 750-line warn limits.         |
+| `architecture_policy`  | `cargo xtask check architecture` — enforces architecture boundary policy.                     |
 | `complexity`           | Complexity-only clippy pass denying `cognitive_complexity`, `too_many_lines`, `too_many_arguments`, `type_complexity`, `struct_excessive_bools`. |
-| `coverage`             | `cargo llvm-cov --workspace --all-features --fail-under-lines 30`.                           |
+| `coverage`             | `cargo xtask coverage` — `cargo llvm-cov --workspace --all-features --fail-under-lines 30`.   |
 | `build`                | `cargo build --workspace --all-features --locked` (depends on all of the above).             |
 | `test`                 | `cargo test --workspace --all-features --locked` (depends on `build`).                       |
+| `windows_native`       | Native MSVC build + psmux smoke + portable policy checks (clippy-allow, source-size, architecture). |
 | `tui_smoke` (optional) | Manual/opt-in tmux-backed TUI smoke scenario via `workflow_dispatch`. Skips if tmux unavailable. |
 
 ---
@@ -234,7 +235,7 @@ If a phase needs stub behavior, isolate that to explicit stub phases only (see
 ## Verification Checklist Before Merge
 
 - [ ] Tests prove behavior for changed requirements.
-- [ ] Lint/format/test/coverage gates all pass (`make ci-check`).
+- [ ] Lint/format/test/coverage gates all pass (`cargo xtask ci`).
 - [ ] Source files under 1000 lines (warnings reviewed under 750).
 - [ ] No prohibited placeholder/debt markers in implementation.
 - [ ] Boundaries remain intact (see [Architecture Standards](./architecture.md)).

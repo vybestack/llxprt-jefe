@@ -20,6 +20,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -56,19 +59,28 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Block untracked clippy allow attributes
-        run: scripts/check-clippy-allows.sh
+        run: cargo xtask check clippy-allows
 
   source_file_size:
     name: Source file length checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Enforce source file length policy
-        run: scripts/check-source-file-size.sh
+        run: cargo xtask check source-size
+
+  architecture_policy:
+    name: Architecture boundary policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Enforce architecture boundary policy
+        run: cargo xtask check architecture
 
   complexity:
     name: Complexity checks
@@ -105,23 +117,12 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Enforce line coverage threshold
-        run: |
-          RUSTC_BIN="$(rustup which --toolchain stable rustc)"
-          TOOLCHAIN_DIR="$(dirname "$(dirname "$RUSTC_BIN")")"
-          HOST_TRIPLE="$(rustup run stable rustc -vV | sed -n 's/^host: //p')"
-          LLVM_COV="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-cov" \
-          LLVM_PROFDATA="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-profdata" \
-          rustup run stable cargo llvm-cov \
-            --workspace \
-            --all-features \
-            --summary-only \
-            --ignore-filename-regex '(/vendor/|/tmp/|/rustc-)' \
-            --fail-under-lines 30
+        run: cargo xtask coverage
 
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, lint, clippy_allow_policy, source_file_size, complexity, coverage]
+    needs: [fmt, lint, clippy_allow_policy, source_file_size, architecture_policy, complexity, coverage]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -216,6 +217,15 @@ jobs:
           cargo fmt --all --check 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-fmt.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Portable policy checks (clippy-allow, source-size, architecture)
+        shell: pwsh
+        run: |
+          cargo xtask check clippy-allows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask check source-size
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask check architecture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run strict Clippy
         shell: pwsh
         run: |
@@ -270,6 +280,116 @@ jobs:
             --out-dir $artifacts 2>&1 |
             Tee-Object -FilePath target/windows-ci/tui-renderer.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Clean package lifecycle (install, doctor, upgrade, uninstall)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'jefe package stage'
+          $archive = Join-Path $env:RUNNER_TEMP 'jefe-package.zip'
+          $package = Join-Path $env:RUNNER_TEMP 'jefe package extracted'
+          $installDir = Join-Path $env:RUNNER_TEMP 'jefe package install'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+
+          Copy-Item 'target/debug/jefe.exe' (Join-Path $stage 'jefe.exe') -Force
+          Copy-Item 'LICENSE' (Join-Path $stage 'LICENSE') -Force
+          Copy-Item 'scripts/jefe-install.ps1' (Join-Path $stage 'jefe-install.ps1') -Force
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
+          Expand-Archive -Path $archive -DestinationPath $package -Force
+
+          $packageFiles = @(Get-ChildItem -LiteralPath $package -File | Sort-Object Name | ForEach-Object Name)
+          if (($packageFiles -join ',') -ne 'jefe-install.ps1,jefe.exe,LICENSE') {
+            throw "unexpected package contents: $($packageFiles -join ', ')"
+          }
+          if (Get-Command jefe -ErrorAction SilentlyContinue) {
+            throw 'jefe must not be preinstalled on the clean package runner'
+          }
+
+          $installedExe = Join-Path $installDir 'jefe.exe'
+          $installer = Join-Path $package 'jefe-install.ps1'
+          & $installer -Action Install -SourceDir $package -InstallDir $installDir 2>&1 |
+            Tee-Object -FilePath target/windows-ci/package-install.log
+          if (-not (Test-Path $installedExe)) { throw 'jefe.exe was not installed' }
+          if (-not (Test-Path (Join-Path $installDir '.jefe-installed'))) {
+            throw 'ownership marker was not written'
+          }
+
+          & $installedExe --version 2>&1 |
+            Tee-Object -FilePath target/windows-ci/installed-version.log
+          if ($LASTEXITCODE -ne 0) { throw 'installed jefe --version failed' }
+
+          $doctorConfig = Join-Path $env:RUNNER_TEMP 'jefe package doctor config'
+          New-Item -ItemType Directory -Force $doctorConfig | Out-Null
+          & $installedExe doctor --config $doctorConfig 2>&1 |
+            Tee-Object -FilePath target/windows-ci/installed-doctor.log
+          if ($LASTEXITCODE -ne 0) { throw "installed jefe doctor exited with $LASTEXITCODE" }
+
+          $sentinelDir = Join-Path $env:LOCALAPPDATA 'jefe'
+          $sentinel = Join-Path $sentinelDir 'package-lifecycle-sentinel'
+          New-Item -ItemType Directory -Force $sentinelDir | Out-Null
+          'sentinel' | Set-Content -Path $sentinel -Encoding UTF8
+
+          & $installer -Action Upgrade -SourceDir $package -InstallDir $installDir 2>&1 |
+            Tee-Object -FilePath target/windows-ci/package-upgrade.log
+          if ($LASTEXITCODE -ne 0) { throw "upgrade failed with exit $LASTEXITCODE" }
+
+          & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir 2>&1 |
+            Tee-Object -FilePath target/windows-ci/package-uninstall.log
+          if (Test-Path $installDir) { throw 'package-owned install dir survived uninstall' }
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($userPath -and ($userPath -split ';') -contains $installDir) {
+            throw 'install dir survived in user PATH'
+          }
+          if (-not (Test-Path $sentinel)) {
+            throw 'config sentinel was removed by uninstall'
+          }
+          Remove-Item -Path $sentinel -Force
+      - name: Run real psmux startup-quit against installed binary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $env:RUNNER_TEMP 'jefe package extracted'
+          $installDir = Join-Path $env:RUNNER_TEMP 'jefe package install'
+          $installer = Join-Path $package 'jefe-install.ps1'
+          & $installer -Action Install -SourceDir $package -InstallDir $installDir 2>&1 |
+            Tee-Object -FilePath target/windows-ci/psmux-install.log
+          $config = Join-Path $env:RUNNER_TEMP 'jefe installed psmux config'
+          $working = Join-Path $env:RUNNER_TEMP 'jefe installed psmux working'
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-installed-startup'
+          New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
+          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
+          $installedJefe = Join-Path $installDir 'jefe.exe'
+          $namespace = "jefe-pkg-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          & $harness `
+            --scenario dev-docs/tmux-scenarios/startup-quit.json `
+            --jefe-bin $installedJefe `
+            --config $config `
+            --working-dir $working `
+            --session $namespace `
+            --out-dir $artifacts 2>&1 |
+            Tee-Object -FilePath target/windows-ci/installed-psmux-startup.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir 2>&1 |
+            Tee-Object -FilePath target/windows-ci/psmux-uninstall.log
+          if ($LASTEXITCODE -ne 0) { throw "installed jefe uninstall failed with exit $LASTEXITCODE" }
+          if (Test-Path $installDir) { throw 'installed jefe install dir survived uninstall' }
+          # Verify no psmux sessions from this package's namespace survive uninstall.
+          if (Test-Path -LiteralPath env:JEFE_PSMUX_BIN) {
+            $remaining = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
+            if (($LASTEXITCODE -eq 0) -and $remaining) {
+              throw "orphaned psmux sessions remain after uninstall: $remaining"
+            }
+          }
+      - name: Clean package lifecycle residue
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'jefe package extracted'
+          $installDir = Join-Path $env:RUNNER_TEMP 'jefe package install'
+          $installer = Join-Path $package 'jefe-install.ps1'
+          if ((Test-Path $installer) -and (Test-Path (Join-Path $installDir '.jefe-installed'))) {
+            & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir
+          }
       - name: Record remaining owned psmux sessions
         if: always()
         continue-on-error: true
@@ -279,7 +399,8 @@ jobs:
           $recordedNamespace = $false
           $detailsFiles = @(
             'target/tmux-harness/windows-startup/multiplexer.txt',
-            'target/tmux-harness/windows-renderer/multiplexer.txt'
+            'target/tmux-harness/windows-renderer/multiplexer.txt',
+            'target/tmux-harness/windows-installed-startup/multiplexer.txt'
           )
           foreach ($details in $detailsFiles) {
             if (Test-Path $details) {

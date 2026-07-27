@@ -11,7 +11,7 @@ processes and hang one-shot `new-session` commands; 3.3.7 contains the upstream
 process-teardown and command-reliability fixes. Install it with:
 
 ```powershell
-winget install marlocarlo.psmux
+winget install --id marlocarlo.psmux --exact
 ```
 
 The suite uses `psmux.exe` by default. Set `JEFE_PSMUX_BIN` to test a specific

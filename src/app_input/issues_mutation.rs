@@ -179,43 +179,39 @@ fn create_issue(
 
     let mutation_id = begin_mutation(app_state, ctx, pending_target);
     let failure_target = mutation_failure_target(app_state);
-    let panic_failure_target = failure_target.clone();
     // Capture submission-time scope so late success is not misattributed.
     let created_scope = failure_target.scope_repo_id.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let outcome_target = failure_target.clone();
+
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let result = github_client(&ctx).map(|client| {
+        mutation_abandoned(failure_target.clone(), mutation_id, "issue create"),
+    ) else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            github_client(ctx).map(|client| {
                 client.create_issue(&repo_target.owner, &repo_target.repo, &title, &body)
-            });
-            match result {
-                Some(Ok(created)) => {
-                    apply_created_issue(&mut app_state, &ctx, created_scope, mutation_id, created);
-                }
-                Some(Err(e)) => {
-                    apply_mutation_failed(
-                        &mut app_state,
-                        &ctx,
-                        failure_target,
-                        Some(mutation_id),
-                        e.to_string(),
-                    );
-                }
-                None => {
-                    report_context_unavailable(&mut app_state, &ctx, failure_target, mutation_id);
-                }
+            })
+        },
+        move |app_state, ctx, result| match result {
+            Some(Ok(created)) => {
+                apply_created_issue(app_state, ctx, created_scope, mutation_id, created);
             }
-        },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
+            Some(Err(e)) => apply_mutation_failed(
+                app_state,
+                ctx,
+                outcome_target,
                 Some(mutation_id),
-                format!("GitHub issue create task panicked: {message}"),
-            );
+                e.to_string(),
+            ),
+            None => report_context_unavailable(app_state, ctx, outcome_target, mutation_id),
         },
+        mutation_abandoned(failure_target, mutation_id, "issue create"),
     );
 }
 
@@ -276,35 +272,22 @@ fn create_comment(
         return;
     };
     let failure_target = target.failure_target();
-    let panic_failure_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_mutation_event(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = create_comment_event(
-                &ctx,
+        failure_target,
+        mutation_id,
+        "comment create",
+        move |ctx| {
+            create_comment_event(
+                ctx,
                 &repo_target.owner,
                 &repo_target.repo,
                 &text,
                 &target,
                 mutation_id,
-            );
-            match event {
-                Some(event) => apply_and_persist(&mut app_state, &ctx, event),
-                None => {
-                    report_context_unavailable(&mut app_state, &ctx, failure_target, mutation_id);
-                }
-            }
-        },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                Some(mutation_id),
-                format!("GitHub comment create task panicked: {message}"),
-            );
+            )
         },
     );
 }
@@ -339,30 +322,14 @@ fn update_issue_body(
         return;
     };
     let failure_target = target.failure_target();
-    let panic_failure_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_mutation_event(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event =
-                update_issue_body_event(&ctx, &repo_target, &title, &body, &target, mutation_id);
-            match event {
-                Some(event) => apply_and_persist(&mut app_state, &ctx, event),
-                None => {
-                    report_context_unavailable(&mut app_state, &ctx, failure_target, mutation_id);
-                }
-            }
-        },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                Some(mutation_id),
-                format!("GitHub issue body update task panicked: {message}"),
-            );
-        },
+        failure_target,
+        mutation_id,
+        "issue body update",
+        move |ctx| update_issue_body_event(ctx, &repo_target, &title, &body, &target, mutation_id),
     );
 }
 
@@ -386,37 +353,78 @@ fn update_comment(
         return;
     };
     let failure_target = target.failure_target();
-    let panic_failure_target = failure_target.clone();
 
-    gh_async::spawn_gh_task_with_panic(
+    spawn_mutation_event(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = update_comment_event(
-                &ctx,
+        failure_target,
+        mutation_id,
+        "comment update",
+        move |ctx| {
+            update_comment_event(
+                ctx,
                 &repo_target.owner,
                 &repo_target.repo,
                 &text,
                 &target,
                 mutation_id,
-            );
-            match event {
-                Some(event) => apply_and_persist(&mut app_state, &ctx, event),
-                None => {
-                    report_context_unavailable(&mut app_state, &ctx, failure_target, mutation_id);
-                }
-            }
-        },
-        move |mut app_state, ctx, message| {
-            apply_mutation_failed(
-                &mut app_state,
-                &ctx,
-                panic_failure_target,
-                Some(mutation_id),
-                format!("GitHub comment update task panicked: {message}"),
-            );
+            )
         },
     );
+}
+
+/// Run an issue mutation off the UI thread and apply its event on the render
+/// thread.
+///
+/// `work` returns `None` when the application context is unavailable, which is
+/// reported as a failed mutation rather than leaving the composer in-flight.
+/// An abandoned request (panicking worker or missing delivery queue) reports
+/// `MutationFailed` with `task_label`.
+fn spawn_mutation_event<W>(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    failure_target: MutationFailureTarget,
+    mutation_id: u64,
+    task_label: &'static str,
+    work: W,
+) where
+    W: FnOnce(&SharedContext) -> Option<AppEvent> + Send + 'static,
+{
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
+        app_state,
+        ctx,
+        mutation_abandoned(failure_target.clone(), mutation_id, task_label),
+    ) else {
+        return;
+    };
+    let unavailable_target = failure_target.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        work,
+        move |app_state, ctx, event| match event {
+            Some(event) => apply_and_persist(app_state, ctx, event),
+            None => report_context_unavailable(app_state, ctx, unavailable_target, mutation_id),
+        },
+        mutation_abandoned(failure_target, mutation_id, task_label),
+    );
+}
+
+/// Report an abandoned issue mutation so the composer never stays in-flight.
+fn mutation_abandoned(
+    target: MutationFailureTarget,
+    mutation_id: u64,
+    task_label: &'static str,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_mutation_failed(
+            app_state,
+            ctx,
+            target,
+            Some(mutation_id),
+            format!("GitHub {task_label} abandoned: {message}"),
+        );
+    }
 }
 
 fn create_comment_event(

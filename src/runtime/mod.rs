@@ -23,6 +23,9 @@ mod external_terminal;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
 mod identity;
+/// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
+#[cfg(windows)]
+mod job_object;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod llxprt_install;
@@ -37,6 +40,8 @@ mod pane_capture;
 mod preflight;
 mod process;
 mod session;
+/// Per-session, content-addressed Windows host staging (issue #467 Slice 1).
+pub(crate) mod session_host;
 /// Embedded shell-window tmux operations (issue #222).
 mod shell_window;
 mod socket;
@@ -100,6 +105,12 @@ pub use process::{
     classify_process_observation, process_liveness, process_liveness_indicates_alive,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+// Issue #467 Slice 2: re-export session-host cleanup/planning items used by the
+// startup path and the manager kill path.
+pub use session_host::{
+    SESSION_HOST_ROOT_SEGMENT, SessionCleanupOutcome, StartupCleanupReport,
+    cleanup_session_directory, startup_cleanup_session_hosts,
+};
 pub use shell_window::{
     SHELL_WINDOW_NAME, ShellWindowInputs, capture_shell_preview, close_all_shell_windows,
     close_shell_window, hide_shell_window, observe_shell_window_sessions, open_shell_window,
@@ -132,6 +143,14 @@ mod orphan_tests;
 #[cfg(test)]
 #[path = "multiplexer_tests.rs"]
 mod multiplexer_tests;
+
+#[cfg(test)]
+#[path = "session_host_tests.rs"]
+mod session_host_tests;
+
+#[cfg(all(test, windows))]
+#[path = "job_object_tests.rs"]
+mod job_object_tests;
 
 #[cfg(test)]
 mod tests {

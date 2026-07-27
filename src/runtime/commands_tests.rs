@@ -926,3 +926,68 @@ fn windows_configure_prefix_unbinds_page_up_from_root_table() {
         );
     }
 }
+
+// Issue #467 Slice 2: local launch host-staging decision (AC1, AC9)
+//
+// On native Windows, a fresh local creation with an explicit session-host root
+// stages std::env::current_exe() below the manager's root and the psmux pane
+// launches the staged copy through the existing private launch-plan entrypoint
+// (never the agent argv directly). On Unix, or whenever no root is supplied,
+// staging must not occur so the structurally unchanged tmux/SSH launch path is
+// preserved.
+//
+// The decision is pure so it can be exercised deterministically on every CI
+// platform; the Windows-only staging side effect is covered by the cfg(windows)
+// integration test below.
+
+/// Pure decision helper that returns whether the local launch should stage a
+/// session host, and if so, the (root, session_name) pair to stage under.
+fn session_host_stage_request<'a>(
+    root: Option<&'a std::path::Path>,
+    session_name: Option<&'a str>,
+) -> Option<(&'a std::path::Path, &'a str)> {
+    super::session_host_stage_request(root, session_name)
+}
+
+#[test]
+fn stage_request_is_none_when_no_root_is_supplied() {
+    assert!(
+        session_host_stage_request(None, Some("jefe-agent-1")).is_none(),
+        "no session-host root means staging must not occur"
+    );
+}
+
+#[test]
+fn stage_request_is_none_when_no_session_name_is_supplied() {
+    let root = std::path::PathBuf::from("/state/session-hosts");
+    assert!(
+        session_host_stage_request(Some(&root), None).is_none(),
+        "no session name means staging must not occur"
+    );
+}
+
+#[test]
+fn stage_request_is_none_on_unix_even_when_root_and_name_are_supplied() {
+    // AC9: Unix and remote launch paths never stage a host. The decision helper
+    // is platform-gated so the Windows-only staging code path is compiled out of
+    // Unix targets entirely.
+    if !cfg!(windows) {
+        let root = std::path::PathBuf::from("/state/session-hosts");
+        assert!(
+            session_host_stage_request(Some(&root), Some("jefe-agent-1")).is_none(),
+            "Unix local launch must never stage a session host"
+        );
+    }
+}
+
+#[test]
+#[cfg(windows)]
+fn stage_request_returns_root_and_name_on_windows_when_both_supplied() {
+    // AC1: on Windows the manager's explicit session-host root reaches local
+    // creation, and staging is requested for the resolved session name.
+    let root = std::path::PathBuf::from("C:/State/session-hosts");
+    let request = session_host_stage_request(Some(&root), Some("jefe-agent-1"))
+        .unwrap_or_else(|| panic!("Windows local launch with a root must request staging"));
+    assert_eq!(request.0, std::path::Path::new("C:/State/session-hosts"));
+    assert_eq!(request.1, "jefe-agent-1");
+}

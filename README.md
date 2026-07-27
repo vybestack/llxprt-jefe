@@ -45,11 +45,15 @@
 |----------|--------|-----------------|
 | macOS (arm64/x86_64) | **Supported** | Podman, Docker, Seatbelt |
 | Linux (x86_64/aarch64) | **Supported** | Podman, Docker |
-| Windows | **Not supported** | — |
+| Windows (x86_64) | **Supported** | — |
 
 Seatbelt (macOS `sandbox-exec`) is available only on macOS. If a persisted
 configuration references an unsupported engine, `jefe` normalizes it to Podman
 at startup with a warning.
+
+Native Windows uses [psmux](https://github.com/psmux/psmux) (a tmux-compatible
+multiplexer) and the Windows ConPTY pseudo-console. See
+[Windows support](docs/windows-support.md) for the full native Windows guide.
 
 ## Install jefe
 
@@ -95,6 +99,40 @@ sudo rpm -i ./jefe-vX.Y.Z-aarch64-unknown-linux-gnu.rpm
 ```
 
 (If upgrading an existing install, use `sudo rpm -Uvh ...`.)
+
+### Windows (portable GitHub Release)
+
+Native Windows x86_64 builds are published as a portable zip on GitHub
+Releases. Download the latest
+`jefe-vX.Y.Z-x86_64-pc-windows-msvc.zip` from:
+
+https://github.com/vybestack/llxprt-jefe/releases/latest
+
+Extract it and run the first-party per-user install script from PowerShell:
+
+```powershell
+.\jefe-install.ps1 -Action Install
+```
+
+This installs Jefe under `%LOCALAPPDATA%\Programs\jefe`, adds that directory
+to your user `PATH`, and preserves any existing configuration, state, and
+psmux sessions. Upgrade and uninstall use the same script:
+
+```powershell
+.\jefe-install.ps1 -Action Upgrade
+.\jefe-install.ps1 -Action Uninstall
+```
+
+Jefe requires the **psmux** multiplexer on Windows. Install it separately with
+Winget using the qualified package id:
+
+```powershell
+winget install --id marlocarlo.psmux --exact
+```
+
+Verify your installation with `jefe doctor`. See
+[Windows support](docs/windows-support.md) for prerequisites, supported
+terminals, and troubleshooting.
 
 ## Install llxprt (required)
 
@@ -180,7 +218,5 @@ Build/test/developer details moved to [`docs/building.md`](docs/building.md).
 Local PR gate command (matches CI):
 
 ```bash
-make build
+cargo xtask ci
 ```
-
-(`make ci-check` is kept as an alias.)

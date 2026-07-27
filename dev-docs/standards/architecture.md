@@ -209,7 +209,7 @@ discipline already exists in:
 - Keep projection modules **iocraft-free** (no `use iocraft::prelude::*`, no
   `Color`, no `Props`).
 - Keep projection functions **`#[must_use]`** and side-effect-free.
-- Keep files under **1000 lines** (`scripts/check-source-file-size.sh`
+- Keep files under **1000 lines** (`cargo xtask check source-size`
   `HARD_LIMIT=1000`; `WARN_LIMIT=750`) and functions under **60 lines**
   (`clippy.toml` `too-many-lines-threshold = 60`).
 - Keep cognitive complexity under **15** (`clippy.toml`

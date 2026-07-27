@@ -57,7 +57,7 @@ For every slice:
 2. For UI-visible work, add or update the TUI harness scenario first and prove RED.
 3. Implement only enough production behavior to make the slice GREEN.
 4. Refactor within the accepted architecture and scope.
-5. Run focused tests and `make quick-check` during iteration.
+5. Run focused tests and `cargo xtask quick` during iteration.
 6. Run the complete required verification before the green checkpoint is pushed.
 7. Commit one coherent green behavior.
 

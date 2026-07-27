@@ -100,7 +100,7 @@ allows (see the zero-tolerance clippy-allow policy below).
 ## Complexity Thresholds (clippy.toml)
 
 Defined in `clippy.toml` and mirrored in `.github/clippy/clippy.toml` (the CI
-clippy config). The gate `scripts/check-clippy-allows.sh` verifies both files
+clippy config). The gate `cargo xtask check clippy-allows` verifies both files
 keep identical thresholds so `CLIPPY_CONF_DIR` never silently falls back to
 clippy defaults.
 
@@ -120,8 +120,8 @@ helpers — do not loosen the rule. (See the lint-guardrail policy in
 
 ## Source-File Length Policy
 
-Enforced by `scripts/check-source-file-size.sh` (the `source_file_size` CI job,
-also run by `make ci-check`).
+Enforced by `cargo xtask check source-size` (the `source_file_size` CI job,
+also run by `cargo xtask ci`).
 
 | Limit       | Value | Behavior                                              |
 |-------------|-------|-------------------------------------------------------|
@@ -137,7 +137,7 @@ cohesive logic.
 
 ## Zero-Tolerance Clippy-Allow Policy
 
-`scripts/check-clippy-allows.sh` (the `clippy_allow_policy` CI job) enforces a
+`cargo xtask check clippy-allows` (the `clippy_allow_policy` CI job) enforces a
 zero-tolerance policy on clippy allow/expect attributes in first-party code:
 
 - No `#[allow(clippy::...)]`, `#![allow(clippy::...)]`,
@@ -194,7 +194,7 @@ If a local non-clippy `#[allow]` is genuinely unavoidable:
 - **DO** put module-level doc comments (`//!`) at the top of every module file.
 - **DO** put doc comments (`///`) on every public function, struct, enum, and
   trait.
-- **DO** run `cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features` before every commit (or `make ci-check`).
+- **DO** run `cargo fmt --all --check && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace --all-features` before every commit (or `cargo xtask ci`).
 
 ### DON'T
 
@@ -274,4 +274,4 @@ A change is mergeable only when all are true:
 5. Documentation is updated when contracts change.
 6. No prohibited patterns were introduced (`unwrap`/`expect`, `unsafe`,
    clippy-allow attributes, weak typing, parallel architectures, placeholder
-   markers).
+   marker    

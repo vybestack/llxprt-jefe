@@ -1,3 +1,11 @@
+# Workspace definition (issue #459): the root `jefe` package plus the local
+# `xtask` task runner. `default-members` keeps plain `cargo build`/`cargo test`
+# scoped to the shipping package so contributors do not build xtask by default.
+[workspace]
+members = ["xtask"]
+default-members = ["."]
+resolver = "3"
+
 [package]
 name = "jefe"
 version = "0.0.32"
@@ -57,6 +65,7 @@ tempfile = "3.0"
 
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }
+win32job = "2.0.3"
 whoami = "2.1.2"
 
 [target.'cfg(unix)'.dependencies]
@@ -86,6 +95,11 @@ required-features = ["psmux-smoke"]
 [[bin]]
 name = "jefe-psmux-orphan-fixture"
 path = "tests/fixtures/psmux_orphan_fixture.rs"
+required-features = ["psmux-smoke"]
+
+[[bin]]
+name = "jefe-psmux-session-host-fixture"
+path = "tests/fixtures/psmux_session_host_fixture.rs"
 required-features = ["psmux-smoke"]
 
 [[bin]]

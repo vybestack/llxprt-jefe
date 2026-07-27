@@ -656,68 +656,68 @@ pub(super) fn apply_send_to_agent_failed(
 /// failure applies an `IssueSelfAssignmentFailed` event through the reducer,
 /// which surfaces a `warning_message` (the send itself already succeeded).
 fn spawn_issue_self_assignment(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     assignment: SelfAssignment,
 ) {
     let owner = assignment.owner;
     let repo = assignment.repo;
     let owner_repo = assignment.owner_repo;
-    let owner_repo_panic = owner_repo.clone();
     let issue_number = assignment.issue_number;
-    gh_async::spawn_gh_task_with_panic(
+
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let Some(client) = github_client(&ctx) else {
-                fail_assignment(
-                    &mut app_state,
-                    &ctx,
-                    &owner_repo,
-                    issue_number,
-                    "GitHub client is unavailable",
-                );
-                return;
+        assignment_abandoned(owner_repo.clone(), issue_number),
+    ) else {
+        return;
+    };
+    let panic_owner_repo = owner_repo.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| {
+            let Some(client) = github_client(ctx) else {
+                return Err("GitHub client is unavailable".to_string());
             };
-            let viewer = match client.viewer_login() {
-                Ok(login) => login,
-                Err(error) => {
-                    warn!(error = %error, "could not resolve viewer login for self-assignment");
-                    fail_assignment(
-                        &mut app_state,
-                        &ctx,
-                        &owner_repo,
-                        issue_number,
-                        &error.to_string(),
+            let viewer = client.viewer_login().map_err(|error| {
+                warn!(error = %error, "could not resolve viewer login for self-assignment");
+                error.to_string()
+            })?;
+            client
+                .assign_issue(&owner, &repo, issue_number, &viewer)
+                .map_err(|error| {
+                    warn!(
+                        viewer = %viewer,
+                        error = %error,
+                        "could not self-assign issue on send"
                     );
-                    return;
-                }
-            };
-            if let Err(error) = client.assign_issue(&owner, &repo, issue_number, &viewer) {
-                warn!(
-                    viewer = %viewer,
-                    error = %error,
-                    "could not self-assign issue on send"
-                );
-                fail_assignment(
-                    &mut app_state,
-                    &ctx,
-                    &owner_repo,
-                    issue_number,
-                    &error.to_string(),
-                );
+                    error.to_string()
+                })
+        },
+        move |app_state, ctx, result| {
+            if let Err(error) = result {
+                fail_assignment(app_state, ctx, &owner_repo, issue_number, &error);
             }
         },
-        move |mut app_state, ctx, message| {
-            fail_assignment(
-                &mut app_state,
-                &ctx,
-                &owner_repo_panic,
-                issue_number,
-                &format!("Issue self-assignment panicked: {message}"),
-            );
-        },
+        assignment_abandoned(panic_owner_repo, issue_number),
     );
+}
+
+/// Report an abandoned self-assignment so the warning is still surfaced.
+fn assignment_abandoned(
+    owner_repo: String,
+    issue_number: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        fail_assignment(
+            app_state,
+            ctx,
+            &owner_repo,
+            issue_number,
+            &format!("Issue self-assignment abandoned: {message}"),
+        );
+    }
 }
 
 /// Apply the non-blocking self-assignment-failed event through the reducer so

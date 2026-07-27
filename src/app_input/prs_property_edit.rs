@@ -134,34 +134,47 @@ fn report_missing_repo(
 }
 
 fn dispatch_pr_property_edit(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     repo: PrRepoTarget,
     action: PrPropertyAction,
     request_id: u64,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_property_edit_event(&ctx, &repo, &action, request_id);
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrPropertyEditFailed {
-                    scope_repo_id: panic_action.scope_repo_id,
-                    pr_number: panic_action.pr_number,
-                    kind: panic_action.kind,
-                    request_id,
-                    error: format!("GitHub PR property edit task panicked: {message}"),
-                },
-            );
-        },
+        pr_property_edit_abandoned(action.clone(), request_id),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_property_edit_event(ctx, &repo, &action, request_id),
+        dispatch_app_event,
+        pr_property_edit_abandoned(panic_action, request_id),
     );
+}
+
+/// Report an abandoned PR property edit so the editor never stays in-flight.
+fn pr_property_edit_abandoned(
+    action: PrPropertyAction,
+    request_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrPropertyEditFailed {
+                scope_repo_id: action.scope_repo_id,
+                pr_number: action.pr_number,
+                kind: action.kind,
+                request_id,
+                error: format!("GitHub PR property edit abandoned: {message}"),
+            },
+        );
+    }
 }
 
 fn pr_property_edit_event(
@@ -316,29 +329,40 @@ pub fn handle_pr_property_options_load(app_state: &mut AppStateHandle, ctx: &Sha
             return;
         }
     };
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, pr_options_abandoned(params.clone()))
+    else {
+        return;
+    };
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_options_load_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, _message| {
-            // H5: deliver OptionsFailed, NOT empty OptionsLoaded
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrPropertyEditorOptionsFailed {
-                    scope_repo_id: panic_params.scope_repo_id.clone(),
-                    pr_number: panic_params.pr_number,
-                    kind: panic_params.kind,
-                    request_id: panic_params.request_id,
-                    error: "Options fetch task panicked".to_string(),
-                },
-            );
-        },
+        move |ctx| pr_options_load_event(ctx, &params),
+        apply_and_persist,
+        pr_options_abandoned(panic_params),
     );
+}
+
+/// Report an abandoned PR options fetch.
+///
+/// H5: deliver OptionsFailed, NOT empty OptionsLoaded.
+fn pr_options_abandoned(
+    params: PrOptionsLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrPropertyEditorOptionsFailed {
+                scope_repo_id: params.scope_repo_id.clone(),
+                pr_number: params.pr_number,
+                kind: params.kind,
+                request_id: params.request_id,
+                error: format!("Options fetch abandoned: {message}"),
+            },
+        );
+    }
 }
 
 #[derive(Clone)]

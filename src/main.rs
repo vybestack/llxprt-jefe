@@ -111,6 +111,24 @@ fn write_startup_error(
     let _ = writeln!(handle, "jefe config migrate-state{suffix}");
 }
 
+/// Run the read-only `jefe doctor` diagnostics, write the redacted report to
+/// locked stdout, and exit with the typed outcome code (issue #264).
+///
+/// Dispatched before logging/TUI initialization so it never starts a session
+/// or mutates persistence state.
+fn run_doctor_and_exit(config_dir: Option<&std::path::Path>) {
+    let report = jefe::doctor::collect(config_dir);
+    let outcome = jefe::doctor::classify_doctor(report.findings());
+    let rendered = jefe::doctor::render_report(&report);
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let _ = writeln!(handle, "{rendered}");
+    // `std::process::exit` runs no destructors, so flush the locked handle
+    // explicitly to guarantee the report reaches piped/non-TTY consumers.
+    let _ = handle.flush();
+    std::process::exit(i32::from(outcome.exit_code().as_u8()));
+}
+
 fn run_internal_agent_launch_if_requested() {
     let mut args = std::env::args();
     let _program = args.next();
@@ -167,6 +185,19 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
     true
 }
 
+fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRuntimeManager {
+    state_path.parent().map_or_else(
+        || TmuxRuntimeManager::new(rows, cols),
+        |parent| {
+            TmuxRuntimeManager::with_session_host_root(
+                rows,
+                cols,
+                parent.join(jefe::runtime::SESSION_HOST_ROOT_SEGMENT),
+            )
+        },
+    )
+}
+
 fn main() {
     run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
@@ -174,6 +205,11 @@ fn main() {
     };
     if dispatch_recovery_command(&cli_args) {
         return;
+    }
+
+    // Dispatch doctor before startup persistence, logging, or TUI initialization.
+    if cli_args.is_doctor() {
+        run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
     let startup = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {
@@ -207,7 +243,7 @@ fn main() {
 
     let mut theme_manager = FileThemeManager::new();
     theme_manager.load_from_dir(&themes_dir);
-    let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
+    let runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
 
     let persist_handle =
         jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));

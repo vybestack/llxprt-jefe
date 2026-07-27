@@ -4,7 +4,7 @@
 //! Resolves the merge context from the pending merge mutation, spawns
 //! `GhClient::merge_pull_request` off the UI thread, and loads the allowed
 //! merge methods when the chooser opens. All `gh` I/O runs off the UI thread
-//! via `spawn_gh_task_with_panic`.
+//! via `gh_async::spawn_gh_work`.
 //!
 //! Malformed tracker errors are preserved: a malformed nonblank
 //! `github_issue_pr_repo` override surfaces the typed reason rather than
@@ -116,35 +116,47 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
 /// Spawn the off-thread `gh pr merge` task for a valid repo + PR + method.
 ///
 /// @requirement REQ-PR-009
-fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
-    let panic_scope = info.scope.clone();
-    let panic_pr_number = info.number;
-    let panic_mutation_id = info.mutation_id;
-    gh_async::spawn_gh_task_with_panic(
+fn spawn_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
+    let (scope, pr_number, mutation_id) = (info.scope.clone(), info.number, info.mutation_id);
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_merge_event(&ctx, &info);
-            // Route the merge result through the full dispatch chain so that a
-            // successful `PrMerged` hits the `PullRequestsMessage::Merged` arm
-            // and triggers the post-mutation list + detail reload (issue #128).
-            // A `PrMergeFailed` outcome is converted to a message but does NOT
-            // trigger a reload (it lacks the `Merged`/`CommentCreated` markers).
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrMergeFailed {
-                    scope_repo_id: panic_scope,
-                    pr_number: panic_pr_number,
-                    mutation_id: panic_mutation_id,
-                    error: format!("GitHub merge task panicked: {message}"),
-                },
-            );
-        },
+        merge_abandoned(scope.clone(), pr_number, mutation_id),
+    ) else {
+        return;
+    };
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_merge_event(ctx, &info),
+        // Route the merge result through the full dispatch chain so that a
+        // successful `PrMerged` hits the `PullRequestsMessage::Merged` arm
+        // and triggers the post-mutation list + detail reload (issue #128).
+        // A `PrMergeFailed` outcome is converted to a message but does NOT
+        // trigger a reload (it lacks the `Merged`/`CommentCreated` markers).
+        dispatch_app_event,
+        merge_abandoned(scope, pr_number, mutation_id),
     );
+}
+
+/// Report an abandoned merge so the mutation never stays in-flight.
+fn merge_abandoned(
+    scope: RepositoryId,
+    pr_number: u64,
+    mutation_id: u64,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, String) {
+    move |app_state, ctx, message| {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::PrMergeFailed {
+                scope_repo_id: scope,
+                pr_number,
+                mutation_id,
+                error: format!("GitHub merge abandoned: {message}"),
+            },
+        );
+    }
 }
 
 /// Build the merge success/failure event from the gh result.
@@ -225,19 +237,25 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx
             );
         }
         Ok(Some((scope, owner, name, pr_number))) => {
-            gh_async::spawn_gh_task_with_panic(
+            // The chooser keeps its graceful "all available" fallback rather
+            // than surfacing an abandoned merge-methods request.
+            let Some(deliveries) = gh_async::delivery_handle_or_report(
                 app_state,
                 ctx,
-                move |mut app_state, ctx| {
-                    if let Some(event) =
-                        pr_merge_methods_event(&ctx, &scope, &owner, &name, pr_number)
-                    {
-                        apply_and_persist(&mut app_state, &ctx, event);
+                |_app_state, _ctx, _message| {},
+            ) else {
+                return;
+            };
+            gh_async::spawn_gh_work(
+                &deliveries,
+                ctx,
+                move |ctx| pr_merge_methods_event(ctx, &scope, &owner, &name, pr_number),
+                |app_state, ctx, event| {
+                    if let Some(event) = event {
+                        apply_and_persist(app_state, ctx, event);
                     }
                 },
-                // The shared task wrapper logs panics; the chooser keeps its
-                // graceful "all available" fallback instead of surfacing one.
-                move |_app_state, _ctx, _message| {},
+                |_app_state, _ctx, _message| {},
             );
         }
         Ok(None) => {}
