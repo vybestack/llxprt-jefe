@@ -52,27 +52,35 @@ pub(super) fn load_pending_changes(app_state: &mut AppStateHandle, ctx: &SharedC
             return;
         }
     };
+    let unavailable_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
+            apply_and_persist(app_state, ctx, failure_event(&unavailable_params, message));
+        })
+    else {
+        return;
+    };
     let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
+    gh_async::spawn_gh_work(
+        &deliveries,
         ctx,
-        move |mut app_state, ctx| {
-            let event = changes_load_event(&ctx, &params);
+        move |ctx| changes_load_event(ctx, &params),
+        move |app_state, ctx, event| {
             // Settle auth failures into the failed state before opening auth
             // remediation (issue #376): apply the failure event first so the
             // reducer records the terminal failure, then offer remediation.
             if let AppEvent::PrChangesLoadFailed(payload) = &event {
                 let auth_error = payload.error.clone();
-                apply_and_persist(&mut app_state, &ctx, event);
-                super::auth_remediation::offer_auth_remediation(&mut app_state, &ctx, &auth_error);
+                apply_and_persist(app_state, ctx, event);
+                super::auth_remediation::offer_auth_remediation(app_state, ctx, &auth_error);
                 return;
             }
-            apply_and_persist(&mut app_state, &ctx, event);
+            apply_and_persist(app_state, ctx, event);
         },
-        move |mut app_state, ctx, message| {
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 failure_event(
                     &panic_params,
                     format!("GitHub PR files task panicked: {message}"),
@@ -98,18 +106,28 @@ pub(super) fn load_pending_blob(app_state: &mut AppStateHandle, ctx: &SharedCont
         let mut state = app_state.write();
         state.prs_state.changes.blob_dispatched_request_id = Some(dispatched_request_id);
     }
-    let panic_params = params.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            let event = blob_load_event(&ctx, &params);
-            apply_and_persist(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
+    let unavailable_params = params.clone();
+    let Some(deliveries) =
+        gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
+                blob_failure_event(&unavailable_params, message),
+            );
+        })
+    else {
+        return;
+    };
+    let panic_params = params.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| blob_load_event(ctx, &params),
+        apply_and_persist,
+        move |app_state, ctx, message| {
+            apply_and_persist(
+                app_state,
+                ctx,
                 blob_failure_event(&panic_params, format!("PR blob task panicked: {message}")),
             );
         },

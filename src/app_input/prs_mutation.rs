@@ -258,23 +258,28 @@ fn pr_comment_create_event(
     }
 }
 fn dispatch_pr_review_comment_create(
-    app_state: &AppStateHandle,
+    app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     repo: PrRepoTarget,
     action: PrInlineSubmitAction,
 ) {
-    let panic_action = action.clone();
-    gh_async::spawn_gh_task_with_panic(
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
         app_state,
         ctx,
-        move |mut app_state, ctx| {
-            let event = pr_review_comment_event(&ctx, &repo, &action);
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
+        pr_comment_abandoned(action.clone(), "GitHub review comment"),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_review_comment_event(ctx, &repo, &action),
+        dispatch_app_event,
+        move |app_state, ctx, message| {
             apply_and_persist(
-                &mut app_state,
-                &ctx,
+                app_state,
+                ctx,
                 AppEvent::PrCommentCreateFailed {
                     scope_repo_id: panic_action.scope_repo_id,
                     pr_number: panic_action.pr_number,
