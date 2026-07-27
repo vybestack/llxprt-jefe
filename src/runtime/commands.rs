@@ -120,24 +120,10 @@ pub fn configure_prefix_for_passthrough_with_plan(
     configure_prefix_with(session_name, |args| multiplexer_cmd_status(plan, args))
 }
 
-fn configure_prefix_with(
-    session_name: &str,
-    mut apply: impl FnMut(&[&str]) -> Result<(), String>,
-) -> Result<(), String> {
-    for option in prefix_options_for_passthrough() {
-        let value = if *option == "prefix" {
-            local_prefix_value()
-        } else {
-            "None"
-        };
-        if cfg!(windows) {
-            apply(["set-option", "-g", option, value].as_ref())?;
-        } else {
-            apply(["set-option", "-t", session_name, option, value].as_ref())?;
-        }
-    }
-    Ok(())
-}
+#[path = "commands_root_keys.rs"]
+mod commands_root_keys;
+
+use commands_root_keys::configure_prefix_with;
 
 #[cfg(feature = "psmux-smoke")]
 fn multiplexer_cmd_status(plan: &MultiplexerPlan, args: &[&str]) -> Result<(), String> {
