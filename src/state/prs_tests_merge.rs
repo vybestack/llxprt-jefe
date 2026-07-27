@@ -271,6 +271,46 @@ fn merge_methods_loaded_updates_chooser() {
     }
 }
 
+#[test]
+fn merge_methods_load_failed_sets_scoped_error() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    assert!(state.prs_state.merge_chooser.is_some());
+    assert!(state.prs_state.error.is_none());
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoadFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            error: "API rate limited".to_string(),
+        })
+        .committed_pure();
+    assert!(
+        state.prs_state.merge_chooser.is_some(),
+        "chooser stays open after load failure so the user can still attempt merge"
+    );
+    assert_eq!(
+        state.prs_state.error.as_deref(),
+        Some("Failed to load merge methods: API rate limited")
+    );
+}
+
+#[test]
+fn merge_methods_load_failed_ignored_for_wrong_pr_number() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = state
+        .apply(AppEvent::PrMergeMethodsLoadFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 99,
+            error: "stale".to_string(),
+        })
+        .committed_pure();
+    assert!(
+        state.prs_state.error.is_none(),
+        "stale load-failure for another PR must not clobber current detail"
+    );
+}
+
 // ── Edge cases: list sync, stale responses, pending guard ────────────────
 
 #[test]

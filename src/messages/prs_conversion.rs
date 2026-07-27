@@ -460,6 +460,15 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
+            AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => Self::MergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            },
             property if Self::is_pr_property_app_event(&property) => {
                 Self::from_app_event_property(property)
             }
@@ -931,6 +940,15 @@ impl PullRequestsMessage {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
+            },
+            Self::MergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
             },
             Self::OpenPropertyEditor { .. }
             | Self::PropertyEditorNavigateUp
