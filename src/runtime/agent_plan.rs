@@ -307,66 +307,57 @@ impl std::error::Error for AgentPlanError {}
 /// unsupported. Both produce zero effects.
 #[must_use]
 pub fn plan_local_launch(request: &PlanRequest<'_>) -> PlanOutcome {
-    // 1. Local target gate.
-    let canonical_cwd = match &request.target {
-        Target::Local { canonical_cwd } => canonical_cwd.as_path(),
-        Target::Remote(_) => return PlanOutcome::Error(AgentPlanError::NotLocalTarget),
-    };
-    let definition = request.definition;
+    match &request.target {
+        Target::Local { .. } => plan_launch(request),
+        Target::Remote(_) => PlanOutcome::Error(AgentPlanError::NotLocalTarget),
+    }
+}
 
-    // 2-3. Operation and target support (zero effects if unsupported).
-    if let Some(reason) = support_reason(definition, request.operation) {
+/// Build a plan for the target carried by `request`.
+///
+/// Target-specific boundary modules perform local/remote shape checks before
+/// calling this shared, side-effect-free planner.
+pub(crate) fn plan_launch(request: &PlanRequest<'_>) -> PlanOutcome {
+    let definition = request.definition;
+    if let Some(reason) = support_reason(definition, request.operation, &request.target) {
         return PlanOutcome::Unsupported { reason };
     }
-
-    // 4-5. Probe evidence and generation match.
     if let Err(error) = validate_probe_evidence(request) {
         return PlanOutcome::Error(error);
     }
-
-    // 6. Validate provided field values reference declared fields.
     if let Err(error) = validate_provided_values(definition, request.values) {
         return PlanOutcome::Error(error);
     }
-
-    // 7. Emit argv/env.
     let emitted = match emit_argv_env(definition, request.values) {
         Ok(parts) => parts,
         Err(error) => return PlanOutcome::Error(error),
     };
-
-    // 8. Stamp signature and assemble the immutable plan.
-    let plan = assemble_plan(request, canonical_cwd, emitted);
-    PlanOutcome::Supported(Box::new(plan))
+    PlanOutcome::Supported(Box::new(assemble_plan(request, emitted)))
 }
 
 /// The exact unsupported reason for an operation/target pair, if any.
-///
-/// Returns the declared reason (never synthesized) so the caller surfaces the
-/// definition's authored text. Returns `None` when both are supported.
-fn support_reason(definition: &AgentDefinition, operation: Operation) -> Option<String> {
-    let op_support = definition.operations.support_for(operation);
-    if op_support.supported.is_unsupported() {
-        return Some(
-            op_support
-                .supported
-                .reason()
-                .unwrap_or("operation not supported")
-                .to_string(),
+fn support_reason(
+    definition: &AgentDefinition,
+    operation: Operation,
+    target: &Target,
+) -> Option<String> {
+    let operation_support = &definition.operations.support_for(operation).supported;
+    if operation_support.is_unsupported() {
+        return operation_support.reason().map_or_else(
+            || Some("operation not supported".to_string()),
+            |reason| Some(reason.to_string()),
         );
     }
-    if definition.targets.local.supported.is_unsupported() {
-        return Some(
-            definition
-                .targets
-                .local
-                .supported
-                .reason()
-                .unwrap_or("target not supported")
-                .to_string(),
-        );
-    }
-    None
+    let target_support = match target {
+        Target::Local { .. } => &definition.targets.local.supported,
+        Target::Remote(_) => &definition.targets.remote.supported,
+    };
+    target_support.is_unsupported().then(|| {
+        target_support
+            .reason()
+            .unwrap_or("target not supported")
+            .to_string()
+    })
 }
 
 /// Validate the probe evidence (steps 4-5): compatibility + generation match.
@@ -401,14 +392,10 @@ fn validate_probe_evidence(request: &PlanRequest<'_>) -> Result<(), AgentPlanErr
 }
 
 /// Assemble the immutable plan from validated inputs and emitted argv/env.
-fn assemble_plan(
-    request: &PlanRequest<'_>,
-    canonical_cwd: &std::path::Path,
-    emitted: EmittedEffects,
-) -> AgentLaunchPlan {
+fn assemble_plan(request: &PlanRequest<'_>, emitted: EmittedEffects) -> AgentLaunchPlan {
     let definition = request.definition;
     let typed_value_hash = compute_typed_value_hash(definition, request.values);
-    let target_fingerprint = compute_target_fingerprint(canonical_cwd);
+    let target_fingerprint = compute_target_fingerprint(&request.target);
     let signature = LaunchSignature::v1(definition.sha256(), typed_value_hash, target_fingerprint);
     AgentLaunchPlan {
         type_id: definition.id.clone(),
@@ -417,7 +404,7 @@ fn assemble_plan(
         executable: request.executable.clone(),
         argv: emitted.argv,
         env: emitted.env,
-        cwd: canonical_cwd.to_path_buf(),
+        cwd: request.target.canonical_cwd().to_path_buf(),
         target: request.target.clone(),
         probe_generation: request.probe_generation,
         target_generation: request.target_generation,
@@ -752,10 +739,32 @@ fn extend_signature_field(
     buffer.push(0); // record separator
 }
 
-/// Compute a content digest over the canonical target cwd so the signature
-/// binds the plan to its target identity.
-fn compute_target_fingerprint(canonical_cwd: &std::path::Path) -> DefinitionSha256 {
-    DefinitionSha256::digest(canonical_cwd.to_string_lossy().as_bytes())
+/// Compute a content digest over the complete canonical target identity.
+fn compute_target_fingerprint(target: &Target) -> DefinitionSha256 {
+    let mut bytes = Vec::new();
+    match target {
+        Target::Local { canonical_cwd } => {
+            bytes.push(b'L');
+            append_target_part(&mut bytes, canonical_cwd.to_string_lossy().as_bytes());
+        }
+        Target::Remote(remote) => {
+            bytes.push(b'R');
+            append_target_part(&mut bytes, remote.user.as_bytes());
+            append_target_part(&mut bytes, remote.host.as_bytes());
+            append_target_part(&mut bytes, &remote.port.unwrap_or(22).to_be_bytes());
+            append_target_part(&mut bytes, remote.run_as_user.as_bytes());
+            append_target_part(
+                &mut bytes,
+                remote.canonical_cwd.to_string_lossy().as_bytes(),
+            );
+        }
+    }
+    DefinitionSha256::digest(&bytes)
+}
+
+fn append_target_part(bytes: &mut Vec<u8>, part: &[u8]) {
+    bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
+    bytes.extend_from_slice(part);
 }
 
 #[cfg(test)]

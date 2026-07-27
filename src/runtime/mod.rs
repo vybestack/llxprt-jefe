@@ -16,6 +16,8 @@ pub mod agent_plan;
 mod agent_probe;
 mod agent_probe_parse;
 mod agent_probe_process;
+/// Definition-driven immutable remote launch plan generation (issue #382 S9).
+pub mod agent_remote_plan;
 mod async_attach;
 mod attach;
 mod attach_mode_recovery;

@@ -430,3 +430,35 @@ each old/new dimension, including changed executable identity. The acceptance
 test, strict workspace/all-target Clippy, and `make quick-check` pass. Wiring the
 authorized wrapper into every execution route remains part of later route
 convergence; no parallel product-specific guard was introduced.
+
+## S9 remote launch planning and serialization (2026-07-26)
+
+### S9 RED evidence
+
+The production-connected `remote_plan_contract` and focused remote-planner tests
+were expanded against the missing `runtime::agent_remote_plan` boundary. The
+initial focused build failed because no typed remote outcome, audited serializer,
+or structural SSH transcript existed. After the first GREEN draft, architectural
+review found three correctness defects before commit: it planned through a fake
+local target, fingerprinted only the cwd, and converted `OsString` values with a
+lossy UTF-8 fallback while omitting typed environment emitters. The focused tests
+were strengthened to make those cases fail before correction.
+
+### S9 GREEN evidence
+
+Remote planning now uses the same target-aware, definition-driven pure planner as
+local planning. Complete remote identity (login user, host, normalized port,
+run-as user, and canonical cwd) is length-prefixed into the target fingerprint;
+the remote target must match authorized SSH settings. One POSIX single-quote
+serializer preserves empty strings and embedded apostrophes, rejects NUL and
+non-UTF-8 `OsString` values without lossy conversion, and serializes declared
+environment emitters through `env 'NAME=VALUE'`. The structural transcript is
+built through the existing `SshPlan` argument boundary and performs no SSH or
+preparation effect. Unsupported operation/target cells return the exact declared
+reason before transcript construction. Thirty-five focused remote tests, the
+production `remote_plan_contract`, the local-plan regression matrix, strict
+workspace/all-target Clippy, source-size policy, and `make quick-check` pass.
+
+The branch was rebased before S9 because current main changed active runtime
+contract files; the rebase completed without conflicts and no unrelated files
+entered the issue diff.

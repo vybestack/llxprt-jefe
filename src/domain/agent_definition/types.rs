@@ -198,6 +198,9 @@ pub struct RemoteTarget {
     /// Optional SSH port.
     #[serde(default)]
     pub port: Option<u16>,
+    /// Optional remote user selected after SSH login.
+    #[serde(default)]
+    pub run_as_user: String,
     /// Canonical remote working directory.
     #[serde(default)]
     pub canonical_cwd: PathBuf,
