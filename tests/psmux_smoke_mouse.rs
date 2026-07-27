@@ -219,7 +219,8 @@ fn assert_page_keys_delivered_as_csi_tilde(
     let mode_output = namespace
         .run(&["display-message", "-p", "-t", session, "#{pane_in_mode}"])
         .unwrap_or_else(|error| panic!("query pane_in_mode after PageUp: {error}"));
-    let in_mode = String::from_utf8_lossy(&mode_output.stdout).trim();
+    let mode_text = String::from_utf8_lossy(&mode_output.stdout);
+    let in_mode = mode_text.trim();
     assert!(
         in_mode == "0",
         "psmux entered copy mode after bare PageUp (pane_in_mode={in_mode}); \
