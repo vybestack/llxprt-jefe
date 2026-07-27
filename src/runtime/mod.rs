@@ -10,6 +10,8 @@
 mod agent_executable;
 /// Pure execution authorization guard (issue #382 CW02-12 / S8).
 pub mod agent_execution_guard;
+/// Definition-driven post-preflight fresh-send assembly (issue #382 S11).
+pub mod agent_fresh_send;
 mod agent_launcher;
 /// Definition-driven immutable local launch plan generation (issue #382 S7).
 pub mod agent_plan;
@@ -68,6 +70,9 @@ pub use agent_executable::{
 pub use agent_execution_guard::{
     AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
     StaleDimension, authorize_execution,
+};
+pub use agent_fresh_send::{
+    FreshSendRejection, PreparedFreshSend, fresh_send_support, prepare_fresh_send,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use agent_preflight::{

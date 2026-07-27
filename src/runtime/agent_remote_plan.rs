@@ -341,7 +341,7 @@ pub fn plan_remote_launch(request: &RemotePlanRequest<'_>) -> RemotePlanOutcome 
         }
         PlanOutcome::Error(error) => return RemotePlanOutcome::Error(RemotePlanError::Plan(error)),
     };
-    match build_transcript(plan, request.ssh_settings) {
+    match transcript_from_plan(plan, request.ssh_settings) {
         Ok(transcript) => RemotePlanOutcome::Transcript(Box::new(transcript)),
         Err(error) => RemotePlanOutcome::Error(error),
     }
@@ -371,10 +371,21 @@ fn validate_target_settings(
     Ok(())
 }
 
-fn build_transcript(
+/// Serialize an already validated immutable remote plan through the audited
+/// SSH boundary.
+///
+/// # Errors
+///
+/// Returns a typed target/settings or serialization error before any SSH
+/// process is started.
+pub fn transcript_from_plan(
     plan: AgentLaunchPlan,
     settings: &RemoteRepositorySettings,
 ) -> Result<RemoteTranscript, RemotePlanError> {
+    let Target::Remote(remote) = &plan.target else {
+        return Err(RemotePlanError::NotRemoteTarget);
+    };
+    validate_target_settings(remote, settings)?;
     let remote_command = serialize_remote_command(&plan)?;
     let ssh_arguments = SshPlan::arguments(settings, &remote_command, SshMode::NonInteractive)
         .map_err(map_ssh_error)?;

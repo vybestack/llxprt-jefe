@@ -35,11 +35,11 @@ pub fn build() -> AgentDefinition {
             },
             fresh_issue: OperationSupport {
                 supported: Support::supported(),
-                prompt: PromptShape::InteractiveOption,
+                prompt: PromptShape::InitialPositional,
             },
             fresh_pull_request: OperationSupport {
                 supported: Support::supported(),
-                prompt: PromptShape::InteractiveOption,
+                prompt: PromptShape::InitialPositional,
             },
         },
         targets: TargetMatrix {

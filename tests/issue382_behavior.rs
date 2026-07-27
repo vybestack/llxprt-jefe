@@ -809,8 +809,7 @@ fn fresh_issue_ordering() {
     parse_scenario("agent-fresh-issue.json");
     // Contract: WHEN fresh Issue Send is confirmed, Jefe shall emit exactly
     // one fixture-golden fresh prompt after successful preflight.
-    let op = Operation::FreshIssue;
-    assert!(op.is_fresh(), "FreshIssue is a fresh operation");
+    issue382::fresh_send::assert_operation(Operation::FreshIssue);
 }
 
 // ---- CW02-11: fresh PR ordering ----
@@ -820,8 +819,7 @@ fn fresh_pr_ordering() {
     parse_scenario("agent-fresh-pr.json");
     // Contract: WHEN fresh PR Send is confirmed, Jefe shall emit exactly one
     // fixture-golden fresh prompt after successful preflight.
-    let op = Operation::FreshPullRequest;
-    assert!(op.is_fresh(), "FreshPullRequest is a fresh operation");
+    issue382::fresh_send::assert_operation(Operation::FreshPullRequest);
 }
 
 // ---- CW02-12: generation property ----

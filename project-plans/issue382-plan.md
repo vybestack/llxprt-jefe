@@ -492,3 +492,38 @@ because the scenario explicitly targets Linux; that platform skip is not
 reported as runtime success. Existing product-specific interactive preflight
 remains untouched until S15 route convergence, where the generic authorized
 wrapper becomes the sole execution path.
+
+## S11 definition-driven fresh Issue/PR sends (2026-07-27)
+
+### S11 gap and RED evidence
+
+The retained `fresh_issue_ordering` and `fresh_pr_ordering` acceptance tests
+parsed their real-PTY scenarios but previously asserted only that the two enum
+variants were fresh; no production contract could consume S10 clearance, emit
+prompt argv from a definition, preserve exact unsupported reasons, or rebuild a
+remote transcript. Focused tests were added for that missing boundary before
+its implementation, covering all supported shipped operation/target cells,
+unsupported cells, definition mismatch, non-fresh operations, exact prompt
+bytes, and remote serialization.
+
+### S11 GREEN evidence
+
+`prepare_fresh_send` now consumes only `PreflightCleared`, verifies the immutable
+plan's operation and definition identity, and applies the declared prompt shape
+to append exactly one already-formatted prompt. LLxprt's declared interactive
+option emits `-i` plus the prompt; Code Puppy now correctly declares its
+fixture-proven positional prompt shape, matching the retained runtime behavior.
+Codex, Claude, and Code Puppy's remote cell preserve their exact authored
+unsupported reasons before planning/preflight. A prepared remote send is
+serialized by the same S9 audited transcript boundary, which now accepts an
+already-validated immutable remote plan and revalidates its SSH target identity.
+No prompt content, compaction rule, file write, process, SSH, or product branch
+was added to the generic boundary.
+
+Six focused runtime tests and both production-connected acceptance tests pass;
+strict workspace/all-target Clippy, source-size policy, and `make quick-check`
+are green. The schema-1 scenarios continue to parse in the acceptance target;
+they explicitly target Linux, so this macOS host cannot claim direct runtime
+success. Existing `AgentKind` issue/PR orchestration remains the compatibility
+path until the approved S15 convergence replaces it with this typed seam rather
+than maintaining two permanent authorities.
