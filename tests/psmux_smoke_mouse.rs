@@ -13,7 +13,10 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jefe::runtime::{AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan};
+use jefe::runtime::{
+    AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan,
+    configure_prefix_for_passthrough_with_plan,
+};
 
 /// Ceiling for a byte to traverse a real PTY and appear in a pane capture.
 ///
@@ -61,6 +64,12 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
         MultiplexerIsolation::Namespace(namespace.name.clone()),
     )
     .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+
+    // Issue #465: apply the production prefix + root-table unbind policy so
+    // psmux's default `PageUp -> copy-mode -u` root binding is removed before
+    // the test writes Page-key sequences through the attached viewer.
+    configure_prefix_for_passthrough_with_plan(session, &plan)
+        .unwrap_or_else(|error| panic!("configure production prefix policy: {error}"));
 
     let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, &plan)
         .unwrap_or_else(|error| panic!("spawn AttachedViewer: {error}"));
@@ -148,21 +157,57 @@ fn write_input_until_captured(
     panic!("attached input relay did not forward {label} within {POLL_TIMEOUT:?}:\n{last}");
 }
 
+/// Issue #465: poll `capture-pane` until the expected needle appears, without
+/// re-injecting input. Re-injecting semantic Page-key sequences mutates psmux
+/// state and cannot recover once copy mode is active. The caller writes the
+/// sequence exactly once, then this helper polls the pane capture for the
+/// needle within the bounded timeout.
+fn poll_for_capture(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    needle: &str,
+    label: &str,
+) -> String {
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    let mut last = String::new();
+    while Instant::now() < deadline {
+        last = namespace
+            .capture(session)
+            .unwrap_or_else(|error| panic!("capture {label}: {error}"));
+        if last.contains(needle) {
+            return last;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("pane did not contain {needle:?} within {POLL_TIMEOUT:?} ({label}):\n{last}");
+}
+
 /// Issue #296 (b): forwarded PageUp/PageDown must arrive as `CSI 5~`/`CSI 6~`
 /// (bytes 1B 5B 35/36 7E), not arrow sequences.
+///
+/// Issue #465: psmux 3.3.7 ships a default root-table binding
+/// `PageUp -> copy-mode -u` that consumes bare PageUp events before they
+/// reach the pane child. The production `configure_prefix_for_passthrough`
+/// now unbinds `PageUp` from the root table on Windows, so the attached viewer
+/// must deliver the bytes through the pane. This assertion writes the full
+/// Page-key sequence in a single `write_input` call (no per-byte sleeps, no
+/// retry re-injection), then polls `capture-pane` without re-injecting input.
+/// Re-injecting once copy mode is active cannot recover — every retry is
+/// consumed by copy mode — so the test must not retry.
 fn assert_page_keys_delivered_as_csi_tilde(
     namespace: &mut PsmuxNamespace,
     session: &str,
     viewer: &AttachedViewer,
 ) {
-    let capture = write_input_until_captured(
-        namespace,
-        session,
-        viewer,
-        b"\x1b[5~\x1b[6~",
-        "PSMUX_BYTE_7E",
-        "PageUp/PageDown bytes",
-    );
+    // Write the complete PageUp + PageDown sequence in a single call. The
+    // production unbind (issue #465) prevents psmux's root-table binding from
+    // intercepting PageUp, so the bytes traverse the normal passthrough path.
+    viewer
+        .write_input(b"\x1b[5~\x1b[6~")
+        .unwrap_or_else(|error| panic!("write PageUp/PageDown: {error}"));
+
+    let capture = poll_for_capture(namespace, session, "PSMUX_BYTE_7E", "PageUp/PageDown bytes");
+
     for needle in [
         "PSMUX_BYTE_1B",
         "PSMUX_BYTE_5B",
@@ -175,6 +220,21 @@ fn assert_page_keys_delivered_as_csi_tilde(
             "page-key byte {needle} missing from child capture:\n{capture}"
         );
     }
+
+    // Issue #465: psmux must not have entered copy mode after bare PageUp. If
+    // the root-table binding was not removed, copy mode would activate and
+    // consume every subsequent Page key. `#{pane_in_mode}` is 1 when the pane
+    // is in copy mode (or any other mode), 0 in the normal pane state.
+    let mode_output = namespace
+        .run(&["display-message", "-p", "-t", session, "#{pane_in_mode}"])
+        .unwrap_or_else(|error| panic!("query pane_in_mode after PageUp: {error}"));
+    let mode_text = String::from_utf8_lossy(&mode_output.stdout);
+    let in_mode = mode_text.trim();
+    assert!(
+        in_mode == "0",
+        "psmux entered copy mode after bare PageUp (pane_in_mode={in_mode}); \
+         the root-table PageUp binding was not removed. capture:\n{capture}"
+    );
 }
 
 /// Issue #296 (c): forwarded SGR mouse bytes (`CSI < 0;1;1 M`) must reach the

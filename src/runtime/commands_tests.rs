@@ -883,3 +883,46 @@ fn capture_pane_history_argv_zero_lines_clamps_to_one() {
     };
     assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
 }
+// ── Issue #465: Windows psmux root-table PageUp unbind ────────────────────
+//
+// `configure_prefix_with` must unbind `PageUp` from the psmux root table on
+// Windows so the default `PageUp -> copy-mode -u` binding cannot consume bare
+// PageUp events before they reach the pane child. The command is emitted only
+// on Windows; Unix tmux does not ship this default binding.
+
+#[test]
+fn windows_configure_prefix_unbinds_page_up_from_root_table() {
+    use std::cell::RefCell;
+
+    let captured: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+    let recorder = |args: &[&str]| {
+        captured
+            .borrow_mut()
+            .push(args.iter().map(|s| (*s).to_string()).collect());
+        Ok::<(), String>(())
+    };
+
+    let result = configure_prefix_with("jefe-agent-pageup", recorder);
+    assert!(result.is_ok(), "configure_prefix_with should succeed");
+
+    let calls = captured.into_inner();
+    if cfg!(windows) {
+        let unbind = calls.iter().find(|call| {
+            matches!(
+                call.as_slice(),
+                [a, b, c, d] if a == "unbind-key" && b == "-T" && c == "root" && d == "PageUp"
+            )
+        });
+        assert!(
+            unbind.is_some(),
+            "Windows configure_prefix_with must emit unbind-key -T root PageUp; calls: {calls:?}"
+        );
+    } else {
+        assert!(
+            calls
+                .iter()
+                .all(|call| !call.iter().any(|arg| arg == "unbind-key")),
+            "Unix configure_prefix_with must not emit any unbind-key command; calls: {calls:?}"
+        );
+    }
+}
