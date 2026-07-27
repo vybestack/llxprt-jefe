@@ -367,3 +367,52 @@ fn windows_oversized_marked_llxprt_wrapper_is_not_treated_as_official() {
     assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
     assert!(executable.script_launch_plan().is_none());
 }
+
+// Issue #467 Slice 3 (AC6): the private pane host must establish Windows Job
+// Object containment before spawning the worker, and any failure to do so must
+// surface as a typed refusal that names containment so the host never starts a
+// descendant tree it cannot reliably reap.
+#[test]
+fn agent_launcher_error_names_windows_containment_refusal() {
+    use super::agent_launcher::AgentLauncherError;
+
+    #[cfg(windows)]
+    {
+        let message = AgentLauncherError::ContainmentUnavailable.to_string();
+        assert!(
+            message.contains("containment"),
+            "containment refusal must name the failing concern: got {message}"
+        );
+        assert!(
+            message.contains("job object"),
+            "containment refusal must name the job object: got {message}"
+        );
+        assert!(
+            !message.contains("0x"),
+            "containment refusal must not leak raw handle values: got {message}"
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        // Unix keeps the launch path exactly as before: containment is absent
+        // from both the error surface and the spawn path.
+        let variants = [
+            AgentLauncherError::InvalidPlan,
+            AgentLauncherError::PlanSerializationFailed,
+            AgentLauncherError::PlanCreateFailed,
+            AgentLauncherError::PlanWriteFailed,
+            AgentLauncherError::PlanReadFailed,
+            AgentLauncherError::InvalidPlanPayload,
+            AgentLauncherError::CleanupFailed,
+            AgentLauncherError::LaunchFailed,
+        ];
+        for variant in variants {
+            assert!(
+                !variant.to_string().contains("containment"),
+                "Unix launch errors must not mention containment: {}",
+                variant
+            );
+        }
+    }
+}

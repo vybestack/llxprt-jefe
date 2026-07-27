@@ -13,7 +13,7 @@ use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, info};
 /// Inputs needed to build an `AttachedViewer` without holding the runtime lock
@@ -271,6 +271,12 @@ pub struct TmuxRuntimeManager {
     /// spawn/relaunch so each `RuntimeSession` gets a unique generation
     /// for stale-liveness rejection (issue #301 Phase 4).
     lifecycle_counter: AtomicU64,
+    /// Explicit session-host root owning per-session staged Windows host
+    /// images (issue #467). `None` for the legacy constructor and for every
+    /// Unix/remote runtime, where staging is structurally disabled. Production
+    /// supplies the resolved state-file parent joined with `session-hosts`;
+    /// the manager never mutates process environment to derive it.
+    session_host_root: Option<PathBuf>,
 }
 
 /// Drop the current viewer (if any) on a background OS thread.
@@ -295,6 +301,33 @@ impl TmuxRuntimeManager {
     /// Create a new tmux runtime manager.
     #[must_use]
     pub fn new(rows: u16, cols: u16) -> Self {
+        Self::build(rows, cols, None)
+    }
+
+    /// Create a tmux runtime manager that owns an explicit session-host root.
+    ///
+    /// Issue #467: production supplies the resolved state-file parent joined
+    /// with `session-hosts` so Windows local creation can stage an immutable
+    /// per-session copy of the running Jefe image below a single path
+    /// authority. Unix callers and existing tests continue to use
+    /// [`TmuxRuntimeManager::new`]; this constructor does not mutate process
+    /// environment.
+    #[must_use]
+    pub fn with_session_host_root(rows: u16, cols: u16, session_host_root: PathBuf) -> Self {
+        Self::build(rows, cols, Some(session_host_root))
+    }
+
+    /// Return the explicit session-host root this manager owns, if any.
+    ///
+    /// `None` for the legacy constructor and on platforms that never stage a
+    /// host image. The kill path uses this to derive the per-session directory
+    /// (AC7) and the local launch path uses it to stage (AC1).
+    #[must_use]
+    pub fn session_host_root(&self) -> Option<&Path> {
+        self.session_host_root.as_deref()
+    }
+
+    fn build(rows: u16, cols: u16, session_host_root: Option<PathBuf>) -> Self {
         Self {
             sessions: HashMap::new(),
             viewer: None,
@@ -307,6 +340,7 @@ impl TmuxRuntimeManager {
             output_generation: AtomicU64::new(0),
             history_cache: HistoryCache::default(),
             lifecycle_counter: AtomicU64::new(0),
+            session_host_root,
         }
     }
 
@@ -484,7 +518,15 @@ impl TmuxRuntimeManager {
         }
         Self::kill_before_fresh_spawn(allow_reattach, signature, session_name);
         debug!(session_name, "creating new tmux session");
-        match commands::create_session(session_name, work_dir, signature) {
+        // AC5: reattach is handled above (early return). Only the create path
+        // receives the session-host root, so reattach never stages, replaces,
+        // or duplicates a host/worker.
+        match commands::create_session(
+            session_name,
+            work_dir,
+            signature,
+            self.session_host_root.as_deref(),
+        ) {
             Ok(()) => Ok(false),
             Err(_error)
                 if allow_reattach && self.session_exists_for_signature(agent_id, signature) =>
@@ -740,6 +782,30 @@ impl RuntimeManager for TmuxRuntimeManager {
             commands::kill_remote_session(&session.launch_signature.remote, &session.session_name)?;
         } else {
             commands::kill_session(&session.session_name)?;
+            // AC7: a successful local kill removes only this session's host
+            // directory. Cleanup failures are best-effort and retained for
+            // retry; they never abort the kill because the psmux/tmux session
+            // is already gone. Remote kill does not own a local host image.
+            if let Some(root) = self.session_host_root.as_deref() {
+                match super::session_host::cleanup_session_directory(root, &session.session_name) {
+                    Ok(super::session_host::SessionCleanupOutcome::Removed) => {
+                        debug!(
+                            session_name = %session.session_name,
+                            "removed session-host directory after local kill"
+                        );
+                    }
+                    Ok(outcome) => debug!(
+                        session_name = %session.session_name,
+                        ?outcome,
+                        "session-host directory cleanup skipped after local kill"
+                    ),
+                    Err(error) => debug!(
+                        session_name = %session.session_name,
+                        error = %error,
+                        "session-host directory cleanup rejected after local kill; retained for retry"
+                    ),
+                }
+            }
         }
 
         // Bump lifecycle generation only after a successful session removal,

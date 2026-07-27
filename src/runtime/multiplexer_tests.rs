@@ -3,6 +3,10 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+use crate::domain::AgentKind;
+
+use super::agent_executable::{AgentExecutablePlatform, AgentExecutableResolver};
+use super::agent_launcher::INTERNAL_LAUNCH_ARGUMENT;
 use super::multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
     MultiplexerVersion, ProbeObservation, classify_probe, executable_candidates,
@@ -294,4 +298,78 @@ fn path_arguments_remain_os_strings_without_lossy_conversion() {
     .unwrap_or_else(|error| panic!("unicode executable path should be valid: {error}"));
     assert_eq!(plan.executable().as_os_str(), executable.as_os_str());
     assert!(plan.base_args().iter().all(|arg| arg != OsStr::new("-S")));
+}
+
+fn resolved_fixture(
+    platform: AgentExecutablePlatform,
+) -> (
+    tempfile::TempDir,
+    super::agent_executable::ResolvedAgentExecutable,
+) {
+    let directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("runtime fixture directory should exist: {error}"));
+    let binary = if platform == AgentExecutablePlatform::Windows {
+        "code-puppy.exe"
+    } else {
+        "code-puppy"
+    };
+    std::fs::write(directory.path().join(binary), b"fixture")
+        .unwrap_or_else(|error| panic!("runtime fixture should be written: {error}"));
+    let executable =
+        AgentExecutableResolver::for_platform(platform, vec![directory.path().to_path_buf()], None)
+            .resolve(AgentKind::CodePuppy)
+            .unwrap_or_else(|error| panic!("runtime fixture should resolve: {error}"));
+    (directory, executable)
+}
+
+#[test]
+fn windows_agent_pane_command_uses_staged_session_host_when_provided() {
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
+        MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
+    let (_directory, executable) = resolved_fixture(AgentExecutablePlatform::Windows);
+    let staged_host =
+        PathBuf::from("C:/State/session-hosts/jefe-agent-1/<digest>/jefe-session-host.exe");
+    let pane = plan
+        .agent_pane_command_args_with_staged_host(
+            &executable,
+            &staged_host,
+            &[OsString::from("--profile"), OsString::from("default")],
+            &[(OsString::from("LLXPRT_DEBUG"), OsString::from("api"))],
+        )
+        .unwrap_or_else(|error| panic!("staged pane command should build: {error}"));
+    assert_eq!(pane.len(), 1);
+    let line = pane[0].to_string_lossy();
+    assert!(
+        line.contains("& 'C:/State/session-hosts/jefe-agent-1/<digest>/jefe-session-host.exe'")
+    );
+    assert!(line.contains(INTERNAL_LAUNCH_ARGUMENT));
+    assert!(!line.contains("build"));
+    assert!(!line.contains("'--profile'"));
+    assert!(!line.contains("$env:LLXPRT_DEBUG='api'"));
+}
+
+#[test]
+fn unix_agent_pane_command_has_no_staged_host_path() {
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Unix,
+        PathBuf::from("/usr/bin/tmux"),
+        MultiplexerIsolation::Socket(PathBuf::from("/tmp/jefe.sock")),
+    )
+    .unwrap_or_else(|error| panic!("unix plan should be valid: {error}"));
+    let (_directory, executable) = resolved_fixture(AgentExecutablePlatform::Unix);
+    let staged = PathBuf::from("/state/session-hosts/jefe-agent/host/jefe-session-host.exe");
+    let result = plan.agent_pane_command_args_with_staged_host(
+        &executable,
+        &staged,
+        &[OsString::from("--profile")],
+        &[],
+    );
+    assert!(
+        matches!(result, Err(MultiplexerError::InvalidIsolation { .. })),
+        "Unix must reject the Windows-only staged-host path: {result:?}"
+    );
 }

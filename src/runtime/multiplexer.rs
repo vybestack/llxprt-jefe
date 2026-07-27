@@ -234,6 +234,29 @@ impl MultiplexerPlan {
             &[],
         )
     }
+
+    /// Build the native Windows pane command launching an already-staged
+    /// session-host image (issue #467).
+    ///
+    /// On Windows the staged copy replaces the live build target as the psmux
+    /// pane launcher while argv/env are preserved unchanged. Unix/remote
+    /// command paths never stage a host and must reject this call so a staged
+    /// Windows path can never leak into the structurally unchanged tmux/SSH
+    /// command construction.
+    pub fn agent_pane_command_args_with_staged_host(
+        &self,
+        executable: &ResolvedAgentExecutable,
+        staged_host: &Path,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Vec<OsString>, MultiplexerError> {
+        if self.platform != LocalPlatform::Windows {
+            return Err(MultiplexerError::InvalidIsolation {
+                platform: self.platform,
+            });
+        }
+        self.agent_pane_command_args_with_launcher(executable, args, environment, staged_host)
+    }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {
         &self.isolation

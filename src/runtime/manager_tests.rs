@@ -198,3 +198,57 @@ fn tmux_take_dirty_returns_false_without_viewer() {
         "take_dirty should return false when no viewer is attached"
     );
 }
+
+// ── Issue #467 Slice 2: explicit session-host root ownership ───────────────
+//
+// The default `TmuxRuntimeManager::new` preserves every existing caller. The
+// new `with_session_host_root` constructor records the caller-supplied path
+// authority without mutating process environment, and exposes it so the local
+// launch path can stage the host image below it on Windows.
+
+#[test]
+fn new_default_manager_has_no_session_host_root() {
+    let mgr = TmuxRuntimeManager::new(40, 120);
+    assert!(
+        mgr.session_host_root().is_none(),
+        "default manager must not own a session-host root"
+    );
+}
+
+#[test]
+fn with_session_host_root_records_explicit_authority() {
+    let root = std::path::PathBuf::from("/state/session-hosts");
+    let mgr = TmuxRuntimeManager::with_session_host_root(40, 120, root.clone());
+    assert_eq!(
+        mgr.session_host_root(),
+        Some(root.as_path()),
+        "explicit-root constructor must expose the supplied authority verbatim"
+    );
+}
+
+#[test]
+fn with_session_host_root_preserves_dimensions_and_default_state() {
+    let root = std::path::PathBuf::from("/state/session-hosts");
+    let mgr = TmuxRuntimeManager::with_session_host_root(24, 80, root);
+    assert_eq!(mgr.rows, 24);
+    assert_eq!(mgr.cols, 80);
+    assert!(
+        !mgr.take_dirty(),
+        "explicit-root manager must start without a dirty viewer"
+    );
+    assert!(
+        mgr.attached_agent().is_none(),
+        "explicit-root manager must start without an attached agent"
+    );
+}
+
+/// AC7 contract surface: the manager exposes the session-host root so the kill
+/// path can derive the per-session directory. The actual filesystem removal is
+/// exercised in `session_host_tests` because the manager's `kill` requires a
+/// live psmux/tmux session this unit harness cannot create.
+#[test]
+fn session_host_root_is_readable_for_kill_path_authority() {
+    let root = std::path::PathBuf::from("/state/session-hosts");
+    let mgr = TmuxRuntimeManager::with_session_host_root(40, 120, root.clone());
+    assert_eq!(mgr.session_host_root(), Some(root.as_path()));
+}

@@ -9,6 +9,7 @@ use super::agent_executable::AgentExecutableError;
 use super::llxprt_install::LlxprtInstallError;
 use super::multiplexer::MultiplexerError;
 use super::package_probe::NpmPackageAvailabilityError;
+use super::session_host::SessionHostError;
 
 /// Errors from runtime operations.
 #[derive(Debug, Clone)]
@@ -19,6 +20,8 @@ pub enum RuntimeError {
     AttachFailed(String),
     /// Failed to spawn session.
     SpawnFailed(String),
+    /// The immutable Windows pane host could not be staged.
+    SessionHostStaging(SessionHostError),
     /// Local agent executable resolution or launch-strategy failure.
     AgentExecutable(AgentExecutableError),
     /// npm or the requested LLxprt package is unavailable on the effective target.
@@ -58,6 +61,7 @@ impl std::fmt::Display for RuntimeError {
             Self::SessionNotFound(name) => write!(f, "session not found: {name}"),
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
+            Self::SessionHostStaging(error) => write!(f, "session host staging failed: {error}"),
             Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
             Self::NpmPackageAvailability(error) => write!(f, "agent launch unavailable: {error}"),
             Self::LlxprtInstall(error) => write!(f, "llxprt install failed: {error}"),
@@ -80,4 +84,11 @@ impl std::fmt::Display for RuntimeError {
     }
 }
 
-impl std::error::Error for RuntimeError {}
+impl std::error::Error for RuntimeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SessionHostStaging(error) => Some(error),
+            _ => None,
+        }
+    }
+}
