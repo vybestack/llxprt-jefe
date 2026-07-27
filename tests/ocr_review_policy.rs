@@ -46,7 +46,7 @@ fn upload_artifact_paths(workflow: &str) -> Vec<String> {
 
     for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
-        if trimmed != "path: |" && !trimmed.starts_with("path: |") {
+        if !trimmed.starts_with("path: |") {
             continue;
         }
         let block_indent = line.len() - line.trim_start().len();

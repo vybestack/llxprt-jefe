@@ -1145,6 +1145,7 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const crypto = require('crypto');
+          const core = require('@actions/core');
 
           const readTrim = (name, fallback = '') => {
             try { return fs.readFileSync(name, 'utf8').trim(); } catch (_) { return fallback; }
@@ -1229,7 +1230,6 @@ jobs:
           let reportedStatuses = [];
           try { reportedStatuses = extractStatuses(coverageParsed); } catch (_) {}
 
-          const configJson = JSON.stringify(providerConfig, null, 2);
           const pre = {
             schema: 'ocr-review-manifest-v1',
             created_at: new Date().toISOString(),
