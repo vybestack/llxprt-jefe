@@ -135,35 +135,54 @@ not a `dunce`-style general sandbox-escape surface). Updates the two existing
 
 | File | Change | Net lines (actual) |
 |------|--------|--------------------|
-| `src/runtime/agent_executable.rs` | +`strip_verbatim_prefix()` (Windows: strip `\\?\` / `\\?\UNC\`; Unix: identity); applied in `canonical_script_launch_plan` to `runtime` + `entrypoint` (root-cause fix) | +78 |
-| `src/runtime/agent_executable_tests.rs` | +`expected_canonical()` helper; updated 2 npm/LLxprt canonical-path assertions to de-prefixed form | +35 |
-| `src/runtime/npm_launch_tests.rs` | +`canonicalize_for_arg()` helper; updated 2 Windows argv tests to de-prefixed form | +31 |
-| `src/runtime/llxprt_install_tests.rs` | +3 `#[cfg(windows)]` canonical-install behavioral tests (hardlinked real node.exe + JS stub); +2 `#[cfg(unix)]` diagnostic phase tests (exit code + timeout) | +271 |
+| `src/runtime/agent_executable.rs` | +`strip_verbatim_prefix()` (Windows: strip `\\?\` / `\\?\UNC\`; Unix: identity); applied in `canonical_script_launch_plan` to `runtime` + `entrypoint` (root-cause fix); validate `is_file()` on canonical paths *before* stripping (OCR F1); OsStr-based UNC root (OCR F3); collapsed redundant branch (OCR F2) | +75 |
+| `src/runtime/agent_executable_tests.rs` | +`expected_canonical()` helper (cross-platform); updated 2 npm/LLxprt canonical-path assertions to de-prefixed form | +35 |
+| `src/runtime/npm_launch_tests.rs` | +`canonicalize_for_arg()` helper (`#[cfg(windows)]`); updated 2 Windows argv tests to de-prefixed form | +31 |
+| `src/runtime/llxprt_install_tests.rs` | +3 `#[cfg(windows)]` canonical-install behavioral tests (hardlinked real node.exe + JS stub); +2 `#[cfg(unix)]` diagnostic phase tests (exit code + timeout); `require_node_install_or_skip` truthiness (OCR F4) | +274 |
 | `project-plans/issue432-plan.md` | this plan | +plan |
 
 Actual total: ~415 net source lines across 4 source files +1 plan file.
 Well within budget (5 files ≤ 25; ~415 lines ≤ 1500). No new dependencies,
 no workflow/agent-memory/quality-tool/manifest/.github changes.
 
-## Review counters
+## Review counters (final)
 
 - Local OCR runs before PR: 0 / 2
-- PR OCR runs: 0 / 2
+- PR OCR runs: 2 / 2 (run 1 → 5 findings triaged; run 2 → 1 finding triaged)
 
-## Verification evidence
+### OCR triage outcome
 
+Run 1 (6 inline comments on the initial PR head):
+- **F1 [Blocker-Fix, applied]:** `is_file()` now runs on canonical (verbatim) paths *before* stripping — Win32 long-path (>260) installs validate correctly.
+- **F2 [In-scope-Fix, applied]:** collapsed redundant `if let Component::Normal` branch to a single `push`.
+- **F3 [Blocker-Fix, applied]:** VerbatimUNC root built with `OsString`/`OsStr` (no `to_string_lossy`) — non-UTF-8 filesystem bytes preserved.
+- **F4 [In-scope-Fix, applied]:** `JEFE_REQUIRE_NODE_INSTALL` aligned with `JEFE_REQUIRE_PSMUX` truthiness convention (`== "1"`).
+- **F5 [Reject] (×2 duplicate comments):** silent-skip visibility — matches the established `JEFE_REQUIRE_PSMUX` convention; `clippy::print_stderr` forbids `eprintln!` in the lib/test target; the `=1` gate is the loud-panic visibility mechanism.
+
+Run 2 (1 inline comment on the OCR-fix head `364a341`):
+- **[Reject]:** `require_node_install_or_skip` name implies infallibility but can panic — deliberately mirrors the established `JEFE_REQUIRE_PSMUX` `Option`-returning-helper-that-asserts pattern. Test-only naming preference; no change.
+
+No Blocker-Fix or In-scope-Fix findings remain unresolved.
+
+## Verification evidence (final head `364a341`)
+
+Local (Windows, the reporting environment):
 - `cargo fmt --all --check` — clean.
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings` — clean (exit 0).
 - `cargo build --workspace --all-features --locked` — clean (exit 0).
-- `cargo test --lib --all-features --locked` — 2389 passed, 0 failed.
-- `cargo test --lib runtime::` — 345 passed, 0 failed (includes the 3 new
-  `#[cfg(windows)]` canonical-install tests; the 2 `#[cfg(unix)]` diagnostic
-  tests are filtered out on Windows and run on Unix CI).
-- `cargo test --test psmux_attach --all-features` — 2 failures confirmed
-  **pre-existing on clean main** (environmental: this Windows machine lacks
-  the `psmux` binary / PTY harness; unrelated to this change).
+- `cargo test --lib --all-features --locked` — 2397 passed, 0 failed.
+- `cargo test --lib runtime::` — 353 passed, 0 failed.
+
+CI (PR #483, head `364a341`, all green, `mergeStateStatus: CLEAN`):
+- Build ✅ | Test ✅ (Ubuntu) | Format ✅ | Lint (clippy) ✅ | Clippy allow policy ✅
+- Complexity ✅ | Coverage gate ✅ | Source file length ✅ | Architecture boundary ✅
+- Native Windows (MSVC + psmux) ✅ (lib tests 2397/0, incl. 3 new Windows canonical-install tests)
+- Mergeability gate ✅ | Run LLxprt review ✅ | OpenCodeReview ✅ (2 runs, exit 0)
 
 ## Deferred findings / follow-ups
 
 - Cross-process install locking (two concurrent jefe processes installing
   the same version) — documented in #425 plan, out of scope here.
+- The flaky `psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys`
+  ConPTY smoke test (appeared once on the first CI run, passed on rerun) is
+  the same flake category tracked by #465/#468; not in scope for this issue.
