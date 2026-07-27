@@ -46,13 +46,13 @@ Run the Windows gate from native PowerShell with the x86-64 MSVC toolchain. Do
 not use WSL, Cygwin, MSYS2, Git Bash, Docker, or another Unix compatibility
 layer for this qualification.
 
-CI pins psmux 3.3.6 from the official release archive
-`psmux-v3.3.6-windows-x64.zip` and verifies SHA-256
-`a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947` before
+CI pins psmux 3.3.7 from the official release archive
+`psmux-v3.3.7-windows-x64.zip` and verifies SHA-256
+`60ff7b236f64184921cef3c1ff2611aa5a36fcc7ed8e2a58e968b8ded57f6028` before
 extracting it. Local contributors may install the same qualified release with:
 
 ```powershell
-winget install --id marlocarlo.psmux --version 3.3.6 --exact
+winget install --id marlocarlo.psmux --version 3.3.7 --exact
 psmux -V
 ```
 

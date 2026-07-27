@@ -272,4 +272,41 @@ mod tests {
         assert_eq!(error.diagnostic.code, CfgCode::E001);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn startup_validates_schema1_local_tilde_state_without_rewriting_bytes() {
+        let home = if cfg!(windows) {
+            std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+        } else {
+            std::env::var_os("HOME")
+        };
+        assert!(home.is_some(), "test host must provide a home directory");
+        let dir = unique_dir("tilde");
+        let state_path = dir.join("state.json");
+        let bytes = r#"{
+  "schema_version": 1,
+  "repositories": [{
+    "id": "home-repo",
+    "name": "Home",
+    "slug": "home",
+    "base_dir": "~/projects/jefe",
+    "default_profile": "",
+    "agent_ids": []
+  }],
+  "agents": [],
+  "selected_repository_index": 0,
+  "selected_agent_index": null
+}
+"#;
+        std::fs::write(&state_path, bytes.as_bytes()).value_or_panic("seed tilde state");
+        validate_state(&state_path).value_or_panic("local ~ state must validate on startup");
+        let retained =
+            std::fs::read(&state_path).value_or_panic("schema-1 bytes must remain readable");
+        assert_eq!(
+            retained,
+            bytes.as_bytes(),
+            "normal startup must not rewrite schema-1 bytes"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

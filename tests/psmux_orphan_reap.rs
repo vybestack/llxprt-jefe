@@ -4,7 +4,7 @@
 //! worker descendants must be reaped to exactly the validated tree, and only
 //! the target session is removed — no leaked sessions or processes.
 //!
-//! Requires a native Windows host with psmux >= 3.3.6 and
+//! Requires a native Windows host with psmux >= 3.3.7 and
 //! `JEFE_REQUIRE_PSMUX=1`. Skipped otherwise (mirrors `psmux_smoke.rs`).
 
 use std::ffi::OsString;

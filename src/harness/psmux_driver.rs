@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use super::capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 6);
+const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 7);
 const PANE_DEAD_FORMAT: &str = "#{pane_dead}";
 const HISTORY_SIZE_FORMAT: &str = "#{history_size}";
 const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];

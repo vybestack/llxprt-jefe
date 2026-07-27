@@ -16,7 +16,7 @@ use jefe::runtime::{
 };
 use serde::Deserialize;
 
-const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 6);
+const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 7);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 /// Ceiling for a pane capture to contain an expected needle. Polled, so this
 /// bounds only how long a genuine hang is tolerated; see the note in
@@ -282,9 +282,9 @@ impl Drop for PsmuxNamespace {
 
 #[test]
 fn psmux_minimum_version_parser_accepts_qualified_release() {
-    let parsed = PsmuxVersion::parse("tmux 3.3.6\n");
+    let parsed = PsmuxVersion::parse("tmux 3.3.7\n");
     assert_eq!(parsed, Ok(MINIMUM_PSMUX_VERSION));
-    assert!(PsmuxVersion::parse("tmux 3.3.5").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
+    assert!(PsmuxVersion::parse("tmux 3.3.6").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
     assert!(PsmuxVersion::parse("psmux unknown").is_err());
 }
 
