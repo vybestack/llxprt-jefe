@@ -455,13 +455,27 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
             }
 
             // ── Keybind bar ─────────────────────────────────────────────────
-            KeybindBar(
-                screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
-                terminal_focused: false,
-                actions_focus: None,
-                identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
-                colors: colors.clone(),
-            )
+            // Suppress the generic PR keybind bar while the Changes drill-down is
+            // active: Changes owns its own contextual footer hint, and the generic
+            // PR bar advertises keys (merge/labels/assignees) that do not apply
+            // (issue #376 acceptance A11).
+            #(if changes_active {
+                vec![element! {
+                    Box(height: 1u32, width: 100pct, background_color: rc.bg) {}
+                }]
+            } else {
+                vec![element! {
+                    Box(height: 1u32, width: 100pct) {
+                        KeybindBar(
+                            screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
+                            terminal_focused: state.is_some_and(|s| s.terminal_focused),
+                            actions_focus: None,
+                            identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
+                            colors: colors.clone(),
+                        )
+                    }
+                }]
+            })
         }
     }
 }

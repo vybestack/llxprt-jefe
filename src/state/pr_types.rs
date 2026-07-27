@@ -104,12 +104,63 @@ pub struct PrChangesBlobCache {
     pub blob: crate::domain::PrFileBlob,
 }
 
+/// Successful changed-files load correlated to one PR visit.
+///
+/// Carries the expected head SHA so the reducer can reject completions that
+/// arrive after a refresh moved the PR to a different head (issue #376).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesLoadedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub head_sha: String,
+    pub files: Vec<crate::domain::PrFileChange>,
+    pub truncated: bool,
+}
+
+/// Failed changed-files load correlated to one PR visit.
+///
+/// Carries the expected head SHA so the reducer can reject stale failures the
+/// same way it rejects stale successes (issue #376).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesLoadFailedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub head_sha: String,
+    pub error: String,
+}
+
+/// Successful immutable-blob load correlated to one PR visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobLoadedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+    pub blob: crate::domain::PrFileBlob,
+}
+
+/// Failed immutable-blob load correlated to one PR visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobLoadFailedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+    pub error: String,
+}
+
 /// Transient state for the optional changed-files review drill-down.
 #[derive(Debug, Clone, Default)]
 pub struct PrChangesState {
     pub identity: Option<PrChangesIdentity>,
     pub pending: Option<PrChangesPending>,
     pub blob_pending: Option<PrChangesBlobPending>,
+    /// The last blob request_id that the dispatch layer spawned a task for,
+    /// so repeated navigation events for the same pending request do not spawn
+    /// duplicate tasks (issue #376 edge-triggered dispatch).
+    pub blob_dispatched_request_id: Option<u64>,
     pub blobs: Vec<PrChangesBlobCache>,
     pub blob_error: Option<String>,
     pub files: Vec<crate::domain::PrFileChange>,
@@ -274,11 +325,16 @@ pub struct PrDetailPending {
 /// (issue #119). Tracks the in-flight thread resolve toggle so the UI can
 /// show a pending state and ignore stale responses.
 ///
+/// Carries `pr_number` so the reducer can reject a completion that arrives
+/// after a PR/repository/mode identity change moved focus to a different PR
+/// (issue #376).
+///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrThreadResolvePending {
     pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
     pub thread_index: usize,
     /// Stable thread node id captured at dispatch time so the write-back can
     /// locate the correct thread even if a background refresh reorders

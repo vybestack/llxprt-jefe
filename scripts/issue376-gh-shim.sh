@@ -46,7 +46,23 @@ if [ "$#" -ge 2 ] && [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
             ;;
         *reviewThreads*)
             if [ -f "$COMMENT_MARKER" ]; then
-                print_json '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread-created-376","isResolved":false,"isOutdated":false,"path":"src/app.rs","line":3,"diffSide":"RIGHT","startLine":3,"startDiffSide":"RIGHT","originalLine":3,"originalStartLine":3,"comments":{"nodes":[{"databaseId":9001,"author":{"login":"contributor"},"createdAt":"2026-07-26T00:00:00Z","lastEditedAt":null,"body":"Preserve the fallback here.","pullRequestReview":{"id":"review-376"}}]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+                # Derive the refreshed thread body from the stored submitted
+                # body so the scenario proves the mutation data propagated.
+                # Use POSIX read (not external cat) so a restricted PATH in the
+                # test harness does not break the fixture.
+                thread_body='x'
+                if [ -f "${COMMENT_MARKER}.body" ]; then
+                    thread_body=''
+                    while IFS= read -r line || [ -n "$line" ]; do
+                        if [ -n "$thread_body" ]; then
+                            thread_body="${thread_body}${line}"
+                        else
+                            thread_body="$line"
+                        fi
+                    done < "${COMMENT_MARKER}.body"
+                fi
+                response='{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread-created-376","isResolved":false,"isOutdated":false,"path":"src/app.rs","line":3,"diffSide":"RIGHT","startLine":3,"startDiffSide":"RIGHT","originalLine":3,"originalStartLine":3,"comments":{"nodes":[{"databaseId":9001,"author":{"login":"contributor"},"createdAt":"2026-07-26T00:00:00Z","lastEditedAt":null,"body":"'"$thread_body"'","pullRequestReview":{"id":"review-376"}}]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
+                print_json "$response"
             else
                 print_json '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}'
             fi
@@ -67,8 +83,79 @@ if [ "$#" -ge 4 ] && [ "$1" = "api" ] && [ "$2" = "--method" ] \
     && [ "$3" = "POST" ]; then
     case "$4" in
         *'/pulls/376/comments')
-            printf '%s\n' 'created RIGHT src/app.rs:3' > "$COMMENT_MARKER"
-            print_json '{"id":9001,"body":"Preserve the fallback here.","path":"src/app.rs","line":3,"side":"RIGHT","created_at":"2026-07-26T00:00:00Z","user":{"login":"contributor"}}'
+            # Validate the mutation argv structurally: each of body, commit_id,
+            # path, line, and side must appear exactly once with the expected
+            # value, proving the scenario exercised real mutation data.
+            submitted_body=''
+            submitted_commit_id=''
+            submitted_path=''
+            submitted_line=''
+            submitted_side=''
+            body_count=0
+            commit_id_count=0
+            path_count=0
+            line_count=0
+            side_count=0
+            flag=''
+            for argument in "$@"; do
+                case "$flag" in
+                    -f)
+                        case "$argument" in
+                            body=*)
+                                submitted_body=${argument#body=}
+                                body_count=$((body_count + 1)) ;;
+                            commit_id=*)
+                                submitted_commit_id=${argument#commit_id=}
+                                commit_id_count=$((commit_id_count + 1)) ;;
+                            path=*)
+                                submitted_path=${argument#path=}
+                                path_count=$((path_count + 1)) ;;
+                            side=*)
+                                submitted_side=${argument#side=}
+                                side_count=$((side_count + 1)) ;;
+                        esac
+                        flag=''
+                        continue
+                        ;;
+                    -F)
+                        case "$argument" in
+                            line=*)
+                                submitted_line=${argument#line=}
+                                line_count=$((line_count + 1)) ;;
+                        esac
+                        flag=''
+                        continue
+                        ;;
+                esac
+                case "$argument" in
+                    -f) flag=-f ;;
+                    -F) flag=-F ;;
+                    *) flag='' ;;
+                esac
+            done
+
+            if [ "$body_count" -ne 1 ] || [ "$commit_id_count" -ne 1 ] \
+                || [ "$path_count" -ne 1 ] || [ "$line_count" -ne 1 ] \
+                || [ "$side_count" -ne 1 ]; then
+                printf '%s\n' 'issue376 gh fixture: POST argv must carry each field exactly once' >&2
+                exit 64
+            fi
+            if [ "$submitted_body" != "x" ] \
+                || [ "$submitted_commit_id" != "head376" ] \
+                || [ "$submitted_path" != "src/app.rs" ] \
+                || [ "$submitted_line" != "3" ] \
+                || [ "$submitted_side" != "RIGHT" ]; then
+                printf '%s\n' 'issue376 gh fixture: POST argv values do not match expected mutation' >&2
+                exit 64
+            fi
+
+            # Derive the stored marker and refreshed thread body from the
+            # submitted values so the scenario proves mutation data end-to-end.
+            marker_text="created ${submitted_side} ${submitted_path}:${submitted_line}"
+            printf '%s\n' "$marker_text" > "$COMMENT_MARKER"
+            printf '%s\n' "$submitted_body" > "${COMMENT_MARKER}.body"
+            response='{"id":9001,"body":"'"$submitted_body"'","path":"'"$submitted_path"'","line":'"$submitted_line"',"side":"'"$submitted_side"'","created_at":"2026-07-26T00:00:00Z","user":{"login":"contributor"}}'
+            print_json "$response"
             exit 0
             ;;
     esac

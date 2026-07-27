@@ -83,6 +83,8 @@ impl AppState {
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.draft_notice = None;
         self.prs_state.mutation_pending = None;
+        // Clear stale thread-resolve pending on mode entry (issue #376).
+        self.prs_state.thread_resolve_pending = None;
     }
 
     /// Restore the current repo's PR filter/search/field-index from per-repo
@@ -169,6 +171,8 @@ impl AppState {
         self.prs_state.mutation_pending = None;
         self.prs_state.merge_chooser = None;
         self.prs_state.merge_mutation_pending = None;
+        // Clear stale thread-resolve pending on repo change (issue #376).
+        self.prs_state.thread_resolve_pending = None;
         self.restore_pr_preferences();
         // Begin a fresh reload so `list_pending()` is observable before the
         // dispatch layer spawns the actual fetch (mirrors Actions).

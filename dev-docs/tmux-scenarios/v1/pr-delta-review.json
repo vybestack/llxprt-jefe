@@ -128,13 +128,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "^/v select",
+      "literal": "^/v line",
       "timeout_ms": 15000
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "contributor: Preserve the fallback here.",
+      "literal": "contributor: x",
       "timeout_ms": 30000
     },
     {

@@ -244,6 +244,7 @@ fn thread_resolve_succeeded_flips_is_resolved_and_clears_pending() {
     // Set pending for thread 0 (currently unresolved -> resolve=true).
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
         thread_index: 0,
         thread_id: "T1".to_string(),
         resolve: true,
@@ -280,6 +281,7 @@ fn thread_resolve_succeeded_out_of_range_clears_pending() {
     let mut state = state_with_two_threads();
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
         thread_index: 99,
         thread_id: "T_nonexistent".to_string(),
         resolve: true,
@@ -307,6 +309,7 @@ fn thread_resolve_succeeded_stale_request_id_ignored() {
     let mut state = state_with_two_threads();
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
         thread_index: 0,
         thread_id: "T1".to_string(),
         resolve: true,
@@ -336,6 +339,7 @@ fn thread_resolve_failed_clears_pending_and_sets_error() {
     let mut state = state_with_two_threads();
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
         thread_index: 0,
         thread_id: "T1".to_string(),
         resolve: true,
@@ -370,6 +374,7 @@ fn thread_resolve_failed_stale_request_id_ignored() {
     let mut state = state_with_two_threads();
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
         thread_index: 0,
         thread_id: "T1".to_string(),
         resolve: true,
@@ -503,4 +508,60 @@ fn resolve_survives_mid_flight_review_reorder() {
     // T1 (now at reviews[1]) must be resolved; T2 (now at reviews[0]) must not.
     assert_thread_resolved(&state, 1, 0, true);
     assert_thread_resolved(&state, 0, 0, false);
+}
+
+// ─── Issue #376: PR-A resolve completion must not mutate PR-B ──────────────
+
+#[test]
+fn pr_a_resolve_completion_does_not_mutate_pr_b_after_pr_switch() {
+    // PR #1 with thread T1; toggle resolve, capturing pr_number=1 in pending.
+    let mut state = state_with_two_threads();
+    state = state
+        .apply(AppEvent::PrToggleThreadResolve { thread_index: 0 })
+        .committed_pure();
+    let request_id = state
+        .prs_state
+        .thread_resolve_pending
+        .as_ref()
+        .unwrap_or_else(|| panic!("pending"))
+        .request_id;
+    assert_eq!(
+        state
+            .prs_state
+            .thread_resolve_pending
+            .as_ref()
+            .unwrap_or_else(|| panic!("pending"))
+            .pr_number,
+        1
+    );
+
+    // User navigates to PR #2: detail is replaced, pr_number changes.
+    let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+        panic!("detail must exist");
+    };
+    detail.number = 2;
+
+    // Resolve completion for PR #1 arrives — it must NOT mutate PR #2's thread.
+    state = state
+        .apply(AppEvent::PrThreadResolveSucceeded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            thread_index: 0,
+            is_resolved: true,
+            request_id,
+        })
+        .committed_pure();
+
+    // The pending was cleared by the scope_repo_id check, but PR #2's thread
+    // T1 at index 0 must NOT be resolved because pr_number doesn't match.
+    let resolved = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .and_then(|d| d.reviews.first())
+        .and_then(|r| r.review_threads.first())
+        .is_some_and(|t| t.is_resolved);
+    assert!(
+        !resolved,
+        "PR #1 resolve completion must not mutate PR #2's thread"
+    );
 }

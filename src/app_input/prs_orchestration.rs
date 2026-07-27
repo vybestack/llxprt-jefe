@@ -73,6 +73,16 @@ fn route_changes_message(
             prs_diff_dispatch::load_pending_blob(app_state, ctx);
             true
         }
+        PullRequestsMessage::ChangesRetryFiles => {
+            apply_and_persist(app_state, ctx, AppEvent::PrChangesRetryFiles);
+            prs_diff_dispatch::load_pending_changes(app_state, ctx);
+            true
+        }
+        PullRequestsMessage::ChangesRetryBlob => {
+            apply_and_persist(app_state, ctx, AppEvent::PrChangesRetryBlob);
+            prs_diff_dispatch::load_pending_blob(app_state, ctx);
+            true
+        }
         _ => false,
     }
 }
@@ -485,6 +495,8 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;
+    // Clear stale thread-resolve pending on repo change (issue #376).
+    state.prs_state.thread_resolve_pending = None;
 }
 
 /// Refresh the PR preview from list data when the selected PR changes.

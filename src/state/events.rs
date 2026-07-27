@@ -499,33 +499,16 @@ pub enum AppEvent {
     /// Open a line-review composer for the selected Changes row.
     PrOpenChangesComment,
     PrChangesBack,
-    PrChangesLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        files: Vec<crate::domain::PrFileChange>,
-        truncated: bool,
-    },
-    PrChangesLoadFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        error: String,
-    },
-    PrChangesBlobLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        blob_sha: String,
-        blob: crate::domain::PrFileBlob,
-    },
-    PrChangesBlobLoadFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        blob_sha: String,
-        error: String,
-    },
+    /// Retry the changed-files read after a terminal failure. Restages a
+    /// fresh head-correlated files load (issue #376).
+    PrChangesRetryFiles,
+    /// Retry the selected full-file blob read after a terminal failure
+    /// (issue #376).
+    PrChangesRetryBlob,
+    PrChangesLoaded(crate::state::PrChangesLoadedPayload),
+    PrChangesLoadFailed(crate::state::PrChangesLoadFailedPayload),
+    PrChangesBlobLoaded(crate::state::PrChangesBlobLoadedPayload),
+    PrChangesBlobLoadFailed(crate::state::PrChangesBlobLoadFailedPayload),
     PrListLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::PrFilter>,

@@ -226,6 +226,7 @@ impl AppState {
             scope_repo_id,
             number: pr_number,
         });
+        let new_head_sha = detail.head_sha.clone();
         self.prs_state.error = None;
         self.prs_state.pr_detail = Some(detail);
         self.prs_state.loading.detail = false;
@@ -235,6 +236,7 @@ impl AppState {
             self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
             self.prs_state.detail_scroll_offset = 0;
         }
+        self.invalidate_pr_changes_if_head_changed(pr_number, &new_head_sha);
     }
 
     /// Apply a silent background detail refresh (issue #128). Mirrors
@@ -257,11 +259,30 @@ impl AppState {
             scope_repo_id,
             number: pr_number,
         });
+        let new_head_sha = detail.head_sha.clone();
         // Do NOT set loading.detail (silent), do NOT reset detail_subfocus or
         // detail_scroll_offset, do NOT set error.
         self.prs_state.pr_detail = Some(detail);
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
+        self.invalidate_pr_changes_if_head_changed(pr_number, &new_head_sha);
+    }
+
+    /// Invalidate the active Changes visit when a loud or silent PR detail
+    /// refresh produces a different head SHA for the same PR number. This
+    /// prevents comments against stale commits (issue #376). Same-head refresh
+    /// preserves the Changes visit untouched.
+    fn invalidate_pr_changes_if_head_changed(&mut self, pr_number: u64, new_head_sha: &str) {
+        let Some(changes) = self.prs_state.changes.identity.as_ref() else {
+            return;
+        };
+        if changes.pr_number != pr_number || changes.head_sha == new_head_sha {
+            return;
+        }
+        self.prs_state.changes = crate::state::PrChangesState::default();
+        if self.prs_state.pr_focus == crate::state::PrFocus::PrChanges {
+            self.prs_state.pr_focus = crate::state::PrFocus::PrDetail;
+        }
     }
 
     /// Apply a silent background detail refresh failure (issue #128). Clears

@@ -245,6 +245,7 @@ fn resolve_targets_flat_thread_index_after_newest_first_reorder() {
     // Flat thread 0 is the newest review's thread after sort.
     state.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 238,
         thread_index: 0,
         thread_id: "t_new".to_string(),
         resolve: true,

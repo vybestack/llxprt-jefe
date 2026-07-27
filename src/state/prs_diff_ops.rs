@@ -12,15 +12,17 @@ impl AppState {
     pub(super) fn apply_pr_changes_event(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::PrOpenChanges => self.open_pr_changes(),
-            AppEvent::PrChangesLoaded { .. } => self.accept_pr_changes(event),
-            AppEvent::PrChangesLoadFailed { .. } => self.fail_pr_changes(event),
-            AppEvent::PrChangesBlobLoaded { .. } => self.accept_pr_changes_blob(event),
-            AppEvent::PrChangesBlobLoadFailed { .. } => self.fail_pr_changes_blob(event),
+            AppEvent::PrChangesLoaded(_) => self.accept_pr_changes(event),
+            AppEvent::PrChangesLoadFailed(_) => self.fail_pr_changes(event),
+            AppEvent::PrChangesBlobLoaded(_) => self.accept_pr_changes_blob(event),
+            AppEvent::PrChangesBlobLoadFailed(_) => self.fail_pr_changes_blob(event),
             AppEvent::PrChangesFocusContent => self.focus_pr_changes_content(),
             AppEvent::PrChangesFocusFiles => self.focus_pr_changes_files(),
             AppEvent::PrChangesToggleView => self.toggle_pr_changes_view(),
             AppEvent::PrOpenChangesComment => self.open_pr_changes_comment(),
             AppEvent::PrChangesBack => self.back_from_pr_changes(),
+            AppEvent::PrChangesRetryFiles => self.retry_pr_changes_files(),
+            AppEvent::PrChangesRetryBlob => self.retry_pr_changes_blob(),
             AppEvent::PrNavigateUp => self.navigate_pr_changes(-1),
             AppEvent::PrNavigateDown => self.navigate_pr_changes(1),
             AppEvent::PrNavigatePageUp(page) => self.navigate_pr_changes(-page_delta(page.get())),
@@ -65,43 +67,51 @@ impl AppState {
     }
 
     fn accept_pr_changes(&mut self, event: &AppEvent) -> bool {
-        let AppEvent::PrChangesLoaded {
-            scope_repo_id,
-            pr_number,
-            request_id,
-            files,
-            truncated,
-        } = event
-        else {
+        let AppEvent::PrChangesLoaded(payload) = event else {
             return false;
         };
-        if !self.pr_changes_pending_matches(scope_repo_id, *pr_number, *request_id) {
+        if !self.pr_changes_pending_matches(
+            &payload.scope_repo_id,
+            payload.pr_number,
+            payload.request_id,
+            &payload.head_sha,
+        ) {
             return true;
         }
-        self.prs_state.changes.files.clone_from(files);
-        self.prs_state.changes.selected_file = (!files.is_empty()).then_some(0);
-        self.prs_state.changes.truncated = *truncated;
+        self.prs_state.changes.files.clone_from(&payload.files);
+        self.prs_state.changes.selected_file = (!payload.files.is_empty()).then_some(0);
+        self.prs_state.changes.truncated = payload.truncated;
         self.prs_state.changes.pending = None;
-        self.prs_state.changes.error = None;
+        // Clear the owned Changes error and any PR error propagated from it
+        // (issue #376); an unrelated PR error is preserved by text comparison.
+        let prev_changes_error = self.prs_state.changes.error.take();
+        if let Some(ref changes_err) = prev_changes_error {
+            if self.prs_state.error.as_deref() == Some(changes_err.as_str()) {
+                self.prs_state.error = None;
+            }
+        }
         self.clear_pr_changes_blob_activity();
         true
     }
 
     fn fail_pr_changes(&mut self, event: &AppEvent) -> bool {
-        let AppEvent::PrChangesLoadFailed {
-            scope_repo_id,
-            pr_number,
-            request_id,
-            error,
-        } = event
-        else {
+        let AppEvent::PrChangesLoadFailed(payload) = event else {
             return false;
         };
-        if !self.pr_changes_pending_matches(scope_repo_id, *pr_number, *request_id) {
+        if !self.pr_changes_pending_matches(
+            &payload.scope_repo_id,
+            payload.pr_number,
+            payload.request_id,
+            &payload.head_sha,
+        ) {
             return true;
         }
         self.prs_state.changes.pending = None;
-        self.prs_state.changes.error = Some(error.clone());
+        self.prs_state.changes.error = Some(payload.error.clone());
+        // Propagate to the PR error slot so the existing PR Error Store
+        // capture boundary records the terminal failure (issue #376). The
+        // owned changes.error remains for the inline Changes UI.
+        self.prs_state.error = Some(payload.error.clone());
         self.clear_pr_changes_blob_activity();
         true
     }
@@ -109,29 +119,28 @@ impl AppState {
     fn clear_pr_changes_blob_activity(&mut self) {
         self.prs_state.changes.blob_pending = None;
         self.prs_state.changes.blob_error = None;
+        self.prs_state.changes.blob_dispatched_request_id = None;
     }
 
     fn accept_pr_changes_blob(&mut self, event: &AppEvent) -> bool {
-        let AppEvent::PrChangesBlobLoaded {
-            scope_repo_id,
-            pr_number,
-            request_id,
-            blob_sha,
-            blob,
-        } = event
-        else {
+        let AppEvent::PrChangesBlobLoaded(payload) = event else {
             return false;
         };
-        if !self.pr_changes_blob_pending_matches(scope_repo_id, *pr_number, *request_id, blob_sha) {
+        if !self.pr_changes_blob_pending_matches(
+            &payload.scope_repo_id,
+            payload.pr_number,
+            payload.request_id,
+            &payload.blob_sha,
+        ) {
             return true;
         }
         self.prs_state
             .changes
             .blobs
-            .retain(|entry| entry.blob_sha != *blob_sha);
+            .retain(|entry| entry.blob_sha != payload.blob_sha);
         self.prs_state.changes.blobs.push(PrChangesBlobCache {
-            blob_sha: blob_sha.clone(),
-            blob: blob.clone(),
+            blob_sha: payload.blob_sha.clone(),
+            blob: payload.blob.clone(),
         });
         let excess = self
             .prs_state
@@ -142,25 +151,25 @@ impl AppState {
         drop(self.prs_state.changes.blobs.drain(..excess));
         self.prs_state.changes.blob_pending = None;
         self.prs_state.changes.blob_error = None;
+        self.prs_state.changes.blob_dispatched_request_id = None;
         true
     }
 
     fn fail_pr_changes_blob(&mut self, event: &AppEvent) -> bool {
-        let AppEvent::PrChangesBlobLoadFailed {
-            scope_repo_id,
-            pr_number,
-            request_id,
-            blob_sha,
-            error,
-        } = event
-        else {
+        let AppEvent::PrChangesBlobLoadFailed(payload) = event else {
             return false;
         };
-        if !self.pr_changes_blob_pending_matches(scope_repo_id, *pr_number, *request_id, blob_sha) {
+        if !self.pr_changes_blob_pending_matches(
+            &payload.scope_repo_id,
+            payload.pr_number,
+            payload.request_id,
+            &payload.blob_sha,
+        ) {
             return true;
         }
         self.prs_state.changes.blob_pending = None;
-        self.prs_state.changes.blob_error = Some(error.clone());
+        self.prs_state.changes.blob_error = Some(payload.error.clone());
+        self.prs_state.changes.blob_dispatched_request_id = None;
         true
     }
 
@@ -188,6 +197,7 @@ impl AppState {
         scope_repo_id: &crate::domain::RepositoryId,
         pr_number: u64,
         request_id: u64,
+        head_sha: &str,
     ) -> bool {
         self.prs_state
             .changes
@@ -197,6 +207,7 @@ impl AppState {
                 &pending.scope_repo_id == scope_repo_id
                     && pending.pr_number == pr_number
                     && pending.request_id == request_id
+                    && pending.head_sha == head_sha
             })
     }
 
@@ -230,6 +241,7 @@ impl AppState {
             self.stage_selected_blob_read();
         } else {
             self.prs_state.changes.blob_pending = None;
+            self.prs_state.changes.blob_dispatched_request_id = None;
         }
         self.clamp_pr_changes_selected_row();
         true
@@ -286,9 +298,59 @@ impl AppState {
         if self.prs_state.changes.focus == PrChangesFocus::Content {
             self.prs_state.changes.focus = PrChangesFocus::FileList;
         } else {
+            // Leaving the Changes file-list: invalidate both changed-files and
+            // blob pending correlations so late completions are ignored
+            // (issue #376).
             self.prs_state.pr_focus = PrFocus::PrDetail;
             self.prs_state.changes.pending = None;
+            self.prs_state.changes.blob_pending = None;
+            self.prs_state.changes.blob_dispatched_request_id = None;
         }
+        true
+    }
+
+    /// Retry the changed-files read after a terminal failure. Restages a
+    /// fresh head-correlated files load using the current identity (issue
+    /// #376). The dispatch layer observes the new `pending` request_id and
+    /// spawns the read.
+    fn retry_pr_changes_files(&mut self) -> bool {
+        if self.prs_state.pr_focus != PrFocus::PrChanges || self.prs_state.changes.error.is_none() {
+            return true;
+        }
+        let Some(identity) = self.prs_state.changes.identity.clone() else {
+            return true;
+        };
+        let request_id = self.prs_state.changes.next_request_id.saturating_add(1);
+        self.prs_state.changes.next_request_id = request_id;
+        let owned_error = self.prs_state.changes.error.take();
+        // Clear only the PR error slot if it was set by this Changes failure
+        // (issue #376); an unrelated PR error is preserved.
+        if let Some(ref err) = owned_error {
+            if self.prs_state.error.as_deref() == Some(err.as_str()) {
+                self.prs_state.error = None;
+            }
+        }
+        self.prs_state.changes.pending = Some(PrChangesPending {
+            scope_repo_id: identity.scope_repo_id,
+            pr_number: identity.pr_number,
+            head_sha: identity.head_sha,
+            request_id,
+        });
+        true
+    }
+
+    /// Retry the selected full-file blob read after a terminal failure. The
+    /// dispatch layer observes the new `blob_pending` request_id and spawns
+    /// the read (issue #376).
+    fn retry_pr_changes_blob(&mut self) -> bool {
+        if self.prs_state.pr_focus != PrFocus::PrChanges
+            || self.prs_state.changes.blob_error.is_none()
+        {
+            return true;
+        }
+        self.prs_state.changes.blob_error = None;
+        self.prs_state.changes.blob_dispatched_request_id = None;
+        self.stage_selected_blob_read();
         true
     }
 
@@ -416,6 +478,10 @@ impl AppState {
             PrChangesFocus::FileList => {
                 self.prs_state.changes.selected_file =
                     (!self.prs_state.changes.files.is_empty()).then_some(0);
+                self.prs_state.changes.selected_row = Some(0);
+                if self.prs_state.changes.view_mode == PrDiffViewMode::FullFile {
+                    self.stage_selected_blob_read();
+                }
             }
             PrChangesFocus::Content => self.prs_state.changes.selected_row = Some(0),
         }
@@ -430,6 +496,10 @@ impl AppState {
             PrChangesFocus::FileList => {
                 self.prs_state.changes.selected_file =
                     self.prs_state.changes.files.len().checked_sub(1);
+                self.prs_state.changes.selected_row = Some(0);
+                if self.prs_state.changes.view_mode == PrDiffViewMode::FullFile {
+                    self.stage_selected_blob_read();
+                }
             }
             PrChangesFocus::Content => {
                 self.prs_state.changes.selected_row = self.pr_changes_document_len().checked_sub(1);

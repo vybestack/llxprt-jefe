@@ -365,9 +365,26 @@ fn handle_pr_changes_key(
         KeyCode::Char('c') if state.prs_state.changes.focus == PrChangesFocus::Content => {
             Some(AppEvent::PrOpenChangesComment)
         }
-        KeyCode::Char('r') if state.prs_state.changes.focus == PrChangesFocus::Content => {
-            selected_changes_thread(state)
-                .map(|thread_index| AppEvent::PrOpenThreadReplyComposer { thread_index })
+        KeyCode::Char('r') => {
+            // Scoped retry precedence (issue #376):
+            // 1. FileList + changed-files error → restage fresh files read.
+            // 2. Content + blob error and no selected thread → restage blob.
+            // 3. Content + selected thread → existing thread-reply composer.
+            if state.prs_state.changes.error.is_some()
+                && state.prs_state.changes.focus == PrChangesFocus::FileList
+            {
+                Some(AppEvent::PrChangesRetryFiles)
+            } else if state.prs_state.changes.blob_error.is_some()
+                && state.prs_state.changes.focus == PrChangesFocus::Content
+                && selected_changes_thread(state).is_none()
+            {
+                Some(AppEvent::PrChangesRetryBlob)
+            } else if state.prs_state.changes.focus == PrChangesFocus::Content {
+                selected_changes_thread(state)
+                    .map(|thread_index| AppEvent::PrOpenThreadReplyComposer { thread_index })
+            } else {
+                None
+            }
         }
         KeyCode::Char('R') if state.prs_state.changes.focus == PrChangesFocus::Content => {
             selected_changes_thread(state)

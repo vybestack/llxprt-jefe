@@ -97,6 +97,38 @@ pub fn parse_pr_blob_json(json: &str) -> Result<crate::domain::PrFileBlob, GhErr
         .ok_or_else(|| GhError::ParseError("pull-request blob: text missing".to_string()))
 }
 
+/// Accumulate changed-file pages bounded by GitHub's documented limit.
+///
+/// The injected `read_page` closure reads exactly one page by 1-based index
+/// and returns its raw JSON (or a typed error). A page strictly shorter than
+/// `per_page` terminates accumulation with `truncated: false`; exactly
+/// `MAX_FILE_PAGES` consecutive full pages report `truncated: true`. Any error
+/// from `read_page` or malformed JSON fails fast without exposing a partial
+/// semantic result.
+fn accumulate_pr_files(
+    mut read_page: impl FnMut(u32) -> Result<String, GhError>,
+    per_page: u32,
+) -> Result<PrFilesResponse, GhError> {
+    let mut files = Vec::new();
+    let mut final_page_full = false;
+    for page in 1..=MAX_FILE_PAGES {
+        let stdout = read_page(page)?;
+        let page_files = parse_pr_files_json(&stdout)?;
+        final_page_full = page_files.len() == per_page as usize;
+        files.extend(page_files);
+        if !final_page_full {
+            return Ok(PrFilesResponse {
+                files,
+                truncated: false,
+            });
+        }
+    }
+    Ok(PrFilesResponse {
+        files,
+        truncated: final_page_full,
+    })
+}
+
 impl GhClient {
     /// Read one immutable Git blob through GitHub's bounded GraphQL text fields.
     pub fn get_pr_file_blob(
@@ -122,32 +154,20 @@ impl GhClient {
     }
 
     /// Read changed files for a pull request up to GitHub's 3,000-file limit.
+    ///
+    /// Delegates page accumulation to [`accumulate_pr_files`] with the single
+    /// production page reader that builds the REST path and runs `gh api`.
     pub fn list_pr_files(
         &self,
         owner: &str,
         name: &str,
         number: u64,
     ) -> Result<PrFilesResponse, GhError> {
-        let mut files = Vec::new();
-        let mut final_page_full = false;
-        for page in 1..=MAX_FILE_PAGES {
+        let read_page = |page: u32| -> Result<String, GhError> {
             let path = build_pr_files_api_path(owner, name, number, page, FILES_PER_PAGE);
-            let args = vec!["api".to_owned(), path];
-            let stdout = Self::run_gh(&args)?;
-            let page_files = parse_pr_files_json(&stdout)?;
-            final_page_full = page_files.len() == FILES_PER_PAGE as usize;
-            files.extend(page_files);
-            if !final_page_full {
-                return Ok(PrFilesResponse {
-                    files,
-                    truncated: false,
-                });
-            }
-        }
-        Ok(PrFilesResponse {
-            files,
-            truncated: final_page_full,
-        })
+            Self::run_gh(&["api".to_owned(), path])
+        };
+        accumulate_pr_files(read_page, FILES_PER_PAGE)
     }
 }
 

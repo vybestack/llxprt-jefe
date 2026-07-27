@@ -142,6 +142,10 @@ pub fn build_delta_document(file: &PrFileChange) -> DiffDocument {
     }
 }
 /// Build a full-file document with patch additions and removals interleaved.
+///
+/// When the patch is absent or malformed, the full text is still rendered but
+/// prefixed with an explicit `Delta highlighting unavailable` notice and no
+/// comment anchors are invented (issue #376 acceptance A4).
 #[must_use]
 pub fn build_full_document(file: &PrFileChange, blob: &PrFileBlob) -> DiffDocument {
     match blob {
@@ -160,11 +164,13 @@ pub fn build_full_document(file: &PrFileChange, blob: &PrFileBlob) -> DiffDocume
 }
 
 fn merge_full_text(file: &PrFileChange, text: &str) -> DiffDocument {
+    let patch = parse_unified_diff(file.patch.as_deref());
+    let patch_available = matches!(patch, ParsedDiff::Hunks(_));
     let mut removed: BTreeMap<u32, Vec<DiffDocumentRow>> = BTreeMap::new();
 
     let mut added = BTreeSet::new();
     let mut right_anchors = BTreeSet::new();
-    if let ParsedDiff::Hunks(hunks) = parse_unified_diff(file.patch.as_deref()) {
+    if let ParsedDiff::Hunks(hunks) = patch {
         for hunk in hunks {
             let mut new_position = hunk.new_start;
             for line in hunk.lines {
@@ -184,6 +190,14 @@ fn merge_full_text(file: &PrFileChange, text: &str) -> DiffDocument {
         }
     }
     let mut rows = Vec::new();
+    if !patch_available {
+        rows.push(DiffDocumentRow {
+            text: "Delta highlighting unavailable".to_string(),
+            role: DiffRowRole::Notice,
+            anchor: None,
+            thread_index: None,
+        });
+    }
     for (index, content) in text.lines().enumerate() {
         let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
         if let Some(deleted) = removed.remove(&line) {
@@ -214,17 +228,27 @@ fn build_one_sided_full_document(
     role: DiffRowRole,
     side: DiffAnchorSide,
 ) -> DiffDocument {
-    let commentable = patch_lines_for_side(file, side);
-    DiffDocument {
-        rows: text
-            .lines()
-            .enumerate()
-            .map(|(index, content)| {
-                let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
-                full_text_row(file, index + 1, content, role, commentable.contains(&line))
-            })
-            .collect(),
+    let patch = parse_unified_diff(file.patch.as_deref());
+    let patch_available = matches!(patch, ParsedDiff::Hunks(_));
+    let commentable = if patch_available {
+        patch_lines_for_side(file, side)
+    } else {
+        BTreeSet::new()
+    };
+    let mut rows = Vec::new();
+    if !patch_available {
+        rows.push(DiffDocumentRow {
+            text: "Delta highlighting unavailable".to_string(),
+            role: DiffRowRole::Notice,
+            anchor: None,
+            thread_index: None,
+        });
     }
+    rows.extend(text.lines().enumerate().map(|(index, content)| {
+        let line = u32::try_from(index + 1).unwrap_or(u32::MAX);
+        full_text_row(file, index + 1, content, role, commentable.contains(&line))
+    }));
+    DiffDocument { rows }
 }
 
 fn patch_lines_for_side(file: &PrFileChange, side: DiffAnchorSide) -> BTreeSet<u32> {
@@ -316,6 +340,16 @@ fn project_line(file: &PrFileChange, line: crate::domain::DiffLine) -> DiffDocum
 }
 
 /// Insert review threads after their exact diff-side line, retaining unmapped threads.
+///
+/// Routing rules (issue #376 acceptance A8):
+/// - Outdated threads always go to the Unmapped section; they never collide
+///   with current coordinates even when their original line coincides with a
+///   present anchor.
+/// - Pathless (degraded) threads are visible exactly once in the selected
+///   file's Unmapped section rather than being dropped.
+/// - Non-outdated threads whose path matches the file (including the renamed
+///   previous path) are placed inline at their exact diff-side anchor when one
+///   exists; otherwise they fall through to Unmapped.
 #[must_use]
 pub fn build_threaded_document(
     file: &PrFileChange,
@@ -331,11 +365,24 @@ pub fn build_threaded_document(
     let mut mapped: BTreeMap<usize, Vec<DiffDocumentRow>> = BTreeMap::new();
     let mut unmapped = Vec::new();
     for (thread_index, thread) in threads.iter().enumerate() {
+        let rows = project_thread(thread, thread_index);
+        // Outdated threads always go to Unmapped to avoid colliding with the
+        // current coordinates of a changed file.
+        if thread.is_outdated {
+            unmapped.extend(rows);
+            continue;
+        }
+        // Pathless (degraded) threads cannot be routed to a specific file, so
+        // they remain visible exactly once in the selected file's Unmapped
+        // section rather than being silently dropped.
+        if thread.path.is_none() {
+            unmapped.extend(rows);
+            continue;
+        }
         if !thread_matches_file(file, thread) {
             continue;
         }
         let row = thread_anchor(file, thread).and_then(|anchor| anchor_rows.get(&anchor).copied());
-        let rows = project_thread(thread, thread_index);
         if let Some(row) = row {
             mapped.entry(row).or_default().extend(rows);
         } else {
