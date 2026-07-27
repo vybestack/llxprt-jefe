@@ -275,3 +275,17 @@ fn scan_source_returns_attribute_text() {
     assert!(attribute.contains("allow"), "attribute was: {attribute}");
     assert!(attribute.contains("clippy"), "attribute was: {attribute}");
 }
+
+#[test]
+fn scan_source_does_not_match_clippy_substring_in_path() {
+    // A lint path like `my_clippy::all` must NOT be classified as a clippy
+    // suppression — `clippy` must be a complete path segment, not a substring.
+    assert_clean("#[allow(my_clippy::all)]\nfn x() {}\n");
+    assert_clean("#[allow(not_clippy::warn)]\nfn x() {}\n");
+}
+
+#[test]
+fn scan_source_matches_rust_clippy_raw_identifier() {
+    // `r#clippy` (raw identifier) is still a real clippy path and must match.
+    assert_flagged("#[allow(r#clippy::all)]\nfn x() {}\n");
+}

@@ -153,15 +153,17 @@ fn classify_boundary_hard_limit_not_flagged_as_hard() {
 fn measure_files_counts_lines() {
     let dir = TempDir::new().expect("temp");
     let path = write_file(dir.path(), "src/lib.rs", 5);
-    let lengths = measure_files(&[path]);
-    assert_eq!(lengths.len(), 1);
-    assert_eq!(lengths[0].lines, 5);
+    let measurement = measure_files(&[path]);
+    assert_eq!(measurement.lengths.len(), 1);
+    assert_eq!(measurement.lengths[0].lines, 5);
+    assert!(measurement.unreadable.is_empty());
 }
 
 #[test]
-fn measure_files_skips_unreadable() {
-    let lengths = measure_files(&[PathBuf::from("/nonexistent/file.rs")]);
-    assert!(lengths.is_empty());
+fn measure_files_reports_unreadable() {
+    let measurement = measure_files(&[PathBuf::from("/nonexistent/file.rs")]);
+    assert!(measurement.lengths.is_empty());
+    assert_eq!(measurement.unreadable.len(), 1);
 }
 
 // --- run_with_roots (end-to-end) -------------------------------------------

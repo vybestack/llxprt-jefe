@@ -108,11 +108,7 @@ fn trailing_comment_does_not_break_parsing() {
     let root = "cognitive-complexity-threshold = 15 # complexity\n";
     let ci = "cognitive-complexity-threshold = 15\n";
     let dir = fixture(root, ci);
-    // The value after stripping the comment is still "15", so this passes.
     let result = check_config_sync(dir.path());
-    if let Err(errors) = &result {
-        let _ = errors; // unused when Ok
-    }
     // Only the cognitive-complexity key is present; the other four are missing
     // in both, so the sync check passes for cognitive-complexity but reports
     // the other four as missing in both files. Verify the comment-stripped key

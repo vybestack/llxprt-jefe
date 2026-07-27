@@ -97,7 +97,13 @@ pub fn run_with_roots(
         return Ok(());
     }
     let lengths = measure_files(&files);
-    let violations = classify(&lengths, policy);
+    for skipped in &lengths.unreadable {
+        eprintln!(
+            "WARNING: could not read {}; file was not measured (scan is incomplete)",
+            relativize(skipped, relativize_to)
+        );
+    }
+    let violations = classify(&lengths.lengths, policy);
     let mut errors = 0usize;
     let mut warnings = 0usize;
     for v in &violations {
@@ -128,21 +134,41 @@ pub fn run_with_roots(
     Ok(())
 }
 
+/// Measured file lengths plus any files that could not be read.
+///
+/// Unreadable files are surfaced (rather than silently skipped) so a policy
+/// enforcement tool never reports a false clean pass when the scan is
+/// incomplete.
+#[derive(Debug, Clone)]
+pub struct Measurement {
+    pub lengths: Vec<FileLength>,
+    pub unreadable: Vec<PathBuf>,
+}
+
 /// Measure line counts for a list of files. Files that cannot be read are
-/// skipped (they cannot be enforced).
+/// collected into `Measurement::unreadable` so callers can warn or fail.
 #[must_use]
-pub fn measure_files(files: &[PathBuf]) -> Vec<FileLength> {
-    let mut out = Vec::with_capacity(files.len());
+pub fn measure_files(files: &[PathBuf]) -> Measurement {
+    let mut lengths = Vec::with_capacity(files.len());
+    let mut unreadable = Vec::new();
     for file in files {
-        if let Ok(content) = std::fs::read_to_string(file) {
-            let lines = count_lines(&content);
-            out.push(FileLength {
-                path: file.clone(),
-                lines,
-            });
+        match std::fs::read_to_string(file) {
+            Ok(content) => {
+                let lines = count_lines(&content);
+                lengths.push(FileLength {
+                    path: file.clone(),
+                    lines,
+                });
+            }
+            Err(_) => {
+                unreadable.push(file.clone());
+            }
         }
     }
-    out
+    Measurement {
+        lengths,
+        unreadable,
+    }
 }
 
 /// Count lines, matching `wc -l` semantics.

@@ -169,7 +169,8 @@ pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
 
     // 1. Crate-wide clippy allow check.
     let allowed: BTreeSet<ExceptionKey> = ALLOWED_CRATE_WIDE_ALLOWS.iter().copied().collect();
-    for finding in find_crate_wide_clippy_allows(root) {
+    let (crate_wide_findings, crate_wide_infra_errors) = find_crate_wide_clippy_allows(root);
+    for finding in &crate_wide_findings {
         let key = (
             finding.relative_path.as_str(),
             finding.line,
@@ -182,6 +183,9 @@ pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
             ));
         }
     }
+    for infra in &crate_wide_infra_errors {
+        errors.push(infra.clone());
+    }
 
     // 2. Required symbols.
     for (symbol, file, desc) in REQUIRED_SYMBOLS {
@@ -192,11 +196,15 @@ pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
     }
 
     // 3. Handler module line limits.
-    for finding in handler_line_violations(root) {
+    let (handler_violations, handler_infra_errors) = handler_line_violations(root);
+    for finding in &handler_violations {
         errors.push(format!(
             "handler module {} has {} lines (max {})",
             finding.relative_path, finding.lines, finding.limit
         ));
+    }
+    for infra in &handler_infra_errors {
+        errors.push(infra.clone());
     }
 
     if errors.is_empty() {
@@ -238,9 +246,13 @@ pub struct HandlerViolation {
 /// Matches the original `grep -nE '^#!\[(cfg_attr\([^]]*clippy|allow\([^]]*clippy)'`:
 /// a line starting with `#![` followed by either `cfg_attr(...clippy` or
 /// `allow(...clippy`.
+///
+/// Returns `(findings, infra_errors)`. Files that cannot be read produce an
+/// infra error so the caller can fail loudly.
 #[must_use]
-pub fn find_crate_wide_clippy_allows(root: &Path) -> Vec<CrateWideAllow> {
+pub fn find_crate_wide_clippy_allows(root: &Path) -> (Vec<CrateWideAllow>, Vec<String>) {
     let mut found = Vec::new();
+    let mut infra_errors = Vec::new();
     for scan_dir in ["src", "tests"] {
         let dir = root.join(scan_dir);
         if !dir.is_dir() {
@@ -250,26 +262,32 @@ pub fn find_crate_wide_clippy_allows(root: &Path) -> Vec<CrateWideAllow> {
         collect_rust_files(&dir, &mut files);
         files.sort();
         for file in files {
-            let Ok(content) = std::fs::read_to_string(&file) else {
-                continue;
-            };
             let relative = file
                 .strip_prefix(root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
-            for (idx, line) in content.lines().enumerate() {
-                let lineno = idx + 1;
-                if is_crate_wide_clippy_allow_line(line) {
-                    found.push(CrateWideAllow {
-                        relative_path: relative.clone(),
-                        line: lineno,
-                        attribute: line.trim().to_string(),
-                    });
+            match std::fs::read_to_string(&file) {
+                Ok(content) => {
+                    for (idx, line) in content.lines().enumerate() {
+                        let lineno = idx + 1;
+                        if is_crate_wide_clippy_allow_line(line) {
+                            found.push(CrateWideAllow {
+                                relative_path: relative.clone(),
+                                line: lineno,
+                                attribute: line.trim().to_string(),
+                            });
+                        }
+                    }
+                }
+                Err(err) => {
+                    infra_errors.push(format!(
+                        "could not read {relative} for crate-wide clippy allow scan: {err}"
+                    ));
                 }
             }
         }
     }
-    found
+    (found, infra_errors)
 }
 
 /// Does a single source line match the crate-wide clippy allow pattern?
@@ -293,39 +311,69 @@ pub fn is_crate_wide_clippy_allow_line(line: &str) -> bool {
     false
 }
 
+/// Count lines in a handler module, counting the final line even when the
+/// file has no trailing newline. Unlike `source_size::count_lines` (which
+/// intentionally matches `wc -l`), the handler limit counts true lines so a
+/// file with 851 lines and no trailing newline is still flagged at 851.
+fn count_handler_lines(content: &str) -> usize {
+    if content.is_empty() {
+        return 0;
+    }
+    let newline_count = content.bytes().filter(|&b| b == b'\n').count();
+    if content.ends_with('\n') {
+        newline_count
+    } else {
+        newline_count + 1
+    }
+}
+
 /// Check handler modules for line-limit violations.
+///
+/// Returns the violations plus a list of infrastructure-error messages
+/// (e.g. `git ls-files` failed, a file could not be read). Infrastructure
+/// errors are surfaced so a broken check fails loudly instead of silently
+/// passing.
 #[must_use]
-pub fn handler_line_violations(root: &Path) -> Vec<HandlerViolation> {
-    let files = git_handler_files(root);
+pub fn handler_line_violations(root: &Path) -> (Vec<HandlerViolation>, Vec<String>) {
+    let (files, mut infra_errors) = git_handler_files(root);
     let mut violations = Vec::new();
     for file in files {
-        let Ok(content) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        let lines = content.bytes().filter(|&b| b == b'\n').count();
-        let relative = file
-            .strip_prefix(root)
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-        let limit = if relative == "src/state/form_ops.rs" {
-            FORM_OPS_LIMIT
-        } else {
-            DEFAULT_HANDLER_LIMIT
-        };
-        if lines > limit {
-            violations.push(HandlerViolation {
-                relative_path: relative,
-                lines,
-                limit,
-            });
+        match std::fs::read_to_string(&file) {
+            Ok(content) => {
+                let lines = count_handler_lines(&content);
+                let relative = file
+                    .strip_prefix(root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                let limit = if relative == "src/state/form_ops.rs" {
+                    FORM_OPS_LIMIT
+                } else {
+                    DEFAULT_HANDLER_LIMIT
+                };
+                if lines > limit {
+                    violations.push(HandlerViolation {
+                        relative_path: relative,
+                        lines,
+                        limit,
+                    });
+                }
+            }
+            Err(err) => {
+                let relative = relative_path(&file, root);
+                infra_errors.push(format!("could not read handler module {relative}: {err}"));
+            }
         }
     }
-    violations
+    (violations, infra_errors)
 }
 
 /// Enumerate handler-module files via `git ls-files`, matching the globs
 /// `src/{app_input,state}/{*ops,*handlers,*dispatch}.rs`.
-fn git_handler_files(root: &Path) -> Vec<PathBuf> {
+///
+/// Returns `(files, infra_errors)`. If `git ls-files` fails, the error is
+/// captured in `infra_errors` (and `files` is empty) so the caller can fail
+/// loudly rather than silently passing.
+fn git_handler_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
     let patterns = [
         "src/app_input/*ops.rs",
         "src/app_input/*handlers.rs",
@@ -339,18 +387,25 @@ fn git_handler_files(root: &Path) -> Vec<PathBuf> {
         .args(patterns)
         .current_dir(root)
         .run_captured();
-    let Ok(output) = output else {
-        return Vec::new();
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut files: Vec<PathBuf> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| root.join(l))
-        .filter(|p| p.is_file())
-        .collect();
-    files.sort();
-    files
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut files: Vec<PathBuf> = stdout
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| root.join(l))
+                .filter(|p| p.is_file())
+                .collect();
+            files.sort();
+            (files, Vec::new())
+        }
+        Err(err) => (
+            Vec::new(),
+            vec![format!(
+                "git ls-files failed; handler module line-limit check could not enumerate files: {err}"
+            )],
+        ),
+    }
 }
 
 /// Recursively collect `*.rs` files under `dir`.
@@ -374,4 +429,13 @@ fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Does `path` contain `needle` as a substring?
 fn file_contains(path: &Path, needle: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|content| content.contains(needle))
+}
+
+/// Produce a stable forward-slash relative path for diagnostics. Falls back to
+/// the file's display form if it cannot be relativized against `root`.
+fn relative_path(file: &Path, root: &Path) -> String {
+    file.strip_prefix(root).map_or_else(
+        |_| file.to_string_lossy().into_owned(),
+        |p| p.to_string_lossy().replace('\\', "/"),
+    )
 }

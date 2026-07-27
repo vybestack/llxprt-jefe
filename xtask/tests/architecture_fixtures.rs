@@ -55,9 +55,11 @@ fn random_code_not_detected() {
 #[test]
 fn indented_inner_allow_detected() {
     // The original grep anchors on `^#!\[`, so leading whitespace would NOT
-    // match. Our port trims first to be slightly more robust, but the canonical
-    // form has no indentation.
+    // match. Our port trims first to be slightly more robust. Verify both the
+    // canonical (unindented) form and an indented form are detected.
     assert!(is_crate_wide_clippy_allow_line("#![allow(clippy::all)]"));
+    assert!(is_crate_wide_clippy_allow_line("  #![allow(clippy::all)]"));
+    assert!(is_crate_wide_clippy_allow_line("\t#![allow(clippy::all)]"));
 }
 
 // --- crate-wide allow file scanning -----------------------------------------
@@ -76,7 +78,7 @@ fn scan_finds_inner_clippy_allow() {
         "src/lib.rs",
         "#![allow(clippy::expect_used)]\nfn main() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].relative_path, "src/lib.rs");
     assert_eq!(found[0].line, 1);
@@ -91,7 +93,7 @@ fn scan_reports_correct_line_number() {
         "src/lib.rs",
         "//! doc comment\n//! more doc\n#![allow(clippy::all)]\nfn main() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].line, 3);
 }
@@ -104,7 +106,7 @@ fn scan_finds_multiple_in_one_file() {
         "src/lib.rs",
         "#![allow(clippy::expect_used)]\n#![allow(clippy::unwrap_used)]\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert_eq!(found.len(), 2);
 }
 
@@ -116,7 +118,7 @@ fn scan_finds_in_tests_directory() {
         "tests/integration.rs",
         "#![allow(clippy::unwrap_used, clippy::expect_used)]\n#[test]\nfn t() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].relative_path, "tests/integration.rs");
 }
@@ -129,7 +131,7 @@ fn scan_ignores_outer_attributes() {
         "src/lib.rs",
         "#[allow(clippy::all)]\nfn f() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert!(
         found.is_empty(),
         "outer attributes must not be flagged: {found:?}"
@@ -144,7 +146,7 @@ fn scan_ignores_non_clippy_inner_allows() {
         "src/lib.rs",
         "#![allow(unused_imports)]\nfn f() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert!(found.is_empty());
 }
 
@@ -152,7 +154,7 @@ fn scan_ignores_non_clippy_inner_allows() {
 fn scan_skips_missing_directories() {
     let dir = TempDir::new().expect("temp");
     // No src/ or tests/ dirs at all.
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert!(found.is_empty());
 }
 
@@ -164,7 +166,7 @@ fn scan_normalizes_windows_path_separators() {
         "src/deep/mod.rs",
         "#![allow(clippy::all)]\nfn f() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     assert_eq!(found.len(), 1);
     // The relative path uses forward slashes on every platform.
     assert!(
@@ -182,7 +184,7 @@ fn scan_crate_wide_allow_struct_shape() {
         "src/lib.rs",
         "#![allow(clippy::all)]\nfn f() {}\n",
     );
-    let found = find_crate_wide_clippy_allows(dir.path());
+    let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
     let expected = CrateWideAllow {
         relative_path: "src/lib.rs".into(),
         line: 1,

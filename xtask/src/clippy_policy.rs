@@ -537,6 +537,10 @@ fn is_clippy_allow(normalized: &str) -> bool {
 /// before the matching closing `)`. The sanitizer already normalized
 /// whitespace to single spaces and stripped literals, so nesting here is flat
 /// enough to scan to the first `)`.
+///
+/// A word boundary is enforced before the `clippy` token so identifiers that
+/// merely contain `clippy` as a substring (e.g. `my_clippy::lint`) are not
+/// falsely classified.
 fn clippy_path_appears_before_close(rest: &str) -> bool {
     let bytes = rest.as_bytes();
     let mut i = 0usize;
@@ -552,6 +556,14 @@ fn clippy_path_appears_before_close(rest: &str) -> bool {
             j += 2;
         }
         if rest[j..].starts_with("clippy") {
+            // Word boundary: the character before `clippy` (or `r#clippy`)
+            // must not be an identifier-continue character. `start` is the
+            // position of `r#` or of `clippy` itself; if `start > 0` the
+            // preceding byte must not be alphanumeric or `_`.
+            if start > 0 && is_ident_continue(bytes[start - 1]) {
+                i = start + 1;
+                continue;
+            }
             j += "clippy".len();
             // Optional whitespace around `::`.
             while j < len && bytes[j].is_ascii_whitespace() {
@@ -564,4 +576,9 @@ fn clippy_path_appears_before_close(rest: &str) -> bool {
         i = start + 1;
     }
     false
+}
+
+/// Is `b` a Rust identifier-continue character (alphanumeric or `_`)?
+const fn is_ident_continue(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }

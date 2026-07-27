@@ -162,8 +162,11 @@ fn run_trim_cache() -> Result<(), CommandFailed> {
     })?;
     if incremental.exists() {
         std::fs::remove_dir_all(&incremental).map_err(|err| CommandFailed {
-            program: "rm".into(),
-            args: vec!["-rf".into(), incremental.to_string_lossy().into_owned()],
+            program: "xtask".into(),
+            args: vec![
+                "trim-cache".into(),
+                incremental.to_string_lossy().into_owned(),
+            ],
             status: None,
             stdout: Vec::new(),
             stderr: format!("failed to remove {}: {err}", incremental.display()).into_bytes(),
