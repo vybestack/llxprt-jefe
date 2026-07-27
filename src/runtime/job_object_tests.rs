@@ -54,12 +54,13 @@ fn enabling_containment_for_current_process_yields_kill_on_job_close_guard() {
     let containment = JobContainment::enable_for_current_process()
         .unwrap_or_else(|error| panic!("enable containment: {error}"));
 
+    let kill_on_close_active = containment.is_kill_on_job_close_active();
+    std::mem::forget(containment);
+
     assert!(
-        containment.is_kill_on_job_close_active(),
+        kill_on_close_active,
         "containment guard must report KILL_ON_JOB_CLOSE as active"
     );
-
-    std::mem::forget(containment);
 }
 
 #[test]

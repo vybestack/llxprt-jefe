@@ -112,7 +112,7 @@ fn run_session_host(marker_path: &std::path::Path) -> Result<(), Box<dyn std::er
     let marker = HostMarker {
         host_pid: std::process::id(),
         worker_pid,
-        host_owned_job: true,
+        host_owned_job: cfg!(windows),
         started_at: now_unix_seconds(),
     };
     fs::write(marker_path, serde_json::to_vec(&marker)?)?;

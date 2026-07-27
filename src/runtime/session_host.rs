@@ -128,6 +128,12 @@ pub fn stage_session_host_with_attempt(
     source: &Path,
     attempt_tag: &str,
 ) -> Result<PathBuf, SessionHostError> {
+    if attempt_tag.is_empty()
+        || attempt_tag.contains(['/', '\\', '\0'])
+        || attempt_tag.contains("..")
+    {
+        return Err(SessionHostError::InvalidAttemptTag);
+    }
     let bytes = fs::read(source).map_err(|error| SessionHostError::SourceRead {
         path: safe_source_path(source),
         reason: error_kind_message(&error),
@@ -312,6 +318,8 @@ fn error_kind_message(error: &std::io::Error) -> String {
 pub enum SessionHostError {
     /// The session name could not be sanitized to a safe path segment.
     InvalidSessionName { session_name: String },
+    /// The staging-attempt tag is not safe for use in a filename.
+    InvalidAttemptTag,
     /// The source host image could not be read.
     SourceRead { path: PathBuf, reason: String },
     /// A staging directory could not be created.
@@ -331,6 +339,8 @@ impl std::fmt::Display for SessionHostError {
                 formatter,
                 "session host session name is not a safe path segment: {session_name}"
             ),
+            Self::InvalidAttemptTag => formatter
+                .write_str("session host staging attempt tag is not a safe filename segment"),
             Self::SourceRead { path, reason } => write!(
                 formatter,
                 "session host source image '{}' could not be read: {reason}",

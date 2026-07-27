@@ -282,6 +282,22 @@ fn concurrent_staging_of_the_same_image_is_idempotent() {
 }
 
 #[test]
+fn staging_rejects_attempt_tags_that_can_escape_the_digest_directory() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+    let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
+    let source = write_default_source(&source_dir);
+
+    for attempt_tag in ["", "../escape", "nested/path", r"nested\path"] {
+        let result =
+            stage_session_host_with_attempt(root.path(), "jefe-agent-1", &source, attempt_tag);
+        assert!(
+            matches!(result, Err(SessionHostError::InvalidAttemptTag)),
+            "unsafe attempt tag must be rejected: {attempt_tag:?}: {result:?}"
+        );
+    }
+}
+
+#[test]
 fn staging_preserves_staged_copy_after_source_is_replaced() {
     // AC4: a staged/running copy must permit replacing the source image.
     let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));

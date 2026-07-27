@@ -91,7 +91,6 @@ pub struct JobContainment {
     // Written on construction; read by `is_kill_on_job_close_active`, which is a
     // public contract asserted by the test suite (the lib path trusts the flag
     // unconditionally once construction succeeds).
-    #[allow(dead_code)]
     kill_on_job_close_active: bool,
 }
 
