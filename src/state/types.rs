@@ -193,6 +193,12 @@ pub enum ModalState {
         /// Track if work_dir was manually edited (stop auto-deriving from name).
         work_dir_manual: bool,
     },
+    /// Definition-driven New Agent form opened from the Agent Types surface.
+    GeneratedAgent {
+        form: Box<super::generated_agent_form::GeneratedAgentForm>,
+        return_focus: PaneFocus,
+        return_agent_type_index: usize,
+    },
     EditAgent {
         id: AgentId,
         fields: AgentFormFields,
@@ -366,6 +372,8 @@ pub struct AppState {
     // Selection
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
+    /// Runtime-only selected row in the Agent Types status surface.
+    pub selected_agent_type_index: usize,
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state

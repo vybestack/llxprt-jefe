@@ -361,3 +361,32 @@ reducer module rather than duplicating form policy in test helpers.
 ### S5 GREEN evidence
 
 `GeneratedForm` now projects validated definition fields in declaration order into typed drafts, preserves hidden values while excluding them from active/signature projections, derives visible focus order, exposes unavailable capability reasons without hiding fields, and applies typed edits without I/O or product branches. `cargo test -q --test generated_form_model` passes all focused tests, the issue behavior target remains green, strict workspace Clippy passes, and both `make quick-check` and unchanged `make ci-check` pass.
+
+## S6 generated New Agent UI (2026-07-26)
+
+### S6 RED evidence
+
+`tests/generated_form_ui.rs` and the schema-1 real-PTY scenario
+`dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json` were authored before
+the production UI route. The typed tests initially failed because no
+`GeneratedAgent` modal state or generated form intent path existed. After the
+state route was added, the real scenario still failed waiting for `New Agent`:
+trace evidence proved Enter emitted `OpenAgentTypeForm` and the reducer committed
+`ModalState::GeneratedAgent`, but `ui::orchestration::build_modal_element` had no
+render arm for that modal. That isolated the intended rendering-boundary RED.
+
+### S6 GREEN evidence
+
+The dashboard now opens one definition-generated modal through typed input,
+message conversion, and deterministic reducer intent. A pure iocraft-free
+projection is the textual authority for operation/target support, all typed
+fields, exact unavailability reasons, and Create/Back actions; a thin generated
+screen renders it with selection support and bounds body rows to keep disabled
+actions visible in a 54x16 terminal. Unsupported focus and activation are inert,
+perform no third Claude invocation or preparation write, and Esc restores the
+exact prior Agent Types focus/index. Backward navigation now dispatches the same
+generated-form intent path as forward navigation. The real scenario passes from
+startup probe through wide/narrow rendering and focus restoration. Focused UI
+tests pass, `make quick-check` passes, and strict workspace/all-target Clippy
+passes. Full exact-head `make ci-check` is recorded below after this ledger
+update.

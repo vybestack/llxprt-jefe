@@ -176,6 +176,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         Vec::new,
                         |state| state.agent_type_availability.clone(),
                     ),
+                    selected_index: state.map_or(0, |state| state.selected_agent_type_index),
                     colors: colors.clone(),
                 )
             }

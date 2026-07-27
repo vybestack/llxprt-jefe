@@ -29,6 +29,7 @@ mod content;
 mod dashboard_content;
 mod errors_content;
 mod form_content;
+pub(crate) mod generated_form_content;
 mod geometry;
 mod gesture;
 mod layout_descriptor;

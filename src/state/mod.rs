@@ -26,10 +26,14 @@ mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
+mod form_submit_ops;
 mod form_validation_issue403;
 mod form_workflow_dispatch;
+/// Definition-driven New Agent UI state and typed intent reducer.
+pub mod generated_agent_form;
 /// Definition-driven typed form projection and deterministic reducer.
 pub mod generated_form;
+mod generated_form_ops;
 mod generated_form_projection;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;

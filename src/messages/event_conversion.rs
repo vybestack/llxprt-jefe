@@ -253,6 +253,9 @@ impl AppMessage {
             AppEvent::OpenNewAgent(id) => {
                 Self::RepositoryAgent(RepositoryAgentMessage::OpenNewAgent(id))
             }
+            AppEvent::OpenAgentTypeForm(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenAgentTypeForm(id))
+            }
             AppEvent::OpenEditAgent(id) => {
                 Self::RepositoryAgent(RepositoryAgentMessage::OpenEditAgent(id))
             }
@@ -673,6 +676,7 @@ impl From<RepositoryAgentMessage> for AppEvent {
             RepositoryAgentMessage::OpenEditRepository(id) => Self::OpenEditRepository(id),
             RepositoryAgentMessage::OpenDeleteRepository(id) => Self::OpenDeleteRepository(id),
             RepositoryAgentMessage::OpenNewAgent(id) => Self::OpenNewAgent(id),
+            RepositoryAgentMessage::OpenAgentTypeForm(id) => Self::OpenAgentTypeForm(id),
             RepositoryAgentMessage::OpenEditAgent(id) => Self::OpenEditAgent(id),
             RepositoryAgentMessage::OpenDeleteAgent(id) => Self::OpenDeleteAgent(id),
             RepositoryAgentMessage::ToggleDeleteWorkDir => Self::ToggleDeleteWorkDir,

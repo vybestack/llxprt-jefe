@@ -96,7 +96,7 @@ impl AppState {
                     query: String::new(),
                 };
             }
-            ModalMessage::CloseModal => self.modal = ModalState::None,
+            ModalMessage::CloseModal => self.close_modal(),
             ModalMessage::SubmitForm => self.handle_submit_form(),
             ModalMessage::ConfirmCycleFocus => self.cycle_confirm_focus(),
             ModalMessage::FormChar(c) => self.handle_form_char(c),
@@ -124,6 +124,9 @@ impl AppState {
             }
             RepositoryAgentMessage::OpenNewAgent(repository_id) => {
                 self.open_new_agent_modal(repository_id);
+            }
+            RepositoryAgentMessage::OpenAgentTypeForm(type_id) => {
+                self.open_generated_agent_modal(&type_id);
             }
             RepositoryAgentMessage::OpenEditAgent(id) => self.open_edit_agent_modal(id),
             RepositoryAgentMessage::OpenDeleteAgent(id) => {
@@ -245,6 +248,50 @@ impl AppState {
             focus: AgentFormFocus::default(),
             work_dir_manual: false,
         };
+    }
+
+    fn open_generated_agent_modal(
+        &mut self,
+        type_id: &crate::domain::agent_definition::AgentTypeId,
+    ) {
+        let Some(observation) = self
+            .agent_type_availability
+            .iter()
+            .find(|observation| observation.type_id() == type_id)
+        else {
+            return;
+        };
+        let definition = crate::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id == *type_id);
+        let Some(definition) = definition else {
+            return;
+        };
+        let form = super::generated_agent_form::GeneratedAgentForm::from_definition(
+            &definition,
+            observation.availability(),
+        );
+        let Ok(form) = form else {
+            return;
+        };
+        self.modal = ModalState::GeneratedAgent {
+            form: Box::new(form),
+            return_focus: self.pane_focus,
+            return_agent_type_index: self.selected_agent_type_index,
+        };
+    }
+
+    fn close_modal(&mut self) {
+        if let ModalState::GeneratedAgent {
+            return_focus,
+            return_agent_type_index,
+            ..
+        } = &self.modal
+        {
+            self.pane_focus = *return_focus;
+            self.selected_agent_type_index = *return_agent_type_index;
+        }
+        self.modal = ModalState::None;
     }
 
     fn open_edit_agent_modal(&mut self, id: AgentId) {

@@ -9,6 +9,7 @@ use crate::theme::{ResolvedColors, ThemeColors};
 #[derive(Default, Props)]
 pub struct AgentTypesStatusProps {
     pub observations: Vec<AgentAvailabilityObservation>,
+    pub selected_index: usize,
     pub colors: ThemeColors,
 }
 
@@ -18,7 +19,8 @@ pub fn AgentTypesStatus(props: &AgentTypesStatusProps) -> impl Into<AnyElement<'
     let rc = ResolvedColors::from_theme(Some(&props.colors));
     let rows = project_agent_type_statuses(&props.observations)
         .into_iter()
-        .flat_map(status_lines)
+        .enumerate()
+        .flat_map(|(index, row)| status_lines(row, index == props.selected_index))
         .map(|line| {
             element! {
                 Text(content: line, color: rc.fg)
@@ -38,11 +40,13 @@ pub fn AgentTypesStatus(props: &AgentTypesStatusProps) -> impl Into<AnyElement<'
         ) {
             Text(content: "Agent Types", color: rc.bright)
             #(rows)
+            Text(content: " Space Toggle  Enter Details  q Back", color: rc.dim)
         }
     }
 }
 
-fn status_lines(row: crate::agent_status_view::AgentTypeStatusView) -> Vec<String> {
+fn status_lines(row: crate::agent_status_view::AgentTypeStatusView, selected: bool) -> Vec<String> {
+    let marker = if selected { ">" } else { " " };
     let enablement = if row.enabled { "enabled" } else { "disabled" };
     let create = if row.create_enabled {
         "[Create enabled]"
@@ -50,7 +54,7 @@ fn status_lines(row: crate::agent_status_view::AgentTypeStatusView) -> Vec<Strin
         "[Create disabled]"
     };
     let mut lines = vec![format!(
-        "{}  {}, {}  {create}",
+        "{marker} {}  {}, {}  {create}",
         row.display_name, row.status_text, enablement
     )];
     if let Some(reason) = row.reason {

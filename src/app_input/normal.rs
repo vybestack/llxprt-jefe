@@ -5,6 +5,7 @@ use std::time::Instant;
 use iocraft::prelude::*;
 use tracing::{debug, warn};
 
+use jefe::domain::agent_definition::AgentTypeId;
 use jefe::domain::{AgentId, RepositoryId};
 use jefe::input::{InputMode, QuitOutcome, input_mode_for_state, observe_quit_sequence};
 use jefe::list_viewport::PageItemCount;
@@ -22,6 +23,7 @@ struct NormalKeySnapshot {
     selected_agent_is_running: bool,
     selected_repo_id: Option<RepositoryId>,
     selected_agent_id: Option<AgentId>,
+    selected_agent_type_id: Option<AgentTypeId>,
 }
 
 #[derive(Debug)]
@@ -29,7 +31,6 @@ pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
 }
-
 fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
     let state = app_state.read();
     NormalKeySnapshot {
@@ -41,9 +42,16 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
             .selected_repository()
             .map(|repository| repository.id.clone()),
         selected_agent_id: state.selected_agent().map(|agent| agent.id.clone()),
+        selected_agent_type_id: if state.agents.is_empty() {
+            state
+                .agent_type_availability
+                .get(state.selected_agent_type_index)
+                .map(|observation| observation.type_id().clone())
+        } else {
+            None
+        },
     }
 }
-
 fn mac_alt_digit_slot(c: char) -> Option<u8> {
     MAC_ALT_DIGIT_SHORTCUTS
         .iter()
@@ -360,22 +368,26 @@ fn dashboard_page_items(app_state: &AppStateHandle, screen_mode: ScreenMode) -> 
         terminal_rows,
     )
 }
-
 fn resolve_navigation_key(key_event: &KeyEvent, page_items: PageItemCount) -> KeyHandling {
-    match key_event.code {
-        KeyCode::Up => KeyHandling::Handled(Some(AppEvent::NavigateUp)),
-        KeyCode::Down => KeyHandling::Handled(Some(AppEvent::NavigateDown)),
-        KeyCode::PageUp => KeyHandling::Handled(Some(AppEvent::NavigatePageUp(page_items))),
-        KeyCode::PageDown => KeyHandling::Handled(Some(AppEvent::NavigatePageDown(page_items))),
-        KeyCode::Home => KeyHandling::Handled(Some(AppEvent::NavigateHome)),
-        KeyCode::End => KeyHandling::Handled(Some(AppEvent::NavigateEnd)),
-        KeyCode::Left => KeyHandling::Handled(Some(AppEvent::NavigateLeft)),
-        KeyCode::Right => KeyHandling::Handled(Some(AppEvent::NavigateRight)),
-        KeyCode::Tab => KeyHandling::Handled(Some(AppEvent::CyclePaneFocus)),
+    match (key_event.code, key_event.modifiers.is_empty()) {
+        (KeyCode::Up, _) | (KeyCode::Char('k'), true) => {
+            KeyHandling::Handled(Some(AppEvent::NavigateUp))
+        }
+        (KeyCode::Down, _) | (KeyCode::Char('j'), true) => {
+            KeyHandling::Handled(Some(AppEvent::NavigateDown))
+        }
+        (KeyCode::PageUp, _) => KeyHandling::Handled(Some(AppEvent::NavigatePageUp(page_items))),
+        (KeyCode::PageDown, _) => {
+            KeyHandling::Handled(Some(AppEvent::NavigatePageDown(page_items)))
+        }
+        (KeyCode::Home, _) => KeyHandling::Handled(Some(AppEvent::NavigateHome)),
+        (KeyCode::End, _) => KeyHandling::Handled(Some(AppEvent::NavigateEnd)),
+        (KeyCode::Left, _) => KeyHandling::Handled(Some(AppEvent::NavigateLeft)),
+        (KeyCode::Right, _) => KeyHandling::Handled(Some(AppEvent::NavigateRight)),
+        (KeyCode::Tab, _) => KeyHandling::Handled(Some(AppEvent::CyclePaneFocus)),
         _ => KeyHandling::Unhandled,
     }
 }
-
 fn resolve_new_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -623,6 +635,9 @@ fn attach_terminal_focus(app_state: &mut AppStateHandle, ctx: &SharedContext, ag
 fn resolve_enter_key(key_event: &KeyEvent, snapshot: &NormalKeySnapshot) -> KeyHandling {
     if key_event.code != KeyCode::Enter {
         return KeyHandling::Unhandled;
+    }
+    if let Some(type_id) = snapshot.selected_agent_type_id.clone() {
+        return KeyHandling::Handled(Some(AppEvent::OpenAgentTypeForm(type_id)));
     }
     let event = match snapshot.pane_focus {
         PaneFocus::Agents => snapshot
@@ -911,10 +926,10 @@ mod tests {
             selected_agent_is_running: running,
             selected_repo_id: None,
             selected_agent_id: Some(AgentId(agent_id.to_string())),
+            selected_agent_type_id: None,
         }
     }
 
-    /// Ctrl-r on a running agent should emit `RestartAgent` (issue #117).
     #[test]
     fn restart_event_is_emitted_for_running_agent() {
         let snapshot = snapshot_with_agent("a1", true);
@@ -975,6 +990,7 @@ mod tests {
             selected_agent_is_running: false,
             selected_repo_id: None,
             selected_agent_id: None,
+            selected_agent_type_id: None,
         };
         let key_event = key_with_mods(KeyCode::Char('r'), KeyModifiers::CONTROL);
         let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);

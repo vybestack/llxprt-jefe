@@ -1,12 +1,12 @@
 //! Form input handling: character insertion, deletion, cursor movement, field
 //! navigation, checkbox toggling, and form submission logic.
 
-use crate::domain::{AgentKind, RepositoryId, SandboxEngine};
+use crate::domain::{AgentKind, SandboxEngine};
 
 use super::AppState;
 use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus, WorkflowDispatchFormFocus,
+    RepositoryFormFields, RepositoryFormFocus,
 };
 use super::util::{delete_char_at, delete_char_before, insert_char_at};
 
@@ -146,6 +146,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_char(&mut self, c: char) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Insert(c),
+        ) {
+            return;
+        }
         let agent_kinds = self.effective_agent_kinds_for_current_form();
         let repo_kinds = self.effective_agent_kinds_for_repository_form();
         let refresh_work_dir = self.form_char_refreshes_work_dir(&agent_kinds, &repo_kinds, c);
@@ -506,6 +511,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_delete(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Delete,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository {
                 fields,
@@ -629,6 +639,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_next_field(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Next,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
@@ -649,6 +664,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_prev_field(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Previous,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
@@ -784,136 +804,6 @@ impl AppState {
                     },
                 );
         }
-    }
-
-    pub(super) fn handle_submit_form(&mut self) {
-        match self.modal.clone() {
-            ModalState::NewRepository { fields, .. } => {
-                if let Err(error) =
-                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
-                {
-                    self.error_message = Some(error.to_string());
-                    return;
-                }
-                self.error_message = None;
-                if let Some(repo) = Self::create_repository_from_fields(&fields) {
-                    // Issue #404: a freshly created repo has no agents, so under
-                    // active-only mode it would vanish immediately. Record it as
-                    // sticky so it stays visible until the user navigates away —
-                    // mirroring the sticky-dead-agent behavior (issue #116).
-                    self.sticky_empty_repository_ids.insert(repo.id.clone());
-                    self.repositories.push(repo);
-                    self.selected_repository_index = Some(self.repositories.len() - 1);
-                    self.modal = ModalState::None;
-                }
-            }
-            ModalState::EditRepository { id, fields, .. } => {
-                if let Err(error) =
-                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
-                {
-                    self.error_message = Some(error.to_string());
-                    return;
-                }
-                self.error_message = None;
-                let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
-                    return;
-                };
-                if Self::update_repository_from_fields(repo, &fields) {
-                    self.modal = ModalState::None;
-                }
-            }
-            ModalState::NewAgent {
-                repository_id,
-                fields,
-                ..
-            } => self.submit_new_agent(&repository_id, &fields),
-            ModalState::EditAgent { id, fields, .. } => self.submit_edit_agent(&id, &fields),
-            ModalState::WorkflowDispatch { focus, .. } => self.submit_workflow_dispatch(focus),
-            _ => {
-                self.modal = ModalState::None;
-            }
-        }
-    }
-
-    fn submit_new_agent(&mut self, repository_id: &RepositoryId, fields: &AgentFormFields) {
-        if let Err(message) = Self::validate_agent_form_fields(fields) {
-            self.error_message = Some(message);
-            return;
-        }
-        let next_display_index = self.agents.len() + 1;
-        if let Some(repository) = self.repository_by_id(repository_id).cloned() {
-            if let Err(message) =
-                self.validate_new_agent_uniqueness(repository_id, fields, &repository)
-            {
-                self.error_message = Some(message);
-                return;
-            }
-            if let Some(agent) =
-                Self::create_agent_from_fields(&repository, fields, next_display_index)
-            {
-                self.error_message = None;
-                self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
-                self.agents.push(agent);
-                self.selected_agent_index = Some(self.agents.len() - 1);
-                self.remember_selected_agent_for_current_repo();
-                self.modal = ModalState::None;
-            }
-        }
-    }
-
-    fn submit_edit_agent(&mut self, id: &crate::domain::AgentId, fields: &AgentFormFields) {
-        if fields.name.trim().is_empty() {
-            return;
-        }
-        if let Err(message) = Self::validate_agent_form_fields(fields) {
-            self.error_message = Some(message);
-            return;
-        }
-
-        self.enforce_shortcut_uniqueness(id, fields.shortcut_slot);
-        let repository = self.repository_for_agent(id).cloned();
-        if let Some(repository) = repository {
-            if Self::validated_agent_work_dir(&repository, &fields.work_dir).is_none() {
-                return;
-            }
-            if let Err(message) = self.validate_edit_agent_uniqueness(id, fields, &repository) {
-                self.error_message = Some(message);
-                return;
-            }
-            if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == id) {
-                self.error_message = None;
-                Self::update_agent_from_fields(agent, &repository, fields);
-            }
-        }
-        self.remember_selected_agent_for_current_repo();
-        self.modal = ModalState::None;
-    }
-
-    fn submit_workflow_dispatch(&mut self, focus: WorkflowDispatchFormFocus) {
-        match focus {
-            WorkflowDispatchFormFocus::Cancel => {
-                self.modal = ModalState::None;
-            }
-            // The authoritative submit path is `handle_workflow_dispatch_submit`
-            // in app_input/modal_handlers.rs, which validates the ref, resolves
-            // the repository, closes the modal, and emits the dispatch message.
-            // This reducer arm must NOT close the modal on its own: if a stray
-            // `SubmitForm` ever reaches a WorkflowDispatch modal without going
-            // through the handler, closing here would silently swallow the
-            // dispatch. Leave the modal open so the user can retry.
-            WorkflowDispatchFormFocus::Submit
-            | WorkflowDispatchFormFocus::RefName
-            | WorkflowDispatchFormFocus::Inputs => {}
-        }
-    }
-
-    /// Validate a WorkflowDispatch submit. Returns the parsed params if the
-    /// ref_name is non-empty, or `None` if validation failed (in which case
-    /// the caller should keep the modal open). Delegates to the pure parser
-    /// in [`form_workflow_dispatch`] (newline-separated `key=value` pairs).
-    #[must_use]
-    pub fn parse_workflow_dispatch_inputs(inputs: &str) -> Vec<(String, String)> {
-        crate::state::form_workflow_dispatch::parse_inputs(inputs)
     }
 }
 

@@ -212,6 +212,26 @@ pub enum FormIntent {
         /// New typed value.
         value: FieldValue,
     },
+    /// Move one typed field cursor left.
+    MoveCursorLeft {
+        /// Field whose cursor moves.
+        field: FormFieldId,
+    },
+    /// Move one typed field cursor right.
+    MoveCursorRight {
+        /// Field whose cursor moves.
+        field: FormFieldId,
+    },
+    /// Move one typed field cursor to its start.
+    MoveCursorStart {
+        /// Field whose cursor moves.
+        field: FormFieldId,
+    },
+    /// Move one typed field cursor to its end.
+    MoveCursorEnd {
+        /// Field whose cursor moves.
+        field: FormFieldId,
+    },
     /// Toggle a Boolean or cycle an OptionalBoolean.
     Toggle {
         /// Field to toggle.
@@ -425,6 +445,14 @@ impl GeneratedFormDraft {
     pub fn reduce(mut self, intent: FormIntent) -> Result<Self, FormEditError> {
         match intent {
             FormIntent::SetValue { field, value } => self.set_value(&field, value)?,
+            FormIntent::MoveCursorLeft { field } => self.move_cursor(&field, CursorMove::Left)?,
+            FormIntent::MoveCursorRight { field } => {
+                self.move_cursor(&field, CursorMove::Right)?;
+            }
+            FormIntent::MoveCursorStart { field } => {
+                self.move_cursor(&field, CursorMove::Start)?;
+            }
+            FormIntent::MoveCursorEnd { field } => self.move_cursor(&field, CursorMove::End)?,
             FormIntent::Toggle { field } => self.toggle(&field)?,
             FormIntent::Focus(field) => self.set_focus(&field)?,
             FormIntent::FocusNext => self.move_focus(true),
@@ -484,6 +512,19 @@ impl GeneratedFormDraft {
         }
         field.cursor = value_cursor(&value);
         field.value = value;
+        Ok(())
+    }
+
+    fn move_cursor(&mut self, id: &FormFieldId, movement: CursorMove) -> Result<(), FormEditError> {
+        let field = self.field_mut(id)?;
+        reject_disabled(field)?;
+        let end = value_cursor(&field.value);
+        field.cursor = match movement {
+            CursorMove::Left => field.cursor.saturating_sub(1),
+            CursorMove::Right => (field.cursor + 1).min(end),
+            CursorMove::Start => 0,
+            CursorMove::End => end,
+        };
         Ok(())
     }
 
@@ -560,6 +601,14 @@ impl GeneratedFormDraft {
                 .map(|field| field.id.clone());
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CursorMove {
+    Left,
+    Right,
+    Start,
+    End,
 }
 
 fn validate_field(field: &GeneratedFormField, issues: &mut Vec<FormValidationIssue>) {

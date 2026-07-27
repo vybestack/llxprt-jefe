@@ -136,6 +136,8 @@ pub enum RepositoryAgentMessage {
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
     OpenNewAgent(RepositoryId),
+    /// Open the generated New Agent form for one registry definition.
+    OpenAgentTypeForm(crate::domain::agent_definition::AgentTypeId),
     OpenEditAgent(AgentId),
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
