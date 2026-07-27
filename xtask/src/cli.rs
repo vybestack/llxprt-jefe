@@ -37,7 +37,7 @@ const EXIT_USAGE: u8 = 2;
 /// # Errors
 /// Reported via the returned `ExitCode` and stderr text, not `Result`, because
 /// this is the process entry point.
-#[allow(clippy::must_use_candidate)]
+#[must_use]
 pub fn run(argv: &[String]) -> ExitCode {
     let Some(command) = argv.first() else {
         usage();
@@ -279,8 +279,7 @@ pub mod plans {
         test_plan()
     }
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn ci_step_names() -> &'static [&'static str] {
+    pub const fn ci_step_names() -> &'static [&'static str] {
         CI_STEPS
     }
 }

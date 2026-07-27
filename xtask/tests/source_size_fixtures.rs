@@ -4,10 +4,6 @@
 //! limit, 750-line warning, scan roots `src` + `tests`, stable relative-path
 //! diagnostics on Windows and Unix.
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::unwrap_in_result)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 

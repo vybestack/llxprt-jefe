@@ -71,7 +71,6 @@ impl Default for Policy {
 /// # Errors
 /// Returns `CommandFailed` if any file exceeds the hard limit. Warnings are
 /// printed to stderr but do not fail the gate (matching the original script).
-#[allow(clippy::missing_errors_doc)]
 pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
     let roots: Vec<PathBuf> = DEFAULT_SCAN_ROOTS.iter().map(|r| root.join(r)).collect();
     run_with_roots(&roots, &Policy::default(), root)
@@ -82,7 +81,6 @@ pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
 ///
 /// # Errors
 /// Returns `CommandFailed` if any file exceeds the hard limit.
-#[allow(clippy::missing_errors_doc)]
 pub fn run_with_roots(
     roots: &[PathBuf],
     policy: &Policy,
@@ -197,11 +195,9 @@ fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// Produce a stable relative path string for diagnostics.
-#[allow(clippy::option_if_let_else)]
 fn relativize(path: &Path, base: &Path) -> String {
-    if let Ok(rel) = path.strip_prefix(base) {
-        rel.to_string_lossy().into_owned()
-    } else {
-        path.to_string_lossy().into_owned()
-    }
+    path.strip_prefix(base)
+        .map_or_else(|_| path, |rel| rel)
+        .to_string_lossy()
+        .into_owned()
 }

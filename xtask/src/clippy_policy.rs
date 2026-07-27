@@ -61,7 +61,6 @@ const COMPLEXITY_THRESHOLDS: &[&str] = &[
 /// Returns `CommandFailed` if the scanner errors (fail closed), if any
 /// suppression is found, or if the clippy.toml thresholds are missing or
 /// mismatched.
-#[allow(clippy::missing_errors_doc)]
 pub fn run_repo_check(root: &Path) -> Result<(), CommandFailed> {
     let files = git_tracked_rust_files(root)
         .map_err(|err| to_command_failed("check", "clippy-allows", &err))?;
@@ -116,7 +115,6 @@ pub fn scan_files(files: &[PathBuf]) -> Vec<Suppression> {
 ///
 /// # Errors
 /// Returns `ScanError` if the directory walk or any file read fails.
-#[allow(clippy::missing_errors_doc)]
 pub fn scan_directory(root: &Path) -> Result<Vec<Suppression>, ScanError> {
     let mut files = Vec::new();
     collect_rust_files(root, &mut files)?;
@@ -133,7 +131,6 @@ pub fn scan_directory(root: &Path) -> Result<Vec<Suppression>, ScanError> {
 ///
 /// # Errors
 /// Returns `ScanError` if the file cannot be read.
-#[allow(clippy::missing_errors_doc)]
 pub fn scan_file(path: &Path) -> Result<Vec<Suppression>, ScanError> {
     let source = std::fs::read_to_string(path)
         .map_err(|err| ScanError::Io(path.to_path_buf(), err.to_string()))?;

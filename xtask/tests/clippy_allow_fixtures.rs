@@ -6,12 +6,6 @@
 //! on Windows and Unix. Every positive/negative case from the original suite
 //! is preserved.
 
-// Test fixtures use `expect()`/`unwrap()` for setup panics, mirroring the
-// existing jefe test posture (`#![allow(clippy::expect_used)]` etc.).
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::unwrap_in_result)]
-
 use std::fs;
 use std::path::Path;
 

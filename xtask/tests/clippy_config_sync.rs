@@ -4,11 +4,6 @@
 //! `.github/clippy/clippy.toml` must be present and equal, so `CLIPPY_CONF_DIR`
 //! cannot silently fall back to clippy defaults.
 
-// Test fixtures use `expect()`/`unwrap()` for setup panics.
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::unwrap_in_result)]
-
 use std::fs;
 
 use tempfile::TempDir;
