@@ -415,3 +415,18 @@ four shipped definitions; strict workspace/all-target Clippy and `make
 quick-check` pass. Remote serialization, execution, stale recheck, preflight
 side effects, fresh-send orchestration, migration, and package-cache
 specialization remain outside this slice.
+
+## S8 stale execution authorization (2026-07-26)
+
+The production-connected `generation_property` acceptance test first failed
+against the missing execution authorization seam. A pure runtime guard now
+compares the immutable plan with current definition hash, executable path and
+fingerprint, probe generation, target generation, and activation generation.
+Exact evidence returns a borrowed authorized plan; any mismatch returns typed
+`AGT-E203` identifying the stale dimension. The guard has no callback, runtime
+handle, or side effect, so rejection structurally precedes filesystem, prompt,
+SSH, tmux, or process work. Nine focused table tests cover exact success and
+each old/new dimension, including changed executable identity. The acceptance
+test, strict workspace/all-target Clippy, and `make quick-check` pass. Wiring the
+authorized wrapper into every execution route remains part of later route
+convergence; no parallel product-specific guard was introduced.

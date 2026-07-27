@@ -412,6 +412,10 @@ pub struct AgentLaunchPlan {
     pub probe_generation: u64,
     /// Target generation stamp.
     pub target_generation: u64,
+    /// Activation generation stamp compared by the execution authorization
+    /// guard (issue #382 CW02-12 / S8). Represents the generation at which
+    /// the plan's activation binding is valid; a mismatch yields `AGT-E203`.
+    pub activation_generation: u64,
     /// Sandbox preflight contract.
     pub preflight: Preflight,
     /// Versioned launch signature.
@@ -445,6 +449,7 @@ impl Default for AgentLaunchPlan {
             },
             probe_generation: 0,
             target_generation: 0,
+            activation_generation: 0,
             preflight: Preflight::default(),
             signature: LaunchSignature::default(),
         }

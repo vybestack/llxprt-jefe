@@ -81,6 +81,7 @@ fn llxprt_normal_golden_plan() {
         probe_generation: 3,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "llxprt normal");
@@ -130,6 +131,7 @@ fn code_puppy_normal_golden_plan() {
         probe_generation: 5,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "code-puppy normal");
@@ -177,6 +179,7 @@ fn codex_normal_golden_plan() {
         probe_generation: 2,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "codex normal");
@@ -222,6 +225,7 @@ fn claude_normal_golden_plan() {
         probe_generation: 4,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "claude normal");
@@ -262,6 +266,7 @@ fn empty_optional_values_skip_emitters() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "codex empty-optionals");
@@ -285,6 +290,7 @@ fn optional_boolean_none_skips_boolean_option() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "code-puppy optional-none");
@@ -310,6 +316,7 @@ fn unsupported_operation_emits_zero_effects() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -339,6 +346,7 @@ fn unsupported_target_emits_zero_effects() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -371,6 +379,7 @@ fn unknown_field_value_is_rejected() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -397,6 +406,7 @@ fn incompatible_probe_is_rejected() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -420,6 +430,7 @@ fn not_found_probe_is_rejected() {
         probe_generation: 0,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -441,6 +452,7 @@ fn probe_generation_mismatch_is_rejected() {
         probe_generation: 1, // mismatch
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -464,6 +476,7 @@ fn remote_target_rejected_for_local_planner() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -498,6 +511,7 @@ fn env_emitter_adds_declared_name_only() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "codex env emitter");
@@ -535,6 +549,7 @@ fn argv_preserves_osstring() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "codex unicode");
@@ -580,6 +595,7 @@ fn probe_error_is_rejected() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -615,6 +631,7 @@ fn repeated_option_emits_one_per_element() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = assert_supported(request, "codex repeated option");

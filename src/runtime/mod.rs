@@ -8,6 +8,8 @@
 //! Pseudocode reference: component-002 lines 01-35
 
 mod agent_executable;
+/// Pure execution authorization guard (issue #382 CW02-12 / S8).
+pub mod agent_execution_guard;
 mod agent_launcher;
 /// Definition-driven immutable local launch plan generation (issue #382 S7).
 pub mod agent_plan;
@@ -58,6 +60,10 @@ mod stub_manager;
 pub use agent_executable::{
     AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
     AgentWrapperKind, CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
+};
+pub use agent_execution_guard::{
+    AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
+    StaleDimension, authorize_execution,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use agent_probe::{AgentProbeResult, AgentProbeTarget, run_local_agent_probe};

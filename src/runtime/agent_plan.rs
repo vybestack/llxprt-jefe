@@ -174,6 +174,10 @@ pub struct PlanRequest<'a> {
     pub probe_generation: u64,
     /// Target generation stamp to stamp onto the plan.
     pub target_generation: u64,
+    /// Activation generation stamp compared by the execution authorization
+    /// guard (issue #382 CW02-12 / S8). Defaulted to the probe generation so
+    /// a single-generation compatible plan authorizes on the first attempt.
+    pub activation_generation: u64,
     /// Typed field values for argv/env emission.
     pub values: &'a LaunchFieldValues,
     /// Sandbox preflight contract stamped onto the plan.
@@ -417,6 +421,7 @@ fn assemble_plan(
         target: request.target.clone(),
         probe_generation: request.probe_generation,
         target_generation: request.target_generation,
+        activation_generation: request.activation_generation,
         preflight: request.preflight.clone(),
         signature,
     }

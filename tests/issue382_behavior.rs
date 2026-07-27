@@ -418,6 +418,7 @@ fn assert_golden_local_plan(
         probe_generation: 1,
         target_generation: 1,
         values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -534,6 +535,7 @@ fn assert_codex_fresh_issue_unsupported(codex: &AgentDefinition) {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {

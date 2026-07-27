@@ -38,6 +38,7 @@ fn unsupported_operation_returns_declared_reason_and_zero_effects() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     match plan_local_launch(&request) {
@@ -63,6 +64,7 @@ fn default_field_values_are_used_when_not_provided() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = match plan_local_launch(&request) {
@@ -90,6 +92,7 @@ fn flag_resolves_token_from_capability_probe() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = match plan_local_launch(&request) {
@@ -120,6 +123,7 @@ fn empty_string_value_skips_option_emitter() {
         probe_generation: 1,
         target_generation: 1,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = match plan_local_launch(&request) {
@@ -145,6 +149,7 @@ fn stamping_carries_generations_and_signature() {
         probe_generation: 42,
         target_generation: 7,
         values: &values,
+        activation_generation: 1,
         preflight: Preflight::default(),
     };
     let plan = match plan_local_launch(&request) {
