@@ -213,23 +213,6 @@ fn detail_content_width(available_width: Option<u16>) -> usize {
     }))
 }
 
-/// Compute the document/composer split for a contextual comment or reply.
-fn contextual_issue_composer_rows(
-    detail_viewport_rows: usize,
-    reserved_document_rows: usize,
-    document_line_count: usize,
-    composer_active: bool,
-) -> (usize, usize) {
-    if !composer_active {
-        return (reserved_document_rows, 0);
-    }
-
-    let scroll_rows = reserved_document_rows.min(document_line_count);
-    let composer_rows = crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
-        .min(detail_viewport_rows.saturating_sub(scroll_rows));
-    (scroll_rows, composer_rows)
-}
-
 /// Preserve New Issue guidance and give every remaining row to its composer.
 fn new_issue_composer_rows(
     detail_viewport_rows: usize,
@@ -280,20 +263,17 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
         empty_issue_content()
     };
 
-    let document_line_count = detail_content.text.lines().count().max(1);
+    let document_display_rows =
+        super::doc_wrap::wrap_document(&detail_content.text, content_width).len();
     let (scroll_rows, composer_rows) = if showing_new_issue_composer {
-        let document_display_rows =
-            super::doc_wrap::wrap_document(&detail_content.text, content_width).len();
         new_issue_composer_rows(detail_vp_rows, document_display_rows)
     } else {
-        let reserved_document_rows =
-            crate::layout::issue_detail_document_viewport_rows(detail_vp_rows, composer_active);
-        contextual_issue_composer_rows(
+        let rows = crate::layout::contextual_detail_rows(
             detail_vp_rows,
-            reserved_document_rows,
-            document_line_count,
+            document_display_rows,
             composer_active,
-        )
+        );
+        (rows.document, rows.composer)
     };
     let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
         text,

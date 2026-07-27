@@ -473,24 +473,25 @@ fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Op
 
 /// Update the PR detail viewport row count from the layout module.
 ///
-/// Reads `crossterm::size()` ONCE at the dispatch boundary and writes the
-/// computed viewport rows into `prs_state.detail_viewport_rows` so the
-/// reducers never touch crossterm (#37/#39/#55). The content width for
-/// truncation is computed independently by the screen renderer (it does not
-/// live in reducer state — the reducer never wraps).
+/// Reads `crossterm::size()` once at the dispatch boundary and writes the
+/// computed viewport rows and content width into PR state so reducers never
+/// touch crossterm (#37/#39/#55). State uses that width only for deterministic
+/// wrapped scroll bounds; the screen derives the same geometry for rendering.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 156-159
 fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
+    let (render_cols, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
         usize::from(render_rows),
         state.prs_state.error.is_some(),
         state.prs_state.filter_ui.controls_open,
     );
+    state.prs_state.detail_content_width =
+        usize::from(jefe::layout::prs_detail_content_width(render_cols));
 }
 
 /// Dispatch the PR agent-chooser confirm (send-to-agent) side effects.

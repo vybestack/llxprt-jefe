@@ -21,6 +21,8 @@ pub(super) fn refresh_detail_viewport_rows(
                 ),
                 state.issues_state.filter_ui.controls_open,
             );
+            state.issues_state.detail_content_width =
+                usize::from(jefe::layout::issues_detail_content_width(render_cols));
         }
         SelectablePane::PrDetail => {
             state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
@@ -28,6 +30,8 @@ pub(super) fn refresh_detail_viewport_rows(
                 state.prs_state.error.is_some(),
                 state.prs_state.filter_ui.controls_open,
             );
+            state.prs_state.detail_content_width =
+                usize::from(jefe::layout::prs_detail_content_width(render_cols));
         }
         SelectablePane::ActionsDetail => {
             let geometry = jefe::layout::actions_detail_geometry(

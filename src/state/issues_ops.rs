@@ -185,7 +185,20 @@ impl AppState {
             return;
         };
         let viewport = self.issues_detail_scroll_viewport_rows();
-        let desired = crate::layout::reveal_range_scroll_offset(
+        let content = crate::issue_detail_content::build_detail_content(
+            detail,
+            self.issues_state.detail_subfocus,
+            &self.issues_state.inline_state,
+            self.issues_state.loading.comments,
+        );
+        let content_width = if self.issues_state.detail_content_width == 0 {
+            usize::from(crate::layout::issues_detail_content_width(120))
+        } else {
+            self.issues_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        let desired = crate::domain::document_wrap::reveal_content_line_range(
+            &rows,
             item_start,
             item_end,
             self.issues_state.detail_scroll_offset,
@@ -254,6 +267,12 @@ impl AppState {
         }
         self.issues_state.property_editor = None;
         self.issues_state.property_mutation_pending = None;
+        // Issue #407: a repo change closes the inline New Issue form (A14)
+        // since its sticky defaults and option sets are repo-scoped. The
+        // inline_state is already cleared above when it was active.
+        if self.issues_state.new_issue_form.is_some() {
+            self.issues_state.new_issue_form = None;
+        }
         self.issues_state.list.clear();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
@@ -681,6 +700,7 @@ impl AppState {
             || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_rewrite_event(event.clone())
+            || self.apply_new_issue_form_event(&event)
             || self.apply_issue_error_event(event)
     }
 }

@@ -180,6 +180,33 @@ message_names!(IssuesMessage {
     Self::OpenNewCommentComposer => "OpenNewCommentComposer",
     Self::OpenReplyComposer { .. } => "OpenReplyComposer",
     Self::OpenInlineEditor { .. } => "OpenInlineEditor",
+    Self::NewIssueTemplateNext => "NewIssueTemplateNext",
+    Self::NewIssueTypeNext => "NewIssueTypeNext",
+    Self::NewIssueTitleChar(_) => "NewIssueTitleChar",
+    Self::NewIssueTitleBackspace => "NewIssueTitleBackspace",
+    Self::NewIssueTitleDelete => "NewIssueTitleDelete",
+    Self::NewIssueTitleCursorLeft => "NewIssueTitleCursorLeft",
+    Self::NewIssueTitleCursorRight => "NewIssueTitleCursorRight",
+    Self::NewIssueTitleCursorHome => "NewIssueTitleCursorHome",
+    Self::NewIssueTitleCursorEnd => "NewIssueTitleCursorEnd",
+    Self::NewIssueBodyChar(_) => "NewIssueBodyChar",
+    Self::NewIssueBodyNewline => "NewIssueBodyNewline",
+    Self::NewIssueBodyBackspace => "NewIssueBodyBackspace",
+    Self::NewIssueBodyDelete => "NewIssueBodyDelete",
+    Self::NewIssueBodyCursorLeft => "NewIssueBodyCursorLeft",
+    Self::NewIssueBodyCursorRight => "NewIssueBodyCursorRight",
+    Self::NewIssueBodyCursorUp => "NewIssueBodyCursorUp",
+    Self::NewIssueBodyCursorDown => "NewIssueBodyCursorDown",
+    Self::NewIssueBodyCursorHome => "NewIssueBodyCursorHome",
+    Self::NewIssueBodyCursorEnd => "NewIssueBodyCursorEnd",
+    Self::NewIssueFocusNext => "NewIssueFocusNext",
+    Self::NewIssueFocusPrev => "NewIssueFocusPrev",
+    Self::NewIssueSubmit => "NewIssueSubmit",
+    Self::NewIssueCancel => "NewIssueCancel",
+    Self::NewIssueOptionsLoaded { .. } => "NewIssueOptionsLoaded",
+    Self::NewIssueOptionsFailed { .. } => "NewIssueOptionsFailed",
+    Self::NewIssueCreated { .. } => "NewIssueCreated",
+    Self::NewIssueCreateFailed { .. } => "NewIssueCreateFailed",
     Self::InlineChar(_) => "InlineChar",
     Self::InlineNewline => "InlineNewline",
     Self::InlineBackspace => "InlineBackspace",
@@ -339,6 +366,74 @@ message_names!(PullRequestsMessage {
 use crate::state::AppEvent;
 
 #[must_use]
+pub(super) fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
+    matches!(
+        event,
+        AppEvent::NewIssueTemplateNext
+            | AppEvent::NewIssueTypeNext
+            | AppEvent::NewIssueTitleChar(_)
+            | AppEvent::NewIssueTitleBackspace
+            | AppEvent::NewIssueTitleDelete
+            | AppEvent::NewIssueTitleCursorLeft
+            | AppEvent::NewIssueTitleCursorRight
+            | AppEvent::NewIssueTitleCursorHome
+            | AppEvent::NewIssueTitleCursorEnd
+            | AppEvent::NewIssueBodyChar(_)
+            | AppEvent::NewIssueBodyNewline
+            | AppEvent::NewIssueBodyBackspace
+            | AppEvent::NewIssueBodyDelete
+            | AppEvent::NewIssueBodyCursorLeft
+            | AppEvent::NewIssueBodyCursorRight
+            | AppEvent::NewIssueBodyCursorUp
+            | AppEvent::NewIssueBodyCursorDown
+            | AppEvent::NewIssueBodyCursorHome
+            | AppEvent::NewIssueBodyCursorEnd
+            | AppEvent::NewIssueFocusNext
+            | AppEvent::NewIssueFocusPrev
+            | AppEvent::NewIssueSubmit
+            | AppEvent::NewIssueCancel
+            | AppEvent::NewIssueOptionsLoaded { .. }
+            | AppEvent::NewIssueOptionsFailed { .. }
+            | AppEvent::NewIssueCreated { .. }
+            | AppEvent::NewIssueCreateFailed { .. }
+    )
+}
+
+#[must_use]
+pub fn is_new_issue_form_msg(message: &IssuesMessage) -> bool {
+    matches!(
+        message,
+        IssuesMessage::NewIssueTemplateNext
+            | IssuesMessage::NewIssueTypeNext
+            | IssuesMessage::NewIssueTitleChar(_)
+            | IssuesMessage::NewIssueTitleBackspace
+            | IssuesMessage::NewIssueTitleDelete
+            | IssuesMessage::NewIssueTitleCursorLeft
+            | IssuesMessage::NewIssueTitleCursorRight
+            | IssuesMessage::NewIssueTitleCursorHome
+            | IssuesMessage::NewIssueTitleCursorEnd
+            | IssuesMessage::NewIssueBodyChar(_)
+            | IssuesMessage::NewIssueBodyNewline
+            | IssuesMessage::NewIssueBodyBackspace
+            | IssuesMessage::NewIssueBodyDelete
+            | IssuesMessage::NewIssueBodyCursorLeft
+            | IssuesMessage::NewIssueBodyCursorRight
+            | IssuesMessage::NewIssueBodyCursorUp
+            | IssuesMessage::NewIssueBodyCursorDown
+            | IssuesMessage::NewIssueBodyCursorHome
+            | IssuesMessage::NewIssueBodyCursorEnd
+            | IssuesMessage::NewIssueFocusNext
+            | IssuesMessage::NewIssueFocusPrev
+            | IssuesMessage::NewIssueSubmit
+            | IssuesMessage::NewIssueCancel
+            | IssuesMessage::NewIssueOptionsLoaded { .. }
+            | IssuesMessage::NewIssueOptionsFailed { .. }
+            | IssuesMessage::NewIssueCreated { .. }
+            | IssuesMessage::NewIssueCreateFailed { .. }
+    )
+}
+
+#[must_use]
 pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {
     matches!(
         event,
@@ -388,4 +483,49 @@ pub(super) fn is_issue_property_msg(message: &IssuesMessage) -> bool {
             | IssuesMessage::PropertyEditFailed { .. }
             | IssuesMessage::PropertyEditorValidationError { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_new_issue_form_app_event, is_new_issue_form_msg};
+    use crate::messages::IssuesMessage;
+    use crate::state::AppEvent;
+
+    #[test]
+    fn app_event_predicates_match_all_new_issue_form_variants() {
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueSubmit));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueCancel));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueTemplateNext));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueTypeNext));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueFocusNext));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueFocusPrev));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueTitleChar(
+            'x'
+        )));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueBodyChar(
+            'y'
+        )));
+        assert!(is_new_issue_form_app_event(&AppEvent::NewIssueBodyNewline));
+    }
+
+    #[test]
+    fn app_event_predicates_reject_unrelated_events() {
+        assert!(!is_new_issue_form_app_event(&AppEvent::EnterIssuesMode));
+        assert!(!is_new_issue_form_app_event(
+            &AppEvent::OpenNewIssueComposer
+        ));
+        assert!(!is_new_issue_form_app_event(&AppEvent::IssuesNavigateUp));
+    }
+
+    #[test]
+    fn msg_predicates_match_all_new_issue_form_variants() {
+        assert!(is_new_issue_form_msg(&IssuesMessage::NewIssueSubmit));
+        assert!(is_new_issue_form_msg(&IssuesMessage::NewIssueCancel));
+        assert!(is_new_issue_form_msg(&IssuesMessage::NewIssueTemplateNext));
+    }
+
+    #[test]
+    fn msg_predicates_reject_unrelated_messages() {
+        assert!(!is_new_issue_form_msg(&IssuesMessage::EnterMode));
+    }
 }

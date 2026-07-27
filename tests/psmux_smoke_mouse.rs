@@ -70,6 +70,7 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     );
 
     assert_attached_viewer_observes_mouse_reporting(&viewer);
+    assert_attached_input_ready(&mut namespace, session, &viewer);
     assert_page_keys_delivered_as_csi_tilde(&mut namespace, session, &viewer);
     assert_sgr_mouse_delivered_intact(&mut namespace, session, &viewer);
 
@@ -95,6 +96,58 @@ fn assert_attached_viewer_observes_mouse_reporting(viewer: &AttachedViewer) {
     );
 }
 
+/// Wait for the attached psmux client to forward input before asserting the
+/// semantic key sequences. Output can reach the viewer before psmux's input
+/// relay is ready on a loaded Windows runner, so terminal-mode observation alone
+/// is not an input-readiness barrier.
+fn assert_attached_input_ready(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    viewer: &AttachedViewer,
+) {
+    write_input_until_captured(
+        namespace,
+        session,
+        viewer,
+        b"j",
+        "PSMUX_BYTE_6A",
+        "input-readiness probe",
+    );
+}
+
+fn write_input_until_captured(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    viewer: &AttachedViewer,
+    bytes: &[u8],
+    needle: &str,
+    label: &str,
+) -> String {
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    let mut last = String::new();
+    while Instant::now() < deadline {
+        assert!(
+            viewer.is_alive(),
+            "AttachedViewer exited before forwarding {label}"
+        );
+        for byte in bytes {
+            viewer
+                .write_input(std::slice::from_ref(byte))
+                .unwrap_or_else(|error| panic!("write {label}: {error}"));
+            thread::sleep(Duration::from_millis(10));
+        }
+        thread::sleep(Duration::from_millis(50));
+        last = namespace
+            .capture(session)
+            .unwrap_or_else(|error| panic!("capture {label}: {error}"));
+        if last.contains(needle) {
+            return last;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("attached input relay did not forward {label} within {POLL_TIMEOUT:?}:\n{last}");
+}
+
 /// Issue #296 (b): forwarded PageUp/PageDown must arrive as `CSI 5~`/`CSI 6~`
 /// (bytes 1B 5B 35/36 7E), not arrow sequences.
 fn assert_page_keys_delivered_as_csi_tilde(
@@ -102,15 +155,14 @@ fn assert_page_keys_delivered_as_csi_tilde(
     session: &str,
     viewer: &AttachedViewer,
 ) {
-    viewer
-        .write_input(b"\x1b[5~")
-        .unwrap_or_else(|error| panic!("write PageUp bytes: {error}"));
-    viewer
-        .write_input(b"\x1b[6~")
-        .unwrap_or_else(|error| panic!("write PageDown bytes: {error}"));
-    let capture = namespace
-        .wait_for_capture(session, "PSMUX_BYTE_7E")
-        .unwrap_or_else(|error| panic!("page-key '~' (0x7E) never reached child: {error}"));
+    let capture = write_input_until_captured(
+        namespace,
+        session,
+        viewer,
+        b"\x1b[5~\x1b[6~",
+        "PSMUX_BYTE_7E",
+        "PageUp/PageDown bytes",
+    );
     for needle in [
         "PSMUX_BYTE_1B",
         "PSMUX_BYTE_5B",
@@ -132,12 +184,14 @@ fn assert_sgr_mouse_delivered_intact(
     session: &str,
     viewer: &AttachedViewer,
 ) {
-    viewer
-        .write_input(b"\x1b[<0;1;1M")
-        .unwrap_or_else(|error| panic!("write SGR mouse bytes: {error}"));
-    let capture = namespace
-        .wait_for_capture(session, "PSMUX_BYTE_4D")
-        .unwrap_or_else(|error| panic!("SGR mouse 'M' (0x4D) never reached child: {error}"));
+    let capture = write_input_until_captured(
+        namespace,
+        session,
+        viewer,
+        b"\x1b[<0;1;1M",
+        "PSMUX_BYTE_4D",
+        "SGR mouse bytes",
+    );
     for needle in ["PSMUX_BYTE_3C", "PSMUX_BYTE_30", "PSMUX_BYTE_4D"] {
         assert!(
             capture.contains(needle),

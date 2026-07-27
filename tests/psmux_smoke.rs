@@ -16,7 +16,7 @@ use jefe::runtime::{
 };
 use serde::Deserialize;
 
-const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 6);
+const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 7);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 /// Ceiling for a pane capture to contain an expected needle. Polled, so this
 /// bounds only how long a genuine hang is tolerated; see the note in
@@ -282,9 +282,9 @@ impl Drop for PsmuxNamespace {
 
 #[test]
 fn psmux_minimum_version_parser_accepts_qualified_release() {
-    let parsed = PsmuxVersion::parse("tmux 3.3.6\n");
+    let parsed = PsmuxVersion::parse("tmux 3.3.7\n");
     assert_eq!(parsed, Ok(MINIMUM_PSMUX_VERSION));
-    assert!(PsmuxVersion::parse("tmux 3.3.5").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
+    assert!(PsmuxVersion::parse("tmux 3.3.6").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
     assert!(PsmuxVersion::parse("psmux unknown").is_err());
 }
 
@@ -883,11 +883,11 @@ fn version_probe_stops_immediately_on_non_retryable_failure() {
 fn version_probe_recovers_after_loader_transient() {
     let sequence = vec![
         Ok(probe_output(0xc000_0142, "", "first transient")),
-        Ok(probe_output(0, "tmux 3.3.6\n", "")),
+        Ok(probe_output(0, "tmux 3.3.7\n", "")),
     ];
     let outcome = run_probe_sequence(sequence);
     let ((version, diagnostics), probes, sleeps) = assert_probe_ok(outcome);
-    assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.6", 2, 1));
+    assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.7", 2, 1));
     assert_eq!(diagnostics.len(), 2);
     assert!(diagnostics[0].contains("first transient"));
 }

@@ -156,7 +156,7 @@ fn probe_classification_distinguishes_required_failure_modes() {
             platform: LocalPlatform::Windows,
             path: path.clone(),
             status_success: true,
-            stdout: "tmux 3.3.5".to_owned(),
+            stdout: "tmux 3.3.6".to_owned(),
             stderr: String::new(),
         }),
         Err(MultiplexerError::UnsupportedVersion { .. })

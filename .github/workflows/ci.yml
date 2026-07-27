@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -156,8 +158,8 @@ jobs:
       JEFE_REQUIRE_PSMUX: "1"
       RUST_BACKTRACE: full
       RUST_TEST_THREADS: "1"
-      PSMUX_VERSION: "3.3.6"
-      PSMUX_SHA256: a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947
+      PSMUX_VERSION: "3.3.7"
+      PSMUX_SHA256: 60ff7b236f64184921cef3c1ff2611aa5a36fcc7ed8e2a58e968b8ded57f6028
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
@@ -204,8 +206,11 @@ jobs:
           if ($status -ne 0) {
             exit $status
           }
-          $versionText = ($version | Out-String).Trim()
-          if ($versionText -ne "tmux $env:PSMUX_VERSION") {
+          $versionLine = $version |
+            Where-Object { $_ -eq "tmux $env:PSMUX_VERSION" } |
+            Select-Object -First 1
+          if ($null -eq $versionLine) {
+            $versionText = ($version | Out-String).Trim()
             throw "expected qualified psmux $env:PSMUX_VERSION, got: $versionText"
           }
       - name: Check formatting

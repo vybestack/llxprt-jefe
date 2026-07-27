@@ -342,3 +342,155 @@ fn unknown_schema1_root_values_remain_raw_json() {
         Some(&json!({"array": [1, null, true], "name": "value"}))
     );
 }
+
+/// Resolve the host home directory using the same precedence the migration
+/// helper must apply: USERPROFILE before HOME on Windows, HOME on Unix. The
+/// test asserts behavior against the live host home rather than mutating the
+/// process environment.
+fn host_home_dir() -> Option<std::path::PathBuf> {
+    if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(std::path::PathBuf::from)
+    } else {
+        std::env::var_os("HOME").map(std::path::PathBuf::from)
+    }
+}
+
+/// Borrow the typed `work-dir` string value carried by a migrated agent.
+fn agent_work_dir_value(agent: &crate::domain::AgentRecord) -> &str {
+    agent
+        .values
+        .get(&id("work-dir"))
+        .and_then(|value| match value {
+            TypedValue::String(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("agent work-dir typed value must be present"))
+}
+
+#[test]
+fn schema1_local_tilde_repository_and_agent_resolve_to_canonical_home() {
+    let Some(home) = host_home_dir() else {
+        panic!("test host must provide a home directory");
+    };
+    let canonical_home = std::fs::canonicalize(&home).unwrap_or_else(|_| home.clone());
+    let source = serde_json::to_vec(&json!({
+        "schema_version": 1,
+        "repositories": [{
+            "id": "home-repo",
+            "name": "Home",
+            "slug": "home",
+            "base_dir": "~/projects/jefe",
+            "default_profile": "",
+            "agent_ids": ["home-agent"]
+        }],
+        "agents": [{
+            "id": "home-agent",
+            "display_id": "H",
+            "repository_id": "home-repo",
+            "name": "Home Agent",
+            "work_dir": "~/projects/jefe/work",
+            "profile": "",
+            "mode_flags": [],
+            "pass_continue": false,
+            "sandbox_enabled": false,
+            "sandbox_engine": "podman",
+            "sandbox_flags": "",
+            "status": "Queued",
+            "runtime_binding": null
+        }],
+        "selected_repository_index": 0,
+        "selected_agent_index": 0
+    }))
+    .value_or_panic("home tilde fixture");
+
+    let migrated = migrate_state(&source).value_or_panic("home tilde migration");
+    let state = migrated.state();
+    let repository = &state.repositories[0];
+    let agent = &state.agents[0];
+
+    let expected_repo = canonical_home.join("projects/jefe");
+    let RepositoryLocation::Local(location) = &repository.location else {
+        panic!("local tilde repository must migrate to a local location");
+    };
+    assert_eq!(
+        Path::new(&location.local_path),
+        &expected_repo,
+        "local ~/repository must resolve against the host home"
+    );
+
+    let work_dir = agent_work_dir_value(agent);
+    let expected_work = canonical_home.join("projects/jefe/work");
+    assert_eq!(
+        Path::new(work_dir),
+        &expected_work,
+        "local ~/agent work_dir typed value must match the canonical home target"
+    );
+    assert!(
+        !expected_work.exists(),
+        "migration must not create the represented agent work directory"
+    );
+}
+
+#[test]
+fn schema1_remote_tilde_paths_remain_remote_syntax() {
+    let source = serde_json::to_vec(&json!({
+        "schema_version": 1,
+        "repositories": [{
+            "id": "remote-repo",
+            "name": "Remote",
+            "slug": "remote",
+            "base_dir": "~/srv/project",
+            "default_profile": "",
+            "remote": {
+                "enabled": true,
+                "login_user": "dev",
+                "host": "example.com",
+                "port": 2222,
+                "run_as_user": "runner"
+            },
+            "agent_ids": ["remote-agent"]
+        }],
+        "agents": [{
+            "id": "remote-agent",
+            "display_id": "R",
+            "repository_id": "remote-repo",
+            "name": "Remote Agent",
+            "work_dir": "~/srv/project/work",
+            "profile": "",
+            "mode_flags": [],
+            "pass_continue": true,
+            "sandbox_enabled": false,
+            "sandbox_engine": "podman",
+            "sandbox_flags": "",
+            "status": "Queued",
+            "runtime_binding": null
+        }],
+        "selected_repository_index": 0,
+        "selected_agent_index": 0
+    }))
+    .value_or_panic("remote tilde fixture");
+
+    let migrated = migrate_state(&source).value_or_panic("remote tilde migration");
+    let state = migrated.state();
+    let repository = &state.repositories[0];
+    let agent = &state.agents[0];
+
+    let RepositoryLocation::Remote(location) = &repository.location else {
+        panic!("remote tilde repository must remain remote");
+    };
+    // The encoded remote target preserves the remote `~/srv/project` path
+    // verbatim within the length-prefixed remote-target encoding.
+    assert!(
+        location.remote_target.contains("~/srv/project"),
+        "remote tilde path must remain remote syntax, got {}",
+        location.remote_target
+    );
+
+    let work_dir = agent_work_dir_value(agent);
+    assert_eq!(
+        work_dir, "~/srv/project/work",
+        "remote tilde work_dir must remain remote syntax"
+    );
+}

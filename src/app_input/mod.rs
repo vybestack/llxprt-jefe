@@ -16,6 +16,8 @@ mod issues_subfocus_dispatch;
 mod list_navigation;
 mod modal_handlers;
 mod new_agent_submit;
+
+mod new_issue_submit;
 mod normal;
 mod persist_focus;
 mod preflight;
@@ -755,7 +757,7 @@ fn dispatch_issues_lifecycle(
 
 fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
+    let (render_cols, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     // Issue #265: use the shared banner projection so a notice-only banner
     // reserves the same viewport row as an error banner.
@@ -768,6 +770,8 @@ fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
         issues_banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
+    state.issues_state.detail_content_width =
+        usize::from(jefe::layout::issues_detail_content_width(render_cols));
 }
 
 fn log_dispatch(message: &AppMessage) {

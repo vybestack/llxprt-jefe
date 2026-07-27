@@ -4,7 +4,9 @@
 
 use jefe::domain::PageToken;
 use jefe::messages::IssuesMessage;
+use jefe::messages::is_new_issue_form_msg;
 use jefe::state::AppEvent;
+use tracing::warn;
 
 use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
 use super::{
@@ -13,7 +15,7 @@ use super::{
 };
 use super::{
     issues_list_dispatch, issues_mutation, issues_property_edit, issues_rewrite_dispatch,
-    issues_send, issues_subfocus_dispatch,
+    issues_send, issues_subfocus_dispatch, new_issue_submit,
 };
 
 /// Resolve the effective issue repository, returning empty components when
@@ -622,6 +624,25 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
 /// Dispatch Issues-mode messages that need orchestration beyond a plain reducer
 /// event (navigation reloads, detail load, send-to-agent, inline submit, and
 /// the close/delete lifecycle). Plain issues messages fall through to the
+/// Route the `Enter` message: apply `IssuesEnter` and load the issue detail
+/// for the new selection. Extracted to keep `dispatch_issues_message` under
+/// the 60-line clippy limit.
+fn dispatch_issues_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
+    load_issue_detail_for_selection(app_state, ctx);
+}
+
+/// Route NewIssue dialog messages that require only a reducer apply+persist
+/// (issue #407). Extracted from `dispatch_issues_message` to keep that
+/// dispatcher under the 60-line limit.
+fn dispatch_new_issue_form_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    apply_and_persist(app_state, ctx, AppEvent::from(message));
+}
+
 /// generic `AppEvent::from` arm in `dispatch_app_message`.
 pub(super) fn dispatch_issues_message(
     app_state: &mut AppStateHandle,
@@ -645,8 +666,7 @@ pub(super) fn dispatch_issues_message(
             issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message);
         }
         IssuesMessage::Enter => {
-            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            load_issue_detail_for_selection(app_state, ctx);
+            dispatch_issues_enter(app_state, ctx);
         }
         message @ (IssuesMessage::ScrollDetailDown
         | IssuesMessage::ScrollDetailPageDown
@@ -656,14 +676,11 @@ pub(super) fn dispatch_issues_message(
                 app_state, ctx, message,
             );
         }
-        IssuesMessage::AgentChooserConfirm => {
-            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
-        }
-        IssuesMessage::InlineSubmit => {
-            issues_mutation::handle_inline_submit(app_state, ctx);
-        }
-        IssuesMessage::RequestIssueRewrite => {
-            issues_rewrite_dispatch::handle_request_issue_rewrite(app_state, ctx);
+        message @ (IssuesMessage::AgentChooserConfirm
+        | IssuesMessage::InlineSubmit
+        | IssuesMessage::RequestIssueRewrite
+        | IssuesMessage::NewIssueSubmit) => {
+            dispatch_direct_action_message(app_state, ctx, message);
         }
         message @ (IssuesMessage::OpenPropertyEditor { .. }
         | IssuesMessage::PropertyEditorConfirm
@@ -686,7 +703,42 @@ pub(super) fn dispatch_issues_message(
         | IssuesMessage::CloseReasonConfirm) => {
             dispatch_issues_lifecycle(app_state, ctx, message);
         }
+        message if is_new_issue_form_msg(&message) => {
+            dispatch_new_issue_form_message(app_state, ctx, message);
+        }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Route the direct-action messages (chooser confirm, inline submit,
+/// issue rewrite, new-issue submit) — extracted from
+/// `dispatch_issues_message` to keep it under the 60-line clippy limit.
+fn dispatch_direct_action_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::AgentChooserConfirm => {
+            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
+        }
+        IssuesMessage::InlineSubmit => {
+            issues_mutation::handle_inline_submit(app_state, ctx);
+        }
+        IssuesMessage::RequestIssueRewrite => {
+            issues_rewrite_dispatch::handle_request_issue_rewrite(app_state, ctx);
+        }
+        IssuesMessage::NewIssueSubmit => {
+            new_issue_submit::handle_new_issue_submit(app_state, ctx);
+        }
+        // The match filter in `dispatch_issues_message` restricts callers to
+        // exactly the four direct-action variants above. The catch-all makes
+        // this match exhaustive (so no compile-time warning if a new variant
+        // is added); the `warn!` is a runtime fallback that logs any future
+        // variant that is routed here but not yet handled.
+        _ => {
+            warn!("dispatch_direct_action_message received unexpected message; ignoring");
+        }
     }
 }
 

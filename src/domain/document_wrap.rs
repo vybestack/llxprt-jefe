@@ -1,7 +1,6 @@
-//! Pure, iocraft-free document wrapping projection for [`ScrollableText`].
+//! Pure, iocraft-free document wrapping and scroll-geometry projection.
 //!
-//! [`ScrollableText`] renders a scrollable text document (issue/PR detail
-//! bodies + comments + the inline editors). Each content *line* may wrap to
+//! Scrollable detail views render text documents whose content *lines* may wrap to
 //! several display *rows* at the pane content width; this module is the single
 //! source of truth for that line→row projection so the render path, the
 //! inline-editor caret placement, and the mouse-selection reverse-map cannot
@@ -27,7 +26,7 @@
 //!
 //! @requirement REQ-DOC-WRAP
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 
 /// One display row produced by wrapping a content document.
 ///
@@ -169,14 +168,106 @@ pub fn viewport_row_to_content(
     Some((row.line, char_offset))
 }
 
+/// Compute the largest content-line scroll offset that can reveal the document tail.
+///
+/// The returned offset remains in content-line units. It is the earliest line
+/// whose wrapped suffix fits in `viewport_rows`; when no full suffix fits, the
+/// final content line is the best representable line-based offset.
+#[must_use]
+pub fn max_content_line_scroll_offset(rows: &[DocDisplayRow], viewport_rows: usize) -> usize {
+    let Some(last) = rows.last() else {
+        return 0;
+    };
+    if viewport_rows == 0 {
+        return last.line;
+    }
+    if rows.len() <= viewport_rows {
+        return 0;
+    }
+
+    let required_first_row = rows.len().saturating_sub(viewport_rows);
+    rows.iter()
+        .enumerate()
+        .find(|(index, row)| {
+            *index >= required_first_row
+                && (*index == 0 || rows[index.saturating_sub(1)].line != row.line)
+        })
+        .map_or(last.line, |(_, row)| row.line)
+}
+
+/// Compute the minimal content-line offset that reveals an inclusive line range.
+///
+/// This preserves the state model's content-line offsets while using wrapped
+/// display rows for visibility. Ranges taller than the viewport anchor at their
+/// first content line, matching the existing line-based reveal policy.
+#[must_use]
+pub fn reveal_content_line_range(
+    rows: &[DocDisplayRow],
+    item_start: usize,
+    item_end: usize,
+    offset: usize,
+    viewport_rows: usize,
+) -> usize {
+    if viewport_rows == 0 || rows.is_empty() {
+        return offset;
+    }
+    let first_visible = line_first_row(rows, offset);
+    let item_first = line_first_row(rows, item_start);
+    let item_last = line_last_row(rows, item_end);
+    let last_visible = first_visible
+        .saturating_add(viewport_rows)
+        .saturating_sub(1);
+    if item_first >= first_visible && item_last <= last_visible {
+        return offset;
+    }
+    if item_last < first_visible || item_first < first_visible {
+        return item_start;
+    }
+    if item_last.saturating_sub(item_first).saturating_add(1) > viewport_rows {
+        return item_start;
+    }
+
+    first_line_revealing_row(rows, item_last, viewport_rows).min(item_start)
+}
+
+fn line_last_row(rows: &[DocDisplayRow], line: usize) -> usize {
+    rows.iter()
+        .enumerate()
+        .rev()
+        .find(|(_, row)| row.line <= line)
+        .map_or(0, |(index, _)| index)
+}
+
+fn first_line_revealing_row(
+    rows: &[DocDisplayRow],
+    target_row: usize,
+    viewport_rows: usize,
+) -> usize {
+    rows.iter()
+        .enumerate()
+        .filter(|(index, row)| *index == 0 || rows[index.saturating_sub(1)].line != row.line)
+        .find(|(index, _)| index.saturating_add(viewport_rows) > target_row)
+        .map_or_else(
+            || rows.last().map_or(0, |row| row.line),
+            |(_, row)| row.line,
+        )
+}
+
 /// Find the display row + relative column that carries the caret at
 /// `(content_line, line_char_col)`, for inline-editor caret placement.
 ///
-/// Returns `(global_row_index, col_within_row)` where `col_within_row` is the
-/// caret column relative to the row's `line_char_start`. The caret belongs to
-/// the row whose `[line_char_start, line_char_end)` contains `line_char_col`,
-/// or — for a caret at a line end — the row ending at that column. Clamps
-/// safely to the line's rows (never panics on a column in a gap).
+/// Returns `(global_row_index, char_offset_within_row)` where
+/// `char_offset_within_row` is the 0-based Unicode SCALAR offset of the caret
+/// column relative to the row's `line_char_start`. This matches the renderer
+/// (`ScrollableText`'s `cursor_row_element`), which slices row text by scalar
+/// position via `chars.iter().take(col)` to paint the glyph under the caret.
+/// Returning a terminal-cell width here instead would shift the caret for wide
+/// (CJK/emoji) and zero-width (combining mark) glyphs (issue #429).
+///
+/// The caret belongs to the row whose `[line_char_start, line_char_end)`
+/// contains `line_char_col`, or — for a caret at a line end — the row ending
+/// at that column. Clamps safely to the line's rows (never panics on a column
+/// in a gap).
 #[must_use]
 pub fn caret_row_for_line_col(
     rows: &[DocDisplayRow],
@@ -197,11 +288,10 @@ pub fn caret_row_for_line_col(
         let r = &rows[idx];
         if line_char_col < r.line_char_end {
             let char_col = line_char_col.saturating_sub(r.line_char_start);
-            let prefix = r.text.chars().take(char_col).collect::<String>();
-            return Some((idx, UnicodeWidthStr::width(prefix.as_str())));
+            return Some((idx, char_col));
         }
         best_idx = idx;
-        best_rel = UnicodeWidthStr::width(r.text.as_str());
+        best_rel = r.text.chars().count();
     }
     Some((best_idx, best_rel))
 }
@@ -209,6 +299,7 @@ pub fn caret_row_for_line_col(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn empty_document_one_row_for_line_zero() {
@@ -298,6 +389,64 @@ mod tests {
     fn caret_row_for_unknown_line_returns_none() {
         let rows = wrap_document("alpha\nbeta", 50);
         assert_eq!(caret_row_for_line_col(&rows, 99, 0), None);
+    }
+
+    /// The inline-editor caret column coordinate is a Unicode SCALAR offset
+    /// relative to the row's `line_char_start`, NOT a terminal-cell width.
+    /// The renderer (`cursor_row_element`) slices the row's chars by scalar
+    /// position to paint the glyph under the caret, so the projection must
+    /// return the scalar offset to match. For wide CJK glyphs (display width
+    /// 2, scalar width 1) the two diverge: a caret between two CJK glyphs is
+    /// at scalar offset 1 but cell-width offset 2. This case must return the
+    /// scalar offset (1), otherwise the rendered caret shifts one cell too
+    /// far right (issue #429).
+    #[test]
+    fn caret_row_for_line_col_returns_char_offset_for_cjk() {
+        // "a甲b丙" fits one row at width 6: [line 0, char range [0,4)].
+        let rows = wrap_document("a甲b丙", 6);
+        assert_eq!(rows.len(), 1, "fixture must fit one row: {rows:?}");
+        // caret at char col 2 lands on 'b'. Its scalar offset within the row
+        // is 2; its cell-width offset would be 3 ('a' + '甲' = 1 + 2 cells).
+        assert_eq!(
+            caret_row_for_line_col(&rows, 0, 2),
+            Some((0, 2)),
+            "caret column must be a scalar offset, not a terminal-cell width"
+        );
+    }
+
+    /// A combining mark (`e\u{301}`) is display width 0 but scalar width 1.
+    /// The caret after it must advance by one scalar offset, not zero. The
+    /// renderer slices one char per scalar, so a zero-width column here would
+    /// paint the caret on the combining mark instead of the following base
+    /// glyph (issue #429).
+    #[test]
+    fn caret_row_for_line_col_counts_combining_marks_as_scalars() {
+        // "e\u{301}x" fits one row: [line 0, char range [0,3)].
+        let rows = wrap_document("e\u{301}x", 4);
+        assert_eq!(rows.len(), 1, "fixture must fit one row: {rows:?}");
+        // caret at char col 2 lands on 'x'. Scalar offset within the row is 2
+        // (base + combining mark); cell-width offset would be 1 (combining
+        // mark contributes 0 cells).
+        assert_eq!(
+            caret_row_for_line_col(&rows, 0, 2),
+            Some((0, 2)),
+            "combining mark must count as one scalar offset"
+        );
+    }
+
+    #[test]
+    fn wrapped_scroll_bound_stays_in_content_line_units() {
+        let rows = wrap_document("alpha bravo charlie\nanchor\nhelp", 5);
+        assert_eq!(max_content_line_scroll_offset(&rows, 4), 1);
+        assert_eq!(max_content_line_scroll_offset(&rows, rows.len()), 0);
+        assert_eq!(max_content_line_scroll_offset(&rows, 0), 2);
+    }
+
+    #[test]
+    fn reveal_range_uses_wrapped_rows_to_keep_tail_anchor_visible() {
+        let rows = wrap_document("alpha bravo charlie\nanchor\nhelp", 5);
+        assert_eq!(reveal_content_line_range(&rows, 1, 2, 0, 4), 1);
+        assert_eq!(reveal_content_line_range(&rows, 1, 2, 1, 4), 1);
     }
 
     #[test]

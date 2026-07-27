@@ -3,7 +3,7 @@
 use crate::issue_detail_content::{ISSUE_REPLY_ANCHOR, build_detail_content};
 
 use super::{
-    AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus,
+    AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
     inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical,
 };
 
@@ -36,7 +36,19 @@ impl AppState {
             self.issues_state.detail_viewport_rows
         };
         let document_rows = crate::layout::issue_detail_document_viewport_rows(viewport_rows, true);
-        let desired = anchor_line.saturating_add(1).saturating_sub(document_rows);
+        let content_width = if self.issues_state.detail_content_width == 0 {
+            usize::from(crate::layout::issues_detail_content_width(120))
+        } else {
+            self.issues_state.detail_content_width
+        };
+        let rows = crate::domain::document_wrap::wrap_document(&content.text, content_width);
+        let desired = crate::domain::document_wrap::reveal_content_line_range(
+            &rows,
+            anchor_line,
+            anchor_line,
+            self.issues_state.detail_scroll_offset,
+            document_rows,
+        );
         self.issues_state.detail_scroll_offset =
             desired.min(self.issues_state.max_detail_scroll_offset());
     }
@@ -237,12 +249,12 @@ impl AppState {
             AppEvent::OpenNewIssueComposer => {
                 let opened = self.issues_state.inline_state == InlineState::None;
                 if opened {
-                    self.issues_state.issue_focus = IssueFocus::IssueList;
-                    self.issues_state.inline_state = InlineState::Composer {
-                        target: ComposerTarget::NewIssue,
-                        text: String::new(),
-                        cursor: 0,
-                    };
+                    // Issue #407: open the inline New Issue form alongside the
+                    // composer. The form carries the rich field state
+                    // (template/type/title/body/labels/milestone/project/
+                    // assignees); the composer keeps the existing inline
+                    // editor contract so key routing/rendering still work.
+                    self.open_new_issue_form();
                 }
                 (true, opened)
             }

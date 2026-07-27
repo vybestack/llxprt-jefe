@@ -49,7 +49,8 @@ fn every_driver_gets_a_unique_owned_namespace() {
 
 #[test]
 fn qualified_psmux_version_is_parsed() {
-    assert_eq!(PsmuxVersion::parse("tmux 3.3.6"), Ok(MINIMUM_PSMUX_VERSION));
+    assert_eq!(PsmuxVersion::parse("tmux 3.3.7"), Ok(MINIMUM_PSMUX_VERSION));
+    assert!(PsmuxVersion::parse("tmux 3.3.6").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
     assert!(PsmuxVersion::parse("psmux unknown").is_err());
 }
 

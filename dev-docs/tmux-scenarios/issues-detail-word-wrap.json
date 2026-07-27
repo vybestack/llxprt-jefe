@@ -10,15 +10,15 @@
     { "waitFor": "LLxprt Jefe" },
     { "key": "i" },
     { "waitFor": "Issues" },
-    { "waitFor": "#" },
+    { "waitFor": "Contextual allocation fixture" },
     { "key": "Enter" },
-    { "waitFor": "Body" },
-    { "key": "e" },
-    { "waitFor": "editing" },
-    { "keys": ["a", "l", "p", "h", "a", " ", "b", "r", "a", "v", "o", " ", "c", "h", "a", "r", "l", "i", "e", " ", "d", "e", "l", "t", "a", " ", "e", "c", "h", "o", " ", "f", "o", "x", "t", "r", "o", "t", " ", "g", "o", "l", "f", " ", "h", "o", "t", "e", "l", " ", "i", "n", "d", "i", "a", " ", "j", "u", "l", "i", "e", "t", "t"] },
-    { "waitFor": "juliett" },
+    { "waitFor": "wrapped-context-head" },
+    { "key": "c" },
+    { "waitFor": "New Comment" },
+    { "expect": "wrapped-context-tail" },
+    { "capture": "issues-contextual-wrapped-document" },
     { "key": "Escape" },
-    { "key": "q" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

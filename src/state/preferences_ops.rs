@@ -138,4 +138,24 @@ impl AppState {
                 });
         }
     }
+
+    /// Snapshot the inline New Issue form's milestone/project into per-repo
+    /// preferences (issue #407 A13). Called by the submit pipeline after a
+    /// successful create. No-op when no repo is selected or the form is
+    /// not open.
+    pub fn remember_new_issue_preferences(&mut self) {
+        let Some(repo_id) = self.current_repo_id() else {
+            return;
+        };
+        let Some(form) = &self.issues_state.new_issue_form else {
+            return;
+        };
+        let milestone = form.milestone.clone();
+        let project_ids = form.project_ids.clone();
+        self.user_preferences
+            .update_field_for_repo(&repo_id, |prefs| {
+                prefs.last_new_issue_milestone.clone_from(&milestone);
+                prefs.last_new_issue_project_ids.clone_from(&project_ids);
+            });
+    }
 }
