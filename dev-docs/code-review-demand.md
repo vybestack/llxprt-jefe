@@ -18,7 +18,7 @@ ledger.
    `[WIP]`, `DO NOT MERGE`, or `[skip review]` in the title, or apply the `wip`
    or `do-not-review` label.
 2. Complete the issue's acceptance evidence and run the repository's required
-   exact-head local gate. For Jefe this is normally `make ci-check`.
+   exact-head local gate. For Jefe this is normally `cargo xtask ci`.
 3. Push the verified commit and confirm that the pull request's current head SHA
    is the commit that passed the gate.
 4. Remove every WIP title marker or exclusion label, mark the pull request ready,

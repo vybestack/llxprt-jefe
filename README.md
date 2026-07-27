@@ -218,7 +218,5 @@ Build/test/developer details moved to [`docs/building.md`](docs/building.md).
 Local PR gate command (matches CI):
 
 ```bash
-make build
+cargo xtask ci
 ```
-
-(`make ci-check` is kept as an alias.)

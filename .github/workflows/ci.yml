@@ -59,19 +59,28 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Block untracked clippy allow attributes
-        run: scripts/check-clippy-allows.sh
+        run: cargo xtask check clippy-allows
 
   source_file_size:
     name: Source file length checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Enforce source file length policy
-        run: scripts/check-source-file-size.sh
+        run: cargo xtask check source-size
+
+  architecture_policy:
+    name: Architecture boundary policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Enforce architecture boundary policy
+        run: cargo xtask check architecture
 
   complexity:
     name: Complexity checks
@@ -108,23 +117,12 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Enforce line coverage threshold
-        run: |
-          RUSTC_BIN="$(rustup which --toolchain stable rustc)"
-          TOOLCHAIN_DIR="$(dirname "$(dirname "$RUSTC_BIN")")"
-          HOST_TRIPLE="$(rustup run stable rustc -vV | sed -n 's/^host: //p')"
-          LLVM_COV="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-cov" \
-          LLVM_PROFDATA="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-profdata" \
-          rustup run stable cargo llvm-cov \
-            --workspace \
-            --all-features \
-            --summary-only \
-            --ignore-filename-regex '(/vendor/|/tmp/|/rustc-)' \
-            --fail-under-lines 30
+        run: cargo xtask coverage
 
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, lint, clippy_allow_policy, source_file_size, complexity, coverage]
+    needs: [fmt, lint, clippy_allow_policy, source_file_size, architecture_policy, complexity, coverage]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -218,6 +216,15 @@ jobs:
         run: |
           cargo fmt --all --check 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-fmt.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Portable policy checks (clippy-allow, source-size, architecture)
+        shell: pwsh
+        run: |
+          cargo xtask check clippy-allows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask check source-size
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask check architecture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run strict Clippy
         shell: pwsh

@@ -1,0 +1,46 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Cross-platform developer and quality automation for Jefe (issue #459)."
+
+# xtask is a local task runner, not a shipped artifact. It must never become a
+# dependency of the jefe package or appear in the published dependency graph.
+[lib]
+name = "xtask"
+path = "src/lib.rs"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+# xtask mirrors the project's strict lint posture but is a tool crate, so the
+# two ergonomic allowances that the root package relaxes are mirrored here to
+# keep `cargo xtask lint` self-consistent.
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "allow"
+expect_used = "allow"
+unwrap_in_result = "allow"
+print_stdout = "allow"
+print_stderr = "allow"
+todo = "deny"
+unimplemented = "deny"
+needless_pass_by_value = "allow"
+redundant_clone = "allow"
+doc_markdown = "allow"
+missing_const_for_fn = "allow"
+missing_errors_doc = "allow"
+option_if_let_else = "allow"
+must_use_candidate = "allow"

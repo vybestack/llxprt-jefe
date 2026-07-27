@@ -328,20 +328,22 @@ fn issue_self_assignment_failed_round_trips_through_message_bus() {
     assert_eq!(error, "repo restricts assignees");
 }
 
-#[cfg(unix)]
 #[test]
-fn architecture_boundary_script_passes_in_ci_tests() {
-    let output = std::process::Command::new("bash")
-        .arg("scripts/check-architecture.sh")
+fn architecture_boundary_policy_passes_in_ci_tests() {
+    // Issue #459: the architecture policy is now a Rust xtask command, not a
+    // Bash script. Invoking `cargo xtask check architecture` runs natively on
+    // Windows and Unix (no Bash/Python/Unix-utility dependency).
+    let output = std::process::Command::new("cargo")
+        .args(["xtask", "check", "architecture"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output();
     let Ok(output) = output else {
-        panic!("architecture boundary script should run");
+        panic!("`cargo xtask check architecture` should run");
     };
 
     assert!(
         output.status.success(),
-        "architecture boundary script failed
+        "architecture boundary policy failed
 stdout:
 {}
 stderr:
