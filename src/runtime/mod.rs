@@ -13,6 +13,8 @@ pub mod agent_execution_guard;
 mod agent_launcher;
 /// Definition-driven immutable local launch plan generation (issue #382 S7).
 pub mod agent_plan;
+/// Ordered execution preparation boundary (issue #382 CW02-09 / S10).
+pub mod agent_preflight;
 mod agent_probe;
 mod agent_probe_parse;
 mod agent_probe_process;
@@ -68,6 +70,10 @@ pub use agent_execution_guard::{
     StaleDimension, authorize_execution,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
+pub use agent_preflight::{
+    InspectOutcome, PreflightCleared, PreparationOutcome, ProcessSandboxInspector,
+    SandboxInspector, UnavailableReason, prepare_execution,
+};
 pub use agent_probe::{AgentProbeResult, AgentProbeTarget, run_local_agent_probe};
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};

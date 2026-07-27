@@ -784,13 +784,22 @@ fn operation_target_matrix() {
 fn preflight_order() {
     parse_scenario("agent-sandbox-preflight.json");
     // Contract: IF sandbox preflight fails, Jefe shall perform no clone,
-    // prompt write, tmux, SSH, or agent spawn.
-    // RED: the typed preflight contract gates every preparation effect.
-    let preflight = Preflight::default();
+    // prompt write, tmux, SSH, or agent spawn. Preflight must run only after
+    // S8 authorize_execution succeeds, and success is the only path to
+    // clone/reset/prompt/SSH/tmux/spawn.
+    //
+    // RED: the ordered preparation boundary enforces this structurally —
+    // prepare_execution requires an AuthorizedExecution and returns either a
+    // PreflightCleared (only way to preparation) or a typed UnavailableReason
+    // with zero later effects.
     assert!(
-        preflight.is_unavailable(),
+        Preflight::default().is_unavailable(),
         "default preflight is unavailable"
     );
+    issue382::preflight_order::assert_engine_missing();
+    issue382::preflight_order::assert_image_missing();
+    issue382::preflight_order::assert_env_missing();
+    issue382::preflight_order::assert_cleared();
 }
 
 // ---- CW02-10: fresh issue ordering ----

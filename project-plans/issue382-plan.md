@@ -462,3 +462,33 @@ workspace/all-target Clippy, source-size policy, and `make quick-check` pass.
 The branch was rebased before S9 because current main changed active runtime
 contract files; the rebase completed without conflicts and no unrelated files
 entered the issue diff.
+
+## S10 ordered execution preflight (2026-07-27)
+
+### S10 RED evidence
+
+The production-connected `preflight_order` acceptance test was extended against
+an absent ordered preparation boundary. The first compile failed because
+`prepare_execution`, `PreflightCleared`, the typed unavailability reasons, and
+the fixed-argv sandbox inspector did not exist. The retained schema-1 scenario
+`agent-sandbox-preflight.json` remains the real-PTY contract for a missing engine
+and zero later launch effects.
+
+### S10 GREEN evidence
+
+A definition-generic preparation boundary now accepts only an S8
+`AuthorizedExecution`, inspects a required sandbox engine and image with fixed
+structural argv, compares an expected engine fingerprint, and checks required
+environment names without returning or logging their values. Success returns a
+`PreflightCleared` carrying the immutable authorized plan and owned observed
+engine fingerprint; every failure returns a typed reason before any later
+clone/reset/prompt/SSH/tmux/spawn preparation effect. Eleven focused unit tests
+and the production `preflight_order` acceptance test pass, as do strict
+workspace/all-target Clippy, source-size policy, and `make quick-check`.
+
+The schema-1 scenario parses in the acceptance test. A direct run with
+`tmux_scenario` on this macOS host was correctly rejected with `HAR-E005`
+because the scenario explicitly targets Linux; that platform skip is not
+reported as runtime success. Existing product-specific interactive preflight
+remains untouched until S15 route convergence, where the generic authorized
+wrapper becomes the sole execution path.
