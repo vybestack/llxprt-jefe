@@ -516,9 +516,15 @@ mod windows_canonical_install {
     }
 
     fn require_node_install_or_skip<T>() -> Option<T> {
+        // Match the established `JEFE_REQUIRE_PSMUX` truthiness convention
+        // (see tests/psmux_smoke.rs, multiplexer_tests.rs): only the literal
+        // value "1" forces the test; "0"/empty/absent all skip. This avoids
+        // surprising CI operators who set the var to "0" expecting a skip
+        // (OCR finding F4 on PR #483).
+        let required = std::env::var("JEFE_REQUIRE_NODE_INSTALL").as_deref() == Ok("1");
         assert!(
-            std::env::var_os("JEFE_REQUIRE_NODE_INSTALL").is_none(),
-            "JEFE_REQUIRE_NODE_INSTALL is set but the canonical Windows npm layout could not \
+            !required,
+            "JEFE_REQUIRE_NODE_INSTALL=1 is set but the canonical Windows npm layout could not \
              be staged (system node.exe unavailable or cross-volume hardlink failed)"
         );
         None
