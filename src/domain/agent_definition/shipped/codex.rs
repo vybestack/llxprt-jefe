@@ -5,14 +5,31 @@
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::Emitter;
+use super::super::normalize::Normalize;
 use super::common::{
-    DefinitionParts, assemble, enum_field, local_only_targets, npm_candidate, path_candidate,
-    sig_string_field,
+    DefinitionParts, assemble, capability_probe, enum_field, line_prefix_probe, local_only_targets,
+    npm_candidate, path_candidate, sig_string_field,
 };
 
 /// Build the core.codex shipped definition.
 pub fn build() -> AgentDefinition {
-    let probe = super::common::line_prefix_probe("codex-cli ", &["prompt"]);
+    let probe = line_prefix_probe(
+        "codex-cli ",
+        capability_probe(
+            Normalize::None,
+            &[
+                ("model", "--model"),
+                ("profile", "--profile"),
+                ("sandbox", "--sandbox"),
+                ("approval", "--ask-for-approval"),
+                ("bypass", "--dangerously-bypass-approvals-and-sandbox"),
+                ("cwd", "--cd"),
+                ("resume", "resume"),
+                ("resume-last", "--last"),
+            ],
+        ),
+        &[],
+    );
     let operations = super::common::unsupported_only_operations(
         "Codex fresh-issue prompt is not fixture-verified",
         "Codex fresh-PR prompt is not fixture-verified",

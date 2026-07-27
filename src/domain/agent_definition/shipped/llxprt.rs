@@ -7,13 +7,14 @@ use std::path::PathBuf;
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::Emitter;
+use super::super::normalize::Normalize;
 use super::super::type_id::{CandidateKind, ExecutableCandidate};
 use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field, line_prefix_probe, npm_candidate, path_candidate,
-    sig_string_field,
+    DefinitionParts, assemble, bool_field, capability_probe, line_version_probe, npm_candidate,
+    path_candidate, sig_string_field,
 };
 
 /// Build the core.llxprt shipped definition.
@@ -29,7 +30,7 @@ pub fn build() -> AgentDefinition {
             path_candidate("llxprt"),
             npm_candidate("@vybestack/llxprt-code", "llxprt"),
         ],
-        probe: line_prefix_probe("0.", &["interactive"]),
+        probe: llxprt_probe(),
         operations: OperationMatrix {
             normal: OperationSupport {
                 supported: Support::supported(),
@@ -71,4 +72,22 @@ pub fn build() -> AgentDefinition {
             },
         ],
     })
+}
+fn llxprt_probe() -> super::super::probe::ProbeSpec {
+    line_version_probe(
+        Normalize::None,
+        capability_probe(
+            Normalize::None,
+            &[
+                ("prompt-interactive", "--prompt-interactive"),
+                ("profile", "--profile-load"),
+                ("sandbox", "--sandbox"),
+                ("sandbox-engine", "--sandbox-engine"),
+                ("yolo", "--yolo"),
+                ("approval", "--approval-mode"),
+                ("continue", "--continue"),
+            ],
+        ),
+        &["prompt-interactive"],
+    )
 }

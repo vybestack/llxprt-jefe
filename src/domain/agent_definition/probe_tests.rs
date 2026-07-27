@@ -1,14 +1,17 @@
 //! Unit tests for the closed probe specification and recognizer set.
 
 use super::*;
+use crate::domain::agent_definition::normalize::Normalize;
 
 #[test]
-fn version_token_recognizer() {
+fn version_token_recognizer_is_dynamic_but_closed() {
     assert!(matches_version_token("0.142.0"));
     assert!(matches_version_token("2.1.212"));
-    assert!(matches_version_token("0.10.0-nightly.260720.d69bda66a"));
+    assert!(matches_version_token("17.23.901-nightly.260720.d69bda66a"));
     assert!(!matches_version_token("not-a-version"));
     assert!(!matches_version_token("1.2"));
+    assert!(!matches_version_token("1.2.3.4"));
+    assert!(!matches_version_token("1.2.3-"));
 }
 
 #[test]
@@ -18,19 +21,19 @@ fn anchored_pattern_variants() {
         AnchoredPattern::Prefix {
             prefix: "codex-cli ".into()
         }
-        .matches("codex-cli 0.142.0")
+        .matches("codex-cli 17.23.901")
     );
     assert!(
         AnchoredPattern::Suffix {
-            suffix: "0.0.634".into()
+            suffix: "(Claude Code)".into()
         }
-        .matches("version 0.0.634")
+        .matches("17.23.901 (Claude Code)")
     );
-    assert!(AnchoredPattern::VersionToken.matches("0.142.0"));
+    assert!(AnchoredPattern::VersionToken.matches("17.23.901"));
 }
 
 #[test]
-fn parse_text_identity_line() {
+fn parse_text_identity_scans_past_nonmatching_lines() {
     let recognizer = IdentityRecognizer::Line {
         prefix: String::new(),
         anchored_pattern: AnchoredPattern::Prefix {
@@ -38,152 +41,228 @@ fn parse_text_identity_line() {
         },
     };
     assert_eq!(
-        parse_text_identity("codex-cli 0.142.0\n", &recognizer),
-        Some("codex-cli 0.142.0".to_string())
+        parse_text_identity("noise\ncodex-cli 17.23.901\n", &recognizer),
+        Some("codex-cli 17.23.901".to_string())
     );
 }
 
 #[test]
-fn parse_prefixed_capabilities_dedup_sort() {
-    let caps =
-        parse_prefixed_capabilities("capability:b\ncapability:a\ncapability:a\n", "capability:");
-    assert_eq!(caps, vec!["a".to_string(), "b".to_string()]);
+fn evaluate_identity_strips_ansi_within_the_stream_bound() {
+    let mut spec = valid_probe();
+    spec.max_bytes = 64;
+    if let Some(probe) = &mut spec.capabilities {
+        probe.normalize = Normalize::StripAnsi;
+    }
+    let identity = evaluate_identity(b"\x1b]11;#000000\x0717.23.901\n\x1b]104\x07", &spec);
+    assert_eq!(identity, Ok(Some("17.23.901".to_string())));
 }
 
 #[test]
-fn validate_accepts_minimal_probe() {
+fn evaluate_identity_reports_exact_input_errors() {
     let spec = ProbeSpec {
-        argv: vec!["--version".to_string()],
-        stream: ProbeStream::Stdout,
-        framing: ProbeFraming::Utf8Text,
-        identity: IdentityRecognizer::Line {
-            prefix: String::new(),
-            anchored_pattern: AnchoredPattern::VersionToken,
-        },
-        capabilities: None,
-        required: vec!["interactive".to_string()],
-        timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
-        max_bytes: PROBE_STREAM_LIMIT,
+        max_bytes: 3,
+        ..valid_probe()
     };
-    assert!(validate(&spec).is_ok(), "minimal probe must validate");
+    assert_eq!(
+        evaluate_identity(b"1234", &spec),
+        Err(ProbeParseError::StreamTooLong {
+            bytes: 4,
+            max_bytes: 3,
+        })
+    );
+    assert_eq!(
+        ProbeParseError::StreamTooLong {
+            bytes: 4,
+            max_bytes: 3,
+        }
+        .to_string(),
+        "probe stream is 4 bytes; maximum is 3"
+    );
+    let utf8_spec = ProbeSpec {
+        max_bytes: 8,
+        ..valid_probe()
+    };
+    assert_eq!(
+        evaluate_identity(&[0xff], &utf8_spec),
+        Err(ProbeParseError::InvalidUtf8)
+    );
+    assert_eq!(
+        ProbeParseError::InvalidUtf8.to_string(),
+        "probe stream is not valid UTF-8"
+    );
 }
 
 #[test]
-fn validate_rejects_empty_argv() {
-    let spec = ProbeSpec {
+fn capability_evaluation_sorts_and_reports_required_tokens() {
+    let probe = capability_probe(&[
+        ("resume", "resume"),
+        ("model", "--model"),
+        ("interactive", "--interactive"),
+    ]);
+    let required = vec!["interactive".to_string()];
+    let evaluated = evaluate_capabilities("resume --model value", &probe, &required);
+    assert_eq!(
+        evaluated.present,
+        vec!["model".to_string(), "resume".to_string()]
+    );
+    assert_eq!(evaluated.missing_required, required);
+    assert!(!evaluated.all_required_present());
+}
+
+#[test]
+fn capability_evaluation_strips_ansi() {
+    let mut probe = capability_probe(&[("interactive", "--interactive")]);
+    probe.normalize = Normalize::StripAnsi;
+    let evaluated = evaluate_capabilities(
+        "\x1b]11;#000000\x07--interactive\x1b[0m",
+        &probe,
+        &["interactive".to_string()],
+    );
+    assert_eq!(evaluated.present, vec!["interactive".to_string()]);
+    assert!(evaluated.all_required_present());
+}
+
+#[test]
+fn token_matching_is_boundary_safe_for_flags_and_commands() {
+    assert!(token_present("Options: --model <MODEL>", "--model"));
+    assert!(!token_present("Options: --model-name <MODEL>", "--model"));
+    assert!(!token_present("Options: ---model <MODEL>", "--model"));
+    assert!(token_present("Commands:\n  resume  Continue", "resume"));
+    assert!(!token_present("Commands:\n  presume  Continue", "resume"));
+    assert!(!token_present(
+        "Commands:\n  resume-last  Continue",
+        "resume"
+    ));
+}
+
+#[test]
+fn validate_accepts_authored_required_token() {
+    assert!(validate(&valid_probe()).is_ok());
+}
+
+#[test]
+fn validate_rejects_empty_and_overlong_argv() {
+    let empty = ProbeSpec {
         argv: vec![],
         ..valid_probe()
     };
-    let Err(err) = validate(&spec) else {
-        panic!("empty argv rejected");
-    };
-    assert!(matches!(err, ProbeValidateError::ArgvBounds { len: 0 }));
-}
-
-#[test]
-fn validate_rejects_argv_over_n() {
-    let too_many = vec!["a".to_string(); PROBE_ARGV_LIMIT + 1];
-    let spec = ProbeSpec {
-        argv: too_many,
+    assert_eq!(
+        validate(&empty),
+        Err(ProbeValidateError::ArgvBounds { len: 0 })
+    );
+    let over = ProbeSpec {
+        argv: vec!["a".to_string(); PROBE_ARGV_LIMIT + 1],
         ..valid_probe()
     };
-    let Err(err) = validate(&spec) else {
-        panic!("argv over N rejected");
-    };
-    assert!(matches!(err, ProbeValidateError::ArgvBounds { len } if len == PROBE_ARGV_LIMIT + 1));
-}
-
-#[test]
-fn validate_rejects_capabilities_over_n() {
-    let too_many = vec!["cap".to_string(); CAPABILITY_LIMIT + 1];
-    let spec = ProbeSpec {
-        required: too_many,
-        ..valid_probe()
-    };
-    let Err(err) = validate(&spec) else {
-        panic!("capabilities over N rejected");
-    };
-    assert!(
-        matches!(err, ProbeValidateError::CapabilityBounds { len } if len == CAPABILITY_LIMIT + 1)
+    assert_eq!(
+        validate(&over),
+        Err(ProbeValidateError::ArgvBounds {
+            len: PROBE_ARGV_LIMIT + 1,
+        })
     );
 }
 
 #[test]
-fn validate_rejects_duplicate_capability() {
-    let spec = ProbeSpec {
+fn validate_rejects_capability_bounds_duplicates_and_missing_token() {
+    let over = ProbeSpec {
+        required: vec!["cap".to_string(); CAPABILITY_LIMIT + 1],
+        ..valid_probe()
+    };
+    assert!(matches!(
+        validate(&over),
+        Err(ProbeValidateError::CapabilityBounds { len }) if len == CAPABILITY_LIMIT + 1
+    ));
+
+    let duplicate = ProbeSpec {
         required: vec!["interactive".to_string(), "interactive".to_string()],
         ..valid_probe()
     };
-    let Err(err) = validate(&spec) else {
-        panic!("duplicate capability rejected");
-    };
     assert!(matches!(
-        err,
-        ProbeValidateError::DuplicateCapability { index: 1, .. }
+        validate(&duplicate),
+        Err(ProbeValidateError::DuplicateCapability { index: 1, .. })
     ));
-}
 
-#[test]
-fn validate_rejects_invalid_capability_id() {
-    let spec = ProbeSpec {
-        required: vec!["UPPER".to_string()],
+    let missing = ProbeSpec {
+        required: vec!["missing".to_string()],
         ..valid_probe()
     };
-    let Err(err) = validate(&spec) else {
-        panic!("invalid capability id rejected");
-    };
-    assert!(matches!(
-        err,
-        ProbeValidateError::InvalidCapabilityId { index: 0, .. }
-    ));
-}
-
-#[test]
-fn validate_rejects_timeout_zero_and_over_remote_ceiling() {
-    let zero = ProbeSpec {
-        timeout_ms: 0,
-        ..valid_probe()
-    };
-    assert!(validate(&zero).is_err(), "timeout 0 rejected");
-    let over = ProbeSpec {
-        timeout_ms: REMOTE_PROBE_TIMEOUT_MS + 1,
-        ..valid_probe()
-    };
-    assert!(
-        validate(&over).is_err(),
-        "timeout over remote ceiling rejected"
+    assert_eq!(
+        validate(&missing),
+        Err(ProbeValidateError::RequiredCapabilityHasNoToken {
+            index: 0,
+            id: "missing".to_string(),
+        })
     );
 }
 
 #[test]
-fn validate_rejects_max_bytes_zero_and_over_limit() {
-    let zero = ProbeSpec {
-        max_bytes: 0,
-        ..valid_probe()
-    };
-    assert!(validate(&zero).is_err(), "max_bytes 0 rejected");
-    let over = ProbeSpec {
-        max_bytes: PROBE_STREAM_LIMIT + 1,
-        ..valid_probe()
-    };
-    assert!(validate(&over).is_err(), "max_bytes over limit rejected");
+fn validate_reports_actual_capability_token_index() {
+    let mut spec = valid_probe();
+    if let Some(probe) = &mut spec.capabilities {
+        probe.tokens.push(CapabilityToken {
+            id: "UPPER".to_string(),
+            token: "--upper".to_string(),
+        });
+    }
+    assert!(matches!(
+        validate(&spec),
+        Err(ProbeValidateError::InvalidCapabilityId { index: 1, .. })
+    ));
 }
 
 #[test]
-fn validate_rejects_invalid_json_pointer() {
-    let spec = ProbeSpec {
+fn validate_rejects_duplicate_literal_tokens() {
+    let mut spec = valid_probe();
+    if let Some(probe) = &mut spec.capabilities {
+        probe.tokens.push(CapabilityToken {
+            id: "second".to_string(),
+            token: "--interactive".to_string(),
+        });
+    }
+    assert_eq!(
+        validate(&spec),
+        Err(ProbeValidateError::DuplicateToken {
+            index: 1,
+            token: "--interactive".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_rejects_timeout_and_stream_bounds() {
+    let zero_timeout = ProbeSpec {
+        timeout_ms: 0,
+        ..valid_probe()
+    };
+    assert!(validate(&zero_timeout).is_err());
+    let over_timeout = ProbeSpec {
+        timeout_ms: REMOTE_PROBE_TIMEOUT_MS + 1,
+        ..valid_probe()
+    };
+    assert!(validate(&over_timeout).is_err());
+    let zero_stream = ProbeSpec {
+        max_bytes: 0,
+        ..valid_probe()
+    };
+    assert!(validate(&zero_stream).is_err());
+    let over_stream = ProbeSpec {
+        max_bytes: PROBE_STREAM_LIMIT + 1,
+        ..valid_probe()
+    };
+    assert!(validate(&over_stream).is_err());
+}
+
+#[test]
+fn validate_rejects_invalid_recognizer() {
+    let pointer = ProbeSpec {
         identity: IdentityRecognizer::JsonPointer {
             pointer: "identity".to_string(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
         ..valid_probe()
     };
-    assert!(validate(&spec).is_err(), "invalid JSON pointer rejected");
-}
-
-#[test]
-fn validate_rejects_empty_anchored_pattern_value() {
-    let spec = ProbeSpec {
+    assert!(validate(&pointer).is_err());
+    let empty_pattern = ProbeSpec {
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::Prefix {
@@ -192,7 +271,22 @@ fn validate_rejects_empty_anchored_pattern_value() {
         },
         ..valid_probe()
     };
-    assert!(validate(&spec).is_err(), "empty anchored pattern rejected");
+    assert!(validate(&empty_pattern).is_err());
+}
+
+fn capability_probe(tokens: &[(&str, &str)]) -> CapabilityProbe {
+    CapabilityProbe {
+        argv: vec!["--help".to_string()],
+        stream: ProbeStream::Stdout,
+        normalize: Normalize::None,
+        tokens: tokens
+            .iter()
+            .map(|(id, token)| CapabilityToken {
+                id: (*id).to_string(),
+                token: (*token).to_string(),
+            })
+            .collect(),
+    }
 }
 
 fn valid_probe() -> ProbeSpec {
@@ -204,7 +298,7 @@ fn valid_probe() -> ProbeSpec {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
-        capabilities: None,
+        capabilities: Some(capability_probe(&[("interactive", "--interactive")])),
         required: vec!["interactive".to_string()],
         timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: PROBE_STREAM_LIMIT,

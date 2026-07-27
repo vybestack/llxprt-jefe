@@ -8,7 +8,8 @@ use super::bounded_json::BoundedJson;
 use super::definition::{AgentDefinition, DEFINITION_SCHEMA};
 use super::fields::{Emitter, Field, FieldKind, FieldValue};
 use super::probe::{
-    AnchoredPattern, CapabilitySource, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
+    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
+    ProbeStream,
 };
 use super::type_id::{CandidateKind, ExecutableCandidate};
 use super::types::{
@@ -181,28 +182,31 @@ fn probe_to_json(probe: &ProbeSpec) -> BoundedJson {
             BoundedJson::Str(framing_str(probe.framing).to_string()),
         ),
         ("identity".to_string(), identity_to_json(&probe.identity)),
-    ];
-    if let Some(caps) = &probe.capabilities {
-        members.push(("capabilities".to_string(), capabilities_to_json(caps)));
-    }
-    members.push((
-        "required".to_string(),
-        BoundedJson::Array(
-            probe
-                .required
-                .iter()
-                .map(|s| BoundedJson::Str(s.clone()))
-                .collect(),
+        (
+            "required".to_string(),
+            BoundedJson::Array(
+                probe
+                    .required
+                    .iter()
+                    .map(|s| BoundedJson::Str(s.clone()))
+                    .collect(),
+            ),
         ),
-    ));
-    members.push((
-        "timeout_ms".to_string(),
-        BoundedJson::Int(i64::try_from(probe.timeout_ms).unwrap_or(i64::MAX)),
-    ));
-    members.push((
-        "max_bytes".to_string(),
-        BoundedJson::Int(i64::try_from(probe.max_bytes).unwrap_or(i64::MAX)),
-    ));
+        (
+            "timeout_ms".to_string(),
+            BoundedJson::Int(i64::try_from(probe.timeout_ms).unwrap_or(i64::MAX)),
+        ),
+        (
+            "max_bytes".to_string(),
+            BoundedJson::Int(i64::try_from(probe.max_bytes).unwrap_or(i64::MAX)),
+        ),
+    ];
+    if let Some(capability_probe) = &probe.capabilities {
+        members.push((
+            "capability_probe".to_string(),
+            capability_probe_to_json(capability_probe),
+        ));
+    }
     members.sort_by(|a, b| a.0.cmp(&b.0));
     BoundedJson::Object(members)
 }
@@ -286,25 +290,49 @@ fn anchored_to_json(pattern: &AnchoredPattern) -> BoundedJson {
     BoundedJson::Object(members)
 }
 
-fn capabilities_to_json(caps: &CapabilitySource) -> BoundedJson {
-    let mut members = match caps {
-        CapabilitySource::JsonArray { pointer } => vec![
-            (
-                "kind".to_string(),
-                BoundedJson::Str("json_array".to_string()),
+fn capability_probe_to_json(probe: &CapabilityProbe) -> BoundedJson {
+    let mut members = vec![
+        (
+            "argv".to_string(),
+            BoundedJson::Array(
+                probe
+                    .argv
+                    .iter()
+                    .map(|s| BoundedJson::Str(s.clone()))
+                    .collect(),
             ),
-            ("pointer".to_string(), BoundedJson::Str(pointer.clone())),
-        ],
-        CapabilitySource::PrefixedLines { prefix } => vec![
-            (
-                "kind".to_string(),
-                BoundedJson::Str("prefixed_lines".to_string()),
-            ),
-            ("prefix".to_string(), BoundedJson::Str(prefix.clone())),
-        ],
-    };
+        ),
+        (
+            "stream".to_string(),
+            BoundedJson::Str(stream_str(probe.stream).to_string()),
+        ),
+        (
+            "normalize".to_string(),
+            BoundedJson::Str(normalize_str(probe.normalize).to_string()),
+        ),
+        (
+            "tokens".to_string(),
+            BoundedJson::Array(probe.tokens.iter().map(capability_token_to_json).collect()),
+        ),
+    ];
     members.sort_by(|a, b| a.0.cmp(&b.0));
     BoundedJson::Object(members)
+}
+
+fn capability_token_to_json(token: &CapabilityToken) -> BoundedJson {
+    let mut members = vec![
+        ("id".to_string(), BoundedJson::Str(token.id.clone())),
+        ("token".to_string(), BoundedJson::Str(token.token.clone())),
+    ];
+    members.sort_by(|a, b| a.0.cmp(&b.0));
+    BoundedJson::Object(members)
+}
+
+fn normalize_str(normalize: super::normalize::Normalize) -> &'static str {
+    match normalize {
+        super::normalize::Normalize::None => "none",
+        super::normalize::Normalize::StripAnsi => "strip_ansi",
+    }
 }
 
 fn operations_to_json(ops: &OperationMatrix) -> BoundedJson {

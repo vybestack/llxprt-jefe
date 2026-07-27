@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use super::super::definition::{AgentDefinition, DEFINITION_SCHEMA};
 use super::super::fields::{Emitter, Field, FieldKind, FieldValue};
 use super::super::limits::{LOCAL_PROBE_TIMEOUT_MS, PROBE_STREAM_LIMIT};
+use super::super::normalize::Normalize;
 use super::super::probe::{
-    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
+    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
+    ProbeStream,
 };
 use super::super::type_id::{CandidateKind, ExecutableCandidate};
 use super::super::types::{OperationMatrix, Support, TargetMatrix, TargetSupport};
@@ -108,7 +110,11 @@ pub fn uvx_candidate(package: &str, binary: &str) -> ExecutableCandidate {
 }
 
 /// Build a line-prefix identity probe spec.
-pub fn line_prefix_probe(prefix: &str, required: &[&str]) -> ProbeSpec {
+pub fn line_prefix_probe(
+    prefix: &str,
+    capability_probe: CapabilityProbe,
+    required: &[&str],
+) -> ProbeSpec {
     ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
@@ -119,7 +125,7 @@ pub fn line_prefix_probe(prefix: &str, required: &[&str]) -> ProbeSpec {
                 prefix: prefix.to_string(),
             },
         },
-        capabilities: None,
+        capabilities: Some(capability_probe),
         required: required.iter().map(|s| (*s).to_string()).collect(),
         timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: PROBE_STREAM_LIMIT,
@@ -127,7 +133,11 @@ pub fn line_prefix_probe(prefix: &str, required: &[&str]) -> ProbeSpec {
 }
 
 /// Build a line-suffix identity probe spec.
-pub fn line_suffix_probe(suffix: &str, required: &[&str]) -> ProbeSpec {
+pub fn line_suffix_probe(
+    suffix: &str,
+    capability_probe: CapabilityProbe,
+    required: &[&str],
+) -> ProbeSpec {
     ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
@@ -138,10 +148,48 @@ pub fn line_suffix_probe(suffix: &str, required: &[&str]) -> ProbeSpec {
                 suffix: suffix.to_string(),
             },
         },
-        capabilities: None,
+        capabilities: Some(capability_probe),
         required: required.iter().map(|s| (*s).to_string()).collect(),
         timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: PROBE_STREAM_LIMIT,
+    }
+}
+
+/// Build a version-token identity probe spec.
+pub fn line_version_probe(
+    normalize: Normalize,
+    mut capability_probe: CapabilityProbe,
+    required: &[&str],
+) -> ProbeSpec {
+    capability_probe.normalize = normalize;
+    ProbeSpec {
+        argv: vec!["--version".to_string()],
+        stream: ProbeStream::Stdout,
+        framing: ProbeFraming::Utf8Text,
+        identity: IdentityRecognizer::Line {
+            prefix: String::new(),
+            anchored_pattern: AnchoredPattern::VersionToken,
+        },
+        capabilities: Some(capability_probe),
+        required: required.iter().map(|s| (*s).to_string()).collect(),
+        timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
+        max_bytes: PROBE_STREAM_LIMIT,
+    }
+}
+
+/// Build a capability probe from authored (id, token) pairs.
+pub fn capability_probe(normalize: Normalize, tokens: &[(&str, &str)]) -> CapabilityProbe {
+    CapabilityProbe {
+        argv: vec!["--help".to_string()],
+        stream: ProbeStream::Stdout,
+        normalize,
+        tokens: tokens
+            .iter()
+            .map(|(id, token)| CapabilityToken {
+                id: (*id).to_string(),
+                token: (*token).to_string(),
+            })
+            .collect(),
     }
 }
 

@@ -3,7 +3,8 @@
 use super::super::diagnostics::DefinitionError;
 use super::super::fields::{Emitter, Field, FieldKind};
 use super::super::probe::{
-    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
+    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
+    ProbeStream,
 };
 use super::super::type_id::{AgentTypeId, CandidateKind, ExecutableCandidate};
 use super::super::types::{OperationMatrix, TargetMatrix};
@@ -25,6 +26,12 @@ fn valid_definition_json() -> String {
                 "kind": "line",
                 "prefix": "",
                 "anchored_pattern": {"kind": "version_token"}
+            },
+            "capability_probe": {
+                "argv": ["--help"],
+                "stream": "stdout",
+                "normalize": "none",
+                "tokens": [{"id": "interactive", "token": "--interactive"}]
             },
             "required": ["interactive"],
             "timeout_ms": 5000,
@@ -516,7 +523,15 @@ fn valid_probe() -> ProbeSpec {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
-        capabilities: None,
+        capabilities: Some(CapabilityProbe {
+            argv: vec!["--help".to_string()],
+            stream: ProbeStream::Stdout,
+            normalize: super::super::normalize::Normalize::None,
+            tokens: vec![CapabilityToken {
+                id: "interactive".to_string(),
+                token: "--interactive".to_string(),
+            }],
+        }),
         required: vec!["interactive".to_string()],
         timeout_ms: super::super::limits::LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: super::super::limits::PROBE_STREAM_LIMIT,

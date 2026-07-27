@@ -18,6 +18,7 @@ pub mod diagnostics;
 pub mod fields;
 pub mod json_pointer;
 pub mod limits;
+pub mod normalize;
 pub mod probe;
 pub mod reader;
 pub mod sha256;
@@ -30,9 +31,10 @@ pub mod validation;
 pub use definition::{AgentDefinition, DEFINITION_SCHEMA};
 pub use diagnostics::{DefinitionError, FieldScope};
 pub use fields::{Emitter, EmitterValidateError, Field, FieldKind, FieldValidateError, FieldValue};
+pub use normalize::Normalize;
 pub use probe::{
-    AnchoredPattern, CapabilitySource, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
-    ProbeValidateError,
+    AnchoredPattern, CapabilityEvaluation, CapabilityProbe, CapabilityToken, IdentityRecognizer,
+    ProbeFraming, ProbeParseError, ProbeSpec, ProbeStream, ProbeValidateError,
 };
 pub use sha256::DefinitionSha256;
 pub use signature::LaunchSignature;

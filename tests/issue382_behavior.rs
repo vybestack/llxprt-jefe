@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use issue382::fixtures::{
     AGENTS, SCENARIO_ROOT, assert_probe_identity, assert_provenance, read_scenario, repo_path,
 };
+use issue382::probe_fixtures::assert_all_retained_probe_fixtures;
 
 // The closed production contract module the issue mandates. It does not exist
 // on `origin/main`; this import is the RED trigger.
@@ -200,14 +201,10 @@ fn candidate_resolver_order() {
 #[test]
 fn probe_parser_four_agents() {
     parse_scenario("agent-probe-parser.json");
-    // Contract: WHEN each fixture-recorded probe stream parses, Jefe shall
-    // reproduce its recorded identity and capabilities for all four rows.
-    for agent in AGENTS {
-        assert_probe_identity(agent);
-        assert_provenance(agent);
-    }
-    // RED: ProbeSpec is the closed probe contract referenced by every
-    // shipped definition; its default must be constructible.
+    // Contract: every retained release directory is discovered rather than
+    // selected by fixture name. Its exact --version bytes must identify the
+    // agent, and authored --help literals must reproduce all capabilities.
+    assert_all_retained_probe_fixtures();
     let _spec = ProbeSpec::default();
 }
 

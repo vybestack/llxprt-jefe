@@ -7,14 +7,28 @@
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::Emitter;
+use super::super::normalize::Normalize;
 use super::common::{
-    DefinitionParts, assemble, enum_field, local_only_targets, npm_candidate, path_candidate,
-    sig_string_field,
+    DefinitionParts, assemble, capability_probe, enum_field, line_suffix_probe, local_only_targets,
+    npm_candidate, path_candidate, sig_string_field,
 };
 
 /// Build the core.claude-code shipped definition.
 pub fn build() -> AgentDefinition {
-    let probe = super::common::line_suffix_probe("(Claude Code)", &["prompt"]);
+    let probe = line_suffix_probe(
+        "(Claude Code)",
+        capability_probe(
+            Normalize::None,
+            &[
+                ("continue", "--continue"),
+                ("resume", "--resume"),
+                ("model", "--model"),
+                ("permission-mode", "--permission-mode"),
+                ("bypass-permissions", "--dangerously-skip-permissions"),
+            ],
+        ),
+        &[],
+    );
     let operations = super::common::unsupported_only_operations(
         "Claude fresh-issue prompt is not fixture-verified",
         "Claude fresh-PR prompt is not fixture-verified",
@@ -33,7 +47,14 @@ pub fn build() -> AgentDefinition {
             sig_string_field("model"),
             enum_field(
                 "permission_mode",
-                &["default", "acceptEdits", "plan", "bypassPermissions"],
+                &[
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions",
+                    "manual",
+                    "dontAsk",
+                    "plan",
+                ],
             ),
         ],
         agent_fields: vec![sig_string_field("prompt")],
