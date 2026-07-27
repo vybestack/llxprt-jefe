@@ -275,17 +275,25 @@ fn str_field(value: &Value, field: &str) -> String {
         .to_string()
 }
 
-/// Parse the GraphQL `mergeable` enum (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`)
-/// into a tri-state bool: `MERGEABLE`→`Some(true)`,
-/// `CONFLICTING`→`Some(false)`, anything else (incl. `UNKNOWN` and missing)→
-/// `None`. Used by the list parser so the PR list can show a mergeable/conflict
-/// indicator without a separate detail fetch (issue #314).
+/// Parse the GraphQL `mergeable` field into a tri-state bool.
+///
+/// Accepts both shapes returned by `gh`:
+/// - GraphQL enum strings: `MERGEABLE`→`Some(true)`, `CONFLICTING`→`Some(false)`,
+///   anything else (incl. `UNKNOWN` and missing)→`None`
+/// - Boolean JSON (legacy/`gh pr view --json` fixtures): `true`/`false` map
+///   directly to `Some(true)`/`Some(false)`
+///
+/// Used by both the list parser (issue #314) and the detail parser so detail
+/// views do not silently drop mergeable when GraphQL returns the enum string.
 #[must_use]
 pub fn parse_mergeable_enum(value: Option<&Value>) -> Option<bool> {
-    let token = value.and_then(Value::as_str)?;
-    match token {
-        "MERGEABLE" => Some(true),
-        "CONFLICTING" => Some(false),
+    match value? {
+        Value::Bool(b) => Some(*b),
+        Value::String(token) => match token.as_str() {
+            "MERGEABLE" => Some(true),
+            "CONFLICTING" => Some(false),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -386,7 +394,7 @@ pub fn parse_pull_request_detail_json(
         reviews,
         checks,
         comments: exhausted_comments(Vec::new()),
-        mergeable: value.get("mergeable").and_then(Value::as_bool),
+        mergeable: parse_mergeable_enum(value.get("mergeable")),
         merge_state_status: value
             .get("mergeStateStatus")
             .and_then(Value::as_str)
@@ -915,4 +923,27 @@ pub fn parse_thread_reply_json(stdout: &str) -> Result<IssueComment, GhError> {
         .and_then(|r| r.get("comment"))
         .ok_or_else(|| GhError::ParseError("missing thread reply comment node".to_string()))?;
     Ok(parse_thread_comment_node(comment_node))
+}
+
+#[cfg(test)]
+mod mergeable_parse_tests {
+    use super::parse_mergeable_enum;
+    use serde_json::json;
+
+    #[test]
+    fn enum_strings_map_like_list_parser() {
+        assert_eq!(parse_mergeable_enum(Some(&json!("MERGEABLE"))), Some(true));
+        assert_eq!(
+            parse_mergeable_enum(Some(&json!("CONFLICTING"))),
+            Some(false)
+        );
+        assert_eq!(parse_mergeable_enum(Some(&json!("UNKNOWN"))), None);
+        assert_eq!(parse_mergeable_enum(None), None);
+    }
+
+    #[test]
+    fn boolean_json_still_parses_for_detail_fixtures() {
+        assert_eq!(parse_mergeable_enum(Some(&json!(true))), Some(true));
+        assert_eq!(parse_mergeable_enum(Some(&json!(false))), Some(false));
+    }
 }

@@ -932,6 +932,92 @@ fn test_parse_pr_detail_not_mergeable() {
     assert_eq!(detail.merge_state_status, Some("DIRTY".to_string()));
 }
 
+/// GraphQL `mergeable` enum strings (same shape as the PR list) must parse on
+/// detail payloads. Boolean-only `.as_bool()` previously dropped these to
+/// `None`, hiding conflicts in the detail header.
+///
+/// @requirement REQ-PR-009
+#[test]
+fn test_parse_pr_detail_mergeable_graphql_enum_strings() {
+    let mergeable_json = r#"{
+        "number": 10,
+        "title": "Enum mergeable",
+        "state": "OPEN",
+        "mergedAt": null,
+        "author": {"login": "someone"},
+        "createdAt": "2026-06-01T00:00:00Z",
+        "updatedAt": "2026-06-01T00:00:00Z",
+        "headRefName": "feature",
+        "baseRefName": "main",
+        "isDraft": false,
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/o/r/pull/10",
+        "reviewDecision": null,
+        "statusCheckRollup": [],
+        "reviews": [],
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+    }"#;
+    let detail = parse_pull_request_detail_json(mergeable_json, "o/r")
+        .value_or_panic("detail with mergeable MERGEABLE string");
+    assert_eq!(detail.mergeable, Some(true));
+
+    let conflicting_json = r#"{
+        "number": 11,
+        "title": "Enum conflicting",
+        "state": "OPEN",
+        "mergedAt": null,
+        "author": {"login": "someone"},
+        "createdAt": "2026-06-01T00:00:00Z",
+        "updatedAt": "2026-06-01T00:00:00Z",
+        "headRefName": "conflict",
+        "baseRefName": "main",
+        "isDraft": false,
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/o/r/pull/11",
+        "reviewDecision": null,
+        "statusCheckRollup": [],
+        "reviews": [],
+        "mergeable": "CONFLICTING",
+        "mergeStateStatus": "DIRTY"
+    }"#;
+    let detail = parse_pull_request_detail_json(conflicting_json, "o/r")
+        .value_or_panic("detail with mergeable CONFLICTING string");
+    assert_eq!(detail.mergeable, Some(false));
+
+    let unknown_json = r#"{
+        "number": 12,
+        "title": "Enum unknown",
+        "state": "OPEN",
+        "mergedAt": null,
+        "author": {"login": "someone"},
+        "createdAt": "2026-06-01T00:00:00Z",
+        "updatedAt": "2026-06-01T00:00:00Z",
+        "headRefName": "unknown",
+        "baseRefName": "main",
+        "isDraft": false,
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/o/r/pull/12",
+        "reviewDecision": null,
+        "statusCheckRollup": [],
+        "reviews": [],
+        "mergeable": "UNKNOWN",
+        "mergeStateStatus": "UNKNOWN"
+    }"#;
+    let detail = parse_pull_request_detail_json(unknown_json, "o/r")
+        .value_or_panic("detail with mergeable UNKNOWN string");
+    assert_eq!(detail.mergeable, None);
+}
+
 /// When the JSON omits mergeable fields entirely, they default to None.
 ///
 /// @requirement REQ-PR-009
