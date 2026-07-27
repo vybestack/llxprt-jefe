@@ -63,6 +63,11 @@ impl LongPathPolicy {
         if tail.contains("    1") || tail.contains("\t1") {
             return Self::Enabled;
         }
+        // Symmetric fallback for a disabled policy rendered without the `0x`
+        // prefix; without this a plain `0` is misclassified as `Missing`.
+        if tail.contains("    0") || tail.contains("\t0") {
+            return Self::Disabled;
+        }
         Self::Missing
     }
 

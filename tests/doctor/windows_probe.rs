@@ -35,6 +35,31 @@ fn classifies_zero_padded_and_nonzero_registry_dwords() {
 }
 
 #[test]
+fn classifies_locale_plain_dword_without_hex_prefix() {
+    // Some locales/Windows versions render a REG_DWORD without the `0x` prefix.
+    // The classifier falls back to plain numeric suffixes. The enabled (`1`)
+    // fallback is covered here, and the symmetric disabled (`0`) fallback must
+    // classify as Disabled rather than Missing so a disabled policy is not
+    // silently reported as absent.
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled    REG_DWORD    1"),
+        LongPathPolicy::Enabled
+    );
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled\tREG_DWORD\t1"),
+        LongPathPolicy::Enabled
+    );
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled    REG_DWORD    0"),
+        LongPathPolicy::Disabled
+    );
+    assert_eq!(
+        LongPathPolicy::classify("LongPathsEnabled\tREG_DWORD\t0"),
+        LongPathPolicy::Disabled
+    );
+}
+
+#[test]
 fn classifies_missing_registry_value() {
     assert_eq!(LongPathPolicy::classify(""), LongPathPolicy::Missing);
     assert_eq!(
