@@ -263,7 +263,7 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
 /// unit tests share one policy (avoids flashing empty scrollback on a cold
 /// exact miss while a prior capture still exists).
 #[must_use]
-pub(crate) fn resolve_cached_history_lines(
+pub fn resolve_cached_history_lines(
     exact: Option<&[String]>,
     fallback: Option<&[String]>,
 ) -> Vec<String> {
@@ -277,7 +277,7 @@ pub(crate) fn resolve_cached_history_lines(
 /// scrollback instead of returning an empty vec (which flashes the pane and
 /// can corrupt mouse selection copy mid-frame).
 #[must_use]
-pub(crate) fn history_lines_under_contention(last_good: Option<&[String]>) -> Vec<String> {
+pub fn history_lines_under_contention(last_good: Option<&[String]>) -> Vec<String> {
     last_good.map(<[String]>::to_vec).unwrap_or_default()
 }
 
@@ -297,6 +297,8 @@ pub(crate) fn history_lines_under_contention(last_good: Option<&[String]>) -> Ve
 /// Contended `try_lock` and exact-generation cache misses preserve prior lines
 /// (matching [`try_capture_history_geometry_from_cache`]'s fallback policy) so
 /// scrollback / selection do not flash empty during attach or worker activity.
+/// Last-good scrollback is refreshed only when `(agent_id, generation)`
+/// changes so the success path does not double-clone large histories every frame.
 #[must_use]
 pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> Vec<String> {
     let Some(ctx_arc) = ctx else {
@@ -307,27 +309,26 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         tracing::trace!(
             "capture_history_from_cache: ctx try_lock contended; preserving last-good scrollback"
         );
-        return LAST_HISTORY_LINES
-            .with(|cell| history_lines_under_contention(cell.borrow().as_deref()));
+        return LAST_HISTORY_LINES.with(|cell| {
+            history_lines_under_contention(
+                cell.borrow()
+                    .as_ref()
+                    .map(|(_, _, lines)| lines.as_slice()),
+            )
+        });
     };
     let handle: &CaptureHandle = &ctx_guard.capture_handle;
-    let (attached_agent, session_name, generation) = match ctx_guard.runtime.attached_agent() {
-        Some(agent_id) => {
-            let Some(session) = ctx_guard.runtime.get_session(agent_id) else {
-                clear_last_history_lines();
-                return Vec::new();
-            };
-            (
-                agent_id.clone(),
-                session.session_name.clone(),
-                ctx_guard.runtime.output_generation(),
-            )
-        }
-        None => {
-            clear_last_history_lines();
-            return Vec::new();
-        }
+    let Some(agent_id) = ctx_guard.runtime.attached_agent() else {
+        clear_last_history_lines();
+        return Vec::new();
     };
+    let Some(session) = ctx_guard.runtime.get_session(agent_id) else {
+        clear_last_history_lines();
+        return Vec::new();
+    };
+    let attached_agent = agent_id.clone();
+    let session_name = session.session_name.clone();
+    let generation = ctx_guard.runtime.output_generation();
     // Only call request() when the (agent_id, generation) pair has changed
     // since the last frame, reducing mutex contention on the render path.
     let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
@@ -355,8 +356,17 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
             .history_cache_fallback(&attached_agent)
             .map(Vec::as_slice),
     );
+    // Refresh last-good only when the attached session generation changes so
+    // steady-state frames avoid a second full scrollback clone.
     LAST_HISTORY_LINES.with(|cell| {
-        *cell.borrow_mut() = Some(lines.clone());
+        let mut slot = cell.borrow_mut();
+        let refresh = match slot.as_ref() {
+            Some((aid, gen, _)) => aid != &attached_agent || *gen != generation,
+            None => true,
+        };
+        if refresh {
+            *slot = Some((attached_agent, generation, lines.clone()));
+        }
     });
     lines
 }
@@ -423,10 +433,10 @@ thread_local! {
     static LAST_CAPTURE_REQUEST: std::cell::RefCell<Option<(AgentId, u64)>> =
         const { std::cell::RefCell::new(None) };
 
-    /// Last successfully resolved scrollback lines for the attached agent.
-    /// Used when `try_lock` is contended so the render/selection path does not
-    /// flash empty mid-frame.
-    static LAST_HISTORY_LINES: std::cell::RefCell<Option<Vec<String>>> =
+    /// Last successfully resolved scrollback for an attached `(agent, generation)`.
+    /// Refreshed only when that pair changes so steady-state frames avoid a
+    /// second full-history clone; used when `try_lock` is contended.
+    static LAST_HISTORY_LINES: std::cell::RefCell<Option<(AgentId, u64, Vec<String>)>> =
         const { std::cell::RefCell::new(None) };
 }
 
