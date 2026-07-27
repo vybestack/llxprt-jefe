@@ -25,6 +25,7 @@ impl AppState {
             PrFocus::RepoList => PrFocus::PrList,
             PrFocus::PrList => PrFocus::PrDetail,
             PrFocus::PrDetail => PrFocus::RepoList,
+            PrFocus::PrChanges => PrFocus::PrChanges,
         };
     }
 
@@ -38,6 +39,7 @@ impl AppState {
             PrFocus::RepoList => PrFocus::PrDetail,
             PrFocus::PrList => PrFocus::RepoList,
             PrFocus::PrDetail => PrFocus::PrList,
+            PrFocus::PrChanges => PrFocus::PrChanges,
         };
     }
 
@@ -418,6 +420,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::Up);
                     }
+                    PrFocus::PrChanges => {}
                 }
                 true
             }
@@ -428,6 +431,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::Down);
                     }
+                    PrFocus::PrChanges => {}
                 }
                 true
             }
@@ -449,7 +453,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::PageUp);
                     }
-                    PrFocus::RepoList => {}
+                    PrFocus::RepoList | PrFocus::PrChanges => {}
                 }
                 true
             }
@@ -459,7 +463,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::PageDown);
                     }
-                    PrFocus::RepoList => {}
+                    PrFocus::RepoList | PrFocus::PrChanges => {}
                 }
                 true
             }
@@ -469,7 +473,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.prs_state.detail_scroll_offset = 0;
                     }
-                    PrFocus::RepoList => {}
+                    PrFocus::RepoList | PrFocus::PrChanges => {}
                 }
                 true
             }
@@ -479,7 +483,7 @@ impl AppState {
                     PrFocus::PrDetail => {
                         self.prs_state.detail_scroll_offset = self.pr_detail_max_scroll_offset();
                     }
-                    PrFocus::RepoList => {}
+                    PrFocus::RepoList | PrFocus::PrChanges => {}
                 }
                 true
             }

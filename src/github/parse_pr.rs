@@ -11,7 +11,8 @@
 
 use crate::domain::{
     ChecksFilter, IssueComment, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview,
-    PrReviewState, PrReviewThread, PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
+    PrReviewState, PrReviewThread, PrReviewThreadAnchor, PrReviewThreadSide, PrState, PullRequest,
+    PullRequestDetail, ReviewDecisionFilter,
 };
 use serde_json::Value;
 
@@ -671,7 +672,7 @@ pub fn build_pr_review_threads_query(with_after: bool) -> String {
         "query($owner: String!, $repo: String!, $number: Int!, $first: Int!{after_decl}) \
          {{ repository(owner: $owner, name: $repo) {{ pullRequest(number: $number) \
          {{ reviewThreads(first: $first{after_arg}) \
-         {{ nodes {{ id isResolved isOutdated path line \
+         {{ nodes {{ id isResolved isOutdated path line diffSide startDiffSide startLine originalLine originalStartLine \
          comments(first: 50) {{ nodes {{ databaseId author {{ login }} createdAt lastEditedAt body \
          pullRequestReview {{ id }} }} }} }} \
          pageInfo {{ hasNextPage endCursor }} }} }} }} }}"
@@ -809,6 +810,7 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
         .get("line")
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok());
+    let anchor = parse_thread_anchor(node);
     let comments = parse_thread_comments(node);
     PrReviewThread {
         thread_id,
@@ -817,8 +819,38 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
         review_id,
         path,
         line,
+        anchor,
         comments,
     }
+}
+
+fn parse_thread_anchor(node: &Value) -> Option<PrReviewThreadAnchor> {
+    let side = parse_thread_side(node.get("diffSide")?.as_str()?)?;
+    Some(PrReviewThreadAnchor {
+        side,
+        start_side: node
+            .get("startDiffSide")
+            .and_then(Value::as_str)
+            .and_then(parse_thread_side),
+        start_line: u32_field(node, "startLine"),
+        original_line: u32_field(node, "originalLine"),
+        original_start_line: u32_field(node, "originalStartLine"),
+    })
+}
+
+fn parse_thread_side(value: &str) -> Option<PrReviewThreadSide> {
+    match value {
+        "LEFT" => Some(PrReviewThreadSide::Left),
+        "RIGHT" => Some(PrReviewThreadSide::Right),
+        _ => None,
+    }
+}
+
+fn u32_field(value: &Value, field: &str) -> Option<u32> {
+    value
+        .get(field)
+        .and_then(Value::as_u64)
+        .and_then(|number| u32::try_from(number).ok())
 }
 
 /// Extract the parent-review id (`comments.nodes[0].pullRequestReview.id`)

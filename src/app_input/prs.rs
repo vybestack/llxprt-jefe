@@ -91,7 +91,13 @@ fn resolve_prs_key_event_for_size(
     // dashboard. No explicit suppression tier is required.
     resolve_pr_global_key(state, key_event)
         .or_else(|| resolve_pr_focus_key(state, key_event, page_item_count))
-        .or_else(|| resolve_pr_pane_cycle_key(key_event))
+        .or_else(|| {
+            if state.prs_state.pr_focus == PrFocus::PrChanges {
+                None
+            } else {
+                resolve_pr_pane_cycle_key(key_event)
+            }
+        })
 }
 
 /// Route key events when in PR Mode.
@@ -210,6 +216,7 @@ fn resolve_pr_focus_key(
         PrFocus::RepoList => handle_pr_repo_key(state, key_event),
         PrFocus::PrList => handle_pr_list_key(state, key_event, page_item_count),
         PrFocus::PrDetail => handle_pr_detail_key(state, key_event),
+        PrFocus::PrChanges => handle_pr_changes_key(state, key_event, page_item_count),
     }
 }
 
@@ -325,8 +332,79 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         }),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
+        KeyCode::Char('d') => Some(AppEvent::PrOpenChanges),
         _ => resolve_pr_property_open_key(state, key_event),
     }
+}
+
+/// Handle keys inside the optional changed-files review drill-down.
+fn handle_pr_changes_key(
+    state: &AppState,
+    key_event: &KeyEvent,
+    page: jefe::list_viewport::PageItemCount,
+) -> Option<AppEvent> {
+    use jefe::state::PrChangesFocus;
+
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::PrNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrNavigateDown),
+        KeyCode::PageUp => Some(AppEvent::PrNavigatePageUp(page)),
+        KeyCode::PageDown => Some(AppEvent::PrNavigatePageDown(page)),
+        KeyCode::Home => Some(AppEvent::PrNavigateHome),
+        KeyCode::End => Some(AppEvent::PrNavigateEnd),
+        KeyCode::Enter | KeyCode::Tab
+            if state.prs_state.changes.focus == PrChangesFocus::FileList
+                && state.prs_state.changes.selected_file.is_some() =>
+        {
+            Some(AppEvent::PrChangesFocusContent)
+        }
+        KeyCode::BackTab if state.prs_state.changes.focus == PrChangesFocus::Content => {
+            Some(AppEvent::PrChangesFocusFiles)
+        }
+        KeyCode::Char('v') => Some(AppEvent::PrChangesToggleView),
+        KeyCode::Char('c') if state.prs_state.changes.focus == PrChangesFocus::Content => {
+            Some(AppEvent::PrOpenChangesComment)
+        }
+        KeyCode::Char('r') if state.prs_state.changes.focus == PrChangesFocus::Content => {
+            selected_changes_thread(state)
+                .map(|thread_index| AppEvent::PrOpenThreadReplyComposer { thread_index })
+        }
+        KeyCode::Char('R') if state.prs_state.changes.focus == PrChangesFocus::Content => {
+            selected_changes_thread(state)
+                .map(|thread_index| AppEvent::PrToggleThreadResolve { thread_index })
+        }
+        _ => None,
+    }
+}
+
+/// Resolve the review thread attached to the selected Changes content row.
+fn selected_changes_thread(state: &AppState) -> Option<usize> {
+    let changes = &state.prs_state.changes;
+    let file = changes
+        .selected_file
+        .and_then(|index| changes.files.get(index))?;
+    let base = if changes.view_mode == jefe::state::PrDiffViewMode::FullFile {
+        let blob = changes
+            .blobs
+            .iter()
+            .find(|entry| entry.blob_sha == file.blob_sha)?;
+        jefe::pr_diff_content::build_full_document(file, &blob.blob)
+    } else {
+        jefe::pr_diff_content::build_delta_document(file)
+    };
+    let threads = state
+        .prs_state
+        .pr_detail
+        .as_ref()?
+        .reviews
+        .iter()
+        .flat_map(|review| review.review_threads.iter().cloned())
+        .collect::<Vec<_>>();
+    let document = jefe::pr_diff_content::build_threaded_document(file, base, &threads);
+    changes
+        .selected_row
+        .and_then(|index| document.rows.get(index))
+        .and_then(|row| row.thread_index)
 }
 
 /// Property editor open-key shortcuts for PRs (issue #175).
@@ -484,6 +562,9 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
     // PR list instead of exiting the whole mode — mirroring issues-mode where
     // Esc on IssueDetail emits RefocusIssueList. Only a bare Esc from
     // RepoList/PrList exits the mode.
+    if state.prs_state.pr_focus == PrFocus::PrChanges {
+        return AppEvent::PrChangesBack;
+    }
     if state.prs_state.pr_focus == PrFocus::PrDetail {
         return AppEvent::RefocusPrList;
     }
@@ -617,3 +698,7 @@ mod tests;
 #[cfg(test)]
 #[path = "prs_property_key_tests.rs"]
 mod prs_property_key_tests;
+
+#[cfg(test)]
+#[path = "prs_diff_key_tests.rs"]
+mod prs_diff_key_tests;

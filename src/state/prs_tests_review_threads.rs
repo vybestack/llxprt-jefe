@@ -25,6 +25,7 @@ fn make_thread(
         review_id: None,
         path: path.map(String::from),
         line,
+        anchor: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "reviewer".to_string(),

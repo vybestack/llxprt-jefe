@@ -72,6 +72,7 @@ fn review_with_thread(
             review_id: Some(review_id.to_string()),
             path: Some("src/main.rs".to_string()),
             line: Some(10),
+            anchor: None,
             comments: vec![IssueComment {
                 comment_id: 1,
                 author_login: author.to_string(),

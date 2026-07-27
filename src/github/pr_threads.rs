@@ -6,6 +6,7 @@
 
 use crate::domain::{IssueComment, PrReviewThread};
 
+use super::parse::parse_created_comment_json;
 use super::parse_pr::{
     build_pr_review_threads_query, parse_pr_review_threads, parse_pr_review_threads_cursor,
     parse_thread_reply_json,
@@ -181,6 +182,49 @@ impl GhClient {
         let stdout = Self::run_gh(&args)?;
         parse_thread_reply_json(&stdout)
     }
+
+    fn build_pr_review_comment_args(
+        owner: &str,
+        repo: &str,
+        number: u64,
+        target: &crate::domain::PrReviewCommentTarget,
+        body: &str,
+    ) -> Vec<String> {
+        let side = match target.side {
+            crate::domain::PrReviewThreadSide::Left => "LEFT",
+            crate::domain::PrReviewThreadSide::Right => "RIGHT",
+        };
+        vec![
+            "api".to_string(),
+            "--method".to_string(),
+            "POST".to_string(),
+            format!("repos/{owner}/{repo}/pulls/{number}/comments"),
+            "-f".to_string(),
+            format!("body={body}"),
+            "-f".to_string(),
+            format!("commit_id={}", target.commit_id),
+            "-f".to_string(),
+            format!("path={}", target.path),
+            "-F".to_string(),
+            format!("line={}", target.line),
+            "-f".to_string(),
+            format!("side={side}"),
+        ]
+    }
+
+    /// Create one single-line pull-request review comment on an exact diff side.
+    pub fn create_pr_review_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        target: &crate::domain::PrReviewCommentTarget,
+        body: &str,
+    ) -> Result<IssueComment, GhError> {
+        let args = Self::build_pr_review_comment_args(owner, repo, number, target, body);
+        let stdout = Self::run_gh(&args)?;
+        parse_created_comment_json(&stdout)
+    }
 }
 
 #[cfg(test)]
@@ -195,5 +239,68 @@ mod pagination_tests {
             PR_REVIEW_THREADS_PAGE_SIZE * PR_REVIEW_THREADS_MAX_PAGES,
             1000
         );
+    }
+}
+
+#[cfg(test)]
+mod review_comment_tests {
+    use crate::domain::{PrReviewCommentTarget, PrReviewThreadSide};
+
+    use super::GhClient;
+
+    #[test]
+    fn single_line_review_comment_uses_exact_rest_fields_and_side() {
+        let target = PrReviewCommentTarget {
+            path: "src/app.rs".to_string(),
+            line: 42,
+            side: PrReviewThreadSide::Left,
+            commit_id: "head-sha".to_string(),
+        };
+
+        let args = GhClient::build_pr_review_comment_args(
+            "owner",
+            "repo",
+            376,
+            &target,
+            "Preserve the fallback",
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "api",
+                "--method",
+                "POST",
+                "repos/owner/repo/pulls/376/comments",
+                "-f",
+                "body=Preserve the fallback",
+                "-f",
+                "commit_id=head-sha",
+                "-f",
+                "path=src/app.rs",
+                "-F",
+                "line=42",
+                "-f",
+                "side=LEFT",
+            ]
+        );
+    }
+
+    #[test]
+    fn right_review_comment_preserves_special_values_as_literal_arguments() {
+        let target = PrReviewCommentTarget {
+            path: "src/path &= Ω.rs".to_string(),
+            line: 7,
+            side: PrReviewThreadSide::Right,
+            commit_id: "head-sha".to_string(),
+        };
+        let body = "first &= line\nsecond Ω line";
+
+        let args = GhClient::build_pr_review_comment_args("owner", "repo", 376, &target, body);
+
+        assert!(args.contains(&format!("body={body}")));
+        assert!(args.contains(&"path=src/path &= Ω.rs".to_string()));
+        assert!(args.contains(&"side=RIGHT".to_string()));
+        assert!(args.contains(&"line=7".to_string()));
     }
 }

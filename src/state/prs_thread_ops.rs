@@ -68,7 +68,10 @@ impl AppState {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     fn pr_open_thread_reply_composer(&mut self, thread_index: usize) {
-        if self.prs_state.pr_focus != PrFocus::PrDetail {
+        if !matches!(
+            self.prs_state.pr_focus,
+            PrFocus::PrDetail | PrFocus::PrChanges
+        ) {
             return;
         }
         if self.prs_state.inline_state != InlineState::None {
@@ -93,7 +96,9 @@ impl AppState {
             text: author,
             cursor,
         };
-        self.prs_state.detail_subfocus = PrDetailSubfocus::ReviewThread(thread_index);
+        if self.prs_state.pr_focus == PrFocus::PrDetail {
+            self.prs_state.detail_subfocus = PrDetailSubfocus::ReviewThread(thread_index);
+        }
     }
 
     /// Toggle resolve/unresolve on a review thread.

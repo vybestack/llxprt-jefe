@@ -10,9 +10,10 @@ use crate::state::{AppState, PaneFocus, PrFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, KeybindBar, MergeChooser, PrDetailProjectionInputs, PrListLayout, PrListWindow,
-    PropertyEditor, Sidebar, StatusBar, detail_pane_element, filter_bar_element, pr_detail_props,
-    pr_filter_props, pr_list_props, pr_list_status_message, selectable_list_element,
+    AgentChooser, KeybindBar, MergeChooser, PrDetailProjectionInputs, PrDiff, PrListLayout,
+    PrListWindow, PropertyEditor, Sidebar, StatusBar, detail_pane_element, filter_bar_element,
+    pr_detail_props, pr_filter_props, pr_list_props, pr_list_status_message,
+    selectable_list_element,
 };
 
 /// Props for the pull requests mode screen.
@@ -107,6 +108,47 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
 
     // Error message
     let error_message = state.and_then(|s| s.prs_state.error.clone());
+
+    let changes_active = pr_focus == PrFocus::PrChanges;
+    let changes = if changes_active {
+        state.map_or_else(Default::default, |s| s.prs_state.changes.clone())
+    } else {
+        crate::state::PrChangesState::default()
+    };
+    let changes_loading = changes.pending.is_some();
+    let changes_pr_number = changes
+        .identity
+        .as_ref()
+        .map_or(0, |identity| identity.pr_number);
+    let review_threads = if changes_active {
+        pr_detail
+            .as_ref()
+            .map(|detail| {
+                detail
+                    .reviews
+                    .iter()
+                    .flat_map(|review| review.review_threads.iter().cloned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let selected_blob_sha = changes
+        .selected_file
+        .and_then(|index| changes.files.get(index))
+        .map(|file| file.blob_sha.as_str());
+    let full_blob = selected_blob_sha.and_then(|sha| {
+        changes
+            .blobs
+            .iter()
+            .find(|entry| entry.blob_sha == sha)
+            .map(|entry| entry.blob.clone())
+    });
+    let blob_loading = changes
+        .blob_pending
+        .as_ref()
+        .is_some_and(|pending| selected_blob_sha == Some(pending.blob_sha.as_str()));
 
     // Compute the actual rows/columns available to PR panes so child
     // components do not have to infer from raw terminal size.
@@ -270,44 +312,71 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                         vec![]
                     })
 
-                    // PR list + detail (split view)
-                    // Fixed 30/70 split: compact PR list + detail view
-                    Box(height: list_pane_rows, width: 100pct) {
-                        #(vec![selectable_list_element(pr_list_props(
-                            &pull_requests,
-                            PrListWindow {
-                                selected_index: selected_pr_idx,
-                                list_pane_rows,
-                                available_width: Some(list_width),
-                                layout: PrListLayout::Compact,
-                            },
-                            list_focused,
-                            pr_list_status_message(
-                                list_loading,
-                                pull_requests.is_empty(),
-                                has_filters,
-                            ),
-                            colors.clone(),
-                            selection,
-                        ))])
-                    }
-                    Box(flex_grow: 1.0_f32, width: 100pct) {
-                        #(vec![detail_pane_element(pr_detail_props(
-                            PrDetailProjectionInputs {
-                                detail: pr_detail.as_ref(),
-                                subfocus: detail_subfocus,
-                                inline_state: &inline_state,
-                                detail_loading,
-                                comments_loading,
-                                focused: detail_focused,
-                                scroll_offset: detail_scroll_offset,
-                                detail_content_width,
-                                colors: colors.clone(),
-                                viewport_rows: Some(detail_pane_height),
-                                selection,
-                            },
-                        ))])
-                    }
+                    #(if changes_active {
+                        vec![element! {
+                            Box(flex_grow: 1.0_f32, width: 100pct) {
+                                PrDiff(
+                                    pr_number: changes_pr_number,
+                                    files: changes.files.clone(),
+                                    selected_file: changes.selected_file,
+                                    selected_row: changes.selected_row,
+                                    focus: changes.focus,
+                                    view_mode: changes.view_mode,
+                                    loading: changes_loading,
+                                    error: changes.error.clone(),
+                                    truncated: changes.truncated,
+                                    full_blob: full_blob.clone(),
+                                    blob_loading,
+                                    blob_error: changes.blob_error.clone(),
+                                    review_threads: review_threads.clone(),
+                                    inline_state: inline_state.clone(),
+                                    viewport_rows: usize::from(render_rows).saturating_sub(15),
+                                    colors: colors.clone(),
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![element! {
+                            Box(flex_direction: FlexDirection::Column, flex_grow: 1.0_f32, width: 100pct) {
+                                Box(height: list_pane_rows, width: 100pct) {
+                                    #(vec![selectable_list_element(pr_list_props(
+                                        &pull_requests,
+                                        PrListWindow {
+                                            selected_index: selected_pr_idx,
+                                            list_pane_rows,
+                                            available_width: Some(list_width),
+                                            layout: PrListLayout::Compact,
+                                        },
+                                        list_focused,
+                                        pr_list_status_message(
+                                            list_loading,
+                                            pull_requests.is_empty(),
+                                            has_filters,
+                                        ),
+                                        colors.clone(),
+                                        selection,
+                                    ))])
+                                }
+                                Box(flex_grow: 1.0_f32, width: 100pct) {
+                                    #(vec![detail_pane_element(pr_detail_props(
+                                        PrDetailProjectionInputs {
+                                            detail: pr_detail.as_ref(),
+                                            subfocus: detail_subfocus,
+                                            inline_state: &inline_state,
+                                            detail_loading,
+                                            comments_loading,
+                                            focused: detail_focused,
+                                            scroll_offset: detail_scroll_offset,
+                                            detail_content_width,
+                                            colors: colors.clone(),
+                                            viewport_rows: Some(detail_pane_height),
+                                            selection,
+                                        },
+                                    ))])
+                                }
+                            }
+                        }]
+                    })
 
                     // Agent chooser overlay (anchored inside workspace)
                     #(if chooser_visible {

@@ -44,15 +44,19 @@ fn run_fixture(name: &str) -> RunOutcome {
     let json = load_fixture(name);
     let scenario = parse_scenario_v1(json.as_bytes())
         .unwrap_or_else(|err| panic!("{name} should parse: {err}"));
+    let mut installs = vec![
+        (
+            "jefe-harness-probe".to_string(),
+            bin_path("jefe-harness-probe"),
+        ),
+        ("jefe".to_string(), bin_path("jefe")),
+    ];
+    if name == "pr-delta-review.json" {
+        installs.push(("gh".to_string(), repo_path("scripts/issue376-gh-shim.sh")));
+    }
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
-        installs: vec![
-            (
-                "jefe-harness-probe".to_string(),
-                bin_path("jefe-harness-probe"),
-            ),
-            ("jefe".to_string(), bin_path("jefe")),
-        ],
+        installs,
     };
     run(&scenario, &config)
 }
@@ -208,6 +212,16 @@ fn state_migrate_fixture_writes_schema2_atomically() {
     let outcome = run_fixture("state-v1-v2.json");
     assert_passed("state-v1-v2", &outcome);
     assert_exit_code("state-v1-v2", &outcome, 0);
+    cleanup(&outcome);
+}
+
+/// Issue #376: the optional PR Changes drill-down defaults to deltas-only,
+/// lists removed files distinctly, lazily loads a full file on request, and
+/// returns to the unchanged PR detail screen.
+#[test]
+fn pr_delta_review_fixture_covers_optional_changes_drill_down() {
+    let outcome = run_fixture("pr-delta-review.json");
+    assert_passed("pr-delta-review", &outcome);
     cleanup(&outcome);
 }
 

@@ -44,6 +44,9 @@ pub mod post_mutation_refresh; // Coalesced post-mutation refresh scheduling sta
 mod post_mutation_refresh_tests;
 mod preferences_ops;
 mod property_edit;
+mod prs_diff_ops;
+#[cfg(test)]
+mod prs_diff_ops_tests;
 mod prs_inline_ops;
 mod prs_load_ops;
 mod prs_merge_ops;

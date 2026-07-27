@@ -20,8 +20,8 @@ use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     clear_agent_runtime_attachment, dispatch_app_event, durable_save_request, gh_async,
     github_client, launch_signature_for_agent, mark_agent_runtime_attached, preflight_or_prompt,
-    process_on_success, prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation,
-    schedule_durable_save,
+    process_on_success, prs_comments_dispatch, prs_diff_dispatch, prs_dispatch, prs_list_dispatch,
+    prs_mutation, schedule_durable_save,
 };
 
 // ── PR-mode dispatch routing + loader helpers ──────────────────────────────
@@ -57,6 +57,26 @@ pub(super) fn dispatch_prs_message(
     route_prs_message(app_state, ctx, message);
 }
 
+/// Route Changes messages that require boundary I/O after reducer application.
+fn route_changes_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: &PullRequestsMessage,
+) -> bool {
+    match message {
+        PullRequestsMessage::OpenChanges => {
+            prs_diff_dispatch::open_and_load_changes(app_state, ctx);
+            true
+        }
+        PullRequestsMessage::ChangesToggleView => {
+            apply_and_persist(app_state, ctx, AppEvent::PrChangesToggleView);
+            prs_diff_dispatch::load_pending_blob(app_state, ctx);
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Route a `PullRequestsMessage` to the appropriate dispatch helper.
 /// Extracted from `dispatch_prs_message` to stay under the per-function line
 /// limit (issue #128).
@@ -67,6 +87,9 @@ fn route_prs_message(
 ) {
     use jefe::messages::{PrInlineMsg, ScrollDir};
 
+    if route_changes_message(app_state, ctx, &message) {
+        return;
+    }
     match message {
         m @ (PullRequestsMessage::Navigate(_)
         | PullRequestsMessage::CycleFocus
@@ -84,6 +107,8 @@ fn route_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::PrListEnter);
             prs_dispatch::load_pr_detail_for_selection(app_state, ctx);
         }
+        // `route_changes_message` returns before these variants reach this match.
+        PullRequestsMessage::OpenChanges | PullRequestsMessage::ChangesToggleView => {}
         m @ PullRequestsMessage::ScrollDetail(ScrollDir::Down | ScrollDir::PageDown) => {
             apply_and_persist(app_state, ctx, AppEvent::from(m));
             prs_comments_dispatch::load_more_pr_comments(app_state, ctx);
@@ -383,6 +408,9 @@ fn dispatch_prs_navigation(
         )
     };
     apply_and_persist(app_state, ctx, AppEvent::from(message));
+    if focus == jefe::state::PrFocus::PrChanges {
+        prs_diff_dispatch::load_pending_blob(app_state, ctx);
+    }
     refresh_prs_navigation(app_state, ctx, focus, prev_repo_idx, prev_pr_idx);
 }
 
@@ -406,7 +434,7 @@ fn refresh_prs_navigation(
             refresh_pr_preview_if_changed(app_state, prev_pr_idx);
             prs_list_dispatch::load_more_prs_if_at_end(app_state, ctx);
         }
-        jefe::state::PrFocus::PrDetail => {}
+        jefe::state::PrFocus::PrDetail | jefe::state::PrFocus::PrChanges => {}
     }
 }
 

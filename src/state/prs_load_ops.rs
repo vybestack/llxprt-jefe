@@ -231,8 +231,10 @@ impl AppState {
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
-        self.prs_state.detail_scroll_offset = 0;
+        if self.prs_state.pr_focus != crate::state::PrFocus::PrChanges {
+            self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+            self.prs_state.detail_scroll_offset = 0;
+        }
     }
 
     /// Apply a silent background detail refresh (issue #128). Mirrors

@@ -47,6 +47,79 @@ pub enum PrFocus {
     #[default]
     PrList,
     PrDetail,
+    /// Optional changed-files review drill-down for the loaded PR.
+    PrChanges,
+}
+
+/// Focus area inside the Changes drill-down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrChangesFocus {
+    /// Changed-files list.
+    #[default]
+    FileList,
+    /// Selected file content.
+    Content,
+}
+
+/// Content mode for the selected changed file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrDiffViewMode {
+    /// Unified diff hunks returned by GitHub.
+    #[default]
+    DeltasOnly,
+    /// Full immutable file blob with diff rows interleaved.
+    FullFile,
+}
+
+/// Stable identity of one Changes visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesIdentity {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub head_sha: String,
+}
+
+/// Pending changed-files read correlation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesPending {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub head_sha: String,
+    pub request_id: u64,
+}
+
+/// Pending immutable blob read correlation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobPending {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+}
+
+/// One immutable blob cached for the current Changes visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobCache {
+    pub blob_sha: String,
+    pub blob: crate::domain::PrFileBlob,
+}
+
+/// Transient state for the optional changed-files review drill-down.
+#[derive(Debug, Clone, Default)]
+pub struct PrChangesState {
+    pub identity: Option<PrChangesIdentity>,
+    pub pending: Option<PrChangesPending>,
+    pub blob_pending: Option<PrChangesBlobPending>,
+    pub blobs: Vec<PrChangesBlobCache>,
+    pub blob_error: Option<String>,
+    pub files: Vec<crate::domain::PrFileChange>,
+    pub selected_file: Option<usize>,
+    pub focus: PrChangesFocus,
+    pub view_mode: PrDiffViewMode,
+    pub selected_row: Option<usize>,
+    pub truncated: bool,
+    pub error: Option<String>,
+    pub next_request_id: u64,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -115,6 +188,8 @@ pub struct PullRequestsState {
     pub loading: PrLoadingState,
     pub error: Option<String>,
     pub pr_focus: PrFocus,
+    /// Transient optional changed-files review state.
+    pub changes: PrChangesState,
     pub detail_subfocus: PrDetailSubfocus,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,

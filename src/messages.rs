@@ -20,6 +20,7 @@ mod issues_silent_refresh_conversion;
 // @requirement REQ-PR-002
 mod actions;
 mod actions_conversion;
+mod prs_changes_conversion;
 mod prs_conversion;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
@@ -547,6 +548,40 @@ pub enum PullRequestsMessage {
     ScrollDetail(ScrollDir),
     DetailSubfocusNext,
     DetailSubfocusPrev,
+    OpenChanges,
+    ChangesFocusContent,
+    ChangesFocusFiles,
+    ChangesToggleView,
+    /// Open a line-review composer for the selected Changes row.
+    OpenChangesComment,
+    ChangesBack,
+    ChangesLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        files: Vec<crate::domain::PrFileChange>,
+        truncated: bool,
+    },
+    ChangesLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    ChangesBlobLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        blob_sha: String,
+        blob: crate::domain::PrFileBlob,
+    },
+    ChangesBlobLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        blob_sha: String,
+        error: String,
+    },
     ListLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<PrFilter>,

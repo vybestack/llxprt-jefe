@@ -635,7 +635,8 @@ impl AppState {
     /// @requirement REQ-PR-002
     /// @pseudocode component-001 lines 373-385
     pub fn apply_prs_event(&mut self, event: AppEvent) -> bool {
-        self.apply_pr_navigation_event(&event)
+        self.apply_pr_changes_event(&event)
+            || self.apply_pr_navigation_event(&event)
             || self.apply_pr_lifecycle_event(&event)
             || self.apply_pr_filter_event(&event)
             || self.apply_pr_inline_open_event(event.clone())
