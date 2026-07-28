@@ -411,15 +411,88 @@ fn canonical_script_launch_plan(
     runtime_rel: &str,
     entrypoint_rel: &str,
 ) -> Option<CanonicalScriptLaunchPlan> {
-    let runtime = std::fs::canonicalize(directory.join(runtime_rel)).ok()?;
-    let entrypoint = std::fs::canonicalize(directory.join(entrypoint_rel)).ok()?;
-    if !runtime.is_file() || !entrypoint.is_file() {
+    // `std::fs::canonicalize` resolves symlinks/links and reports the real file.
+    // On Windows it returns a `\\?\`-prefixed verbatim path, which is the *stored*
+    // value later passed as a structured argument to `node.exe`/`bun.exe`. Node's
+    // module loader mishandles that verbatim prefix (issue #432: it degenerates
+    // the path to the bare drive letter and fails with
+    // `EISDIR: illegal operation on a directory, lstat 'C:'`). Strip the verbatim
+    // prefix from the stored path so the structured-argument contract from #258
+    // (direct `node.exe` + JS entrypoint, no `cmd.exe`) actually reaches the
+    // runtime intact.
+    //
+    // The `is_file()` existence check runs on the *canonical* (still verbatim on
+    // Windows) path, not the stripped one: Win32 file APIs require the `\\?\`
+    // prefix for paths longer than MAX_PATH (260), so validating after stripping
+    // would falsely reject valid long-path installs (OCR finding on PR #483).
+    let runtime_canonical = std::fs::canonicalize(directory.join(runtime_rel)).ok()?;
+    let entrypoint_canonical = std::fs::canonicalize(directory.join(entrypoint_rel)).ok()?;
+    if !runtime_canonical.is_file() || !entrypoint_canonical.is_file() {
         return None;
     }
     Some(CanonicalScriptLaunchPlan {
-        runtime,
-        entrypoint,
+        runtime: strip_verbatim_prefix(&runtime_canonical),
+        entrypoint: strip_verbatim_prefix(&entrypoint_canonical),
     })
+}
+
+/// Strip the Windows `\\?\` verbatim prefix (and its `\\?\UNC\` network form)
+/// from a canonicalized path so it can be passed as a structured argument to
+/// `node.exe`/`bun.exe`, whose module loader otherwise mishandles the prefix
+/// (issue #432).
+///
+/// On non-Windows targets this is a no-op (canonicalize does not add a prefix
+/// there). The function only strips the well-known prefixes; it performs no
+/// normalization, case folding, or path manipulation that could mask an
+/// attacker-controlled component, because the input is always the output of
+/// `std::fs::canonicalize` on a path Jefe itself joined.
+#[cfg(windows)]
+pub(super) fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    use std::ffi::OsStr;
+    use std::path::Component;
+
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path.to_path_buf();
+    };
+    match prefix.kind() {
+        // `\\?\C:\...` → `C:\...`
+        std::path::Prefix::VerbatimDisk(letter) => {
+            let mut stripped = PathBuf::from(format!("{}:", letter as char));
+            for component in components {
+                stripped.push(component.as_os_str());
+            }
+            stripped
+        }
+        // `\\?\UNC\server\share\...` → `\\server\share\...`
+        //
+        // Build the UNC root as a single `OsString` and push the remaining
+        // components normally. `OsStr` is used (not `to_string_lossy()`) so
+        // non-UTF-8 bytes preserved by canonicalize survive intact —
+        // `to_string_lossy` would replace them with U+FFFD and silently point
+        // the runtime at the wrong network location (OCR finding on PR #483).
+        // `PathBuf::push("\\")` is avoided because it would overwrite the
+        // buffer (clippy::path_buf_push_overwrite).
+        std::path::Prefix::VerbatimUNC(server, share) => {
+            let mut root = std::ffi::OsString::from("\\\\");
+            root.push(server);
+            root.push(OsStr::new("\\"));
+            root.push(share);
+            let mut stripped = PathBuf::from(root);
+            for component in components {
+                stripped.push(component.as_os_str());
+            }
+            stripped
+        }
+        // Any other prefix form (already-disk, UNC without Verbatim) is not
+        // produced by canonicalize and is returned unchanged.
+        _ => path.to_path_buf(),
+    }
+}
+
+#[cfg(not(windows))]
+pub(super) fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 fn wrapper_carries_native_launcher_marker(wrapper_path: &Path) -> bool {
