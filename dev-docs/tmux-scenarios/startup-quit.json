@@ -8,7 +8,7 @@
   },
   "steps": [
     { "waitFor": "LLxprt Jefe" },
-    { "expect": "No terminal attached" },
+    { "expect": "Agent Types" },
     { "capture": "startup" },
     { "key": "q" },
     { "key": "q" },
