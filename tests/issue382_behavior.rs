@@ -113,7 +113,7 @@ fn all_seventeen_scenarios_structurally_valid() {
 // ---- CW02-01: candidate resolver order ----
 
 /// Write a repository-local LLxprt executable fixture into `repo` on Unix,
-/// or a `.exe` placeholder on non-Unix.
+/// or an extensionless placeholder on non-Unix.
 fn write_repository_local_fixture(repo: &tempfile::TempDir) {
     let bin_dir = repo.path().join(".llxprt/bin");
     std::fs::create_dir_all(&bin_dir).unwrap_or_else(|error| panic!("mkdir .llxprt/bin: {error}"));
@@ -133,7 +133,7 @@ echo repo-local-llxprt
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(bin_dir.join("llxprt.exe"), b"fixture")
+        std::fs::write(bin_dir.join("llxprt"), b"fixture")
             .unwrap_or_else(|error| panic!("write repo-local fixture: {error}"));
     }
 }
