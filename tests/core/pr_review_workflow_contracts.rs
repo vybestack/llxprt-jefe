@@ -69,9 +69,15 @@ fn step_body(content: &str, step_name: &str) -> String {
         })
         .unwrap_or_else(|| panic!("step '{step_name}' not found in workflow"));
 
-    let step_indent = lines
-        .get(start + 1)
-        .map_or(8, |l| l.len() - l.trim_start().len());
+    // Derive the step indentation from the first non-blank line after the
+    // `- name:` header. Skipping blank lines avoids a zero-indent if a blank
+    // line ever appears between the header and its first property, which
+    // would otherwise cause the parser to consume all subsequent steps.
+    let step_indent = lines[start + 1..]
+        .iter()
+        .map(|l| l.len() - l.trim_start().len())
+        .find(|&indent| indent > 0)
+        .unwrap_or(8);
 
     let mut body = String::new();
     body.push_str(lines[start]);
