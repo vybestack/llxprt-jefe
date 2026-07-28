@@ -2,9 +2,17 @@
 
 This is the normative specification for JSP/1, the Jefe Stream Protocol. It
 freezes the external semantic and wire contract used by LLxprt Code (producer),
-LLxprt Luther (broker), and Jefe (observer). J1 (this slice) defines the
-snapshot document and the snapshot fixture corpus. Event, stream, heartbeat,
-and replay semantics are described normatively here but are implemented in J2.
+LLxprt Luther (broker), and Jefe (observer).
+
+JSP/1 answers four questions about a running coding agent: what is it doing
+now, how far along is it, is it blocked waiting for input and why, and is the
+status source itself healthy. It is observation-only. It carries no control
+operation, cannot answer a permission or question request, and never replaces
+the agent's native terminal UI.
+
+This document defines the complete protocol: the snapshot document, the event
+inventory, heartbeats, stream semantics, and the language-neutral fixture
+corpus that every implementation must satisfy.
 
 The canonical fixture corpus lives under `dev-docs/jsp/v1/fixtures/` and is
 language-neutral: external implementations must consume the exact same corpus
@@ -302,18 +310,26 @@ at ingress. The schema has no control operation.
 Forbidden fields include (non-exhaustive): `publisher_token`, `observer_token`,
 `raw_transcript`, `draft`, `control`, and any field not listed in §1.
 
-## 16. Transport semantics (normative, J2-implemented)
+## 16. Stream semantics
 
-- A fresh stream begins with an atomic snapshot at `C`.
-- A resume request after `N` begins with the reconstructed snapshot at `N`
-  followed by `N+1` events.
-- If epoch or replay is unavailable, the broker returns coded HTTP 409
-  `resync_required` before opening SSE; the client then makes a fresh request.
-- A stream never mixes partial replay with fallback snapshot data (decision
-  11).
+JSP/1 answers "what is this agent doing now". It is a live status protocol, not
+a history or visualization protocol. The broker keeps exactly one current
+snapshot per source epoch and streams live events. It stores no event history.
 
-These semantics are implemented in J2. J1 defines only the snapshot document
-and corpus.
+- A stream always begins with a `snapshot` document. This removes the race in
+  which a separately fetched snapshot is already stale before the stream opens.
+  It is not a cursor negotiation: the client cannot request a position.
+- Subsequent items are `event` documents (§18) and `heartbeat` documents (§19).
+- `source_sequence` increases by exactly one per event within an epoch. It
+  exists for **gap detection only**.
+- On a detected gap, an epoch change, or a reconnect, the client discards its
+  observation state and reads a fresh stream, which begins with a new snapshot.
+  There is no replay, no resume-after-N request, and no `resync_required`
+  negotiation, because no history is retained to replay.
+
+Deliberately excluded: replay buffers, cursor negotiation, replay expiration,
+out-of-order event reordering, and event history. Stale status is refreshed by
+re-reading current state, which is always cheaper and always correct.
 
 ## 17. Fixture corpus
 
@@ -331,3 +347,95 @@ produce the same typed results.
 | `snapshot_closed_grammar.json`   | error    | Unknown field, JSP-E001 (S2)             |
 | `snapshot_forbidden_fields.json` | error    | Credential/control, JSP-E001 (S5/S6)     |
 | `snapshot_semantic_failure.json` | error    | Producer stale state, JSP-E005 (S4)      |
+
+## 18. Event documents
+
+An event document is a closed JSON object reporting one authoritative native
+transition. Events carry only what a status view needs; they never carry raw
+tool arguments, command bodies, tool output, model thinking, or transcripts.
+
+| Field                  | Type    | Required | Notes                                          |
+|------------------------|---------|----------|------------------------------------------------|
+| `schema`               | integer | yes      | Must be exactly `1`.                           |
+| `kind`                 | string  | yes      | Must be `"event"`.                             |
+| `agent_id`             | string  | yes      | Opaque safe-ASCII ID, 1–128 bytes.             |
+| `lifecycle_generation` | integer | yes      | Positive (`>= 1`).                             |
+| `source_epoch`         | string  | yes      | Opaque safe-ASCII stream identity.             |
+| `source_sequence`      | integer | yes      | Increases by exactly one per event in an epoch.|
+| `bridge_observed_ms`   | integer | yes      | Non-negative UTC epoch milliseconds.           |
+| `event`                | object  | yes      | Closed payload, discriminated by `type`.       |
+
+The identity triple must match the stream's snapshot. An event whose
+`agent_id`, `lifecycle_generation`, or `source_epoch` does not match the
+observed live instance is rejected with `JSP-E004` and never applied.
+
+### 18.1 Event inventory
+
+The `event` object is discriminated by a closed `type` field. Unknown types
+fail with `JSP-E001`; there is no forward-compatible ignore rule, because
+silently dropping a state transition would leave a status view wrong rather
+than visibly unknown.
+
+| `type`                 | Payload members            | Meaning                                    |
+|------------------------|----------------------------|--------------------------------------------|
+| `activity.changed`     | `state`                    | Native activity (§5) changed.              |
+| `wait.opened`          | `reason`                   | An explicit blocking request opened (§6).  |
+| `wait.resolved`        | none                       | The open wait was answered natively.       |
+| `turn.started`         | none                       | A turn began; elapsed anchors at zero.     |
+| `turn.ended`           | `outcome`                  | Turn finished: `completed`/`failed`/`cancelled`. |
+| `todos.replaced`       | `revision`, `items`        | Full replacement of the todo list (§8).    |
+| `tool_call.created`    | `label`, `phase`           | A tool call was created (§10).             |
+| `tool_call.phase_changed` | `label`, `phase`        | The most recently created tool changed phase. |
+| `assistant_message.displayed` | `content`, `committed_ms` | A completed reply became user-visible (§9). |
+| `source.error`         | `summary`, `code`          | The source reported an error state (§12).  |
+| `session.ended`        | none                       | The native session ended.                  |
+
+Payload members reuse the exact types, closed inventories, and bounds defined
+for the corresponding snapshot fields. `todos.replaced` obeys §8 in full,
+including the positive-revision rule and the 256-entry and 2 KiB text bounds.
+
+### 18.2 Semantics
+
+- **Waiting requires an explicit event.** Only `wait.opened` without a matching
+  `wait.resolved` puts an agent in `waiting_for_input`. Silence, elapsed time,
+  and process age never imply waiting.
+- **Turn elapsed is anchored, not transmitted.** `turn.started` anchors elapsed
+  time at zero; Jefe advances the display from its own monotonic clock. A
+  snapshot's `current_turn` carries an elapsed anchor for late subscribers.
+- **Todos are full replacement.** There are no patches in JSP/1. A replacement
+  whose `revision` does not exceed the applied revision is ignored as stale.
+- **Last message updates only on commit.** `assistant_message.displayed` fires
+  when the native UI has shown completed content. Streaming drafts are not
+  represented in JSP/1 and can never replace a committed message.
+- **Last tool is by creation order.** `tool_call.created` sets the current tool.
+  `tool_call.phase_changed` updates that tool's phase and never reorders by
+  completion time.
+- **Producers cannot assert stale.** `stale` is an observer-side transport
+  overlay (§20). A producer that sends it fails with `JSP-E005`.
+
+## 19. Heartbeat documents
+
+| Field                  | Type    | Required | Notes                                   |
+|------------------------|---------|----------|-----------------------------------------|
+| `schema`               | integer | yes      | Must be exactly `1`.                    |
+| `kind`                 | string  | yes      | Must be `"heartbeat"`.                  |
+| `agent_id`             | string  | yes      | Opaque safe-ASCII ID.                   |
+| `lifecycle_generation` | integer | yes      | Positive (`>= 1`).                      |
+| `source_epoch`         | string  | yes      | Opaque safe-ASCII stream identity.      |
+| `bridge_observed_ms`   | integer | yes      | Non-negative UTC epoch milliseconds.    |
+
+A heartbeat carries no `source_sequence`: it reports liveness of the status
+source, not a state transition, and must not advance or gap the sequence.
+
+Heartbeats exist so a healthy-but-quiet source is distinguishable from a hung
+one. A missed heartbeat means observation health is `stale` — never that the
+agent is idle, ready, or dead.
+
+## 20. Observation health is observer-owned
+
+Observation health (`unsupported`, `connecting`, `live`, `stale`,
+`disconnected`, `protocol_error`) is computed by the observer from transport
+behavior and heartbeat timing. It is never a wire field, and a producer cannot
+report it. This keeps the three axes orthogonal: process liveness is owned by
+the Jefe runtime, observation health by the transport, and native activity by
+authoritative producer events.

@@ -7,86 +7,261 @@
     {
       "name": "snapshot_full",
       "file": "snapshot_full.json",
+      "kind": "snapshot",
       "expected": "ok",
-      "rows": ["S1", "S5"],
+      "rows": [
+        "S1",
+        "S5"
+      ],
       "description": "Canonical full snapshot exercising every required field with supported authoritative/inferred known states, known-empty (null) optional entities, and known-non-empty todos."
     },
     {
       "name": "snapshot_identity_distinct",
       "file": "snapshot_identity_distinct.json",
+      "kind": "snapshot",
       "expected": "ok",
-      "rows": ["S3"],
+      "rows": [
+        "S3"
+      ],
       "description": "Same repository/path as snapshot_full but distinct agent_id/lifecycle_generation/source_epoch/pid so the live observation key stays distinct."
     },
     {
       "name": "snapshot_field_states",
       "file": "snapshot_field_states.json",
+      "kind": "snapshot",
       "expected": "ok",
-      "rows": ["S4"],
+      "rows": [
+        "S4"
+      ],
       "description": "Exhaustive field-state coverage: inferred unknown, authoritative degraded, known-empty todos (revision 1, zero items), authoritative known source-error state, explicit permission wait."
     },
     {
       "name": "snapshot_bounds",
       "file": "snapshot_bounds.json",
+      "kind": "snapshot",
       "expected": "ok",
-      "rows": ["S2"],
+      "rows": [
+        "S2"
+      ],
       "description": "At-limit agent_id (128 bytes) and minimal valid todos. Exercises the upper inclusive bound for identity strings."
     },
     {
       "name": "snapshot_forbidden_fields",
       "file": "snapshot_forbidden_fields.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E001",
-      "rows": ["S5", "S6"],
+      "rows": [
+        "S5",
+        "S6"
+      ],
       "description": "Valid snapshot shape plus forbidden credential (publisher_token, observer_token) and forbidden control/raw fields (raw_transcript, draft, control). Closed parser must reject at ingress."
     },
     {
       "name": "snapshot_closed_grammar",
       "file": "snapshot_closed_grammar.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E001",
-      "rows": ["S2"],
+      "rows": [
+        "S2"
+      ],
       "description": "Valid snapshot with an unknown top-level field and an unknown nested field inside native_session. Closed-object semantics must reject unknown fields."
     },
     {
       "name": "snapshot_semantic_failure",
       "file": "snapshot_semantic_failure.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E005",
-      "rows": ["S4", "S5"],
+      "rows": [
+        "S4",
+        "S5"
+      ],
       "description": "Producer-supplied stale tool phase (stale is a transport-health overlay, not a producer value) and otherwise valid shape. Must fail semantic validation with no payload echoed."
     },
     {
       "name": "snapshot_nested_forbidden_fields",
       "file": "snapshot_nested_forbidden_fields.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E001",
-      "rows": ["S5", "S6"],
+      "rows": [
+        "S5",
+        "S6"
+      ],
       "description": "Forbidden credential, transcript, and control members nested inside current_wait.value rather than at the top level. The closed contract applies at every depth, so these must be rejected at ingress and never echoed."
     },
     {
       "name": "snapshot_over_bound",
       "file": "snapshot_over_bound.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E002",
-      "rows": ["S2"],
+      "rows": [
+        "S2"
+      ],
       "description": "Tool label one byte over the 256-byte inclusive bound. Limit-plus-one input must fail before a contract value is returned."
     },
     {
       "name": "snapshot_unsupported_version",
       "file": "snapshot_unsupported_version.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E003",
-      "rows": ["S2"],
+      "rows": [
+        "S2"
+      ],
       "description": "Otherwise-valid document declaring schema 2. There is no legacy or unknown-version fallback."
     },
     {
       "name": "snapshot_invalid_identity",
       "file": "snapshot_invalid_identity.json",
+      "kind": "snapshot",
       "expected": "error",
       "error_code": "JSP-E004",
-      "rows": ["S3"],
+      "rows": [
+        "S3"
+      ],
       "description": "Zero lifecycle_generation. The live observation key requires a positive generation, and this is an identity violation rather than a shape error."
+    },
+    {
+      "name": "event_activity_changed",
+      "file": "event_activity_changed.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1"
+      ],
+      "description": "Activity transition to acting"
+    },
+    {
+      "name": "event_wait_opened",
+      "file": "event_wait_opened.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1",
+        "E3"
+      ],
+      "description": "Explicit blocking request opens a wait"
+    },
+    {
+      "name": "event_turn_ended",
+      "file": "event_turn_ended.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1"
+      ],
+      "description": "Turn ends with an explicit outcome"
+    },
+    {
+      "name": "event_todos_replaced",
+      "file": "event_todos_replaced.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1",
+        "E4"
+      ],
+      "description": "Full todo replacement with revision"
+    },
+    {
+      "name": "event_tool_created",
+      "file": "event_tool_created.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1"
+      ],
+      "description": "Tool call created in awaiting_approval"
+    },
+    {
+      "name": "event_message_displayed",
+      "file": "event_message_displayed.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1"
+      ],
+      "description": "Committed assistant reply became visible"
+    },
+    {
+      "name": "event_session_ended",
+      "file": "event_session_ended.json",
+      "kind": "event",
+      "expected": "ok",
+      "rows": [
+        "E1"
+      ],
+      "description": "Payload-free session end"
+    },
+    {
+      "name": "event_unknown_type",
+      "file": "event_unknown_type.json",
+      "kind": "event",
+      "expected": "error",
+      "rows": [
+        "E2"
+      ],
+      "description": "Unknown event type is rejected, not ignored",
+      "error_code": "JSP-E001"
+    },
+    {
+      "name": "event_forbidden_fields",
+      "file": "event_forbidden_fields.json",
+      "kind": "event",
+      "expected": "error",
+      "rows": [
+        "E2",
+        "E5"
+      ],
+      "description": "Credential/control members inside an event payload",
+      "error_code": "JSP-E001"
+    },
+    {
+      "name": "event_stale_phase",
+      "file": "event_stale_phase.json",
+      "kind": "event",
+      "expected": "error",
+      "rows": [
+        "E3"
+      ],
+      "description": "Producer cannot assert stale",
+      "error_code": "JSP-E005"
+    },
+    {
+      "name": "event_invalid_identity",
+      "file": "event_invalid_identity.json",
+      "kind": "event",
+      "expected": "error",
+      "rows": [
+        "E6"
+      ],
+      "description": "Zero lifecycle generation",
+      "error_code": "JSP-E004"
+    },
+    {
+      "name": "heartbeat_full",
+      "file": "heartbeat_full.json",
+      "kind": "heartbeat",
+      "expected": "ok",
+      "rows": [
+        "E7"
+      ],
+      "description": "Heartbeat carries liveness without a transition"
+    },
+    {
+      "name": "heartbeat_with_sequence",
+      "file": "heartbeat_with_sequence.json",
+      "kind": "heartbeat",
+      "expected": "error",
+      "rows": [
+        "E7"
+      ],
+      "description": "Heartbeat must not carry a sequence",
+      "error_code": "JSP-E001"
     }
   ]
 }

@@ -1,0 +1,1 @@
+{"schema":1,"kind":"event","agent_id":"agent-alpha","lifecycle_generation":3,"source_epoch":"epoch-7","source_sequence":42,"bridge_observed_ms":1750000000000,"event":{"type":"activity.changed","state":"acting"}}

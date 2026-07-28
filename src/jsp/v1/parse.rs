@@ -10,8 +10,6 @@
 //! Diagnostics carry stable code/path/location and never echo producer payload
 //! values.
 
-use serde::Deserialize as _;
-
 use super::contract::Snapshot;
 use super::error::JspError;
 use super::limits::{ACCEPTED_SCHEMA, MAX_DOCUMENT_BYTES, SNAPSHOT_KIND};
@@ -37,7 +35,7 @@ use super::error::JspCode;
 /// payload values.
 pub fn parse_snapshot(input: &[u8]) -> Result<Snapshot, JspError> {
     check_document_bound(input)?;
-    check_schema_and_kind_early(input)?;
+    expect_kind(input, SNAPSHOT_KIND)?;
     let wire: SnapshotWire = deserialize_closed(input)?;
     validate::convert(wire)
 }
@@ -57,8 +55,12 @@ struct EnvelopeProbe {
     kind: Option<String>,
 }
 
-/// Pre-deserialization schema/kind gate.
-fn check_schema_and_kind_early(input: &[u8]) -> Result<(), JspError> {
+/// Pre-deserialization schema/kind gate shared by every document kind.
+///
+/// The probe reads only the two discriminators so a version or kind mismatch
+/// reports `JSP-E003` instead of being masked by the closed envelope's
+/// `JSP-E001` missing-field failure.
+pub(super) fn expect_kind(input: &[u8], expected: &str) -> Result<(), JspError> {
     let Ok(probe) = serde_json::from_slice::<EnvelopeProbe>(input) else {
         // Malformed or non-object input is reported by the closed
         // deserialization below with a precise location.
@@ -67,14 +69,14 @@ fn check_schema_and_kind_early(input: &[u8]) -> Result<(), JspError> {
     if let Some(schema) = probe.schema {
         if schema != ACCEPTED_SCHEMA {
             return Err(JspError::unsupported_version(format!(
-                "snapshot.schema: unsupported schema version (accepted: {ACCEPTED_SCHEMA})"
+                "document.schema: unsupported schema version (accepted: {ACCEPTED_SCHEMA})"
             )));
         }
     }
     if let Some(kind) = probe.kind {
-        if kind != SNAPSHOT_KIND {
+        if kind != expected {
             return Err(JspError::unsupported_version(format!(
-                "snapshot.kind: unsupported kind (accepted: {SNAPSHOT_KIND})"
+                "document.kind: unsupported kind (accepted: {expected})"
             )));
         }
     }
@@ -82,7 +84,7 @@ fn check_schema_and_kind_early(input: &[u8]) -> Result<(), JspError> {
 }
 
 /// Enforce the inclusive document byte bound before any parsing.
-fn check_document_bound(input: &[u8]) -> Result<(), JspError> {
+pub(super) fn check_document_bound(input: &[u8]) -> Result<(), JspError> {
     if input.len() > MAX_DOCUMENT_BYTES {
         return Err(JspError::bound(format!(
             "snapshot: document size {} exceeds maximum {} bytes",
@@ -99,9 +101,11 @@ fn check_document_bound(input: &[u8]) -> Result<(), JspError> {
 /// `serde_json` is configured via the wire DTOs' `#[serde(deny_unknown_fields)]`
 /// and exhaustive enums to reject unknown fields, duplicate fields, wrong
 /// types, trailing data, and non-integer numbers at this boundary.
-fn deserialize_closed(input: &[u8]) -> Result<SnapshotWire, JspError> {
+pub(super) fn deserialize_closed<T: serde::de::DeserializeOwned>(
+    input: &[u8],
+) -> Result<T, JspError> {
     let mut deserializer = serde_json::Deserializer::from_slice(input);
-    let result = SnapshotWire::deserialize(&mut deserializer);
+    let result = T::deserialize(&mut deserializer);
     // Reject trailing data after the top-level value.
     let trailing = deserializer.end().map_err(|_| trailing_data_error());
     match (result, trailing) {

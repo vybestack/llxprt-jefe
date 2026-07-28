@@ -63,18 +63,50 @@ pub fn convert(wire: SnapshotWire) -> Result<Snapshot, JspError> {
 
 /// Build and validate the live observation identity (decision 2/3).
 fn build_identity(wire: &SnapshotWire) -> Result<ObservationKey, JspError> {
-    let agent_id = parse_opaque_id("snapshot.agent_id", &wire.agent_id)?;
-    if wire.lifecycle_generation == 0 {
+    let identity = build_event_identity(
+        &wire.agent_id,
+        wire.lifecycle_generation,
+        &wire.source_epoch,
+    )?;
+    Ok(ObservationKey(identity))
+}
+
+/// Build and validate the live observation identity from its three parts.
+///
+/// Shared by snapshot, event, and heartbeat documents so every document kind
+/// enforces the same identity triple invariants.
+pub(super) fn build_event_identity(
+    agent_id: &str,
+    lifecycle_generation: u64,
+    source_epoch: &str,
+) -> Result<ObservationIdentity, JspError> {
+    let agent_id = parse_opaque_id("document.agent_id", agent_id)?;
+    if lifecycle_generation == 0 {
         return Err(JspError::identity(
-            "snapshot.lifecycle_generation: must be a positive integer",
+            "document.lifecycle_generation: must be a positive integer",
         ));
     }
-    let source_epoch = parse_opaque_id("snapshot.source_epoch", &wire.source_epoch)?;
-    Ok(ObservationKey(ObservationIdentity {
+    let source_epoch = parse_opaque_id("document.source_epoch", source_epoch)?;
+    Ok(ObservationIdentity {
         agent_id,
-        lifecycle_generation: wire.lifecycle_generation,
+        lifecycle_generation,
         source_epoch,
-    }))
+    })
+}
+
+/// Bound-check a string and wrap it, for reuse by the event converters.
+pub(super) fn bounded<T>(
+    path: &str,
+    value: &str,
+    max: usize,
+    wrap: impl Fn(String) -> T,
+) -> Result<T, JspError> {
+    parse_bounded_string(path, value, max, wrap)
+}
+
+/// Bound-check an entry count, for reuse by the event converters.
+pub(super) fn count_bound(path: &str, count: usize, max: usize) -> Result<(), JspError> {
+    super::limits::check_count_bound(path, count, max)
 }
 
 /// Validate and build the native session descriptive metadata.

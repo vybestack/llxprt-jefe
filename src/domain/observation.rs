@@ -536,3 +536,95 @@ mod tests {
         assert!(WaitReason::from_wire("silence").is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Event semantics
+// ---------------------------------------------------------------------------
+
+/// How a turn finished (specification 18.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl TurnOutcome {
+    /// Map the closed wire label to a typed outcome.
+    #[must_use]
+    pub fn from_wire(label: &str) -> Option<Self> {
+        match label {
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+
+    /// The stable wire label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// One authoritative native transition.
+///
+/// The inventory is closed: an unknown event type is rejected rather than
+/// ignored, because silently dropping a transition leaves a status view
+/// confidently wrong instead of visibly unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObservationEvent {
+    /// Native activity changed.
+    ActivityChanged { state: NativeActivityState },
+    /// An explicit blocking request opened. Only this creates waiting.
+    WaitOpened { reason: WaitReason },
+    /// The open blocking request was answered natively.
+    WaitResolved,
+    /// A turn began; elapsed time anchors at zero.
+    TurnStarted,
+    /// A turn finished with an explicit outcome.
+    TurnEnded { outcome: TurnOutcome },
+    /// Full replacement of the structured todo list.
+    TodosReplaced { todos: TodoList },
+    /// A tool call was created. Creation order defines the current tool.
+    ToolCallCreated { tool: ToolCallValue },
+    /// The current tool call changed phase.
+    ToolCallPhaseChanged { tool: ToolCallValue },
+    /// A completed assistant reply became user-visible.
+    AssistantMessageDisplayed { message: DisplayedAssistantMessage },
+    /// The source reported an error state.
+    SourceError { error: SourceErrorValue },
+    /// The native session ended.
+    SessionEnded,
+}
+
+/// A validated event record: identity, ordering, and one transition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventRecord {
+    /// Live observation key this event belongs to.
+    pub identity: ObservationIdentity,
+    /// Ordering sequence, used for gap detection only.
+    pub source_sequence: u64,
+    /// Bridge observation timestamp.
+    pub bridge_observed_ms: u64,
+    /// The transition itself.
+    pub event: ObservationEvent,
+}
+
+/// A validated heartbeat: the status source is alive but has no transition.
+///
+/// A heartbeat carries no sequence, so it can neither advance nor gap the
+/// stream. A missed heartbeat means telemetry is stale, never that the agent
+/// is idle or dead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeartbeatRecord {
+    /// Live observation key this heartbeat belongs to.
+    pub identity: ObservationIdentity,
+    /// Bridge observation timestamp.
+    pub bridge_observed_ms: u64,
+}

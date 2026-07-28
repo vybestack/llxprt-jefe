@@ -18,6 +18,8 @@
 
 pub mod contract;
 pub mod error;
+mod event;
+mod event_wire;
 mod limits;
 mod parse;
 mod validate;
@@ -25,4 +27,5 @@ mod wire;
 
 pub use contract::{Cursor, ObservationKey, Snapshot, SourceSequence};
 pub use error::{JspCode, JspError};
+pub use event::{parse_event, parse_heartbeat};
 pub use parse::parse_snapshot;

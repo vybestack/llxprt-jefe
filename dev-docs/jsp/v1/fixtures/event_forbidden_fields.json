@@ -1,0 +1,1 @@
+{"schema":1,"kind":"event","agent_id":"agent-alpha","lifecycle_generation":3,"source_epoch":"epoch-7","source_sequence":50,"bridge_observed_ms":1750000000800,"event":{"type":"tool_call.created","label":"run_shell","phase":"executing","raw_transcript":"SECRET","control":"kill"}}

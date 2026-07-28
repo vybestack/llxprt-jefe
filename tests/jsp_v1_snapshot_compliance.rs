@@ -32,6 +32,7 @@ fn fixtures_dir() -> PathBuf {
 struct ManifestEntry {
     name: String,
     file: String,
+    kind: String,
     expected: String,
     #[serde(default)]
     error_code: Option<String>,
@@ -96,10 +97,11 @@ fn manifest_fixtures_match_expected_results() {
             .unwrap_or_else(|_| panic!("fixture {} exists at {}", entry.name, path.display()));
 
         match entry.expected.as_str() {
-            "ok" => match parse_snapshot(&bytes) {
-                Ok(snapshot) => {
+            "ok" => match parse_for_kind(entry, &bytes) {
+                Ok(Some(snapshot)) => {
                     assert_expected_identity(&entry.name, &snapshot);
                 }
+                Ok(None) => {}
                 Err(error) => panic!(
                     "fixture {} expected ok but failed: {} ({})",
                     entry.name,
@@ -114,7 +116,7 @@ fn manifest_fixtures_match_expected_results() {
                         entry.name
                     )
                 });
-                match parse_snapshot(&bytes) {
+                match parse_for_kind(entry, &bytes) {
                     Ok(_) => panic!(
                         "fixture {} expected error {} but parsed successfully",
                         entry.name, expected_code
@@ -134,6 +136,23 @@ fn manifest_fixtures_match_expected_results() {
             }
             other => panic!("fixture {} has unknown expected value: {other}", entry.name),
         }
+    }
+}
+
+/// Parse a fixture with the entry point for its declared document kind.
+///
+/// Returns the snapshot for snapshot fixtures so identity can be cross-checked;
+/// event and heartbeat fixtures return `None` on success because they carry no
+/// snapshot to inspect here (they are asserted in the event compliance suite).
+fn parse_for_kind(
+    entry: &ManifestEntry,
+    bytes: &[u8],
+) -> Result<Option<jefe::jsp::v1::Snapshot>, jefe::jsp::v1::JspError> {
+    match entry.kind.as_str() {
+        "snapshot" => parse_snapshot(bytes).map(Some),
+        "event" => jefe::jsp::v1::parse_event(bytes).map(|_| None),
+        "heartbeat" => jefe::jsp::v1::parse_heartbeat(bytes).map(|_| None),
+        other => panic!("fixture {} has unknown kind: {other}", entry.name),
     }
 }
 
