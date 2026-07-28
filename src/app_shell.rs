@@ -1,5 +1,3 @@
-//! Root application component and iocraft lifecycle for the Jefe TUI.
-
 use iocraft::prelude::*;
 use tracing::{debug, trace, warn};
 
