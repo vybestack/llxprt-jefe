@@ -196,7 +196,7 @@ pub fn build_text_box_view(
     let total_lines = lines.len();
     let caret = byte_cursor_to_caret(text, byte_cursor);
 
-    let (display_rows, caret_row_idx) =
+    let (mut display_rows, caret_row_idx) =
         build_wrapped_display_rows(&lines, caret, content_width, viewport_rows);
     let total_display = display_rows.len();
 
@@ -214,19 +214,15 @@ pub fn build_text_box_view(
     let caret_row = caret_row_idx.unwrap_or(0);
     let first = vertical_first_visible(caret_row, viewport_rows, total_display);
 
-    let mut rows: Vec<TextBoxRow> = Vec::with_capacity(viewport_rows);
-    for vp_idx in 0..viewport_rows {
-        let disp_idx = first + vp_idx;
-        if disp_idx < total_display {
-            rows.push(display_rows[disp_idx].clone());
-        } else {
-            // Pad blank rows so the component occupies a fixed height.
-            rows.push(TextBoxRow {
-                text: String::new(),
-                caret_col: None,
-            });
-        }
-    }
+    // Move the visible window out of display_rows instead of cloning each
+    // row. display_rows is owned by this function and unused after this point.
+    let visible_end = (first + viewport_rows).min(total_display);
+    let mut rows: Vec<TextBoxRow> = display_rows.drain(first..visible_end).collect();
+    // Pad blank rows so the component occupies a fixed height.
+    rows.resize_with(viewport_rows, || TextBoxRow {
+        text: String::new(),
+        caret_col: None,
+    });
 
     TextBoxView {
         rows,
@@ -270,7 +266,7 @@ fn build_wrapped_display_rows(
             content_width,
             viewport_rows,
         };
-        let (mut line_rows, line_caret_row) = project_line_segments(&segments, line_context);
+        let (mut line_rows, line_caret_row) = project_line_segments(segments, line_context);
         if let Some(line_caret_row) = line_caret_row {
             caret_row_idx = Some(display_rows.len().saturating_add(line_caret_row));
         }
@@ -289,23 +285,24 @@ struct LineWrapContext {
 }
 
 fn project_line_segments(
-    segments: &[WrapSegment],
+    segments: Vec<WrapSegment>,
     context: LineWrapContext,
 ) -> (Vec<TextBoxRow>, Option<usize>) {
     let mut rows = Vec::with_capacity(segments.len().saturating_add(1));
     let mut caret_row = None;
     let mut boundary_caret_pending = false;
-    for (segment_index, seg) in segments.iter().enumerate() {
+    let segment_count = segments.len();
+    for (segment_index, seg) in segments.into_iter().enumerate() {
         let rendered_chars = seg.text.chars().count();
         let rendered_width = UnicodeWidthStr::width(seg.text.as_str());
-        let hidden_suffix = caret_in_hidden_suffix(seg, rendered_chars, rendered_width, context);
-        let full_width_end = caret_at_full_width_end(seg, rendered_width, context);
-        let is_last_segment = segment_index + 1 == segments.len();
+        let hidden_suffix = caret_in_hidden_suffix(&seg, rendered_chars, rendered_width, context);
+        let full_width_end = caret_at_full_width_end(&seg, rendered_width, context);
+        let is_last_segment = segment_index + 1 == segment_count;
         let needs_trailing_row = full_width_end || (hidden_suffix && is_last_segment);
         let trailing_row = needs_trailing_row && context.viewport_rows >= 2;
         if trailing_row {
             rows.push(TextBoxRow {
-                text: seg.text.clone(),
+                text: seg.text,
                 caret_col: None,
             });
             caret_row = Some(rows.len());
@@ -320,15 +317,15 @@ fn project_line_segments(
             rendered_width,
             hidden_suffix,
             full_width_end,
-            has_next: segment_index + 1 < segments.len(),
+            has_next: segment_index + 1 < segment_count,
         };
         let segment_caret =
-            segment_caret_col(seg, context, segment_context, &mut boundary_caret_pending);
+            segment_caret_col(&seg, context, segment_context, &mut boundary_caret_pending);
         if segment_caret.is_some() {
             caret_row = Some(rows.len());
         }
         rows.push(TextBoxRow {
-            text: seg.text.clone(),
+            text: seg.text,
             caret_col: segment_caret,
         });
     }
@@ -363,6 +360,7 @@ fn segment_caret_col(
     }
     caret_col_for_segment(
         seg,
+        segment.rendered_chars,
         segment.rendered_width,
         line.caret,
         line.line_idx,
@@ -404,10 +402,14 @@ fn caret_in_hidden_suffix(
 /// - the segment is empty (`start == end`) and the caret sits at that
 ///   position (a blank line / trailing-newline row).
 ///
+/// `rendered_chars` is the already-computed scalar length of `seg.text` and
+/// is reused here instead of recomputing `seg.text.chars().count()`.
+///
 /// @requirement REQ-PR-009
 /// @requirement REQ-TEXTBOX-WRAP
 fn caret_col_for_segment(
     seg: &WrapSegment,
+    rendered_chars: usize,
     seg_width: usize,
     caret: TextCaret,
     line_idx: usize,
@@ -425,12 +427,7 @@ fn caret_col_for_segment(
     let trailing_at_end = caret_at_seg_end && seg_has_room;
     let on_blank_row = seg_is_empty && caret_at_seg_end;
     if in_range || trailing_at_end || on_blank_row {
-        Some(
-            caret
-                .col
-                .saturating_sub(seg.start)
-                .min(seg.text.chars().count()),
-        )
+        Some(caret.col.saturating_sub(seg.start).min(rendered_chars))
     } else {
         None
     }
