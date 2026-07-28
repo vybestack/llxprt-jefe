@@ -53,7 +53,7 @@ const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
 /// `has_virtual_terminal_processing`) so the Windows adapter can use safe
 /// `winsafe` bitflag types without reconstructing them from raw `u32` values
 /// (which would require `unsafe`).
-trait ConsolePolicy {
+pub trait ConsolePolicy {
     /// Whether stdout is attached to a terminal (TTY).
     fn is_stdout_terminal(&self) -> bool;
 
@@ -79,12 +79,12 @@ trait ConsolePolicy {
 ///
 /// Restoration is best-effort: if the code-page restore fails, a structured
 /// `tracing::warn!` event is emitted so diagnostics surface without panicking.
-struct ConsoleGuard<P: ConsolePolicy> {
+pub struct PolicyGuard<P: ConsolePolicy> {
     policy: P,
     original_code_page: u32,
 }
 
-impl<P: ConsolePolicy> Drop for ConsoleGuard<P> {
+impl<P: ConsolePolicy> Drop for PolicyGuard<P> {
     fn drop(&mut self) {
         restore_code_page(&mut self.policy, self.original_code_page);
     }
@@ -116,7 +116,7 @@ fn restore_code_page<P: ConsolePolicy>(policy: &mut P, code_page: u32) {
 ///    original value (logging a separate warning if the rollback also fails),
 ///    then returns `None`.
 /// 6. Returns a guard that restores the original code page on drop.
-fn prepare_console<P: ConsolePolicy>(mut policy: P) -> Option<ConsoleGuard<P>> {
+fn prepare_console<P: ConsolePolicy>(mut policy: P) -> Option<PolicyGuard<P>> {
     if !policy.is_stdout_terminal() {
         return None;
     }
@@ -173,7 +173,7 @@ fn prepare_console<P: ConsolePolicy>(mut policy: P) -> Option<ConsoleGuard<P>> {
         }
     }
 
-    Some(ConsoleGuard {
+    Some(PolicyGuard {
         policy,
         original_code_page: original_cp,
     })
@@ -187,10 +187,32 @@ fn prepare_console<P: ConsolePolicy>(mut policy: P) -> Option<ConsoleGuard<P>> {
 ///
 /// On Unix, terminal output is natively UTF-8, so no console preparation is
 /// needed. The function returns `None` and this type exists only to provide a
-/// uniform call-site signature.
+/// uniform call-site signature. It implements `Drop` as a no-op so the public
+/// `ConsoleGuard` alias has a consistent `Drop` bound on every platform.
 #[cfg(not(windows))]
 #[derive(Debug)]
 pub struct NoOpGuard;
+
+#[cfg(not(windows))]
+impl Drop for NoOpGuard {
+    fn drop(&mut self) {}
+}
+
+/// Unified console-preparation guard type returned by
+/// [`prepare_console_for_unicode`].
+///
+/// On Windows this is the real code-page-restoring guard; on other platforms
+/// it is the no-op [`NoOpGuard`]. Either way it implements `Drop`, so callers
+/// can hold the value across the render loop without a platform-specific
+/// `impl Drop` return bound (which cannot be satisfied when the non-Windows
+/// stub returns a unit struct).
+pub type ConsoleGuard = GuardInner;
+
+#[cfg(windows)]
+pub type GuardInner = PolicyGuard<self::windows_adapter::WinsafePolicy>;
+
+#[cfg(not(windows))]
+pub type GuardInner = NoOpGuard;
 
 /// Prepares the console for Unicode TUI output.
 ///
@@ -202,7 +224,7 @@ pub struct NoOpGuard;
 /// terminal render loop. Dropping it restores the console to its prior state.
 #[cfg(not(windows))]
 #[must_use]
-pub fn prepare_console_for_unicode() -> Option<NoOpGuard> {
+pub fn prepare_console_for_unicode() -> Option<ConsoleGuard> {
     None
 }
 
@@ -290,7 +312,7 @@ mod windows_adapter {
     /// stdout is not a terminal or setup fails, returns `None` and jefe
     /// continues without console modification.
     #[must_use]
-    pub fn prepare_console_for_unicode() -> Option<impl Drop> {
+    pub fn prepare_console_for_unicode() -> Option<super::ConsoleGuard> {
         super::prepare_console(WinsafePolicy)
     }
 

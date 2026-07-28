@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// A rounded-corner glyph actually emitted by iocraft's `BorderStyle::Round`
 /// (`vendor/iocraft/src/components/box.rs:83-92`). The probe round-trips this
 /// codepoint to detect font coverage of the U+256D–2570 sub-range.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) const ROUND_CORNER_SAMPLE: char = '╭';
 
 /// Whether the console font can represent the rounded-corner glyphs.
@@ -74,6 +75,7 @@ impl Capability {
 /// The trait exists so the deterministic detect/fallback contract is
 /// unit-testable with a recording fake, and so the Windows adapter is the
 /// single owner of every `win32console`/`winsafe` call.
+#[cfg_attr(all(not(windows), not(test)), allow(dead_code))]
 pub(crate) trait BorderCapabilityPolicy {
     /// Whether stdout is attached to a terminal (TTY).
     fn is_stdout_terminal(&self) -> bool;
@@ -98,6 +100,7 @@ pub(crate) trait BorderCapabilityPolicy {
 ///    console that is not a terminal).
 /// 2. TTY → probe once. `Ok(true)` → `RoundSupported`; `Ok(false)` →
 ///    `RoundUnsupported`; `Err` → `RoundSupported` (fail safe).
+#[cfg_attr(all(not(windows), not(test)), allow(dead_code))]
 pub(crate) fn detect_capability(policy: &dyn BorderCapabilityPolicy) -> Capability {
     if !policy.is_stdout_terminal() {
         return Capability::RoundSupported;

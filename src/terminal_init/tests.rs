@@ -6,7 +6,7 @@
 //! the native build: if stdout is a console, the real Win32 calls execute; if
 //! not, the function degrades to `None`.
 
-use super::{ConsoleGuard, ConsolePolicy, ENABLE_VIRTUAL_TERMINAL_PROCESSING, UTF8_CODE_PAGE};
+use super::{ConsolePolicy, ENABLE_VIRTUAL_TERMINAL_PROCESSING, PolicyGuard, UTF8_CODE_PAGE};
 
 use std::cell::RefCell;
 use std::panic::{self, AssertUnwindSafe};
@@ -139,7 +139,7 @@ impl ConsolePolicy for RecordingPolicy {
 }
 
 /// Helper: call the state machine directly with a fake.
-fn prepare_with_fake(policy: RecordingPolicy) -> Option<ConsoleGuard<RecordingPolicy>> {
+fn prepare_with_fake(policy: RecordingPolicy) -> Option<PolicyGuard<RecordingPolicy>> {
     super::prepare_console(policy)
 }
 

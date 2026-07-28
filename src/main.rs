@@ -279,9 +279,10 @@ fn main() {
 /// console font for rounded-corner glyph coverage (issue #497).
 ///
 /// The capability probe must run after the code page is set so it sees UTF-8
-/// behavior. The returned guard (if any) restores the original code page on
-/// drop and must stay alive for the duration of the render loop.
-fn prepare_console_and_detect_font() -> Option<impl Drop> {
+/// behavior. On Windows the returned guard restores the original code page on
+/// drop and must stay alive for the duration of the render loop; on other
+/// platforms no guard is returned.
+fn prepare_console_and_detect_font() -> Option<terminal_init::ConsoleGuard> {
     let guard = terminal_init::prepare_console_for_unicode();
     jefe::border_capability::detect_and_initialize();
     guard
