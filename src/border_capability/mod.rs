@@ -170,10 +170,11 @@ pub fn resolve_unfocused_border_style() -> BorderStyle {
 // Platform-specific detection entry point
 // ---------------------------------------------------------------------------
 
-/// Non-Windows: terminal output is natively UTF-8 with a font that ships the
-/// full box-drawing range, so the capability is always `RoundSupported`. The
-/// function still records it via [`initialize`] so the flag is in a known
-/// state regardless of platform.
+/// Non-Windows capability is always `RoundSupported`.
+///
+/// Terminal output is natively UTF-8 with a font that ships the full
+/// box-drawing range. The function still records it via [`initialize`] so the
+/// flag is in a known state regardless of platform.
 #[cfg(not(windows))]
 pub fn detect_and_initialize() {
     initialize(DEFAULT_CAPABILITY);
