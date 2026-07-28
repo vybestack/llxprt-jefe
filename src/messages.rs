@@ -129,22 +129,18 @@ pub enum ModalMessage {
     FormPrevField,
     FormToggleCheckbox,
 }
-/// Repository and agent configuration messages.
 #[derive(Debug, Clone)]
 pub enum RepositoryAgentMessage {
     OpenNewRepository,
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
     OpenNewAgent(RepositoryId),
-    /// Open the generated New Agent form for one registry definition.
     OpenAgentTypeForm(crate::domain::agent_definition::AgentTypeId),
     OpenEditAgent(AgentId),
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
-    /// Stage startup availability probes for post-commit execution.
     ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
 }
-/// Runtime lifecycle messages.
 #[derive(Debug, Clone)]
 pub enum RuntimeMessage {
     KillAgent(AgentId),

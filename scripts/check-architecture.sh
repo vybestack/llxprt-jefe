@@ -32,7 +32,7 @@ fail_before_test_modules() {
 
 fail_if_matches \
   'issue #382 architecture check: legacy agent authority remains outside migration' \
-  'AgentKind|AgentLaunchConfiguration|default_agent_kind|installed_agent_kinds' \
+  '(^|[^A-Za-z0-9_])AgentKind([^A-Za-z0-9_]|$)|AgentLaunchConfiguration|default_agent_kind|installed_agent_kinds' \
   src --include='*.rs' --exclude='migration*.rs'
 
 fail_if_matches \

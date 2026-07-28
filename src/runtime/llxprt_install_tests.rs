@@ -446,7 +446,6 @@ fn install_failed_diagnostic_names_timeout_phase_distinctly() {
 #[cfg(windows)]
 mod windows_canonical_install {
     use super::*;
-    use crate::domain::AgentKind;
     use crate::runtime::agent_executable::AgentExecutableTarget;
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
@@ -569,7 +568,7 @@ mod windows_canonical_install {
         // cached llxprt bin plus the selector-matching marker.
         let llxprt_cmd = expected_bin_dir.join(format!(
             "{}.cmd",
-            AgentExecutableTarget::Agent(AgentKind::Llxprt).binary_name()
+            AgentExecutableTarget::Agent("llxprt").binary_name()
         ));
         assert!(
             llxprt_cmd.is_file(),

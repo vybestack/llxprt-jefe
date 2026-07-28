@@ -88,12 +88,10 @@ pub enum AppEvent {
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
     OpenNewAgent(RepositoryId),
-    /// Open the generated New Agent form for one selected definition.
     OpenAgentTypeForm(crate::domain::agent_definition::AgentTypeId),
     OpenEditAgent(crate::domain::AgentId),
     OpenDeleteAgent(crate::domain::AgentId),
     ToggleDeleteWorkDir,
-    /// Stage startup availability probes for post-commit execution.
     ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
 
     KillAgent(crate::domain::AgentId),
