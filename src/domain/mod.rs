@@ -4,11 +4,15 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Transport-neutral observation semantic values (issue #476 J1 slice).
+pub mod observation;
+
 /// Pure document wrapping and content-line scroll geometry.
 pub mod document_wrap;
+mod pr_diff;
+pub use pr_diff::*;
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
-
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -421,6 +425,8 @@ pub struct PrReviewThread {
     pub path: Option<String>,
     /// Line number the thread is attached to (`None` for PR-level threads).
     pub line: Option<u32>,
+    /// Exact diff-side and range metadata for inline placement.
+    pub anchor: Option<PrReviewThreadAnchor>,
     /// Nested thread reply comments (oldest first).
     pub comments: Vec<IssueComment>,
 }

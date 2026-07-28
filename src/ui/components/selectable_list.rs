@@ -132,7 +132,7 @@ fn resolve_border(policy: ListBorder, focused: bool, rc: ResolvedColors) -> (Bor
             let style = if focused {
                 BorderStyle::Double
             } else {
-                BorderStyle::Round
+                crate::border_capability::resolve_unfocused_border_style()
             };
             (style, rc.border)
         }
@@ -142,7 +142,10 @@ fn resolve_border(policy: ListBorder, focused: bool, rc: ResolvedColors) -> (Bor
             } else {
                 rc.border
             };
-            (BorderStyle::Round, color)
+            (
+                crate::border_capability::resolve_unfocused_border_style(),
+                color,
+            )
         }
     }
 }

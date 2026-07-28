@@ -623,6 +623,10 @@ pub enum ComposerTarget {
         thread_id: String,
         author: String,
     },
+    /// Create a single-line review comment on an exact diff side.
+    NewReviewThread {
+        target: crate::domain::PrReviewCommentTarget,
+    },
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

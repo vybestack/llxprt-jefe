@@ -9,6 +9,9 @@ pub mod actions_detail_projection;
 pub mod actions_detail_view;
 pub mod actions_view;
 pub mod agent_detection;
+/// Detects whether the console font supports rounded-corner box-drawing
+/// glyphs and falls back to single-line borders when it does not (issue #497).
+pub mod border_capability;
 pub mod cli;
 /// OSC 52 clipboard writer with tmux / GNU screen passthrough.
 pub mod clipboard;
@@ -39,6 +42,9 @@ pub mod persistence;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
+pub mod pr_diff_content;
+#[cfg(test)]
+mod pr_diff_content_tests;
 /// Provider-free configuration recovery command boundary.
 pub mod recovery;
 pub mod runtime;
@@ -91,3 +97,6 @@ pub fn process_identity_label(pid: u32, commit: &str) -> String {
 }
 
 pub mod harness;
+
+/// JSP (Jefe Stream Protocol) external wire boundary (issue #476).
+pub mod jsp;

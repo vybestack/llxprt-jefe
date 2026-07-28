@@ -169,7 +169,10 @@ pub fn composer_from_inline_state(
     use crate::state::ComposerTarget;
     match inline_state {
         InlineState::Composer {
-            target: ComposerTarget::NewComment | ComposerTarget::NewIssue,
+            target:
+                ComposerTarget::NewComment
+                | ComposerTarget::NewIssue
+                | ComposerTarget::NewReviewThread { .. },
             text,
             cursor,
         } => Some((
@@ -283,7 +286,7 @@ pub fn DetailPane(props: &DetailPaneProps) -> impl Into<AnyElement<'static>> {
     let border_style = if props.focused {
         BorderStyle::Double
     } else {
-        BorderStyle::Round
+        crate::border_capability::resolve_unfocused_border_style()
     };
     let header = header_box(props, &rc);
     let viewport = viewport_box(props, &rc);

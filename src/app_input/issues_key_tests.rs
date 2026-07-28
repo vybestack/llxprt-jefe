@@ -991,3 +991,6 @@ mod close_delete;
 
 #[path = "issues_key_265_tests.rs"]
 mod issue265;
+
+#[path = "issues_key_480_tests.rs"]
+mod issue480;

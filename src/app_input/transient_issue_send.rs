@@ -12,7 +12,7 @@ use jefe::domain::{AgentId, LaunchSignature, Repository};
 use jefe::state::AppEvent;
 
 use super::clone_identity::CloneIdentity;
-use super::issue_prep::{DirtyPolicy, PrepOutcome, prepare_issue_target};
+use super::issue_prep::{PrepOutcome, prepare_issue_target};
 use super::issue_self_assignment::IssueAssignment;
 use super::issues_dispatch;
 use super::{
@@ -211,12 +211,7 @@ fn prepare_and_launch_transient_issue(
         return;
     };
 
-    let outcome = prepare_issue_target(
-        &target,
-        &prep.work_dir,
-        prep.clone_identity.as_ref(),
-        DirtyPolicy::Stop,
-    );
+    let outcome = prepare_issue_target(&target, &prep.work_dir, prep.clone_identity.as_ref());
     handle_transient_prep_outcome(app_state, ctx, &prep, outcome);
 }
 

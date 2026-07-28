@@ -11,7 +11,8 @@
 
 use crate::domain::{
     ChecksFilter, IssueComment, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview,
-    PrReviewState, PrReviewThread, PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
+    PrReviewState, PrReviewThread, PrReviewThreadAnchor, PrReviewThreadSide, PrState, PullRequest,
+    PullRequestDetail, ReviewDecisionFilter,
 };
 use serde_json::Value;
 
@@ -221,7 +222,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         .unwrap_or(false);
     let review_decision = node.get("reviewDecision").and_then(parse_review_decision);
     let checks_status = parse_checks_rollup(&rollup_nodes(node.get("statusCheckRollup")));
-    let mergeable = parse_mergeable_enum(node.get("mergeable"));
+    let mergeable = parse_mergeable_value(node.get("mergeable"));
     PullRequest {
         number,
         title,
@@ -275,17 +276,25 @@ fn str_field(value: &Value, field: &str) -> String {
         .to_string()
 }
 
-/// Parse the GraphQL `mergeable` enum (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`)
-/// into a tri-state bool: `MERGEABLE`→`Some(true)`,
-/// `CONFLICTING`→`Some(false)`, anything else (incl. `UNKNOWN` and missing)→
-/// `None`. Used by the list parser so the PR list can show a mergeable/conflict
-/// indicator without a separate detail fetch (issue #314).
+/// Parse the GraphQL/JSON `mergeable` field into a tri-state bool.
+///
+/// Accepts both shapes returned by `gh`:
+/// - GraphQL enum strings: `MERGEABLE`→`Some(true)`, `CONFLICTING`→`Some(false)`,
+///   anything else (incl. `UNKNOWN` and missing)→`None`
+/// - Boolean JSON (legacy/`gh pr view --json` fixtures): `true`/`false` map
+///   directly to `Some(true)`/`Some(false)`
+///
+/// Used by both the list parser (issue #314) and the detail parser so detail
+/// views do not silently drop mergeable when GraphQL returns the enum string.
 #[must_use]
-pub fn parse_mergeable_enum(value: Option<&Value>) -> Option<bool> {
-    let token = value.and_then(Value::as_str)?;
-    match token {
-        "MERGEABLE" => Some(true),
-        "CONFLICTING" => Some(false),
+pub fn parse_mergeable_value(value: Option<&Value>) -> Option<bool> {
+    match value? {
+        Value::Bool(b) => Some(*b),
+        Value::String(token) => match token.as_str() {
+            "MERGEABLE" => Some(true),
+            "CONFLICTING" => Some(false),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -386,7 +395,7 @@ pub fn parse_pull_request_detail_json(
         reviews,
         checks,
         comments: exhausted_comments(Vec::new()),
-        mergeable: value.get("mergeable").and_then(Value::as_bool),
+        mergeable: parse_mergeable_value(value.get("mergeable")),
         merge_state_status: value
             .get("mergeStateStatus")
             .and_then(Value::as_str)
@@ -671,7 +680,7 @@ pub fn build_pr_review_threads_query(with_after: bool) -> String {
         "query($owner: String!, $repo: String!, $number: Int!, $first: Int!{after_decl}) \
          {{ repository(owner: $owner, name: $repo) {{ pullRequest(number: $number) \
          {{ reviewThreads(first: $first{after_arg}) \
-         {{ nodes {{ id isResolved isOutdated path line \
+         {{ nodes {{ id isResolved isOutdated path line diffSide startDiffSide startLine originalLine originalStartLine \
          comments(first: 50) {{ nodes {{ databaseId author {{ login }} createdAt lastEditedAt body \
          pullRequestReview {{ id }} }} }} }} \
          pageInfo {{ hasNextPage endCursor }} }} }} }} }}"
@@ -809,6 +818,7 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
         .get("line")
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok());
+    let anchor = parse_thread_anchor(node);
     let comments = parse_thread_comments(node);
     PrReviewThread {
         thread_id,
@@ -817,8 +827,38 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
         review_id,
         path,
         line,
+        anchor,
         comments,
     }
+}
+
+fn parse_thread_anchor(node: &Value) -> Option<PrReviewThreadAnchor> {
+    let side = parse_thread_side(node.get("diffSide")?.as_str()?)?;
+    Some(PrReviewThreadAnchor {
+        side,
+        start_side: node
+            .get("startDiffSide")
+            .and_then(Value::as_str)
+            .and_then(parse_thread_side),
+        start_line: u32_field(node, "startLine"),
+        original_line: u32_field(node, "originalLine"),
+        original_start_line: u32_field(node, "originalStartLine"),
+    })
+}
+
+fn parse_thread_side(value: &str) -> Option<PrReviewThreadSide> {
+    match value {
+        "LEFT" => Some(PrReviewThreadSide::Left),
+        "RIGHT" => Some(PrReviewThreadSide::Right),
+        _ => None,
+    }
+}
+
+fn u32_field(value: &Value, field: &str) -> Option<u32> {
+    value
+        .get(field)
+        .and_then(Value::as_u64)
+        .and_then(|number| u32::try_from(number).ok())
 }
 
 /// Extract the parent-review id (`comments.nodes[0].pullRequestReview.id`)
@@ -916,3 +956,7 @@ pub fn parse_thread_reply_json(stdout: &str) -> Result<IssueComment, GhError> {
         .ok_or_else(|| GhError::ParseError("missing thread reply comment node".to_string()))?;
     Ok(parse_thread_comment_node(comment_node))
 }
+
+#[cfg(test)]
+#[path = "parse_pr_tests.rs"]
+mod tests;

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "agent-alex",
+  "lifecycle_generation": 1,
+  "source_epoch": "epoch-x",
+  "source_sequence": 1,
+  "cursor": 0,
+  "bridge_observed_ms": 1785921967000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 1,
+    "display_name": "worker"
+  },
+  "process_binding": "unsupported",
+  "native_activity": "unsupported",
+  "current_wait": "unsupported",
+  "current_turn": "unsupported",
+  "todos": "unsupported",
+  "last_displayed_assistant_message": "unsupported",
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": "unsupported",
+  "publisher_token": "supersecret",
+  "observer_token": "supersecret",
+  "raw_transcript": "leaked",
+  "draft": "leaked",
+  "control": "kill"
+}

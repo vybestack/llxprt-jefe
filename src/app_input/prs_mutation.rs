@@ -8,7 +8,7 @@
 //! @requirement REQ-PR-011
 //! @pseudocode component-003 lines 109-119
 
-use jefe::state::{AppEvent, ComposerTarget, InlineState};
+use jefe::state::{AppEvent, AppState, ComposerTarget, InlineState};
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
@@ -27,8 +27,12 @@ use super::{
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 109-119
 pub fn handle_pr_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let Some(action) = resolve_pr_inline_submit(app_state) else {
-        tracing::debug!("ignoring PR inline submit: no pending mutation or composer text");
+    let action = {
+        let state = app_state.read();
+        resolve_pr_inline_submit(&state)
+    };
+    let Some(action) = action else {
+        tracing::debug!("ignoring PR inline submit: inconsistent pending mutation or composer");
         return;
     };
     let repo = match pr_repo_target(app_state) {
@@ -69,6 +73,8 @@ pub fn handle_pr_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
             return;
         };
         dispatch_pr_thread_reply(app_state, ctx, repo, action, thread_id);
+    } else if matches!(action.target, ComposerTarget::NewReviewThread { .. }) {
+        dispatch_pr_review_comment_create(app_state, ctx, repo, action);
     } else {
         dispatch_pr_comment_create(app_state, ctx, repo, action);
     }
@@ -78,40 +84,35 @@ pub fn handle_pr_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
 #[derive(Clone)]
-struct PrInlineSubmitAction {
-    scope_repo_id: jefe::domain::RepositoryId,
-    pr_number: u64,
-    mutation_id: u64,
-    text: String,
-    target: ComposerTarget,
+pub(super) struct PrInlineSubmitAction {
+    pub(super) scope_repo_id: jefe::domain::RepositoryId,
+    pub(super) pr_number: u64,
+    pub(super) mutation_id: u64,
+    pub(super) text: String,
+    pub(super) target: ComposerTarget,
 }
 
-/// Resolve the inline-submit action from state (mutation_pending + composer text).
+/// Resolve the inline-submit action from one committed post-reducer snapshot.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 310-325
-fn resolve_pr_inline_submit(app_state: &AppStateHandle) -> Option<PrInlineSubmitAction> {
-    let state = app_state.read();
+pub(super) fn resolve_pr_inline_submit(state: &AppState) -> Option<PrInlineSubmitAction> {
     let pending = state.prs_state.mutation_pending.as_ref()?;
     let pr_number = state.prs_state.pr_detail.as_ref()?.number;
-    let (text, target) = match &state.prs_state.inline_state {
-        InlineState::Composer { text, target, .. } => (text.clone(), target.clone()),
-        InlineState::Editor { text, .. } => (text.clone(), ComposerTarget::NewComment),
-        InlineState::None => return None,
+    let InlineState::Composer { text, target, .. } = &state.prs_state.inline_state else {
+        return None;
     };
-    if text.trim().is_empty() {
+    if text.trim().is_empty() || target != &pending.target {
         return None;
     }
-    let action = PrInlineSubmitAction {
+    Some(PrInlineSubmitAction {
         scope_repo_id: pending.scope_repo_id.clone(),
         pr_number,
         mutation_id: pending.mutation_id,
-        text,
-        target,
-    };
-    drop(state);
-    Some(action)
+        text: text.clone(),
+        target: pending.target.clone(),
+    })
 }
 
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -235,6 +236,86 @@ fn pr_comment_create_event(
     let result = github_client(ctx).map(|client| {
         client.create_pr_comment(&repo.owner, &repo.repo, action.pr_number, &action.text)
     });
+    match result {
+        Some(Ok(comment)) => AppEvent::PrCommentCreated {
+            scope_repo_id: action.scope_repo_id.clone(),
+            pr_number: action.pr_number,
+            mutation_id: action.mutation_id,
+            comment,
+        },
+        Some(Err(error)) => AppEvent::PrCommentCreateFailed {
+            scope_repo_id: action.scope_repo_id.clone(),
+            pr_number: action.pr_number,
+            mutation_id: action.mutation_id,
+            error: error.to_string(),
+        },
+        None => AppEvent::PrCommentCreateFailed {
+            scope_repo_id: action.scope_repo_id.clone(),
+            pr_number: action.pr_number,
+            mutation_id: action.mutation_id,
+            error: "Application context unavailable".to_string(),
+        },
+    }
+}
+fn dispatch_pr_review_comment_create(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    repo: PrRepoTarget,
+    action: PrInlineSubmitAction,
+) {
+    let Some(deliveries) = gh_async::delivery_handle_or_report(
+        app_state,
+        ctx,
+        pr_comment_abandoned(action.clone(), "GitHub review comment"),
+    ) else {
+        return;
+    };
+    let panic_action = action.clone();
+    gh_async::spawn_gh_work(
+        &deliveries,
+        ctx,
+        move |ctx| pr_review_comment_event(ctx, &repo, &action),
+        dispatch_app_event,
+        move |app_state, ctx, message| {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::PrCommentCreateFailed {
+                    scope_repo_id: panic_action.scope_repo_id,
+                    pr_number: panic_action.pr_number,
+                    mutation_id: panic_action.mutation_id,
+                    error: format!("GitHub review-comment task panicked: {message}"),
+                },
+            );
+        },
+    );
+}
+
+fn pr_review_comment_event(
+    ctx: &SharedContext,
+    repo: &PrRepoTarget,
+    action: &PrInlineSubmitAction,
+) -> AppEvent {
+    let target = match &action.target {
+        ComposerTarget::NewReviewThread { target } => Some(target),
+        _ => None,
+    };
+    let result = github_client(ctx).zip(target).map(|(client, target)| {
+        client.create_pr_review_comment(
+            &repo.owner,
+            &repo.repo,
+            action.pr_number,
+            target,
+            &action.text,
+        )
+    });
+    comment_result_event(action, result)
+}
+
+fn comment_result_event(
+    action: &PrInlineSubmitAction,
+    result: Option<Result<jefe::domain::IssueComment, jefe::github::GhError>>,
+) -> AppEvent {
     match result {
         Some(Ok(comment)) => AppEvent::PrCommentCreated {
             scope_repo_id: action.scope_repo_id.clone(),

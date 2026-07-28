@@ -172,16 +172,19 @@ fn resolve_new_issue_inline_key_event(state: &AppState, key_event: &KeyEvent) ->
 
 fn resolve_new_issue_enter(focus: NewIssueFormFocus) -> AppEvent {
     match focus {
-        // In the body, Enter inserts a newline; selection fields advance to
-        // the next field so Enter is not a dangerous accidental submit.
+        // In the body, Enter inserts a newline; every other field advances to
+        // the next field so a bare Enter is never an accidental submit. Only
+        // Alt+Enter / Ctrl+Enter submit (handled earlier in
+        // resolve_new_issue_inline_key_event). Issue #480: Title previously
+        // submitted on bare Enter, contradicting the "Alt+Enter submit" hint.
         NewIssueFormFocus::Body => AppEvent::NewIssueBodyNewline,
         NewIssueFormFocus::Template
         | NewIssueFormFocus::Type
+        | NewIssueFormFocus::Title
         | NewIssueFormFocus::Labels
         | NewIssueFormFocus::Milestone
         | NewIssueFormFocus::Project
         | NewIssueFormFocus::Assignees => AppEvent::NewIssueFocusNext,
-        NewIssueFormFocus::Title => AppEvent::NewIssueSubmit,
     }
 }
 

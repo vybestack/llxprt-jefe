@@ -492,6 +492,23 @@ pub enum AppEvent {
     PrScrollDetailPageDown,
     PrDetailSubfocusNext,
     PrDetailSubfocusPrev,
+    PrOpenChanges,
+    PrChangesFocusContent,
+    PrChangesFocusFiles,
+    PrChangesToggleView,
+    /// Open a line-review composer for the selected Changes row.
+    PrOpenChangesComment,
+    PrChangesBack,
+    /// Retry the changed-files read after a terminal failure. Restages a
+    /// fresh head-correlated files load (issue #376).
+    PrChangesRetryFiles,
+    /// Retry the selected full-file blob read after a terminal failure
+    /// (issue #376).
+    PrChangesRetryBlob,
+    PrChangesLoaded(crate::state::PrChangesLoadedPayload),
+    PrChangesLoadFailed(crate::state::PrChangesLoadFailedPayload),
+    PrChangesBlobLoaded(crate::state::PrChangesBlobLoadedPayload),
+    PrChangesBlobLoadFailed(crate::state::PrChangesBlobLoadFailedPayload),
     PrListLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::PrFilter>,

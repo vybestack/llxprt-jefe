@@ -202,11 +202,10 @@ fn pr_merge_failure_context_from_state(state: &jefe::state::AppState) -> (Reposi
 ///
 /// Resolves the repo owner/name from state and spawns
 /// `GhClient::get_repo_merge_methods` OFF the UI thread, delivering
-/// `PrMergeMethodsLoaded` on success. On failure, nothing is delivered — the
-/// chooser treats `allowed_methods: None` as "all available" (graceful
-/// degradation). A malformed nonblank override surfaces the typed error
-/// as a `PrMergeMethodsLoadFailed` event rather than collapsing to empty
-/// (issue #266).
+/// `PrMergeMethodsLoaded` on success. On API/client failure, delivers
+/// `PrMergeMethodsLoadFailed` (same typed surface as a malformed tracker
+/// override) so the UI shows why methods could not be loaded instead of
+/// silently treating `allowed_methods: None` as "all available".
 ///
 /// @requirement REQ-PR-009
 pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -237,8 +236,6 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx
             );
         }
         Ok(Some((scope, owner, name, pr_number))) => {
-            // The chooser keeps its graceful "all available" fallback rather
-            // than surfacing an abandoned merge-methods request.
             let Some(deliveries) = gh_async::delivery_handle_or_report(
                 app_state,
                 ctx,
@@ -262,9 +259,11 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx
     }
 }
 
-/// Build the merge-methods-loaded event, returning `None` on failure so the
-/// chooser keeps `allowed_methods: None` (meaning "all available") rather than
-/// collapsing to an empty list that disables every method.
+/// Build the merge-methods result event.
+///
+/// Success → `PrMergeMethodsLoaded`. Fetch failure → `PrMergeMethodsLoadFailed`
+/// so the chooser does not silently degrade to "all methods allowed" when
+/// GitHub rejected or could not answer the allowlist query.
 ///
 /// @requirement REQ-PR-009
 fn pr_merge_methods_event(
@@ -275,22 +274,25 @@ fn pr_merge_methods_event(
     pr_number: u64,
 ) -> Option<AppEvent> {
     let client = super::github_client(ctx)?;
-    let methods = match client.get_repo_merge_methods(owner, name) {
-        Ok(methods) => methods,
+    match client.get_repo_merge_methods(owner, name) {
+        Ok(methods) => Some(AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: scope.clone(),
+            pr_number,
+            allowed_methods: methods,
+        }),
         Err(error) => {
             tracing::warn!(
                 error = %error,
                 repository = %format_args!("{owner}/{name}"),
-                "could not load PR merge methods; keeping all methods available"
+                "could not load PR merge methods; surfacing load failure"
             );
-            return None;
+            Some(AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id: scope.clone(),
+                pr_number,
+                error: error.to_string(),
+            })
         }
-    };
-    Some(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: scope.clone(),
-        pr_number,
-        allowed_methods: methods,
-    })
+    }
 }
 
 /// Resolve `(owner, name, malformed_message)` from the effective tracker.

@@ -4,6 +4,23 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
+/// DEC private mouse modes advertised so an attaching viewer's terminal model
+/// observes mouse reporting. Re-emitted in response to the readiness probe so
+/// a freshly attached viewer (whose model starts blank) reliably sees them.
+const MOUSE_MODE_BYTES: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+
+/// ASCII bytes the integration test sends as post-attach readiness probes.
+/// On receipt of any probe the fixture re-advertises `MOUSE_MODE_BYTES`
+/// before echoing the byte, giving the attached viewer a post-attach
+/// synchronization barrier. Multiple distinct probes let the integration test
+/// attach fresh viewers in sequence until one both forwards its own unique
+/// marker and observes mouse reporting.
+const READINESS_PROBES: &[u8] = b"jkl";
+
+fn is_readiness_probe(byte: u8) -> bool {
+    READINESS_PROBES.contains(&byte)
+}
+
 fn main() -> ExitCode {
     if let Err(error) = run() {
         let _ = writeln!(std::io::stderr(), "psmux smoke fixture failed: {error}");
@@ -43,7 +60,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
     output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
-    output.write_all(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?1049hALT_SCREEN\r\n")?;
+    output.write_all(MOUSE_MODE_BYTES)?;
+    output.write_all(b"\x1b[?2004h\x1b[?1049hALT_SCREEN\r\n")?;
     output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
     output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
@@ -59,6 +77,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         std::io::stdin().read_exact(&mut byte)?;
         received.push(byte[0]);
+        output.write_all(readiness_response(byte[0]))?;
         writeln!(output, "PSMUX_BYTE_{:02X} BYTE_{:02X}", byte[0], byte[0])?;
         if byte[0] == 0x12 {
             output.write_all(b"\x1b[?1049lMAIN_SCREEN\r\nINPUT_HEX")?;
@@ -110,9 +129,23 @@ fn valid_marker(marker: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+/// Bytes to emit before a received input byte's marker line. A readiness
+/// probe triggers a re-advertisement of the DEC private mouse modes so an
+/// attaching viewer's freshly initialized terminal model observes mouse
+/// reporting after attach; any other input emits nothing before its marker.
+fn readiness_response(byte: u8) -> &'static [u8] {
+    if is_readiness_probe(byte) {
+        MOUSE_MODE_BYTES
+    } else {
+        &[]
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::fixture_marker;
+    use super::{
+        MOUSE_MODE_BYTES, READINESS_PROBES, fixture_marker, is_readiness_probe, readiness_response,
+    };
 
     #[test]
     fn marker_accepts_protocol_safe_value() {
@@ -142,6 +175,43 @@ mod tests {
         let result = fixture_marker(&mut args);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn readiness_probe_emits_mouse_modes_before_marker() {
+        for probe in READINESS_PROBES {
+            assert!(
+                is_readiness_probe(*probe),
+                "byte {probe:02X} must be a probe"
+            );
+            assert_response_advertises_modes_in_order(readiness_response(*probe));
+        }
+    }
+
+    fn assert_response_advertises_modes_in_order(response: &[u8]) {
+        assert_eq!(response, MOUSE_MODE_BYTES);
+        let modes = [b"\x1b[?1000h".as_slice(), b"\x1b[?1002h", b"\x1b[?1006h"];
+        let mut cursor = 0;
+        for mode in modes {
+            let offset = response[cursor..]
+                .windows(mode.len())
+                .position(|window| window == mode)
+                .map(|offset| cursor + offset);
+            match offset {
+                Some(index) if index >= cursor => cursor = index + mode.len(),
+                _ => panic!(
+                    "mouse mode {mode:?} must follow the previous one in 1000/1002/1006 order"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn non_probe_input_emits_nothing_before_marker() {
+        assert!(!is_readiness_probe(0x04));
+        assert!(!is_readiness_probe(0x12));
+        assert!(readiness_response(0x04).is_empty());
+        assert!(readiness_response(0x12).is_empty());
     }
 }
 

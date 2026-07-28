@@ -14,6 +14,7 @@
     { "waitFor": "Send to Agent" },
     { "key": "Enter" },
     { "waitFor": "Working Copy Not Ready" },
+    { "expect": "Delete the working copy and re-clone" },
     { "expect": "( Cancel )" },
     { "capture": "dirty-copy-default-cancel" },
     { "key": "Enter" },

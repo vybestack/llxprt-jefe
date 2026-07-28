@@ -12,9 +12,9 @@ use super::process::{
     process_liveness, process_liveness_indicates_alive,
 };
 #[cfg(unix)]
-use super::process::{UnixProbeOutcome, classify_unix_probe, unix_probe_command};
+use super::process::{UnixProbeOutcome, classify_unix_probe, unix_probe_command_for};
 #[cfg(target_os = "macos")]
-use super::process::{macos_start_time_command, parse_macos_process_start_time};
+use super::process::{macos_start_time_command_for, parse_macos_process_start_time};
 use crate::domain::ProcessIdentity;
 
 #[test]
@@ -153,7 +153,8 @@ fn unix_probe_classifier_distinguishes_exit_access_and_failure() {
 #[cfg(unix)]
 #[test]
 fn unix_probe_command_uses_structured_arguments_and_c_locale() {
-    let command = unix_probe_command(41);
+    let executable = std::path::Path::new("kill");
+    let command = unix_probe_command_for(executable, 41);
     let arguments: Vec<_> = command.get_args().collect();
     assert_eq!(command.get_program(), "kill");
     assert_eq!(arguments, ["-0", "41"]);
@@ -162,6 +163,23 @@ fn unix_probe_command_uses_structured_arguments_and_c_locale() {
             .get_envs()
             .any(|(key, value)| key == "LC_ALL" && value.is_some_and(|value| value == "C"))
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn probe_process_fails_open_when_kill_cannot_be_resolved() {
+    // Resolution and spawn/timeout failures must fail open to ProbeFailed
+    // rather than panic or block indefinitely. Verified by mapping each
+    // boundary failure through the probe's error classifier.
+    for failure in [
+        super::process::ProbeBoundaryFailure::Resolution,
+        super::process::ProbeBoundaryFailure::Spawn,
+        super::process::ProbeBoundaryFailure::Timeout,
+        super::process::ProbeBoundaryFailure::Io,
+    ] {
+        let observation: ProcessObservation = failure.into();
+        assert_eq!(observation, ProcessObservation::ProbeFailed);
+    }
 }
 #[cfg(target_os = "macos")]
 #[test]
@@ -193,7 +211,8 @@ fn macos_start_time_parser_returns_utc_epoch_and_rejects_malformed_values() {
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_start_time_command_uses_structured_arguments_and_utc_locale() {
-    let command = macos_start_time_command(41);
+    let executable = std::path::Path::new("ps");
+    let command = macos_start_time_command_for(executable, 41);
     let arguments: Vec<_> = command.get_args().collect();
     assert_eq!(command.get_program(), "ps");
     assert_eq!(arguments, ["-p", "41", "-o", "lstart="]);

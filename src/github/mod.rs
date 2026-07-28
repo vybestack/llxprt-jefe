@@ -19,6 +19,8 @@ mod comment_pages;
 mod create_issue;
 mod error;
 mod issue_lifecycle;
+mod pr_diff;
+pub use pr_diff::*;
 mod pr_threads;
 mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};

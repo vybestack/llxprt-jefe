@@ -35,21 +35,9 @@ use jefe::domain::RemoteRepositorySettings;
 
 use super::clone_identity::CloneIdentity;
 use super::issue_git_prep::{
-    WorkdirAssurance, WorkdirPrepOutcome, discard_checkout_blocking_tracked_changes,
-    discard_workdir_changes, ensure_workdir_cloned, ensure_workdir_with_origin,
+    WorkdirAssurance, WorkdirPrepOutcome, ensure_workdir_cloned, ensure_workdir_with_origin,
     is_on_default_branch, is_workdir_dirty, prepare_issue_workdir, remove_workdir,
 };
-
-/// Policy for handling a dirty working copy during issue-send prep.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DirtyPolicy {
-    /// Initial send: return [`PrepOutcome::Dirty`] without touching the
-    /// worktree so the caller can open the confirm modal.
-    Stop,
-    /// After user confirmation: discard uncommitted/untracked changes
-    /// (preserving `.jefe/`/`.llxprt/`) then proceed.
-    Discard,
-}
 
 /// Outcome of target-aware prep.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,10 +84,16 @@ impl WorkTarget {
 
 /// Prepare the working copy for an issue-driven launch on the resolved target.
 ///
-/// This is the single orchestration shared by the initial send (`Stop`) and
-/// the dirty-confirm path (`Discard`), for both local and remote targets.
-/// Returns `Ready` when the worktree is on the default branch. Returns
-/// `Dirty` when the policy is `Stop` and uncommitted changes were detected.
+/// This is the single orchestration shared by the initial send and the
+/// transient send paths, for both local and remote targets. Returns `Ready`
+/// when the worktree is on the default branch. Returns `Dirty` when
+/// uncommitted changes were detected (or the worktree is clean but not on the
+/// default branch) — the caller must open the confirm modal in that case.
+///
+/// Issue #479: the confirm path no longer discards changes in-place; it now
+/// force-reclones the entire workdir via [`prepare_issue_target_force_reclone`].
+/// This initial prep therefore only ever needs to detect the dirty/not-on-
+/// default state and surface it; there is no "discard and proceed" policy.
 ///
 /// Issue #315: the prompt content is now inlined directly into the launch
 /// instruction (`-i`), so prep no longer writes a `.jefe/issue-prompt.md`
@@ -114,11 +108,10 @@ pub(super) fn prepare_issue_target(
     target: &WorkTarget,
     work_dir: &Path,
     identity: Option<&CloneIdentity>,
-    policy: DirtyPolicy,
 ) -> Result<PrepOutcome, String> {
     match target {
-        WorkTarget::Local => prepare_local(work_dir, identity, policy),
-        WorkTarget::Remote(remote) => prepare_remote(remote, work_dir, identity, policy),
+        WorkTarget::Local => prepare_local(work_dir, identity),
+        WorkTarget::Remote(remote) => prepare_remote(remote, work_dir, identity),
     }
 }
 
@@ -197,16 +190,12 @@ pub(super) fn force_reclone_local_with_url(
     // clone/prep error that hides the destruction.
     ensure_workdir_cloned(work_dir, Some(clone_url))
         .map_err(|e| format!("After removing the mismatched work_dir, the clone failed (the original working copy at {} is already gone): {e}", work_dir.display()))?;
-    run_local_policy_and_prep(work_dir, DirtyPolicy::Stop)
+    run_local_prep(work_dir)
         .map_err(|e| format!("After force-recloning {} (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))
 }
 
 /// Local-target prep sequence.
-fn prepare_local(
-    work_dir: &Path,
-    identity: Option<&CloneIdentity>,
-    policy: DirtyPolicy,
-) -> Result<PrepOutcome, String> {
+fn prepare_local(work_dir: &Path, identity: Option<&CloneIdentity>) -> Result<PrepOutcome, String> {
     jefe::services::validate_local_path(work_dir)?;
     let owned_url = identity.map(CloneIdentity::clone_url);
     let expected = identity.map(CloneIdentity::expected_shortform);
@@ -216,18 +205,18 @@ fn prepare_local(
             return Ok(PrepOutcome::OriginMismatch { actual, expected });
         }
     }
-    run_local_policy_and_prep(work_dir, policy)
+    run_local_prep(work_dir)
 }
 
-/// Shared local sequence after the worktree exists: dirty check → policy →
-/// prep.
+/// Shared local sequence after the worktree exists: dirty check → prep.
 ///
 /// Issue #338: a clean working copy that is **not on the default branch**
-/// also triggers the confirm modal (Stop) — silently switching branches is
-/// surprising. When the user confirms (Discard), uncommitted changes are
-/// discarded (if any) and the checkout+pull to the default branch proceeds
-/// as normal.
-fn run_local_policy_and_prep(work_dir: &Path, policy: DirtyPolicy) -> Result<PrepOutcome, String> {
+/// also triggers the confirm modal — silently switching branches is
+/// surprising. A dirty tree or a non-default branch both surface
+/// [`PrepOutcome::Dirty`] so the caller opens the confirm modal; the confirm
+/// path then force-reclones (issue #479), so there is no in-place discard
+/// here.
+fn run_local_prep(work_dir: &Path) -> Result<PrepOutcome, String> {
     let dirty = is_workdir_dirty(work_dir)?;
     // Only evaluate branch position when clean: a dirty tree triggers the
     // modal regardless of which branch it is on.
@@ -237,29 +226,16 @@ fn run_local_policy_and_prep(work_dir: &Path, policy: DirtyPolicy) -> Result<Pre
         !is_on_default_branch(work_dir)?
     };
     if dirty || not_on_default {
-        match policy {
-            DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
-            DirtyPolicy::Discard => {
-                if dirty {
-                    discard_workdir_changes(work_dir)?;
-                }
-            }
-        }
+        return Ok(PrepOutcome::Dirty);
     }
     match prepare_issue_workdir(work_dir)? {
         WorkdirPrepOutcome::Ready => {}
-        WorkdirPrepOutcome::CheckoutBlockedByLocalChanges => match policy {
-            DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
-            DirtyPolicy::Discard => {
-                discard_checkout_blocking_tracked_changes(work_dir)?;
-                if prepare_issue_workdir(work_dir)? != WorkdirPrepOutcome::Ready {
-                    return Err(
-                        "Working copy is still blocking default-branch checkout after discard"
-                            .to_owned(),
-                    );
-                }
-            }
-        },
+        WorkdirPrepOutcome::CheckoutBlockedByLocalChanges => {
+            // Local changes blocking checkout are themselves "dirty" — surface
+            // Dirty so the confirm modal's force-reclone can replace the
+            // workdir rather than in-place discarding tracked changes.
+            return Ok(PrepOutcome::Dirty);
+        }
     }
     Ok(PrepOutcome::Ready)
 }
@@ -275,10 +251,9 @@ fn prepare_remote(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
     identity: Option<&CloneIdentity>,
-    policy: DirtyPolicy,
 ) -> Result<PrepOutcome, String> {
     let runner = remote::RemotePrepRunner::new(remote.clone());
-    runner.run(work_dir, identity, policy)
+    runner.run(work_dir, identity)
 }
 
 /// Remote force-reclone: validate identity → resolve URL → remove → clone → prep over SSH.

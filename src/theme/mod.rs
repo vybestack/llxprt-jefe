@@ -95,6 +95,8 @@ pub struct ResolvedColors {
     pub bright: Color,
     /// Dim foreground (`#4a7035` - secondary/muted text).
     pub dim: Color,
+    /// Error accent used for removals and failures.
+    pub error: Color,
     /// Default border color.
     pub border: Color,
     /// Focused border (brighter to indicate pane focus).
@@ -188,6 +190,7 @@ impl ResolvedColors {
                 bright: ThemeColors::parse_hex(&c.accent_success)
                     .unwrap_or(Self::GREEN_SCREEN_BRIGHT),
                 dim: ThemeColors::parse_hex(&c.accent_secondary).unwrap_or(Self::GREEN_SCREEN_DIM),
+                error: ThemeColors::parse_hex(&c.accent_error).unwrap_or(Self::GREEN_SCREEN_FG),
                 border: ThemeColors::parse_hex(&c.border_default).unwrap_or(Self::GREEN_SCREEN_FG),
                 border_focused: ThemeColors::parse_hex(&c.border_focused)
                     .unwrap_or(Self::GREEN_SCREEN_BRIGHT),
@@ -199,6 +202,7 @@ impl ResolvedColors {
                 fg: Self::GREEN_SCREEN_FG,
                 bright: Self::GREEN_SCREEN_BRIGHT,
                 dim: Self::GREEN_SCREEN_DIM,
+                error: Self::GREEN_SCREEN_FG,
                 border: Self::GREEN_SCREEN_FG,
                 border_focused: Self::GREEN_SCREEN_BRIGHT,
                 bg: Self::GREEN_SCREEN_BG,

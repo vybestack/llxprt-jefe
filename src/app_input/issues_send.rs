@@ -23,9 +23,7 @@ use tracing::warn;
 use super::agent_runtime::{clear_agent_runtime_attachment, mark_agent_runtime_attached};
 use super::clone_identity::CloneIdentity;
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
-use super::issue_prep::{
-    DirtyPolicy, PrepOutcome, prepare_issue_target, prepare_issue_target_force_reclone,
-};
+use super::issue_prep::{PrepOutcome, prepare_issue_target, prepare_issue_target_force_reclone};
 use super::issue_self_assignment::{
     IssueAssignment, IssueAssignmentAction, SelfAssignment, direct_assignment_action,
     post_preflight_assignment_action,
@@ -97,7 +95,6 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         &target,
         &send_info.work_dir,
         send_info.clone_identity.as_ref(),
-        DirtyPolicy::Stop,
     );
     handle_initial_prep_outcome(
         app_state,
@@ -308,12 +305,23 @@ fn prepare_confirm_send_target(
     Some(target)
 }
 
-/// Dirty-copy confirm: user pressed Enter to discard uncommitted changes and
-/// proceed with the issue-driven launch. Uses the **same** target-aware
-/// orchestration as the initial send, but with the `Discard` policy: the
-/// prep cleans the working copy (reset --hard + clean -fd, preserving
-/// `.jefe/`/`.llxprt/`), checks out + pulls the default branch,
-/// and then launches.
+/// Dirty-copy confirm: user pressed Enter to **delete** the working copy and
+/// re-clone from the configured origin, then proceed with the issue-driven
+/// launch (issue #479).
+///
+/// This uses the **force-reclone** path (identical to the origin-mismatch
+/// confirm) rather than the older `Discard` policy, which only ran `reset
+/// --hard` + `clean -fd`. A force-reclone guarantees a pristine clone on the
+/// default branch regardless of how dirty the previous working copy was
+/// (uncommitted changes, stale feature-branch commits, etc.).
+///
+/// The deletion removes the entire working-copy directory including any
+/// uncommitted `.jefe/`/`.llxprt/` metadata; only tracked owned metadata is
+/// restored by the fresh clone.
+///
+/// The clone identity is resolved BEFORE any destructive action: if the
+/// agent/repository was deleted or `github_repo` became invalid while the
+/// modal was open, the working copy is NOT destroyed.
 pub(super) fn confirm_issue_dirty_copy_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -330,12 +338,22 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     // github_repo owner/repo; never falls back to slug).
     let clone_identity = clone_identity_for_agent(app_state, &agent_id);
 
-    match prepare_issue_target(
-        &target,
-        &work_dir,
-        clone_identity.as_ref(),
-        DirtyPolicy::Discard,
-    ) {
+    // Validate the clone identity BEFORE calling force-reclone. If the
+    // agent/repository was deleted or github_repo became invalid while the
+    // modal was open, we must NOT destroy the existing repo with no
+    // replacement. Fail with a clear error instead.
+    let Some(clone_identity) = clone_identity else {
+        apply_send_to_agent_failed(
+            app_state,
+            ctx,
+            "Cannot delete and re-clone the working copy: no valid github_repo \
+             (owner/repo) configured for this agent's repository."
+                .to_owned(),
+        );
+        return;
+    };
+
+    match prepare_issue_target_force_reclone(&target, &work_dir, &clone_identity) {
         Ok(PrepOutcome::Ready) => {
             preflight_and_launch_issue(
                 app_state,
@@ -346,24 +364,31 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                 issue_assignment_from_payload(&payload),
             );
         }
-        // Discard policy cleans first, so Dirty should not occur — but treat
-        // it defensively as a launch failure rather than silently dropping.
+        // A force-reclone produces a pristine clone, so Dirty here is an
+        // unexpected internal error (the clone did not yield a clean default
+        // branch). Fail hard with a clear message instead of silently
+        // dropping or retrying.
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
             app_state,
             ctx,
-            "Working copy is still dirty after discard".to_owned(),
+            "Force-reclone completed but the working copy is still dirty. This should not happen \
+             after a fresh clone; please verify the configured github_repo and retry."
+                .to_owned(),
         ),
         Ok(PrepOutcome::OriginMismatch { actual, expected }) => {
-            prompt_origin_mismatch_confirm(
+            // A force-reclone clones from the validated configured identity,
+            // so an OriginMismatch here is an unexpected error (the clone did
+            // not land on the configured origin), NOT a re-prompt. Re-opening
+            // the modal could loop indefinitely, so fail hard with a clear
+            // message instead.
+            apply_send_to_agent_failed(
                 app_state,
                 ctx,
-                &PrepOutcomeContext {
-                    agent_id,
-                    work_dir,
-                    launch_sig,
-                    payload,
-                },
-                OriginMismatchInfo { actual, expected },
+                format!(
+                    "Force-reclone completed but the working copy origin is {actual}, expected \
+                     {expected}. This should not happen after a fresh clone; please verify the \
+                     configured github_repo and retry."
+                ),
             );
         }
         Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
@@ -414,10 +439,14 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
                 issue_assignment_from_payload(&payload),
             );
         }
+        // A force-reclone produces a pristine clone, so Dirty here is an
+        // unexpected internal error. Fail hard with a clear message.
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
             app_state,
             ctx,
-            "Working copy is dirty after force-reclone".to_owned(),
+            "Force-reclone completed but the working copy is still dirty. This should not happen \
+             after a fresh clone; please verify the configured github_repo and retry."
+                .to_owned(),
         ),
         Ok(PrepOutcome::OriginMismatch { actual, expected }) => {
             // A force-reclone clones from the validated configured identity,

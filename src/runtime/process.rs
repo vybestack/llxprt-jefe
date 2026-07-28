@@ -1,6 +1,21 @@
 //! Typed local process-instance liveness service.
 
+#[cfg(unix)]
+use std::path::Path;
+#[cfg(unix)]
+use std::time::Duration;
+
 use crate::domain::ProcessIdentity;
+#[cfg(unix)]
+use crate::local_command::{self, BoundedRunError, LocalTool, LocalToolError};
+
+/// Deadline for a single process-identity subprocess probe.
+///
+/// Bounds both the Unix `kill -0` probe and the macOS `ps -o lstart=` token
+/// capture so a hung or manipulated executable cannot block startup or the
+/// render-path liveness poll indefinitely.
+#[cfg(unix)]
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Platform observation before comparison with persisted identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +226,54 @@ pub(super) enum UnixProbeOutcome {
 }
 
 #[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProbeBoundaryFailure {
+    /// The probe executable could not be resolved to a trusted path.
+    Resolution,
+    /// The resolved executable could not be spawned.
+    Spawn,
+    /// The subprocess exceeded its deadline.
+    Timeout,
+    /// Captured output could not be read.
+    Io,
+}
+
+#[cfg(unix)]
+impl From<&LocalToolError> for ProbeBoundaryFailure {
+    fn from(error: &LocalToolError) -> Self {
+        match error {
+            LocalToolError::NotFound { .. } | LocalToolError::InvalidOverride { .. } => {
+                Self::Resolution
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl From<&BoundedRunError> for ProbeBoundaryFailure {
+    fn from(error: &BoundedRunError) -> Self {
+        match error {
+            BoundedRunError::Spawn(_) => Self::Spawn,
+            BoundedRunError::Timeout => Self::Timeout,
+            BoundedRunError::Io(_) | BoundedRunError::Pipe(_) => Self::Io,
+        }
+    }
+}
+
+/// Map every executable-resolution, spawn, timeout, or I/O boundary failure to
+/// the conservative fail-open observation.
+///
+/// None of these outcomes establish a confirmed exit, so they all collapse to
+/// [`ProcessObservation::ProbeFailed`] (and [`ProcessLiveness::ProbeFailure`]).
+#[cfg(unix)]
+impl From<ProbeBoundaryFailure> for ProcessObservation {
+    fn from(failure: ProbeBoundaryFailure) -> Self {
+        let _ = failure;
+        Self::ProbeFailed
+    }
+}
+
+#[cfg(unix)]
 #[must_use]
 pub(super) fn classify_unix_probe(success: bool, stderr: &str) -> UnixProbeOutcome {
     if success {
@@ -227,8 +290,8 @@ pub(super) fn classify_unix_probe(success: bool, stderr: &str) -> UnixProbeOutco
 }
 
 #[cfg(unix)]
-pub(super) fn unix_probe_command(pid: u32) -> std::process::Command {
-    let mut command = std::process::Command::new("kill");
+pub(super) fn unix_probe_command_for(executable: &Path, pid: u32) -> std::process::Command {
+    let mut command = std::process::Command::new(executable);
     command.args(["-0", &pid.to_string()]).env("LC_ALL", "C");
     command
 }
@@ -238,8 +301,18 @@ fn probe_process(pid: u32) -> ProcessObservation {
     if pid == 0 {
         return ProcessObservation::ProbeFailed;
     }
-    let Ok(output) = unix_probe_command(pid).output() else {
-        return ProcessObservation::ProbeFailed;
+    let executable = match local_command::resolve(LocalTool::Kill) {
+        Ok(path) => path,
+        Err(error) => {
+            return ProbeBoundaryFailure::from(&error).into();
+        }
+    };
+    let command = unix_probe_command_for(&executable, pid);
+    let output = match local_command::run_bounded(command, PROBE_TIMEOUT) {
+        Ok(output) => output,
+        Err(error) => {
+            return ProbeBoundaryFailure::from(&error).into();
+        }
     };
     match classify_unix_probe(
         output.status.success(),
@@ -267,8 +340,8 @@ fn unix_process_start_time(pid: u32) -> Option<u64> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn macos_start_time_command(pid: u32) -> std::process::Command {
-    let mut command = std::process::Command::new("ps");
+pub(super) fn macos_start_time_command_for(executable: &Path, pid: u32) -> std::process::Command {
+    let mut command = std::process::Command::new(executable);
     command
         .args(["-p", &pid.to_string(), "-o", "lstart="])
         .env("TZ", "UTC")
@@ -278,7 +351,9 @@ pub(super) fn macos_start_time_command(pid: u32) -> std::process::Command {
 
 #[cfg(target_os = "macos")]
 fn unix_process_start_time(pid: u32) -> Option<u64> {
-    let output = macos_start_time_command(pid).output().ok()?;
+    let executable = local_command::resolve(LocalTool::Ps).ok()?;
+    let command = macos_start_time_command_for(&executable, pid);
+    let output = local_command::run_bounded(command, PROBE_TIMEOUT).ok()?;
     if !output.status.success() {
         return None;
     }

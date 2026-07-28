@@ -4,7 +4,7 @@
 //! @requirement REQ-PR-010
 //! @pseudocode component-001 lines 316-327
 
-use super::{AppEvent, AppState, InlineState, PrDetailSubfocus};
+use super::{AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::domain::RepositoryId;
 
 impl AppState {
@@ -58,13 +58,26 @@ impl AppState {
         if detail.number != pr_number {
             return false;
         }
-        detail.comments.push(comment);
-        let new_idx = detail.comments.len().saturating_sub(1);
-        self.prs_state.detail_subfocus = PrDetailSubfocus::Comment(new_idx);
+        let is_review_thread = self
+            .prs_state
+            .mutation_pending
+            .as_ref()
+            .is_some_and(|pending| {
+                matches!(
+                    pending.target,
+                    ComposerTarget::NewReviewThread { .. }
+                        | ComposerTarget::ReplyToReviewThread { .. }
+                )
+            });
         self.prs_state.mutation_pending = None;
         self.prs_state.inline_state = InlineState::None;
+        if !is_review_thread {
+            detail.comments.push(comment);
+            let new_idx = detail.comments.len().saturating_sub(1);
+            self.prs_state.detail_subfocus = PrDetailSubfocus::Comment(new_idx);
+            self.scroll_pr_detail_to_bottom();
+        }
         self.prs_state.error = None;
-        self.scroll_pr_detail_to_bottom();
         true
     }
 

@@ -68,6 +68,7 @@ fn bodyless_review(author: &str, n_threads: usize) -> PrReview {
             is_resolved: false,
             is_outdated: false,
             review_id: None,
+            anchor: None,
             comments: vec![IssueComment {
                 comment_id: u64::try_from(i).unwrap_or(u64::MAX),
                 author_login: "reviewer".to_string(),

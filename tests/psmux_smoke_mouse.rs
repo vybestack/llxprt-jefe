@@ -29,6 +29,17 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 
 #[test]
+fn capture_tail_preserves_reading_order_and_character_boundaries() {
+    let capture = format!("discard-{}-end", "αβ".repeat(90));
+    let expected = capture
+        .chars()
+        .skip(capture.chars().count().saturating_sub(160))
+        .collect::<String>();
+
+    assert_eq!(capture_tail(&capture), expected);
+}
+
+#[test]
 fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
@@ -71,15 +82,14 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     configure_prefix_for_passthrough_with_plan(session, &plan)
         .unwrap_or_else(|error| panic!("configure production prefix policy: {error}"));
 
-    let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, &plan)
-        .unwrap_or_else(|error| panic!("spawn AttachedViewer: {error}"));
-    assert!(
-        viewer.is_alive(),
-        "AttachedViewer should be alive after spawn"
-    );
-
-    assert_attached_viewer_observes_mouse_reporting(&viewer);
-    assert_attached_input_ready(&mut namespace, session, &viewer);
+    // The fixture's startup mode advertisement may occur before a given viewer
+    // exists, and a fresh viewer's blank terminal model can miss it depending
+    // on psmux/ConPTY attach timing. Rather than synchronizing on a single
+    // one-shot probe, attach up to three sequential viewers — each with its own
+    // unique probe and byte marker — against the same established session,
+    // keeping the first that both forwards its own unique marker and observes
+    // mouse reporting. One shared 30-second deadline bounds the whole process.
+    let viewer = attach_viewer_until_input_and_mouse_ready(&mut namespace, session, &plan);
     assert_page_keys_delivered_as_csi_tilde(&mut namespace, session, &viewer);
     assert_sgr_mouse_delivered_intact(&mut namespace, session, &viewer);
 
@@ -87,41 +97,140 @@ fn psmux_attached_viewer_observes_mouse_modes_and_delivers_page_keys() {
     let _ = namespace.run(&["kill-session", "-t", session]);
 }
 
-/// Issue #296 (a): poll until the AttachedViewer's embedded terminal model
-/// observes the fixture's advertised DEC private mouse modes.
-fn assert_attached_viewer_observes_mouse_reporting(viewer: &AttachedViewer) {
+/// Readiness probes for sequential attach attempts. Each candidate viewer gets
+/// a unique probe byte so its own unique marker (`PSMUX_BYTE_6A`/`6B`/`6C`)
+/// confirms that specific viewer's input relay reached the child. On receipt of
+/// any probe byte the fixture re-advertises the DEC private mouse modes.
+const ATTACH_PROBES: [(&[u8], &str); 3] = [
+    (b"j", "PSMUX_BYTE_6A"),
+    (b"k", "PSMUX_BYTE_6B"),
+    (b"l", "PSMUX_BYTE_6C"),
+];
+
+/// Per-candidate ceiling. The overall 30-second `POLL_TIMEOUT` deadline is
+/// shared across all attempts and is never restarted, so a single stuck
+/// attach cannot extend the test beyond its existing bound.
+const PER_CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Attach up to three sequential viewers against the same established session.
+/// A candidate qualifies only when its own unique marker appears in the pane
+/// capture and that same viewer reports `mouse_reporting_active`. Each failed
+/// viewer is dropped before the next spawn; the qualifier is returned for the
+/// semantic Page-key and SGR assertions. Mirrors production by calling
+/// `nudge_for_mode_recovery` once per candidate, but never treats the nudge as
+/// readiness.
+fn attach_viewer_until_input_and_mouse_ready(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    plan: &MultiplexerPlan,
+) -> AttachedViewer {
     let deadline = Instant::now() + POLL_TIMEOUT;
-    let mut observed = false;
-    while Instant::now() < deadline {
-        if viewer.mouse_reporting_active() {
-            observed = true;
+    let mut transcript: Vec<String> = Vec::new();
+    for (index, (probe, needle)) in ATTACH_PROBES.iter().enumerate() {
+        if Instant::now() >= deadline {
             break;
         }
-        thread::sleep(Duration::from_millis(50));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let cap = remaining.min(PER_CANDIDATE_TIMEOUT);
+        match try_attach_candidate(namespace, session, plan, probe, needle, cap) {
+            Ok(viewer) => {
+                for line in &transcript {
+                    let _ = writeln!(namespace.transcript, "{line}");
+                }
+                return viewer;
+            }
+            Err(diagnostic) => transcript.push(format!(
+                "candidate {index} (probe {:?}, needle {needle}): {diagnostic}",
+                probe[0] as char
+            )),
+        }
     }
-    assert!(
-        observed,
-        "AttachedViewer never observed mouse reporting after fixture advertised 1000/1002/1006"
+    for line in &transcript {
+        let _ = writeln!(namespace.transcript, "{line}");
+    }
+    panic!(
+        "no candidate attached and observed mouse reporting within {POLL_TIMEOUT:?}:\n{}",
+        transcript.join("\n")
     );
 }
 
-/// Wait for the attached psmux client to forward input before asserting the
-/// semantic key sequences. Output can reach the viewer before psmux's input
-/// relay is ready on a loaded Windows runner, so terminal-mode observation alone
-/// is not an input-readiness barrier.
-fn assert_attached_input_ready(
+/// Spawn one viewer, nudge it once, send its probe, and confirm the candidate
+/// both forwards its unique marker and observes mouse reporting before `cap`.
+/// Marker delivery and mouse-mode observation are polled together under one
+/// shared `cap` deadline so a single candidate can never consume more than
+/// `cap`; the caller's outer 30-second deadline is the only bound that matters.
+/// On failure returns a concise diagnostic; the caller drops the viewer.
+fn try_attach_candidate(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    plan: &MultiplexerPlan,
+    probe: &[u8],
+    needle: &str,
+    cap: Duration,
+) -> Result<AttachedViewer, String> {
+    let viewer = AttachedViewer::spawn_with_plan(session, 32, 100, plan)
+        .map_err(|error| format!("spawn failed: {error}"))?;
+    viewer.nudge_for_mode_recovery();
+    poll_marker_and_mouse_reporting(namespace, session, &viewer, probe, needle, cap)
+        .map(|()| viewer)
+}
+
+/// Conjunctively poll until both (a) `needle` appears in the pane capture and
+/// (b) the viewer reports `mouse_reporting_active`, under a single shared
+/// `cap` deadline. The fixture emits the DEC private mouse modes *before* the
+/// probe's byte marker (see `readiness_response`), so once the marker lands the
+/// modes have already traversed the PTY; this loop keeps polling mouse mode
+/// after the marker arrives without restarting the deadline. Returns an error
+/// capturing which condition failed and the capture tail.
+fn poll_marker_and_mouse_reporting(
     namespace: &mut PsmuxNamespace,
     session: &str,
     viewer: &AttachedViewer,
-) {
-    write_input_until_captured(
-        namespace,
-        session,
-        viewer,
-        b"j",
-        "PSMUX_BYTE_6A",
-        "input-readiness probe",
-    );
+    probe: &[u8],
+    needle: &str,
+    cap: Duration,
+) -> Result<(), String> {
+    let deadline = Instant::now() + cap;
+    let mut last = String::new();
+    let mut marker_seen = false;
+    while Instant::now() < deadline {
+        if !viewer.is_alive() {
+            return Err(format!(
+                "viewer exited before forwarding {needle}; tail: {last}"
+            ));
+        }
+        if !marker_seen {
+            viewer
+                .write_input(probe)
+                .map_err(|error| format!("write probe: {error}"))?;
+        }
+        thread::sleep(Duration::from_millis(50));
+        last = namespace
+            .capture(session)
+            .map_err(|error| format!("capture: {error}"))?;
+        if !marker_seen && last.contains(needle) {
+            marker_seen = true;
+        }
+        if marker_seen && viewer.mouse_reporting_active() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let stage = if marker_seen {
+        format!("marker {needle} seen but mouse_reporting_active=false")
+    } else {
+        format!("marker {needle} not seen within {cap:?}")
+    };
+    Err(format!("{stage}; capture tail: {}", capture_tail(&last)))
+}
+
+fn capture_tail(capture: &str) -> &str {
+    let start = capture
+        .char_indices()
+        .rev()
+        .nth(159)
+        .map_or(0, |(index, _)| index);
+    &capture[start..]
 }
 
 fn write_input_until_captured(
@@ -391,11 +500,13 @@ impl PsmuxNamespace {
 
 impl Drop for PsmuxNamespace {
     fn drop(&mut self) {
-        let _ = Command::new(&self.executable)
-            .arg("-L")
-            .arg(&self.name)
-            .arg("kill-server")
-            .output();
+        // Issue #456 AC3: route namespace-scoped kill-server through the
+        // existing bounded `run` collector (five-second ceiling) instead of an
+        // unbounded `Command::output`, so teardown cannot hang the test runner.
+        // Never contact the default server: `-L <namespace>` scopes the kill.
+        if let Err(error) = self.run(&["kill-server"]) {
+            let _ = writeln!(self.transcript, "namespace cleanup failed: {error}");
+        }
         let _ = fs::write(self.artifact_dir.join("transcript.txt"), &self.transcript);
     }
 }

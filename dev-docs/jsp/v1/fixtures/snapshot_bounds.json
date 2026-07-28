@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "a1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+  "lifecycle_generation": 1,
+  "source_epoch": "epoch-005",
+  "source_sequence": 1,
+  "cursor": 0,
+  "bridge_observed_ms": 1785921969000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 55555,
+    "display_name": "max-id-worker"
+  },
+  "process_binding": "unsupported",
+  "native_activity": "unsupported",
+  "current_wait": "unsupported",
+  "current_turn": "unsupported",
+  "todos": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": {
+      "revision": 1,
+      "items": [
+        {
+          "text": "x",
+          "completed": false
+        }
+      ]
+    }
+  },
+  "last_displayed_assistant_message": "unsupported",
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": "unsupported"
+}

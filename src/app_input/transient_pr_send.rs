@@ -12,7 +12,7 @@ use jefe::state::AppState;
 
 use super::clone_identity;
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
-use super::issue_prep::{DirtyPolicy, PrepOutcome};
+use super::issue_prep::PrepOutcome;
 use super::preflight::preflight_or_prompt;
 use super::prs_dispatch;
 use super::{AppEvent, apply_and_persist};
@@ -214,7 +214,6 @@ fn prepare_and_launch_transient_pr(
         &target,
         &prep.work_dir,
         prep.clone_identity.as_ref(),
-        DirtyPolicy::Stop,
     );
     handle_transient_pr_outcome(app_state, ctx, &prep, outcome);
 }

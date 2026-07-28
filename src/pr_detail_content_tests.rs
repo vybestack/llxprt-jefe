@@ -353,6 +353,7 @@ fn detail_with_threads() -> PullRequestDetail {
             review_id: Some("PRR_kw001".to_string()),
             path: Some("src/parser.rs".to_string()),
             line: Some(42),
+            anchor: None,
             comments: vec![
                 IssueComment {
                     comment_id: 10,
@@ -377,6 +378,7 @@ fn detail_with_threads() -> PullRequestDetail {
             review_id: Some("PRR_kw001".to_string()),
             path: Some("src/main.rs".to_string()),
             line: Some(5),
+            anchor: None,
             comments: vec![IssueComment {
                 comment_id: 20,
                 author_login: "carol".to_string(),

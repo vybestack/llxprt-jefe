@@ -126,6 +126,36 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     );
 }
 
+#[test]
+fn detail_refresh_preserves_changes_drill_down_focus() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
+    state.prs_state.pr_focus = crate::state::PrFocus::PrChanges;
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
+    state.prs_state.detail_scroll_offset = 7;
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
+
+    let new_state = state
+        .apply(AppEvent::PrDetailLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 1,
+            request_id: 1,
+            detail: Box::new(make_test_pr_detail(1)),
+        })
+        .committed_pure();
+
+    assert_eq!(
+        new_state.prs_state.pr_focus,
+        crate::state::PrFocus::PrChanges
+    );
+    assert_eq!(
+        new_state.prs_state.detail_subfocus,
+        PrDetailSubfocus::Review(0)
+    );
+    assert_eq!(new_state.prs_state.detail_scroll_offset, 7);
+}
+
 /// PrDetailLoaded with a stale pr_number (does not match the selected PR)
 /// must be discarded — the existing detail is preserved. The request_id half
 /// of the staleness contract is covered by the sibling
@@ -344,6 +374,7 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         is_resolved: false,
         is_outdated: false,
         review_id: None,
+        anchor: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "alice".to_string(),
@@ -484,6 +515,7 @@ pub(super) fn make_thread(thread_id: &str) -> crate::domain::PrReviewThread {
         is_resolved: false,
         is_outdated: false,
         review_id: None,
+        anchor: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "alice".to_string(),

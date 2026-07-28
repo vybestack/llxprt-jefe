@@ -26,6 +26,7 @@ fn unresolved_thread(thread_id: &str, path: &str, line: u32, body: &str) -> PrRe
         review_id: None,
         path: Some(path.to_string()),
         line: Some(line),
+        anchor: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "reviewer".to_string(),
@@ -260,6 +261,7 @@ fn commentless_thread_does_not_advertise_expansion() {
         review_id: None,
         path: Some("src/empty.rs".to_string()),
         line: Some(1),
+        anchor: None,
         comments: vec![],
     }];
     let content = build_pr_detail_content(
@@ -296,6 +298,7 @@ fn collapsed_thread_with_multiple_comments_shows_plural_count() {
         review_id: None,
         path: Some("src/multi.rs".to_string()),
         line: Some(5),
+        anchor: None,
         comments: vec![
             IssueComment {
                 comment_id: 1,
