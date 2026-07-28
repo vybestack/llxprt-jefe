@@ -448,7 +448,7 @@ There is no event queue, no async event bus, no pub/sub. Events are processed in
 ### Compatibility
 
 - Requires a tmux-compatible multiplexer installed and resolvable on `PATH`:
-  upstream `tmux` on macOS/Linux, or native `psmux` (3.3.6+) on Windows.
+  upstream `tmux` on macOS/Linux, or native `psmux` (3.3.7+) on Windows.
 - Native Windows uses the ConPTY pseudo-console and psmux on a private
   `-L` namespace. WSL, Cygwin, MSYS2, Git Bash, and Docker tmux are rejected.
 - Requires `llxprt` (or configured agent CLI) installed and available on `PATH`.
