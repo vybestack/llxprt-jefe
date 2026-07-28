@@ -720,6 +720,11 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         allowed_methods: Vec<MergeMethod>,
     },
+    MergeMethodsLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
     // PR Review Threads (issue #119)
     /// Open the inline reply composer for a review thread.
     OpenThreadReply {

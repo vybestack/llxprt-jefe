@@ -350,6 +350,7 @@ message_names!(PullRequestsMessage {
     Self::Merged { .. } => "PrMerged",
     Self::MergeFailed { .. } => "PrMergeFailed",
     Self::MergeMethodsLoaded { .. } => "PrMergeMethodsLoaded",
+    Self::MergeMethodsLoadFailed { .. } => "PrMergeMethodsLoadFailed",
     Self::OpenThreadReply { .. } => "PrOpenThreadReply",
     Self::ToggleThreadResolve { .. } => "PrToggleThreadResolve",
     Self::ThreadResolveSucceeded { .. } => "PrThreadResolveSucceeded",

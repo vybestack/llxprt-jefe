@@ -464,6 +464,15 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
+            AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => Self::MergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            },
             property if Self::is_pr_property_app_event(&property) => {
                 Self::from_app_event_property(property)
             }
@@ -905,6 +914,9 @@ impl PullRequestsMessage {
         if let Some(event) = self.thread_to_app_event() {
             return event;
         }
+        if Self::is_pr_property_message(&self) {
+            return self.into_app_event_property();
+        }
         match self {
             Self::OpenMergeChooser => AppEvent::PrOpenMergeChooser,
             Self::MergeNavigate(NavDir::Up | NavDir::Prev) => AppEvent::PrMergeNavigateUp,
@@ -940,26 +952,42 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
-            Self::OpenPropertyEditor { .. }
-            | Self::PropertyEditorNavigateUp
-            | Self::PropertyEditorNavigateDown
-            | Self::PropertyEditorToggle
-            | Self::PropertyEditorConfirm
-            | Self::PropertyEditorCancel
-            | Self::PropertyEditorTitleChar(_)
-            | Self::PropertyEditorTitleBackspace
-            | Self::PropertyEditorTitleDelete
-            | Self::PropertyEditorTitleCursorLeft
-            | Self::PropertyEditorTitleCursorRight
-            | Self::PropertyEditorTitleCursorHome
-            | Self::PropertyEditorTitleCursorEnd
-            | Self::PropertyEditorOptionsLoaded { .. }
-            | Self::PropertyEditorOptionsFailed { .. }
-            | Self::PropertyEditSucceeded { .. }
-            | Self::PostMutationRefreshStarted
-            | Self::PropertyEditFailed { .. }
-            | Self::PropertyEditorValidationError { .. } => self.into_app_event_property(),
+            Self::MergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            },
             _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),
         }
+    }
+
+    /// Whether a message is a PR property-editor variant (routed out of merge).
+    fn is_pr_property_message(message: &Self) -> bool {
+        matches!(
+            message,
+            Self::OpenPropertyEditor { .. }
+                | Self::PropertyEditorNavigateUp
+                | Self::PropertyEditorNavigateDown
+                | Self::PropertyEditorToggle
+                | Self::PropertyEditorConfirm
+                | Self::PropertyEditorCancel
+                | Self::PropertyEditorTitleChar(_)
+                | Self::PropertyEditorTitleBackspace
+                | Self::PropertyEditorTitleDelete
+                | Self::PropertyEditorTitleCursorLeft
+                | Self::PropertyEditorTitleCursorRight
+                | Self::PropertyEditorTitleCursorHome
+                | Self::PropertyEditorTitleCursorEnd
+                | Self::PropertyEditorOptionsLoaded { .. }
+                | Self::PropertyEditorOptionsFailed { .. }
+                | Self::PropertyEditSucceeded { .. }
+                | Self::PostMutationRefreshStarted
+                | Self::PropertyEditFailed { .. }
+                | Self::PropertyEditorValidationError { .. }
+        )
     }
 }
