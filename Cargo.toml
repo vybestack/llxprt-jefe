@@ -66,6 +66,10 @@ tempfile = "3.0"
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }
 win32job = "2.0.3"
+# Safe Windows console output code page wrapper (issue #434). Only the static
+# `WinConsole::get_output_code_page` / `set_output_code` methods are used; all
+# unsafe Win32 calls stay inside this crate so jefe source remains `unsafe`-free.
+win32console = "0.1.5"
 whoami = "2.1.2"
 
 [target.'cfg(unix)'.dependencies]
