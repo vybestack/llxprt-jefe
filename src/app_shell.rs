@@ -314,6 +314,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     AttachAction::Perform(target) => target,
                 };
 
+                // Drop last-good scrollback before switching agents so a contended mid-handoff frame returns empty (issue #489).
+                crate::app_shell_workers::clear_last_history_lines();
+
                 let Some(ctx_arc) = ctx.as_ref() else {
                     attach_scheduler.write().mark_attached(target);
                     continue;
