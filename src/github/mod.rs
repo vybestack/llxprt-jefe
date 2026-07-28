@@ -67,6 +67,9 @@ pub use parse::{
 };
 
 mod parse_pr;
+#[cfg(test)]
+#[path = "parse_pr_mergeable_tests.rs"]
+mod parse_pr_mergeable_tests;
 pub use parse_pr::{
     build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
     build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
@@ -86,14 +89,12 @@ fn gh_command() -> Result<Command, GhError> {
     )
 }
 
-/// Response from listing issues.
 pub struct IssueListResponse {
     pub issues: Vec<Issue>,
     pub cursor: Option<String>,
     pub has_more: bool,
 }
 
-/// Response from listing pull requests (mirrors [`IssueListResponse`]).
 ///
 /// `#[derive(Default)]` is sound because `Vec`, `Option`, and `bool` all
 /// implement `Default`; the empty-vec default needs no `PullRequest: Default`.
@@ -108,7 +109,6 @@ pub struct PrListResponse {
     pub has_more: bool,
 }
 
-/// Response from listing comments.
 pub struct CommentsResponse {
     pub comments: Vec<IssueComment>,
     pub cursor: Option<String>,
