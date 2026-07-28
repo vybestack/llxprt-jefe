@@ -250,12 +250,13 @@ fn expand_legacy_home(path: &Path) -> Option<PathBuf> {
         text.strip_prefix("~/").or(windows_suffix)?
     };
     // Do not reinterpret an MSYS-style HOME as a native Windows path.
-    let mut home = host_home()?;
+    let home = host_home()?;
     if cfg!(windows) && home.to_string_lossy().starts_with('/') {
         return None;
     }
-    home.push(suffix);
-    Some(home)
+    let mut canonical_home = std::fs::canonicalize(home).ok()?;
+    canonical_home.push(Path::new(suffix));
+    Some(canonical_home)
 }
 
 fn host_home() -> Option<PathBuf> {
