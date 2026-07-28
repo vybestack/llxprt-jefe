@@ -194,7 +194,7 @@ fn terminate_process_tree(child: &mut Child) {
     let process_group = format!("-{}", child.id());
     for signal in ["-TERM", "-KILL"] {
         let _ = Command::new("kill")
-            .args([signal, process_group.as_str()])
+            .args([signal, "--", process_group.as_str()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
