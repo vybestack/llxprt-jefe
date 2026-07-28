@@ -27,7 +27,7 @@ fn parse(args: &[&str]) -> Result<jefe::cli::CliArgs, CliError> {
 }
 
 #[test]
-fn doctor_alone_parses_as_doctor_command() {
+fn doctor_alone_parses_as_doctor_subcommand_with_no_config_dir() {
     let parsed = parse(&["doctor"]).test_unwrap("doctor alone should parse");
     assert!(parsed.is_doctor(), "doctor subcommand must be recognised");
     assert!(
