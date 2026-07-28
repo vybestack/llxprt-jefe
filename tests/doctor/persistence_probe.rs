@@ -144,6 +144,67 @@ fn probe_regular_file_is_not_reported_absent() {
     );
 }
 
+/// An existing directory that is genuinely non-writable must be reported
+/// `NotWritable`, completing the contract row that `probe_regular_file_*`
+/// only exercises for a non-directory path (issue #470).
+///
+/// This is `#[cfg(unix)]`-gated because directory writability is governed by
+/// POSIX mode bits on Unix but by ACLs on Windows, where a `set_permissions`
+/// call does not reliably prevent writes. On Unix CI that runs as effective
+/// root, `chmod` restrictions are bypassed (root can write anywhere); the test
+/// detects this by probing whether the read-only directory actually rejects a
+/// write and **skips** (early return) rather than producing a false negative.
+/// The transient `probe_persistence` writability probe must not leave
+/// artifacts, and the directory's own mode bits must be restored before exit.
+#[cfg(unix)]
+#[test]
+fn existing_readonly_directory_is_not_writable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().test_unwrap("create tempdir to render read-only");
+    let readonly_path = dir.path().to_path_buf();
+    let entries_before = list_dir_entries(&readonly_path);
+
+    // Set the directory to read-only (no write for anyone).
+    let read_only = std::fs::Permissions::from_mode(0o555);
+    std::fs::set_permissions(&readonly_path, read_only)
+        .test_unwrap("set read-only permissions on dir");
+
+    // Guard restores writability on drop so cleanup always succeeds, even if
+    // an assertion panics while the directory is read-only.
+    let guard = ReadOnlyDirGuard {
+        dir: &readonly_path,
+        active: true,
+    };
+
+    // Detect environments where chmod does not enforce writability (e.g.
+    // effective root). If a write succeeds despite 0o555, skip rather than
+    // produce a false negative.
+    let probe = readonly_path.join("writability-check");
+    let chmod_enforced = std::fs::File::create(&probe).is_err();
+    let _ = std::fs::remove_file(&probe);
+    if !chmod_enforced {
+        // chmod did not prevent writes (likely running as root); skip.
+        return;
+    }
+
+    let outcome = probe_persistence(&readonly_path).test_unwrap("probe read-only dir");
+    assert_eq!(
+        outcome,
+        PersistenceProbeOutcome::NotWritable,
+        "an existing non-writable directory must be reported NotWritable"
+    );
+
+    // The probe must not leave transient artifacts behind in the directory.
+    let entries_after = list_dir_entries(&readonly_path);
+    assert_eq!(
+        entries_before, entries_after,
+        "probe must clean up its transient writability file in a read-only dir"
+    );
+
+    drop(guard);
+}
+
 /// Recursively collect the sorted set of relative entry paths under `dir`.
 /// Used to prove a probe leaves the directory tree structurally unchanged.
 fn list_dir_entries(dir: &std::path::Path) -> Vec<String> {
@@ -164,6 +225,26 @@ fn collect_relative(root: &std::path::Path, current: &std::path::Path, out: &mut
         }
         if path.is_dir() {
             collect_relative(root, &path, out);
+        }
+    }
+}
+
+/// RAII guard that restores writable permissions (0o755) on a directory
+/// when dropped, so cleanup always succeeds even if an assertion panics
+/// while the directory is read-only.
+#[cfg(unix)]
+struct ReadOnlyDirGuard<'a> {
+    dir: &'a std::path::Path,
+    active: bool,
+}
+
+#[cfg(unix)]
+impl Drop for ReadOnlyDirGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            use std::os::unix::fs::PermissionsExt;
+            let writable = std::fs::Permissions::from_mode(0o755);
+            let _ = std::fs::set_permissions(self.dir, writable);
         }
     }
 }
