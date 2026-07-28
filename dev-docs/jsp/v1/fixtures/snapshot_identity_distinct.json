@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "agent-blake",
+  "lifecycle_generation": 2,
+  "source_epoch": "epoch-002",
+  "source_sequence": 5,
+  "cursor": 4,
+  "bridge_observed_ms": 1785921965000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 22222,
+    "display_name": "second-worker"
+  },
+  "process_binding": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": {
+      "pid": 22222,
+      "started_at_ms": 1785921001000
+    }
+  },
+  "native_activity": "unsupported",
+  "current_wait": "unsupported",
+  "current_turn": "unsupported",
+  "todos": "unsupported",
+  "last_displayed_assistant_message": "unsupported",
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": "unsupported"
+}

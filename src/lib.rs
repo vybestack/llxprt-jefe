@@ -94,3 +94,6 @@ pub fn process_identity_label(pid: u32, commit: &str) -> String {
 }
 
 pub mod harness;
+
+/// JSP (Jefe Stream Protocol) external wire boundary (issue #476).
+pub mod jsp;

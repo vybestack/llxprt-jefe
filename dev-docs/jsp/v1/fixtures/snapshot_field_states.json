@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "agent-casey",
+  "lifecycle_generation": 1,
+  "source_epoch": "epoch-003",
+  "source_sequence": 9,
+  "cursor": 8,
+  "bridge_observed_ms": 1785921966000,
+  "native_session": {
+    "repository": "personal/widgets",
+    "path": "/home/casey/widgets",
+    "agent_kind": "code_puppy",
+    "pid": 33333,
+    "display_name": "puppy-1"
+  },
+  "process_binding": "unsupported",
+  "native_activity": {
+    "provenance": "inferred",
+    "availability": "unknown"
+  },
+  "current_wait": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "reason": "permission" }
+  },
+  "current_turn": {
+    "provenance": "inferred",
+    "availability": "degraded",
+    "last_value": { "elapsed_ms": 8000 },
+    "as_of_ms": 1785921950000,
+    "diagnostic_code": "STALE_NATIVE"
+  },
+  "todos": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "revision": 1, "items": [] }
+  },
+  "last_displayed_assistant_message": {
+    "provenance": "authoritative",
+    "availability": "unknown"
+  },
+  "last_created_tool_call": "unsupported",
+  "source_terminal_state": "unsupported",
+  "source_error_state": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "summary": "nonzero exit", "code": "EIO" }
+  }
+}
