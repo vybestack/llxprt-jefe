@@ -314,11 +314,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     AttachAction::Perform(target) => target,
                 };
 
-                // The background attach is about to switch (or detach) the
-                // runtime's attached agent. Drop the last-good scrollback now,
-                // on the main thread, so any contended render frame during the
-                // handoff returns empty instead of the *previous* agent's
-                // scrollback (issue #489 follow-up).
+                // Drop last-good scrollback before switching agents so a contended mid-handoff frame returns empty (issue #489).
                 crate::app_shell_workers::clear_last_history_lines();
 
                 let Some(ctx_arc) = ctx.as_ref() else {
