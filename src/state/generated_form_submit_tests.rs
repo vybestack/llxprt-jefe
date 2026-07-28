@@ -160,7 +160,10 @@ fn field_value_to_typed_converts_all_variants() {
 fn derive_work_dir_local_joins_base_dir_with_slug() {
     let repo = test_repository();
     let dir = derive_work_dir(&repo, GeneratedTarget::Local, "LLxprt");
-    assert_eq!(dir, "/tmp/jefe-test-repo/llxprt");
+    assert_eq!(
+        std::path::PathBuf::from(dir),
+        std::path::Path::new("/tmp/jefe-test-repo").join("llxprt")
+    );
 }
 
 #[test]

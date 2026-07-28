@@ -15,7 +15,7 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -315,7 +315,14 @@ fn run_npm_install(
             }
         })?;
     let arguments = vec![OsString::from("install")];
-    let mut command = command_for_path(executable.path(), executable.wrapper_kind(), &arguments);
+    let mut command = if let Some(plan) = executable.script_launch_plan() {
+        let mut command = Command::new(plan.runtime());
+        command.arg(plan.entrypoint());
+        command.args(&arguments);
+        command
+    } else {
+        command_for_path(executable.path(), executable.wrapper_kind(), &arguments)
+    };
     command.current_dir(install_dir);
     command.stdin(Stdio::null());
     let output = run_command_capture_with_timeout(command, timeout, "jefe llxprt install")

@@ -237,9 +237,7 @@ pub fn typed_field<'a>(values: &'a TypedMap, field: &str) -> Option<&'a TypedVal
 pub fn canonical_local_target(path: &std::path::Path) -> Result<String, String> {
     let canonical = match std::fs::canonicalize(path) {
         Ok(canonical) => canonical,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && path.is_absolute() => {
-            path.to_path_buf()
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_path_buf(),
         Err(error) => return Err(error.to_string()),
     };
     canonical
