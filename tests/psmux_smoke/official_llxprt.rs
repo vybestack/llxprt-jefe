@@ -64,11 +64,16 @@ fn psmux_official_llxprt_launch_bypasses_cmd_and_delivers_full_prompt() {
         OsString::from("profile"),
         OsString::from(fixture.prompt.clone()),
     ];
+    let Some(script) = fixture.agent_executable.script_launch_plan() else {
+        panic!("official LLxprt layout must resolve to its canonical Bun entrypoint");
+    };
+    let mut script_args = vec![script.entrypoint().as_os_str().to_owned()];
+    script_args.extend(launch_args);
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            fixture.agent_executable.path(),
-            fixture.agent_executable.wrapper_kind(),
-            &launch_args,
+            script.runtime(),
+            jefe::agent_candidate_path::AgentWrapperKind::Direct,
+            &script_args,
             &[],
             Path::new(JEFE),
         )
