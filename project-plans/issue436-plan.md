@@ -131,8 +131,14 @@ No unapproved scope discoveries are open.
 ## Review counters
 
 - Pre-PR Open Code Review: 1 / 2 (local run completed: 0 comments, "Looks good to me")
-- Post-PR Open Code Review: 0 / 2
+- Post-PR Open Code Review: 1 / 2 (CI OpenCodeReview job completed: 1 inline comment, triaged below)
 - Independent Rust/DeepThinker review cycles: 0 / 2
+
+## Review triage
+
+| Finding | Classification | Resolution |
+| --- | --- | --- |
+| CI OCR: `project_line_segments` signature changed from `&[WrapSegment]` to `Vec<WrapSegment>`, future callers passing a reference will fail to compile | Reject | This is the intended design of the fix, not a defect. (1) `project_line_segments` is a private function with no public API surface, no submodules, and no external callers — the OCR search itself confirmed only one call site. (2) The by-value signature IS what issue #436 requires: consuming the segment vector is what enables each segment String to be moved into TextBoxRow instead of cloned. (3) The Rust compiler enforcing ownership at compile time is a safety feature. Comment replied to and resolved. |
 
 ## Verification evidence
 
