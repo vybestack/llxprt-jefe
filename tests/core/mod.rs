@@ -10,6 +10,7 @@ mod message_bus_contracts;
 mod ocr_workflow_contracts;
 mod persistence_theme_contracts;
 mod pr_review_workflow_contracts;
+mod release_workflow_contracts;
 mod tmux_harness_docs_contracts;
 mod visibility_filter_contracts;
 mod windows_support_contracts;
