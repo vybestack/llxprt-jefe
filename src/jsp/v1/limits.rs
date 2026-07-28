@@ -70,18 +70,11 @@ pub fn check_count_bound(
 ) -> Result<(), crate::jsp::v1::error::JspError> {
     if count > max {
         Err(crate::jsp::v1::error::JspError::bound(format!(
-            "{path}: {count} {} exceeds maximum {max} {}",
-            plural_entries(count),
-            plural_entries(max)
+            "{path}: count {count} exceeds maximum {max}"
         )))
     } else {
         Ok(())
     }
-}
-
-/// The correctly pluralized noun for an entry count.
-const fn plural_entries(count: usize) -> &'static str {
-    if count == 1 { "entry" } else { "entries" }
 }
 
 #[cfg(test)]
@@ -120,20 +113,8 @@ mod tests {
             .unwrap_or_else(|| panic!("over the todo count must fail"));
         assert_eq!(error.code(), JspCode::EBound);
         assert!(
-            error.detail().contains("entries"),
-            "a count bound reports entries rather than bytes: {}",
-            error.detail()
-        );
-    }
-
-    #[test]
-    fn count_bound_reports_a_single_entry_in_the_singular() {
-        let error = check_count_bound("items", 2, 1)
-            .err()
-            .unwrap_or_else(|| panic!("over a one-entry limit must fail"));
-        assert!(
-            error.detail().contains("maximum 1 entry"),
-            "a one-entry maximum reads in the singular: {}",
+            error.detail().contains("count") && !error.detail().contains("length"),
+            "a count bound reports a count rather than a byte length: {}",
             error.detail()
         );
     }

@@ -407,7 +407,7 @@ fn parse_todo_item(
     item: &TodoItemWire,
 ) -> Result<TodoItem, JspError> {
     let path = slot.path("snapshot.todos", &format!("items[{index}].text"));
-    let text = parse_bounded_text(&path, &item.text, FieldLimits::TODO_TEXT, BoundedText)?;
+    let text = parse_bounded_string(&path, &item.text, FieldLimits::TODO_TEXT, BoundedText)?;
     Ok(TodoItem {
         text,
         completed: item.completed,
@@ -426,7 +426,7 @@ fn convert_last_message(field: &FieldWire) -> Result<LastMessageField, JspError>
         |slot, value| {
             let field = "snapshot.last_displayed_assistant_message";
             let payload: DisplayedMessagePayload = parse_payload(&slot.root(field), value)?;
-            let content = parse_bounded_text(
+            let content = parse_bounded_string(
                 &slot.path(field, "content"),
                 &payload.content,
                 FieldLimits::DISPLAYED_CONTENT,
@@ -468,7 +468,7 @@ fn parse_tool_value(
     payload: &ToolCallPayload,
 ) -> Result<ToolCallValue, JspError> {
     let field = "snapshot.last_created_tool_call";
-    let label = parse_bounded_text(
+    let label = parse_bounded_string(
         &slot.path(field, "label"),
         &payload.label,
         FieldLimits::TOOL_LABEL,
@@ -549,7 +549,7 @@ fn parse_source_error(
         FieldLimits::DIAGNOSTIC_SUMMARY,
         DiagnosticSummary,
     )?;
-    let code = parse_bounded_text(
+    let code = parse_bounded_string(
         &slot.path(field_path, "code"),
         &payload.code,
         FieldLimits::ERROR_CODE,
@@ -614,16 +614,6 @@ fn parse_bounded_string<T>(
 ) -> Result<T, JspError> {
     super::limits::check_bound(path, value.len(), max)?;
     Ok(wrap(value.to_string()))
-}
-
-/// Parse a bounded text into a `BoundedText`-style newtype.
-fn parse_bounded_text<T>(
-    path: &str,
-    value: &str,
-    max: usize,
-    wrap: impl Fn(String) -> T,
-) -> Result<T, JspError> {
-    parse_bounded_string(path, value, max, wrap)
 }
 
 /// Parse a diagnostic code with bound check.
