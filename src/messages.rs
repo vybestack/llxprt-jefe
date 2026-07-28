@@ -1,16 +1,13 @@
 //! Domain-scoped internal message bus.
 //!
-//! The UI can keep producing the historical [`crate::state::AppEvent`] facade,
-//! while reducers and dispatch code route through typed domain messages. New
-//! behavior should be added to the smallest domain message enum rather than to
-//! app-shell-specific branching.
+//! Reducers and dispatch code route through typed domain messages; new behavior
+//! goes into the smallest domain enum rather than app-shell branching.
 use crate::domain::{
     AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, MergeMethod, PrFilter,
     PullRequest, PullRequestDetail, RepositoryId,
 };
 use crate::list_viewport::PageItemCount;
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
-
 mod issues_conversion;
 mod issues_mutation_conversion;
 mod issues_property_conversion;
@@ -54,7 +51,6 @@ pub enum MessageDomain {
     /// Typed post-commit effect completions (issue #381 CW01-11).
     Effects,
 }
-/// A resolved message route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageRoute {
     pub domain: MessageDomain,
@@ -946,9 +942,8 @@ pub enum AppMessage {
     /// Terminal-manager domain (issue #361 PR B).
     TerminalManager(TerminalManagerMessage),
     System(SystemMessage),
-    /// A typed completion for a previously staged post-commit effect
-    /// (issue #381 CW01-11). Applies only on an exact five-field
-    /// correlation match; stale completions are byte-equivalent no-ops.
+    /// Typed completion for a staged post-commit effect (issue #381); stale
+    /// completions are byte-equivalent no-ops.
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
 }
 

@@ -88,7 +88,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
     let border_style = if props.focused {
         BorderStyle::Double
     } else {
-        BorderStyle::Round
+        crate::border_capability::resolve_unfocused_border_style()
     };
 
     let focus_hint = if props.focused {
