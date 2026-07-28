@@ -567,10 +567,12 @@ fn parse_source_error(
 /// The payload goes through the closed [`WaitPayload`] DTO, so unknown members
 /// (including credential and control fields) fail as a closed-shape violation
 /// exactly as they do for every other field value.
-fn parse_wait_reason(path: &str, value: &serde_json::Value) -> Result<WaitReason, JspError> {
-    let payload: WaitPayload = parse_payload(path, value)?;
+/// `slot_root` is the already-resolved `value`/`last_value` path, so the leaf
+/// is appended directly rather than re-adding the member name.
+fn parse_wait_reason(slot_root: &str, value: &serde_json::Value) -> Result<WaitReason, JspError> {
+    let payload: WaitPayload = parse_payload(slot_root, value)?;
     WaitReason::from_wire(&payload.reason)
-        .ok_or_else(|| JspError::field_state(format!("{path}.value.reason: unsupported reason")))
+        .ok_or_else(|| JspError::field_state(format!("{slot_root}.reason: unsupported reason")))
 }
 
 /// Parse a raw JSON value into a typed payload via serde_json, mapping any

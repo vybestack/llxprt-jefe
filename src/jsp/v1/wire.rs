@@ -165,17 +165,6 @@ impl<'de> Visitor<'de> for StrictValueVisitor {
         Ok(StrictValue(serde_json::Value::Null))
     }
 
-    fn visit_none<E>(self) -> Result<Self::Value, E> {
-        Ok(StrictValue(serde_json::Value::Null))
-    }
-
-    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        StrictValue::deserialize(deserializer)
-    }
-
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
         A: SeqAccess<'de>,

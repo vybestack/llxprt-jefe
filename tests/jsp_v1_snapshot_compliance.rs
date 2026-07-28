@@ -588,6 +588,22 @@ fn s6_error_diagnostics_never_echo_payload() {
     }
 }
 
+/// S6: a diagnostic names each JSON member exactly once, so an external
+/// implementer can use the path as a pointer into the document.
+#[test]
+fn s6_diagnostic_paths_do_not_repeat_a_member() {
+    let bytes = snapshot_with_wait_state(
+        r#"{"provenance":"authoritative","availability":"known","value":{"reason":"bogus"}}"#,
+    );
+    let error = parse_snapshot(&bytes)
+        .err()
+        .unwrap_or_else(|| panic!("unknown wait reason must fail"));
+    assert_eq!(
+        error.detail(),
+        "snapshot.current_wait.value.reason: unsupported reason"
+    );
+}
+
 /// S6: `source_terminal_state` diagnostics name that field, not the sibling
 /// `source_error_state` that shares its payload shape.
 #[test]
