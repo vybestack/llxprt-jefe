@@ -71,7 +71,7 @@ pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
     let border_style = if props.focused {
         BorderStyle::Double
     } else {
-        BorderStyle::Round
+        crate::border_capability::resolve_unfocused_border_style()
     };
     let has_agent = props.agent.is_some();
     let content_lines = preview_content_lines(

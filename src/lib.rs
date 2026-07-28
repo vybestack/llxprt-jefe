@@ -9,6 +9,9 @@ pub mod actions_detail_projection;
 pub mod actions_detail_view;
 pub mod actions_view;
 pub mod agent_detection;
+/// Detects whether the console font supports rounded-corner box-drawing
+/// glyphs and falls back to single-line borders when it does not (issue #497).
+pub mod border_capability;
 pub mod cli;
 /// OSC 52 clipboard writer with tmux / GNU screen passthrough.
 pub mod clipboard;

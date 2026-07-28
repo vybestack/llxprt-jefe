@@ -286,7 +286,7 @@ pub fn DetailPane(props: &DetailPaneProps) -> impl Into<AnyElement<'static>> {
     let border_style = if props.focused {
         BorderStyle::Double
     } else {
-        BorderStyle::Round
+        crate::border_capability::resolve_unfocused_border_style()
     };
     let header = header_box(props, &rc);
     let viewport = viewport_box(props, &rc);

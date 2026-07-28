@@ -260,7 +260,7 @@ fn main() {
         capture_handle,
     }));
 
-    let _console_guard = terminal_init::prepare_console_for_unicode();
+    let _console_guard = prepare_console_and_detect_font();
 
     smol::block_on(async {
         let mut app = element!(app_shell::App(context: Some(context)));
@@ -273,6 +273,18 @@ fn main() {
             error!(error = %e, "render loop failed");
         }
     });
+}
+
+/// Set the console output code page to UTF-8 (issue #434) and then probe the
+/// console font for rounded-corner glyph coverage (issue #497).
+///
+/// The capability probe must run after the code page is set so it sees UTF-8
+/// behavior. The returned guard (if any) restores the original code page on
+/// drop and must stay alive for the duration of the render loop.
+fn prepare_console_and_detect_font() -> Option<impl Drop> {
+    let guard = terminal_init::prepare_console_for_unicode();
+    jefe::border_capability::detect_and_initialize();
+    guard
 }
 
 /// Build the coalescing persistence worker's durable-write boundary (issue #301).
