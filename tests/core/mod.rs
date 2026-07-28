@@ -3,6 +3,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P04
 //! @requirement REQ-TECH-002
 
+mod assign_workflow_contracts;
 mod clippy_allow_policy;
 mod dashboard_search_contracts;
 mod domain_state_contracts;
