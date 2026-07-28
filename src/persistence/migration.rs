@@ -21,7 +21,7 @@ use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,
 };
 use values::{
-    canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
+    canonical_local_target, canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
     launch_value_fingerprint, normalize_remote_path, shipped_definition_hash, stable_id, type_id,
 };
 
@@ -625,8 +625,15 @@ fn agent_work_target(
     }
     let expanded = expand_legacy_home(&source.work_dir);
     let effective = expanded.as_deref().unwrap_or(&source.work_dir);
-    let identity = physical_identity(effective).map_err(|error| vec![*error.diagnostic])?;
-    let target = path_text(identity.canonical_path()).map(str::to_owned)?;
+    let target = canonical_local_target(effective).map_err(|detail| {
+        vec![Diagnostic::new(
+            CfgCode::E001,
+            Severity::Error,
+            DiagnosticPath::root(),
+            None,
+            detail,
+        )]
+    })?;
     Ok((target, expanded.is_some()))
 }
 
