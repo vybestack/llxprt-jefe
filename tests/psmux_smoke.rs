@@ -9,7 +9,6 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jefe::domain::AgentTypeId;
 use jefe::runtime::{
     AgentExecutablePlatform, AgentExecutableResolver, LocalPlatform, MultiplexerIsolation,
     MultiplexerPlan,
@@ -321,7 +320,7 @@ fn prepare_agent_launch_fixture() -> AgentLaunchFixture {
         vec![fixture_dir],
         Some(OsString::from(".EXE;.CMD;.BAT")),
     )
-    .resolve(jefe::domain::shipped_agent_type(1))
+    .resolve("code-puppy")
     .unwrap_or_else(|error| panic!("resolve fixture executable: {error}"));
     let record = work_dir.path().join("launch observation.json");
     let expected = vec![
@@ -360,7 +359,8 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            &fixture.agent_executable,
+            fixture.agent_executable.path(),
+            fixture.agent_executable.wrapper_kind(),
             &fixture.launch_args,
             &[(
                 OsString::from("JEFE_FIXTURE_VALUE"),

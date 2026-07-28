@@ -32,7 +32,7 @@ fn prepare_official_llxprt_fixture() -> OfficialLlxprtFixture {
         vec![runtime_dir],
         Some(OsString::from(".CMD")),
     )
-    .resolve(jefe::domain::shipped_agent_type(3))
+    .resolve("llxprt")
     .unwrap_or_else(|error| panic!("resolve official LLxprt layout: {error}"));
     let record = work_dir.path().join("official observation.json");
     let prompt = "x".repeat(8_092);
@@ -66,7 +66,8 @@ fn psmux_official_llxprt_launch_bypasses_cmd_and_delivers_full_prompt() {
     ];
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            &fixture.agent_executable,
+            fixture.agent_executable.path(),
+            fixture.agent_executable.wrapper_kind(),
             &launch_args,
             &[],
             Path::new(JEFE),

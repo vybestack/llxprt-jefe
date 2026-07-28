@@ -3,6 +3,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+#[cfg(unix)]
 use tempfile::TempDir;
 
 use super::PathSnapshot;

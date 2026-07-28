@@ -3,10 +3,8 @@
 //! @plan PLAN-20260629-TMUX-HARNESS.P04
 //! @requirement REQ-TMUX-HARNESS-004
 
-#[cfg(unix)]
 #[path = "runner_agent_fixture.rs"]
 mod runner_agent_fixture;
-#[cfg(unix)]
 use runner_agent_fixture::{install_llxprt_probe_fixture, prepend_fixture_path};
 
 use std::collections::VecDeque;

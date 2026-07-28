@@ -13,11 +13,12 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
 use tempfile::TempDir;
 
-use super::{
-    AgentCandidateResolver, CandidateResolution, CandidateSkip, PackageRunnerKind, VersionSelector,
-};
+#[cfg(unix)]
+use super::PackageRunnerKind;
+use super::{AgentCandidateResolver, CandidateResolution, CandidateSkip, VersionSelector};
 use crate::agent_candidate_path::PathSnapshot;
 use crate::domain::agent_definition::probe::{
     AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,

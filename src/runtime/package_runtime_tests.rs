@@ -1,13 +1,21 @@
+#[cfg(unix)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
 use tempfile::TempDir;
 
-use super::{PackageExecutionTarget, finalize_local_invocation, package_invocation};
+use super::finalize_local_invocation;
+#[cfg(unix)]
+use super::{PackageExecutionTarget, package_invocation};
+#[cfg(unix)]
 use crate::agent_candidate::{AgentCandidateResolver, CandidateResolution, VersionSelector};
 use crate::domain::RemoteRepositorySettings;
-use crate::domain::agent_definition::{Availability, Operation, Preflight, RemoteTarget};
+use crate::domain::agent_definition::{Availability, Operation, Preflight};
+#[cfg(unix)]
+use crate::domain::agent_definition::RemoteTarget;
 use crate::runtime::agent_plan::{LaunchFieldValues, PlanOutcome, PlanRequest, plan_local_launch};
+#[cfg(unix)]
 use crate::runtime::agent_remote_plan::{
     RemotePlanOutcome, RemotePlanRequest, plan_remote_launch,
 };
