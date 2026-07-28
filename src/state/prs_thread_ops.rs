@@ -68,7 +68,10 @@ impl AppState {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     fn pr_open_thread_reply_composer(&mut self, thread_index: usize) {
-        if self.prs_state.pr_focus != PrFocus::PrDetail {
+        if !matches!(
+            self.prs_state.pr_focus,
+            PrFocus::PrDetail | PrFocus::PrChanges
+        ) {
             return;
         }
         if self.prs_state.inline_state != InlineState::None {
@@ -93,7 +96,9 @@ impl AppState {
             text: author,
             cursor,
         };
-        self.prs_state.detail_subfocus = PrDetailSubfocus::ReviewThread(thread_index);
+        if self.prs_state.pr_focus == PrFocus::PrDetail {
+            self.prs_state.detail_subfocus = PrDetailSubfocus::ReviewThread(thread_index);
+        }
     }
 
     /// Toggle resolve/unresolve on a review thread.
@@ -101,6 +106,10 @@ impl AppState {
     /// Sets `thread_resolve_pending` with the target state (resolve=true for an
     /// unresolved thread, resolve=false for a resolved one). The dispatch layer
     /// spawns the actual GraphQL mutation and emits succeeded/failed.
+    ///
+    /// Captures `pr_number` from the loaded detail so a completion arriving
+    /// after a PR/repository/mode identity change cannot mutate a different
+    /// PR's threads (issue #376).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
@@ -110,6 +119,11 @@ impl AppState {
         };
         let resolve = !thread.is_resolved;
         let thread_id = thread.thread_id.clone();
+        let Some(detail) = self.prs_state.pr_detail.as_ref() else {
+            self.prs_state.error = Some("No pull request loaded".to_string());
+            return;
+        };
+        let pr_number = detail.number;
         let Some(scope) = self.selected_repository_id().cloned() else {
             self.prs_state.error = Some("No repository selected".to_string());
             return;
@@ -121,6 +135,7 @@ impl AppState {
         self.prs_state.next_thread_resolve_request_id = request_id;
         self.prs_state.thread_resolve_pending = Some(PrThreadResolvePending {
             scope_repo_id: scope,
+            pr_number,
             thread_index,
             thread_id,
             resolve,
@@ -131,46 +146,43 @@ impl AppState {
     /// Apply a successful resolve/unresolve mutation.
     ///
     /// Flips the thread's `is_resolved` to the returned value and clears
-    /// pending — but only when the request_id matches (staleness guard).
-    /// Out-of-range thread indices clear pending without panic.
+    /// pending — but only when the request_id matches AND the current detail
+    /// PR matches the pending `pr_number` AND the stable thread_id is still
+    /// present in the detail (issue #376). The positional fallback is removed:
+    /// if the thread_id is no longer present (removed/replaced), the result is
+    /// dropped rather than mutating an unrelated thread at the same index.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     fn pr_thread_resolve_succeeded(
         &mut self,
         scope_repo_id: &RepositoryId,
-        thread_index: usize,
+        _thread_index: usize,
         is_resolved: bool,
         request_id: u64,
     ) {
         if !self.scope_repo_id_matches_pr(scope_repo_id) {
             return;
         }
-        if !self.pr_thread_resolve_request_matches(request_id) {
-            return;
-        }
-        // Capture the stable thread_id from the pending action before clearing
-        // it, then locate the thread by id — not positional index — so a
-        // background silent refresh that reordered detail.reviews cannot cause
-        // the result to apply to the wrong thread (issue #238).
-        let thread_id = self
-            .prs_state
-            .thread_resolve_pending
-            .as_ref()
-            .map(|p| p.thread_id.clone());
-        self.prs_state.thread_resolve_pending = None;
-        let Some(thread_id) = thread_id else {
+        let Some(pending) = self.prs_state.thread_resolve_pending.as_ref() else {
             return;
         };
+        if pending.request_id != request_id {
+            return;
+        }
+        if !self.pr_thread_resolve_pr_matches(pending.pr_number) {
+            // Stale completion: the user navigated to a different PR before the
+            // mutation completed. Drop the pending slot so it cannot leak and
+            // block future resolve actions (issue #376). No write-back or error
+            // is surfaced — the target PR is no longer loaded.
+            self.prs_state.thread_resolve_pending = None;
+            return;
+        }
+        let thread_id = pending.thread_id.clone();
+        self.prs_state.thread_resolve_pending = None;
         if let Some(thread) =
             Self::pr_find_thread_by_id_mut(self.prs_state.pr_detail.as_mut(), &thread_id)
         {
-            thread.is_resolved = is_resolved;
-        } else if let Some(thread) =
-            Self::pr_find_thread_mut(self.prs_state.pr_detail.as_mut(), thread_index)
-        {
-            // Fallback to positional index if the thread_id lookup missed
-            // (e.g. thread was removed and re-added with a new id).
             thread.is_resolved = is_resolved;
         }
     }
@@ -178,7 +190,8 @@ impl AppState {
     /// Apply a failed resolve/unresolve mutation.
     ///
     /// Clears pending and sets a visible error — but only when the request_id
-    /// matches (staleness guard).
+    /// matches AND the current detail PR matches the pending `pr_number`
+    /// (issue #376).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
@@ -192,19 +205,30 @@ impl AppState {
         if !self.scope_repo_id_matches_pr(scope_repo_id) {
             return;
         }
-        if !self.pr_thread_resolve_request_matches(request_id) {
+        let Some(pending) = self.prs_state.thread_resolve_pending.as_ref() else {
+            return;
+        };
+        if pending.request_id != request_id {
+            return;
+        }
+        if !self.pr_thread_resolve_pr_matches(pending.pr_number) {
+            // Stale failure: the user navigated to a different PR before the
+            // mutation failed. Drop the pending slot so it cannot leak and
+            // block future resolve actions (issue #376). No error is surfaced
+            // — the target PR is no longer loaded.
+            self.prs_state.thread_resolve_pending = None;
             return;
         }
         self.prs_state.thread_resolve_pending = None;
         self.prs_state.error = Some(error.to_string());
     }
 
-    /// Check whether a request_id matches the current pending resolve.
-    fn pr_thread_resolve_request_matches(&self, request_id: u64) -> bool {
+    /// Whether the pending resolve's `pr_number` matches the current detail PR.
+    fn pr_thread_resolve_pr_matches(&self, pending_pr_number: u64) -> bool {
         self.prs_state
-            .thread_resolve_pending
+            .pr_detail
             .as_ref()
-            .is_some_and(|p| p.request_id == request_id)
+            .is_some_and(|detail| detail.number == pending_pr_number)
     }
 
     /// Borrow a review thread by flat index (immutable).
@@ -215,28 +239,6 @@ impl AppState {
             .iter()
             .flat_map(|r| &r.review_threads)
             .nth(thread_index)
-    }
-
-    /// Borrow a review thread by flat index (mutable).
-    ///
-    /// Walks `reviews → review_threads` in order, counting the flat index.
-    /// This is the single source of truth for the flat-index → thread mapping,
-    /// shared by the navigation cycle and the rendering projection.
-    fn pr_find_thread_mut(
-        detail: Option<&mut crate::domain::PullRequestDetail>,
-        thread_index: usize,
-    ) -> Option<&mut PrReviewThread> {
-        let detail = detail?;
-        let mut idx = 0usize;
-        for review in &mut detail.reviews {
-            for thread in &mut review.review_threads {
-                if idx == thread_index {
-                    return Some(thread);
-                }
-                idx += 1;
-            }
-        }
-        None
     }
 
     /// Borrow a review thread by stable node id (mutable).

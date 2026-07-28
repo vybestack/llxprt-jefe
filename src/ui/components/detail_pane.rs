@@ -169,7 +169,10 @@ pub fn composer_from_inline_state(
     use crate::state::ComposerTarget;
     match inline_state {
         InlineState::Composer {
-            target: ComposerTarget::NewComment | ComposerTarget::NewIssue,
+            target:
+                ComposerTarget::NewComment
+                | ComposerTarget::NewIssue
+                | ComposerTarget::NewReviewThread { .. },
             text,
             cursor,
         } => Some((

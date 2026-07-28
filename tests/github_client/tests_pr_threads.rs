@@ -506,6 +506,7 @@ fn thread_with_review_id(thread_id: &str, review_id: Option<&str>) -> PrReviewTh
         review_id: review_id.map(String::from),
         path: Some("src/lib.rs".to_string()),
         line: Some(1),
+        anchor: None,
         comments: vec![],
     }
 }

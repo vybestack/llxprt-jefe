@@ -738,6 +738,46 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
     );
 }
 
+#[test]
+fn inline_submit_action_requires_coherent_post_reducer_snapshot() {
+    use jefe::domain::RepositoryId;
+    use jefe::state::{ComposerTarget, InlineState, PrMutationPending};
+
+    let mut state = state_with_active_prs();
+    state.prs_state.pr_detail = Some(test_pr_detail(42));
+    state.prs_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "coherent body".to_string(),
+        cursor: 13,
+    };
+    state.prs_state.mutation_pending = Some(PrMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 7,
+        target: ComposerTarget::NewComment,
+    });
+
+    let action = super::prs_mutation::resolve_pr_inline_submit(&state)
+        .unwrap_or_else(|| panic!("matching composer and pending target must resolve"));
+    assert_eq!(action.scope_repo_id, RepositoryId("repo-1".to_string()));
+    assert_eq!(action.pr_number, 42);
+    assert_eq!(action.mutation_id, 7);
+    assert_eq!(action.text, "coherent body");
+    assert_eq!(action.target, ComposerTarget::NewComment);
+
+    state.prs_state.mutation_pending = Some(PrMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 8,
+        target: ComposerTarget::Reply {
+            comment_index: 99,
+            author: "other".to_string(),
+        },
+    });
+    assert!(
+        super::prs_mutation::resolve_pr_inline_submit(&state).is_none(),
+        "composer text must never pair with a different pending target"
+    );
+}
+
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
 /// Build an AppState for the issue agent-chooser send path: an open chooser +

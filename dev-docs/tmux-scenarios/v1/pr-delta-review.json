@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "name": "pr-delta-review",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "work", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n" },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [{\n    \"id\": \"issue376-repo\",\n    \"name\": \"project\",\n    \"slug\": \"project\",\n    \"base_dir\": \"/srv/project\",\n    \"default_profile\": \"\",\n    \"default_code_puppy_model\": \"\",\n    \"github_repo\": \"fixture/project\",\n    \"github_issue_pr_repo\": \"\",\n    \"remote\": {\"enabled\": false, \"host\": \"\", \"login_user\": \"\", \"port\": null},\n    \"issue_base_prompt\": \"\",\n    \"default_agent_kind\": \"llxprt\",\n    \"agent_ids\": []\n  }],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      {
+        "name": "GH_SHIM_WORKSPACE",
+        "value": "${workspace}"
+      },
+      {
+        "name": "GH_SHIM_COMMENT_MARKER",
+        "value": "${workspace}/comment-created"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "p", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Pull Requests",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Add delta review to PR screen",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Review changes without leaving Jefe.",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "d", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Changes — PR 376 — Deltas Only",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "- D docs/old.md",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["old_call();", "new_call();", "v full file", "Esc back"],
+      "absent": ["assert!(unchanged);"]
+    },
+    { "op": "key", "key": "v", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Changes — PR 376 — Full File",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "assert!(unchanged);",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["let unchanged = true;", "assert!(unchanged);", "v deltas"],
+      "absent": []
+    },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "key", "key": "down", "modifiers": [] },
+    { "op": "key", "key": "down", "modifiers": [] },
+    { "op": "key", "key": "down", "modifiers": [] },
+    { "op": "key", "key": "c", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Review comment — src/app.rs:3",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "x", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "x",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "enter", "modifiers": ["alt"] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "^/v line",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "contributor: x",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "comment-created",
+        "content": { "utf8": "created RIGHT src/app.rs:3\n" }
+      }
+    },
+    { "op": "key", "key": "escape", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Enter/Tab content",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "escape", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Review changes without leaving Jefe.",
+      "timeout_ms": 30000
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

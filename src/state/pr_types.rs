@@ -47,6 +47,130 @@ pub enum PrFocus {
     #[default]
     PrList,
     PrDetail,
+    /// Optional changed-files review drill-down for the loaded PR.
+    PrChanges,
+}
+
+/// Focus area inside the Changes drill-down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrChangesFocus {
+    /// Changed-files list.
+    #[default]
+    FileList,
+    /// Selected file content.
+    Content,
+}
+
+/// Content mode for the selected changed file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PrDiffViewMode {
+    /// Unified diff hunks returned by GitHub.
+    #[default]
+    DeltasOnly,
+    /// Full immutable file blob with diff rows interleaved.
+    FullFile,
+}
+
+/// Stable identity of one Changes visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesIdentity {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub head_sha: String,
+}
+
+/// Pending changed-files read correlation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesPending {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub head_sha: String,
+    pub request_id: u64,
+}
+
+/// Pending immutable blob read correlation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobPending {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+}
+
+/// One immutable blob cached for the current Changes visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobCache {
+    pub blob_sha: String,
+    pub blob: crate::domain::PrFileBlob,
+}
+
+/// Successful changed-files load correlated to one PR visit.
+///
+/// Carries the expected head SHA so the reducer can reject completions that
+/// arrive after a refresh moved the PR to a different head (issue #376).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesLoadedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub head_sha: String,
+    pub files: Vec<crate::domain::PrFileChange>,
+    pub truncated: bool,
+}
+
+/// Failed changed-files load correlated to one PR visit.
+///
+/// Carries the expected head SHA so the reducer can reject stale failures the
+/// same way it rejects stale successes (issue #376).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesLoadFailedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub head_sha: String,
+    pub error: String,
+}
+
+/// Successful immutable-blob load correlated to one PR visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobLoadedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+    pub blob: crate::domain::PrFileBlob,
+}
+
+/// Failed immutable-blob load correlated to one PR visit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrChangesBlobLoadFailedPayload {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub blob_sha: String,
+    pub error: String,
+}
+
+/// Transient state for the optional changed-files review drill-down.
+#[derive(Debug, Clone, Default)]
+pub struct PrChangesState {
+    pub identity: Option<PrChangesIdentity>,
+    pub pending: Option<PrChangesPending>,
+    pub blob_pending: Option<PrChangesBlobPending>,
+    /// The last blob request_id that the dispatch layer spawned a task for,
+    /// so repeated navigation events for the same pending request do not spawn
+    /// duplicate tasks (issue #376 edge-triggered dispatch).
+    pub blob_dispatched_request_id: Option<u64>,
+    pub blobs: Vec<PrChangesBlobCache>,
+    pub blob_error: Option<String>,
+    pub files: Vec<crate::domain::PrFileChange>,
+    pub selected_file: Option<usize>,
+    pub focus: PrChangesFocus,
+    pub view_mode: PrDiffViewMode,
+    pub selected_row: Option<usize>,
+    pub truncated: bool,
+    pub error: Option<String>,
+    pub next_request_id: u64,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -115,6 +239,8 @@ pub struct PullRequestsState {
     pub loading: PrLoadingState,
     pub error: Option<String>,
     pub pr_focus: PrFocus,
+    /// Transient optional changed-files review state.
+    pub changes: PrChangesState,
     pub detail_subfocus: PrDetailSubfocus,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,
@@ -199,11 +325,16 @@ pub struct PrDetailPending {
 /// (issue #119). Tracks the in-flight thread resolve toggle so the UI can
 /// show a pending state and ignore stale responses.
 ///
+/// Carries `pr_number` so the reducer can reject a completion that arrives
+/// after a PR/repository/mode identity change moved focus to a different PR
+/// (issue #376).
+///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrThreadResolvePending {
     pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
     pub thread_index: usize,
     /// Stable thread node id captured at dispatch time so the write-back can
     /// locate the correct thread even if a background refresh reorders

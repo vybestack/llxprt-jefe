@@ -42,6 +42,7 @@ pub use preflight::preflight_or_prompt;
 // @requirement REQ-PR-002
 mod prs;
 mod prs_comments_dispatch;
+mod prs_diff_dispatch;
 mod prs_dispatch;
 mod prs_filter;
 mod prs_list_dispatch;

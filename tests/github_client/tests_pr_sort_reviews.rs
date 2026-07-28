@@ -123,6 +123,7 @@ fn test_sort_pr_reviews_keeps_thread_groups_with_parent() {
             review_id: Some("PRR_OLD".to_string()),
             path: Some("a.rs".to_string()),
             line: Some(1),
+            anchor: None,
             comments: vec![],
         },
         PrReviewThread {
@@ -132,6 +133,7 @@ fn test_sort_pr_reviews_keeps_thread_groups_with_parent() {
             review_id: Some("PRR_NEW".to_string()),
             path: Some("b.rs".to_string()),
             line: Some(2),
+            anchor: None,
             comments: vec![],
         },
     ];

@@ -63,6 +63,8 @@ mod merge_chooser;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
 pub(crate) mod pr_detail;
+/// Optional pull-request changed-files review renderer.
+mod pr_diff;
 /// PR filter bar projection. The pure field projection
 /// (`pr_filter_field_views`) and props builder (`pr_filter_props`) feed the
 /// generic [`filter_bar::FilterBar`] via `filter_bar_element`.
@@ -135,6 +137,7 @@ pub use merge_chooser::{MergeChooser, MergeChooserProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub use pr_detail::{PrDetailProjectionInputs, pr_detail_props};
+pub use pr_diff::{PrDiff, PrDiffProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
 pub use pr_filter_controls::{pr_filter_action_hints, pr_filter_field_views, pr_filter_props};

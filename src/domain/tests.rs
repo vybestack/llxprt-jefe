@@ -476,6 +476,7 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
         review_id: None,
         path: Some("src/lib.rs".to_string()),
         line: Some(42),
+        anchor: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "reviewer1".to_string(),
@@ -509,6 +510,7 @@ fn pr_review_carries_review_threads_field() {
             review_id: Some("PRR_kw001".to_string()),
             path: None,
             line: None,
+            anchor: None,
             comments: vec![],
         }],
     };
@@ -531,6 +533,7 @@ fn pr_review_thread_supports_unresolved_with_location() {
         review_id: None,
         path: Some("src/main.rs".to_string()),
         line: Some(10),
+        anchor: None,
         comments: vec![
             IssueComment {
                 comment_id: 100,

@@ -39,6 +39,9 @@ pub mod persistence;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
+pub mod pr_diff_content;
+#[cfg(test)]
+mod pr_diff_content_tests;
 /// Provider-free configuration recovery command boundary.
 pub mod recovery;
 pub mod runtime;

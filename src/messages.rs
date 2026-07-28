@@ -4,7 +4,6 @@
 //! while reducers and dispatch code route through typed domain messages. New
 //! behavior should be added to the smallest domain message enum rather than to
 //! app-shell-specific branching.
-
 use crate::domain::{
     AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, MergeMethod, PrFilter,
     PullRequest, PullRequestDetail, RepositoryId,
@@ -20,6 +19,7 @@ mod issues_silent_refresh_conversion;
 // @requirement REQ-PR-002
 mod actions;
 mod actions_conversion;
+mod prs_changes_conversion;
 mod prs_conversion;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
@@ -54,14 +54,12 @@ pub enum MessageDomain {
     /// Typed post-commit effect completions (issue #381 CW01-11).
     Effects,
 }
-
 /// A resolved message route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageRoute {
     pub domain: MessageDomain,
     pub name: &'static str,
 }
-
 /// Navigation, focus, and screen-layout messages.
 #[derive(Debug, Clone)]
 pub enum UiNavigationMessage {
@@ -115,7 +113,6 @@ pub enum UiNavigationMessage {
     /// Resume a hidden shell for `agent_id` (F10 from dashboard, issue #361).
     ResumeShellOverlay(crate::domain::AgentId),
 }
-
 /// Modal and form-editing messages.
 #[derive(Debug, Clone)]
 pub enum ModalMessage {
@@ -136,7 +133,6 @@ pub enum ModalMessage {
     FormPrevField,
     FormToggleCheckbox,
 }
-
 /// Repository and agent configuration messages.
 #[derive(Debug, Clone)]
 pub enum RepositoryAgentMessage {
@@ -148,7 +144,6 @@ pub enum RepositoryAgentMessage {
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
 }
-
 /// Runtime lifecycle messages.
 #[derive(Debug, Clone)]
 pub enum RuntimeMessage {
@@ -158,7 +153,6 @@ pub enum RuntimeMessage {
     RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
 }
-
 /// Persistence result messages.
 #[derive(Debug, Clone)]
 pub enum PersistenceMessage {
@@ -173,7 +167,6 @@ pub enum PersistenceMessage {
     /// written by the root shell after every state guard is released.
     StageSave,
 }
-
 /// Theme messages.
 #[derive(Debug, Clone)]
 pub enum ThemeMessage {
@@ -196,7 +189,6 @@ pub enum ThemeMessage {
     /// (issue #179). Flips `ModalState::ThemePicker.override_theme`.
     ToggleAgentThemeOverride,
 }
-
 /// Issues-mode messages.
 #[derive(Debug, Clone)]
 pub enum IssuesMessage {
@@ -547,6 +539,22 @@ pub enum PullRequestsMessage {
     ScrollDetail(ScrollDir),
     DetailSubfocusNext,
     DetailSubfocusPrev,
+    OpenChanges,
+    ChangesFocusContent,
+    ChangesFocusFiles,
+    ChangesToggleView,
+    /// Open a line-review composer for the selected Changes row.
+    OpenChangesComment,
+    ChangesBack,
+    /// Retry the changed-files read after a terminal failure (issue #376).
+    ChangesRetryFiles,
+    /// Retry the selected full-file blob read after a terminal failure
+    /// (issue #376).
+    ChangesRetryBlob,
+    ChangesLoaded(crate::state::PrChangesLoadedPayload),
+    ChangesLoadFailed(crate::state::PrChangesLoadFailedPayload),
+    ChangesBlobLoaded(crate::state::PrChangesBlobLoadedPayload),
+    ChangesBlobLoadFailed(crate::state::PrChangesBlobLoadFailedPayload),
     ListLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<PrFilter>,
@@ -786,7 +794,6 @@ pub enum PullRequestsMessage {
         error: String,
     },
 }
-
 /// Navigation direction for PR list and filter controls.
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -804,7 +811,6 @@ pub enum NavDir {
     /// Reverse navigation for filter/chooser field stepping.
     Prev,
 }
-
 /// Scroll direction for the PR detail pane.
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
