@@ -199,7 +199,32 @@ mod windows_adapter {
     /// console/font cannot represent the codepoint, the round-trip differs and
     /// the probe reports unsupported. All Win32 FFI stays inside the safe
     /// `win32console` wrappers; jefe source contains no `unsafe`.
+    ///
+    /// Single-glyph heuristic: the probe samples only `╭` (U+256D). Real
+    /// console fonts cover box-drawing sub-ranges as a block, so a font that
+    /// has one of `╭ ╮ ╰ ╯` (U+256D–2570) has all of them. Fonts with
+    /// 3-of-4 coverage in this sub-range are not known to exist in practice;
+    /// if one surfaces, the fallback would under-trigger for the missing
+    /// glyphs only.
     struct Win32Policy;
+
+    impl Win32Policy {
+        /// Build a 1×1 `SmallRect` covering the single scratch cell.
+        fn scratch_region(x: i16, y: i16) -> SmallRect {
+            SmallRect {
+                left: x,
+                top: y,
+                right: x,
+                bottom: y,
+            }
+        }
+
+        /// Buffer size for a single-cell read/write: a 1×1 destination at the
+        /// origin. `win32console` derives width/height from the destination
+        /// buffer length, so this is fixed for every scratch-cell operation.
+        const SINGLE_CELL: Coord = Coord { x: 1, y: 1 };
+        const ORIGIN: Coord = Coord { x: 0, y: 0 };
+    }
 
     impl BorderCapabilityPolicy for Win32Policy {
         fn is_stdout_terminal(&self) -> bool {
@@ -212,62 +237,47 @@ mod windows_adapter {
             // Read the original content of the scratch cell so it can be
             // restored after the probe (avoid leaving a stray glyph on screen).
             let info = console.get_screen_buffer_info()?;
-            let scratch_x = info.window.right;
-            let scratch_y = info.window.bottom;
-            let mut restore_region = SmallRect {
-                left: scratch_x,
-                top: scratch_y,
-                right: scratch_x,
-                bottom: scratch_y,
-            };
-            let original = console.read_output(
-                Coord { x: 1, y: 1 },
-                Coord { x: 0, y: 0 },
-                &mut restore_region,
-            )?;
+            let (scratch_x, scratch_y) = (info.window.right, info.window.bottom);
+
+            let mut restore_region = Self::scratch_region(scratch_x, scratch_y);
+            let original =
+                console.read_output(Self::SINGLE_CELL, Self::ORIGIN, &mut restore_region)?;
 
             // Write the sample glyph to the scratch cell.
-            let probe_cell = CharInfo {
-                char_value: ROUND_CORNER_SAMPLE,
-                attributes: 0,
-            };
-            let write_region = SmallRect {
-                left: scratch_x,
-                top: scratch_y,
-                right: scratch_x,
-                bottom: scratch_y,
-            };
             console.write_output(
-                &[probe_cell],
-                Coord { x: 1, y: 1 },
-                Coord { x: 0, y: 0 },
-                write_region,
+                &[CharInfo {
+                    char_value: ROUND_CORNER_SAMPLE,
+                    attributes: 0,
+                }],
+                Self::SINGLE_CELL,
+                Self::ORIGIN,
+                Self::scratch_region(scratch_x, scratch_y),
             )?;
 
             // Read it back and compare.
-            let mut read_region = SmallRect {
-                left: scratch_x,
-                top: scratch_y,
-                right: scratch_x,
-                bottom: scratch_y,
-            };
-            let read_back = console.read_output(
-                Coord { x: 1, y: 1 },
-                Coord { x: 0, y: 0 },
-                &mut read_region,
-            )?;
+            let mut read_region = Self::scratch_region(scratch_x, scratch_y);
+            let read_back =
+                console.read_output(Self::SINGLE_CELL, Self::ORIGIN, &mut read_region)?;
 
-            // Restore the original cell content (best-effort).
+            // Restore the original cell content (best-effort, matching the
+            // terminal_init sibling module: log on failure so a stray glyph is
+            // observable in diagnostics without failing the probe).
             if let Some(cell) = original.first() {
-                let _ = console.write_output(
+                if let Err(error) = console.write_output(
                     &[CharInfo {
                         char_value: cell.char_value,
                         attributes: cell.attributes,
                     }],
-                    Coord { x: 1, y: 1 },
-                    Coord { x: 0, y: 0 },
-                    write_region,
-                );
+                    Self::SINGLE_CELL,
+                    Self::ORIGIN,
+                    Self::scratch_region(scratch_x, scratch_y),
+                ) {
+                    tracing::warn!(
+                        error = %error,
+                        "rounded-corner probe: failed to restore scratch cell; \
+                         a stray glyph may be visible briefly"
+                    );
+                }
             }
 
             let supported = read_back

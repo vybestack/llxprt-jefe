@@ -143,14 +143,13 @@ fn resolve_unfocused_style_follows_global_flag() {
     set_capability(Capability::RoundSupported);
 }
 
-/// The focused border style is always `Double` regardless of capability; only
-/// the unfocused style is subject to the fallback.
+/// When the global flag is `RoundUnsupported`, the unfocused resolver returns
+/// `Single`. The focused border style (`Double`) is the caller's concern and is
+/// not exposed by this module; this test documents that the resolver only
+/// rewrites the unfocused slot.
 #[test]
-fn focused_style_is_always_double() {
+fn unfocused_resolver_returns_single_when_unsupported() {
     set_capability(Capability::RoundUnsupported);
-    // Focused style is the caller's concern; this test documents that the
-    // fallback helper only rewrites the unfocused case by confirming the
-    // public resolver is for the unfocused slot.
     assert_eq!(resolve_unfocused_border_style(), BorderStyle::Single);
     set_capability(Capability::RoundSupported);
 }
