@@ -254,14 +254,16 @@ mod windows_adapter {
                 Self::scratch_region(scratch_x, scratch_y),
             )?;
 
-            // Read it back and compare.
+            // Read it back and compare. Capture the result without `?` so a
+            // read-back failure does not skip the restore below (which would
+            // leave the probe glyph permanently visible in the scratch cell).
             let mut read_region = Self::scratch_region(scratch_x, scratch_y);
-            let read_back =
-                console.read_output(Self::SINGLE_CELL, Self::ORIGIN, &mut read_region)?;
+            let read_back = console.read_output(Self::SINGLE_CELL, Self::ORIGIN, &mut read_region);
 
             // Restore the original cell content (best-effort, matching the
             // terminal_init sibling module: log on failure so a stray glyph is
-            // observable in diagnostics without failing the probe).
+            // observable in diagnostics without failing the probe). This must
+            // run regardless of whether the read-back succeeded.
             if let Some(cell) = original.first() {
                 if let Err(error) = console.write_output(
                     &[CharInfo {
@@ -280,6 +282,9 @@ mod windows_adapter {
                 }
             }
 
+            // Now surface the read-back error (fail-safe to RoundSupported at
+            // the caller) or compute support from the read-back contents.
+            let read_back = read_back?;
             let supported = read_back
                 .first()
                 .is_some_and(|cell| cell.char_value == ROUND_CORNER_SAMPLE);
