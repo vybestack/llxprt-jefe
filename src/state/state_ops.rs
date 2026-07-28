@@ -162,6 +162,8 @@ mod tests {
 
         let mut repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Remote Repo".into(),
             "remote-repo".into(),
             PathBuf::from("/srv/agents"),
@@ -178,6 +180,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Agent One".into(),
             tmp_dir.clone(),
         );
@@ -211,6 +215,8 @@ mod tests {
         let repo_id = RepositoryId("repo-1".into());
         let repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Repo".into(),
             "repo".into(),
             PathBuf::from("/tmp/repo"),
@@ -218,6 +224,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Agent".into(),
             PathBuf::from("/tmp/agent"),
         );
@@ -254,6 +262,8 @@ mod tests {
         let agent_b = AgentId("agent-b".into());
         let repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Repo".into(),
             "repo".into(),
             PathBuf::from("/tmp/repo"),
@@ -264,6 +274,8 @@ mod tests {
             let mut agent = Agent::new(
                 id.clone(),
                 repo_id.clone(),
+                crate::domain::shipped_agent_type(3),
+                crate::domain::TypedMap::new(),
                 "Agent".into(),
                 PathBuf::from("/tmp/agent"),
             );
@@ -295,6 +307,8 @@ mod tests {
 
         let repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Shared Repo".into(),
             "shared-repo".into(),
             PathBuf::from("/tmp/shared-repo"),
@@ -303,8 +317,14 @@ mod tests {
         state.repositories.push(repository);
 
         for id in [&agent_a, &agent_b] {
-            let mut agent =
-                Agent::new(id.clone(), repo_id.clone(), "Agent".into(), tmp_dir.clone());
+            let mut agent = Agent::new(
+                id.clone(),
+                repo_id.clone(),
+                crate::domain::shipped_agent_type(3),
+                crate::domain::TypedMap::new(),
+                "Agent".into(),
+                tmp_dir.clone(),
+            );
             agent.status = crate::domain::AgentStatus::Running;
             state.agents.push(agent);
         }
@@ -336,6 +356,8 @@ mod tests {
 
         let repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Sole Repo".into(),
             "sole-repo".into(),
             PathBuf::from("/tmp/sole-repo"),
@@ -346,6 +368,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Agent".into(),
             tmp_dir.clone(),
         );
@@ -374,6 +398,8 @@ mod tests {
         let agent_id = AgentId("agent-bogus".into());
         let repository = Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Repo".into(),
             "repo".into(),
             PathBuf::from("/tmp/repo"),
@@ -383,6 +409,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Bogus Agent".into(),
             bogus_work_dir.clone(),
         );

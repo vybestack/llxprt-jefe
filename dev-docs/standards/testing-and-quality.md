@@ -45,6 +45,18 @@ synchronization — never sleeps or unbounded polling. Legacy adapters,
 compatibility shims, or dual-format detection are prohibited; pre-schema
 scenarios migrate forward (issue #397). See the "Schema-1 deterministic
 real-process harness" section of
+
+### Generic agent-system acceptance
+
+Changes to definitions, planning, or runtime execution require production-route
+tests, not helper-only assertions. Cover every shipped definition, operation/
+target support, typed defaults, selector normalization, candidate/probe evidence,
+physical executable fingerprints, stale generation rejection, preflight zero
+effects, immutable argv/env/cwd, local/remote serialization, durable migration,
+and live-session restore. UI-visible changes additionally require deterministic
+tmux scenarios. `scripts/check-architecture.sh` is a required negative gate: it
+rejects legacy agent authority, product branching in runtime/persistence, and
+positional shipped-definition authority in production code.
 [`tmux-harness.md`](../testing/tmux-harness.md) for the grammar, `HAR-E001` -
 `HAR-E007` diagnostics, exit codes, limits, containment, and redaction rules.
 

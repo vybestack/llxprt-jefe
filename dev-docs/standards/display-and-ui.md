@@ -54,6 +54,17 @@ function. Do not bake it into an iocraft component.
 
 ---
 
+### Generated agent forms
+
+Agent create/edit forms are projected from the selected `AgentDefinition`.
+Field order, labels, defaults, scope, signature participation, and operation/
+target availability come from the definition rather than product-specific UI
+branches. Form results are consumed exactly once into a typed map. Reducers do
+not create directories, probe processes, install packages, or mark an agent
+running; those effects remain behind app-input/runtime boundaries and occur
+only after validation. Unsupported operation/target cells keep Create disabled
+and must produce zero state, persistence, filesystem, SSH, tmux, or spawn effects.
+
 ## Screen and Component Structure
 
 The UI is organized into three directories under `src/ui/`:

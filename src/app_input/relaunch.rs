@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, ProcessIdentity};
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
+use jefe::domain::{AgentId, AgentLaunchRequest, AgentStatus, ProcessIdentity};
+use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
 use tracing::warn;
 
 use super::agent_runtime::{
-    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    clear_agent_runtime_attachment, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
 };
 use super::{
@@ -98,13 +98,7 @@ fn relaunch_preflight_passed(
     let Some((_, signature)) = agent_sig else {
         return true;
     };
-    if !availability::launch_available_or_error(
-        app_state,
-        signature.agent_kind,
-        signature.llxprt_version.as_ref(),
-        &signature.code_puppy_version,
-        &signature.remote,
-    ) {
+    if !availability::launch_available_or_error(app_state, &signature) {
         return false;
     }
     preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
@@ -156,10 +150,11 @@ fn relaunch_runtime_session(
 pub(super) fn spawn_relaunch_session<R: RuntimeManager>(
     runtime: &mut R,
     agent_id: &AgentId,
-    work_dir: &Path,
-    signature: &LaunchSignature,
+    _work_dir: &Path,
+    signature: &AgentLaunchRequest,
 ) -> Result<(), RuntimeError> {
-    match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
+    let (plan, remote) = jefe::runtime::launch_compose::plan_from_request(signature)?;
+    match runtime.spawn_session_fresh(agent_id, &plan, remote.as_ref()) {
         Ok(()) => Ok(()),
         Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id),
         Err(error) => Err(error),
@@ -372,15 +367,14 @@ fn persist_relaunch_success(
     process_identity: Option<ProcessIdentity>,
 ) {
     let agent_sig = agent_and_signature(state, agent_id);
-    let relaunch_kind = agent_sig
-        .as_ref()
-        .map(|(_, signature)| signature.agent_kind);
     if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-            signature,
+            jefe::runtime::launch_compose::plan_from_request(&signature)
+                .map(|(plan, _)| plan.signature)
+                .unwrap_or_default(),
             pid,
             process_identity,
         );
@@ -389,13 +383,6 @@ fn persist_relaunch_success(
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
-    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(state);
-        }
-    }
 }
 
 pub(super) fn persist_relaunch_failure(

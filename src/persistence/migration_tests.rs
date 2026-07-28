@@ -64,7 +64,7 @@ fn assert_primary_migration(state: &crate::domain::StateV2) {
         state.repositories[0]
             .agent_defaults
             .values
-            .get(&id("default-profile")),
+            .get(&id("profile")),
         Some(&TypedValue::String("review".to_owned()))
     );
 }
@@ -306,15 +306,15 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "a0a288dd14a1e19e0ac9abdffdae321f538b10e659a840e1eb8a388b10b24062"
+        "331745dd745096662a038abef912d8ce1679ef3295a37c9bcb6c2332b369c00a"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "7371ec567141216ba03388b43979c77969360f3e3ccf8e47259480905c2bd2b6"
+        "d7a437d54858590d25996e00b7f2ef01322031f62c4a188df127308c085e0c8b"
     );
     assert_eq!(
         agent.launch_signature.target_fingerprint.as_str(),
-        "4b7789f7ba8bfab6a1d9739e1a29c3b6da9d3e8b781c5cb8e0419ddb5bbc81bc"
+        "bce3a6722845694a877fcfffdee9528be975ed9deef7c00bc3047a11e289844b"
     );
 }
 

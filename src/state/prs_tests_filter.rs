@@ -18,6 +18,8 @@ fn prs_filter_open_state() -> AppState {
     };
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/repo1"),

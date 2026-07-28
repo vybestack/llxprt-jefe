@@ -30,6 +30,7 @@ mod capabilities;
 mod capture_ops;
 mod command_capture;
 mod commands;
+mod commands_finalize;
 mod errors;
 /// External terminal launch boundary (issue #222).
 mod external_terminal;
@@ -39,6 +40,7 @@ mod identity;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
+pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod llxprt_install;
@@ -65,9 +67,10 @@ mod shell_window;
 mod socket;
 mod stub_manager;
 
+pub use crate::agent_candidate_path::{AgentExecutablePlatform, AgentWrapperKind};
 pub use agent_executable::{
-    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
-    AgentWrapperKind, CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
+    AgentExecutableError, AgentExecutableResolver, AgentExecutableTarget,
+    CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
 };
 pub use agent_execution_guard::{
     AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
@@ -86,10 +89,7 @@ pub use agent_probe::{
 };
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
-pub use capabilities::{
-    AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
-    validate_code_puppy_launch,
-};
+pub use capabilities::validate_launch_request;
 pub use capture_ops::snapshot_from_lines;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
@@ -125,9 +125,7 @@ pub use orphan::{
     classify_orphan_state, descendant_liveness, descendant_still_matches_anchor,
     enumerate_descendants, reap_orphan_session, reap_orphan_tree,
 };
-pub use package_probe::{
-    NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,
-};
+pub use package_probe::{NpmPackageAvailabilityError, require_launch_package_available};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -194,32 +192,23 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::domain::{AgentId, LaunchSignature};
+    use crate::domain::AgentId;
+    use crate::domain::agent_definition::AgentLaunchPlan;
+
+    fn fixture_plan(work_dir: &str) -> AgentLaunchPlan {
+        AgentLaunchPlan {
+            cwd: PathBuf::from(work_dir),
+            ..AgentLaunchPlan::default()
+        }
+    }
 
     #[test]
     fn stub_spawn_and_attach() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = fixture_plan("/tmp");
 
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
         }
         assert!(mgr.is_alive(&agent_id));
@@ -234,26 +223,9 @@ mod tests {
     fn stub_kill_removes_session() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = fixture_plan("/tmp");
 
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
         }
         if let Err(error) = mgr.kill(&agent_id) {
@@ -273,29 +245,11 @@ mod tests {
     fn stub_duplicate_spawn_fails() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
-
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        let plan = fixture_plan("/tmp");
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("first spawn should succeed: {error}");
         }
-        let result = mgr.spawn_session(&agent_id, &work_dir, &signature);
+        let result = mgr.spawn_session(&agent_id, &plan, None);
         assert!(result.is_err());
     }
 
@@ -303,31 +257,14 @@ mod tests {
     fn stub_spawn_session_fresh_matches_spawn_semantics() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("fresh-test".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = fixture_plan("/tmp");
 
-        if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session_fresh(&agent_id, &plan, None) {
             panic!("fresh spawn should succeed: {error}");
         }
         assert!(mgr.is_alive(&agent_id));
 
-        let duplicate = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature);
+        let duplicate = mgr.spawn_session_fresh(&agent_id, &plan, None);
         assert!(duplicate.is_err());
     }
 

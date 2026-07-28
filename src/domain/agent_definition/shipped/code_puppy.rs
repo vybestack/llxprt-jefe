@@ -53,9 +53,14 @@ pub fn build() -> AgentDefinition {
         repository_fields: vec![sig_string_field("model"), optional_bool_field("yolo", None)],
         agent_fields: vec![
             sig_string_field("version_selector"),
+            sig_string_field("prompt"),
             bool_field("interactive"),
         ],
         emitters: vec![
+            Emitter::Option {
+                name: "--prompt".to_string(),
+                field: "prompt".to_string(),
+            },
             Emitter::Option {
                 name: "--model".to_string(),
                 field: "model".to_string(),

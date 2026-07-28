@@ -21,6 +21,8 @@ use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 fn repository(id: &str, name: &str) -> Repository {
     Repository::new(
         RepositoryId(id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         name.into(),
         id.into(),
         PathBuf::from(format!("/{id}")),
@@ -31,6 +33,8 @@ fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
     let mut a = Agent::new(
         AgentId(id.into()),
         RepositoryId(repo_id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         name.into(),
         PathBuf::from(format!("/{repo_id}/{id}")),
     );

@@ -3,35 +3,25 @@
 use super::*;
 use crate::domain::SandboxEngine;
 
-fn base_signature() -> LaunchSignature {
-    LaunchSignature {
+fn base_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: crate::domain::shipped_agent_type(3),
+        values: crate::domain::TypedMap::new(),
         work_dir: std::path::PathBuf::from("/tmp"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        llxprt_version: None,
-    }
+            operation: crate::domain::agent_definition::Operation::Normal,
+        }
 }
 
 #[test]
 fn code_puppy_blank_version_keeps_direct_launch_plan_exact() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "  \n  ".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::CodePuppy)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(1))
     );
     assert_eq!(plan.args, vec!["-i", "--yolo", "false"]);
 }
@@ -39,7 +29,7 @@ fn code_puppy_blank_version_keeps_direct_launch_plan_exact() {
 #[test]
 fn code_puppy_pinned_version_wraps_unchanged_inner_args_with_structural_uvx_argv() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "  0.0.361-rc1  ".to_owned();
     signature.code_puppy_model = "puppy-pro".to_owned();
     signature.code_puppy_yolo = Some(true);
@@ -66,7 +56,7 @@ fn code_puppy_hostile_version_remains_one_local_and_remote_argument() {
     // version that reaches the uvx spec is whitespace-free.
     let version = "onespace';$(touchnope)`touchnope`next";
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = format!("  {version}  ");
     let local = local_launch_plan(&signature);
     assert_eq!(
@@ -108,7 +98,7 @@ fn pinned_remote_shell_preserves_hostile_version_as_one_argument() {
         .unwrap_or_else(|error| panic!("chmod uvx fixture: {error}"));
 
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = version.clone();
     let plan = remote_launch_argv(&signature, None)
         .unwrap_or_else(|error| panic!("remote uvx plan: {error}"));
@@ -141,7 +131,7 @@ fn pinned_remote_shell_preserves_hostile_version_as_one_argument() {
 #[test]
 fn pinned_remote_launch_bypasses_global_code_puppy_resolution() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "0.0.361".to_owned();
     signature.remote = crate::domain::RemoteRepositorySettings {
         enabled: true,
@@ -159,7 +149,7 @@ fn pinned_remote_launch_bypasses_global_code_puppy_resolution() {
 #[test]
 fn code_puppy_latest_sentinel_produces_bare_uvx_package_spec() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "latest".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
@@ -180,7 +170,7 @@ fn code_puppy_latest_sentinel_produces_bare_uvx_package_spec() {
 #[test]
 fn code_puppy_latest_sentinel_case_insensitive_produces_bare_spec() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "Latest".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
@@ -202,7 +192,7 @@ fn code_puppy_latest_nightly_sentinel_produces_bare_uvx_package_spec() {
     // PyPI has no nightly channel for code-puppy, so both sentinels resolve
     // to the bare package name
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "latest nightly".to_owned();
     let plan = local_launch_plan(&signature);
     assert_eq!(plan.executable, AgentExecutableTarget::Uvx);
@@ -222,7 +212,7 @@ fn code_puppy_latest_nightly_sentinel_produces_bare_uvx_package_spec() {
 #[test]
 fn code_puppy_latest_sentinel_remote_uses_bare_package_spec() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "latest".to_owned();
     signature.remote = crate::domain::RemoteRepositorySettings {
         enabled: true,
@@ -241,7 +231,7 @@ fn code_puppy_latest_sentinel_remote_uses_bare_package_spec() {
 #[test]
 fn code_puppy_latest_nightly_sentinel_remote_uses_bare_package_spec() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_version = "latest nightly".to_owned();
     signature.remote = crate::domain::RemoteRepositorySettings {
         enabled: true,

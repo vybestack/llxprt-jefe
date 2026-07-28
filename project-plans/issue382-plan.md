@@ -646,3 +646,49 @@ typed values or work targets fail the comparison. Focused migration, projection,
 restore, and startup tests pass, as does the real sticky-session tmux scenario
 after fixing canonical local identity. Strict workspace/all-target Clippy passes;
 full quick and exact-head verification are recorded at the slice gate.
+
+
+## S15 mandatory scope and authority review (2026-07-28)
+
+The atomic convergence touches 210 files with approximately 5,002 insertions and
+7,506 deletions. This is above the normal and hard delivery budgets, as anticipated
+by D1 and the 2026-07-26 scope-ledger approval. Splitting the shared domain ABI
+would require an intermediate compatibility authority, so the cutover remains one
+GREEN commit in the one approved PR. The expanded files are mechanical constructor,
+fixture, and behavior migrations across the ownership areas already listed in
+CW02-15; no dependency, workflow, process subsystem, public plugin API, or unrelated
+feature was added.
+
+Negative production scans report zero `AgentKind`, `AgentLaunchConfiguration`,
+`default_agent_kind`, `installed_agent_kinds`, or non-migration `agent_kind`
+references. Repository/agent state now owns `AgentTypeId` plus `TypedMap`; runtime
+owns immutable `AgentLaunchPlan`; runtime binding, persistence, migration, and
+restore share canonical `LaunchSignatureV1` definition/value/target hashes. The
+real tmux sticky/restart scenarios and all locked all-feature tests pass. Three
+legacy test modules were deleted only where the generic runtime/preflight/package
+coverage superseded their product-specific seams; retained behavior is exercised
+through the current runtime and issue #382 suites. This review found no unplanned
+scope requiring further approval.
+
+## S15/S16 convergence evidence (2026-07-27)
+
+The approved atomic cutover removes `AgentKind` and `AgentLaunchConfiguration`
+from active production authority. Repository/agent state and schema-2 durability
+now use `AgentTypeId` plus `TypedMap`; runtime sessions retain immutable
+`AgentLaunchPlan` values and canonical `LaunchSignatureV1` evidence. Runtime and
+active persistence contain no product-ID branches, and the architecture scanner
+fails closed on their reintroduction. Schema-1 aliases remain isolated to
+migration.
+
+Generated forms consume typed results once and create queued agents through a
+deterministic reducer; filesystem/process effects remain outside state. Startup
+restore compares durable signatures before registration and reconstructs a
+side-effect-free registration plan only for independently verified live
+sessions. Fresh execution retains candidate/probe/package planning and immutable
+runtime plans. Real sticky-kill and restart tmux scenarios are green with a
+fixture executable that satisfies the shipped definition probe contract.
+
+Normative architecture, persistence/runtime, display/UI, testing, technical
+overview, and getting-started documentation now describe the definition-driven
+contract. Exact verification and bounded review triage are recorded at the final
+gate.

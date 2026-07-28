@@ -2,44 +2,35 @@
 
 use super::non_interactive_argv;
 use crate::domain::{
-    AgentKind, LaunchSignature, LlxprtNpmPackageSelector, RemoteRepositorySettings, SandboxEngine,
+    AgentTypeId, AgentLaunchRequest, LlxprtNpmPackageSelector, RemoteRepositorySettings,
+    SandboxEngine,
 };
 use crate::runtime::AgentExecutableTarget;
 use std::path::PathBuf;
 
-fn signature(kind: AgentKind) -> LaunchSignature {
-    LaunchSignature {
+fn signature(kind: AgentTypeId) -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: (kind),
+        values: crate::domain::TypedMap::new(),
         work_dir: PathBuf::new(),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
         remote: RemoteRepositorySettings::default(),
-        agent_kind: kind,
-        llxprt_version: None,
-    }
+            operation: crate::domain::agent_definition::Operation::Normal,
+        }
 }
 
 #[test]
 fn llxprt_direct_uses_prompt_flag_with_instruction() {
-    let (target, args) = non_interactive_argv(&signature(AgentKind::Llxprt), "rewrite this");
-    assert_eq!(target, AgentExecutableTarget::Agent(AgentKind::Llxprt));
+    let (target, args) = non_interactive_argv(&signature(crate::domain::shipped_agent_type(3)), "rewrite this");
+    assert_eq!(target, AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3)));
     assert_eq!(args, vec!["--prompt", "rewrite this"]);
 }
 
 #[test]
 fn llxprt_includes_profile_before_prompt() {
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.profile = "my-profile".to_owned();
     let (target, args) = non_interactive_argv(&sig, "do it");
-    assert_eq!(target, AgentExecutableTarget::Agent(AgentKind::Llxprt));
+    assert_eq!(target, AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3)));
     assert_eq!(
         args,
         vec!["--profile-load", "my-profile", "--prompt", "do it"]
@@ -48,7 +39,7 @@ fn llxprt_includes_profile_before_prompt() {
 
 #[test]
 fn llxprt_never_passes_continue() {
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.pass_continue = true;
     let (_, args) = non_interactive_argv(&sig, "x");
     assert!(
@@ -61,7 +52,7 @@ fn llxprt_never_passes_continue() {
 fn llxprt_strips_parameterized_continue_form() {
     // A mode flag like --continue=true must also be stripped so continuation
     // never leaks into a non-interactive rewrite run.
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.mode_flags = vec!["--continue=true".to_owned(), "--verbose".to_owned()];
     let (_, args) = non_interactive_argv(&sig, "x");
     assert!(
@@ -76,7 +67,7 @@ fn llxprt_strips_parameterized_continue_form() {
 
 #[test]
 fn llxprt_includes_mode_flags_and_sandbox() {
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.mode_flags = vec!["--dangerously-skip-permissions".to_owned()];
     sig.sandbox_enabled = true;
     let (_, args) = non_interactive_argv(&sig, "x");
@@ -96,7 +87,7 @@ fn llxprt_includes_mode_flags_and_sandbox() {
 
 #[test]
 fn llxprt_strips_continue_from_mode_flags() {
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.mode_flags = vec![
         "--continue".to_owned(),
         "--dangerously-skip-permissions".to_owned(),
@@ -111,14 +102,14 @@ fn llxprt_strips_continue_from_mode_flags() {
 
 #[test]
 fn code_puppy_direct_uses_prompt_flag() {
-    let (target, args) = non_interactive_argv(&signature(AgentKind::CodePuppy), "rewrite");
-    assert_eq!(target, AgentExecutableTarget::Agent(AgentKind::CodePuppy));
+    let (target, args) = non_interactive_argv(&signature(crate::domain::shipped_agent_type(1)), "rewrite");
+    assert_eq!(target, AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(1)));
     assert_eq!(args, vec!["--prompt", "rewrite"]);
 }
 
 #[test]
 fn code_puppy_appends_model_and_yolo() {
-    let mut sig = signature(AgentKind::CodePuppy);
+    let mut sig = signature(crate::domain::shipped_agent_type(1));
     sig.code_puppy_model = "gpt-4o".to_owned();
     sig.code_puppy_yolo = Some(true);
     let (_, args) = non_interactive_argv(&sig, "rewrite");
@@ -130,7 +121,7 @@ fn code_puppy_appends_model_and_yolo() {
 
 #[test]
 fn code_puppy_uvx_wraps_with_from_and_binary() {
-    let mut sig = signature(AgentKind::CodePuppy);
+    let mut sig = signature(crate::domain::shipped_agent_type(1));
     sig.code_puppy_version = "1.2.3".to_owned();
     let (target, args) = non_interactive_argv(&sig, "rewrite");
     assert_eq!(target, AgentExecutableTarget::Uvx);
@@ -149,7 +140,7 @@ fn llxprt_npm_backed_wraps_with_exec_package() {
     // paths stay consistent with `commands::launch_target_and_args`. The
     // local versioned path (`run_non_interactive`) builds the inner argv
     // directly (see `llxprt_npm_backed_local_run_resolves_cached_binary_argv`).
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.llxprt_version = LlxprtNpmPackageSelector::normalize("1.0.0");
     let (target, args) = non_interactive_argv(&sig, "rewrite");
     assert_eq!(target, AgentExecutableTarget::Npm);
@@ -169,7 +160,7 @@ fn llxprt_npm_backed_local_run_resolves_cached_binary_argv() {
     // the pure argv half (`non_interactive_inner_args`) to assert the local
     // form: it must contain `--prompt` and the instruction, and must NOT
     // contain the `npm exec` wrapper.
-    let mut sig = signature(AgentKind::Llxprt);
+    let mut sig = signature(crate::domain::shipped_agent_type(3));
     sig.llxprt_version = LlxprtNpmPackageSelector::normalize("1.0.0");
     let inner = super::non_interactive_inner_args(&sig, "rewrite this issue");
     assert!(inner.contains(&"--prompt".to_owned()));

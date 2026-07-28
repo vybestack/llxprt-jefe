@@ -12,8 +12,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::agent_candidate_path::AgentWrapperKind;
+
 use super::sha256::DefinitionSha256;
-use super::signature::LaunchSignature;
+use super::signature::LaunchSignatureV1;
 use super::type_id::AgentTypeId;
 
 // ---------------------------------------------------------------------------
@@ -403,6 +406,10 @@ pub struct AgentLaunchPlan {
     pub definition_sha256: DefinitionSha256,
     /// Resolved executable path.
     pub executable: PathBuf,
+    /// Full physical identity of the executable selected before planning.
+    pub executable_fingerprint: CandidateFingerprint,
+    /// Platform launch strategy selected before planning.
+    pub executable_wrapper: AgentWrapperKind,
     /// Ordered argv elements (preserved byte-wise).
     pub argv: Vec<OsString>,
     /// Ordered environment pairs (allowlisted names only).
@@ -422,7 +429,7 @@ pub struct AgentLaunchPlan {
     /// Sandbox preflight contract.
     pub preflight: Preflight,
     /// Versioned launch signature.
-    pub signature: LaunchSignature,
+    pub signature: LaunchSignatureV1,
 }
 
 impl AgentLaunchPlan {
@@ -444,6 +451,8 @@ impl Default for AgentLaunchPlan {
             operation: Operation::Normal,
             definition_sha256: DefinitionSha256::default(),
             executable: PathBuf::new(),
+            executable_fingerprint: CandidateFingerprint::new(PathBuf::new(), None, None, 0, 0),
+            executable_wrapper: AgentWrapperKind::Direct,
             argv: Vec::new(),
             env: Vec::new(),
             cwd: PathBuf::new(),
@@ -454,7 +463,7 @@ impl Default for AgentLaunchPlan {
             target_generation: 0,
             activation_generation: 0,
             preflight: Preflight::default(),
-            signature: LaunchSignature::default(),
+            signature: LaunchSignatureV1::default(),
         }
     }
 }

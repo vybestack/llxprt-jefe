@@ -2,7 +2,7 @@
 //!
 //! This module is the single source of truth for the agent-type registry,
 //! probe spec, launch plan, and shipped four-agent definitions that replace
-//! the closed `AgentKind` enum. Product tokens live only in [`shipped`].
+//! the closed `AgentTypeId` enum. Product tokens live only in [`shipped`].
 //!
 //! The public surface is the closed contract imported by tests and the
 //! runtime/persistence/state/UI layers:
@@ -37,7 +37,7 @@ pub use probe::{
     ProbeFraming, ProbeParseError, ProbeSpec, ProbeStream, ProbeValidateError,
 };
 pub use sha256::DefinitionSha256;
-pub use signature::LaunchSignature;
+pub use signature::LaunchSignatureV1;
 pub use type_id::{
     AgentTypeId, AgentTypeIdError, AgentTypeIdErrorReason, CandidateKind, CandidateValidateError,
     CapabilityIdError, ExecutableCandidate,

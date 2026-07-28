@@ -2,7 +2,7 @@
 //! detection, and version whitespace validation in agent form submission.
 
 use super::*;
-use crate::domain::{Agent, AgentKind, AgentStatus, Repository, RepositoryId};
+use crate::domain::{Agent, AgentStatus, Repository, RepositoryId};
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt as _;
 use crate::state::types::ModalState;
@@ -10,6 +10,8 @@ use crate::state::types::ModalState;
 fn seed_repository() -> Repository {
     Repository::new(
         RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_owned(),
         "repo-1".to_owned(),
         std::path::PathBuf::from("/tmp/repo-1"),
@@ -19,6 +21,8 @@ fn seed_repository() -> Repository {
 fn seed_second_repository() -> Repository {
     Repository::new(
         RepositoryId("repo-2".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_owned(),
         "repo-2".to_owned(),
         std::path::PathBuf::from("/tmp/repo-2"),
@@ -30,6 +34,8 @@ fn existing_agent(repo_id: &RepositoryId, name: &str, work_dir: &str) -> Agent {
     let mut agent = Agent::new(
         crate::domain::AgentId(id),
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         name.to_owned(),
         std::path::PathBuf::from(work_dir),
     );
@@ -216,7 +222,7 @@ fn submit_new_agent_with_whitespace_version_sets_error() {
     };
     fields.name = "Agent One".to_owned();
     fields.work_dir = "/tmp/repo-1/agent-one".to_owned();
-    fields.agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.agent_type_id = "core.llxprt".to_owned();
     fields.llxprt_version = "0.9.0\n0".to_owned();
 
     state = state.apply(AppEvent::SubmitForm).committed_pure();
@@ -239,7 +245,10 @@ fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
     let repo = seed_repository();
     let mut state = AppState {
         repositories: vec![repo],
-        installed_agent_kinds: vec![AgentKind::Llxprt, AgentKind::CodePuppy],
+        available_agent_type_ids: vec![
+            crate::domain::shipped_agent_type(3),
+            crate::domain::shipped_agent_type(1),
+        ],
         ..AppState::default()
     };
 
@@ -249,7 +258,7 @@ fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
     };
     fields.name = "CP Agent".to_owned();
     fields.work_dir = "/tmp/repo-1/cp-agent".to_owned();
-    fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.agent_type_id = "core.code-puppy".to_owned();
     fields.code_puppy_version = "0.0.361\n0".to_owned();
 
     state = state.apply(AppEvent::SubmitForm).committed_pure();
@@ -281,7 +290,7 @@ fn submit_new_agent_clean_version_succeeds() {
     };
     fields.name = "Agent One".to_owned();
     fields.work_dir = "/tmp/repo-1/agent-one".to_owned();
-    fields.agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.agent_type_id = "core.llxprt".to_owned();
     fields.llxprt_version = "0.9.0".to_owned();
 
     state = state.apply(AppEvent::SubmitForm).committed_pure();

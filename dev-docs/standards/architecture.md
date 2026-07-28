@@ -29,6 +29,23 @@ core logic stays deterministic and unit-testable.
 | Persistence    | File I/O, schema/version validation, atomic writes, safe fallback                      | Reach into state internals, spawn processes   |
 | Theme          | Theme parsing, selection, fallback                                                     | Render UI, know about PTY internals           |
 
+### Definition-driven agent authority
+
+Agent identity and configuration are generic domain data: an `AgentTypeId` plus
+a schema-validated `TypedMap`. Shipped `AgentDefinition` values own fields,
+defaults, operation/target support, candidate declarations, probes, capability
+requirements, and argv emitters. Application, state, persistence, and runtime
+code must not branch on product identity or reconstruct product-specific
+configuration.
+
+The launch pipeline is one-way:
+
+`definition -> candidate -> probe evidence -> immutable AgentLaunchPlan -> authorization -> preflight -> runtime`
+
+Runtime managers execute the immutable plan; they never rediscover executables
+or rebuild argv from an agent name. Schema-1 aliases are interpreted only by
+the migration boundary. Unknown active schema-2 type IDs fail closed.
+
 These boundaries are normative. "Must" and "must not" are requirements. Do not
 bypass a boundary with a convenience call, and do not create parallel
 architecture variants (`*_v2`, `new_*`) unless explicitly approved.

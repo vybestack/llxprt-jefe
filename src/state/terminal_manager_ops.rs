@@ -297,6 +297,8 @@ mod tests {
         let mut agent = Agent::new(
             AgentId(id.into()),
             RepositoryId(repo_id.into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             name.into(),
             PathBuf::from(format!("/tmp/{id}")),
         );
@@ -307,6 +309,8 @@ mod tests {
     fn make_repo(id: &str, name: &str) -> Repository {
         Repository::new(
             RepositoryId(id.into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             name.into(),
             id.into(),
             PathBuf::from("/tmp"),

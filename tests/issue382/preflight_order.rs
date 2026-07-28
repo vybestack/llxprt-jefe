@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use jefe::agent_candidate_fingerprint::CandidateFingerprint;
 use jefe::domain::agent_definition::DefinitionSha256;
 use jefe::domain::agent_definition::{
-    AgentLaunchPlan, AgentTypeId, LaunchSignature, Operation, Preflight, Target,
+    AgentLaunchPlan, AgentTypeId, LaunchSignatureV1, Operation, Preflight, Target,
 };
 use jefe::runtime::{
     AuthorizationResult, ExecutionEvidence, InspectOutcome, PreparationOutcome, SandboxInspector,
@@ -53,13 +53,8 @@ impl SandboxInspector for RecordingInspector {
 
 /// Shared execution evidence matching the base plan fixture.
 fn evidence() -> ExecutionEvidence {
-    let fp = CandidateFingerprint::new(
-        std::path::PathBuf::from("/opt/bin/agent"),
-        None,
-        None,
-        1024,
-        1_000,
-    );
+    let fp =
+        CandidateFingerprint::new(std::path::PathBuf::from("/opt/bin/agent"), None, None, 0, 0);
     ExecutionEvidence::new(DefinitionSha256::default(), fp, 1, 1, 1)
 }
 
@@ -81,6 +76,14 @@ fn plan(preflight: Preflight) -> AgentLaunchPlan {
         operation: Operation::Normal,
         definition_sha256: DefinitionSha256::default(),
         executable: std::path::PathBuf::from("/opt/bin/agent"),
+        executable_fingerprint: jefe::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/opt/bin/agent"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv: Vec::new(),
         env: Vec::new(),
         cwd: std::path::PathBuf::from("/srv/project"),
@@ -91,7 +94,7 @@ fn plan(preflight: Preflight) -> AgentLaunchPlan {
         target_generation: 1,
         activation_generation: 1,
         preflight,
-        signature: LaunchSignature::default(),
+        signature: LaunchSignatureV1::default(),
     }
 }
 

@@ -18,7 +18,7 @@
 //! truth for the text rendered in the iocraft `AgentChooser` component and
 //! the selection/clipboard overlay, so the two cannot drift.
 
-use super::{AgentId, AgentKind};
+use super::{AgentId, agent_definition::AgentTypeId};
 
 /// Configured runtime profile or model for display in the chooser.
 ///
@@ -120,46 +120,45 @@ impl AgentChooserGitMetadata {
 pub struct AgentChooserEntry {
     pub agent_id: AgentId,
     pub name: String,
-    pub kind: AgentKind,
+    pub type_id: AgentTypeId,
+    pub type_display_name: String,
+    pub runtime_config_name: String,
     pub runtime_config: ChooserRuntimeConfig,
     pub branch: Option<String>,
     pub dirty: DirtyStatus,
 }
 
 impl AgentChooserEntry {
-    /// Construct a chooser entry with an explicit runtime kind and config.
-    ///
-    /// Requires `kind` and `runtime_config` explicitly so a call site can
-    /// never silently default to `AgentKind::Llxprt`. Branch and dirty status
-    /// default to unknown (no suffix rendered).
     #[must_use]
     pub fn new(
         agent_id: AgentId,
         name: String,
-        kind: AgentKind,
+        type_id: AgentTypeId,
+        type_display_name: String,
+        runtime_config_name: String,
         runtime_config: ChooserRuntimeConfig,
     ) -> Self {
         Self {
             agent_id,
             name,
-            kind,
+            type_id,
+            type_display_name,
+            runtime_config_name,
             runtime_config,
             branch: None,
             dirty: DirtyStatus::unknown(),
         }
     }
 
-    /// Test/fixture helper: build an entry from an id and display name with
-    /// default kind (LLxprt), empty config, no branch, and unknown dirty
-    /// status. Production code MUST use [`AgentChooserEntry::new`] so the
-    /// kind and config are explicit.
     #[cfg(test)]
     #[must_use]
     pub fn simple(id: &str, name: &str) -> Self {
         Self::new(
             AgentId(id.to_string()),
             name.to_string(),
-            AgentKind::Llxprt,
+            super::shipped_agent_type(3),
+            "LLxprt".to_owned(),
+            "profile".to_owned(),
             ChooserRuntimeConfig::default(),
         )
     }
@@ -185,30 +184,20 @@ const DEFAULT_RUNTIME_CONFIG_LABEL: &str = "(default)";
 /// `AgentChooser` component and the selection/clipboard overlay projection.
 #[must_use]
 pub fn agent_chooser_label(entry: &AgentChooserEntry) -> String {
-    let kind_label = entry.kind.display_label();
-    let config_label = chooser_config_label(entry.kind, &entry.runtime_config);
+    let config_label = chooser_config_label(&entry.runtime_config_name, &entry.runtime_config);
     let branch_suffix = branch_suffix(entry.branch.as_deref(), entry.dirty);
     format!(
         "{} [{}] {}{}",
-        entry.name, kind_label, config_label, branch_suffix
+        entry.name, entry.type_display_name, config_label, branch_suffix
     )
 }
 
-/// Build the configuration label for the entry's runtime kind.
-///
-/// Returns `"profile: {value}"` for LLxprt entries and `"model: {value}"` for
-/// Code Puppy entries. When the configured value is empty, the explicit
-/// default label is used so the user sees the runtime default is in effect.
 #[must_use]
-fn chooser_config_label(kind: AgentKind, config: &ChooserRuntimeConfig) -> String {
-    let (prefix, value) = match kind {
-        AgentKind::Llxprt => ("profile", config.value.as_str()),
-        AgentKind::CodePuppy => ("model", config.value.as_str()),
-    };
+fn chooser_config_label(prefix: &str, config: &ChooserRuntimeConfig) -> String {
     let display_value = if config.is_default() {
         DEFAULT_RUNTIME_CONFIG_LABEL
     } else {
-        value.trim()
+        config.value.trim()
     };
     format!("{prefix}: {display_value}")
 }
@@ -243,7 +232,9 @@ mod tests {
         AgentChooserEntry {
             agent_id: AgentId("a1".to_string()),
             name: name.to_string(),
-            kind: AgentKind::Llxprt,
+            type_id: super::super::shipped_agent_type(3),
+            type_display_name: "LLxprt".to_owned(),
+            runtime_config_name: "profile".to_owned(),
             runtime_config: ChooserRuntimeConfig::new(profile),
             branch: None,
             dirty: DirtyStatus::unknown(),
@@ -251,10 +242,16 @@ mod tests {
     }
 
     fn puppy_entry(name: &str, model: &str) -> AgentChooserEntry {
+        let definition = super::super::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.display_name == "Code Puppy")
+            .unwrap_or_else(|| panic!("shipped Code Puppy definition"));
         AgentChooserEntry {
             agent_id: AgentId("a2".to_string()),
             name: name.to_string(),
-            kind: AgentKind::CodePuppy,
+            type_id: definition.id,
+            type_display_name: definition.display_name,
+            runtime_config_name: "model".to_owned(),
             runtime_config: ChooserRuntimeConfig::new(model),
             branch: None,
             dirty: DirtyStatus::unknown(),

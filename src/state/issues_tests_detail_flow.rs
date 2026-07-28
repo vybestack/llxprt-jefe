@@ -46,6 +46,8 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),
@@ -109,11 +111,13 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 fn state_with_repo_and_agent() -> AppState {
     let mut state = AppState {
         selected_repository_index: Some(0),
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
@@ -121,6 +125,8 @@ fn state_with_repo_and_agent() -> AppState {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -205,12 +211,16 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/repo1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/repo2"),
@@ -257,6 +267,8 @@ fn test_exit_focus_restoration_valid() {
     // Set up repo + 2 agents
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp"),
@@ -265,12 +277,16 @@ fn test_exit_focus_restoration_valid() {
     state.agents.push(Agent::new(
         AgentId("agent-0".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 0".to_string(),
         std::path::PathBuf::from("/tmp/a0"),
     ));
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -299,6 +315,8 @@ fn test_exit_focus_restoration_stale() {
     // Set up repo + 1 agent
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp"),
@@ -307,6 +325,8 @@ fn test_exit_focus_restoration_stale() {
     state.agents.push(Agent::new(
         AgentId("agent-0".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 0".to_string(),
         std::path::PathBuf::from("/tmp/a0"),
     ));
@@ -345,12 +365,16 @@ fn test_scope_change_invalidation() {
     // Set up two repositories
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -398,12 +422,16 @@ fn test_stale_scope_response_suppressed() {
 
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -453,12 +481,16 @@ fn test_draft_discard_on_scope_change() {
 
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -656,6 +688,8 @@ fn test_issue_base_prompt_in_payload() {
     // Repository with issue_base_prompt set
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),

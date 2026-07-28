@@ -16,9 +16,8 @@ use crate::agent_candidate::{
     PackageRunnerKind, PackageSelection, ResolvedCandidate, capture_candidate_fingerprint,
 };
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
-use crate::agent_candidate_path::PathSnapshot;
-use crate::domain::agent_definition::{AgentDefinition, AgentLaunchPlan, DefinitionSha256, Target};
-use crate::runtime::{AgentExecutablePlatform, AgentWrapperKind};
+use crate::agent_candidate_path::{AgentExecutablePlatform, AgentWrapperKind, PathSnapshot};
+use crate::domain::agent_definition::DefinitionSha256;
 
 use super::agent_probe::command_for_path;
 use super::command_capture::run_command_capture_with_timeout;
@@ -148,9 +147,9 @@ pub fn managed_install_dir(cache_root: &Path, selection: &PackageSelection) -> P
 
 /// Build the exact no-effect package invocation for a resolved candidate.
 ///
-/// Local npm returns the deterministic managed-cache executable path; actual
-/// installation and PATHEXT resolution happen only in [`prepare_package_launch`]
-/// after all immutable plan checks pass.
+/// Remote invocations retain a closed structural package-runner prefix. Local
+/// npm callers use [`finalize_local_invocation`] so installation, executable
+/// resolution, and fingerprinting finish before immutable planning.
 pub fn package_invocation(
     candidate: &ResolvedCandidate,
     target: PackageExecutionTarget,
@@ -188,76 +187,41 @@ pub fn package_invocation(
     Ok(Some(invocation))
 }
 
-/// Apply package execution to an already validated immutable launch plan.
+/// Finalize the selected local executable and structural prefix before planning.
 ///
-/// Operation/support, target, typed values, and probe generation were validated
-/// by the generic planner before this function is reachable. This function
-/// rechecks target, definition, candidate executable, and generation before the
-/// first install effect. Unsupported and stale plans therefore produce zero
-/// package/process effects.
-pub fn prepare_package_launch(
-    mut plan: AgentLaunchPlan,
-    definition: &AgentDefinition,
+/// Managed npm installation, platform wrapper resolution, and physical
+/// fingerprint capture all complete here. The returned invocation can be
+/// copied directly into [`super::agent_plan::PlanRequest`]; runtime execution
+/// never mutates or rediscovers it.
+pub fn finalize_local_invocation(
     candidate: &ResolvedCandidate,
-    current_probe_generation: u64,
     cache_root: &Path,
-) -> Result<AgentLaunchPlan, PackageRuntimeError> {
-    let target = precheck(&plan, definition, candidate, current_probe_generation)?;
+) -> Result<PackageInvocation, PackageRuntimeError> {
     let Some(selection) = candidate.package() else {
-        return Ok(plan);
+        return Ok(PackageInvocation {
+            executable: candidate.executable().to_path_buf(),
+            wrapper_kind: candidate.wrapper_kind(),
+            prefix: Vec::new(),
+            fingerprint: Some(candidate.fingerprint().clone()),
+        });
     };
-    let invocation = if target == PackageExecutionTarget::Local
-        && selection.runner() == PackageRunnerKind::Npm
-    {
-        prepare_managed_npm(candidate, selection, cache_root)?
+    if selection.runner() == PackageRunnerKind::Npm {
+        prepare_managed_npm(candidate, selection, cache_root)
     } else {
-        package_invocation(candidate, target, cache_root)?
-            .ok_or(PackageRuntimeError::InvalidSelection)?
-    };
-    let mut argv = invocation.prefix;
-    argv.extend(plan.argv);
-    plan.executable = invocation.executable;
-    plan.argv = argv;
-    Ok(plan)
+        package_invocation(candidate, PackageExecutionTarget::Local, cache_root)?
+            .ok_or(PackageRuntimeError::InvalidSelection)
+    }
 }
 
 /// Prepare the selected local invocation used by the generic probe adapter.
-/// npm resolves through the managed cache; uvx remains a structural runner.
 pub(crate) fn prepare_local_probe(
     candidate: &ResolvedCandidate,
     cache_root: &Path,
 ) -> Result<Option<PackageInvocation>, PackageRuntimeError> {
-    let Some(selection) = candidate.package() else {
-        return Ok(None);
-    };
-    if selection.runner() == PackageRunnerKind::Npm {
-        return prepare_managed_npm(candidate, selection, cache_root).map(Some);
-    }
-    package_invocation(candidate, PackageExecutionTarget::Local, cache_root)
-}
-
-fn precheck(
-    plan: &AgentLaunchPlan,
-    definition: &AgentDefinition,
-    candidate: &ResolvedCandidate,
-    current_generation: u64,
-) -> Result<PackageExecutionTarget, PackageRuntimeError> {
-    if plan.definition_sha256 != definition.sha256() || plan.type_id != definition.id {
-        return Err(PackageRuntimeError::DefinitionChanged);
-    }
-    if plan.probe_generation != current_generation {
-        return Err(PackageRuntimeError::ProbeGenerationChanged {
-            plan: plan.probe_generation,
-            current: current_generation,
-        });
-    }
-    if plan.executable != candidate.executable() {
-        return Err(PackageRuntimeError::CandidateChanged);
-    }
-    Ok(match plan.target {
-        Target::Local { .. } => PackageExecutionTarget::Local,
-        Target::Remote(_) => PackageExecutionTarget::Remote,
-    })
+    candidate
+        .package()
+        .map(|_| finalize_local_invocation(candidate, cache_root))
+        .transpose()
 }
 
 fn npm_prefix(selection: &PackageSelection) -> Result<Vec<OsString>, PackageRuntimeError> {
@@ -429,5 +393,9 @@ fn run_npm_install(
 }
 
 #[cfg(test)]
-#[path = "package_runtime_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::domain::agent_definition::{AgentDefinition, AgentLaunchPlan, Target};
+
+    include!("package_runtime_tests.rs");
+}

@@ -152,6 +152,8 @@ fn agent(id: &str, status: crate::domain::AgentStatus) -> crate::domain::Agent {
     let mut agent = crate::domain::Agent::new(
         crate::domain::AgentId(id.to_owned()),
         crate::domain::RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         id.to_owned(),
         std::path::PathBuf::from("/tmp/agent"),
     );

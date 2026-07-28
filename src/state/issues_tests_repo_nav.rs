@@ -71,18 +71,24 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R1".to_string(),
         "r1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R2".to_string(),
         "r2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r3".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R3".to_string(),
         "r3".to_string(),
         std::path::PathBuf::from("/tmp/r3"),
@@ -133,12 +139,16 @@ fn test_issues_repo_navigation_with_terminal_focus() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R1".to_string(),
         "r1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R2".to_string(),
         "r2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -158,12 +168,16 @@ fn test_issues_repo_navigation_resets_issues_state() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R1".to_string(),
         "r1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R2".to_string(),
         "r2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),

@@ -100,6 +100,8 @@ mod tests {
     fn repository(index: usize) -> Repository {
         Repository::new(
             RepositoryId(format!("repo-{index}")),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             format!("Repository {index}"),
             format!("repo-{index}"),
             PathBuf::from("/tmp"),

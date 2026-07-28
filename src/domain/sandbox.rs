@@ -157,11 +157,3 @@ impl PlatformCapabilities {
         }
     }
 }
-
-pub(super) fn default_sandbox_engine() -> SandboxEngine {
-    SandboxEngine::default()
-}
-
-pub(super) fn default_sandbox_flags() -> String {
-    DEFAULT_SANDBOX_FLAGS.to_owned()
-}

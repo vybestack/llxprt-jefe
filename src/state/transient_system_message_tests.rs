@@ -13,6 +13,8 @@ fn state_with_repo() -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test".to_owned(),
         "test".to_owned(),
         PathBuf::from("/tmp/test"),

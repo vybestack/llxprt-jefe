@@ -21,13 +21,10 @@ mod runtime_effect_adapter_tests;
 use std::path::PathBuf;
 
 use crate::domain::{
-    Agent, AgentId, AgentKind, AgentStatus, LaunchSignature, LlxprtNpmPackageSelector,
-    PlatformCapabilities, QuickResume, Repository, SandboxEngine,
+    Agent, AgentId, AgentLaunchRequest, AgentStatus, QuickResume, Repository, TypedMap, TypedValue,
 };
 
-pub(crate) use normalize::{
-    expand_tilde, normalize_llxprt_debug, normalize_profile, normalize_sandbox_flags,
-};
+pub(crate) use normalize::{expand_tilde, normalize_profile};
 pub use normalize::{local_paths_equivalent, validate_local_path};
 
 /// Generate a stable, time-based identifier with the given prefix.
@@ -67,7 +64,7 @@ pub struct CreateAgentParams<'a> {
     /// Whether Code Puppy should resume its latest autosaved session.
     pub code_puppy_quick_resume: QuickResume,
     /// Agent runtime selected in the form.
-    pub agent_kind: &'a str,
+    pub agent_type_id: &'a str,
     /// Raw LLxprt npm package version (normalized by the service).
     pub llxprt_version: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
@@ -105,6 +102,117 @@ pub(crate) fn resolve_agent_work_dir(repository: &Repository, value: &str) -> Op
     }
 }
 
+fn definition_for(
+    type_id: &crate::domain::agent_definition::AgentTypeId,
+) -> Option<crate::domain::agent_definition::AgentDefinition> {
+    crate::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id == *type_id)
+}
+
+fn insert_declared_value(
+    values: &mut TypedMap,
+    definition: &crate::domain::agent_definition::AgentDefinition,
+    field_id: &str,
+    value: TypedValue,
+) -> Option<()> {
+    let declared = definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .any(|field| field.id == field_id);
+    if !declared {
+        return Some(());
+    }
+    let key = crate::domain::Id::parse(&field_id.replace('_', "-")).ok()?;
+    values.insert(key, value);
+    Some(())
+}
+
+fn selected_version(params: &CreateAgentParams<'_>) -> String {
+    [params.code_puppy_version, params.llxprt_version]
+        .into_iter()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn creation_values(
+    params: &CreateAgentParams<'_>,
+    definition: &crate::domain::agent_definition::AgentDefinition,
+) -> Option<TypedMap> {
+    let mut values = if params.repository.default_type_id == definition.id {
+        params.repository.default_values.clone()
+    } else {
+        TypedMap::new()
+    };
+    let model = if params.code_puppy_model.trim().is_empty() {
+        ""
+    } else {
+        params.code_puppy_model.trim()
+    };
+    insert_declared_value(
+        &mut values,
+        definition,
+        "profile",
+        TypedValue::String(normalize_profile(params.profile)),
+    )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "model",
+        TypedValue::String(model.to_owned()),
+    )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "version_selector",
+        TypedValue::String(selected_version(params)),
+    )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "yolo",
+        TypedValue::Bool(
+            params.code_puppy_yolo
+                || params
+                    .mode
+                    .split_whitespace()
+                    .any(|value| value == "--yolo"),
+        ),
+    )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "interactive",
+        TypedValue::Bool(params.code_puppy_quick_resume.enabled()),
+    )?;
+    Some(values)
+}
+
+fn prospective_agent(params: &CreateAgentParams<'_>) -> Option<Agent> {
+    if params.name.trim().is_empty() {
+        return None;
+    }
+    let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
+    let type_id = crate::domain::agent_definition::AgentTypeId::parse(params.agent_type_id).ok()?;
+    let definition = definition_for(&type_id)?;
+    let values = creation_values(params, &definition)?;
+    let mut agent = Agent::new(
+        AgentId(generate_id("agent")),
+        params.repository.id.clone(),
+        type_id,
+        values,
+        params.name.trim().to_owned(),
+        PathBuf::from(work_dir),
+    );
+    agent.display_id = format!("#{}", params.next_display_index);
+    agent.shortcut_slot = params.shortcut_slot;
+    params.description.clone_into(&mut agent.description);
+    Some(agent)
+}
+
 /// Build the exact launch target represented by canonical agent-creation input.
 ///
 /// This pure preview performs the same required-field validation and
@@ -112,53 +220,8 @@ pub(crate) fn resolve_agent_work_dir(repository: &Repository, value: &str) -> Op
 /// touching the filesystem. The effective Code Puppy model includes the
 /// repository default, matching the runtime launch signature.
 #[must_use]
-pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<LaunchSignature> {
-    if params.name.trim().is_empty() {
-        return None;
-    }
-    let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
-    let caps = PlatformCapabilities::current();
-    let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
-        .and_then(|engine| caps.normalize_engine(engine))
-        .unwrap_or_default();
-    let code_puppy_model = if params.code_puppy_model.trim().is_empty() {
-        params.repository.default_code_puppy_model.trim()
-    } else {
-        params.code_puppy_model.trim()
-    };
-
-    let agent_kind = AgentKind::from_form_value(params.agent_kind)
-        .unwrap_or(params.repository.default_agent_kind);
-
-    Some(LaunchSignature {
-        work_dir: PathBuf::from(work_dir),
-        profile: normalize_profile(params.profile),
-        code_puppy_model: code_puppy_model.to_owned(),
-        code_puppy_version: if agent_kind == AgentKind::CodePuppy {
-            if params.code_puppy_version.trim().is_empty() {
-                params
-                    .repository
-                    .default_code_puppy_version
-                    .trim()
-                    .to_owned()
-            } else {
-                params.code_puppy_version.trim().to_owned()
-            }
-        } else {
-            String::new()
-        },
-        code_puppy_yolo: Some(params.code_puppy_yolo),
-        code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
-        mode_flags: params.mode.split_whitespace().map(String::from).collect(),
-        llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
-        pass_continue: params.pass_continue,
-        sandbox_enabled: params.sandbox_enabled,
-        sandbox_engine,
-        sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
-        remote: params.repository.remote.clone(),
-        agent_kind,
-        llxprt_version: LlxprtNpmPackageSelector::normalize(params.llxprt_version),
-    })
+pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<AgentLaunchRequest> {
+    prospective_agent(params).map(|agent| AgentLaunchRequest::for_agent(&agent, params.repository))
 }
 
 /// Canonical app-side agent creation path.
@@ -169,35 +232,9 @@ pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<Launch
 /// to materialize a local work directory do so separately.
 #[must_use]
 pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
-    let launch = prospective_agent_launch(&params)?;
-
-    Some(Agent {
-        id: AgentId(generate_id("agent")),
-        display_id: format!("#{}", params.next_display_index),
-        repository_id: params.repository.id.clone(),
-        shortcut_slot: params.shortcut_slot,
-        name: params.name.trim().to_owned(),
-        description: params.description.to_owned(),
-        work_dir: launch.work_dir,
-        profile: launch.profile,
-        code_puppy_model: launch.code_puppy_model,
-        code_puppy_version: launch.code_puppy_version,
-        code_puppy_yolo: launch.code_puppy_yolo,
-        code_puppy_quick_resume: launch.code_puppy_quick_resume,
-        mode_flags: launch.mode_flags,
-        llxprt_debug: launch.llxprt_debug,
-        pass_continue: launch.pass_continue,
-        sandbox_enabled: launch.sandbox_enabled,
-        sandbox_engine: launch.sandbox_engine,
-        sandbox_flags: launch.sandbox_flags,
-        agent_kind: launch.agent_kind,
-        llxprt_version: launch.llxprt_version,
-        // App-created agents start Running because creation triggers immediate launch.
-        status: AgentStatus::Running,
-        runtime_binding: None,
-        persisted_launch_signature: None,
-        origin: crate::domain::AgentOrigin::Persistent,
-    })
+    let mut agent = prospective_agent(&params)?;
+    agent.status = AgentStatus::Running;
+    Some(agent)
 }
 
 #[cfg(test)]

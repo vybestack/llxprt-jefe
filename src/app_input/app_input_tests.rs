@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
-    RepositoryId, RuntimeBinding, SandboxEngine,
+    Agent, AgentId, AgentLaunchRequest, AgentStatus, RemoteRepositorySettings, RepositoryId,
+    RuntimeBinding,
 };
 use jefe::domain::{IssueDetail, IssueState};
 use jefe::state::transition::TransitionExt;
@@ -38,77 +38,29 @@ impl<T> TestOptionExt<T> for Option<T> {
     }
 }
 
-pub(super) fn sample_signature() -> LaunchSignature {
-    LaunchSignature {
+pub(super) fn sample_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: jefe::domain::shipped_agent_type(3),
+        values: jefe::domain::TypedMap::new(),
         work_dir: PathBuf::from("/tmp/agent"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec![String::from("--yolo")],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
-        agent_kind: jefe::domain::AgentKind::Llxprt,
-        llxprt_version: None,
+        operation: jefe::domain::agent_definition::Operation::Normal,
     }
+}
+
+pub(super) fn sample_launch_signature() -> jefe::domain::LaunchSignatureV1 {
+    jefe::domain::LaunchSignatureV1::default()
 }
 
 pub(super) fn sample_agent(agent_id: &AgentId) -> Agent {
     Agent::new(
         agent_id.clone(),
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("Agent One"),
         PathBuf::from("/tmp/agent"),
     )
-}
-
-fn app_input_signature_constructor_retains_selector_and_binding() {
-    let agent_id = AgentId("selector-agent".to_owned());
-    let mut agent = sample_agent(&agent_id);
-    agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
-    agent.code_puppy_version = "0.0.361".to_owned();
-    let repository = jefe::domain::Repository::new(
-        agent.repository_id.clone(),
-        "repo".to_owned(),
-        "repo".to_owned(),
-        PathBuf::from("/tmp"),
-    );
-    let signature = launch_signature_for_agent(&agent, &repository);
-    assert_eq!(signature.llxprt_version, agent.llxprt_version);
-    assert_eq!(signature.code_puppy_version, "0.0.361");
-
-    let mut state = AppState {
-        agents: vec![agent],
-        ..AppState::default()
-    };
-    set_agent_runtime_binding(
-        &mut state,
-        &agent_id,
-        "jefe-selector".to_owned(),
-        signature,
-        None,
-        None,
-    );
-    assert_eq!(
-        state.agents[0]
-            .runtime_binding
-            .as_ref()
-            .and_then(|binding| binding.launch_signature.llxprt_version.as_ref())
-            .map(jefe::domain::LlxprtNpmPackageSelector::as_str),
-        Some("nightly")
-    );
-    assert_eq!(
-        state.agents[0]
-            .runtime_binding
-            .as_ref()
-            .map(|binding| binding.launch_signature.code_puppy_version.as_str()),
-        Some("0.0.361")
-    );
 }
 
 #[test]
@@ -137,28 +89,13 @@ fn repository_focus_toggles_checkbox_for_expected_fields() {
         RepositoryFormFocus::Name
     ));
 }
-
-#[test]
-fn clear_runtime_warning_clears_only_ssh_agent_warnings() {
-    let mut state = AppState {
-        warning_message: Some(String::from("SSH_AUTH_SOCK is missing")),
-        ..AppState::default()
-    };
-    clear_runtime_warning(&mut state);
-    assert!(state.warning_message.is_none());
-
-    state.warning_message = Some(String::from("regular warning"));
-    clear_runtime_warning(&mut state);
-    assert_eq!(state.warning_message, Some(String::from("regular warning")));
-}
-
 #[test]
 fn set_agent_runtime_binding_sets_session_and_signature() {
     let agent_id = AgentId(String::from("agent-1"));
     let mut state = AppState::default();
     state.agents.push(sample_agent(&agent_id));
 
-    let signature = sample_signature();
+    let signature = sample_launch_signature();
     set_agent_runtime_binding(
         &mut state,
         &agent_id,
@@ -181,8 +118,6 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         assert!(!binding.attached);
         assert!(binding.pid.is_none());
     }
-
-    app_input_signature_constructor_retains_selector_and_binding();
 }
 
 #[test]
@@ -191,7 +126,7 @@ fn set_agent_runtime_binding_persists_pid() {
     let mut state = AppState::default();
     state.agents.push(sample_agent(&agent_id));
 
-    let signature = sample_signature();
+    let signature = sample_launch_signature();
     set_agent_runtime_binding(
         &mut state,
         &agent_id,
@@ -224,7 +159,7 @@ fn mark_and_clear_runtime_attachment_flags() {
     let mut first = sample_agent(&agent_a);
     first.runtime_binding = Some(RuntimeBinding {
         session_name: String::from("sess-a"),
-        launch_signature: sample_signature(),
+        launch_signature: sample_launch_signature(),
         attached: false,
         last_seen: None,
         process_identity: None,
@@ -236,7 +171,7 @@ fn mark_and_clear_runtime_attachment_flags() {
     let mut second = sample_agent(&agent_b);
     second.runtime_binding = Some(RuntimeBinding {
         session_name: String::from("sess-b"),
-        launch_signature: sample_signature(),
+        launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
         process_identity: None,
@@ -273,7 +208,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
     agent.status = AgentStatus::Running;
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: String::from("sess"),
-        launch_signature: sample_signature(),
+        launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
         process_identity: None,
@@ -378,6 +313,8 @@ fn state_with_active_prs() -> jefe::state::AppState {
     };
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -567,14 +504,14 @@ fn state_for_pr_agent_chooser_confirm(
     use jefe::state::{AgentChooserState, ScreenMode};
     use std::path::PathBuf;
 
-    let mut agent = Agent::new(
+    let agent = Agent::new(
         agent_id.clone(),
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("PR Agent"),
         work_dir.to_path_buf(),
     );
-    agent.profile = String::new();
-    agent.mode_flags = Vec::new();
 
     let mut prs_state = jefe::state::PullRequestsState {
         active: true,
@@ -584,7 +521,9 @@ fn state_for_pr_agent_chooser_confirm(
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 String::from("PR Agent"),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,
@@ -601,6 +540,8 @@ fn state_for_pr_agent_chooser_confirm(
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("Repo 1"),
         String::from("owner/repo"),
         PathBuf::from("/tmp/repo1"),
@@ -789,12 +730,6 @@ fn state_for_issue_agent_chooser_send(
 ) -> jefe::state::AppState {
     let mut agent = sample_agent(agent_id);
     agent.work_dir = work_dir.to_path_buf();
-    // sample_agent uses Agent::new which defaults pass_continue = true.
-    assert!(
-        agent.pass_continue,
-        "test fixture: agent must default to pass_continue = true"
-    );
-
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_owned(),
         number: 166,
@@ -829,7 +764,9 @@ fn state_for_issue_agent_chooser_send(
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 String::from("Agent One"),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,
@@ -845,6 +782,8 @@ fn state_for_issue_agent_chooser_send(
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("Repo 1"),
         String::from("owner/repo"),
         PathBuf::from("/tmp/repo1"),
@@ -871,28 +810,21 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     let send_info = issue_send_info_from_state(&state)
         .unwrap_or_else(|| panic!("issue_send_info must resolve with chooser + detail + agent"));
 
-    // The send info copies the agent's configured pass_continue (true).
-    assert!(
-        send_info.signature.pass_continue,
-        "send info should inherit the agent's pass_continue = true"
+    assert_eq!(
+        send_info.signature.operation,
+        jefe::domain::agent_definition::Operation::Resume
     );
 
-    // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
-    // This calls the REAL production helper so removing the override would
-    // cause this test to fail.
     let issue_prompt = "Issue body content for app input test.";
-    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
-    assert!(
-        !launch_sig.pass_continue,
-        "issue-driven launches must force pass_continue = false"
+    let launch_request = prepare_issue_launch_signature(send_info.signature, issue_prompt);
+    assert_eq!(
+        launch_request.operation,
+        jefe::domain::agent_definition::Operation::FreshIssue
     );
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|flag| flag.contains(issue_prompt)),
-        "issue launch signature must include the inlined issue prompt content"
-    );
+    assert!(matches!(
+        jefe::domain::canonical_values::typed_field(&launch_request.values, "prompt"),
+        Some(jefe::domain::TypedValue::String(prompt)) if prompt.contains(issue_prompt)
+    ));
 }
 
 /// The `ConfirmIssueDirtyCopy` modal must resolve to `InputMode::Confirm` so

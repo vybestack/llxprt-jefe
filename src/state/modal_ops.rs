@@ -4,8 +4,10 @@
 //! length limit. These methods open/close/edit modal forms and handle
 //! repository/agent-related UI messages.
 
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, FieldKind, FieldValue};
+use crate::domain::canonical_values::typed_field;
 use crate::domain::{
-    AgentId, AgentKind, DEFAULT_SANDBOX_FLAGS, Repository, RepositoryId, SandboxEngine,
+    AgentId, DEFAULT_SANDBOX_FLAGS, Repository, RepositoryId, SandboxEngine, TypedMap, TypedValue,
 };
 use crate::messages::{ModalMessage, RepositoryAgentMessage};
 
@@ -15,60 +17,57 @@ use super::types::{
     RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
 };
 
-#[derive(Default)]
 struct NewAgentRepositoryDefaults {
     base_dir: String,
-    profile: String,
-    code_puppy_model: String,
-    code_puppy_version: String,
-    llxprt_version: String,
-    agent_kind: AgentKind,
+    type_id: AgentTypeId,
+    values: TypedMap,
     remote_enabled: bool,
 }
 
 fn new_agent_repository_defaults(
     repositories: &[Repository],
     repository_id: &RepositoryId,
-) -> NewAgentRepositoryDefaults {
+) -> Option<NewAgentRepositoryDefaults> {
     repositories
         .iter()
         .find(|repository| repository.id == *repository_id)
         .map(|repository| NewAgentRepositoryDefaults {
             base_dir: repository.base_dir.to_string_lossy().into_owned(),
-            profile: repository.default_profile.clone(),
-            code_puppy_model: repository.default_code_puppy_model.clone(),
-            code_puppy_version: repository.default_code_puppy_version.trim().to_owned(),
-            llxprt_version: repository.default_llxprt_version.as_ref().map_or_else(
-                String::new,
-                |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
-            ),
-            agent_kind: repository.default_agent_kind,
+            type_id: repository.default_type_id.clone(),
+            values: repository.default_values.clone(),
             remote_enabled: repository.remote.enabled,
         })
-        .unwrap_or_default()
 }
 
 fn new_agent_form(
     defaults: NewAgentRepositoryDefaults,
-    agent_kind: AgentKind,
+    type_id: AgentTypeId,
     shortcut_slot: Option<u8>,
 ) -> (AgentFormFields, AgentFormCursor) {
-    let default_mode = if agent_kind == AgentKind::Llxprt {
-        "--yolo"
+    let values = if defaults.type_id == type_id {
+        defaults.values
     } else {
-        ""
+        default_values_for_type(&type_id)
     };
+    let profile = typed_string(&values, "profile");
+    let model = typed_string(&values, "model");
+    let selector = typed_string(&values, "version_selector");
+    let yolo = typed_bool(&values, "yolo").unwrap_or(false);
     let fields = AgentFormFields {
         shortcut_slot,
         work_dir: defaults.base_dir,
-        profile: defaults.profile,
-        code_puppy_model: defaults.code_puppy_model,
-        code_puppy_version: defaults.code_puppy_version,
-        code_puppy_yolo: false,
-        code_puppy_quick_resume: crate::domain::QuickResume::default(),
-        agent_kind: agent_kind.label().to_owned(),
-        llxprt_version: defaults.llxprt_version,
-        mode: default_mode.to_owned(),
+        profile,
+        code_puppy_model: model,
+        code_puppy_version: selector.clone(),
+        code_puppy_yolo: yolo,
+        code_puppy_quick_resume: typed_bool(&values, "interactive").unwrap_or(false).into(),
+        agent_type_id: type_id.as_str().to_owned(),
+        llxprt_version: selector,
+        mode: if yolo {
+            "--yolo".to_owned()
+        } else {
+            String::new()
+        },
         pass_continue: true,
         sandbox_engine: SandboxEngine::Podman.label().to_owned(),
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
@@ -85,6 +84,70 @@ fn new_agent_form(
         ..AgentFormCursor::default()
     };
     (fields, cursor)
+}
+
+fn default_values_for_type(type_id: &AgentTypeId) -> TypedMap {
+    super::form_projection::definition_for_type(type_id)
+        .map(|definition| values_from_definition(&definition))
+        .unwrap_or_default()
+}
+
+fn values_from_definition(definition: &AgentDefinition) -> TypedMap {
+    let mut values = TypedMap::new();
+    for field in definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+    {
+        let value = field
+            .default
+            .clone()
+            .unwrap_or_else(|| empty_field_value(field.kind));
+        let Ok(key) = crate::domain::Id::parse(&field.id.replace('_', "-")) else {
+            continue;
+        };
+        if let Some(value) = field_value_to_typed(value) {
+            values.insert(key, value);
+        }
+    }
+    values
+}
+
+fn empty_field_value(kind: FieldKind) -> FieldValue {
+    match kind {
+        FieldKind::Boolean => FieldValue::Boolean(false),
+        FieldKind::OptionalBoolean => FieldValue::OptionalBoolean(None),
+        FieldKind::String | FieldKind::Enum => FieldValue::String(String::new()),
+        FieldKind::Integer => FieldValue::Integer(0),
+        FieldKind::Path => FieldValue::Path(String::new()),
+        FieldKind::StringList => FieldValue::StringList(Vec::new()),
+    }
+}
+
+fn field_value_to_typed(value: FieldValue) -> Option<TypedValue> {
+    match value {
+        FieldValue::Boolean(value) => Some(TypedValue::Bool(value)),
+        FieldValue::OptionalBoolean(value) => value.map(TypedValue::Bool),
+        FieldValue::String(value) | FieldValue::Path(value) => Some(TypedValue::String(value)),
+        FieldValue::Integer(value) => Some(TypedValue::Integer(value)),
+        FieldValue::StringList(values) => Some(TypedValue::List(
+            values.into_iter().map(TypedValue::String).collect(),
+        )),
+    }
+}
+
+fn typed_string(values: &TypedMap, field: &str) -> String {
+    match typed_field(values, field) {
+        Some(TypedValue::String(value)) => value.clone(),
+        _ => String::new(),
+    }
+}
+
+fn typed_bool(values: &TypedMap, field: &str) -> Option<bool> {
+    match typed_field(values, field) {
+        Some(TypedValue::Bool(value)) => Some(*value),
+        _ => None,
+    }
 }
 
 impl AppState {
@@ -144,14 +207,14 @@ impl AppState {
     }
 
     fn open_new_repository_modal(&mut self) {
-        let default_kind = self
-            .installed_agent_kinds
+        let default_type_id = self
+            .available_agent_type_ids
             .first()
-            .copied()
+            .cloned()
             .unwrap_or_default();
         self.modal = ModalState::NewRepository {
             fields: RepositoryFormFields {
-                default_agent_kind: default_kind.label().to_owned(),
+                default_type_id: default_type_id.as_str().to_owned(),
                 default_code_puppy_yolo: true,
                 default_llxprt_mode: "--yolo".to_owned(),
                 ..RepositoryFormFields::default()
@@ -164,40 +227,50 @@ impl AppState {
         };
     }
 
+    fn repository_fields(repository: &crate::domain::Repository) -> RepositoryFormFields {
+        let yolo = typed_bool(&repository.default_values, "yolo").unwrap_or(false);
+        let selector = typed_string(&repository.default_values, "version_selector");
+        RepositoryFormFields {
+            name: repository.name.clone(),
+            base_dir: repository.base_dir.to_string_lossy().into_owned(),
+            default_profile: typed_string(&repository.default_values, "profile"),
+            default_code_puppy_model: typed_string(&repository.default_values, "model"),
+            default_code_puppy_version: selector.clone(),
+            default_code_puppy_yolo: yolo,
+            default_llxprt_mode: typed_string(&repository.default_values, "mode_flags"),
+            default_llxprt_version: selector,
+            default_type_id: repository.default_type_id.as_str().to_owned(),
+            github_repo: repository.github_repo.clone(),
+            github_issue_pr_repo: repository.github_issue_pr_repo.clone(),
+            remote_enabled: repository.remote.enabled,
+            login_user: repository.remote.login_user.clone(),
+            host: repository.remote.host.clone(),
+            ssh_port: repository
+                .remote
+                .port
+                .map_or_else(String::new, |port| port.to_string()),
+            identity_file: repository
+                .remote
+                .identity_file
+                .to_string_lossy()
+                .into_owned(),
+            ssh_options: repository.remote.options.join(" "),
+            run_as_user: repository.remote.run_as_user.clone(),
+            setup_env_default: repository.remote.setup_env_default,
+            transient_agent_dir: repository
+                .transient_agent_dir
+                .to_string_lossy()
+                .into_owned(),
+            transient_max_concurrent: repository.transient_max_concurrent.to_string(),
+        }
+    }
+
     fn open_edit_repository_modal(&mut self, id: RepositoryId) {
         let fields = self
             .repositories
             .iter()
-            .find(|r| r.id == id)
-            .map(|r| RepositoryFormFields {
-                name: r.name.clone(),
-                base_dir: r.base_dir.to_string_lossy().into_owned(),
-                default_profile: r.default_profile.clone(),
-                default_code_puppy_model: r.default_code_puppy_model.clone(),
-                default_code_puppy_version: r.default_code_puppy_version.clone(),
-                default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
-                default_llxprt_mode: r.default_llxprt_mode_flags.join(" "),
-                default_llxprt_version: r.default_llxprt_version.as_ref().map_or_else(
-                    String::new,
-                    |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
-                ),
-                default_agent_kind: r.default_agent_kind.label().to_owned(),
-                github_repo: r.github_repo.clone(),
-                github_issue_pr_repo: r.github_issue_pr_repo.clone(),
-                remote_enabled: r.remote.enabled,
-                login_user: r.remote.login_user.clone(),
-                host: r.remote.host.clone(),
-                ssh_port: r
-                    .remote
-                    .port
-                    .map_or_else(String::new, |port| port.to_string()),
-                identity_file: r.remote.identity_file.to_string_lossy().into_owned(),
-                ssh_options: r.remote.options.join(" "),
-                run_as_user: r.remote.run_as_user.clone(),
-                setup_env_default: r.remote.setup_env_default,
-                transient_agent_dir: r.transient_agent_dir.to_string_lossy().into_owned(),
-                transient_max_concurrent: r.transient_max_concurrent.to_string(),
-            })
+            .find(|repository| repository.id == id)
+            .map(Self::repository_fields)
             .unwrap_or_default();
         self.modal = ModalState::EditRepository {
             id,
@@ -226,21 +299,24 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let defaults = new_agent_repository_defaults(&self.repositories, &repository_id);
+        let Some(defaults) = new_agent_repository_defaults(&self.repositories, &repository_id)
+        else {
+            return;
+        };
         // Remote repositories trust their configured runtime; local ones must
         // fall back when that runtime is not installed.
-        let agent_kind = if defaults.remote_enabled
-            || self.installed_agent_kinds.contains(&defaults.agent_kind)
+        let type_id = if defaults.remote_enabled
+            || self.available_agent_type_ids.contains(&defaults.type_id)
         {
-            defaults.agent_kind
+            defaults.type_id.clone()
         } else {
-            self.installed_agent_kinds
+            self.available_agent_type_ids
                 .first()
-                .copied()
-                .unwrap_or_default()
+                .cloned()
+                .unwrap_or_else(|| defaults.type_id.clone())
         };
         let (fields, cursor) =
-            new_agent_form(defaults, agent_kind, self.first_unused_shortcut_slot(None));
+            new_agent_form(defaults, type_id, self.first_unused_shortcut_slot(None));
         self.modal = ModalState::NewAgent {
             repository_id,
             fields,
@@ -275,6 +351,7 @@ impl AppState {
             return;
         };
         self.modal = ModalState::GeneratedAgent {
+            type_id: Box::new(type_id.clone()),
             form: Box::new(form),
             return_focus: self.pane_focus,
             return_agent_type_index: self.selected_agent_type_index,
@@ -299,27 +376,34 @@ impl AppState {
             .agents
             .iter()
             .find(|a| a.id == id)
-            .map(|a| AgentFormFields {
-                shortcut_slot: a.shortcut_slot,
-                name: a.name.clone(),
-                description: a.description.clone(),
-                work_dir: a.work_dir.to_string_lossy().into_owned(),
-                profile: a.profile.clone(),
-                code_puppy_model: a.code_puppy_model.clone(),
-                code_puppy_version: a.code_puppy_version.clone(),
-                code_puppy_yolo: a.code_puppy_yolo.unwrap_or(false),
-                code_puppy_quick_resume: a.code_puppy_quick_resume.into(),
-                agent_kind: a.agent_kind.label().to_owned(),
-                llxprt_version: a.llxprt_version.as_ref().map_or_else(
-                    String::new,
-                    |s: &crate::domain::LlxprtNpmPackageSelector| s.as_str().to_owned(),
-                ),
-                mode: a.mode_flags.join(" "),
-                llxprt_debug: a.llxprt_debug.clone(),
-                pass_continue: a.pass_continue,
-                sandbox_enabled: a.sandbox_enabled,
-                sandbox_engine: a.sandbox_engine.label().to_owned(),
-                sandbox_flags: a.sandbox_flags.clone(),
+            .map(|a| {
+                let selector = typed_string(&a.values, "version_selector");
+                let yolo = typed_bool(&a.values, "yolo").unwrap_or(false);
+                AgentFormFields {
+                    shortcut_slot: a.shortcut_slot,
+                    name: a.name.clone(),
+                    description: a.description.clone(),
+                    work_dir: a.work_dir.to_string_lossy().into_owned(),
+                    profile: typed_string(&a.values, "profile"),
+                    code_puppy_model: typed_string(&a.values, "model"),
+                    code_puppy_version: selector.clone(),
+                    code_puppy_yolo: yolo,
+                    code_puppy_quick_resume: typed_bool(&a.values, "interactive")
+                        .unwrap_or(false)
+                        .into(),
+                    agent_type_id: a.type_id.as_str().to_owned(),
+                    llxprt_version: selector,
+                    mode: if yolo {
+                        "--yolo".to_owned()
+                    } else {
+                        String::new()
+                    },
+                    llxprt_debug: String::new(),
+                    pass_continue: typed_bool(&a.values, "prompt_interactive").unwrap_or(true),
+                    sandbox_enabled: false,
+                    sandbox_engine: SandboxEngine::default().label().to_owned(),
+                    sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+                }
             })
             .unwrap_or_default();
         self.modal = ModalState::EditAgent {

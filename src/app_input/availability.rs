@@ -14,7 +14,7 @@
 //! authoritative. An enabled-but-incomplete remote (missing `login_user` or
 //! `host`) is explicitly rejected — it never silently falls back to local.
 //!
-//! All checks use the [`AppState::installed_agent_kinds`] snapshot captured
+//! All checks use the [`AppState::available_agent_type_ids`] snapshot captured
 //! once at startup ([`crate::app_init`]). No PATH I/O happens during input
 //! handling — the helper accepts either an explicit slice or derives the list
 //! under the state read-lock.
@@ -90,78 +90,56 @@ where
     }
 }
 
-use jefe::domain::{AgentKind, RemoteRepositorySettings};
+use jefe::domain::agent_definition::AgentTypeId;
+use jefe::domain::canonical_values::typed_field;
+use jefe::domain::{AgentLaunchRequest, RemoteRepositorySettings, TypedValue};
 
 use super::AppStateHandle;
 
-/// Reject a local launch when the agent's runtime kind is not in the supplied
-/// `available` snapshot.
-///
-/// Pure (no state mutation, no PATH I/O) so it can be called without holding
-/// any lock. Returns `Ok(())` if the launch may proceed. Returns
-/// `Err(message)` with a user-facing explanation when the kind is missing
-/// from the local snapshot.
-///
-/// Remote-enabled agents always pass — remote PATH resolution is authoritative
-/// and the local PATH cannot determine what is installed on a remote host.
-/// The **target remote availability probe** (`remote_probe`) is the actual
-/// guard: it runs a side-effect-free `ssh -T` check for the exact binary on
-/// the remote host immediately before any side effect or launch. No local
-/// startup cache of remote availability is built.
 pub(super) fn require_local_kind_available(
-    kind: AgentKind,
+    type_id: &AgentTypeId,
     remote: &RemoteRepositorySettings,
-    available: &[AgentKind],
+    available: &[AgentTypeId],
 ) -> Result<(), String> {
     if jefe::domain::target::is_valid_remote(remote) {
-        // A valid remote target always passes — local PATH cannot determine
-        // remote installation. The remote probe guards before side effects.
         return Ok(());
     }
     if remote.enabled {
-        // Remote is enabled but incomplete (missing login_user or host).
-        // This must NOT silently become local — reject with a clear error.
         return Err(jefe::domain::target::invalid_remote_message());
     }
-    if available.contains(&kind) {
+    require_local_kind_available_for_target(type_id, available)
+}
+
+pub(super) fn require_launch_available(
+    request: &AgentLaunchRequest,
+    available: &[AgentTypeId],
+) -> Result<(), String> {
+    if !request.remote.enabled
+        && matches!(
+            typed_field(&request.values, "version_selector"),
+            Some(TypedValue::String(value)) if !value.trim().is_empty()
+        )
+        && jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id == request.type_id)
+            .is_some_and(|definition| {
+                definition
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.kind.is_package_runner())
+            })
+    {
         return Ok(());
     }
-    Err(format!(
-        "{} is not installed on the local PATH. Install it or use a remote repository.",
-        kind.label()
-    ))
+    require_local_kind_available(&request.type_id, &request.remote, available)
 }
 
-/// Selector-aware local/remote target validation.
-pub(super) fn require_launch_available(
-    kind: AgentKind,
-    selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
-    code_puppy_version: &str,
-    remote: &RemoteRepositorySettings,
-    available: &[AgentKind],
-) -> Result<(), String> {
-    if jefe::domain::llxprt_launch_source(kind, selector).requires_npm()
-        || (kind == AgentKind::CodePuppy
-            && jefe::domain::code_puppy_requires_uvx(code_puppy_version))
-    {
-        if jefe::domain::target::is_valid_remote(remote) || !remote.enabled {
-            return Ok(());
-        }
-        return Err(jefe::domain::target::invalid_remote_message());
-    }
-    require_local_kind_available(kind, remote, available)
-}
-
-/// Selector-aware state boundary used before launch/preparation side effects.
 pub(super) fn launch_available_or_error(
     app_state: &mut AppStateHandle,
-    kind: AgentKind,
-    selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
-    code_puppy_version: &str,
-    remote: &RemoteRepositorySettings,
+    request: &AgentLaunchRequest,
 ) -> bool {
-    let available = app_state.read().installed_agent_kinds.clone();
-    match require_launch_available(kind, selector, code_puppy_version, remote, &available) {
+    let available = jefe::agent_detection::available_agent_type_ids();
+    match require_launch_available(request, available) {
         Ok(()) => true,
         Err(message) => {
             app_state.write().error_message = Some(message);
@@ -169,33 +147,47 @@ pub(super) fn launch_available_or_error(
         }
     }
 }
-/// Reject a local launch when the agent's runtime kind is not in the supplied
-/// `available` snapshot.
-///
-/// This variant is used by the centralized pre-side-effect availability
-/// validation ([`crate::app_input::remote_probe::require_runtime_available`])
-/// after the target has already been resolved to `Local`. It checks only
-/// local availability — no remote/incomplete-remote logic, since the target
-/// is already known to be local.
-///
-/// Pure (no state mutation, no PATH I/O).
+
 pub(super) fn require_local_kind_available_for_target(
-    kind: AgentKind,
-    available: &[AgentKind],
+    type_id: &AgentTypeId,
+    available: &[AgentTypeId],
 ) -> Result<(), String> {
-    if available.contains(&kind) {
+    if available.contains(type_id) {
         return Ok(());
     }
+    let label = jefe::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id == *type_id)
+        .map(|definition| definition.display_name)
+        .ok_or_else(|| format!("unknown active agent type {type_id}"))?;
     Err(format!(
-        "{} is not installed on the local PATH. Install it or use a remote repository.",
-        kind.label()
+        "{label} is not installed on the local PATH. Install it or use a remote repository."
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{AgentKind, RemoteRepositorySettings};
+    use jefe::domain::{AgentTypeId, RemoteRepositorySettings};
+
+    fn request(type_id: AgentTypeId, selector: &str) -> AgentLaunchRequest {
+        let mut values = jefe::domain::TypedMap::new();
+        if !selector.is_empty() {
+            jefe::domain::canonical_values::insert_json(
+                &mut values,
+                "version_selector",
+                serde_json::Value::String(selector.to_owned()),
+            )
+            .unwrap_or_else(|error| panic!("valid selector fixture: {error}"));
+        }
+        AgentLaunchRequest {
+            type_id,
+            values,
+            work_dir: "/tmp/work".into(),
+            remote: RemoteRepositorySettings::default(),
+            operation: jefe::domain::agent_definition::Operation::Normal,
+        }
+    }
 
     fn valid_remote() -> RemoteRepositorySettings {
         RemoteRepositorySettings {
@@ -255,24 +247,17 @@ mod tests {
 
     #[test]
     fn pinned_code_puppy_does_not_require_global_code_puppy_snapshot() {
-        let remote = RemoteRepositorySettings::default();
         assert!(
             require_launch_available(
-                AgentKind::CodePuppy,
-                None,
-                "0.0.361",
-                &remote,
-                &[AgentKind::Llxprt],
+                &request(jefe::domain::shipped_agent_type(1), "0.0.361"),
+                &[jefe::domain::shipped_agent_type(3)],
             )
             .is_ok()
         );
         assert!(
             require_launch_available(
-                AgentKind::CodePuppy,
-                None,
-                "",
-                &remote,
-                &[AgentKind::Llxprt],
+                &request(jefe::domain::shipped_agent_type(1), ""),
+                &[jefe::domain::shipped_agent_type(3)],
             )
             .is_err()
         );
@@ -281,27 +266,37 @@ mod tests {
     #[test]
     fn valid_remote_always_passes() {
         let remote = valid_remote();
-        let available = &[AgentKind::Llxprt];
-        assert!(require_local_kind_available(AgentKind::CodePuppy, &remote, available).is_ok());
-        assert!(require_local_kind_available(AgentKind::Llxprt, &remote, available).is_ok());
+        let available = &[jefe::domain::shipped_agent_type(3)];
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available)
+                .is_ok()
+        );
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(3), &remote, available)
+                .is_ok()
+        );
     }
 
     #[test]
     fn local_kind_in_snapshot_passes() {
         let remote = RemoteRepositorySettings::default();
-        let available = &[AgentKind::CodePuppy];
-        assert!(require_local_kind_available(AgentKind::CodePuppy, &remote, available).is_ok());
+        let available = &[jefe::domain::shipped_agent_type(1)];
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available)
+                .is_ok()
+        );
     }
 
     #[test]
     fn local_kind_missing_returns_error_with_label() {
         let remote = RemoteRepositorySettings::default();
-        let available = &[AgentKind::Llxprt];
-        let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
+        let available = &[jefe::domain::shipped_agent_type(3)];
+        let result =
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available);
         let Err(msg) = result else {
             panic!("CodePuppy should not be available in this snapshot");
         };
-        assert!(msg.contains("code_puppy"));
+        assert!(msg.contains("Code Puppy"));
         assert!(msg.contains("PATH"));
     }
 
@@ -309,8 +304,14 @@ mod tests {
     fn empty_snapshot_rejects_all_local_kinds() {
         let remote = RemoteRepositorySettings::default();
         let available = &[][..];
-        assert!(require_local_kind_available(AgentKind::CodePuppy, &remote, available).is_err());
-        assert!(require_local_kind_available(AgentKind::Llxprt, &remote, available).is_err());
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available)
+                .is_err()
+        );
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(3), &remote, available)
+                .is_err()
+        );
     }
 
     #[test]
@@ -321,8 +322,9 @@ mod tests {
             enabled: true,
             ..Default::default()
         };
-        let available = &[AgentKind::Llxprt];
-        let result = require_local_kind_available(AgentKind::Llxprt, &remote, available);
+        let available = &[jefe::domain::shipped_agent_type(3)];
+        let result =
+            require_local_kind_available(&jefe::domain::shipped_agent_type(3), &remote, available);
         assert!(
             result.is_err(),
             "incomplete enabled remote must NOT silently become local"
@@ -343,8 +345,14 @@ mod tests {
             enabled: true,
             ..Default::default()
         };
-        let available = &[AgentKind::CodePuppy, AgentKind::Llxprt];
-        assert!(require_local_kind_available(AgentKind::Llxprt, &remote, available).is_err());
+        let available = &[
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::shipped_agent_type(3),
+        ];
+        assert!(
+            require_local_kind_available(&jefe::domain::shipped_agent_type(3), &remote, available)
+                .is_err()
+        );
     }
 
     // ── Form submit-path tests (defect 1) ────────────────────────────
@@ -373,9 +381,10 @@ mod tests {
             ..RemoteRepositorySettings::default()
         };
         // CodePuppy is NOT installed locally.
-        let available = &[AgentKind::Llxprt];
+        let available = &[jefe::domain::shipped_agent_type(3)];
         assert!(
-            require_local_kind_available(AgentKind::CodePuppy, &remote, available).is_ok(),
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available)
+                .is_ok(),
             "complete enabled remote must pass even when kind is not locally installed"
         );
     }
@@ -394,7 +403,8 @@ mod tests {
         };
         let available = &[][..];
         assert!(
-            require_local_kind_available(AgentKind::Llxprt, &remote, available).is_ok(),
+            require_local_kind_available(&jefe::domain::shipped_agent_type(3), &remote, available)
+                .is_ok(),
             "complete enabled remote with empty optional fields must pass"
         );
     }
@@ -412,8 +422,12 @@ mod tests {
             setup_env_default: false,
             ..RemoteRepositorySettings::default()
         };
-        let available = &[AgentKind::CodePuppy, AgentKind::Llxprt];
-        let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
+        let available = &[
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::shipped_agent_type(3),
+        ];
+        let result =
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available);
         assert!(result.is_err(), "incomplete remote must fail");
     }
 
@@ -428,8 +442,9 @@ mod tests {
             setup_env_default: false,
             ..RemoteRepositorySettings::default()
         };
-        let available = &[AgentKind::CodePuppy];
-        let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
+        let available = &[jefe::domain::shipped_agent_type(1)];
+        let result =
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available);
         assert!(result.is_err(), "incomplete remote must fail");
     }
 
@@ -445,8 +460,9 @@ mod tests {
             setup_env_default: false,
             ..RemoteRepositorySettings::default()
         };
-        let available = &[AgentKind::Llxprt];
-        let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
+        let available = &[jefe::domain::shipped_agent_type(3)];
+        let result =
+            require_local_kind_available(&jefe::domain::shipped_agent_type(1), &remote, available);
         assert!(
             result.is_err(),
             "disabled remote + uninstalled kind must fail"

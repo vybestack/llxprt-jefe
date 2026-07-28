@@ -8,7 +8,18 @@ use tempfile::TempDir;
 use super::agent_executable::{
     AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget, AgentWrapperKind,
 };
-use crate::domain::AgentKind;
+fn shipped_binary(index: usize) -> &'static str {
+    let definitions = crate::domain::agent_definition::AgentDefinition::shipped();
+    let definition = definitions
+        .get(index)
+        .unwrap_or_else(|| panic!("shipped definition at index {index}"));
+    let binary = definition
+        .candidates
+        .iter()
+        .find_map(|candidate| candidate.kind.path_name())
+        .unwrap_or_else(|| panic!("shipped definition {} has a PATH candidate", definition.id));
+    Box::leak(binary.to_owned().into_boxed_str())
+}
 
 fn write_candidate(directory: &TempDir, name: &str) -> PathBuf {
     let path = directory.path().join(name);
@@ -52,7 +63,7 @@ fn windows_resolution_follows_pathext_directory_and_extension_order() {
         Some(OsString::from(".COM;.EXE;.BAT;.CMD")),
     );
     let executable = policy
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .unwrap_or_else(|error| panic!("Windows candidate should resolve: {error}"));
 
     assert_eq!(executable.path(), first_exe);
@@ -78,7 +89,7 @@ fn windows_resolution_classifies_all_supported_wrapper_forms() {
             Some(OsString::from(".EXE;.COM;.CMD;.BAT")),
         );
         let executable = policy
-            .resolve(AgentKind::CodePuppy)
+            .resolve(shipped_binary(1))
             .unwrap_or_else(|error| panic!("{name} should resolve: {error}"));
         assert_eq!(executable.path(), expected_path);
         assert_eq!(executable.wrapper_kind(), expected, "candidate {name}");
@@ -99,12 +110,12 @@ fn windows_resolution_ignores_unsupported_files_and_reports_safe_remediation() {
         Some(OsString::from(".JS;.EXE;.CMD")),
     );
 
-    let error = match resolver.resolve(AgentKind::Llxprt) {
+    let error = match resolver.resolve(shipped_binary(3)) {
         Ok(executable) => panic!("unsupported candidate resolved: {executable:?}"),
         Err(error) => error,
     };
     let diagnostic = error.to_string();
-    assert!(diagnostic.contains("LLxprt"), "diagnostic: {diagnostic}");
+    assert!(diagnostic.contains("llxprt"), "diagnostic: {diagnostic}");
     assert!(diagnostic.contains(".exe, .com, .cmd, .bat, or .ps1"));
     assert!(!diagnostic.contains("prompt"));
 }
@@ -126,7 +137,7 @@ fn unix_resolution_keeps_extensionless_executable_contract() {
     );
 
     let agent_executable = policy
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .unwrap_or_else(|error| panic!("Unix executable should resolve: {error}"));
     assert_eq!(agent_executable.path(), executable);
     assert_eq!(agent_executable.wrapper_kind(), AgentWrapperKind::Direct);
@@ -296,7 +307,7 @@ fn windows_official_llxprt_wrapper_resolves_to_canonical_bun_entrypoint_plan() {
     );
 
     let executable = resolver
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .unwrap_or_else(|error| panic!("official wrapper should resolve: {error}"));
     let plan = executable
         .script_launch_plan()
@@ -325,7 +336,7 @@ fn windows_official_llxprt_wrapper_missing_bun_fails_safely() {
     );
 
     let error = resolver
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .err()
         .unwrap_or_else(|| panic!("incomplete official layout must fail"));
     let diagnostic = error.to_string();
@@ -345,7 +356,7 @@ fn windows_official_llxprt_wrapper_missing_entrypoint_fails_safely() {
     );
 
     let error = resolver
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .err()
         .unwrap_or_else(|| panic!("incomplete official layout must fail"));
     assert!(error.to_string().contains("reinstall"));
@@ -362,7 +373,7 @@ fn windows_unmarked_llxprt_cmd_retains_command_script_behavior() {
     );
 
     let executable = resolver
-        .resolve(AgentKind::Llxprt)
+        .resolve(shipped_binary(3))
         .unwrap_or_else(|error| panic!("unmarked wrapper should resolve: {error}"));
     assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);
     assert!(
@@ -386,7 +397,7 @@ fn windows_oversized_marked_llxprt_wrapper_is_not_treated_as_official() {
         vec![directory.path().to_path_buf()],
         Some(OsString::from(".CMD")),
     )
-    .resolve(AgentKind::Llxprt)
+    .resolve(shipped_binary(3))
     .unwrap_or_else(|error| panic!("oversized wrapper should remain launchable: {error}"));
 
     assert_eq!(executable.wrapper_kind(), AgentWrapperKind::CommandScript);

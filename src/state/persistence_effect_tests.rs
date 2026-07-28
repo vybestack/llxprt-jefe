@@ -26,26 +26,14 @@ impl<T> TestOptionExt<T> for Option<T> {
 }
 
 fn repository() -> Repository {
-    Repository {
-        id: RepositoryId("repo-a1".to_owned()),
-        name: "alpha".to_owned(),
-        slug: "alpha".to_owned(),
-        base_dir: PathBuf::from("/work/alpha"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: crate::domain::RemoteRepositorySettings::default(),
-        issue_base_prompt: String::new(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 0,
-        default_llxprt_version: None,
-        agent_ids: Vec::new(),
-    }
+    Repository::new(
+        RepositoryId("repo-a1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "alpha".to_owned(),
+        "alpha".to_owned(),
+        PathBuf::from("/work/alpha"),
+    )
 }
 
 fn state_with_one_agent() -> AppState {
@@ -53,6 +41,8 @@ fn state_with_one_agent() -> AppState {
     let agent = Agent::new(
         AgentId("agent-a1".to_owned()),
         repository.id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "runner".to_owned(),
         PathBuf::from("/work/alpha/wt1"),
     );
@@ -310,6 +300,8 @@ fn transient_agents_are_absent_from_the_staged_candidate() {
     let mut transient = Agent::new(
         AgentId("transient-1f".to_owned()),
         RepositoryId("repo-a1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "scratch".to_owned(),
         PathBuf::from("/tmp/scratch"),
     );

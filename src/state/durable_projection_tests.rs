@@ -9,9 +9,8 @@
 use std::path::PathBuf;
 
 use crate::domain::{
-    Agent, AgentId, AgentKind, AgentStatus, DormantRecord, Id, LastKnownRuntime, LaunchSignature,
-    RemoteRepositorySettings, Repository, RepositoryId, RepositoryLocation, RuntimeBinding,
-    UserPreferences,
+    Agent, AgentId, AgentStatus, DormantRecord, Id, LastKnownRuntime, RemoteRepositorySettings,
+    Repository, RepositoryId, RepositoryLocation, RuntimeBinding, UserPreferences,
 };
 use crate::persistence::state_v2::StateDocument;
 use crate::state::durable_projection::{current_launch_signature, to_durable_state};
@@ -41,26 +40,18 @@ impl<T> TestResultExt<T> for Option<T> {
 }
 
 fn local_repository(id: &str, name: &str, base_dir: &str) -> Repository {
-    Repository {
-        id: RepositoryId(id.to_owned()),
-        name: name.to_owned(),
-        slug: format!("{name}-slug"),
-        base_dir: PathBuf::from(base_dir),
-        default_profile: "default".to_owned(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: "acme/widgets".to_owned(),
-        github_issue_pr_repo: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: "fix it".to_owned(),
-        default_agent_kind: AgentKind::Llxprt,
-        transient_agent_dir: PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 2,
-        default_llxprt_version: None,
-        agent_ids: Vec::new(),
-    }
+    let mut repository = Repository::new(
+        RepositoryId(id.to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        name.to_owned(),
+        format!("{name}-slug"),
+        PathBuf::from(base_dir),
+    );
+    repository.github_repo = "acme/widgets".to_owned();
+    repository.issue_base_prompt = "fix it".to_owned();
+    repository.transient_max_concurrent = 2;
+    repository
 }
 
 fn remote_repository(id: &str) -> Repository {
@@ -82,6 +73,8 @@ fn agent(id: &str, repository_id: &str, name: &str, work_dir: &str) -> Agent {
     Agent::new(
         AgentId(id.to_owned()),
         RepositoryId(repository_id.to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         name.to_owned(),
         PathBuf::from(work_dir),
     )
@@ -90,7 +83,8 @@ fn agent(id: &str, repository_id: &str, name: &str, work_dir: &str) -> Agent {
 fn running_binding(agent_ref: &Agent, repository: &Repository, session: &str) -> RuntimeBinding {
     RuntimeBinding {
         session_name: session.to_owned(),
-        launch_signature: LaunchSignature::for_agent(agent_ref, repository),
+        launch_signature: current_launch_signature(agent_ref, repository)
+            .value_or_panic("durable signature"),
         attached: true,
         last_seen: Some(42),
         pid: Some(4242),
@@ -363,7 +357,8 @@ fn inverse_synthesizes_status_and_binding_from_last_known() {
     assert_eq!(binding.session_name, "jefe-runner");
     assert_eq!(binding.lifecycle_generation, 7);
     assert_eq!(binding.pid, None);
-    let expected = LaunchSignature::for_agent(&restored.agents[0], &restored.repositories[0]);
+    let expected = current_launch_signature(&restored.agents[0], &restored.repositories[0])
+        .value_or_panic("durable signature");
     assert_eq!(binding.launch_signature, expected);
 
     assert_eq!(restored.agents[1].status, AgentStatus::Queued);
@@ -406,7 +401,7 @@ fn migrated_schema1_launch_signature_matches_current_projection() {
             "display_id": "#1",
             "name": "StickyAgent",
             "work_dir": "/tmp",
-            "agent_kind": "llxprt",
+            "type_id": "llxprt",
             "pass_continue": true,
             "status": "running",
             "runtime_binding": {
@@ -425,7 +420,7 @@ fn migrated_schema1_launch_signature_matches_current_projection() {
                     "sandbox_engine": "podman",
                     "sandbox_flags": "--cpus=2 --memory=12288m --pids-limit=256",
                     "remote": { "enabled": false },
-                    "agent_kind": "llxprt",
+                    "type_id": "llxprt",
                     "llxprt_version": null
                 },
                 "lifecycle_generation": 0

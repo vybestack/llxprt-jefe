@@ -11,6 +11,8 @@ fn create_test_state() -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("test_repo".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "test_repo".to_string(),
         "test_repo".to_string(),
         std::path::PathBuf::from("/tmp"),

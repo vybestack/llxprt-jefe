@@ -14,6 +14,8 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),
@@ -146,12 +148,16 @@ fn repo_change_closes_new_issue_form() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),

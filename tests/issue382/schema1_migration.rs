@@ -7,8 +7,8 @@
 //! direct/blank semantics are preserved, unknown schema-1 agent records remain
 //! byte-exact dormant data, and the projection is deterministic/idempotent.
 
+use jefe::domain::Id;
 use jefe::domain::canonical_values::typed_field;
-use jefe::domain::{AgentKind, Id};
 use jefe::persistence::migration::migrate_state;
 
 trait ResultExt<T, E> {
@@ -43,7 +43,7 @@ pub fn assert_migration_contract() {
     schema1_selector_migration_is_lossless_into_version_selector();
     schema1_unknown_agent_kind_becomes_byte_exact_dormant_record();
     schema1_selector_migration_is_deterministic_and_idempotent();
-    migrated_version_selector_restores_runtime_selector_fields();
+    migrated_version_selector_restores_generic_values();
     schema1_empty_document_is_rejected_with_typed_diagnostic();
 }
 
@@ -207,30 +207,22 @@ fn schema1_selector_migration_is_deterministic_and_idempotent() {
     assert_eq!(reapplied.state(), first.state());
 }
 
-/// CW02-13: restoring the migrated typed map repopulates the runtime selector
-/// fields from `version_selector`, definition-driven by the agent type id.
+/// CW02-13: restore retains generic selector values as the sole runtime authority.
 #[test]
-fn migrated_version_selector_restores_runtime_selector_fields() {
+fn migrated_version_selector_restores_generic_values() {
     let temp = tempfile::tempdir().unwrap_ctx("temporary repository root");
     let source = schema1_source(temp.path());
-
     let migrated = migrate_state(&source).unwrap_ctx("schema-1 state must migrate");
     let restored =
         jefe::state::durable_restore::from_durable_state(migrated.state()).unwrap_ctx("restore");
-
     let llxprt = restored
         .agents
         .iter()
         .find(|agent| agent.display_id == "L")
         .unwrap_ctx("llxprt agent restored");
-    assert_eq!(llxprt.agent_kind, AgentKind::Llxprt);
     assert_eq!(
-        llxprt
-            .llxprt_version
-            .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
-        Some("0.10.0".to_owned()),
-        "llxprt_version is derived from the authoritative version_selector"
+        typed_field(&llxprt.values, "version_selector"),
+        Some(&jefe::domain::TypedValue::String("0.10.0".to_owned()))
     );
 
     let puppy = restored
@@ -238,22 +230,13 @@ fn migrated_version_selector_restores_runtime_selector_fields() {
         .iter()
         .find(|agent| agent.display_id == "P")
         .unwrap_ctx("puppy agent restored");
-    assert_eq!(puppy.agent_kind, AgentKind::CodePuppy);
     assert_eq!(
-        puppy.code_puppy_version, "1.2.3",
-        "code_puppy_version is derived from the authoritative version_selector"
+        typed_field(&puppy.values, "version_selector"),
+        Some(&jefe::domain::TypedValue::String("1.2.3".to_owned()))
     );
-
-    // The repository default selector also migrates into the generic field and
-    // restores into the runtime default.
-    let repository = &restored.repositories[0];
     assert_eq!(
-        repository
-            .default_llxprt_version
-            .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
-        Some("nightly".to_owned()),
-        "repository default_llxprt_version is derived from the generic selector"
+        typed_field(&restored.repositories[0].default_values, "version_selector"),
+        Some(&jefe::domain::TypedValue::String("nightly".to_owned()))
     );
 }
 

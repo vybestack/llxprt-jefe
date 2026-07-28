@@ -9,7 +9,7 @@
 //! @requirement REQ-PR-012
 //! @pseudocode component-004 lines 97-175
 
-use jefe::domain::{AgentId, LaunchSignature, Repository};
+use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
 use jefe::runtime::RuntimeError;
 use jefe::state::{AppEvent, AppState, PrPropertyKind};
@@ -578,13 +578,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     // Availability + target validation BEFORE any prep side effect: a missing
     // agent runtime or an invalid/incomplete remote config must not trigger
     // local or remote prep.
-    if !super::availability::launch_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        launch_sig.llxprt_version.as_ref(),
-        &launch_sig.code_puppy_version,
-        &launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &launch_sig) {
         return;
     }
     let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
@@ -622,7 +616,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
 pub(super) struct PrSendInfo {
     pub(super) agent_id: AgentId,
     pub(super) work_dir: std::path::PathBuf,
-    pub(super) signature: LaunchSignature,
+    pub(super) signature: AgentLaunchRequest,
     pub(super) payload: jefe::github::PrSendPayload,
 }
 
@@ -705,7 +699,7 @@ pub(super) fn launch_pr_agent(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: std::path::PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
 ) {
     let launch_result = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
     let launched = launch_result.is_ok();
@@ -743,7 +737,7 @@ fn spawn_and_attach_fresh_for_pr(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &std::path::Path,
-    launch_sig: &LaunchSignature,
+    launch_sig: &AgentLaunchRequest,
 ) -> Result<(), RuntimeError> {
     let Some(ctx_arc) = ctx else {
         return Err(RuntimeError::SpawnFailed(
@@ -774,7 +768,7 @@ fn spawn_and_attach_fresh_for_pr(
 fn persist_pr_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     pid: Option<u32>,
     process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
@@ -783,7 +777,9 @@ fn persist_pr_agent_launch_success(
         let session_name = jefe::runtime::RuntimeSession::session_name_for(agent_id);
         agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
             session_name,
-            launch_signature: launch_sig,
+            launch_signature: jefe::runtime::launch_compose::plan_from_request(&launch_sig)
+                .map(|(plan, _)| plan.signature)
+                .unwrap_or_default(),
             attached: false,
             last_seen: None,
             process_identity,

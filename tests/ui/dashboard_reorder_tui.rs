@@ -20,6 +20,8 @@ fn seed_reorder_state(config_dir: &Path) {
     let mk_repo = |id: &str, name: &str| {
         Repository::new(
             RepositoryId(id.into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             name.into(),
             name.into(),
             PathBuf::from("/tmp"),
@@ -29,6 +31,8 @@ fn seed_reorder_state(config_dir: &Path) {
         let mut agent = Agent::new(
             AgentId(id.into()),
             RepositoryId(repo_id.into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             name.into(),
             PathBuf::from("/tmp"),
         );

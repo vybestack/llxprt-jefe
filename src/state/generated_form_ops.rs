@@ -19,7 +19,17 @@ impl AppState {
         true
     }
 
+    /// Submit the generated agent form.
+    ///
+    /// Activates the current focus. When Create is focused and enabled, the
+    /// validated result is consumed exactly once and routed through the
+    /// canonical agent-creation path. Unsupported or invalid Create leaves
+    /// all state, runtime, and persistence untouched (zero effects).
     pub(super) fn submit_generated_form(&mut self) -> bool {
-        self.handle_generated_form_intent(GeneratedAgentFormIntent::Activate)
+        if !self.handle_generated_form_intent(GeneratedAgentFormIntent::Activate) {
+            return false;
+        }
+        self.consume_generated_form_result();
+        true
     }
 }

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use jefe::agent_candidate_fingerprint::CandidateFingerprint;
 use jefe::domain::agent_definition::shipped::shipped_definitions;
 use jefe::domain::agent_definition::{
-    AgentDefinition, AgentLaunchPlan, LaunchSignature, Operation, Preflight, PromptShape, Target,
+    AgentDefinition, AgentLaunchPlan, LaunchSignatureV1, Operation, Preflight, PromptShape, Target,
 };
 use jefe::runtime::{
     AuthorizationResult, ExecutionEvidence, FreshSendRejection, PreparationOutcome,
@@ -30,6 +30,14 @@ fn plan(definition: &AgentDefinition, operation: Operation) -> AgentLaunchPlan {
         operation,
         definition_sha256: definition.sha256(),
         executable: PathBuf::from("/opt/bin/agent"),
+        executable_fingerprint: CandidateFingerprint::new(
+            PathBuf::from("/opt/bin/agent"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv: vec![OsString::from("--existing")],
         env: Vec::new(),
         cwd: PathBuf::from("/srv/project"),
@@ -43,7 +51,7 @@ fn plan(definition: &AgentDefinition, operation: Operation) -> AgentLaunchPlan {
             required: false,
             ..Preflight::default()
         },
-        signature: LaunchSignature::default(),
+        signature: LaunchSignatureV1::default(),
     }
 }
 
@@ -51,7 +59,7 @@ fn assert_supported(definition: &AgentDefinition, operation: Operation, prompt: 
     let plan = plan(definition, operation);
     let evidence = ExecutionEvidence::new(
         plan.definition_sha256,
-        CandidateFingerprint::new(plan.executable.clone(), None, None, 1, 1),
+        plan.executable_fingerprint.clone(),
         1,
         1,
         1,

@@ -1,6 +1,6 @@
 //! Shared kind-specific fresh-prompt launch-signature construction.
 
-use jefe::domain::{AgentKind, LaunchSignature};
+use jefe::domain::{AgentLaunchRequest, Id, TypedValue};
 
 /// Workflow represented by a prompt file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,56 +174,55 @@ fn truncate_prompt_content(content: &str) -> String {
 /// file write that previously got in the way of git operations.
 #[must_use]
 pub(super) fn prepare_fresh_prompt_signature(
-    mut sig: LaunchSignature,
+    mut request: AgentLaunchRequest,
     prompt_kind: FreshPromptKind,
     prompt_content: &str,
-) -> LaunchSignature {
-    sig.pass_continue = false;
-    sig.code_puppy_quick_resume = false;
-    let instruction = fresh_prompt_instruction(prompt_kind, prompt_content);
-    match sig.agent_kind {
-        // LLxprt keeps the agent's persisted mode flags (e.g. `--yolo`) and
-        // appends the fresh instruction. Replacing them here dropped `--yolo`,
-        // starting every issue/PR-driven LLxprt session in non-yolo mode (#210).
-        //
-        // `--continue` is stripped because continuation is owned by
-        // `pass_continue`, which fresh prompts force off: a stale persisted
-        // `--continue` must not resume a prior session on a fresh launch.
-        AgentKind::Llxprt => {
-            sig.mode_flags.retain(|flag| flag != "--continue");
-            sig.mode_flags.push("-i".to_owned());
-            sig.mode_flags.push(instruction);
-        }
-        // CodePuppy does not consume any LLxprt flags (#184): the instruction
-        // is the sole positional argument.
-        AgentKind::CodePuppy => sig.mode_flags = vec![instruction],
+) -> AgentLaunchRequest {
+    request.operation = match prompt_kind {
+        FreshPromptKind::Issue => jefe::domain::agent_definition::Operation::FreshIssue,
+        FreshPromptKind::PullRequest => jefe::domain::agent_definition::Operation::FreshPullRequest,
+    };
+    if let Ok(prompt_id) = Id::parse("prompt") {
+        request.values.insert(
+            prompt_id,
+            TypedValue::String(fresh_prompt_instruction(prompt_kind, prompt_content)),
+        );
     }
-    sig
+    request
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{RemoteRepositorySettings, SandboxEngine};
+    use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, Operation};
+    use jefe::domain::canonical_values::typed_field;
+    use jefe::domain::{RemoteRepositorySettings, TypedMap, TypedValue};
     use std::path::PathBuf;
 
-    fn base_sig(kind: AgentKind) -> LaunchSignature {
-        LaunchSignature {
+    fn shipped_type(display_name: &str) -> AgentTypeId {
+        AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.display_name == display_name)
+            .map_or_else(
+                || panic!("missing shipped definition {display_name}"),
+                |definition| definition.id,
+            )
+    }
+
+    fn base_request(display_name: &str) -> AgentLaunchRequest {
+        AgentLaunchRequest {
+            type_id: shipped_type(display_name),
+            values: TypedMap::new(),
             work_dir: PathBuf::from("/tmp/work"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec!["--stale".to_owned()],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: String::new(),
             remote: RemoteRepositorySettings::default(),
-            agent_kind: kind,
-            llxprt_version: None,
+            operation: Operation::Resume,
+        }
+    }
+
+    fn prompt_value(request: &AgentLaunchRequest) -> &str {
+        match typed_field(&request.values, "prompt") {
+            Some(TypedValue::String(value)) => value,
+            other => panic!("expected typed prompt string, got {other:?}"),
         }
     }
 
@@ -302,192 +301,52 @@ mod tests {
             );
         }
     }
-    #[test]
-    fn llxprt_and_code_puppy_project_the_identical_issue_contract() {
-        let llxprt = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::Llxprt),
-            FreshPromptKind::Issue,
-            "issue content body",
-        );
-        let code_puppy = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::CodePuppy),
-            FreshPromptKind::Issue,
-            "issue content body",
-        );
-
-        assert_eq!(llxprt.mode_flags.last(), code_puppy.mode_flags.first());
-        assert_eq!(llxprt.mode_flags[llxprt.mode_flags.len() - 2], "-i");
-        assert_eq!(code_puppy.mode_flags.len(), 1);
-    }
 
     #[test]
-    fn llxprt_issue_uses_fresh_issue_instruction() {
-        let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::Llxprt),
-            FreshPromptKind::Issue,
-            "issue content body",
-        );
-        assert!(!result.pass_continue);
-        // Persisted mode flags are preserved and the instruction is appended.
-        assert_eq!(
-            result.mode_flags,
-            vec![
-                "--stale".to_owned(),
-                "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
-            ]
-        );
-    }
-
-    #[test]
-    fn code_puppy_pr_uses_only_fresh_pr_instruction() {
-        let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::CodePuppy),
-            FreshPromptKind::PullRequest,
-            "pr content body",
-        );
-        assert!(!result.pass_continue);
-        assert_eq!(
-            result.mode_flags,
-            vec![fresh_prompt_instruction(
-                FreshPromptKind::PullRequest,
-                "pr content body"
-            )]
-        );
-    }
-
-    #[test]
-    fn code_puppy_issue_uses_only_fresh_issue_instruction() {
-        let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::CodePuppy),
-            FreshPromptKind::Issue,
-            "issue content body",
-        );
-        assert!(!result.pass_continue);
-        assert_eq!(
-            result.mode_flags,
-            vec![fresh_prompt_instruction(
+    fn fresh_issue_is_declaration_driven_for_all_supported_types() {
+        for display_name in ["LLxprt", "Code Puppy"] {
+            let request = prepare_fresh_prompt_signature(
+                base_request(display_name),
                 FreshPromptKind::Issue,
-                "issue content body"
-            )]
-        );
-    }
-
-    #[test]
-    fn llxprt_preserves_existing_mode_flags_including_yolo() {
-        // Regression for issue #210: the fresh-prompt path for LLxprt agents
-        // must not drop the agent's persisted mode flags (e.g. `--yolo`).
-        // Appending the instruction while keeping `--yolo` is what makes the
-        // fresh session launch in yolo mode, matching a normal launch.
-        let mut sig = base_sig(AgentKind::Llxprt);
-        sig.mode_flags = vec!["--yolo".to_owned()];
-        let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, "issue content body");
-        assert!(!result.pass_continue);
-        assert_eq!(
-            result.mode_flags,
-            vec![
-                "--yolo".to_owned(),
-                "-i".to_owned(),
+                "issue content body",
+            );
+            assert_eq!(request.operation, Operation::FreshIssue);
+            assert_eq!(
+                prompt_value(&request),
                 fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
-            ]
-        );
-    }
-
-    #[test]
-    fn llxprt_fresh_prompt_does_not_add_yolo_to_empty_mode() {
-        // The other half of #210: an agent whose mode was cleared (non-yolo)
-        // must stay non-yolo on a fresh-prompt launch. --yolo is never
-        // synthesized here; only the instruction is appended.
-        let mut sig = base_sig(AgentKind::Llxprt);
-        sig.mode_flags.clear();
-        let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, "issue content body");
-        assert!(!result.pass_continue);
-        assert_eq!(
-            result.mode_flags,
-            vec![
-                "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::Issue, "issue content body")
-            ]
-        );
-    }
-
-    #[test]
-    fn llxprt_fresh_prompt_strips_persisted_continue() {
-        // Fresh launches must never resume a prior session. `--continue` is
-        // owned by `pass_continue` (forced off here), so a stale persisted
-        // `--continue` in the mode string must be dropped, not forwarded.
-        let mut sig = base_sig(AgentKind::Llxprt);
-        sig.mode_flags = vec!["--yolo".to_owned(), "--continue".to_owned()];
-        let result =
-            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, "pr content body");
-        assert!(!result.pass_continue);
-        assert_eq!(
-            result.mode_flags,
-            vec![
-                "--yolo".to_owned(),
-                "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::PullRequest, "pr content body")
-            ]
-        );
-    }
-
-    #[test]
-    fn llxprt_pr_uses_fresh_pr_instruction() {
-        let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::Llxprt),
-            FreshPromptKind::PullRequest,
-            "pr content body",
-        );
-        assert!(!result.pass_continue);
-        // Persisted mode flags are preserved and the instruction is appended.
-        assert_eq!(
-            result.mode_flags,
-            vec![
-                "--stale".to_owned(),
-                "-i".to_owned(),
-                fresh_prompt_instruction(FreshPromptKind::PullRequest, "pr content body")
-            ]
-        );
-        issue_and_pr_fresh_signatures_retain_exact_selector();
-    }
-
-    fn issue_and_pr_fresh_signatures_retain_exact_selector() {
-        let selector =
-            jefe::domain::LlxprtNpmPackageSelector::normalize("0.10.0-nightly.260712.21cb698b6");
-        for kind in [FreshPromptKind::Issue, FreshPromptKind::PullRequest] {
-            let mut signature = base_sig(AgentKind::Llxprt);
-            signature.llxprt_version = selector.clone();
-            signature.code_puppy_version = "0.0.361-rc1".to_owned();
-            let prepared = prepare_fresh_prompt_signature(signature, kind, "content body");
-            assert_eq!(prepared.llxprt_version, selector);
-            assert_eq!(prepared.code_puppy_version, "0.0.361-rc1");
+            );
         }
     }
 
     #[test]
-    fn prompt_content_is_inlined_into_mode_flags_not_referenced_as_file() {
-        // Issue #315: the full prompt content must appear verbatim inside the
-        // instruction (mode_flags), not as a file-path reference.
+    fn fresh_pr_uses_typed_prompt_and_preserves_existing_values() {
+        let mut request = base_request("LLxprt");
+        let yolo = Id::parse("yolo").unwrap_or_else(|error| panic!("valid yolo field: {error}"));
+        request.values.insert(yolo.clone(), TypedValue::Bool(true));
+        let prepared = prepare_fresh_prompt_signature(
+            request,
+            FreshPromptKind::PullRequest,
+            "pr content body",
+        );
+        assert_eq!(prepared.operation, Operation::FreshPullRequest);
+        assert_eq!(prepared.values.get(&yolo), Some(&TypedValue::Bool(true)));
+        assert_eq!(
+            prompt_value(&prepared),
+            fresh_prompt_instruction(FreshPromptKind::PullRequest, "pr content body")
+        );
+    }
+
+    #[test]
+    fn prompt_content_is_inlined_as_one_typed_value() {
         let unique_content = "UNIQUE_MARKER_42adb: this is the prompt body";
         let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::Llxprt),
+            base_request("LLxprt"),
             FreshPromptKind::Issue,
             unique_content,
         );
-        let inlined: &String = result
-            .mode_flags
-            .last()
-            .unwrap_or_else(|| panic!("instruction must be present in mode_flags"));
-        assert!(
-            inlined.contains(unique_content),
-            "prompt content must be inlined: {inlined}"
-        );
-        assert!(
-            !inlined.contains(".jefe/"),
-            "must not reference .jefe file: {inlined}"
-        );
+        let inlined = prompt_value(&result);
+        assert!(inlined.contains(unique_content));
+        assert!(!inlined.contains(".jefe/"));
     }
 
     #[test]
@@ -500,45 +359,30 @@ mod tests {
     fn truncate_adds_marker_and_stays_within_budget() {
         let large = "x".repeat(MAX_PROMPT_CONTENT_BYTES + 5000);
         let truncated = truncate_prompt_content(&large);
-        assert!(
-            truncated.len() <= MAX_PROMPT_CONTENT_BYTES + 200,
-            "truncated content must stay within budget: {} bytes",
-            truncated.len()
-        );
-        assert!(
-            truncated.contains("[... prompt truncated"),
-            "must include truncation marker"
-        );
+        assert!(truncated.len() <= MAX_PROMPT_CONTENT_BYTES + 200);
+        assert!(truncated.contains("[... prompt truncated"));
     }
 
     #[test]
     fn truncate_cuts_at_char_boundary_for_multibyte_utf8() {
-        // Build content that ends with a multi-byte char sequence right at the
-        // boundary so truncation must find the previous char boundary.
         let filler = "a".repeat(MAX_PROMPT_CONTENT_BYTES - 2);
-        let multibyte_suffix = "🎉🎉";
-        let content = format!("{filler}{multibyte_suffix}");
+        let content = format!("{filler}🎉🎉");
         let truncated = truncate_prompt_content(&content);
-        // Must not panic and must end with a valid UTF-8 string.
         assert!(truncated.contains('a'));
         assert!(truncated.contains("[... prompt truncated"));
     }
 
     #[test]
-    fn adversarial_shell_metacharacters_are_inlined_safely() {
-        // Issue #315 OCR finding: shell metacharacters from GitHub content
-        // must not break argument parsing. The instruction is passed via
-        // Command::args() (execvp), not shell interpolation, so metacharacters
-        // are safe — but verify they survive intact in mode_flags.
+    fn adversarial_shell_metacharacters_remain_data() {
         let adversarial = "'; rm -rf /; echo '\n$(whoami)\n`backtick`";
         let result = prepare_fresh_prompt_signature(
-            base_sig(AgentKind::CodePuppy),
+            base_request("Code Puppy"),
             FreshPromptKind::Issue,
             adversarial,
         );
-        assert_eq!(result.mode_flags.len(), 1);
-        assert!(result.mode_flags[0].contains("rm -rf"));
-        assert!(result.mode_flags[0].contains("whoami"));
-        assert!(result.mode_flags[0].contains("backtick"));
+        let prompt = prompt_value(&result);
+        assert!(prompt.contains("rm -rf"));
+        assert!(prompt.contains("whoami"));
+        assert!(prompt.contains("backtick"));
     }
 }

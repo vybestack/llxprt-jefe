@@ -5,24 +5,15 @@
 //! shared runtime context for worker PIDs. They are shared by the launch,
 //! relaunch, kill, and issue/PR send paths in `app_input` and its child modules.
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, ProcessIdentity};
+use jefe::domain::{AgentId, AgentStatus, LaunchSignatureV1, ProcessIdentity};
 use jefe::state::AppState;
 
 use super::SharedContext;
-
-pub(super) fn clear_runtime_warning(state: &mut AppState) {
-    if state.warning_message.as_deref().is_some_and(|warning| {
-        warning.contains("SSH_AUTH_SOCK") || warning.contains("SSH agent socket")
-    }) {
-        state.warning_message = None;
-    }
-}
-
 pub(super) fn set_agent_runtime_binding(
     state: &mut AppState,
     agent_id: &AgentId,
     session_name: String,
-    signature: LaunchSignature,
+    signature: LaunchSignatureV1,
     pid: Option<u32>,
     process_identity: Option<ProcessIdentity>,
 ) {

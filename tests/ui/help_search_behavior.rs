@@ -19,12 +19,16 @@ fn create_search_test_state() -> AppState {
     // Add repositories
     let repo1 = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "llxprt-code".into(),
         "llxprt-code".into(),
         PathBuf::from("/projects/llxprt-code"),
     );
     let repo2 = Repository::new(
         RepositoryId("repo-2".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "starflight".into(),
         "starflight".into(),
         PathBuf::from("/projects/starflight"),
@@ -36,18 +40,24 @@ fn create_search_test_state() -> AppState {
         Agent::new(
             AgentId("agent-1".into()),
             RepositoryId("repo-1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Fix issue #1234".into(),
             PathBuf::from("/worktrees/issue-1234"),
         ),
         Agent::new(
             AgentId("agent-2".into()),
             RepositoryId("repo-1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Refactor auth module".into(),
             PathBuf::from("/worktrees/refactor-auth"),
         ),
         Agent::new(
             AgentId("agent-3".into()),
             RepositoryId("repo-2".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Fix bug #5678".into(),
             PathBuf::from("/worktrees/bug-5678"),
         ),

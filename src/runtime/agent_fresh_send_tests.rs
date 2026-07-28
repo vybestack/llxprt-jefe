@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
 use super::*;
-use crate::agent_candidate_fingerprint::CandidateFingerprint;
 use crate::domain::agent_definition::shipped::shipped_definitions;
-use crate::domain::agent_definition::{DefinitionSha256, LaunchSignature, Preflight, RemoteTarget};
+use crate::domain::agent_definition::{
+    DefinitionSha256, LaunchSignatureV1, Preflight, RemoteTarget,
+};
 use crate::runtime::{
     AuthorizationResult, ExecutionEvidence, PreparationOutcome, ProcessSandboxInspector,
     authorize_execution, prepare_execution,
@@ -50,6 +51,14 @@ fn plan(definition: &AgentDefinition, operation: Operation, target: Target) -> A
         operation,
         definition_sha256: definition.sha256(),
         executable: PathBuf::from("/opt/bin/agent"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            PathBuf::from("/opt/bin/agent"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
         argv: vec![OsString::from("--existing")],
         env: Vec::new(),
         cwd: target.canonical_cwd().to_path_buf(),
@@ -61,7 +70,7 @@ fn plan(definition: &AgentDefinition, operation: Operation, target: Target) -> A
             required: false,
             ..Preflight::default()
         },
-        signature: LaunchSignature::default(),
+        signature: LaunchSignatureV1::default(),
     }
 }
 
@@ -74,7 +83,7 @@ fn with_cleared(
     let plan = plan(definition, operation, target);
     let evidence = ExecutionEvidence::new(
         plan.definition_sha256,
-        CandidateFingerprint::new(plan.executable.clone(), None, None, 1, 1),
+        plan.executable_fingerprint.clone(),
         1,
         1,
         1,

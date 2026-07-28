@@ -126,10 +126,10 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         ));
     }
 
-    let default_kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+    let default_kind = crate::state::type_id_from_form_value(&fields.default_type_id);
     if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyModel,
-        default_kind,
+        default_kind.as_ref(),
     ) {
         let model_focused = focus == RepositoryFormFocus::DefaultCodePuppyModel;
         let model_value = if model_focused {
@@ -176,19 +176,19 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         ));
     }
 
-    let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;
+    let kind_focused = focus == RepositoryFormFocus::DefaultAgentType;
     let kind_color = if kind_focused { rc.bright } else { rc.fg };
-    let effective_kinds = crate::state::effective_agent_kinds(
+    let effective_kinds = crate::state::effective_agent_type_ids(
         props
             .state
             .as_ref()
-            .map_or(&[][..], |s| s.installed_agent_kinds.as_slice()),
+            .map_or(&[][..], |s| s.available_agent_type_ids.as_slice()),
         fields.remote_enabled,
     );
-    let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
+    let kind_hint = crate::state::effective_types_hint(&effective_kinds);
     let kind_line = format!(
         "  {:<16} [{}]  ({kind_hint})",
-        "Default Agent", fields.default_agent_kind
+        "Default Agent", fields.default_type_id
     );
     all_lines.push(selectable_line(
         &kind_line,
@@ -205,7 +205,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
 
     if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyYolo,
-        default_kind,
+        default_kind.as_ref(),
     ) {
         let yolo_focused = focus == RepositoryFormFocus::DefaultCodePuppyYolo;
         let yolo_mark = if fields.default_code_puppy_yolo {
@@ -230,7 +230,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
 
     if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyVersion,
-        default_kind,
+        default_kind.as_ref(),
     ) {
         let version_focused = focus == RepositoryFormFocus::DefaultCodePuppyVersion;
         let version_value = if version_focused {
@@ -258,7 +258,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
 
     if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultLlxprtMode,
-        default_kind,
+        default_kind.as_ref(),
     ) {
         let mode_focused = focus == RepositoryFormFocus::DefaultLlxprtMode;
         let mode_value = if mode_focused {
@@ -283,7 +283,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
 
     if crate::state::is_repository_field_visible(
         RepositoryFormFocus::DefaultLlxprtVersion,
-        default_kind,
+        default_kind.as_ref(),
     ) {
         let version_focused = focus == RepositoryFormFocus::DefaultLlxprtVersion;
         let version_value = if version_focused {

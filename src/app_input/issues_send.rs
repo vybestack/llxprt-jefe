@@ -2,7 +2,7 @@
 //!
 //! Resolves issue send context, prepares the agent working copy via the
 //! target-aware prep in [`super::issue_prep`] (clone/checkout/dirty-guard,
-//! on the same target where the `LaunchSignature` runs), and
+//! on the same target where the `AgentLaunchRequest` runs), and
 //! spawns/attaches the issue-driven agent session. The issue prompt content
 //! is inlined into the launch instruction (issue #315). The issue-driven path
 //! never passes `--continue` (issue #166).
@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use jefe::domain::{AgentId, LaunchSignature};
+use jefe::domain::{AgentId, AgentLaunchRequest};
 use jefe::runtime::RuntimeError;
 use jefe::state::{AppEvent, AppState, ModalState};
 
@@ -59,13 +59,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     // Availability guard BEFORE any prep side effects: a missing agent
     // runtime must not trigger a remote clone/checkout. Prep (clone/reset/
     // clean) only runs when the agent kind is available.
-    if !super::availability::launch_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        launch_sig.llxprt_version.as_ref(),
-        &launch_sig.code_puppy_version,
-        &launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &launch_sig) {
         return;
     }
 
@@ -115,7 +109,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
 struct PrepOutcomeContext {
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     payload: jefe::github::SendPayload,
 }
 
@@ -182,9 +176,9 @@ fn handle_initial_prep_outcome(
 /// Extracted as a pure function so the `pass_continue = false` override is
 /// unit-testable without a runtime/git context.
 pub(super) fn prepare_issue_launch_signature(
-    sig: LaunchSignature,
+    sig: AgentLaunchRequest,
     prompt_content: &str,
-) -> LaunchSignature {
+) -> AgentLaunchRequest {
     prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, prompt_content)
 }
 
@@ -197,7 +191,7 @@ fn preflight_and_launch_issue(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
     let carried = assignment.carried();
@@ -220,7 +214,7 @@ fn prompt_dirty_copy_confirm(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &Path,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     payload: jefe::github::SendPayload,
 ) {
     let mut state = app_state.write();
@@ -268,7 +262,7 @@ fn prepare_confirm_send_target(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     _work_dir: &Path,
-    launch_sig: &LaunchSignature,
+    launch_sig: &AgentLaunchRequest,
 ) -> Option<super::issue_prep::WorkTarget> {
     // Close the confirm modal first so the UI reflects the user's decision
     // before the (potentially slow) remote prep runs.
@@ -276,13 +270,7 @@ fn prepare_confirm_send_target(
 
     // Re-check availability BEFORE prep side effects: the runtime may have
     // been removed while the confirm modal was open.
-    if !super::availability::launch_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        launch_sig.llxprt_version.as_ref(),
-        &launch_sig.code_puppy_version,
-        &launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, launch_sig) {
         return None;
     }
 
@@ -327,7 +315,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     payload: jefe::github::SendPayload,
 ) {
     let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
@@ -404,7 +392,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     payload: jefe::github::SendPayload,
 ) {
     let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
@@ -471,7 +459,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
 pub(super) struct IssueSendInfo {
     pub(super) agent_id: AgentId,
     pub(super) work_dir: PathBuf,
-    pub(super) signature: LaunchSignature,
+    pub(super) signature: AgentLaunchRequest,
     pub(super) payload: jefe::github::SendPayload,
     pub(super) clone_identity: Option<CloneIdentity>,
 }
@@ -545,7 +533,7 @@ pub(super) fn launch_issue_agent(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
     let launch_result = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
@@ -613,7 +601,7 @@ pub(super) fn spawn_and_attach_fresh_for_issue(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &Path,
-    launch_sig: &LaunchSignature,
+    launch_sig: &AgentLaunchRequest,
 ) -> Result<(), RuntimeError> {
     let Some(ctx_arc) = ctx else {
         return Err(RuntimeError::SpawnFailed(
@@ -642,7 +630,7 @@ pub(super) fn spawn_and_attach_fresh_for_issue(
 pub(super) fn persist_issue_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     pid: Option<u32>,
     process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
@@ -651,7 +639,9 @@ pub(super) fn persist_issue_agent_launch_success(
         let session_name = jefe::runtime::RuntimeSession::session_name_for(agent_id);
         agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
             session_name,
-            launch_signature: launch_sig,
+            launch_signature: jefe::runtime::launch_compose::plan_from_request(&launch_sig)
+                .map(|(plan, _)| plan.signature)
+                .unwrap_or_default(),
             attached: false,
             last_seen: None,
             process_identity,

@@ -419,6 +419,15 @@ fn assert_golden_local_plan(
             canonical_cwd: std::path::PathBuf::from("/srv/project"),
         },
         executable: std::path::PathBuf::from(executable),
+        executable_fingerprint: jefe::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from(executable),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: probe_compatible(definition, 1),
         probe_generation: 1,
         target_generation: 1,
@@ -536,6 +545,15 @@ fn assert_codex_fresh_issue_unsupported(codex: &AgentDefinition) {
             canonical_cwd: std::path::PathBuf::from("/srv/project"),
         },
         executable: std::path::PathBuf::from("/opt/bin/codex"),
+        executable_fingerprint: jefe::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/opt/bin/codex"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: probe_compatible(codex, 1),
         probe_generation: 1,
         target_generation: 1,
@@ -583,6 +601,15 @@ fn remote_request<'a>(
         operation: Operation::Normal,
         target: Target::Remote(remote_target.clone()),
         executable: std::path::PathBuf::from(executable),
+        executable_fingerprint: jefe::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from(executable),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: probe_compatible(definition, 1),
         probe_generation: 1,
         target_generation: 1,
@@ -846,7 +873,7 @@ fn agent_migration_golden() {
     issue382::schema1_migration::assert_migration_contract();
     // Contract: WHEN schema-1 records migrate, Jefe shall preserve known typed
     // values and exact dormant unknown records.
-    // S1 contract: AgentTypeId replaces AgentKind with strict validation.
+    // S1 contract: AgentTypeId replaces AgentTypeId with strict validation.
     // Schema-1 alias mapping belongs to the one-way persistence migration
     // (S13) and is intentionally absent from this domain contract. S1 proves
     // the stable typed ids parse and validate against the closed grammar.
@@ -870,9 +897,6 @@ fn agent_migration_golden() {
 #[test]
 fn local_remote_tmux() {
     parse_scenario("agent-terminal-compatibility.json");
-    // Contract: WHEN a matching live launch restores, Jefe shall attach
-    // through the existing tmux/PTY boundary.
-    // RED: AgentLaunchPlan carries the signature that restore reconciles.
     let plan = AgentLaunchPlan::default();
     assert!(
         plan.signature_excludes_secrets(),
@@ -880,20 +904,12 @@ fn local_remote_tmux() {
     );
 }
 
-// ---- CW02-15: architecture guard ----
-
 #[test]
 fn agent_architecture_guard() {
     parse_scenario("agent-no-product-branches.json");
-    // Contract: WHEN the architecture guard scans source, Jefe shall find
-    // product tokens and shim-token permutations only in the explicit
-    // allowlist, and AgentKind shall not exist.
-    // The shipped definitions are the only allowed product-token location.
     for agent in AGENTS {
         assert_provenance(agent);
     }
-    // RED: the registry must expose exactly four shipped definitions and
-    // AgentKind must be absent at feature-complete.
     let defs = AgentDefinition::shipped();
     assert_eq!(defs.len(), 4, "exactly four shipped definitions");
 }
@@ -903,10 +919,6 @@ fn agent_architecture_guard() {
 #[test]
 fn claude_entry_gate() {
     parse_scenario("agent-claude-evidence-gate.json");
-    // Contract: IF no Claude executable is installed, Jefe shall publish
-    // Claude as not found and execute zero Claude process.
-    // The fixture-release evidence proves the Claude mapping is real even
-    // though the runtime probe decides support per installation.
     let claude = &AGENTS[2];
     assert_probe_identity(claude);
     assert_provenance(claude);
@@ -956,7 +968,7 @@ fn package_runner_selector() {
                 .emitters
                 .iter()
                 .all(|emitter| emitter.field() != Some("version_selector")),
-            "selector is package metadata, never a definition argv emitter"
+            "selector must not emit argv"
         );
     }
 

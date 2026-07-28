@@ -52,6 +52,8 @@ fn repository_from_json_or_panic(json: &str) -> Repository {
 fn fork_repo() -> Repository {
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Fork".to_owned(),
         "acme/llxprt-jefe".to_owned(),
         PathBuf::from("/tmp/fork"),
@@ -211,7 +213,9 @@ fn issue_send_state(repo: Repository) -> AppState {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 "Agent One".to_owned(),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,

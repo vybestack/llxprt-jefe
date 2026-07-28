@@ -228,16 +228,10 @@ fn neutralize_windows_reserved_name(name: &str) -> String {
 /// the agent (from a prior LLxprt configuration) is ignored but retained so
 /// switching back to LLxprt restores it.
 #[must_use]
-pub fn llxprt_launch_source(
-    kind: crate::domain::AgentKind,
-    version: Option<&LlxprtNpmPackageSelector>,
-) -> LaunchSource {
-    match kind {
-        crate::domain::AgentKind::Llxprt => match version {
-            Some(selector) => LaunchSource::NpmBacked(selector.clone()),
-            None => LaunchSource::Direct,
-        },
-        crate::domain::AgentKind::CodePuppy => LaunchSource::Direct,
+pub fn llxprt_launch_source(version: Option<&LlxprtNpmPackageSelector>) -> LaunchSource {
+    match version {
+        Some(selector) => LaunchSource::NpmBacked(selector.clone()),
+        None => LaunchSource::Direct,
     }
 }
 
@@ -415,7 +409,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::AgentKind;
 
     #[test]
     fn normalize_trims_surrounding_whitespace() {
@@ -560,32 +553,23 @@ mod tests {
         );
     }
 
+    #[test]
     fn launch_source_direct_for_unversioned_llxprt() {
-        let source = llxprt_launch_source(AgentKind::Llxprt, None);
-        assert_eq!(source, LaunchSource::Direct);
-        assert!(!source.requires_npm());
-        launch_source_npm_backed_for_versioned_llxprt();
-        launch_source_ignores_dormant_selector_for_code_puppy();
-    }
-
-    fn launch_source_npm_backed_for_versioned_llxprt() {
-        let selector = selector("0.9.0");
-        let source = llxprt_launch_source(AgentKind::Llxprt, Some(&selector));
-        assert!(source.requires_npm());
-        assert_eq!(source.selector(), Some(&selector));
-    }
-
-    fn launch_source_ignores_dormant_selector_for_code_puppy() {
-        let selector = selector("0.9.0");
-        let source = llxprt_launch_source(AgentKind::CodePuppy, Some(&selector));
+        let source = llxprt_launch_source(None);
         assert_eq!(source, LaunchSource::Direct);
         assert!(!source.requires_npm());
     }
 
     #[test]
+    fn launch_source_npm_backed_for_versioned_llxprt() {
+        let selector = selector("0.9.0");
+        let source = llxprt_launch_source(Some(&selector));
+        assert!(source.requires_npm());
+        assert_eq!(source.selector(), Some(&selector));
+    }
 
+    #[test]
     fn serde_round_trips_nonblank_selector() {
-        launch_source_direct_for_unversioned_llxprt();
         let selector = selector("0.10.0-nightly.260712.21cb698b6");
         let json = serde_json::to_string(&selector)
             .unwrap_or_else(|error| panic!("serialize selector: {error}"));

@@ -51,11 +51,7 @@ impl TmuxRuntimeManager {
         let session = self.sessions.get(agent_id)?;
         Some(AttachInputs {
             session_name: session.session_name.clone(),
-            remote: if session.launch_signature.remote.enabled {
-                Some(session.launch_signature.remote.clone())
-            } else {
-                None
-            },
+            remote: session.remote.clone(),
             rows: self.rows,
             cols: self.cols,
         })

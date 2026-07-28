@@ -1,7 +1,7 @@
 //! Target-aware working-copy preparation for issue-driven agent launches.
 //!
 //! All working-copy prep (git clone/checkout/reset/clean) executes on the
-//! **same target** where the `LaunchSignature` runs:
+//! **same target** where the `AgentLaunchRequest` runs:
 //!
 //! - **Local** (`remote.enabled` false): local git + filesystem.
 //! - **Remote** (`remote.enabled` true): noninteractive SSH (`ssh -T`) using

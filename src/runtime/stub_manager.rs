@@ -6,14 +6,14 @@
 //! history capture returns `None`, and `is_dirty` is always `false`.
 
 use std::collections::HashSet;
-use std::path::Path;
 
 use iocraft::Color;
 
 use super::errors::RuntimeError;
 use super::manager::RuntimeManager;
 use super::session::{RuntimeSession, TerminalCellStyle, TerminalSnapshot};
-use crate::domain::{AgentId, LaunchSignature};
+use crate::domain::agent_definition::AgentLaunchPlan;
+use crate::domain::{AgentId, RemoteRepositorySettings};
 
 /// Stub implementation of RuntimeManager for testing.
 #[derive(Debug, Default)]
@@ -50,8 +50,8 @@ impl RuntimeManager for StubRuntimeManager {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        _work_dir: &Path,
-        signature: &LaunchSignature,
+        plan: &AgentLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
         if let Some(error) = &self.spawn_failure {
             return Err(error.clone());
@@ -64,7 +64,8 @@ impl RuntimeManager for StubRuntimeManager {
         let session = RuntimeSession::new(
             agent_id.clone(),
             RuntimeSession::session_name_for(agent_id),
-            signature.clone(),
+            plan.clone(),
+            remote.cloned(),
         );
         self.sessions.push(session);
         Ok(())
@@ -113,7 +114,7 @@ impl RuntimeManager for StubRuntimeManager {
 
     fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         // Stub: verify agent existed but is dead (removed)
-        // In real impl, would respawn using stored LaunchSignature
+        // In real impl, would respawn using stored AgentLaunchRequest
         if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
             Err(RuntimeError::AlreadyRunning(agent_id.clone()))
         } else {
@@ -206,7 +207,7 @@ impl RuntimeManager for StubRuntimeManager {
             .iter()
             .find(|s| &s.agent_id == agent_id)
             .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
-        if session.launch_signature.remote.enabled {
+        if session.remote.is_some() {
             return Err(RuntimeError::SpawnFailed(
                 "embedded shell is local-only for remote repositories".to_owned(),
             ));
@@ -267,36 +268,18 @@ impl RuntimeManager for StubRuntimeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{LaunchSignature, RemoteRepositorySettings};
-
-    fn local_signature() -> LaunchSignature {
-        LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp/work"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: None,
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::default(),
-            sandbox_flags: String::new(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::default(),
-            llxprt_version: None,
-        }
-    }
 
     fn stub_with_session(agent_id: &AgentId) -> StubRuntimeManager {
         let mut stub = StubRuntimeManager::default();
-        stub.spawn_session(
-            agent_id,
-            std::path::Path::new("/tmp/work"),
-            &local_signature(),
-        )
-        .unwrap_or_else(|e| panic!("spawn: {e}"));
+        let plan = crate::domain::agent_definition::AgentLaunchPlan {
+            cwd: std::path::PathBuf::from("/tmp/work"),
+            target: crate::domain::agent_definition::Target::Local {
+                canonical_cwd: std::path::PathBuf::from("/tmp/work"),
+            },
+            ..crate::domain::agent_definition::AgentLaunchPlan::default()
+        };
+        stub.spawn_session(agent_id, &plan, None)
+            .unwrap_or_else(|e| panic!("spawn: {e}"));
         stub
     }
 
@@ -305,7 +288,14 @@ mod tests {
         let a = AgentId("a".into());
         let b = AgentId("b".into());
         let mut stub = stub_with_session(&a);
-        stub.spawn_session(&b, std::path::Path::new("/tmp/work"), &local_signature())
+        let plan = crate::domain::agent_definition::AgentLaunchPlan {
+            cwd: std::path::PathBuf::from("/tmp/work"),
+            target: crate::domain::agent_definition::Target::Local {
+                canonical_cwd: std::path::PathBuf::from("/tmp/work"),
+            },
+            ..crate::domain::agent_definition::AgentLaunchPlan::default()
+        };
+        stub.spawn_session(&b, &plan, None)
             .unwrap_or_else(|e| panic!("spawn: {e}"));
         stub.open_shell_window(&a)
             .unwrap_or_else(|e| panic!("open shell: {e}"));

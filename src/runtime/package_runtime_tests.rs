@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
-use super::*;
+use super::{PackageExecutionTarget, finalize_local_invocation, package_invocation};
 use crate::agent_candidate::{AgentCandidateResolver, CandidateResolution, VersionSelector};
 use crate::domain::RemoteRepositorySettings;
 use crate::domain::agent_definition::{Availability, Operation, Preflight, RemoteTarget};
 use crate::runtime::agent_plan::{LaunchFieldValues, PlanOutcome, PlanRequest, plan_local_launch};
 use crate::runtime::agent_remote_plan::{
-    RemotePlanOutcome, RemotePlanRequest, plan_remote_launch, transcript_from_plan,
+    RemotePlanOutcome, RemotePlanRequest, plan_remote_launch,
 };
 
 #[cfg(unix)]
@@ -63,7 +63,14 @@ fn local_base_plan(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
     generation: u64,
+    cache: &Path,
 ) -> AgentLaunchPlan {
+    let invocation = finalize_local_invocation(candidate, cache)
+        .unwrap_or_else(|error| panic!("finalize local invocation: {error}"));
+    let fingerprint = invocation
+        .fingerprint()
+        .cloned()
+        .unwrap_or_else(|| panic!("local invocation must carry a physical fingerprint"));
     let values = LaunchFieldValues::new();
     let request = PlanRequest {
         definition,
@@ -71,7 +78,10 @@ fn local_base_plan(
         target: Target::Local {
             canonical_cwd: PathBuf::from("/repo"),
         },
-        executable: candidate.executable().to_path_buf(),
+        executable: invocation.executable().to_path_buf(),
+        executable_fingerprint: fingerprint,
+        executable_wrapper: invocation.wrapper_kind(),
+        argv_prefix: invocation.prefix().to_vec(),
         probe: compatible(generation),
         probe_generation: generation,
         target_generation: 1,
@@ -92,13 +102,11 @@ fn local_uvx_is_a_closed_structural_prefix() {
     executable(&bin, "uvx", "#!/bin/sh\nexit 0\n");
     let definition = definition("Code Puppy");
     let candidate = resolve_package(&definition, &bin, "0.0.634");
-    let plan = local_base_plan(&definition, &candidate, 4);
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
-    let prepared = prepare_package_launch(plan, &definition, &candidate, 4, cache.path())
-        .unwrap_or_else(|error| panic!("prepare uvx: {error}"));
-    assert_eq!(prepared.executable, candidate.executable());
+    let plan = local_base_plan(&definition, &candidate, 4, cache.path());
+    assert_eq!(plan.executable, candidate.executable());
     assert_eq!(
-        prepared.argv,
+        plan.argv,
         ["--from", "code-puppy==0.0.634", "code-puppy"].map(OsString::from)
     );
 }
@@ -114,36 +122,22 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
     );
     let definition = definition("LLxprt");
     let candidate = resolve_package(&definition, &bin, "2.0.0");
-    let plan = local_base_plan(&definition, &candidate, 8);
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
-    let stale = prepare_package_launch(plan.clone(), &definition, &candidate, 9, cache.path());
-    assert!(matches!(
-        stale,
-        Err(PackageRuntimeError::ProbeGenerationChanged { .. })
-    ));
+    let plan = local_base_plan(&definition, &candidate, 8, cache.path());
+    assert!(plan.argv.is_empty(), "managed binary receives only emitted argv");
+    assert!(plan.executable.starts_with(cache.path()));
     assert!(
-        std::fs::read_dir(cache.path())
-            .unwrap_or_else(|error| panic!("read cache: {error}"))
-            .next()
-            .is_none(),
-        "stale generation performs zero installation effects"
-    );
-
-    let prepared = prepare_package_launch(plan, &definition, &candidate, 8, cache.path())
-        .unwrap_or_else(|error| panic!("prepare npm: {error}"));
-    assert!(
-        prepared.argv.is_empty(),
-        "managed binary receives only emitted argv"
-    );
-    assert!(prepared.executable.starts_with(cache.path()));
-    assert!(
-        prepared
-            .executable
+        plan.executable
             .ends_with(Path::new("node_modules/.bin/llxprt"))
     );
+    assert_eq!(
+        std::fs::canonicalize(&plan.executable)
+            .unwrap_or_else(|error| panic!("managed executable canonicalizes: {error}")),
+        plan.executable_fingerprint.canonical_path(),
+        "immutable planning carries the finalized managed executable fingerprint"
+    );
     let package_json = std::fs::read_to_string(
-        prepared
-            .executable
+        plan.executable
             .parent()
             .and_then(Path::parent)
             .and_then(Path::parent)
@@ -154,6 +148,16 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
     assert!(package_json.contains("\"@vybestack/llxprt-code\": \"2.0.0\""));
 }
 
+fn remote_settings() -> RemoteRepositorySettings {
+    RemoteRepositorySettings {
+        enabled: true,
+        login_user: "dev".to_string(),
+        host: "example.test".to_string(),
+        port: Some(22),
+        ..RemoteRepositorySettings::default()
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn remote_npm_prefix_flows_through_the_audited_serializer() {
@@ -162,13 +166,7 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
     let definition = definition("LLxprt");
     let candidate = resolve_package(&definition, &bin, "latest nightly");
     let values = LaunchFieldValues::new();
-    let settings = RemoteRepositorySettings {
-        enabled: true,
-        login_user: "dev".to_string(),
-        host: "example.test".to_string(),
-        port: Some(22),
-        ..RemoteRepositorySettings::default()
-    };
+    let settings = remote_settings();
     let request = RemotePlanRequest {
         definition: &definition,
         operation: Operation::Normal,
@@ -179,7 +177,18 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
             run_as_user: String::new(),
             canonical_cwd: PathBuf::from("/srv/repo"),
         }),
-        executable: candidate.executable().to_path_buf(),
+        executable: PathBuf::from("npm"),
+        executable_fingerprint: candidate.fingerprint().clone(),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: package_invocation(
+            &candidate,
+            PackageExecutionTarget::Remote,
+            Path::new("/unused"),
+        )
+        .unwrap_or_else(|error| panic!("remote invocation: {error}"))
+        .unwrap_or_else(|| panic!("package invocation"))
+        .prefix()
+        .to_vec(),
         probe: compatible(3),
         probe_generation: 3,
         target_generation: 1,
@@ -188,15 +197,10 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
         preflight: Preflight::default(),
         ssh_settings: &settings,
     };
-    let base = match plan_remote_launch(&request) {
-        RemotePlanOutcome::Transcript(transcript) => transcript.plan().clone(),
-        other => panic!("remote base plan: {other:?}"),
+    let transcript = match plan_remote_launch(&request) {
+        RemotePlanOutcome::Transcript(transcript) => *transcript,
+        other => panic!("remote package plan: {other:?}"),
     };
-    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
-    let prepared = prepare_package_launch(base, &definition, &candidate, 3, cache.path())
-        .unwrap_or_else(|error| panic!("remote package plan: {error}"));
-    let transcript = transcript_from_plan(prepared, &settings)
-        .unwrap_or_else(|error| panic!("remote transcript: {error}"));
     assert_eq!(transcript.plan().executable, PathBuf::from("npm"));
     assert_eq!(
         transcript.agent_argv(),
@@ -300,6 +304,9 @@ fn shipped_unsupported_remote_cell_returns_exact_reason_without_package_effects(
             canonical_cwd: PathBuf::from("/srv/repo"),
         }),
         executable: candidate.executable().to_path_buf(),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(std::path::PathBuf::from("/x"), None, None, 0, 0),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(1),
         probe_generation: 1,
         target_generation: 1,

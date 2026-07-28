@@ -10,7 +10,8 @@ use crate::support::TestResultExt;
 
 use std::path::PathBuf;
 
-use jefe::domain::{Agent, AgentId, LaunchSignature, RemoteRepositorySettings, RepositoryId};
+use jefe::domain::agent_definition::{AgentLaunchPlan, Target};
+use jefe::domain::{Agent, AgentId, RepositoryId};
 use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, PaneFocus};
@@ -19,28 +20,20 @@ fn make_agent(id: &str, repo_id: &str) -> Agent {
     Agent::new(
         AgentId(id.into()),
         RepositoryId(repo_id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         format!("Test Agent {id}"),
         PathBuf::from(format!("/tmp/test/{id}")),
     )
 }
 
-fn make_signature(agent: &Agent) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: agent.work_dir.clone(),
-        profile: agent.profile.clone(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: agent.mode_flags.clone(),
-        llxprt_debug: agent.llxprt_debug.clone(),
-        pass_continue: agent.pass_continue,
-        sandbox_enabled: agent.sandbox_enabled,
-        sandbox_engine: agent.sandbox_engine,
-        sandbox_flags: agent.sandbox_flags.clone(),
-        remote: RemoteRepositorySettings::default(),
-        agent_kind: jefe::domain::AgentKind::Llxprt,
-        llxprt_version: None,
+fn make_signature(agent: &Agent) -> AgentLaunchPlan {
+    AgentLaunchPlan {
+        cwd: agent.work_dir.clone(),
+        target: Target::Local {
+            canonical_cwd: agent.work_dir.clone(),
+        },
+        ..AgentLaunchPlan::default()
     }
 }
 
@@ -98,7 +91,7 @@ fn write_input_succeeds_with_attached_viewer() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
 
@@ -112,7 +105,7 @@ fn write_input_fails_after_detach() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
     mgr.detach().test_unwrap("detach");
@@ -144,7 +137,7 @@ fn resize_succeeds_with_attached_viewer() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
 

@@ -4,7 +4,8 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
-use crate::domain::{AgentId, LaunchSignature, ProcessIdentity};
+use crate::domain::agent_definition::AgentLaunchPlan;
+use crate::domain::{AgentId, ProcessIdentity, RemoteRepositorySettings};
 
 /// Runtime session binding for an agent.
 ///
@@ -16,8 +17,10 @@ pub struct RuntimeSession {
     pub agent_id: AgentId,
     /// The tmux session name (e.g., "jefe-{agent_id}").
     pub session_name: String,
-    /// Launch configuration for spawn/relaunch.
-    pub launch_signature: LaunchSignature,
+    /// Finalized immutable process plan used for spawn and exact relaunch.
+    pub launch_plan: AgentLaunchPlan,
+    /// Authorized SSH transport settings; absent for local plans.
+    pub remote: Option<RemoteRepositorySettings>,
     /// Whether a viewer is currently attached to this session.
     pub attached: bool,
     /// OS PID of the worker process (`llxprt`) backing this session, when
@@ -41,11 +44,17 @@ pub struct RuntimeSession {
 impl RuntimeSession {
     /// Create a new runtime session binding.
     #[must_use]
-    pub fn new(agent_id: AgentId, session_name: String, launch_signature: LaunchSignature) -> Self {
+    pub fn new(
+        agent_id: AgentId,
+        session_name: String,
+        launch_plan: AgentLaunchPlan,
+        remote: Option<RemoteRepositorySettings>,
+    ) -> Self {
         Self {
             agent_id,
             session_name,
-            launch_signature,
+            launch_plan,
+            remote,
             attached: false,
             pid: None,
             process_identity: None,

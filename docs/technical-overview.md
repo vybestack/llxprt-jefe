@@ -6,6 +6,20 @@ Jefe is a single-binary Rust TUI application that orchestrates AI coding agent p
 
 The application runs on a single async executor (`smol`), with blocking PTY I/O delegated to dedicated OS threads. There is no background task scheduler, no database, and no network server. All persistence uses flat JSON files. All process management uses tmux as the session backend.
 
+### Agent definitions and launch plans
+
+Jefe models every coding agent as an `AgentTypeId` plus typed values validated by
+a shipped `AgentDefinition`. Definitions declare fields, supported operations and
+targets, executable candidates, probes, required capabilities, and structural
+argument emitters. There is no product enum in active state or runtime routing.
+
+A launch resolves and probes a candidate, finalizes package wrappers and the
+physical executable fingerprint, and produces one immutable `AgentLaunchPlan`.
+Authorization and typed preflight validate that evidence before tmux, SSH, or a
+local process receives the plan. Persistence stores generic values and a
+canonical `LaunchSignatureV1`; startup reattaches only when the persisted
+signature and live session evidence still match.
+
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         main.rs (entry)                          │

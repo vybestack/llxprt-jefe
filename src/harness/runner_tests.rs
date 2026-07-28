@@ -1,7 +1,13 @@
-﻿//! Behavioral tests for the harness runner/orchestrator.
+//! Behavioral tests for the harness runner/orchestrator.
 //!
 //! @plan PLAN-20260629-TMUX-HARNESS.P04
 //! @requirement REQ-TMUX-HARNESS-004
+
+#[cfg(unix)]
+#[path = "runner_agent_fixture.rs"]
+mod runner_agent_fixture;
+#[cfg(unix)]
+use runner_agent_fixture::{install_llxprt_probe_fixture, prepend_fixture_path};
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -140,10 +146,6 @@ fn scenario(json_steps: &str) -> crate::harness::Scenario {
     .value_or_panic("scenario should parse")
 }
 
-/// Like [`scenario`] but raises the per-scenario `waitFor` budget. Real
-/// psmux-backed jefe startup is slower on Windows CI runners; a bounded
-/// extension keeps production scenario semantics (Linux default unchanged)
-/// while removing startup-render flakiness from guarded integration tests.
 fn scenario_with_wait_timeout(json_steps: &str, wait_timeout_ms: u32) -> crate::harness::Scenario {
     parse_scenario(&format!(
         r#"{{ "config": {{ "cols": 80, "rows": 24, "wait_timeout_ms": {wait_timeout_ms} }}, "steps": {json_steps} }}"#
@@ -336,16 +338,9 @@ fn timeout_failure_uses_failing_step_context() {
     }
 }
 
-/// `effective_wait_timeout` resolves the per-scenario wait budget as a pure
-/// function: zero keeps the platform default, a non-zero value is an explicit
-/// override in milliseconds. This avoids wall-clock-fragile assertions while
-/// proving the resolution contract.
 #[test]
 fn effective_wait_timeout_resolves_zero_to_default_and_nonzero_to_override() {
-    // Zero is the "use platform default" sentinel.
     assert_eq!(effective_wait_timeout(0), DEFAULT_WAIT_TIMEOUT);
-
-    // A non-zero value overrides the platform default with an explicit budget.
     assert_eq!(
         effective_wait_timeout(30_000),
         std::time::Duration::from_secs(30)
@@ -430,11 +425,6 @@ fn artifact_capture_failure_preserves_original_assertion() {
     assert!(matches!(err, RunnerError::Assertion(_)));
 }
 
-/// Resolve the jefe binary for a guarded integration test.
-///
-/// Prints a labeled skip reason and returns `None` when tmux or the jefe
-/// binary is unavailable. `context` labels the message (e.g. "real runner
-/// test") so it's clear which scenario was skipped.
 fn guarded_jefe_binary(context: &str) -> Option<PathBuf> {
     let tmux = TmuxDriver::new();
     if !tmux.is_available() {
@@ -512,12 +502,14 @@ fn guarded_real_dashboard_lists_window_fixture_rows() {
 
 fn seed_dashboard_list_state(config_dir: &std::path::Path) {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
-    use crate::persistence::{FilePersistenceManager, PersistencePaths, State};
+    use crate::persistence::State;
 
     let repositories: Vec<Repository> = (0..25)
         .map(|index| {
             Repository::new(
                 RepositoryId(format!("repo-{index}")),
+                crate::domain::shipped_agent_type(3),
+                crate::domain::TypedMap::new(),
                 format!("Repository {index}"),
                 format!("owner/repo-{index}"),
                 std::path::PathBuf::from("/tmp"),
@@ -529,6 +521,8 @@ fn seed_dashboard_list_state(config_dir: &std::path::Path) {
             Agent::new(
                 AgentId(format!("agent-{index}")),
                 RepositoryId(String::from("repo-24")),
+                crate::domain::shipped_agent_type(3),
+                crate::domain::TypedMap::new(),
                 format!("Agent {index}"),
                 std::path::PathBuf::from("/tmp"),
             )
@@ -542,13 +536,7 @@ fn seed_dashboard_list_state(config_dir: &std::path::Path) {
         selected_agent_index: Some(24),
         ..State::default()
     };
-    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
-        settings_path: config_dir.join("settings.toml"),
-        state_path: config_dir.join("state.json"),
-    });
-    persistence
-        .save_schema1_state(&persisted_state)
-        .unwrap_or_else(|error| panic!("save dashboard fixture state: {error:?}"));
+    save_seeded_state(config_dir, &persisted_state);
 }
 /// Rapid triple-`q` (`qqq`) quits the app â€” behavioral proof of the quit
 /// sequence fallback (issue #129). Three bare `q`s sent back-to-back land
@@ -605,13 +593,6 @@ fn unique_session(label: &str) -> String {
     format!("jefe-runner-{label}-{pid}-{nanos}")
 }
 
-/// Issue #116: When active-only mode is ON and the user kills an agent, the
-/// dead agent should remain visible (sticky) until the user navigates away.
-///
-/// This scenario pre-creates a tmux session running `sleep 300` so jefe's
-/// runtime kill can actually succeed, seeds a state.json with a Running agent
-/// bound to that session, then drives the real jefe binary through the
-/// kill â†’ still-visible â†’ navigate â†’ filtered â†’ quit flow.
 #[cfg(unix)]
 #[test]
 fn guarded_real_jefe_sticky_kill_scenario() {
@@ -662,21 +643,25 @@ fn seed_sticky_agent_state(
     agent_session: &str,
 ) {
     use crate::domain::{Agent, AgentStatus, Repository, RepositoryId};
-    use crate::persistence::{FilePersistenceManager, PersistencePaths, State};
+    use crate::persistence::State;
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("testrepo".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "StickyAgent".into(),
         std::path::PathBuf::from("/tmp"),
     );
     agent.status = AgentStatus::Running;
     agent.shortcut_slot = Some(1);
-    agent.runtime_binding = Some(make_sticky_binding(agent_session));
+    agent.runtime_binding = Some(make_sticky_binding(&agent, agent_session));
 
     let persisted_state = State {
         schema_version: crate::persistence::STATE_SCHEMA_VERSION,
         repositories: vec![Repository::new(
             RepositoryId("testrepo".into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "testrepo".into(),
             "testrepo".into(),
             std::path::PathBuf::from("/tmp"),
@@ -690,40 +675,27 @@ fn seed_sticky_agent_state(
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
-        settings_path: config_dir.join("settings.toml"),
-        state_path: config_dir.join("state.json"),
-    });
-    persistence
-        .save_schema1_state(&persisted_state)
-        .unwrap_or_else(|error| panic!("save state: {error:?}"));
+    save_seeded_state(config_dir, &persisted_state);
 }
 
 #[cfg(unix)]
-fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
-    use crate::domain::{
-        DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings, RuntimeBinding,
-        SandboxEngine,
+fn make_sticky_binding(
+    agent: &crate::domain::Agent,
+    agent_session: &str,
+) -> crate::domain::RuntimeBinding {
+    use crate::domain::{AgentLaunchRequest, RemoteRepositorySettings, RuntimeBinding};
+    let request = AgentLaunchRequest {
+        type_id: agent.type_id.clone(),
+        values: agent.values.clone(),
+        work_dir: agent.work_dir.clone(),
+        remote: RemoteRepositorySettings::default(),
+        operation: crate::domain::agent_definition::Operation::Resume,
     };
+    let launch_signature = crate::runtime::launch_compose::launch_signature_from_request(&request)
+        .unwrap_or_else(|error| panic!("compose seeded launch signature: {error}"));
     RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: None,
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        },
+        launch_signature,
         attached: false,
         last_seen: None,
         process_identity: None,
@@ -733,10 +705,8 @@ fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
     }
 }
 
-/// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
-#[cfg(unix)]
 fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "v" },
@@ -752,9 +722,10 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
             { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
+        REAL_PROCESS_WAIT_TIMEOUT_MS,
     );
     let session_name = unique_session("sticky-jefe");
-    let request = TmuxStartRequest::jefe(
+    let mut request = TmuxStartRequest::jefe(
         session_name,
         jefe_binary.to_path_buf(),
         config_dir,
@@ -762,6 +733,7 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
         TmuxPaneSize::new(100, 30, 2_000),
     )
     .value_or_panic("jefe request");
+    prepend_fixture_path(&mut request, &install_llxprt_probe_fixture(config_dir));
 
     run_tmux_scenario(&scenario, &request, None).value_or_panic("run sticky scenario")
 }
@@ -856,11 +828,6 @@ impl Drop for TmuxSessionCleanup {
     }
 }
 
-/// Issue #117: Ctrl-r should restart (kill + relaunch) a running agent in one
-/// action. This scenario pre-creates a tmux session running `sleep 300`, seeds
-/// a state.json with a Running agent bound to that session, then drives the
-/// real jefe binary through the restart flow: active-only â†’ Tab to Agents â†’
-/// Ctrl-r â†’ expect agent still visible and running â†’ quit.
 #[cfg(unix)]
 #[test]
 fn guarded_real_jefe_restart_scenario() {
@@ -925,17 +892,21 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     let mut agent = Agent::new(
         AgentId(agent_id_value.to_owned()),
         RepositoryId("testrepo".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "RestartAgent".into(),
         std::path::PathBuf::from("/tmp"),
     );
     agent.status = AgentStatus::Running;
     agent.shortcut_slot = Some(1);
-    agent.runtime_binding = Some(make_sticky_binding(agent_session));
+    agent.runtime_binding = Some(make_sticky_binding(&agent, agent_session));
 
     let persisted_state = State {
         schema_version: crate::persistence::STATE_SCHEMA_VERSION,
         repositories: vec![Repository::new(
             RepositoryId("testrepo".into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "TestRepo".into(),
             "testrepo".into(),
             std::path::PathBuf::from("/tmp"),
@@ -952,23 +923,43 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     save_seeded_state(config_dir, &persisted_state);
 }
 
-#[cfg(unix)]
 fn save_seeded_state(config_dir: &std::path::Path, state: &crate::persistence::State) {
-    use crate::persistence::{FilePersistenceManager, PersistencePaths};
+    use crate::persistence::PersistencePaths;
 
+    let app_state = crate::state::AppState {
+        repositories: state.repositories.clone(),
+        agents: state.agents.clone(),
+        selected_repository_index: state.selected_repository_index,
+        selected_agent_index: state.selected_agent_index,
+        hide_idle_repositories: state.hide_idle_repositories,
+        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        pane_focus: match state.pane_focus.as_str() {
+            "agents" => crate::state::PaneFocus::Agents,
+            "terminal" => crate::state::PaneFocus::Terminal,
+            _ => crate::state::PaneFocus::Repositories,
+        },
+        terminal_focused: state.terminal_focused,
+        user_preferences: state.user_preferences.clone(),
+        ..crate::state::AppState::default()
+    };
+    let candidate = crate::state::durable_projection::to_durable_state(&app_state)
+        .unwrap_or_else(|error| panic!("project seeded state: {error}"));
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
-    FilePersistenceManager::with_paths(paths)
-        .save_schema1_state(state)
-        .unwrap_or_else(|error| panic!("save state: {error:?}"));
+    std::fs::write(
+        &paths.state_path,
+        serde_json::to_vec_pretty(&candidate)
+            .unwrap_or_else(|error| panic!("encode seeded state: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("save seeded state: {error}"));
 }
 
 /// Run the issue #117 restart TUI scenario against the real jefe binary.
 #[cfg(unix)]
 fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "Tab" },
@@ -979,9 +970,10 @@ fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::P
             { "key": "C-q" },
             { "waitForExit": 5000 }
         ]"#,
+        REAL_PROCESS_WAIT_TIMEOUT_MS,
     );
     let session_name = unique_session("restart-jefe");
-    let request = TmuxStartRequest::jefe(
+    let mut request = TmuxStartRequest::jefe(
         session_name,
         jefe_binary.to_path_buf(),
         config_dir,
@@ -989,6 +981,7 @@ fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::P
         TmuxPaneSize::new(100, 30, 2_000),
     )
     .value_or_panic("jefe request");
+    prepend_fixture_path(&mut request, &install_llxprt_probe_fixture(config_dir));
 
     run_tmux_scenario(&scenario, &request, None).value_or_panic("run restart scenario")
 }

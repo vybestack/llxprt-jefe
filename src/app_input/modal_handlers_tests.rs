@@ -6,30 +6,18 @@
 //! architecture per-file line limit.
 
 use super::modal_handlers::{confirm_focus_is_cancel, focus_terminal_state};
-use jefe::domain::{
-    AgentId, AgentKind, LaunchSignature, RemoteRepositorySettings, RepositoryId, SandboxEngine,
-};
+use jefe::domain::{AgentId, AgentLaunchRequest, RemoteRepositorySettings, RepositoryId};
 use jefe::github::SendPayload;
 use jefe::runtime::PreflightIssue;
 use jefe::state::{AppState, ConfirmFocus, ModalState, PaneFocus};
 
-fn sample_signature() -> LaunchSignature {
-    LaunchSignature {
+fn sample_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: jefe::domain::shipped_agent_type(3),
+        values: jefe::domain::TypedMap::new(),
         work_dir: std::path::PathBuf::from("/tmp"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
         remote: RemoteRepositorySettings::default(),
-        agent_kind: AgentKind::Llxprt,
-        llxprt_version: None,
+        operation: jefe::domain::agent_definition::Operation::Normal,
     }
 }
 

@@ -65,8 +65,9 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
 
     // Compute visibility mask from the current agent kind so Code Puppy hides
     // LLxprt-only controls.
-    let visibility =
-        crate::state::agent_form_visibility(crate::state::kind_from_form_value(&fields.agent_kind));
+    let visibility = crate::state::agent_form_visibility(
+        crate::state::type_id_from_form_value(&fields.agent_type_id).as_ref(),
+    );
 
     // Build field lines with cursor indicator for focused field.
     let shortcut_display = fields
@@ -74,7 +75,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         .map_or_else(|| "none".to_owned(), |slot| slot.to_string());
 
     // Fields rendered BEFORE the Agent Runtime selector. The focus order is
-    // WorkDir → Profile → AgentKind → Mode, so Agent Runtime is inserted
+    // WorkDir → Profile → AgentType → Mode, so Agent Runtime is inserted
     // between Profile and Mode (see render below).
     let pre_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 5] = [
         (
@@ -170,7 +171,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     for (label, value, field_focus, field_cursor) in pre_kind_text_fields
         .iter()
         .copied()
-        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, visibility))
+        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, &visibility))
     {
         let is_focused = focus == field_focus;
         let rendered_value = if is_focused && field_focus != AgentFormFocus::Shortcut {
@@ -196,15 +197,15 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
 
     // Agent Runtime selector — rendered immediately after Profile so the
     // visual order matches the focus/navigation order
-    // (WorkDir → Profile → AgentKind → Mode). Uses the shared effective-agent-
+    // (WorkDir → Profile → AgentType → Mode). Uses the shared effective-agent-
     // kinds projection so the hint matches what Space actually cycles.
-    let kind_focused = focus == AgentFormFocus::AgentKind;
+    let kind_focused = focus == AgentFormFocus::AgentType;
     let kind_color = if kind_focused { rc.bright } else { rc.fg };
     let effective_kinds = effective_kinds_for_form(props.state.as_ref());
-    let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
+    let kind_hint = crate::state::effective_types_hint(&effective_kinds);
     let kind_line = format!(
         "  {:<16} [{}]  ({kind_hint})",
-        "Agent Runtime", fields.agent_kind
+        "Agent Runtime", fields.agent_type_id
     );
     all_lines.push(selectable_line(
         &kind_line,
@@ -224,7 +225,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     for (label, value, field_focus, field_cursor) in post_kind_text_fields
         .iter()
         .copied()
-        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, visibility))
+        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, &visibility))
     {
         let is_focused = focus == field_focus;
         let rendered_value = if is_focused {
@@ -454,11 +455,13 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
 
 /// Resolve the effective agent kinds for the currently open agent form.
 ///
-/// Uses the shared [`crate::state::effective_agent_kinds`] projection so the
+/// Uses the shared [`crate::state::effective_agent_type_ids`] projection so the
 /// form hint matches exactly what Space cycles. Remote-enabled repositories
 /// offer both kinds regardless of the local installed snapshot; local
 /// repositories offer only installed kinds.
-fn effective_kinds_for_form(state: Option<&AppState>) -> Vec<crate::domain::AgentKind> {
+fn effective_kinds_for_form(
+    state: Option<&AppState>,
+) -> Vec<crate::domain::agent_definition::AgentTypeId> {
     let Some(state) = state else {
         return Vec::new();
     };
@@ -471,5 +474,5 @@ fn effective_kinds_for_form(state: Option<&AppState>) -> Vec<crate::domain::Agen
             .is_some_and(|r| r.remote.enabled),
         _ => false,
     };
-    crate::state::effective_agent_kinds(&state.installed_agent_kinds, is_remote)
+    crate::state::effective_agent_type_ids(&state.available_agent_type_ids, is_remote)
 }

@@ -249,6 +249,8 @@ mod tests {
     fn repo_with(github_repo: &str, slug: &str) -> jefe::domain::Repository {
         let mut repo = jefe::domain::Repository::new(
             jefe::domain::RepositoryId("r1".to_owned()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Repo".to_owned(),
             slug.to_owned(),
             std::path::PathBuf::from("/tmp/repo"),
@@ -285,6 +287,8 @@ mod tests {
         // slug is "owner/repo" but github_repo is empty: no identity.
         let mut repo = jefe::domain::Repository::new(
             jefe::domain::RepositoryId("r1".to_owned()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Repo".to_owned(),
             "owner/repo".to_owned(),
             std::path::PathBuf::from("/tmp/repo"),

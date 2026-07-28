@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use jefe::domain::{AgentId, LaunchSignature, Repository};
+use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 use jefe::state::AppEvent;
 
 use super::clone_identity::CloneIdentity;
@@ -113,7 +113,7 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
 /// argument count under the clippy limit).
 struct TransientPrepContext {
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     clone_identity: Option<CloneIdentity>,
     payload: jefe::github::SendPayload,
     agent_id: AgentId,
@@ -127,13 +127,7 @@ fn transient_issue_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::launch_available_or_error(
-        app_state,
-        prep.launch_sig.agent_kind,
-        prep.launch_sig.llxprt_version.as_ref(),
-        &prep.launch_sig.code_puppy_version,
-        &prep.launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig) {
         fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
     }
@@ -334,7 +328,7 @@ fn launch_transient_issue_agent(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
@@ -355,10 +349,7 @@ fn launch_transient_issue_agent(
     } else {
         // Surface the failure, then remove the transient agent and clean up
         // its temp directory via fail_transient_agent.
-        let error_msg = format!(
-            "Failed to launch transient {} agent",
-            launch_sig.agent_kind.label()
-        );
+        let error_msg = format!("Failed to launch transient {} agent", launch_sig.type_id);
         apply_send_to_agent_failed(app_state, ctx, error_msg);
         fail_transient_agent(app_state, ctx, &agent_id);
     }
@@ -372,7 +363,7 @@ fn launch_transient_issue_agent(
 pub(super) struct TransientDequeuedIssue {
     pub agent_id: AgentId,
     pub work_dir: PathBuf,
-    pub launch_sig: LaunchSignature,
+    pub launch_sig: AgentLaunchRequest,
     pub clone_identity: Option<CloneIdentity>,
     pub payload: jefe::github::SendPayload,
 }

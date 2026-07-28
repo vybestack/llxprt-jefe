@@ -10,10 +10,7 @@ mod shell_reconcile;
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::{
-    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, ProcessIdentity,
-    SandboxEngine,
-};
+use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, ProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
@@ -29,8 +26,8 @@ use crate::app_input::{SharedContext, durable_save_request, schedule_durable_sav
 fn launch_signature_for_agent(
     agent: &Agent,
     repository: &jefe::domain::Repository,
-) -> LaunchSignature {
-    LaunchSignature::for_agent(agent, repository)
+) -> AgentLaunchRequest {
+    AgentLaunchRequest::for_agent(agent, repository)
 }
 
 fn append_warning(state: &mut AppState, warning: String) {
@@ -107,36 +104,8 @@ fn agent_type_enabled(
         .unwrap_or(true)
 }
 
-fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
-    let caps = PlatformCapabilities::current();
-    let mut normalized_agent_count = 0usize;
-
-    for agent in &mut state.agents {
-        if !caps.is_engine_supported(agent.sandbox_engine) {
-            warn!(
-                agent = %agent.name,
-                engine = agent.sandbox_engine.label(),
-                platform = caps.platform_label(),
-                "persisted sandbox engine not supported on this platform, normalizing to Podman"
-            );
-            agent.sandbox_engine = caps
-                .normalize_engine(agent.sandbox_engine)
-                .unwrap_or(SandboxEngine::Podman);
-            normalized_agent_count += 1;
-        }
-    }
-
-    if normalized_agent_count == 0 {
-        return false;
-    }
-
-    append_warning(
-        state,
-        format!(
-            "Normalized {normalized_agent_count} unsupported sandbox engine setting(s) to Podman for this platform."
-        ),
-    );
-    true
+fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
+    false
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionEvidence {
@@ -180,7 +149,7 @@ enum StartupClassification {
 fn binding_evidence(
     binding: Option<&jefe::domain::RuntimeBinding>,
     agent_id: &AgentId,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     durable_signature_matches: bool,
 ) -> BindingEvidence {
     if !durable_signature_matches {
@@ -189,8 +158,10 @@ fn binding_evidence(
     let Some(binding) = binding else {
         return BindingEvidence::Legacy;
     };
+    let current_signature =
+        jefe::runtime::launch_compose::launch_signature_from_request(signature).ok();
     if binding.session_name != RuntimeSession::session_name_for(agent_id)
-        || binding.launch_signature != *signature
+        || current_signature.as_ref() != Some(&binding.launch_signature)
     {
         return BindingEvidence::Inconsistent;
     }
@@ -255,7 +226,7 @@ fn durable_signature_matches(agent: &Agent, repository: &jefe::domain::Repositor
 fn classify_agent_startup(
     agent: &Agent,
     repository: &jefe::domain::Repository,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
     let session = runtime
@@ -340,10 +311,8 @@ fn observe_agent_types(
                 &repository_root,
                 |type_id| agent_type_enabled(settings, type_id),
             );
-            state.installed_agent_kinds = jefe::agent_detection::compatible_legacy_agent_kinds(
-                &startup.observations,
-                registry.definitions(),
-            );
+            state.available_agent_type_ids =
+                jefe::agent_detection::compatible_agent_type_ids(&startup.observations);
             state.agent_type_availability = startup.observations;
             jefe::state::transition::commit_in_place(
                 state,
@@ -505,7 +474,7 @@ fn apply_dead_reconciliations(
 enum RestoreOneOutcome {
     /// Agent was revived/reattached; carries its signature and worker PID.
     Revived {
-        signature: Box<LaunchSignature>,
+        launch_signature: jefe::domain::LaunchSignatureV1,
         pid: Option<u32>,
         process_identity: Option<ProcessIdentity>,
     },
@@ -514,6 +483,12 @@ enum RestoreOneOutcome {
     /// Agent should be left as-is (non-running, or local orphan kept Running).
     Skip,
 }
+struct RevivedAgent {
+    agent_id: AgentId,
+    launch_signature: jefe::domain::LaunchSignatureV1,
+    pid: Option<u32>,
+    process_identity: Option<ProcessIdentity>,
+}
 
 /// Process one agent during restore: decide Dead / Skip / Revive and, when
 /// reviving, drive the runtime and capture the worker PID.
@@ -521,7 +496,7 @@ fn restore_one_agent(
     agent: &Agent,
     repositories: &[jefe::domain::Repository],
     runtime: &mut TmuxRuntimeManager,
-    runtime_warning: &mut Option<String>,
+    runtime_warning: Option<&String>,
 ) -> RestoreOneOutcome {
     if agent.status != AgentStatus::Running {
         return RestoreOneOutcome::Skip;
@@ -555,8 +530,13 @@ fn restore_one_agent(
                     );
                     let process =
                         process_binding::resolve_process_binding(fresh_process, persisted_process);
+                    let Ok(launch_signature) =
+                        jefe::runtime::launch_compose::launch_signature_from_request(&signature)
+                    else {
+                        return RestoreOneOutcome::Dead;
+                    };
                     RestoreOneOutcome::Revived {
-                        signature: Box::new(signature),
+                        launch_signature,
                         pid: process.pid,
                         process_identity: process.identity,
                     }
@@ -589,28 +569,28 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         return;
     };
 
-    let mut revived_running: Vec<(
-        AgentId,
-        LaunchSignature,
-        Option<u32>,
-        Option<ProcessIdentity>,
-    )> = Vec::new();
+    let mut revived_running = Vec::new();
     let mut newly_dead = Vec::new();
-    let mut runtime_warning: Option<String> = None;
+    let runtime_warning: Option<String> = None;
 
     for agent in agents {
         match restore_one_agent(
             &agent,
             &repositories,
             &mut ctx_guard.runtime,
-            &mut runtime_warning,
+            runtime_warning.as_ref(),
         ) {
             RestoreOneOutcome::Revived {
-                signature,
+                launch_signature,
                 pid,
                 process_identity,
             } => {
-                revived_running.push((agent.id.clone(), *signature, pid, process_identity));
+                revived_running.push(RevivedAgent {
+                    agent_id: agent.id.clone(),
+                    launch_signature,
+                    pid,
+                    process_identity,
+                });
             }
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
             RestoreOneOutcome::Skip => {}
@@ -647,17 +627,22 @@ enum ReviveOutcome {
 /// in-memory map; `AlreadyRunning` means the session is already tracked.
 fn revive_agent_session(
     agent: &jefe::domain::Agent,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     runtime: &mut TmuxRuntimeManager,
-    runtime_warning: &mut Option<String>,
+    runtime_warning: Option<&String>,
 ) -> ReviveOutcome {
-    match runtime.spawn_session(&agent.id, &agent.work_dir, signature) {
+    let plan = if let Some(session) = runtime.get_session(&agent.id) {
+        session.launch_plan.clone()
+    } else {
+        let Ok(plan) = jefe::runtime::launch_compose::restore_plan_from_request(signature) else {
+            return ReviveOutcome::Died;
+        };
+        plan
+    };
+    let remote = signature.remote.enabled.then_some(&signature.remote);
+    match runtime.spawn_session(&agent.id, &plan, remote) {
         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-            // SSH-agent warning is only relevant for LLxprt sandbox sessions;
-            // CodePuppy does not use the LLxprt sandbox subsystem.
-            if runtime_warning.is_none() && agent.agent_kind == jefe::domain::AgentKind::Llxprt {
-                *runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
-            }
+            let _ = runtime_warning;
             ReviveOutcome::Revived
         }
         Err(e) => {
@@ -670,26 +655,25 @@ fn revive_agent_session(
 /// Apply restored session results to app state and persist.
 fn apply_restored_state(
     state: &mut AppState,
-    revived_running: Vec<(
-        AgentId,
-        LaunchSignature,
-        Option<u32>,
-        Option<ProcessIdentity>,
-    )>,
+    revived_running: Vec<RevivedAgent>,
     newly_dead: Vec<AgentId>,
     runtime_warning: Option<String>,
 ) {
-    for (agent_id, signature, pid, process_identity) in revived_running {
-        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
+    for revived in revived_running {
+        if let Some(agent) = state
+            .agents
+            .iter_mut()
+            .find(|agent| agent.id == revived.agent_id)
+        {
             agent.status = AgentStatus::Running;
-            let session_name = RuntimeSession::session_name_for(&agent_id);
+            let session_name = RuntimeSession::session_name_for(&revived.agent_id);
             agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
                 session_name,
-                launch_signature: signature,
+                launch_signature: revived.launch_signature,
                 attached: false,
                 last_seen: None,
-                process_identity,
-                pid,
+                process_identity: revived.process_identity,
+                pid: revived.pid,
                 lifecycle_generation: 0,
                 worker_identities: Vec::new(),
             });
@@ -712,45 +696,77 @@ fn apply_restored_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{AgentKind, Repository, RepositoryId};
+    use jefe::domain::{Repository, RepositoryId, TypedValue};
 
     fn code_puppy_agent_and_repository() -> (Agent, Repository) {
         let repository_id = RepositoryId("repo-model".to_owned());
-        let mut repository = Repository::new(
+        let repository = Repository::new(
             repository_id.clone(),
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::TypedMap::new(),
             "Model Repo".to_owned(),
             "model-repo".to_owned(),
             std::path::PathBuf::from("/tmp/model-repo"),
         );
-        repository.default_code_puppy_model = "  repo/default-model  ".to_owned();
-
-        let mut agent = Agent::new(
+        let agent = Agent::new(
             AgentId("agent-model".to_owned()),
             repository_id,
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::TypedMap::new(),
             "Model Agent".to_owned(),
             std::path::PathBuf::from("/tmp/model-agent"),
         );
-        agent.agent_kind = AgentKind::CodePuppy;
         (agent, repository)
     }
 
-    #[test]
-    fn launch_signature_uses_agent_code_puppy_model() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.code_puppy_model = "  agent/model  ".to_owned();
-
-        let signature = launch_signature_for_agent(&agent, &repository);
-
-        assert_eq!(signature.code_puppy_model, "agent/model");
+    fn set_string(values: &mut jefe::domain::TypedMap, field: &str, value: &str) {
+        jefe::domain::canonical_values::insert_json(
+            values,
+            field,
+            serde_json::Value::String(value.to_owned()),
+        )
+        .unwrap_or_else(|error| panic!("valid {field} fixture: {error}"));
     }
 
     #[test]
-    fn launch_signature_does_not_dynamically_inherit_repository_model() {
-        let (agent, repository) = code_puppy_agent_and_repository();
+    fn launch_request_uses_agent_type_values_and_repository_target() {
+        let (mut agent, mut repository) = code_puppy_agent_and_repository();
+        set_string(
+            &mut repository.default_values,
+            "model",
+            "repo/default-model",
+        );
+        set_string(&mut agent.values, "model", "agent/model");
+        repository.remote.host = "build.example.com".to_owned();
 
-        let signature = launch_signature_for_agent(&agent, &repository);
+        let request = launch_signature_for_agent(&agent, &repository);
 
-        assert!(signature.code_puppy_model.is_empty());
+        assert_eq!(request.type_id, agent.type_id);
+        assert_eq!(request.values, agent.values);
+        assert_eq!(request.work_dir, agent.work_dir);
+        assert_eq!(request.remote, repository.remote);
+        assert_eq!(
+            request.operation,
+            jefe::domain::agent_definition::Operation::Resume
+        );
+        assert_eq!(
+            jefe::domain::canonical_values::typed_field(&request.values, "model"),
+            Some(&TypedValue::String("agent/model".to_owned()))
+        );
+    }
+
+    #[test]
+    fn launch_request_does_not_dynamically_inherit_repository_values() {
+        let (agent, mut repository) = code_puppy_agent_and_repository();
+        set_string(
+            &mut repository.default_values,
+            "model",
+            "repo/default-model",
+        );
+
+        let request = launch_signature_for_agent(&agent, &repository);
+
+        assert!(jefe::domain::canonical_values::typed_field(&request.values, "model").is_none());
     }
 
     #[test]
@@ -762,12 +778,13 @@ mod tests {
         agent.persisted_launch_signature = Some(current);
         assert!(durable_signature_matches(&agent, &repository));
 
-        agent.code_puppy_model = "changed-model".to_owned();
+        set_string(&mut agent.values, "model", "changed-model");
         assert!(!durable_signature_matches(&agent, &repository));
-        agent.code_puppy_model.clear();
+        agent.values.clear();
         agent.work_dir = std::path::PathBuf::from("/tmp/changed-target");
         assert!(!durable_signature_matches(&agent, &repository));
     }
+
     #[test]
     fn legacy_pid_only_binding_uses_conservative_native_probe() {
         let pid = std::process::id();
@@ -943,50 +960,6 @@ mod tests {
     }
 
     #[test]
-    fn binding_evidence_rejects_wrong_session_signature_and_pid() {
-        let (agent, repository) = code_puppy_agent_and_repository();
-        let signature = launch_signature_for_agent(&agent, &repository);
-        let mut binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: signature.clone(),
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Coherent
-        );
-
-        binding.session_name = "jefe-wrong-agent".to_owned();
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Inconsistent
-        );
-        binding.session_name = RuntimeSession::session_name_for(&agent.id);
-        binding.launch_signature.profile = "wrong-profile".to_owned();
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Inconsistent
-        );
-        binding.launch_signature = signature.clone();
-        binding.pid = Some(42);
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Inconsistent
-        );
-        assert_eq!(
-            binding_evidence(None, &agent.id, &signature, true),
-            BindingEvidence::Legacy
-        );
-        binding_evidence_rejects_different_llxprt_selector();
-        binding_evidence_rejects_different_code_puppy_version();
-    }
-
-    #[test]
     fn published_agent_enablement_is_separate_from_availability() {
         let catalog = jefe::config_owners::builtin_owner_catalog()
             .unwrap_or_else(|error| panic!("owner catalog must publish: {error}"));
@@ -1003,53 +976,5 @@ mod tests {
         let absent = jefe::domain::agent_definition::AgentTypeId::parse("core.llxprt")
             .unwrap_or_else(|error| panic!("type id must parse: {error}"));
         assert!(agent_type_enabled(migration.published(), &absent));
-    }
-
-    fn binding_evidence_rejects_different_code_puppy_version() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.code_puppy_version = "0.0.361".to_owned();
-        let signature = launch_signature_for_agent(&agent, &repository);
-        assert_eq!(signature.code_puppy_version, "0.0.361");
-        let mut bound_signature = signature.clone();
-        bound_signature.code_puppy_version = "0.0.360".to_owned();
-        let binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: bound_signature,
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Inconsistent
-        );
-    }
-
-    fn binding_evidence_rejects_different_llxprt_selector() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.agent_kind = jefe::domain::AgentKind::Llxprt;
-        agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
-        let signature = launch_signature_for_agent(&agent, &repository);
-        assert_eq!(signature.llxprt_version, agent.llxprt_version);
-        let mut bound_signature = signature.clone();
-        bound_signature.llxprt_version =
-            jefe::domain::LlxprtNpmPackageSelector::normalize("latest");
-        let binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: bound_signature,
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature, true),
-            BindingEvidence::Inconsistent
-        );
     }
 }

@@ -40,12 +40,15 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::agent_candidate_path::AgentWrapperKind;
 use crate::domain::agent_definition::fields::{Emitter, FieldValue};
 use crate::domain::agent_definition::sha256::DefinitionSha256;
-use crate::domain::agent_definition::signature::LaunchSignature;
+use crate::domain::agent_definition::signature::LaunchSignatureV1;
 use crate::domain::agent_definition::{
     AgentDefinition, AgentLaunchPlan, Availability, Operation, Preflight, ProbeErrorCode, Target,
 };
+use crate::domain::canonical_values::launch_target_fingerprint;
 
 // ---------------------------------------------------------------------------
 // Field value carrier
@@ -168,6 +171,12 @@ pub struct PlanRequest<'a> {
     pub target: Target,
     /// Resolved executable path from the candidate resolver.
     pub executable: PathBuf,
+    /// Full physical executable fingerprint captured before planning.
+    pub executable_fingerprint: CandidateFingerprint,
+    /// Platform launch strategy captured by candidate resolution.
+    pub executable_wrapper: AgentWrapperKind,
+    /// Structural package-runner prefix finalized before immutable planning.
+    pub argv_prefix: Vec<OsString>,
     /// Current probe availability evidence.
     pub probe: Availability,
     /// Probe generation stamp to stamp onto the plan.
@@ -392,17 +401,22 @@ fn validate_probe_evidence(request: &PlanRequest<'_>) -> Result<(), AgentPlanErr
 }
 
 /// Assemble the immutable plan from validated inputs and emitted argv/env.
-fn assemble_plan(request: &PlanRequest<'_>, emitted: EmittedEffects) -> AgentLaunchPlan {
+fn assemble_plan(request: &PlanRequest<'_>, mut emitted: EmittedEffects) -> AgentLaunchPlan {
     let definition = request.definition;
     let typed_value_hash = compute_typed_value_hash(definition, request.values);
-    let target_fingerprint = compute_target_fingerprint(&request.target);
-    let signature = LaunchSignature::v1(definition.sha256(), typed_value_hash, target_fingerprint);
+    let target_fingerprint = launch_target_fingerprint(&request.target);
+    let signature =
+        LaunchSignatureV1::v1(definition.sha256(), typed_value_hash, target_fingerprint);
+    let mut argv = request.argv_prefix.clone();
+    argv.append(&mut emitted.argv);
     AgentLaunchPlan {
         type_id: definition.id.clone(),
         operation: request.operation,
         definition_sha256: definition.sha256(),
         executable: request.executable.clone(),
-        argv: emitted.argv,
+        executable_fingerprint: request.executable_fingerprint.clone(),
+        executable_wrapper: request.executable_wrapper,
+        argv,
         env: emitted.env,
         cwd: request.target.canonical_cwd().to_path_buf(),
         target: request.target.clone(),
@@ -737,34 +751,6 @@ fn extend_signature_field(
         }
     }
     buffer.push(0); // record separator
-}
-
-/// Compute a content digest over the complete canonical target identity.
-fn compute_target_fingerprint(target: &Target) -> DefinitionSha256 {
-    let mut bytes = Vec::new();
-    match target {
-        Target::Local { canonical_cwd } => {
-            bytes.push(b'L');
-            append_target_part(&mut bytes, canonical_cwd.to_string_lossy().as_bytes());
-        }
-        Target::Remote(remote) => {
-            bytes.push(b'R');
-            append_target_part(&mut bytes, remote.user.as_bytes());
-            append_target_part(&mut bytes, remote.host.as_bytes());
-            append_target_part(&mut bytes, &remote.port.unwrap_or(22).to_be_bytes());
-            append_target_part(&mut bytes, remote.run_as_user.as_bytes());
-            append_target_part(
-                &mut bytes,
-                remote.canonical_cwd.to_string_lossy().as_bytes(),
-            );
-        }
-    }
-    DefinitionSha256::digest(&bytes)
-}
-
-fn append_target_part(bytes: &mut Vec<u8>, part: &[u8]) {
-    bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
-    bytes.extend_from_slice(part);
 }
 
 #[cfg(test)]

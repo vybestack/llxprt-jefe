@@ -258,7 +258,7 @@ pub fn authorize_execution<'a>(
             dimension: StaleDimension::DefinitionSha256,
         });
     }
-    if plan.executable != *evidence.executable_fingerprint().canonical_path() {
+    if plan.executable_fingerprint != *evidence.executable_fingerprint() {
         return AuthorizationResult::Rejected(AuthorizationRejection {
             code: ProbeErrorCode::Agte203,
             dimension: StaleDimension::ExecutableFingerprint,

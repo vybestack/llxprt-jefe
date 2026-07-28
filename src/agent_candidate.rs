@@ -3,10 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
-use crate::agent_candidate_path::{PathSnapshot, resolve_repository_local};
+use crate::agent_candidate_path::{AgentWrapperKind, PathSnapshot, resolve_repository_local};
 use crate::domain::agent_definition::type_id::{CandidateKind, ExecutableCandidate};
 use crate::domain::agent_definition::{AgentDefinition, DefinitionSha256};
-use crate::runtime::AgentWrapperKind;
 
 const SELECTOR_BYTE_LIMIT: usize = 4_096;
 

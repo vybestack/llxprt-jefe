@@ -1,7 +1,7 @@
 //! Strict `AgentTypeId` and candidate `CandidateKind`/`ExecutableCandidate`
 //! types for the closed definition contract (issue #382 CW-02).
 //!
-//! `AgentTypeId` replaces the closed `AgentKind` enum. Format: lowercase
+//! `AgentTypeId` replaces the closed `AgentTypeId` enum. Format: lowercase
 //! ASCII, 1–128 bytes, matching `[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*`. Construction
 //! is via [`AgentTypeId::parse`] (validated) only; there is no public
 //! `from_validated` bypass. Schema-1 alias mapping lives only inside the
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::limits::{ID_BYTE_LIMIT, PATH_LIMIT, STRING_VALUE_BYTE_LIMIT};
 
-/// Stable, validated agent-type identifier replacing the closed `AgentKind`
+/// Stable, validated agent-type identifier replacing the closed `AgentTypeId`
 /// enum. Format: lowercase ASCII, 1–128 bytes, matching
 /// `[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*`.
 ///
@@ -97,6 +97,15 @@ impl Serialize for AgentTypeId {
         S: serde::Serializer,
     {
         serializer.serialize_str(self.as_str())
+    }
+}
+
+impl Default for AgentTypeId {
+    /// Default to the shipped LLxprt agent-type id so schema-1 persisted
+    /// documents that predate the generic `type_id` field deserialize into
+    /// the dominant default agent kind rather than failing.
+    fn default() -> Self {
+        Self::from_validated("core.llxprt")
     }
 }
 

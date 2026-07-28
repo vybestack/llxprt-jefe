@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use jefe::domain::{LaunchSignature, Repository};
+use jefe::domain::{AgentLaunchRequest, Repository};
 use jefe::state::AppState;
 
 use super::clone_identity;
@@ -38,7 +38,7 @@ pub(super) fn is_transient_slot_selected_prs(app_state: &AppStateHandle) -> bool
 /// limit).
 pub(super) struct TransientPrPrepContext {
     pub work_dir: PathBuf,
-    pub launch_sig: LaunchSignature,
+    pub launch_sig: AgentLaunchRequest,
     pub clone_identity: Option<clone_identity::CloneIdentity>,
     pub payload: jefe::github::PrSendPayload,
     pub agent_id: jefe::domain::AgentId,
@@ -118,13 +118,7 @@ fn transient_pr_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::launch_available_or_error(
-        app_state,
-        prep.launch_sig.agent_kind,
-        prep.launch_sig.llxprt_version.as_ref(),
-        &prep.launch_sig.code_puppy_version,
-        &prep.launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig) {
         super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
     }
@@ -221,7 +215,7 @@ fn prepare_and_launch_transient_pr(
 pub(super) struct TransientDequeuedPr {
     pub agent_id: jefe::domain::AgentId,
     pub work_dir: PathBuf,
-    pub launch_sig: LaunchSignature,
+    pub launch_sig: AgentLaunchRequest,
     pub clone_identity: Option<clone_identity::CloneIdentity>,
     pub payload: jefe::github::PrSendPayload,
 }

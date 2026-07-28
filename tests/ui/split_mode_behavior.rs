@@ -15,18 +15,24 @@ use std::path::PathBuf;
 fn create_split_test_state() -> AppState {
     let repo1 = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "llxprt-code".into(),
         "llxprt-code".into(),
         PathBuf::from("/projects/llxprt-code"),
     );
     let repo2 = Repository::new(
         RepositoryId("repo-2".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "starflight".into(),
         "starflight".into(),
         PathBuf::from("/projects/starflight"),
     );
     let repo3 = Repository::new(
         RepositoryId("repo-3".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "gable-work".into(),
         "gable-work".into(),
         PathBuf::from("/projects/gable-work"),
@@ -138,6 +144,8 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
     let mut repo1_running = Agent::new(
         AgentId("a1".into()),
         repo1_id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo1 Running".into(),
         PathBuf::from("/projects/llxprt-code/a1"),
     );
@@ -146,6 +154,8 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
     let repo2_idle = Agent::new(
         AgentId("a2".into()),
         repo2_id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo2 Idle".into(),
         PathBuf::from("/projects/starflight/a2"),
     );
@@ -153,6 +163,8 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
     let mut repo3_running = Agent::new(
         AgentId("a3".into()),
         repo3_id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo3 Running".into(),
         PathBuf::from("/projects/gable-work/a3"),
     );

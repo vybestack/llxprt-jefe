@@ -57,7 +57,16 @@ fn empty_resolver() -> AgentExecutableResolver {
 }
 
 fn llxprt_bin_name() -> &'static str {
-    AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name()
+    let definitions = crate::domain::agent_definition::AgentDefinition::shipped();
+    let definition = definitions
+        .get(3)
+        .unwrap_or_else(|| panic!("shipped LLxprt definition"));
+    let binary = definition
+        .candidates
+        .iter()
+        .find_map(|candidate| candidate.kind.path_name())
+        .unwrap_or_else(|| panic!("LLxprt definition has a PATH candidate"));
+    Box::leak(binary.to_owned().into_boxed_str())
 }
 
 fn stage_cache_hit(cache: &Path, sel: &LlxprtNpmPackageSelector) -> PathBuf {

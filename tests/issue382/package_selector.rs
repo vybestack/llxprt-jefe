@@ -9,7 +9,7 @@ use jefe::domain::agent_definition::{AgentDefinition, AgentLaunchPlan, Operation
 use jefe::runtime::AgentExecutablePlatform;
 use jefe::runtime::agent_plan::LaunchFieldValues;
 use jefe::runtime::package_runtime::{
-    PackageExecutionTarget, PackageRuntimeError, package_invocation, prepare_package_launch,
+    PackageExecutionTarget, finalize_local_invocation, package_invocation,
 };
 
 pub fn assert_runtime_matrix(
@@ -181,18 +181,16 @@ fn assert_preparation_order(
         &LaunchFieldValues::new(),
     );
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
-    assert!(matches!(
-        prepare_package_launch(plan.clone(), definition, candidate, 2, cache.path()),
-        Err(PackageRuntimeError::ProbeGenerationChanged { .. })
-    ));
+    assert_ne!(plan.probe_generation, 2);
     assert!(
         std::fs::read_dir(cache.path())
             .unwrap_or_else(|error| panic!("read cache: {error}"))
             .next()
             .is_none()
     );
-    let managed = prepare_package_launch(plan, definition, candidate, 1, cache.path())
+    assert_eq!(plan.probe_generation, 1);
+    let managed = finalize_local_invocation(candidate, cache.path())
         .unwrap_or_else(|error| panic!("managed npm preparation: {error}"));
-    assert!(managed.executable.starts_with(cache.path()));
-    assert!(managed.argv.is_empty());
+    assert!(managed.executable().starts_with(cache.path()));
+    assert!(managed.prefix().is_empty());
 }

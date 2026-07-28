@@ -14,7 +14,7 @@ use super::*;
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
 use crate::domain::agent_definition::sha256::DefinitionSha256;
 use crate::domain::agent_definition::types::{AgentLaunchPlan, Preflight};
-use crate::domain::agent_definition::{AgentTypeId, LaunchSignature, Operation, Target};
+use crate::domain::agent_definition::{AgentTypeId, LaunchSignatureV1, Operation, Target};
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -52,6 +52,14 @@ fn base_plan() -> AgentLaunchPlan {
         operation: Operation::Normal,
         definition_sha256: zero_hash(),
         executable: PathBuf::from("/opt/bin/agent"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            PathBuf::from("/opt/bin/agent"),
+            None,
+            None,
+            1024,
+            1_000,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
         argv: Vec::new(),
         env: Vec::new(),
         cwd: PathBuf::from("/srv/project"),
@@ -62,7 +70,7 @@ fn base_plan() -> AgentLaunchPlan {
         target_generation: BASE_TARGET_GEN,
         activation_generation: BASE_ACTIVATION_GEN,
         preflight: Preflight::default(),
-        signature: LaunchSignature::default(),
+        signature: LaunchSignatureV1::default(),
     }
 }
 

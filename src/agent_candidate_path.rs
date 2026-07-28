@@ -18,7 +18,37 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use crate::runtime::{AgentExecutablePlatform, AgentWrapperKind};
+/// Operating-system executable-resolution policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentExecutablePlatform {
+    /// Extensionless executable files with Unix execute permissions.
+    Unix,
+    /// Native Windows PATHEXT resolution plus explicitly supported PowerShell wrappers.
+    Windows,
+}
+
+impl AgentExecutablePlatform {
+    /// Return the current target's policy.
+    #[must_use]
+    pub const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+/// Process strategy required by a resolved executable form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AgentWrapperKind {
+    /// Native executable that can be started directly.
+    Direct,
+    /// Windows command script requiring `cmd.exe` mediation.
+    CommandScript,
+    /// PowerShell script requiring explicit PowerShell mediation.
+    PowerShellScript,
+}
 
 /// One captured, immutable PATH snapshot for the candidate resolver.
 ///

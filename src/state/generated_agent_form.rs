@@ -181,6 +181,13 @@ impl GeneratedAgentForm {
         self.validated_result.as_ref()
     }
 
+    /// Take the validated typed result, clearing internal storage so the
+    /// production submit path consumes it exactly once.
+    #[must_use]
+    pub fn take_validated_result(&mut self) -> Option<GeneratedAgentFormResult> {
+        self.validated_result.take()
+    }
+
     /// Whether Space should activate rather than insert into the focused field.
     #[must_use]
     pub fn focus_is_toggleable(&self) -> bool {

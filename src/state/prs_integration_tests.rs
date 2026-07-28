@@ -126,6 +126,8 @@ pub(super) fn dashboard_state() -> AppState {
     for slug in ["repo-1", "repo-2"] {
         state.repositories.push(Repository::new(
             RepositoryId(slug.to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             slug.to_string(),
             slug.to_string(),
             PathBuf::from(format!("/tmp/{slug}")),

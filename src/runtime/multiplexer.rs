@@ -8,7 +8,8 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::agent_executable::ResolvedAgentExecutable;
+use crate::agent_candidate_path::AgentWrapperKind;
+
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 7);
 const WINDOWS_INSTALL_GUIDANCE: &str =
@@ -210,29 +211,37 @@ impl MultiplexerPlan {
     /// Build a pane command from a resolved agent's explicit wrapper strategy.
     pub fn agent_pane_command_args(
         &self,
-        executable: &ResolvedAgentExecutable,
+        executable: &Path,
+        wrapper: AgentWrapperKind,
         args: &[OsString],
         environment: &[(OsString, OsString)],
     ) -> Result<Vec<OsString>, MultiplexerError> {
         if self.platform == LocalPlatform::Unix {
-            return self.pane_command_args(executable.path().as_os_str(), args, environment);
+            return self.pane_command_args(executable.as_os_str(), args, environment);
         }
 
         let launcher =
             std::env::current_exe().map_err(|_| MultiplexerError::CurrentExecutableUnavailable)?;
-        self.agent_pane_command_args_with_launcher(executable, args, environment, &launcher)
+        self.agent_pane_command_args_with_launcher(
+            executable,
+            wrapper,
+            args,
+            environment,
+            &launcher,
+        )
     }
 
     /// Build the Windows pane command with an explicit Jefe launcher path.
     #[doc(hidden)]
     pub fn agent_pane_command_args_with_launcher(
         &self,
-        executable: &ResolvedAgentExecutable,
+        executable: &Path,
+        wrapper: AgentWrapperKind,
         args: &[OsString],
         environment: &[(OsString, OsString)],
         launcher: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
-        let plan_path = write_launch_plan(executable, args, environment)
+        let plan_path = write_launch_plan(executable, wrapper, args, environment)
             .map_err(MultiplexerError::AgentLaunchPlan)?;
         self.pane_command_args(
             launcher.as_os_str(),
@@ -254,7 +263,8 @@ impl MultiplexerPlan {
     /// command construction.
     pub fn agent_pane_command_args_with_staged_host(
         &self,
-        executable: &ResolvedAgentExecutable,
+        executable: &Path,
+        wrapper: AgentWrapperKind,
         staged_host: &Path,
         args: &[OsString],
         environment: &[(OsString, OsString)],
@@ -264,7 +274,13 @@ impl MultiplexerPlan {
                 platform: self.platform,
             });
         }
-        self.agent_pane_command_args_with_launcher(executable, args, environment, staged_host)
+        self.agent_pane_command_args_with_launcher(
+            executable,
+            wrapper,
+            args,
+            environment,
+            staged_host,
+        )
     }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {

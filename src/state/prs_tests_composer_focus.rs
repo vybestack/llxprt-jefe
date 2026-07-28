@@ -209,16 +209,20 @@ fn pr_chooser_metadata() -> Vec<crate::domain::AgentChooserGitMetadata> {
 /// State in PR detail mode with two installed agents so the chooser can open.
 fn prs_state_with_two_chooser_agents(repo: &str) -> AppState {
     let mut state = prs_state_with_detail(repo, 1);
-    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("agent-1".to_string()),
         RepositoryId(repo.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/agent1"),
     ));
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("agent-2".to_string()),
         RepositoryId(repo.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".to_string(),
         std::path::PathBuf::from("/tmp/agent2"),
     ));
@@ -304,7 +308,7 @@ fn navigate_down_and_back(state: AppState) -> AppState {
 #[test]
 fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() {
     let mut state = prs_state_with_detail("repo-1", 1);
-    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
 
     // Create agents that will be FILTERED OUT of the chooser: running agents
     // are excluded by `chooser_agents_for_repository`.
@@ -312,6 +316,8 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
         let mut running_agent = crate::domain::Agent::new(
             crate::domain::AgentId(format!("running-agent-{i}")),
             RepositoryId("repo-1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             format!("Running Agent {i}"),
             std::path::PathBuf::from(format!("/tmp/running{i}")),
         );
@@ -323,6 +329,8 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("idle-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Idle Agent".to_string(),
         std::path::PathBuf::from("/tmp/idle"),
     ));

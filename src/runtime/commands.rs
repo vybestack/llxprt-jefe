@@ -5,22 +5,17 @@
 //! @pseudocode component-002 lines 01-06
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::time::Duration;
 
 use tracing::debug;
 
-pub(super) use super::command_capture::run_command_capture_with_timeout;
+use crate::domain::RemoteRepositorySettings;
+use crate::domain::agent_definition::{AgentLaunchPlan, Target};
 
-use crate::domain::{AgentKind, LaunchSignature, LaunchSource, llxprt_launch_source};
-
-use super::agent_executable::{AgentExecutableResolver, AgentExecutableTarget};
+use super::agent_remote_plan::{posix_single_quote, serialize_process_command};
 use super::errors::RuntimeError;
 use super::multiplexer::{MultiplexerCapability, MultiplexerPlan};
-use super::preflight::sandbox_ssh_agent_warning;
-
-const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// tmux client environment variables that must NEVER propagate into an agent
 /// pane. tmux sets `TMUX=<socket>,<pid>,<n>` and `TMUX_PANE=%<n>` inside every
@@ -66,7 +61,7 @@ pub fn tmux_command() -> Result<Command, RuntimeError> {
 // moved to `pane_capture.rs` for file-size reasons.
 pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
 
-fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
+pub(super) fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     let mut cmd = tmux_command().map_err(|error| error.to_string())?;
     cmd.args(args);
     if let Some(dir) = cwd {
@@ -87,7 +82,7 @@ fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn apply_session_style(session_name: &str) {
+pub(super) fn apply_session_style(session_name: &str) {
     // Match app reverse-style bars: green-ish status background with black text.
     let _ = tmux_cmd_status(
         [
@@ -247,22 +242,6 @@ pub fn shell_escape_single(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-fn shell_join(parts: &[String]) -> String {
-    parts
-        .iter()
-        .map(|part| shell_escape_single(part))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn remote_is_enabled(remote: &crate::domain::RemoteRepositorySettings) -> bool {
-    // Delegate to the shared validated contract in domain::target so the
-    // runtime layer's definition of "remote" can never drift from the
-    // availability/prep layers. The shared predicate requires enabled AND
-    // nonempty login_user AND nonempty host.
-    crate::domain::target::is_valid_remote(remote)
-}
-
 fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> String {
     if remote.run_as_user.trim().is_empty() {
         remote.login_user.trim().to_owned()
@@ -270,14 +249,6 @@ fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> St
         remote.run_as_user.trim().to_owned()
     }
 }
-
-pub(super) fn run_command_capture(
-    cmd: Command,
-    error_context: &str,
-) -> Result<Output, RuntimeError> {
-    run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
-}
-
 pub fn remote_tmux_command(
     remote: &crate::domain::RemoteRepositorySettings,
     inner_command: &str,
@@ -357,449 +328,91 @@ fn ensure_remote_success(
     }
 }
 
-fn resolve_remote_agent_command(
-    remote: &crate::domain::RemoteRepositorySettings,
-    work_dir: &Path,
-    setup_env: bool,
-    agent_kind: AgentKind,
-) -> Result<String, RuntimeError> {
-    match agent_kind {
-        AgentKind::CodePuppy => resolve_remote_code_puppy_command(remote, work_dir),
-        AgentKind::Llxprt => resolve_remote_llxprt_command(remote, work_dir, setup_env),
-    }
+fn remote_target_matches_settings(
+    target: &crate::domain::agent_definition::RemoteTarget,
+    settings: &RemoteRepositorySettings,
+) -> bool {
+    let identity = (target.host.as_str(), target.user.as_str());
+    let configured_identity = (settings.host.as_str(), settings.login_user.as_str());
+    let ports_match = target.port.unwrap_or(22) == settings.port.unwrap_or(22);
+    identity == configured_identity && ports_match && target.run_as_user == settings.run_as_user
 }
 
-fn resolve_remote_code_puppy_command(
-    remote: &crate::domain::RemoteRepositorySettings,
-    work_dir: &Path,
-) -> Result<String, RuntimeError> {
-    let work_dir = shell_escape_single(&work_dir.to_string_lossy());
-    let script = format!(
-        "set -e; cd {work_dir}; command -v code-puppy >/dev/null 2>&1; printf '%s\\n' code-puppy"
-    );
-    let output = run_remote_ssh(remote, &remote_tmux_command(remote, &script))?;
-    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if output.status.success() && !resolved.is_empty() {
-        Ok(resolved)
-    } else {
-        Err(RuntimeError::RemoteExecutionFailed(
-            "could not resolve remote code-puppy command; verify code-puppy is installed for the remote user".to_owned(),
-        ))
-    }
-}
-
-fn resolve_remote_llxprt_command(
-    remote: &crate::domain::RemoteRepositorySettings,
-    work_dir: &Path,
-    setup_env: bool,
-) -> Result<String, RuntimeError> {
-    let work_dir_string = work_dir.to_string_lossy().into_owned();
-    let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let path_local = format!("{work_dir_string}/node_modules/.bin/llxprt");
-    let escaped_path_local = shell_escape_single(&path_local);
-
-    let resolver_script = format!(
-        "set -e; cd {escaped_work_dir}; if command -v llxprt >/dev/null 2>&1; then printf '%s\\n' llxprt; elif [ -x {escaped_path_local} ]; then printf '%s\\n' {escaped_path_local}; else exit 127; fi"
-    );
-    let resolver_command = remote_tmux_command(remote, &resolver_script);
-    let output = run_remote_ssh(remote, &resolver_command)?;
-    if output.status.success() {
-        let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if !resolved.is_empty() {
-            return Ok(resolved);
+fn remote_for_plan<'a>(
+    plan: &AgentLaunchPlan,
+    remote: Option<&'a RemoteRepositorySettings>,
+) -> Result<Option<&'a RemoteRepositorySettings>, RuntimeError> {
+    match (&plan.target, remote) {
+        (Target::Local { .. }, None) => Ok(None),
+        (Target::Remote(target), Some(settings))
+            if remote_target_matches_settings(target, settings) =>
+        {
+            Ok(Some(settings))
         }
-    }
-
-    if !setup_env {
-        return Err(RuntimeError::RemoteExecutionFailed(
-            "could not resolve remote llxprt command; llxprt was not installed globally or path-locally, and Setup Env Default is disabled".to_owned(),
-        ));
-    }
-
-    if setup_env {
-        let setup_script = format!(
-            "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; if ! command -v node >/dev/null 2>&1; then echo 'node is required on the remote host for setup-env' >&2; exit 127; fi; if ! command -v npm >/dev/null 2>&1; then echo 'npm is required on the remote host for setup-env' >&2; exit 127; fi; npm install @vybestack/llxprt-code"
-        );
-        let setup_command = remote_tmux_command(remote, &setup_script);
-        let setup_output = run_remote_ssh(remote, &setup_command)?;
-        ensure_remote_success(remote, "remote setup-env", setup_output)?;
-
-        let retry_output = run_remote_ssh(remote, &resolver_command)?;
-        if retry_output.status.success() {
-            let resolved = String::from_utf8_lossy(&retry_output.stdout)
-                .trim()
-                .to_owned();
-            if !resolved.is_empty() {
-                return Ok(resolved);
-            }
-        }
-    }
-
-    Err(RuntimeError::RemoteExecutionFailed(
-        "could not resolve remote llxprt command; verify llxprt is installed for the remote user or provide a path-local install in the working directory".to_owned(),
-    ))
-}
-
-fn launch_args(signature: &LaunchSignature) -> Vec<String> {
-    match signature.agent_kind {
-        AgentKind::CodePuppy => code_puppy_launch_args(signature),
-        AgentKind::Llxprt => llxprt_launch_args(signature),
-    }
-}
-
-fn launch_target_and_args(signature: &LaunchSignature) -> (AgentExecutableTarget, Vec<String>) {
-    let inner_args = launch_args(signature);
-    if let Some(from_spec) = crate::domain::code_puppy_uvx_from_spec(&signature.code_puppy_version)
-    {
-        let mut args = vec![
-            "--from".to_owned(),
-            from_spec,
-            AgentKind::CodePuppy.binary_name().to_owned(),
-        ];
-        args.extend(inner_args);
-        return (AgentExecutableTarget::Uvx, args);
-    }
-    match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
-        LaunchSource::Direct => (
-            AgentExecutableTarget::Agent(signature.agent_kind),
-            inner_args,
-        ),
-        // Issue #425: remote versioned LLxprt launches keep the `npm exec`
-        // form (jefe has no managed install on the remote host). Local
-        // versioned launches build their argv in `local_launch_plan`.
-        LaunchSource::NpmBacked(selector) => {
-            let mut args = vec![
-                "exec".to_owned(),
-                "--yes".to_owned(),
-                format!("--package={}", selector.package_spec()),
-                "--".to_owned(),
-                AgentKind::Llxprt.binary_name().to_owned(),
-            ];
-            args.extend(inner_args);
-            (AgentExecutableTarget::Npm, args)
+        (Target::Local { .. }, Some(_)) | (Target::Remote(_), None | Some(_)) => {
+            Err(RuntimeError::SpawnFailed(
+                "launch plan target does not match authorized runtime transport".to_owned(),
+            ))
         }
     }
 }
 
-fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
-    // Code Puppy interactive mode: output `-i`, an optional explicit model,
-    // and, for fresh (issue/PR-driven) sends, one positional instruction.
-    //
-    // Fresh sends replace mode_flags with one positional instruction and
-    // force pass_continue off. That structural contract avoids coupling the
-    // runtime layer to natural-language prompt text while still rejecting all
-    // arbitrary persisted LLxprt flags.
-    let mut args = vec!["-i".to_owned()];
-    if signature.code_puppy_quick_resume {
-        args.push("--quick-resume".to_owned());
-        args.push(signature.work_dir.to_string_lossy().into_owned());
-    }
-    if !signature.code_puppy_model.trim().is_empty() {
-        args.push("--model".to_owned());
-        args.push(signature.code_puppy_model.trim().to_owned());
-    }
-    if let Some(yolo) = signature.code_puppy_yolo {
-        args.push("--yolo".to_owned());
-        args.push(yolo.to_string());
-    }
-    if !signature.pass_continue
-        && let [instruction] = signature.mode_flags.as_slice()
-        && !instruction.starts_with('-')
-    {
-        args.push(instruction.clone());
-    }
-    args
-}
-
-fn llxprt_launch_args(signature: &LaunchSignature) -> Vec<String> {
-    let mut args = Vec::new();
-    if !signature.profile.is_empty() {
-        args.push("--profile-load".to_owned());
-        args.push(signature.profile.clone());
-    }
-    args.extend(
-        signature
-            .mode_flags
-            .iter()
-            .filter(|flag| !flag.is_empty())
-            .cloned(),
-    );
-    if signature.pass_continue {
-        args.push("--continue".to_owned());
-    }
-    if signature.sandbox_enabled {
-        args.push("--sandbox".to_owned());
-        args.push("--sandbox-engine".to_owned());
-        args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
-    }
-    args
-}
-
-fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
-    let mut env_exports = Vec::new();
-    if signature.agent_kind == AgentKind::CodePuppy {
-        return env_exports;
-    }
-    if signature.sandbox_enabled {
-        env_exports.push(format!(
-            "export SANDBOX_FLAGS={};",
-            shell_escape_single(&signature.sandbox_flags)
-        ));
-        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-            env_exports.push(format!(
-                "export LLXPRT_SANDBOX_IMAGE={};",
-                shell_escape_single(&image_ref.to_string_lossy())
-            ));
-        }
-    }
-    if !signature.llxprt_debug.is_empty() {
-        env_exports.push(format!(
-            "export LLXPRT_DEBUG={};",
-            shell_escape_single(&signature.llxprt_debug)
-        ));
-    }
-    env_exports
-}
-
-fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
-    let executable = if llxprt_command == "llxprt" {
-        llxprt_command.to_owned()
-    } else {
-        shell_escape_single(llxprt_command)
-    };
-
-    if launch_args.is_empty() {
-        executable
-    } else {
-        format!("{} {}", executable, shell_join(launch_args))
-    }
-}
-
-struct RemoteLaunchArgv {
-    executable: String,
-    args: Vec<String>,
-}
-
-fn remote_launch_argv(
-    signature: &LaunchSignature,
-    direct_command: Option<String>,
-) -> Result<RemoteLaunchArgv, RuntimeError> {
-    let (target, args) = launch_target_and_args(signature);
-    let executable = match target {
-        AgentExecutableTarget::Npm => "npm".to_owned(),
-        AgentExecutableTarget::Uvx => "uvx".to_owned(),
-        AgentExecutableTarget::Agent(_) => direct_command.ok_or_else(|| {
-            RuntimeError::SpawnFailed("direct agent executable was not resolved".to_owned())
-        })?,
-    };
-    Ok(RemoteLaunchArgv { executable, args })
-}
-
-fn build_remote_launch_command(
-    session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
-) -> Result<String, RuntimeError> {
-    let remote = &signature.remote;
-    let work_dir_string = work_dir.to_string_lossy().into_owned();
-    let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let pinned_code_puppy = signature.agent_kind == AgentKind::CodePuppy
-        && crate::domain::code_puppy_requires_uvx(&signature.code_puppy_version);
-    let direct_command =
-        match llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()) {
-            LaunchSource::Direct if !pinned_code_puppy => Some(resolve_remote_agent_command(
-                remote,
-                work_dir,
-                remote.setup_env_default,
-                signature.agent_kind,
-            )?),
-            LaunchSource::Direct | LaunchSource::NpmBacked(_) => None,
-        };
-    let launch = remote_launch_argv(signature, direct_command)?;
-    let cli_command = remote_cli_command(&launch.executable, &launch.args);
-    // Scrub jefe's tmux client vars from the remote agent pane for the same
-    // reason as the local path (#171): a bare `tmux` inside the agent must not
-    // reach the (remote) tmux server hosting the agent session.
-    let env_scrub = tmux_scrub_env_args().join(" ");
-    let pane_command = format!("{env_scrub} {cli_command}");
-    let env_prefix = remote_env_exports(signature).join(" ");
-    let escaped_session = shell_escape_single(session_name);
-    let tmux_script = build_remote_tmux_script(
-        &escaped_work_dir,
-        &env_prefix,
-        &escaped_session,
-        &pane_command,
-    );
-
-    Ok(remote_tmux_command(remote, &tmux_script))
-}
-
-/// Assemble the remote tmux startup script from its already-escaped parts.
-///
-/// Factored out of [`build_remote_launch_command`] so the script template —
-/// including the `env -u` scrub inside `pane_command` — is unit-testable
-/// without the SSH resolver side effect (#171).
 fn build_remote_tmux_script(
-    escaped_work_dir: &str,
-    env_prefix: &str,
-    escaped_session: &str,
-    pane_command: &str,
-) -> String {
-    // Disable the tmux prefix on the remote session using the shared
-    // [`prefix_disable_tmux_subcommands`] builder so this inline creation
-    // script and the reattach fragment ([`remote_disable_prefix_fragment`])
-    // format the option sequence identically and cannot drift (#200). The
-    // remote tmux server also defaults to `C-b`, which the remote attach
-    // client would consume before it reaches the agent; jefe never needs a
-    // user-facing prefix on its managed sessions. The sub-commands continue
-    // the `tmux new-session` invocation via the `\;` separator.
-    let prefix_options = format!(" \\; {}", prefix_disable_tmux_subcommands(escaped_session));
-    format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on{prefix_options}"
-    )
-}
-
-struct LocalLaunchPlan {
-    executable: AgentExecutableTarget,
-    args: Vec<String>,
-    env: Vec<(String, String)>,
-    warning: Option<String>,
-    /// When present, the launch runs the agent binary directly from this
-    /// jefe-managed `node_modules/.bin` directory instead of resolving the
-    /// executable on PATH. Set for local NpmBacked LLxprt launches (issue
-    /// #425): the `npm exec` form is replaced by a direct invocation of the
-    /// cached `llxprt` binary so the work directory's `node_modules` cannot
-    /// shadow the pinned version and concurrent launches cannot contend on
-    /// the shared `_npx` cache lock.
-    managed_bin_dir: Option<PathBuf>,
-}
-
-/// Local-launch argv selection helpers, split out so this file stays under
-/// the source-size hard limit.
-#[path = "commands_launch_parts.rs"]
-mod commands_launch_parts;
-use commands_launch_parts::local_launch_parts;
-
-fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
-    let mut env = Vec::new();
-    let warning = match signature.agent_kind {
-        AgentKind::Llxprt => {
-            if signature.sandbox_enabled {
-                env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-                if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-                    env.push((
-                        "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                        image_ref.to_string_lossy().into_owned(),
-                    ));
-                }
-                sandbox_ssh_agent_warning()
-            } else {
-                None
-            }
-        }
-        AgentKind::CodePuppy => None,
-    };
-    if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
-        env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-    }
-    let inner_args = launch_args(signature);
-    let (executable, args, managed_bin_dir) = local_launch_parts(signature, inner_args);
-    LocalLaunchPlan {
-        executable,
-        args,
-        env,
-        warning,
-        managed_bin_dir,
-    }
+    plan: &AgentLaunchPlan,
+    session_name: &str,
+) -> Result<String, RuntimeError> {
+    let cwd = plan.cwd.to_str().ok_or_else(|| {
+        RuntimeError::RemoteExecutionFailed("remote working directory is not UTF-8".to_owned())
+    })?;
+    let escaped_cwd = posix_single_quote(cwd)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))?;
+    let escaped_session = posix_single_quote(session_name)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))?;
+    let process = serialize_process_command(plan)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))?;
+    let scrub = tmux_scrub_env_args().join(" ");
+    let prefix_options = format!(" \\; {}", prefix_disable_tmux_subcommands(&escaped_session));
+    Ok(format!(
+        "set -e; mkdir -p {escaped_cwd}; cd {escaped_cwd}; tmux new-session -d -s {escaped_session} -c {escaped_cwd} {scrub} {process} \\; set-option -t {escaped_session} remain-on-exit on{prefix_options}"
+    ))
 }
 
 fn local_launch_command(
     session_name: &str,
-    work_dir: &Path,
-    launch: &LocalLaunchPlan,
+    plan: &AgentLaunchPlan,
     session_host_root: Option<&Path>,
 ) -> Result<Command, RuntimeError> {
     let multiplexer = MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
-    let mut cmd = multiplexer.command();
-    cmd.arg("new-session")
+    let mut command = multiplexer.command();
+    command
+        .arg("new-session")
         .arg("-d")
         .arg("-s")
         .arg(session_name)
         .arg("-c")
-        .arg(work_dir);
-    let executable = if let Some(bin_dir) = &launch.managed_bin_dir {
-        // Issue #425: resolve the cached `llxprt` binary from the jefe-managed
-        // install dir so the work directory's `node_modules` cannot shadow it.
-        super::llxprt_install::resolve_managed_executable(bin_dir, launch.executable)?
-    } else {
-        AgentExecutableResolver::current()
-            .resolve_target(launch.executable)
-            .map_err(RuntimeError::AgentExecutable)?
-    };
-    multiplexer_pane_args(
-        &multiplexer,
-        &executable,
-        &launch.env,
-        &launch.args,
-        session_host_root.map(|root| (root, session_name)),
-        &mut cmd,
-    )?;
-    Ok(cmd)
-}
-
-/// Build the multiplexer pane-command argv. Issue #467: on Windows with an
-/// explicit session-host root, stage `current_exe()` and launch the staged
-/// copy; otherwise the direct agent launch path is preserved (AC9).
-fn multiplexer_pane_args(
-    multiplexer: &MultiplexerPlan,
-    executable: &super::agent_executable::ResolvedAgentExecutable,
-    env: &[(String, String)],
-    args: &[String],
-    session_host: Option<(&Path, &str)>,
-    cmd: &mut Command,
-) -> Result<(), RuntimeError> {
-    let pane_args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    let environment: Vec<(OsString, OsString)> = env
+        .arg(&plan.cwd);
+    let pane_args: Vec<OsString> = plan.argv.iter().map(OsString::from).collect();
+    let environment: Vec<(OsString, OsString)> = plan
+        .env
         .iter()
-        .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+        .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect();
     let pane_command = super::session_host::resolve_local_pane_command(
-        multiplexer,
-        executable,
+        &multiplexer,
+        &plan.executable,
+        plan.executable_wrapper,
         &pane_args,
         &environment,
-        session_host,
+        session_host_root.map(|root| (root, session_name)),
     )?;
-    for arg in pane_command {
-        cmd.arg(arg);
+    for argument in pane_command {
+        command.arg(argument);
     }
-    Ok(())
-}
-
-// Re-exported for the local-launch staging-decision test.
-#[cfg(test)]
-use super::session_host::session_host_stage_request;
-
-/// Build the Unix pane-command argv for remote shell construction and
-/// regression tests. Local runtime launch uses `MultiplexerPlan::pane_command_args`
-/// so native Windows never receives this Unix `env -u` prefix.
-#[cfg(test)]
-fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
-    let mut args = tmux_scrub_env_args();
-    for (key, value) in &plan.env {
-        args.push(format!("{key}={value}"));
-    }
-    args.push(plan.executable.binary_name().to_owned());
-    args.extend(plan.args.iter().cloned());
-    args
+    Ok(command)
 }
 
 /// Local-session finalization (clipboard/prefix passthrough, remain-on-exit,
 /// style, warning), split out so this file stays under the source-size limit.
-#[path = "commands_finalize.rs"]
-mod commands_finalize;
-use commands_finalize::finalize_local_session;
-
 enum LocalCreateFailure {
     Runtime(RuntimeError),
     Command(String),
@@ -807,28 +420,25 @@ enum LocalCreateFailure {
 
 fn try_local_create_session(
     session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
+    plan: &AgentLaunchPlan,
     attempt: u8,
     session_host_root: Option<&Path>,
 ) -> Result<(), LocalCreateFailure> {
-    let plan = local_launch_plan(signature);
-    if let Some(selector) = commands_launch_parts::versioned_local_selector(signature) {
-        // Issue #425: ensure the jefe-managed install exists before resolving
-        // the cached binary so a failure surfaces as a typed install error.
-        super::llxprt_install::ensure_installed(selector)
-            .map_err(|error| LocalCreateFailure::Runtime(RuntimeError::LlxprtInstall(error)))?;
-    }
-    let mut cmd = local_launch_command(session_name, work_dir, &plan, session_host_root)
+    let mut command = local_launch_command(session_name, plan, session_host_root)
         .map_err(LocalCreateFailure::Runtime)?;
-    debug!(session_name = %session_name, attempt, "create_session invoking local multiplexer new-session");
-
-    let output = cmd
+    debug!(
+        session_name,
+        attempt, "create_session invoking local multiplexer new-session"
+    );
+    let output = command
         .output()
         .map_err(|error| LocalCreateFailure::Command(error.to_string()))?;
     if output.status.success() {
-        debug!(session_name = %session_name, attempt, "create_session local multiplexer new-session succeeded");
-        finalize_local_session(session_name, plan.warning);
+        debug!(
+            session_name,
+            attempt, "create_session local multiplexer new-session succeeded"
+        );
+        super::commands_finalize::finalize_local_session(session_name, None);
         Ok(())
     } else {
         Err(LocalCreateFailure::Command(
@@ -839,13 +449,13 @@ fn try_local_create_session(
 
 fn create_remote_session(
     session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
+    plan: &AgentLaunchPlan,
+    remote: &RemoteRepositorySettings,
 ) -> Result<(), RuntimeError> {
-    let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
-    let output = run_remote_ssh(&signature.remote, &remote_command)?;
-    ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
-    Ok(())
+    let script = build_remote_tmux_script(plan, session_name)?;
+    let remote_command = remote_tmux_command(remote, &script);
+    let output = run_remote_ssh(remote, &remote_command)?;
+    ensure_remote_success(remote, "remote tmux new-session", output).map(|_| ())
 }
 
 fn is_tmux_fork_broken(stderr: &str) -> bool {
@@ -857,22 +467,25 @@ fn local_spawn_error(session_name: &str, attempt: u8, stderr: String) -> Runtime
     RuntimeError::SpawnFailed(format!("tmux new-session failed: {stderr}"))
 }
 
-/// Create a detached agent session, staging the Windows pane host below the
-/// supplied root while leaving remote and Unix launch paths unchanged.
+/// Create a detached tmux session from one finalized immutable launch plan.
+///
+/// The runtime never resolves an executable or reconstructs argv here. Remote
+/// transport settings are supplied separately because they include connection
+/// material excluded from the canonical launch signature.
 pub fn create_session(
     session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
+    plan: &AgentLaunchPlan,
+    remote: Option<&RemoteRepositorySettings>,
     session_host_root: Option<&Path>,
 ) -> Result<(), RuntimeError> {
-    debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
-    if remote_is_enabled(&signature.remote) {
-        return create_remote_session(session_name, work_dir, signature);
+    debug!(session_name, work_dir = %plan.cwd.display(), "create_session start");
+    if let Some(remote) = remote_for_plan(plan, remote)? {
+        return create_remote_session(session_name, plan, remote);
     }
 
     MultiplexerPlan::current()
-        .and_then(|plan| {
-            plan.preflight(&[
+        .and_then(|multiplexer| {
+            multiplexer.preflight(&[
                 MultiplexerCapability::AttachSession,
                 MultiplexerCapability::PaneCapture,
             ])
@@ -880,11 +493,16 @@ pub fn create_session(
         .map_err(RuntimeError::Multiplexer)?;
 
     let _ = kill_session(session_name);
-    match try_local_create_session(session_name, work_dir, signature, 0, session_host_root) {
+    match try_local_create_session(session_name, plan, 0, session_host_root) {
         Ok(()) => return Ok(()),
         Err(LocalCreateFailure::Runtime(error)) => return Err(error),
         Err(LocalCreateFailure::Command(stderr)) if is_tmux_fork_broken(&stderr) => {
-            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after multiplexer fork failure");
+            debug!(
+                session_name,
+                attempt = 0,
+                stderr,
+                "create_session retrying after multiplexer fork failure"
+            );
             let _ = kill_session(session_name);
         }
         Err(LocalCreateFailure::Command(stderr)) => {
@@ -892,7 +510,7 @@ pub fn create_session(
         }
     }
 
-    match try_local_create_session(session_name, work_dir, signature, 1, session_host_root) {
+    match try_local_create_session(session_name, plan, 1, session_host_root) {
         Ok(()) => Ok(()),
         Err(LocalCreateFailure::Runtime(error)) => Err(error),
         Err(LocalCreateFailure::Command(stderr)) => Err(local_spawn_error(session_name, 1, stderr)),
@@ -970,17 +588,6 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
     }
 }
 
-#[cfg(test)]
-#[path = "commands_code_puppy_version_tests.rs"]
-mod code_puppy_version_tests;
-
-#[cfg(test)]
-#[path = "commands_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "npm_launch_tests.rs"]
-mod npm_launch_tests;
 #[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

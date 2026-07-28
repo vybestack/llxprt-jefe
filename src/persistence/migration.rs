@@ -21,13 +21,14 @@ use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,
 };
 use values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path,
-    shipped_definition_hash, stable_id, type_id, typed_map_hash,
+    canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
+    launch_value_fingerprint, normalize_remote_path, shipped_definition_hash, stable_id, type_id,
 };
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, FILE_LIMIT, PATH_LIMIT, Severity};
 use super::paths::physical_identity;
 use super::state_v2::StateDocument;
+use crate::domain::agent_definition::{AgentDefinition, FieldKind, RemoteTarget, Target};
 use crate::domain::{
     AgentDefaults, AgentRecord, DormantRecord, Id, LastKnownRuntime, LaunchSignatureV1,
     LocalRepositoryLocation, Preferences, RemoteRepositoryLocation, RepositoryLocation,
@@ -126,8 +127,11 @@ fn migrate_schema1_value(value: Value) -> Result<StateMigration, Vec<Diagnostic>
 
 struct MigratedRepository {
     source_id: String,
-    identity: String,
     remote: bool,
+    remote_user: String,
+    remote_host: String,
+    remote_port: Option<u16>,
+    remote_run_as_user: String,
     record: RepositoryRecord,
 }
 
@@ -206,8 +210,9 @@ fn migrate_repositories(
             stable_id("repo", &[&identity, &ordinal_text]).map_err(malformed_vec)?
         };
         *ordinal += 1;
-        let type_id = type_id(source.default_agent_kind.as_deref()).map_err(malformed_vec)?;
-        let values = repository_values(&source, &type_id).map_err(malformed_vec)?;
+        let type_id = type_id(source.default_type_id.as_deref()).map_err(malformed_vec)?;
+        let definition = shipped_definition(&type_id).map_err(malformed_vec)?;
+        let values = repository_values(&source, &definition).map_err(malformed_vec)?;
         let location = repository_location(&source, &identity);
         record_unknowns("schema1.repository", Some(&id), source.unknown, dormant)?;
         record_unknowns(
@@ -219,8 +224,11 @@ fn migrate_repositories(
         let _ = source.agent_ids;
         repositories.push(MigratedRepository {
             source_id: source.id,
-            identity,
             remote: source.remote.enabled,
+            remote_user: source.remote.login_user,
+            remote_host: source.remote.host,
+            remote_port: source.remote.port,
+            remote_run_as_user: source.remote.run_as_user,
             record: RepositoryRecord {
                 id,
                 location,
@@ -291,7 +299,10 @@ fn repository_location(source: &Schema1Repository, identity: &str) -> Repository
     }
 }
 
-fn repository_values(source: &Schema1Repository, type_id: &Id) -> Result<TypedMap, String> {
+fn repository_values(
+    source: &Schema1Repository,
+    definition: &AgentDefinition,
+) -> Result<TypedMap, String> {
     let remote = json!({
         "enabled": source.remote.enabled,
         "login_user": source.remote.login_user,
@@ -302,43 +313,83 @@ fn repository_values(source: &Schema1Repository, type_id: &Id) -> Result<TypedMa
         "run_as_user": source.remote.run_as_user,
         "setup_env_default": source.remote.setup_env_default,
     });
-    // The generic `version_selector` carries the legacy repository default
-    // selector for the declared agent kind. LLxprt and Code Puppy each had a
-    // distinct legacy field; the generic field is authoritative and the
-    // runtime derives the product-specific value from the type id.
-    let version_selector = repository_version_selector(source, type_id);
-    json_map_to_typed(json!({
+    let mut values = json_map_to_typed(json!({
         "slug": source.slug,
-        "default_profile": source.default_profile,
-        "default_code_puppy_model": source.default_code_puppy_model,
-        "version_selector": version_selector,
         "github_repo": source.github_repo,
         "github_issue_pr_repo": source.github_issue_pr_repo,
         "remote": remote,
         "issue_base_prompt": source.issue_base_prompt,
         "transient_agent_dir": source.transient_agent_dir,
-        "default_code_puppy_yolo": source.default_code_puppy_yolo,
-        "default_llxprt_mode_flags": source.default_llxprt_mode_flags,
         "transient_max_concurrent": source.transient_max_concurrent,
-    }))
+    }))?;
+    if declares_repository_field(definition, "profile") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "profile",
+            json!(source.default_profile),
+        )?;
+    }
+    if declares_repository_field(definition, "model") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "model",
+            json!(source.default_code_puppy_model),
+        )?;
+    }
+    if let Some(value) = repository_yolo(source, definition) {
+        crate::domain::canonical_values::insert_json(&mut values, "yolo", json!(value))?;
+    }
+    if declares_agent_field(definition, "version_selector") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "version_selector",
+            json!(repository_version_selector(source, definition)),
+        )?;
+    }
+    Ok(values)
 }
 
-/// Pick the legacy repository selector that matches the migrated agent kind.
-///
-/// Returns an empty string for a blank selector so direct-launch semantics
-/// survive losslessly: a null/empty `default_llxprt_version` is not lost but
-/// represented as a blank generic selector.
-fn repository_version_selector(source: &Schema1Repository, type_id: &Id) -> String {
-    let llxprt = source
-        .default_llxprt_version
-        .as_deref()
-        .map(str::to_owned)
-        .unwrap_or_default();
-    if type_id.as_str() == "core.code-puppy" {
+fn repository_version_selector(source: &Schema1Repository, definition: &AgentDefinition) -> String {
+    if declares_repository_field(definition, "model") {
         source.default_code_puppy_version.clone()
     } else {
-        llxprt
+        source.default_llxprt_version.clone().unwrap_or_default()
     }
+}
+
+fn repository_yolo(source: &Schema1Repository, definition: &AgentDefinition) -> Option<bool> {
+    let field = definition
+        .repository_fields
+        .iter()
+        .find(|field| field.id == "yolo")?;
+    match field.kind {
+        FieldKind::OptionalBoolean => source.default_code_puppy_yolo,
+        FieldKind::Boolean => Some(
+            source
+                .default_llxprt_mode_flags
+                .iter()
+                .any(|value| value == "--yolo"),
+        ),
+        _ => None,
+    }
+}
+
+fn shipped_definition(type_id: &Id) -> Result<AgentDefinition, String> {
+    AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .ok_or_else(|| format!("unknown shipped agent definition {}", type_id.as_str()))
+}
+
+fn declares_repository_field(definition: &AgentDefinition, id: &str) -> bool {
+    definition
+        .repository_fields
+        .iter()
+        .any(|field| field.id == id)
+}
+
+fn declares_agent_field(definition: &AgentDefinition, id: &str) -> bool {
+    definition.agent_fields.iter().any(|field| field.id == id)
 }
 
 fn migrate_agents(
@@ -414,12 +465,30 @@ fn migrate_agent_record(
     id: Id,
 ) -> Result<AgentRecord, Vec<Diagnostic>> {
     let type_id = type_id(source.agent_kind.as_deref()).map_err(malformed_vec)?;
-    let values = agent_values(source, &type_id, home_expanded.then_some(work_target))
+    let definition = shipped_definition(&type_id).map_err(malformed_vec)?;
+    let values = agent_values(source, &definition, home_expanded.then_some(work_target))
         .map_err(malformed_vec)?;
     let definition_hash = shipped_definition_hash(&type_id).map_err(malformed_vec)?;
-    let typed_value_hash = typed_map_hash(&values).map_err(malformed_vec)?;
-    let target_fingerprint =
-        digest_parts(&[&repository.identity, work_target]).map_err(malformed_vec)?;
+    let typed_value_hash = crate::domain::Sha256Digest::parse(
+        &launch_value_fingerprint(&definition, &values)
+            .map_err(malformed_vec)?
+            .to_hex(),
+    )
+    .map_err(|error| malformed_vec(error.to_string()))?;
+    let target = if repository.remote {
+        Target::Remote(RemoteTarget {
+            user: repository.remote_user.trim().to_owned(),
+            host: repository.remote_host.trim().to_owned(),
+            port: repository.remote_port,
+            run_as_user: repository.remote_run_as_user.trim().to_owned(),
+            canonical_cwd: std::path::PathBuf::from(normalize_remote_path(work_target)),
+        })
+    } else {
+        Target::Local {
+            canonical_cwd: std::path::PathBuf::from(work_target),
+        }
+    };
+    let target_fingerprint = launch_target_fingerprint(&target);
     let (session_id, invocation_generation) =
         source
             .runtime_binding
@@ -441,7 +510,8 @@ fn migrate_agent_record(
             version: 1,
             definition_hash,
             typed_value_hash,
-            target_fingerprint,
+            target_fingerprint: crate::domain::Sha256Digest::parse(&target_fingerprint.to_hex())
+                .map_err(|error| malformed_vec(error.to_string()))?,
         },
         runtime: RuntimeRecord {
             session_id,
@@ -466,46 +536,82 @@ fn last_known_runtime(status: Option<&Value>) -> LastKnownRuntime {
 
 fn agent_values(
     source: &Schema1Agent,
-    type_id: &Id,
+    definition: &AgentDefinition,
     work_dir_override: Option<&str>,
 ) -> Result<TypedMap, String> {
     let work_dir = work_dir_override.map_or(source.work_dir.as_path(), Path::new);
-    // The generic `version_selector` is the authoritative selector field. The
-    // legacy LLxprt/Code Puppy selector moves into it losslessly based on the
-    // migrated agent kind; a blank/null selector is preserved as a blank
-    // string so direct-launch semantics survive.
-    let version_selector = agent_version_selector(source, type_id);
-    json_map_to_typed(json!({
+    let _ = (
+        &source.llxprt_debug,
+        source.sandbox_enabled,
+        &source.sandbox_engine,
+        &source.sandbox_flags,
+    );
+    let mut values = json_map_to_typed(json!({
         "display_id": source.display_id,
         "shortcut_slot": source.shortcut_slot,
         "name": source.name,
         "description": source.description,
         "work_dir": work_dir,
-        "profile": source.profile,
-        "code_puppy_model": source.code_puppy_model,
-        "version_selector": version_selector,
-        "code_puppy_yolo": source.code_puppy_yolo,
-        "code_puppy_quick_resume": source.code_puppy_quick_resume,
-        "mode_flags": source.mode_flags,
-        "llxprt_debug": source.llxprt_debug,
-        "pass_continue": source.pass_continue,
-        "sandbox_enabled": source.sandbox_enabled,
-        "sandbox_engine": source.sandbox_engine,
-        "sandbox_flags": source.sandbox_flags,
         "origin": source.origin.as_deref().unwrap_or("persistent"),
-    }))
+    }))?;
+    if declares_repository_field(definition, "profile") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "profile",
+            json!(source.profile),
+        )?;
+    }
+    if declares_repository_field(definition, "model") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "model",
+            json!(source.code_puppy_model),
+        )?;
+    }
+    if let Some(value) = agent_yolo(source, definition) {
+        crate::domain::canonical_values::insert_json(&mut values, "yolo", json!(value))?;
+    }
+    if declares_agent_field(definition, "version_selector") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "version_selector",
+            json!(agent_version_selector(source, definition)),
+        )?;
+    }
+    if declares_agent_field(definition, "interactive") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "interactive",
+            json!(source.code_puppy_quick_resume),
+        )?;
+    }
+    if declares_agent_field(definition, "prompt_interactive") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "prompt_interactive",
+            json!(source.pass_continue),
+        )?;
+    }
+    Ok(values)
 }
 
-/// Pick the legacy agent selector that matches the migrated agent kind.
-fn agent_version_selector(source: &Schema1Agent, type_id: &Id) -> String {
-    if type_id.as_str() == "core.code-puppy" {
+fn agent_version_selector(source: &Schema1Agent, definition: &AgentDefinition) -> String {
+    if declares_repository_field(definition, "model") {
         source.code_puppy_version.clone()
     } else {
-        source
-            .llxprt_version
-            .as_deref()
-            .map(str::to_owned)
-            .unwrap_or_default()
+        source.llxprt_version.clone().unwrap_or_default()
+    }
+}
+
+fn agent_yolo(source: &Schema1Agent, definition: &AgentDefinition) -> Option<bool> {
+    let field = definition
+        .repository_fields
+        .iter()
+        .find(|field| field.id == "yolo")?;
+    match field.kind {
+        FieldKind::OptionalBoolean => source.code_puppy_yolo,
+        FieldKind::Boolean => Some(source.mode_flags.iter().any(|value| value == "--yolo")),
+        _ => None,
     }
 }
 

@@ -294,6 +294,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             jefe::domain::RepositoryId("repo-1".to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Repo 1".to_string(),
             "repo-1".to_string(),
             PathBuf::from("/tmp/repo1"),
@@ -383,6 +385,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             jefe::domain::RepositoryId("repo-1".to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Repo 1".to_string(),
             String::new(),
             PathBuf::from("/tmp/repo1"),

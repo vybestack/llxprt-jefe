@@ -9,7 +9,7 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jefe::domain::AgentKind;
+use jefe::domain::AgentTypeId;
 use jefe::runtime::{
     AgentExecutablePlatform, AgentExecutableResolver, LocalPlatform, MultiplexerIsolation,
     MultiplexerPlan,
@@ -321,7 +321,7 @@ fn prepare_agent_launch_fixture() -> AgentLaunchFixture {
         vec![fixture_dir],
         Some(OsString::from(".EXE;.CMD;.BAT")),
     )
-    .resolve(AgentKind::CodePuppy)
+    .resolve(jefe::domain::shipped_agent_type(1))
     .unwrap_or_else(|error| panic!("resolve fixture executable: {error}"));
     let record = work_dir.path().join("launch observation.json");
     let expected = vec![

@@ -34,6 +34,15 @@ fn unsupported_operation_returns_declared_reason_and_zero_effects() {
             canonical_cwd: std::path::PathBuf::from("/r"),
         },
         executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(1),
         probe_generation: 1,
         target_generation: 1,
@@ -60,6 +69,15 @@ fn default_field_values_are_used_when_not_provided() {
             canonical_cwd: std::path::PathBuf::from("/r"),
         },
         executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(1),
         probe_generation: 1,
         target_generation: 1,
@@ -88,6 +106,15 @@ fn flag_resolves_token_from_capability_probe() {
             canonical_cwd: std::path::PathBuf::from("/r"),
         },
         executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(1),
         probe_generation: 1,
         target_generation: 1,
@@ -119,6 +146,15 @@ fn empty_string_value_skips_option_emitter() {
             canonical_cwd: std::path::PathBuf::from("/r"),
         },
         executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(1),
         probe_generation: 1,
         target_generation: 1,
@@ -145,6 +181,15 @@ fn stamping_carries_generations_and_signature() {
             canonical_cwd: std::path::PathBuf::from("/srv/proj"),
         },
         executable: std::path::PathBuf::from("/bin/llxprt"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
         probe: compatible(42),
         probe_generation: 42,
         target_generation: 7,
@@ -159,6 +204,9 @@ fn stamping_carries_generations_and_signature() {
     assert_eq!(plan.probe_generation, 42);
     assert_eq!(plan.target_generation, 7);
     assert_eq!(plan.signature.version, 1);
-    assert_eq!(plan.signature.definition_hash, definition.sha256());
+    assert_eq!(
+        plan.signature.definition_hash.as_str(),
+        definition.sha256().to_hex()
+    );
     assert!(!plan.signature.target_fingerprint.to_hex().is_empty());
 }

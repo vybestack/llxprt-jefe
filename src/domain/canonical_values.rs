@@ -14,6 +14,37 @@ use serde_json::Value;
 use super::sha256::Sha256;
 use super::{CanonicalDecimal, Id, Sha256Digest, TypedMap, TypedValue};
 
+use super::agent_definition::{AgentDefinition, DefinitionSha256, FieldValue, Target};
+
+/// Hash the complete canonical launch target identity.
+#[must_use]
+pub fn launch_target_fingerprint(target: &Target) -> DefinitionSha256 {
+    let mut bytes = Vec::new();
+    match target {
+        Target::Local { canonical_cwd } => {
+            bytes.push(b'L');
+            append_target_part(&mut bytes, canonical_cwd.to_string_lossy().as_bytes());
+        }
+        Target::Remote(remote) => {
+            bytes.push(b'R');
+            append_target_part(&mut bytes, remote.user.as_bytes());
+            append_target_part(&mut bytes, remote.host.as_bytes());
+            append_target_part(&mut bytes, &remote.port.unwrap_or(22).to_be_bytes());
+            append_target_part(&mut bytes, remote.run_as_user.as_bytes());
+            append_target_part(
+                &mut bytes,
+                remote.canonical_cwd.to_string_lossy().as_bytes(),
+            );
+        }
+    }
+    DefinitionSha256::digest(&bytes)
+}
+
+fn append_target_part(bytes: &mut Vec<u8>, part: &[u8]) {
+    bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
+    bytes.extend_from_slice(part);
+}
+
 /// Parse `value` as an [`Id`], reporting the grammar violation as text.
 pub fn required_id(value: &str) -> Result<Id, String> {
     Id::parse(value).map_err(|error| error.to_string())
@@ -24,7 +55,16 @@ pub fn type_id(value: Option<&str>) -> Result<Id, String> {
     let normalized = match value.map(str::trim).filter(|value| !value.is_empty()) {
         None | Some("llxprt") => "core.llxprt",
         Some("code_puppy" | "code-puppy" | "codepuppy") => "core.code-puppy",
-        Some(other) => return Err(format!("unsupported schema-1 agent kind {other}")),
+        Some(other) => {
+            let parsed = required_id(other)?;
+            if super::agent_definition::AgentDefinition::shipped()
+                .iter()
+                .any(|definition| definition.id.as_str() == parsed.as_str())
+            {
+                return Ok(parsed);
+            }
+            return Err(format!("unsupported schema-1 agent kind {other}"));
+        }
     };
     required_id(normalized)
 }
@@ -206,6 +246,91 @@ pub fn canonical_local_target(path: &std::path::Path) -> Result<String, String> 
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| "canonical local target is not valid UTF-8".to_owned())
+}
+
+/// Retain only fields declared as launch-signature inputs for an active type.
+pub fn launch_signature_values(type_id: &Id, values: &TypedMap) -> Result<TypedMap, String> {
+    let definition = super::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .ok_or_else(|| format!("unknown shipped agent definition {}", type_id.as_str()))?;
+    let mut signature_values = TypedMap::new();
+    for field in definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .filter(|field| field.launch_signature)
+    {
+        let key = Id::parse(&field.id.replace('_', "-")).map_err(|error| error.to_string())?;
+        if let Some(value) = values.get(&key) {
+            signature_values.insert(key, value.clone());
+        }
+    }
+    Ok(signature_values)
+}
+
+/// Hash effective launch-signature values using definition declaration order.
+pub fn launch_value_fingerprint(
+    definition: &AgentDefinition,
+    values: &TypedMap,
+) -> Result<DefinitionSha256, String> {
+    let mut buffer = Vec::new();
+    for (scope, field) in definition
+        .repository_fields
+        .iter()
+        .map(|field| (b'R', field))
+        .chain(definition.agent_fields.iter().map(|field| (b'A', field)))
+        .filter(|(_, field)| field.launch_signature)
+    {
+        buffer.push(scope);
+        buffer.extend_from_slice(field.id.as_bytes());
+        buffer.push(0);
+        if let Some(value) = typed_field(values, &field.id) {
+            append_typed_signature_value(&mut buffer, value)?;
+        } else if let Some(value) = field.default.as_ref() {
+            append_default_signature_value(&mut buffer, value);
+        }
+        buffer.push(0);
+    }
+    Ok(DefinitionSha256::digest(&buffer))
+}
+
+fn append_typed_signature_value(buffer: &mut Vec<u8>, value: &TypedValue) -> Result<(), String> {
+    match value {
+        TypedValue::Bool(value) => buffer.push(if *value { b'1' } else { b'0' }),
+        TypedValue::String(value) => buffer.extend_from_slice(value.as_bytes()),
+        TypedValue::Integer(value) => buffer.extend_from_slice(value.to_string().as_bytes()),
+        TypedValue::List(values) => {
+            for value in values {
+                let TypedValue::String(value) = value else {
+                    return Err("launch signature list contains a non-string value".to_owned());
+                };
+                buffer.extend_from_slice(value.as_bytes());
+                buffer.push(b',');
+            }
+        }
+        _ => return Err("unsupported launch signature typed value".to_owned()),
+    }
+    Ok(())
+}
+
+fn append_default_signature_value(buffer: &mut Vec<u8>, value: &FieldValue) {
+    match value {
+        FieldValue::Boolean(value) | FieldValue::OptionalBoolean(Some(value)) => {
+            buffer.push(if *value { b'1' } else { b'0' });
+        }
+        FieldValue::OptionalBoolean(None) => buffer.push(b'n'),
+        FieldValue::String(value) | FieldValue::Path(value) => {
+            buffer.extend_from_slice(value.as_bytes());
+        }
+        FieldValue::Integer(value) => buffer.extend_from_slice(value.to_string().as_bytes()),
+        FieldValue::StringList(values) => {
+            for value in values {
+                buffer.extend_from_slice(value.as_bytes());
+                buffer.push(b',');
+            }
+        }
+    }
 }
 
 /// Encode the canonical, unambiguous remote target for a repository.

@@ -12,13 +12,13 @@ use std::time::{Duration, Instant};
 
 use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution, ResolvedCandidate};
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::agent_candidate_path::AgentWrapperKind;
 use crate::domain::agent_definition::limits::{LOCAL_PROBE_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS};
 use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
 use crate::domain::agent_definition::{
     AgentDefinition, Availability, DefinitionSha256, ProbeErrorCode,
 };
 
-use super::agent_executable::AgentWrapperKind;
 use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
 use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
 
@@ -307,11 +307,7 @@ fn command_for_candidate(candidate: &ResolvedCandidate, argv: &[OsString]) -> Co
     command_for_path(candidate.executable(), candidate.wrapper_kind(), argv)
 }
 
-pub(super) fn command_for_path(
-    path: &Path,
-    wrapper: AgentWrapperKind,
-    argv: &[OsString],
-) -> Command {
+pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString]) -> Command {
     match wrapper {
         AgentWrapperKind::Direct => command_with_args(path.as_os_str(), argv),
         AgentWrapperKind::CommandScript => {

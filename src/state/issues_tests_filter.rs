@@ -47,6 +47,8 @@ fn state_with_repo() -> AppState {
     let mut state = filter_open_state();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/repo1"),

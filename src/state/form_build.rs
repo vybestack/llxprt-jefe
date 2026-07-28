@@ -1,42 +1,19 @@
 //! Repository and agent form-to-domain construction with validation.
-//!
-//! Extracted from `form_ops.rs` to keep that file under the architecture line
-//! limit. These are the pure (or near-pure) constructors that turn form field
-//! structs into validated domain objects. The submission glue in `form_ops`
-//! calls these and then pushes the result into `AppState` collections.
-//!
-//! Validation policy:
-//!
-//! - `github_repo` must be `"owner/repo"` or empty.
-//! - An **enabled** remote must have nonempty `login_user` and `host`;
-//!   otherwise the submission is rejected via [`crate::domain::target`].
 
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, FieldKind, FieldValue};
 use crate::domain::{
-    Agent, AgentKind, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId,
-    SandboxEngine, is_valid_github_component,
+    Agent, AgentId, AgentStatus, Id, RemoteRepositorySettings, Repository, RepositoryId, TypedMap,
+    TypedValue, is_valid_github_component,
 };
 use tracing::warn;
 
-use crate::services::{
-    self, CreateAgentParams, expand_tilde, generate_id, normalize_llxprt_debug, normalize_profile,
-    normalize_sandbox_flags, resolve_agent_work_dir,
-};
+use crate::services::{expand_tilde, generate_id, resolve_agent_work_dir};
 
 use super::AppState;
 use super::form_runtime;
 use super::types::{AgentFormFields, RepositoryFormFields};
 
 impl AppState {
-    /// Validate a `github_repo` field value.
-    ///
-    /// An empty value is valid (no GitHub integration). A non-empty value must
-    /// be exactly `"owner/repo"`: a single forward slash with non-empty parts on
-    /// both sides, each containing only valid GitHub name characters
-    /// (alphanumerics, hyphens, underscores, dots). Returns `false` for
-    /// malformed values like `"foo"`, `"owner/repo/extra"`, `"/repo"`,
-    /// `"owner/"`, `"owner /repo"`, or values containing `@` or other
-    /// shell/URL metacharacters. Surrounding whitespace on the whole value is
-    /// ignored, matching the trimming performed when the value is persisted.
     pub(super) fn validate_github_repo(value: &str) -> bool {
         let trimmed = value.trim();
         if trimmed.is_empty() {
@@ -58,7 +35,6 @@ impl AppState {
         resolve_agent_work_dir(repository, value)
     }
 
-    /// Parse and validate SSH settings from repository form fields.
     pub fn remote_settings_from_fields(
         fields: &RepositoryFormFields,
     ) -> Result<RemoteRepositorySettings, String> {
@@ -108,10 +84,6 @@ impl AppState {
         }
     }
 
-    /// Validate repository form fields shared by create and update paths.
-    ///
-    /// Returns `(trimmed_name, slug, remote_settings)` on success, or `None`
-    /// (after logging the rejection reason) when validation fails.
     fn validate_repository_fields(
         fields: &RepositoryFormFields,
     ) -> Option<(String, String, RemoteRepositorySettings)> {
@@ -119,20 +91,10 @@ impl AppState {
         if trimmed_name.is_empty() {
             return None;
         }
-
         let slug = form_runtime::repository_slug_from_name(trimmed_name);
-        if slug.is_empty() {
+        if slug.is_empty() || !Self::validate_github_repo(&fields.github_repo) {
             return None;
         }
-
-        if !Self::validate_github_repo(&fields.github_repo) {
-            warn!(
-                github_repo = %fields.github_repo,
-                "rejecting repository: github_repo must be 'owner/repo' or empty"
-            );
-            return None;
-        }
-
         if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
             warn!(
                 github_issue_pr_repo = %fields.github_issue_pr_repo,
@@ -141,9 +103,7 @@ impl AppState {
             );
             return None;
         }
-
         let remote_settings = Self::validated_remote_settings(fields)?;
-
         Some((trimmed_name.to_owned(), slug, remote_settings))
     }
 
@@ -151,7 +111,9 @@ impl AppState {
         fields: &RepositoryFormFields,
     ) -> Option<Repository> {
         let (trimmed_name, slug, remote_settings) = Self::validate_repository_fields(fields)?;
-
+        let type_id = active_type_id(&fields.default_type_id)?;
+        let definition = definition_for_type(&type_id)?;
+        let default_values = repository_values_from_fields(&definition, fields);
         let trimmed_base_dir = fields.base_dir.trim();
         let base_dir = if trimmed_base_dir.is_empty() {
             format!("/tmp/{slug}")
@@ -160,137 +122,106 @@ impl AppState {
         } else {
             expand_tilde(trimmed_base_dir)
         };
-
         if !fields.remote_enabled
-            && let Err(e) = std::fs::create_dir_all(&base_dir)
+            && let Err(error) = std::fs::create_dir_all(&base_dir)
         {
-            warn!(
-                base_dir = %base_dir,
-                error = %e,
-                "could not create local repository base directory"
-            );
+            warn!(base_dir = %base_dir, error = %error, "could not create local repository base directory");
         }
-
-        Some(Repository {
-            id: RepositoryId(generate_id("repo")),
-            name: trimmed_name,
+        let mut repository = Repository::new(
+            RepositoryId(generate_id("repo")),
+            type_id,
+            default_values,
+            trimmed_name,
             slug,
-            base_dir: std::path::PathBuf::from(&base_dir),
-            default_profile: normalize_profile(&fields.default_profile),
-            default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
-            default_code_puppy_version: fields.default_code_puppy_version.trim().to_owned(),
-            github_repo: fields.github_repo.trim().to_owned(),
-            github_issue_pr_repo: fields.github_issue_pr_repo.trim().to_owned(),
-            remote: remote_settings,
-            issue_base_prompt: String::new(),
-            default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
-                .unwrap_or_default(),
-            transient_agent_dir: parse_transient_agent_dir(&fields.transient_agent_dir),
-            default_code_puppy_yolo: fields.default_code_puppy_yolo.then_some(true),
-            default_llxprt_mode_flags: parse_mode_flags(&fields.default_llxprt_mode),
-            transient_max_concurrent: parse_transient_max_concurrent(
-                &fields.transient_max_concurrent,
-            ),
-            default_llxprt_version: crate::domain::LlxprtNpmPackageSelector::normalize(
-                &fields.default_llxprt_version,
-            ),
-            agent_ids: Vec::new(),
-        })
+            std::path::PathBuf::from(base_dir),
+        );
+        fields
+            .github_repo
+            .trim()
+            .clone_into(&mut repository.github_repo);
+        fields
+            .github_issue_pr_repo
+            .trim()
+            .clone_into(&mut repository.github_issue_pr_repo);
+        repository.remote = remote_settings;
+        repository.transient_agent_dir = parse_transient_agent_dir(&fields.transient_agent_dir);
+        repository.transient_max_concurrent =
+            parse_transient_max_concurrent(&fields.transient_max_concurrent);
+        Some(repository)
     }
 
     pub(super) fn update_repository_from_fields(
-        repo: &mut Repository,
+        repository: &mut Repository,
         fields: &RepositoryFormFields,
     ) -> bool {
         let Some((trimmed_name, slug, remote_settings)) = Self::validate_repository_fields(fields)
         else {
             return false;
         };
-
-        trimmed_name.clone_into(&mut repo.name);
-        repo.slug = slug;
-
+        let Some(type_id) = active_type_id(&fields.default_type_id) else {
+            return false;
+        };
+        let Some(definition) = definition_for_type(&type_id) else {
+            return false;
+        };
+        repository.name = trimmed_name;
+        repository.slug = slug;
         let trimmed_base_dir = fields.base_dir.trim();
         if !trimmed_base_dir.is_empty() {
-            repo.base_dir = if fields.remote_enabled {
+            repository.base_dir = if fields.remote_enabled {
                 std::path::PathBuf::from(trimmed_base_dir)
             } else {
                 std::path::PathBuf::from(expand_tilde(trimmed_base_dir))
             };
         }
-
-        repo.default_profile = normalize_profile(&fields.default_profile);
+        repository.default_type_id = type_id;
+        repository.default_values = repository_values_from_fields(&definition, fields);
         fields
-            .default_code_puppy_model
+            .github_repo
             .trim()
-            .clone_into(&mut repo.default_code_puppy_model);
-        fields
-            .default_code_puppy_version
-            .trim()
-            .clone_into(&mut repo.default_code_puppy_version);
-        repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
-        repo.default_llxprt_mode_flags = parse_mode_flags(&fields.default_llxprt_mode);
-        repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
-            .unwrap_or(repo.default_agent_kind);
-        repo.default_llxprt_version =
-            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
-        fields.github_repo.trim().clone_into(&mut repo.github_repo);
+            .clone_into(&mut repository.github_repo);
         fields
             .github_issue_pr_repo
             .trim()
-            .clone_into(&mut repo.github_issue_pr_repo);
-        repo.remote = remote_settings;
-        repo.transient_agent_dir = parse_transient_agent_dir(&fields.transient_agent_dir);
-        repo.transient_max_concurrent =
+            .clone_into(&mut repository.github_issue_pr_repo);
+        repository.remote = remote_settings;
+        repository.transient_agent_dir = parse_transient_agent_dir(&fields.transient_agent_dir);
+        repository.transient_max_concurrent =
             parse_transient_max_concurrent(&fields.transient_max_concurrent);
         true
     }
 
-    /// Build an agent from New Agent form fields via the canonical
-    /// [`services::create_agent`] use-case.
-    ///
-    /// This is a thin state-layer adapter: it delegates all validation,
-    /// normalization, and lifecycle policy (including the `Running` initial
-    /// status) to the service, then performs the local filesystem side effect
-    /// of creating the work directory — which belongs in the state layer, not
-    /// the pure creation service.
     pub(super) fn create_agent_from_fields(
         repository: &Repository,
         fields: &AgentFormFields,
         next_display_index: usize,
     ) -> Option<Agent> {
-        let agent = services::create_agent(CreateAgentParams {
-            repository,
-            name: &fields.name,
-            description: &fields.description,
-            work_dir: &fields.work_dir,
-            profile: &fields.profile,
-            code_puppy_model: &fields.code_puppy_model,
-            code_puppy_version: &fields.code_puppy_version,
-            code_puppy_yolo: fields.code_puppy_yolo,
-            code_puppy_quick_resume: fields.code_puppy_quick_resume,
-            agent_kind: &fields.agent_kind,
-            mode: &fields.mode,
-            llxprt_debug: &fields.llxprt_debug,
-            llxprt_version: &fields.llxprt_version,
-            pass_continue: fields.pass_continue,
-            sandbox_enabled: fields.sandbox_enabled,
-            sandbox_engine: &fields.sandbox_engine,
-            sandbox_flags: &fields.sandbox_flags,
-            shortcut_slot: fields.shortcut_slot,
-            next_display_index,
-        })?;
-
+        let type_id = active_type_id(&fields.agent_type_id)?;
+        let definition = definition_for_type(&type_id)?;
+        let work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir)?;
+        let mut values = if repository.default_type_id == type_id {
+            repository.default_values.clone()
+        } else {
+            default_values(&definition)
+        };
+        merge_agent_values(&definition, fields, &mut values);
+        let mut agent = Agent::new(
+            AgentId(generate_id("agent")),
+            repository.id.clone(),
+            type_id,
+            values,
+            fields.name.trim().to_owned(),
+            std::path::PathBuf::from(work_dir),
+        );
+        agent.display_id = format!("#{next_display_index}");
+        agent.shortcut_slot = fields.shortcut_slot;
+        agent.description.clone_from(&fields.description);
+        agent.status = AgentStatus::Running;
         if !repository.remote.enabled
-            && let Err(e) = std::fs::create_dir_all(&agent.work_dir)
+            && let Err(error) = std::fs::create_dir_all(&agent.work_dir)
         {
-            warn!(
-                work_dir = %agent.work_dir.display(),
-                error = %e,
-                "could not create local agent work directory"
-            );
+            warn!(work_dir = %agent.work_dir.display(), error = %error, "could not create local agent work directory");
         }
-
         Some(agent)
     }
 
@@ -299,74 +230,187 @@ impl AppState {
         repository: &Repository,
         fields: &AgentFormFields,
     ) {
+        let Some(type_id) = active_type_id(&fields.agent_type_id) else {
+            return;
+        };
+        let Some(definition) = definition_for_type(&type_id) else {
+            return;
+        };
         let trimmed_name = fields.name.trim();
         if trimmed_name.is_empty() {
             return;
         }
-
         trimmed_name.clone_into(&mut agent.name);
         agent.shortcut_slot = fields.shortcut_slot;
         agent.description.clone_from(&fields.description);
-
         if let Some(new_dir) = Self::validated_agent_work_dir(repository, &fields.work_dir) {
             if !repository.remote.enabled
                 && !crate::services::local_paths_equivalent(
                     std::path::Path::new(&new_dir),
                     &agent.work_dir,
                 )
-                && let Err(e) = std::fs::create_dir_all(&new_dir)
+                && let Err(error) = std::fs::create_dir_all(&new_dir)
             {
-                warn!(
-                    work_dir = %new_dir,
-                    error = %e,
-                    "could not create updated local agent work directory"
-                );
+                warn!(work_dir = %new_dir, error = %error, "could not create updated local agent work directory");
             }
-            agent.work_dir = std::path::PathBuf::from(&new_dir);
+            agent.work_dir = std::path::PathBuf::from(new_dir);
         }
-
-        agent.profile = normalize_profile(&fields.profile);
-        fields
-            .code_puppy_model
-            .trim()
-            .clone_into(&mut agent.code_puppy_model);
-        fields
-            .code_puppy_version
-            .trim()
-            .clone_into(&mut agent.code_puppy_version);
-        agent.code_puppy_yolo = Some(fields.code_puppy_yolo);
-        agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
-        agent.agent_kind =
-            AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
-        agent.llxprt_version =
-            crate::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version);
-        // The mode field is the single source of truth for mode flags. An
-        // empty mode yields no flags so yolo can be turned off on update; the
-        // new-agent form pre-fills --yolo as the create default instead.
-        agent.mode_flags = fields.mode.split_whitespace().map(String::from).collect();
-        agent.llxprt_debug = normalize_llxprt_debug(&fields.llxprt_debug);
-        agent.pass_continue = fields.pass_continue;
-        agent.sandbox_enabled = fields.sandbox_enabled;
-        let caps = PlatformCapabilities::current();
-        agent.sandbox_engine = SandboxEngine::from_form_value(&fields.sandbox_engine)
-            .and_then(|engine| caps.normalize_engine(engine))
-            .unwrap_or_default();
-        agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
+        let mut values = if agent.type_id == type_id {
+            agent.values.clone()
+        } else if repository.default_type_id == type_id {
+            repository.default_values.clone()
+        } else {
+            default_values(&definition)
+        };
+        merge_agent_values(&definition, fields, &mut values);
+        agent.type_id = type_id;
+        agent.values = values;
     }
 }
-fn parse_mode_flags(value: &str) -> Vec<String> {
-    value.split_whitespace().map(str::to_owned).collect()
+
+fn active_type_id(value: &str) -> Option<AgentTypeId> {
+    super::form_projection::type_id_from_form_value(value)
 }
 
-/// Parse the transient agent directory from form input (issue #213).
-///
-/// An empty or whitespace-only string yields an empty `PathBuf` (meaning
-/// "use /tmp" via [`Repository::effective_transient_dir`]). Tilde is
-/// expanded for local repositories.
-///
-/// Paths containing `..` components are rejected (treated as empty) to
-/// prevent directory traversal escaping the intended transient-agent
-/// boundary (issue #213 OCR fix).
+fn definition_for_type(type_id: &AgentTypeId) -> Option<AgentDefinition> {
+    super::form_projection::definition_for_type(type_id)
+}
+
+fn default_values(definition: &AgentDefinition) -> TypedMap {
+    definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .filter_map(|field| field.default.as_ref().map(|value| (&field.id, value)))
+        .filter_map(|(id, value)| Some((typed_key(id)?, typed_value(value)?)))
+        .collect()
+}
+
+fn repository_values_from_fields(
+    definition: &AgentDefinition,
+    fields: &RepositoryFormFields,
+) -> TypedMap {
+    let mut values = default_values(definition);
+    for field in &definition.repository_fields {
+        let value = match field.id.as_str() {
+            "profile" => Some(FieldValue::String(fields.default_profile.trim().to_owned())),
+            "model" => Some(FieldValue::String(
+                fields.default_code_puppy_model.trim().to_owned(),
+            )),
+            "yolo" if field.kind == FieldKind::Boolean => Some(FieldValue::Boolean(
+                fields
+                    .default_llxprt_mode
+                    .split_whitespace()
+                    .any(|value| value == "--yolo"),
+            )),
+            "yolo" if field.kind == FieldKind::OptionalBoolean => Some(
+                FieldValue::OptionalBoolean(Some(fields.default_code_puppy_yolo)),
+            ),
+            _ => None,
+        };
+        if let Some(value) = value {
+            insert_field_value(&mut values, &field.id, value);
+        }
+    }
+    if definition
+        .agent_fields
+        .iter()
+        .any(|field| field.id == "version_selector")
+    {
+        let selector = if definition
+            .repository_fields
+            .iter()
+            .any(|field| field.id == "model")
+        {
+            fields.default_code_puppy_version.trim()
+        } else {
+            fields.default_llxprt_version.trim()
+        };
+        insert_field_value(
+            &mut values,
+            "version_selector",
+            FieldValue::String(selector.to_owned()),
+        );
+    }
+    values
+}
+
+fn merge_agent_values(
+    definition: &AgentDefinition,
+    fields: &AgentFormFields,
+    values: &mut TypedMap,
+) {
+    for field in &definition.repository_fields {
+        let value = match field.id.as_str() {
+            "profile" => Some(FieldValue::String(fields.profile.trim().to_owned())),
+            "model" => Some(FieldValue::String(
+                fields.code_puppy_model.trim().to_owned(),
+            )),
+            "yolo" if field.kind == FieldKind::Boolean => Some(FieldValue::Boolean(
+                fields
+                    .mode
+                    .split_whitespace()
+                    .any(|value| value == "--yolo"),
+            )),
+            "yolo" if field.kind == FieldKind::OptionalBoolean => {
+                Some(FieldValue::OptionalBoolean(Some(fields.code_puppy_yolo)))
+            }
+            _ => None,
+        };
+        if let Some(value) = value {
+            insert_field_value(values, &field.id, value);
+        }
+    }
+    for field in &definition.agent_fields {
+        let value = match field.id.as_str() {
+            "version_selector" => {
+                let source = if definition
+                    .repository_fields
+                    .iter()
+                    .any(|field| field.id == "model")
+                {
+                    &fields.code_puppy_version
+                } else {
+                    &fields.llxprt_version
+                };
+                Some(FieldValue::String(source.trim().to_owned()))
+            }
+            "interactive" => Some(FieldValue::Boolean(
+                fields.code_puppy_quick_resume.enabled(),
+            )),
+            "prompt_interactive" => Some(FieldValue::Boolean(fields.pass_continue)),
+            _ => None,
+        };
+        if let Some(value) = value {
+            insert_field_value(values, &field.id, value);
+        }
+    }
+}
+
+fn insert_field_value(values: &mut TypedMap, field: &str, value: FieldValue) {
+    if let (Some(key), Some(value)) = (typed_key(field), typed_value(&value)) {
+        values.insert(key, value);
+    }
+}
+
+fn typed_key(field: &str) -> Option<Id> {
+    Id::parse(&field.replace('_', "-")).ok()
+}
+
+fn typed_value(value: &FieldValue) -> Option<TypedValue> {
+    match value {
+        FieldValue::Boolean(value) => Some(TypedValue::Bool(*value)),
+        FieldValue::OptionalBoolean(value) => value.map(TypedValue::Bool),
+        FieldValue::String(value) | FieldValue::Path(value) => {
+            Some(TypedValue::String(value.clone()))
+        }
+        FieldValue::Integer(value) => Some(TypedValue::Integer(*value)),
+        FieldValue::StringList(values) => Some(TypedValue::List(
+            values.iter().cloned().map(TypedValue::String).collect(),
+        )),
+    }
+}
+
 fn parse_transient_agent_dir(value: &str) -> std::path::PathBuf {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -375,21 +419,13 @@ fn parse_transient_agent_dir(value: &str) -> std::path::PathBuf {
     let expanded = expand_tilde(trimmed);
     if std::path::Path::new(&expanded)
         .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
+        .any(|component| matches!(component, std::path::Component::ParentDir))
     {
         return std::path::PathBuf::new();
     }
     std::path::PathBuf::from(expanded)
 }
 
-/// Parse the transient max-concurrent setting from form input (issue #213).
-///
-/// An empty string or "0" yields 0 (meaning "no limit"). A non-numeric
-/// value also yields 0 to avoid rejecting the form over a typo.
 fn parse_transient_max_concurrent(value: &str) -> u32 {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return 0;
-    }
-    trimmed.parse::<u32>().unwrap_or(0)
+    value.trim().parse::<u32>().unwrap_or(0)
 }

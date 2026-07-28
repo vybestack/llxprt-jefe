@@ -17,6 +17,25 @@ use super::common::{
     path_candidate, sig_string_field,
 };
 
+fn emitters() -> Vec<Emitter> {
+    vec![
+        Emitter::Option {
+            name: "--prompt".to_string(),
+            field: "prompt".to_string(),
+        },
+        Emitter::Option {
+            name: "--profile-load".to_string(),
+            field: "profile".to_string(),
+        },
+        Emitter::Flag {
+            field: "yolo".to_string(),
+        },
+        Emitter::Flag {
+            field: "prompt_interactive".to_string(),
+        },
+    ]
+}
+
 /// Build the core.llxprt shipped definition.
 pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
@@ -60,20 +79,10 @@ pub fn build() -> AgentDefinition {
         repository_fields: vec![sig_string_field("profile"), bool_field("yolo")],
         agent_fields: vec![
             sig_string_field("version_selector"),
+            sig_string_field("prompt"),
             bool_field("prompt_interactive"),
         ],
-        emitters: vec![
-            Emitter::Option {
-                name: "--profile-load".to_string(),
-                field: "profile".to_string(),
-            },
-            Emitter::Flag {
-                field: "yolo".to_string(),
-            },
-            Emitter::Flag {
-                field: "prompt_interactive".to_string(),
-            },
-        ],
+        emitters: emitters(),
     })
 }
 fn llxprt_probe() -> super::super::probe::ProbeSpec {

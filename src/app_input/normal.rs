@@ -761,7 +761,9 @@ mod tests {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 AgentId(String::from("a1")),
                 String::from("Agent 1"),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,
@@ -844,7 +846,9 @@ mod tests {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 AgentId(String::from("a1")),
                 String::from("Agent 1"),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,
@@ -906,10 +910,6 @@ mod tests {
         ));
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Ctrl-r restart-agent key handler (RED → GREEN)
-    // ═══════════════════════════════════════════════════════════════════════
-
     fn key_press(code: KeyCode) -> KeyEvent {
         KeyEvent::new(KeyEventKind::Press, code)
     }
@@ -969,7 +969,7 @@ mod tests {
         );
     }
 
-    /// Ctrl-R (uppercase / shift) should also restart — be lenient with case.
+    /// Ctrl-R also restarts.
     #[test]
     fn ctrl_shift_r_also_restarts() {
         let snapshot = snapshot_with_agent("a3", true);
@@ -981,8 +981,7 @@ mod tests {
         ));
     }
 
-    /// Ctrl-r with no selected agent should produce `Handled(None)` — the key
-    /// is consumed (handled) but there's nothing to restart.
+    /// Ctrl-r without a selection is consumed without an event.
     #[test]
     fn ctrl_r_with_no_selection_is_handled_without_event() {
         let snapshot = NormalKeySnapshot {

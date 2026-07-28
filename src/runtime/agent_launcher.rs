@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::agent_executable::{AgentWrapperKind, ResolvedAgentExecutable};
+use crate::agent_candidate_path::AgentWrapperKind;
 
 /// Private CLI marker consumed before Jefe's public argument parser.
 pub const INTERNAL_LAUNCH_ARGUMENT: &str = "--jefe-internal-agent-launch";
@@ -51,14 +51,15 @@ impl From<AgentWrapperKind> for AgentWrapperKindPayload {
 
 /// Write a private launch plan and return only its non-secret transport path.
 pub fn write_launch_plan(
-    executable: &ResolvedAgentExecutable,
+    executable: &Path,
+    wrapper: AgentWrapperKind,
     args: &[OsString],
     environment: &[(OsString, OsString)],
 ) -> Result<PathBuf, AgentLauncherError> {
     let payload = AgentLaunchPayload {
-        path: executable.path().to_path_buf(),
-        wrapper: executable.wrapper_kind().into(),
-        script_launch: script_launch_payload(executable),
+        path: executable.to_path_buf(),
+        wrapper: wrapper.into(),
+        script_launch: None,
         args: args.to_vec(),
         environment: environment.to_vec(),
     };
@@ -161,28 +162,6 @@ fn secure_launch_plan_file(path: &Path) -> std::io::Result<std::fs::File> {
 #[cfg(not(unix))]
 fn secure_launch_plan_file(path: &Path) -> std::io::Result<std::fs::File> {
     OpenOptions::new().write(true).create_new(true).open(path)
-}
-
-pub(super) fn command_for_executable(
-    executable: &ResolvedAgentExecutable,
-    args: &[OsString],
-) -> Command {
-    command_for_payload(&AgentLaunchPayload {
-        path: executable.path().to_path_buf(),
-        wrapper: executable.wrapper_kind().into(),
-        script_launch: script_launch_payload(executable),
-        args: args.to_vec(),
-        environment: Vec::new(),
-    })
-}
-
-fn script_launch_payload(executable: &ResolvedAgentExecutable) -> Option<ScriptLaunchPayload> {
-    executable
-        .script_launch_plan()
-        .map(|plan| ScriptLaunchPayload {
-            runtime: plan.runtime().to_path_buf(),
-            entrypoint: plan.entrypoint().to_path_buf(),
-        })
 }
 
 fn command_for_payload(payload: &AgentLaunchPayload) -> Command {

@@ -24,6 +24,8 @@ fn issues_state_with_list(repo_id: &str) -> AppState {
     state.issues_state.issue_focus = IssueFocus::IssueList;
     let repo = crate::domain::Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "test".to_string(),
         "test".to_string(),
         std::path::PathBuf::from("/tmp"),

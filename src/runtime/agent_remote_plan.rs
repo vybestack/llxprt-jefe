@@ -52,6 +52,8 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::agent_candidate_path::AgentWrapperKind;
 use crate::domain::RemoteRepositorySettings;
 use crate::domain::agent_definition::{AgentLaunchPlan, Operation, RemoteTarget, Target};
 use crate::runtime::agent_plan::{
@@ -207,6 +209,12 @@ pub struct RemotePlanRequest<'a> {
     pub target: Target,
     /// Resolved executable path from the candidate resolver.
     pub executable: PathBuf,
+    /// Full physical executable fingerprint captured before planning.
+    pub executable_fingerprint: CandidateFingerprint,
+    /// Platform launch strategy captured before planning.
+    pub executable_wrapper: AgentWrapperKind,
+    /// Structural package-runner prefix finalized before immutable planning.
+    pub argv_prefix: Vec<OsString>,
     /// Current probe availability evidence.
     pub probe: crate::domain::agent_definition::Availability,
     /// Probe generation stamp.
@@ -327,6 +335,9 @@ pub fn plan_remote_launch(request: &RemotePlanRequest<'_>) -> RemotePlanOutcome 
         operation: request.operation,
         target: request.target.clone(),
         executable: request.executable.clone(),
+        executable_fingerprint: request.executable_fingerprint.clone(),
+        executable_wrapper: request.executable_wrapper,
+        argv_prefix: request.argv_prefix.clone(),
         probe: request.probe.clone(),
         probe_generation: request.probe_generation,
         target_generation: request.target_generation,
@@ -399,19 +410,28 @@ pub fn transcript_from_plan(
 
 fn serialize_remote_command(plan: &AgentLaunchPlan) -> Result<String, RemotePlanError> {
     let quoted_cwd = quote_os(plan.cwd.as_os_str())?;
-    let quoted_executable = quote_os(plan.executable.as_os_str())?;
-    let mut command = format!("cd {quoted_cwd} && exec");
+    Ok(format!(
+        "cd {quoted_cwd} && exec {}",
+        serialize_process_command(plan)?
+    ))
+}
+
+/// Serialize only the immutable plan's process environment, executable, and
+/// argv. Runtime tmux assembly reuses this audited serializer and adds only
+/// structural session-management syntax around it.
+pub(crate) fn serialize_process_command(plan: &AgentLaunchPlan) -> Result<String, RemotePlanError> {
+    let mut command = String::new();
     if !plan.env.is_empty() {
-        command.push_str(" env");
+        command.push_str("env");
         for (name, value) in &plan.env {
             let name = os_str(name)?;
             let value = os_str(value)?;
             command.push(' ');
             command.push_str(&posix_single_quote(&format!("{name}={value}"))?);
         }
+        command.push(' ');
     }
-    command.push(' ');
-    command.push_str(&quoted_executable);
+    command.push_str(&quote_os(plan.executable.as_os_str())?);
     for argument in &plan.argv {
         command.push(' ');
         command.push_str(&quote_os(argument)?);

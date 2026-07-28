@@ -81,7 +81,7 @@ mod transient_issue_send;
 mod transient_pr_send;
 mod transient_queue_ops;
 use agent_runtime::{
-    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    clear_agent_runtime_attachment, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
     worker_process_for,
 };
@@ -133,7 +133,7 @@ use tracing::{debug, warn};
 
 use std::time::Duration;
 
-use jefe::domain::{AgentId, LaunchSignature, Repository};
+use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -150,7 +150,7 @@ use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
+use jefe::runtime::{RuntimeError, RuntimeManager};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -215,7 +215,7 @@ use jefe::state::{AppEvent, AppState, PaneFocus, RepositoryFormFocus};
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
         focus,
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::SetupEnvDefault
     )
@@ -236,61 +236,27 @@ pub use persist_focus::{durable_save_request, schedule_durable_save};
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,
     repository: &Repository,
-) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: agent.work_dir.clone(),
-        profile: agent.profile.clone(),
-        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
-            repository.default_code_puppy_model.trim().to_owned()
-        } else {
-            agent.code_puppy_model.trim().to_owned()
-        },
-        code_puppy_version: agent.code_puppy_version.trim().to_owned(),
-        code_puppy_yolo: agent.code_puppy_yolo,
-        code_puppy_quick_resume: agent.code_puppy_quick_resume,
-        mode_flags: agent.mode_flags.clone(),
-        llxprt_debug: agent.llxprt_debug.clone(),
-        pass_continue: agent.pass_continue,
-        sandbox_enabled: agent.sandbox_enabled,
-        sandbox_engine: agent.sandbox_engine,
-        sandbox_flags: agent.sandbox_flags.clone(),
-        remote: repository.remote.clone(),
-        agent_kind: agent.agent_kind,
-        llxprt_version: agent.llxprt_version.clone(),
-    }
+) -> AgentLaunchRequest {
+    AgentLaunchRequest::for_agent(agent, repository)
 }
 
 pub fn launch_signature_for_transient(
     repository: &Repository,
     work_dir: &std::path::Path,
-) -> LaunchSignature {
-    LaunchSignature {
+) -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: repository.default_type_id.clone(),
+        values: repository.default_values.clone(),
         work_dir: work_dir.to_path_buf(),
-        profile: repository.default_profile.clone(),
-        code_puppy_model: repository.default_code_puppy_model.trim().to_owned(),
-        code_puppy_version: if repository.default_agent_kind == jefe::domain::AgentKind::CodePuppy {
-            repository.default_code_puppy_version.trim().to_owned()
-        } else {
-            String::new()
-        },
-        code_puppy_yolo: repository.default_code_puppy_yolo,
-        code_puppy_quick_resume: false,
-        mode_flags: repository.default_llxprt_mode_flags.clone(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: jefe::domain::SandboxEngine::default(),
-        sandbox_flags: String::new(),
         remote: repository.remote.clone(),
-        agent_kind: repository.default_agent_kind,
-        llxprt_version: repository.default_llxprt_version.clone(),
+        operation: jefe::domain::agent_definition::Operation::Normal,
     }
 }
 
 fn agent_and_signature(
     state: &AppState,
     agent_id: &AgentId,
-) -> Option<(jefe::domain::Agent, LaunchSignature)> {
+) -> Option<(jefe::domain::Agent, AgentLaunchRequest)> {
     let agent = state
         .agents
         .iter()
@@ -331,12 +297,12 @@ fn execute_agent_launch(
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &std::path::Path,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     is_relaunch: bool,
 ) -> Result<(), RuntimeError> {
     match spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch) {
         Ok(()) => {
-            mark_launch_attached(app_state, ctx, agent_id, signature);
+            mark_launch_attached(app_state, ctx, agent_id, signature)?;
             Ok(())
         }
         Err(error) => {
@@ -350,8 +316,8 @@ fn execute_agent_launch(
 fn spawn_and_attach(
     ctx: &SharedContext,
     agent_id: &AgentId,
-    work_dir: &std::path::Path,
-    signature: &LaunchSignature,
+    _work_dir: &std::path::Path,
+    signature: &AgentLaunchRequest,
     is_relaunch: bool,
 ) -> Result<(), RuntimeError> {
     let Some(ctx_arc) = ctx else {
@@ -365,19 +331,26 @@ fn spawn_and_attach(
         ));
     };
 
+    let (plan, remote) = jefe::runtime::launch_compose::plan_from_request(signature)?;
     let spawn_result = if is_relaunch {
         ctx_guard
             .runtime
-            .spawn_session_fresh(agent_id, work_dir, signature)
+            .spawn_session_fresh(agent_id, &plan, remote.as_ref())
     } else {
         ctx_guard
             .runtime
-            .spawn_session(agent_id, work_dir, signature)
+            .spawn_session(agent_id, &plan, remote.as_ref())
     };
     spawn_result.and_then(|()| {
         std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
         ctx_guard.runtime.attach(agent_id)
     })
+}
+
+fn launch_signature_for_request(
+    request: &AgentLaunchRequest,
+) -> Result<jefe::domain::LaunchSignatureV1, RuntimeError> {
+    jefe::runtime::launch_compose::launch_signature_from_request(request)
 }
 
 fn mark_launch_failed(
@@ -415,8 +388,8 @@ fn mark_launch_attached(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
-    signature: &LaunchSignature,
-) {
+    signature: &AgentLaunchRequest,
+) -> Result<(), RuntimeError> {
     // Query the runtime for the worker PID before taking the app-state write
     // lock, so the persisted binding carries the PID-liveness fallback.
     let (pid, process_identity) = worker_process_for(ctx, agent_id);
@@ -426,25 +399,16 @@ fn mark_launch_attached(
         &mut state,
         agent_id,
         jefe::runtime::RuntimeSession::session_name_for(agent_id),
-        signature.clone(),
+        launch_signature_for_request(signature)?,
         pid,
         process_identity,
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
-    // SSH agent warnings are only relevant for LLxprt sandbox sessions.
-    // CodePuppy does not use the LLxprt sandbox, so stale sandbox_enabled
-    // must not trigger the warning.
-    if signature.agent_kind == jefe::domain::AgentKind::Llxprt {
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(&mut state);
-        }
-    }
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);
+    Ok(())
 }
 
 pub fn handle_mode_help_key(
@@ -808,9 +772,6 @@ mod modal_handlers_tests;
 #[cfg(test)]
 #[path = "new_agent_submit_tests.rs"]
 mod new_agent_submit_tests;
-#[cfg(test)]
-#[path = "preflight_gating_tests.rs"]
-mod preflight_gating_tests;
 #[cfg(test)]
 #[path = "relaunch_tests.rs"]
 mod relaunch_tests;

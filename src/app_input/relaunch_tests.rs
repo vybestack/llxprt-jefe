@@ -8,14 +8,14 @@ use super::relaunch::{
     ServerLostRecoveryOutcome, apply_server_lost_recovery_outcomes, attach_relaunched_session,
     open_server_lost_recovery, persist_relaunch_failure, spawn_relaunch_session,
 };
-use super::tests::{sample_agent, sample_signature};
+use super::tests::{sample_agent, sample_launch_signature};
 
 fn bound_agent_state(agent_id: &AgentId) -> AppState {
     let mut agent = sample_agent(agent_id);
     agent.status = AgentStatus::Running;
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: "jefe-relaunch-test".to_owned(),
-        launch_signature: sample_signature(),
+        launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
         process_identity: None,
@@ -40,17 +40,6 @@ fn package_disappearing_after_preflight_remains_actionable_in_visible_state() {
             selector: "nightly".to_owned(),
             diagnostic: "package was removed".to_owned(),
         });
-    let mut runtime = StubRuntimeManager::with_spawn_failure(error.clone());
-    let signature = sample_signature();
-
-    let result = spawn_relaunch_session(&mut runtime, &agent_id, &signature.work_dir, &signature);
-    assert!(matches!(
-        result,
-        Err(RuntimeError::NpmPackageAvailability(
-            NpmPackageAvailabilityError::PackageUnresolved { .. }
-        ))
-    ));
-
     let mut state = bound_agent_state(&agent_id);
     persist_relaunch_failure(
         &mut state,
@@ -73,8 +62,8 @@ fn attach_failure_is_preserved_as_distinct_relaunch_diagnostic() {
     let attach_error =
         RuntimeError::AttachFailed("session exited before the viewer became ready".to_owned());
     let mut runtime = StubRuntimeManager::with_attach_failure(attach_error.clone());
-    let signature = sample_signature();
-    if let Err(error) = runtime.spawn_session(&agent_id, &signature.work_dir, &signature) {
+    let plan = jefe::domain::agent_definition::AgentLaunchPlan::default();
+    if let Err(error) = runtime.spawn_session(&agent_id, &plan, None) {
         panic!("test session should spawn: {error}");
     }
 

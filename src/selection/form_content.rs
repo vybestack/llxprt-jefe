@@ -12,8 +12,8 @@
 use crate::domain::PlatformCapabilities;
 use crate::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus, agent_form_visibility, effective_agent_kinds,
-    effective_kinds_hint, is_field_visible, is_repository_field_visible, kind_from_form_value,
+    RepositoryFormFields, RepositoryFormFocus, agent_form_visibility, effective_agent_type_ids,
+    effective_types_hint, is_field_visible, is_repository_field_visible, type_id_from_form_value,
 };
 use crate::ui::util::text_with_caret;
 
@@ -116,23 +116,23 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     let (title, fields, focus, cursor) = agent_form_state(state)?;
     let mut lines: Vec<String> = vec![format!(" {title}"), String::new()];
 
-    let visibility = agent_form_visibility(kind_from_form_value(&fields.agent_kind));
+    let visibility = agent_form_visibility(type_id_from_form_value(&fields.agent_type_id).as_ref());
 
     // Render pre-kind text fields, then Agent Runtime, then post-kind fields
     // so the line order matches the focus/navigation order
-    // (WorkDir → Profile → AgentKind → Mode).
+    // (WorkDir → Profile → AgentType → Mode).
     let pre_specs = agent_pre_kind_field_specs(fields, cursor);
-    agent_text_field_lines(&pre_specs, focus, visibility, &mut lines);
+    agent_text_field_lines(&pre_specs, focus, &visibility, &mut lines);
 
     let effective_kinds = effective_kinds_for_agent_form(state);
-    let kind_hint = effective_kinds_hint(&effective_kinds);
+    let kind_hint = effective_types_hint(&effective_kinds);
     lines.push(format!(
         "  {:<16} [{}]  ({kind_hint})",
-        "Agent Runtime", fields.agent_kind
+        "Agent Runtime", fields.agent_type_id
     ));
 
     let post_specs = agent_post_kind_field_specs(fields, cursor);
-    agent_text_field_lines(&post_specs, focus, visibility, &mut lines);
+    agent_text_field_lines(&post_specs, focus, &visibility, &mut lines);
 
     if visibility.shows_llxprt_fields() {
         lines.push(render_checkbox(
@@ -182,7 +182,7 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
 fn agent_text_field_lines(
     specs: &[(&str, String, AgentFormFocus, usize)],
     focus: AgentFormFocus,
-    visibility: crate::state::AgentFormFieldVisibility,
+    visibility: &crate::state::AgentFormFieldVisibility,
     lines: &mut Vec<String>,
 ) {
     for (label, value, field_focus, field_cursor) in specs {
@@ -273,6 +273,24 @@ fn repo_remote_field_specs(
     ]
 }
 
+fn append_default_selector_field(
+    fields: &RepositoryFormFields,
+    focus: RepositoryFormFocus,
+    cursor: &RepositoryFormCursor,
+    type_id: Option<&crate::domain::agent_definition::AgentTypeId>,
+    lines: &mut Vec<String>,
+) {
+    if !is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtVersion, type_id) {
+        return;
+    }
+    let value = focused_value(
+        &fields.default_llxprt_version,
+        cursor.default_llxprt_version,
+        focus == RepositoryFormFocus::DefaultLlxprtVersion,
+    );
+    lines.push(render_field("Default Version", &value));
+}
+
 fn append_repository_runtime_fields(
     state: &AppState,
     fields: &RepositoryFormFields,
@@ -280,8 +298,11 @@ fn append_repository_runtime_fields(
     cursor: &RepositoryFormCursor,
     lines: &mut Vec<String>,
 ) {
-    let default_kind = kind_from_form_value(&fields.default_agent_kind);
-    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyModel, default_kind) {
+    let default_kind = type_id_from_form_value(&fields.default_type_id);
+    if is_repository_field_visible(
+        RepositoryFormFocus::DefaultCodePuppyModel,
+        default_kind.as_ref(),
+    ) {
         let value = focused_value(
             &fields.default_code_puppy_model,
             cursor.default_code_puppy_model,
@@ -289,21 +310,27 @@ fn append_repository_runtime_fields(
         );
         lines.push(render_field("Default Model", &value));
     }
-    let kinds = effective_agent_kinds(&state.installed_agent_kinds, fields.remote_enabled);
+    let kinds = effective_agent_type_ids(&state.available_agent_type_ids, fields.remote_enabled);
     lines.push(format!(
         "  {:<16} [{}]  ({})",
         "Default Agent",
-        fields.default_agent_kind,
-        effective_kinds_hint(&kinds)
+        fields.default_type_id,
+        effective_types_hint(&kinds)
     ));
-    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyYolo, default_kind) {
+    if is_repository_field_visible(
+        RepositoryFormFocus::DefaultCodePuppyYolo,
+        default_kind.as_ref(),
+    ) {
         lines.push(render_checkbox(
             "Default YOLO",
             fields.default_code_puppy_yolo,
             "space toggles",
         ));
     }
-    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyVersion, default_kind) {
+    if is_repository_field_visible(
+        RepositoryFormFocus::DefaultCodePuppyVersion,
+        default_kind.as_ref(),
+    ) {
         let value = focused_value(
             &fields.default_code_puppy_version,
             cursor.default_code_puppy_version,
@@ -311,7 +338,10 @@ fn append_repository_runtime_fields(
         );
         lines.push(render_field("Default Version", &value));
     }
-    if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtMode, default_kind) {
+    if is_repository_field_visible(
+        RepositoryFormFocus::DefaultLlxprtMode,
+        default_kind.as_ref(),
+    ) {
         let value = focused_value(
             &fields.default_llxprt_mode,
             cursor.default_llxprt_mode,
@@ -319,14 +349,7 @@ fn append_repository_runtime_fields(
         );
         lines.push(render_field("Default Mode", &value));
     }
-    if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtVersion, default_kind) {
-        let value = focused_value(
-            &fields.default_llxprt_version,
-            cursor.default_llxprt_version,
-            focus == RepositoryFormFocus::DefaultLlxprtVersion,
-        );
-        lines.push(render_field("Default Version", &value));
-    }
+    append_default_selector_field(fields, focus, cursor, default_kind.as_ref(), lines);
 }
 
 fn focused_value(value: &str, cursor: usize, focused: bool) -> String {
@@ -453,7 +476,9 @@ fn sandbox_engine_hint(sandbox_enabled: bool) -> String {
 /// matching what the form-state cycling logic offers. Remote-enabled
 /// repositories offer both kinds; local repositories offer only installed
 /// kinds.
-fn effective_kinds_for_agent_form(state: &AppState) -> Vec<crate::domain::AgentKind> {
+fn effective_kinds_for_agent_form(
+    state: &AppState,
+) -> Vec<crate::domain::agent_definition::AgentTypeId> {
     let is_remote = match &state.modal {
         ModalState::NewAgent { repository_id, .. } => state
             .repository_by_id(repository_id)
@@ -463,7 +488,7 @@ fn effective_kinds_for_agent_form(state: &AppState) -> Vec<crate::domain::AgentK
             .is_some_and(|r| r.remote.enabled),
         _ => false,
     };
-    effective_agent_kinds(&state.installed_agent_kinds, is_remote)
+    effective_agent_type_ids(&state.available_agent_type_ids, is_remote)
 }
 
 #[cfg(test)]
@@ -558,6 +583,7 @@ mod tests {
             modal: ModalState::NewAgent {
                 repository_id: RepositoryId("r1".to_string()),
                 fields: AgentFormFields {
+                    agent_type_id: "core.llxprt".to_owned(),
                     sandbox_enabled: false,
                     ..Default::default()
                 },
@@ -586,6 +612,7 @@ mod tests {
             modal: ModalState::NewAgent {
                 repository_id: RepositoryId("r1".to_string()),
                 fields: AgentFormFields {
+                    agent_type_id: "core.llxprt".to_owned(),
                     sandbox_enabled: true,
                     ..Default::default()
                 },
@@ -614,6 +641,7 @@ mod tests {
             modal: ModalState::NewAgent {
                 repository_id: RepositoryId("r1".to_string()),
                 fields: AgentFormFields {
+                    agent_type_id: "core.llxprt".to_owned(),
                     sandbox_flags: "--network".to_string(),
                     ..Default::default()
                 },

@@ -11,6 +11,8 @@ use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 fn repository(id: &str) -> Repository {
     Repository::new(
         RepositoryId(id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         id.to_uppercase(),
         id.into(),
         PathBuf::from(format!("/{id}")),
@@ -21,6 +23,8 @@ fn agent(id: &str, name: &str, status: AgentStatus) -> Agent {
     let mut agent = Agent::new(
         AgentId(id.into()),
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         name.into(),
         PathBuf::from(format!("/r1/{id}")),
     );
@@ -28,48 +32,27 @@ fn agent(id: &str, name: &str, status: AgentStatus) -> Agent {
     agent
 }
 
-#[test]
-fn visible_agents_matches_agent_indices_when_idle_hidden() {
-    let state = AppState {
-        repositories: vec![Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        )],
-        agents: vec![
-            Agent::new(
-                AgentId("idle1".into()),
-                RepositoryId("r1".into()),
-                "Idle A".into(),
-                PathBuf::from("/r1/idle1"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("run1".into()),
-                    RepositoryId("r1".into()),
-                    "Running B".into(),
-                    PathBuf::from("/r1/run1"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
-            {
-                let mut running = Agent::new(
-                    AgentId("run2".into()),
-                    RepositoryId("r1".into()),
-                    "Running C".into(),
-                    PathBuf::from("/r1/run2"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
-        ],
+fn visibility_state(agents: Vec<Agent>, selected_agent_index: usize) -> AppState {
+    AppState {
+        repositories: vec![repository("r1")],
+        agents,
         selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
+        selected_agent_index: Some(selected_agent_index),
         pane_focus: PaneFocus::Agents,
         ..AppState::default()
-    };
+    }
+}
+
+#[test]
+fn visible_agents_matches_agent_indices_when_idle_hidden() {
+    let state = visibility_state(
+        vec![
+            agent("idle1", "Idle A", AgentStatus::Queued),
+            agent("run1", "Running B", AgentStatus::Running),
+            agent("run2", "Running C", AgentStatus::Running),
+        ],
+        1,
+    );
 
     let hidden = state
         .apply(AppEvent::ToggleHideIdleRepositories)
@@ -97,52 +80,15 @@ fn visible_agents_matches_agent_indices_when_idle_hidden() {
 
 #[test]
 fn selected_agent_local_index_matches_visible_agents_position() {
-    let state = AppState {
-        repositories: vec![Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        )],
-        agents: vec![
-            Agent::new(
-                AgentId("idle1".into()),
-                RepositoryId("r1".into()),
-                "Idle A".into(),
-                PathBuf::from("/r1/idle1"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("run1".into()),
-                    RepositoryId("r1".into()),
-                    "Running B".into(),
-                    PathBuf::from("/r1/run1"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
-            Agent::new(
-                AgentId("idle2".into()),
-                RepositoryId("r1".into()),
-                "Idle C".into(),
-                PathBuf::from("/r1/idle2"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("run2".into()),
-                    RepositoryId("r1".into()),
-                    "Running D".into(),
-                    PathBuf::from("/r1/run2"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
+    let state = visibility_state(
+        vec![
+            agent("idle1", "Idle A", AgentStatus::Queued),
+            agent("run1", "Running B", AgentStatus::Running),
+            agent("idle2", "Idle C", AgentStatus::Queued),
+            agent("run2", "Running D", AgentStatus::Running),
         ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
-    };
+        1,
+    );
 
     let hidden = state
         .apply(AppEvent::ToggleHideIdleRepositories)
@@ -167,6 +113,8 @@ fn visible_agents_returns_all_when_filter_disabled() {
     let state = AppState {
         repositories: vec![Repository::new(
             RepositoryId("r1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
@@ -175,6 +123,8 @@ fn visible_agents_returns_all_when_filter_disabled() {
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A".into(),
                 PathBuf::from("/r1/idle1"),
             ),
@@ -182,6 +132,8 @@ fn visible_agents_returns_all_when_filter_disabled() {
                 let mut running = Agent::new(
                     AgentId("run1".into()),
                     RepositoryId("r1".into()),
+                    jefe::domain::shipped_agent_type(3),
+                    jefe::domain::TypedMap::new(),
                     "Running B".into(),
                     PathBuf::from("/r1/run1"),
                 );
@@ -255,6 +207,8 @@ fn visible_agent_count_includes_all_when_filter_off() {
     let state = AppState {
         repositories: vec![Repository::new(
             RepositoryId("r1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
@@ -263,6 +217,8 @@ fn visible_agent_count_includes_all_when_filter_off() {
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A".into(),
                 PathBuf::from("/r1/idle1"),
             ),
@@ -270,6 +226,8 @@ fn visible_agent_count_includes_all_when_filter_off() {
                 let mut a = Agent::new(
                     AgentId("run1".into()),
                     RepositoryId("r1".into()),
+                    jefe::domain::shipped_agent_type(3),
+                    jefe::domain::TypedMap::new(),
                     "Running B".into(),
                     PathBuf::from("/r1/run1"),
                 );
@@ -295,6 +253,8 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
     let state = AppState {
         repositories: vec![Repository::new(
             RepositoryId("r1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
@@ -303,6 +263,8 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A".into(),
                 PathBuf::from("/r1/idle1"),
             ),
@@ -310,6 +272,8 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
                 let mut a = Agent::new(
                     AgentId("run1".into()),
                     RepositoryId("r1".into()),
+                    jefe::domain::shipped_agent_type(3),
+                    jefe::domain::TypedMap::new(),
                     "Running B".into(),
                     PathBuf::from("/r1/run1"),
                 );
@@ -339,12 +303,16 @@ fn visible_repo_count_matches_visible_repository_indices() {
         repositories: vec![
             Repository::new(
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R1".into(),
                 "r1".into(),
                 PathBuf::from("/r1"),
             ),
             Repository::new(
                 RepositoryId("r2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R2".into(),
                 "r2".into(),
                 PathBuf::from("/r2"),
@@ -355,6 +323,8 @@ fn visible_repo_count_matches_visible_repository_indices() {
                 let mut a = Agent::new(
                     AgentId("run1".into()),
                     RepositoryId("r1".into()),
+                    jefe::domain::shipped_agent_type(3),
+                    jefe::domain::TypedMap::new(),
                     "Running A".into(),
                     PathBuf::from("/r1/run1"),
                 );
@@ -364,6 +334,8 @@ fn visible_repo_count_matches_visible_repository_indices() {
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle B".into(),
                 PathBuf::from("/r2/idle1"),
             ),
@@ -397,6 +369,8 @@ fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
     let mut a = Agent::new(
         AgentId(id.into()),
         RepositoryId(repo_id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         name.into(),
         PathBuf::from(format!("/{repo_id}/{id}")),
     );

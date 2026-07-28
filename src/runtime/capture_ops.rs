@@ -19,7 +19,7 @@ pub fn capture_session_output(
     agent_id: &AgentId,
 ) -> Option<TerminalSnapshot> {
     let session = mgr.sessions.get(agent_id)?;
-    if session.launch_signature.remote.enabled {
+    if session.remote.is_some() {
         return None;
     }
 
@@ -77,7 +77,7 @@ pub fn capture_history(mgr: &mut TmuxRuntimeManager) -> Option<Vec<String>> {
         // because subsequent calls (output_generation, snapshot,
         // history_cache.store) borrow mgr through other fields.
         let name = session.session_name.clone();
-        if session.launch_signature.remote.enabled {
+        if session.remote.is_some() {
             return None;
         }
         name

@@ -47,6 +47,8 @@ mod tests {
         let mut agent = Agent::new(
             AgentId("t1".to_string()),
             RepositoryId("r1".to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Transient".to_string(),
             PathBuf::from(work_dir),
         );
@@ -90,6 +92,8 @@ mod tests {
         state.agents.push(Agent::new(
             AgentId("p1".to_string()),
             RepositoryId("r1".to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Persistent".to_string(),
             temp.clone(),
         ));

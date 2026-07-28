@@ -146,12 +146,9 @@ impl AppState {
                             observation.apply_probe_result(*generation, *availability.clone())
                         });
                     if applied {
-                        let definitions =
-                            crate::domain::agent_definition::AgentDefinition::shipped();
-                        self.installed_agent_kinds =
-                            crate::agent_detection::compatible_legacy_agent_kinds(
+                        self.available_agent_type_ids =
+                            crate::agent_detection::compatible_agent_type_ids(
                                 &self.agent_type_availability,
-                                &definitions,
                             );
                     }
                 }

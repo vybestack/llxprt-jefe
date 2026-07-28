@@ -61,7 +61,7 @@ pub(super) fn agent_from_queued_signature(
     agent_id: AgentId,
     repository_id: RepositoryId,
     repo: &jefe::domain::Repository,
-    signature: &jefe::domain::LaunchSignature,
+    signature: &jefe::domain::AgentLaunchRequest,
 ) -> Agent {
     Agent::new_transient_from_signature(agent_id, repository_id, repo, signature)
 }
