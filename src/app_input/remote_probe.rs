@@ -240,9 +240,11 @@ fn probe_inner_command(type_id: &AgentTypeId, work_dir: &Path) -> String {
             }
             CandidateKind::RepositoryLlxprt => Some(format!(
                 "[ -x {} ]",
-                shell_escape(&normalize_remote_path(
-                    &work_dir.join(&candidate.value).to_string_lossy(),
-                ))
+                shell_escape(&normalize_remote_path(&format!(
+                    "{}/{}",
+                    work_dir.to_string_lossy().trim_end_matches('/'),
+                    candidate.value.to_string_lossy().trim_start_matches('/'),
+                )))
             )),
             _ => None,
         })
