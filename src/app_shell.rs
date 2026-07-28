@@ -144,135 +144,16 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
 
-    // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
-    // exactly two tmux subprocess invocations (list-sessions + list-panes -a)
-    // regardless of agent count, offloaded to a background OS thread via
-    // `smol::unblock` so the executor stays free for input events (issue #287).
-    // Remote agents are excluded — their SSH round-trips would starve the
-    // executor; remote death is detected lazily on select/attach.
+    // Slow-poll LOCAL agent liveness (~every 2s). On Windows it first probes
+    // the shared psmux server identity; a `Gone`/`Replaced` server transitions
+    // affected running agents to `ServerLost` (binding preserved) instead of
+    // `Dead`. On other platforms the batched check is unchanged (issue #493
+    // Stack A). The body lives in [`crate::app_shell_liveness::run_local_liveness`].
     hooks.use_future({
         let ctx = ctx.clone();
-        let mut app_state = app_state;
+        let app_state = app_state;
         async move {
-            loop {
-                smol::Timer::after(std::time::Duration::from_secs(2)).await;
-
-                let Some(ctx_arc) = &ctx else {
-                    continue;
-                };
-
-                // Collect local-only check targets under the lock, then release it.
-                let targets: Vec<_> = {
-                    let Ok(ctx_guard) = ctx_arc.lock() else {
-                        continue;
-                    };
-                    let state = app_state.read();
-                    let running_ids: Vec<AgentId> = state
-                        .agents
-                        .iter()
-                        .filter(|a| a.is_running())
-                        .map(|a| a.id.clone())
-                        .collect();
-                    drop(state);
-                    let all_targets = ctx_guard.runtime.liveness_targets();
-                    drop(ctx_guard);
-
-                    all_targets
-                        .into_iter()
-                        .filter(|t| t.remote.is_none() && running_ids.contains(&t.agent_id))
-                        .collect::<Vec<_>>()
-                };
-
-                if targets.is_empty() {
-                    continue;
-                }
-
-                // Offload the batched tmux subprocess calls to a background OS
-                // thread so the smol executor can continue processing input.
-                let dead_identities = smol::unblock(move || {
-                    jefe::runtime::batch_liveness_check_with_identity(&targets)
-                })
-                .await;
-
-                if !dead_identities.is_empty() {
-                    debug!(
-                        count = dead_identities.len(),
-                        "liveness poll found dead agents"
-                    );
-                    let mut dead_previews: std::collections::HashMap<_, _> =
-                        crate::app_shell_workers::capture_dead_previews(dead_identities.clone())
-                            .await
-                            .into_iter()
-                            .map(|(identity, lines)| (identity.agent_id, lines))
-                            .collect();
-                    let mut state = app_state.write();
-                    let binding_matches = {
-                        let current_bindings: std::collections::HashMap<_, _> = state
-                            .agents
-                            .iter()
-                            .filter_map(|agent| {
-                                agent.runtime_binding.as_ref().map(|binding| {
-                                    (
-                                        &agent.id,
-                                        (
-                                            binding.session_name.as_str(),
-                                            binding.lifecycle_generation,
-                                        ),
-                                    )
-                                })
-                            })
-                            .collect();
-                        dead_identities
-                            .iter()
-                            .map(|identity| {
-                                current_bindings.get(&identity.agent_id).is_some_and(
-                                    |(session_name, generation)| {
-                                        Some(*session_name)
-                                            == identity.binding_session_name.as_deref()
-                                            && *generation == identity.lifecycle_generation
-                                    },
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                    };
-                    let mut changed = false;
-                    for (identity, binding_matches) in
-                        dead_identities.iter().zip(binding_matches)
-                    {
-                        if !binding_matches {
-                            debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
-                            continue;
-                        }
-                        let preview = dead_previews.remove(&identity.agent_id);
-                        jefe::state::transition::commit_pure_site(
-                            &mut state,
-                            AppEvent::AgentStatusChanged(
-                                identity.agent_id.clone(),
-                                AgentStatus::Dead,
-                            )
-                            .into(),
-                        );
-                        if let Some(agent) = state
-                            .agents
-                            .iter_mut()
-                            .find(|agent| agent.id == identity.agent_id)
-                        {
-                            agent.runtime_binding = None;
-                        }
-                        if let Some(lines) = preview {
-                            state.store_dead_preview(identity.agent_id.clone(), lines);
-                        }
-                        changed = true;
-                    }
-                    if changed {
-                        let persisted = durable_save_request(&mut state);
-                        drop(state);
-                        schedule_durable_save(&ctx, persisted);
-                    } else {
-                        drop(state);
-                    }
-                }
-            }
+            crate::app_shell_liveness::run_local_liveness(app_state, ctx).await;
         }
     });
 

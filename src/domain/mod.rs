@@ -688,7 +688,7 @@ impl UserPreferences {
     }
 }
 
-/// Agent lifecycle status.
+/// Agent lifecycle status (`ServerLost`: server vanished, preserves binding, #493).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AgentStatus {
     #[default]
@@ -699,6 +699,7 @@ pub enum AgentStatus {
     Waiting,
     Paused,
     Dead,
+    ServerLost,
 }
 
 /// An agent is the primary work unit in Jefe.

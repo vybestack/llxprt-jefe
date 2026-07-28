@@ -39,6 +39,9 @@ mod package_probe;
 mod pane_capture;
 mod preflight;
 mod process;
+/// Pure server-health classification contract (issue #493 Slice 1).
+mod server_health;
+mod server_health_io;
 mod session;
 /// Per-session, content-addressed Windows host staging (issue #467 Slice 1).
 pub(crate) mod session_host;
@@ -104,6 +107,11 @@ pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
     classify_process_observation, process_liveness, process_liveness_indicates_alive,
 };
+pub use server_health::{
+    ServerHealth, ServerIdentity, ServerLivenessEvidence, ServerLivenessObservation,
+    classify_server_health, classify_server_liveness, parse_server_identity_output,
+};
+pub use server_health_io::observe_server_liveness;
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 // Issue #467 Slice 2: re-export session-host cleanup/planning items used by the
 // startup path and the manager kill path.

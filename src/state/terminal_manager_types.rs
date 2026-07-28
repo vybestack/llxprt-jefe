@@ -127,5 +127,6 @@ pub fn status_label_for(status: AgentStatus) -> &'static str {
         AgentStatus::Waiting => "Waiting",
         AgentStatus::Paused => "Paused",
         AgentStatus::Dead => "Dead",
+        AgentStatus::ServerLost => "Server Lost",
     }
 }

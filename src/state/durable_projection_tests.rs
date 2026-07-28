@@ -226,6 +226,23 @@ fn forward_maps_runtime_status_to_last_known() {
 }
 
 #[test]
+fn forward_preserves_server_lost_as_last_known_running() {
+    let mut state = sample_state();
+    state.agents[0].status = AgentStatus::ServerLost;
+
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+
+    assert_eq!(
+        projected.agents[0].runtime.last_known,
+        LastKnownRuntime::Running
+    );
+    assert_eq!(
+        projected.agents[0].runtime.session_id.as_deref(),
+        Some("jefe-runner")
+    );
+}
+
+#[test]
 fn forward_rewrites_invalid_ids_deterministically_with_remapped_references() {
     let mut state = sample_state();
     state.repositories[0].id = RepositoryId("Bad Repo!".to_owned());

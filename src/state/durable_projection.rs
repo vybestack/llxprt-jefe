@@ -457,7 +457,7 @@ fn project_preferences(
 
 fn last_known_runtime(status: AgentStatus) -> LastKnownRuntime {
     match status {
-        AgentStatus::Running => LastKnownRuntime::Running,
+        AgentStatus::Running | AgentStatus::ServerLost => LastKnownRuntime::Running,
         AgentStatus::Dead => LastKnownRuntime::Stopped,
         _ => LastKnownRuntime::Unknown,
     }
