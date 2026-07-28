@@ -392,7 +392,7 @@ fn run_npm_install(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::domain::agent_definition::{AgentDefinition, AgentLaunchPlan, Target};
