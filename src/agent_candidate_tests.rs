@@ -82,6 +82,7 @@ fn path_name(name: &str) -> ExecutableCandidate {
     }
 }
 
+#[cfg(unix)]
 fn npm_candidate(package: &str, binary: &str) -> ExecutableCandidate {
     ExecutableCandidate {
         kind: CandidateKind::NpmPackage {
@@ -92,6 +93,7 @@ fn npm_candidate(package: &str, binary: &str) -> ExecutableCandidate {
     }
 }
 
+#[cfg(unix)]
 fn uvx_candidate(package: &str, binary: &str) -> ExecutableCandidate {
     ExecutableCandidate {
         kind: CandidateKind::UvxPackage {

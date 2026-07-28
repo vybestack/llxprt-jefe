@@ -3,8 +3,10 @@
 //! @plan PLAN-20260629-TMUX-HARNESS.P04
 //! @requirement REQ-TMUX-HARNESS-004
 
+#[cfg(unix)]
 #[path = "runner_agent_fixture.rs"]
 mod runner_agent_fixture;
+#[cfg(unix)]
 use runner_agent_fixture::{install_llxprt_probe_fixture, prepend_fixture_path};
 
 use std::collections::VecDeque;
@@ -703,6 +705,7 @@ fn make_sticky_binding(
     }
 }
 
+#[cfg(unix)]
 fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
     let scenario = scenario_with_wait_timeout(
         r#"[

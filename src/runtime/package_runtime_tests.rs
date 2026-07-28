@@ -30,6 +30,7 @@ fn executable(dir: &TempDir, name: &str, script: &str) -> PathBuf {
     path
 }
 
+#[cfg(unix)]
 fn definition(name: &str) -> AgentDefinition {
     AgentDefinition::shipped()
         .into_iter()
@@ -37,6 +38,7 @@ fn definition(name: &str) -> AgentDefinition {
         .unwrap_or_else(|| panic!("shipped definition {name}"))
 }
 
+#[cfg(unix)]
 fn compatible(generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: "fixture".to_string(),
@@ -67,6 +69,7 @@ fn resolve_package(
     candidate
 }
 
+#[cfg(unix)]
 fn local_base_plan(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
@@ -156,6 +159,7 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
     assert!(package_json.contains("\"@vybestack/llxprt-code\": \"2.0.0\""));
 }
 
+#[cfg(unix)]
 fn remote_settings() -> RemoteRepositorySettings {
     RemoteRepositorySettings {
         enabled: true,
