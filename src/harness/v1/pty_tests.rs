@@ -95,7 +95,7 @@ fn self_exiting_command_reports_its_own_exit_code() {
         "-c".to_string(),
         // Exit shortly after teardown begins, so the status is still being
         // finalized when it samples: the exact window CI hit.
-        "printf 'done\\n'; sleep 0.2; exit 0".to_string(),
+        "printf 'done\\n'; sleep 0.75; exit 0".to_string(),
     ];
     let mut session = PtySession::launch(
         &argv,
