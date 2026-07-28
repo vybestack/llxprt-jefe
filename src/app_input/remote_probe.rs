@@ -47,6 +47,7 @@ use std::path::Path;
 
 use jefe::domain::RemoteRepositorySettings;
 use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, CandidateKind};
+use jefe::domain::canonical_values::normalize_remote_path;
 
 /// Sentinel emitted by the probe when the binary IS available.
 const SENTINEL_OK: &str = "JEFE_PROBE_OK";
@@ -239,7 +240,9 @@ fn probe_inner_command(type_id: &AgentTypeId, work_dir: &Path) -> String {
             }
             CandidateKind::RepositoryLlxprt => Some(format!(
                 "[ -x {} ]",
-                shell_escape(&work_dir.join(&candidate.value).to_string_lossy())
+                shell_escape(&normalize_remote_path(
+                    &work_dir.join(&candidate.value).to_string_lossy(),
+                ))
             )),
             _ => None,
         })
