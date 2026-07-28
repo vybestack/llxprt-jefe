@@ -73,7 +73,14 @@ jobs:
       - name: 'Checkout base revision'
         uses: 'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8' # ratchet:actions/checkout@v5
         with:
-          ref: '${{ github.event.pull_request.base.sha }}'
+          # Resolve the base-branch tip, not the recorded pull_request.base.sha.
+          # base.sha can lag behind the commit that introduced this workflow's
+          # supporting scripts (e.g. scripts/ci-quota-check.mjs); checking out a
+          # stale base.sha yields a tree that lacks those scripts and fails with
+          # 'Cannot find module ...'. The base branch tip always contains them.
+          # base.sha is still fetched (fetch-depth: 0) and used as the
+          # git merge-base input below, so PR diff scoping is unchanged.
+          ref: '${{ github.event.pull_request.base.ref }}'
           fetch-depth: 0
 
       - name: 'Prepare review workspace'
