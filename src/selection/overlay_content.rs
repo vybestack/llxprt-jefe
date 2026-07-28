@@ -544,7 +544,17 @@ mod tests {
         let content = confirm_modal_lines(&state);
         assert!(!content.lines.is_empty());
         assert_eq!(content.lines[0], "Working Copy Not Ready");
-        assert!(content.lines[2].contains("default branch"));
+        // Issue #479: the dirty-copy confirm must offer to DELETE the working
+        // copy and re-clone (not merely discard changes), matching what the
+        // confirm path actually performs (force-reclone).
+        assert!(
+            content.lines[2].to_lowercase().contains("delete"),
+            "dirty-copy confirm must mention deleting the working copy: {content:?}"
+        );
+        assert!(
+            content.lines[2].to_lowercase().contains("clone"),
+            "dirty-copy confirm must mention re-cloning: {content:?}"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Tests for local working-copy preparation (split from `issue_prep.rs`).
 //!
 //! These tests exercise local integration with real temp git repos (clean
-//! prep, dirty Stop/Discard, owned-metadata ignored, clone-when-missing),
+//! prep, dirty detection, owned-metadata ignored, clone-when-missing),
 //! local origin-mismatch detection, and the LOCAL PR-prompt /
 //! path-traversal safety tests.
 //!
@@ -54,7 +54,7 @@ impl<T> TestOptionExt<T> for Option<T> {
 //
 // These exercise the local target path with real git repositories in a
 // temp directory. They prove: existing clean prep, missing clone
-// failure (no identity), non-git dir failure, dirty Stop/Discard,
+// failure (no identity), non-git dir failure, dirty detection,
 // owned-metadata (.jefe/.llxprt) ignored, and prompt written last.
 
 /// Create a bare origin repo with an initial commit on `main`, and return
@@ -175,8 +175,8 @@ fn local_checkout_blocker_returns_dirty_without_changing_worktree_or_index() {
     let index_before = git_stdout(&work, &["ls-files", "--stage"]);
     let status_before = git_stdout(&work, &["status", "--porcelain=v1"]);
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop)
-        .value_or_panic("checkout conflict should become dirty outcome");
+    let outcome =
+        prepare_local(&work, None).value_or_panic("checkout conflict should become dirty outcome");
 
     assert_eq!(outcome, PrepOutcome::Dirty);
     assert_eq!(
@@ -198,48 +198,6 @@ fn local_checkout_blocker_returns_dirty_without_changing_worktree_or_index() {
     cleanup(&work);
 }
 
-#[test]
-fn local_confirmed_checkout_blocker_discard_reaches_fetched_main() {
-    let (origin, work) = owned_checkout_conflict("owned-checkout-discard");
-    std::fs::write(work.join(".llxprt/session.json"), "preserve me")
-        .value_or_panic("write untracked owned metadata");
-    std::fs::write(work.join("remove-me.txt"), "discard me")
-        .value_or_panic("write non-owned untracked file");
-
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard)
-        .value_or_panic("confirmed checkout conflict cleanup");
-
-    assert_eq!(outcome, PrepOutcome::Ready);
-    assert_eq!(
-        git_stdout(&work, &["rev-parse", "HEAD"]),
-        git_stdout(&work, &["rev-parse", "origin/main"])
-    );
-    assert_eq!(
-        git_stdout(&work, &["branch", "--show-current"]).trim(),
-        "main"
-    );
-    assert!(
-        git_stdout(&work, &["diff", "--cached", "--name-only"])
-            .trim()
-            .is_empty(),
-        "confirmed cleanup must leave no staged changes"
-    );
-    assert!(!work.join("remove-me.txt").exists());
-    assert_eq!(
-        std::fs::read_to_string(work.join(".llxprt/LLXPRT.md"))
-            .value_or_panic("read main owned metadata"),
-        "main memory"
-    );
-    assert_eq!(
-        std::fs::read_to_string(work.join(".llxprt/session.json"))
-            .value_or_panic("read preserved untracked owned metadata"),
-        "preserve me"
-    );
-
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&work);
-}
-
 fn cleanup(path: &Path) {
     // Best-effort cleanup; failures are silently ignored because this runs at
     // the end of every test and a missing/non-empty dir is not actionable.
@@ -253,7 +211,7 @@ fn local_existing_clean_prep_succeeds() {
     // Pre-create .jefe so we prove owned metadata is ignored.
     std::fs::create_dir_all(work.join(".jefe")).value_or_panic("create .jefe");
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     cleanup(origin.parent().unwrap_or(&origin));
@@ -295,9 +253,9 @@ fn local_linked_worktree_is_detected_as_git() {
 fn local_linked_worktree_on_non_default_branch_warns_then_fails_safely() {
     // A linked worktree on a non-default branch must NOT be silently reset
     // to the default branch (that would move the wrong branch ref and risk
-    // discarding commits). With issue #338, the Stop policy now returns
-    // Dirty (warns the user before any checkout) and the Discard policy
-    // surfaces a clear error when the checkout is attempted.
+    // discarding commits). With issue #338, prep returns Dirty (warns the
+    // user before any checkout). The confirm path force-reclones (issue
+    // #479), so no in-place discard is attempted here.
     let origin = bare_origin_with_commit("linkedwtfail");
     let primary = clone_origin(&origin, "linkedwtfail-primary");
     let linked = std::env::temp_dir().join(format!(
@@ -319,19 +277,10 @@ fn local_linked_worktree_on_non_default_branch_warns_then_fails_safely() {
     );
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
-    // Stop policy: the user is warned (Dirty) before any checkout attempt.
-    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop)
-        .value_or_panic("linked worktree Stop must return Dirty");
+    // Prep must return Dirty: the user is warned before any checkout attempt.
+    let outcome =
+        prepare_local(&linked, None).value_or_panic("linked worktree prep must return Dirty");
     assert_eq!(outcome, PrepOutcome::Dirty);
-
-    // Discard policy: the checkout is attempted and fails safely because the
-    // worktree is on a different branch than the default.
-    let err = prepare_local(&linked, None, DirtyPolicy::Discard)
-        .error_or_panic("linked worktree Discard must error on checkout");
-    assert!(
-        err.contains("not the default"),
-        "error must explain wrong-branch refusal: {err}"
-    );
 
     cleanup(&linked);
     cleanup(&primary);
@@ -358,7 +307,7 @@ fn local_linked_worktree_on_default_branch_succeeds() {
     );
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
-    let outcome = prepare_local(&linked, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&linked, None).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     cleanup(&linked);
@@ -374,7 +323,7 @@ fn local_missing_without_identity_fails_safely() {
         rand_label()
     ));
     // No identity → must fail, not create the dir.
-    let result = prepare_local(&work, None, DirtyPolicy::Stop);
+    let result = prepare_local(&work, None);
     assert!(result.is_err(), "missing dir with no identity must fail");
     assert!(
         !work.exists(),
@@ -391,7 +340,7 @@ fn local_existing_non_git_dir_fails() {
     ));
     std::fs::create_dir_all(&work).value_or_panic("create non-git dir");
     std::fs::write(work.join("file.txt"), "not a repo").value_or_panic("write non-repo file");
-    let result = prepare_local(&work, None, DirtyPolicy::Stop);
+    let result = prepare_local(&work, None);
     assert!(result.is_err(), "non-git dir must fail safely");
     let err = result.error_or_panic("non-git dir must error");
     assert!(
@@ -408,30 +357,14 @@ fn local_dirty_stop_returns_dirty_without_prompt() {
     // Make the worktree dirty with a REAL (non-ignored) change.
     std::fs::write(work.join("src.txt"), "dirty change").value_or_panic("write dirty change");
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Dirty);
 
-    // The dirty change is preserved (Stop does not clean).
+    // The dirty change is preserved (prep does not clean).
     let preserved =
         std::fs::read_to_string(work.join("src.txt")).value_or_panic("read preserved dirty change");
     assert_eq!(preserved, "dirty change");
-    // No prompt written (Stop aborts before prompt write).
-
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&work);
-}
-
-#[test]
-fn local_dirty_discard_cleans_and_prepares() {
-    let origin = bare_origin_with_commit("dirtydiscard");
-    let work = clone_origin(&origin, "dirtydiscard");
-    std::fs::write(work.join("src.txt"), "dirty change").value_or_panic("write dirty change");
-
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
-    assert_eq!(outcome, PrepOutcome::Ready);
-
-    // The dirty change was discarded.
-    assert!(!work.join("src.txt").exists());
+    // No prompt written (prep aborts before prompt write).
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
@@ -440,7 +373,7 @@ fn local_dirty_discard_cleans_and_prepares() {
 // ── Issue #338: clean-but-not-on-default-branch triggers confirm modal ──
 
 /// A clean working copy on a non-default branch must return `Dirty` (trigger
-/// the confirm modal) under the Stop policy — it must NOT silently switch.
+/// the confirm modal) — it must NOT silently switch.
 #[test]
 fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
     let origin = bare_origin_with_commit("clean-not-main-stop");
@@ -448,7 +381,7 @@ fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
     // Switch to a feature branch; the tree stays clean.
     run_git(&work, &["checkout", "-b", "feature"]);
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Dirty);
 
     // Still on feature branch — nothing was switched.
@@ -458,105 +391,6 @@ fn local_clean_not_on_default_stop_returns_dirty_without_prompt() {
     );
     // No prompt written.
 
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&work);
-}
-
-/// A clean working copy on a non-default branch with the Discard policy must
-/// switch to the default branch, pull — without
-/// discarding anything (there is nothing dirty to discard).
-#[test]
-fn local_clean_not_on_default_discard_switches_and_prepares() {
-    let origin = bare_origin_with_commit("clean-not-main-discard");
-    let work = clone_origin(&origin, "clean-not-main-discard");
-    run_git(&work, &["checkout", "-b", "feature"]);
-
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
-    assert_eq!(outcome, PrepOutcome::Ready);
-
-    // Now on main.
-    assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
-
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&work);
-}
-
-/// A dirty working copy that is ALSO not on the default branch: the Discard
-/// policy must clean AND switch to the default branch.
-#[test]
-fn local_dirty_and_not_on_default_discard_cleans_switches_and_prepares() {
-    let origin = bare_origin_with_commit("dirty-not-main-discard");
-    let work = clone_origin(&origin, "dirty-not-main-discard");
-    run_git(&work, &["checkout", "-b", "feature"]);
-    // Add an untracked file so the tree is dirty.
-    std::fs::write(work.join("untracked.txt"), "junk").value_or_panic("write untracked file");
-
-    let outcome = prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("prepare_local");
-    assert_eq!(outcome, PrepOutcome::Ready);
-
-    // On main now.
-    assert_eq!(git_stdout(&work, &["branch", "--show-current"]), "main\n");
-    // Untracked file was cleaned.
-    assert!(!work.join("untracked.txt").exists());
-
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&work);
-}
-
-#[test]
-fn local_dirty_discard_handles_spaces_unicode_and_argv_like_names_without_git_clean() {
-    let origin = bare_origin_with_commit("native-windows");
-    let root = std::env::temp_dir().join(format!("jefe issue261 Ω space {}", rand_label()));
-    std::fs::create_dir_all(&root).value_or_panic("create spaced root");
-    let work = root.join("work tree Ω");
-    run_git(
-        Path::new("."),
-        &["clone", &origin.to_string_lossy(), &work.to_string_lossy()],
-    );
-    run_git(&work, &["remote", "set-head", "origin", "-a"]);
-    let adversarial = "--not-an-option ; echo untouched Ω.txt";
-    std::fs::write(work.join(adversarial), "untracked").value_or_panic("write adversarial file");
-    std::fs::create_dir_all(work.join("nested Ω/space"))
-        .value_or_panic("create nested untracked directory");
-    std::fs::write(work.join("nested Ω/space/file.txt"), "untracked")
-        .value_or_panic("write nested untracked file");
-
-    let outcome =
-        prepare_local(&work, None, DirtyPolicy::Discard).value_or_panic("native local preparation");
-
-    assert_eq!(outcome, PrepOutcome::Ready);
-    assert!(!work.join(adversarial).exists());
-    assert!(!work.join("nested Ω").exists());
-    cleanup(origin.parent().unwrap_or(&origin));
-    cleanup(&root);
-}
-
-#[test]
-fn local_dirty_discard_preserves_tracked_jefe_owned_metadata() {
-    let origin = bare_origin_with_commit("tracked-owned");
-    let work = clone_origin(&origin, "tracked-owned");
-    std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create owned directory");
-    std::fs::write(work.join(".llxprt/LLXPRT.md"), "committed")
-        .value_or_panic("write committed owned file");
-    run_git(&work, &["config", "user.email", "test@example.com"]);
-    run_git(&work, &["config", "user.name", "Test"]);
-    run_git(&work, &["add", ".llxprt/LLXPRT.md"]);
-    run_git(&work, &["commit", "-m", "add owned metadata"]);
-    std::fs::write(work.join(".llxprt/LLXPRT.md"), "local memory")
-        .value_or_panic("modify owned metadata");
-    std::fs::write(work.join("README.md"), "ordinary change")
-        .value_or_panic("modify ordinary tracked file");
-
-    issue_git_prep::discard_workdir_changes(&work).value_or_panic("discard ordinary changes");
-
-    assert_eq!(
-        std::fs::read_to_string(work.join(".llxprt/LLXPRT.md"))
-            .value_or_panic("read preserved owned metadata"),
-        "local memory"
-    );
-    let restored =
-        std::fs::read_to_string(work.join("README.md")).value_or_panic("read restored README");
-    assert_eq!(restored.replace("\r\n", "\n"), "# test\n");
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);
 }
@@ -571,7 +405,7 @@ fn local_owned_metadata_jefe_llxprt_ignored_as_dirty() {
     std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create .llxprt");
     std::fs::write(work.join(".llxprt/LLXPRT.md"), "owned").value_or_panic("write .llxprt");
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(
         outcome,
         PrepOutcome::Ready,
@@ -602,7 +436,7 @@ fn local_clone_when_missing_with_url() {
     // Set origin/HEAD so prepare_issue_workdir can resolve the branch.
     run_git(&work, &["remote", "set-head", "origin", "-a"]);
     // Now run the full post-clone prep (dirty check → prep → prompt).
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(outcome, PrepOutcome::Ready);
 
     cleanup(origin.parent().unwrap_or(&origin));
@@ -626,8 +460,7 @@ fn local_origin_mismatch_detected() {
     std::fs::write(work.join("marker.txt"), "untouched").value_or_panic("write marker");
 
     let identity = mismatched_identity();
-    let outcome =
-        prepare_local(&work, Some(&identity), DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, Some(&identity)).value_or_panic("prepare_local");
     assert!(
         matches!(outcome, PrepOutcome::OriginMismatch { .. }),
         "mismatched origin must return OriginMismatch, got {outcome:?}"
@@ -651,7 +484,7 @@ fn local_origin_match_proceeds_ready() {
     let origin = bare_origin_with_commit("match");
     let work = clone_origin(&origin, "match");
 
-    let outcome = prepare_local(&work, None, DirtyPolicy::Stop).value_or_panic("prepare_local");
+    let outcome = prepare_local(&work, None).value_or_panic("prepare_local");
     assert_eq!(
         outcome,
         PrepOutcome::Ready,
@@ -679,6 +512,63 @@ fn local_force_reclone_replaces_mismatched_repo() {
 
     // Old marker is gone (workdir was replaced).
     assert!(!work.join("old-marker.txt").exists());
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+// ── Issue #479: dirty-copy confirm must DELETE + re-clone, not discard ──
+
+/// Issue #479: when the dirty-copy confirm fires, the confirm path must
+/// delete the working copy entirely and re-clone from the configured
+/// identity (a force-reclone). The OLD behavior (Discard policy) only ran
+/// `reset --hard` + `clean -fd`, which left committed-but-unwanted state
+/// (e.g., commits on a feature branch) behind. This test proves the
+/// force-reclone sequence — the one the confirm path now uses — replaces a
+/// dirty working copy with a clean clone.
+#[test]
+fn local_force_reclone_replaces_dirty_working_copy() {
+    let origin = bare_origin_with_commit("dirty-reclone-479");
+    let work = clone_origin(&origin, "dirty-reclone-479");
+    let clone_url = origin.to_string_lossy().into_owned();
+    // Make the worktree dirty: untracked file + a commit on a feature branch.
+    std::fs::write(work.join("untracked.txt"), "junk").value_or_panic("write untracked file");
+    run_git(&work, &["checkout", "-b", "feature"]);
+    run_git(&work, &["config", "user.email", "test@example.com"]);
+    run_git(&work, &["config", "user.name", "Test"]);
+    std::fs::write(work.join("committed.txt"), "stale").value_or_panic("write stale commit file");
+    run_git(&work, &["add", "committed.txt"]);
+    run_git(&work, &["commit", "-m", "stale feature commit"]);
+
+    // The Discard policy would reset untracked + restore tracked, but it
+    // would NOT remove the feature branch's commit from the worktree's
+    // reflog. The force-reclone deletes the entire directory and re-clones,
+    // guaranteeing a pristine state. This is the production sequence the
+    // dirty-copy confirm path must invoke.
+    force_reclone_local_with_url(&work, &clone_url)
+        .value_or_panic("force_reclone_local_with_url on dirty worktree");
+
+    // The untracked file and the stale commit are gone (directory replaced).
+    assert!(
+        !work.join("untracked.txt").exists(),
+        "untracked file must be gone"
+    );
+    assert!(
+        !work.join("committed.txt").exists(),
+        "stale feature commit file must be gone"
+    );
+    // The fresh clone is clean and on the default branch.
+    assert_eq!(
+        git_stdout(&work, &["branch", "--show-current"]).trim(),
+        "main",
+        "fresh clone must be on the default branch"
+    );
+    assert!(
+        git_stdout(&work, &["status", "--porcelain=v1"])
+            .trim()
+            .is_empty(),
+        "fresh clone must be clean"
+    );
 
     cleanup(origin.parent().unwrap_or(&origin));
     cleanup(&work);

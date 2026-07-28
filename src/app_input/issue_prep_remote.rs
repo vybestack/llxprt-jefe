@@ -10,7 +10,7 @@ use std::path::Path;
 use jefe::domain::RemoteRepositorySettings;
 
 use super::super::clone_identity::CloneIdentity;
-use super::{DirtyPolicy, PrepOutcome};
+use super::PrepOutcome;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Remote target prep
@@ -49,20 +49,18 @@ pub struct PlanInputs<'a> {
     pub work_dir: &'a Path,
     /// Validated clone identity (HTTPS URL), if any.
     pub identity: Option<&'a CloneIdentity>,
-    /// Dirty-copy handling policy.
-    pub policy: DirtyPolicy,
     /// Whether the remote work dir is absent, non-git, or a git worktree.
     pub presence: WorkdirPresence,
     /// The remote work dir is dirty (meaningful only when a git worktree).
     pub is_dirty: bool,
     /// The remote work dir is **not** on the default branch (issue #338).
-    /// When true alongside `policy == Stop`, the planner short-circuits so
-    /// the caller can open the confirm modal — silently switching branches
-    /// is surprising.
+    /// When true, the planner short-circuits so the caller can open the
+    /// confirm modal — silently switching branches is surprising. The
+    /// confirm path then force-reclones (issue #479).
     pub not_on_default: bool,
     /// The remote work dir's origin does not match the configured repository.
     /// When true, the planner short-circuits (no checkout/pull op),
-    /// mirroring the `Dirty`+`Stop` short-circuit.
+    /// mirroring the `Dirty` short-circuit.
     pub origin_mismatch: bool,
 }
 
@@ -90,9 +88,10 @@ impl RemotePrepPlanner {
     ///
     /// The sequence mirrors the local prep:
     /// 1. detect git worktree (if not, clone if identity present);
-    /// 2. dirty check;
-    /// 3. if dirty and Discard, reset+clean;
-    /// 4. resolve default branch, fetch, checkout.
+    /// 2. dirty / not-on-default check (short-circuits to `Dirty` so the
+    ///    caller opens the confirm modal; the confirm path then force-reclones
+    ///    via `plan_force_reclone`, issue #479);
+    /// 3. resolve default branch, fetch, checkout.
     ///
     /// This is pure — it does not inspect the remote filesystem. Callers
     /// supply `presence`, `is_dirty`, and `origin_mismatch` to drive the
@@ -111,7 +110,6 @@ impl RemotePrepPlanner {
         let PlanInputs {
             work_dir,
             identity,
-            policy,
             presence,
             is_dirty,
             not_on_default,
@@ -127,7 +125,8 @@ impl RemotePrepPlanner {
         }
 
         // Origin mismatch short-circuits before any destructive op, mirroring
-        // the Dirty+Stop short-circuit. The caller opens the confirm modal.
+        // the dirty / not-on-default short-circuit below. The caller opens the
+        // confirm modal.
         if is_git && *origin_mismatch {
             return Ok(ops);
         }
@@ -159,31 +158,14 @@ impl RemotePrepPlanner {
             // only check dirty/branch when it pre-existed as a git worktree.
             // Issue #338: a clean working copy not on the default branch also
             // triggers the confirm modal — silently switching is surprising.
+            // The confirm path force-reclones (issue #479), so the planner
+            // only ever short-circuits here: a dirty/non-default worktree is
+            // surfaced for confirmation rather than reset/cleaned in place.
             if is_git && (*is_dirty || *not_on_default) {
-                match policy {
-                    DirtyPolicy::Stop => {
-                        // Stop: no further ops. The caller opens the confirm
-                        // modal; no reset/clean is planned.
-                        return Ok(ops);
-                    }
-                    DirtyPolicy::Discard => {
-                        // Discard: reset --hard + clean -fd with exclusions,
-                        // but only when actually dirty (a clean-but-not-on-default
-                        // copy just needs the checkout below).
-                        if *is_dirty {
-                            let script = format!(
-                                "set -e; cd {escaped_work}; \
-                                 git reset --hard; \
-                                 git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
-                                jefe = shell_escape(".jefe/"),
-                                jefe_glob = shell_escape(".jefe/**"),
-                                llx = shell_escape(".llxprt/"),
-                                llx_glob = shell_escape(".llxprt/**"),
-                            );
-                            ops.push(self.wrapped_ssh_op(&script, None));
-                        }
-                    }
-                }
+                // No further ops: the caller opens the confirm modal; the
+                // force-reclone plan (issue #479) handles the destructive
+                // replacement via `plan_force_reclone`.
+                return Ok(ops);
             }
 
             // 4. Resolve default branch + fetch + checkout. The linked-worktree
@@ -426,7 +408,6 @@ impl RemotePrepRunner {
         &self,
         work_dir: &Path,
         identity: Option<&CloneIdentity>,
-        policy: DirtyPolicy,
     ) -> Result<PrepOutcome, String> {
         let escaped_work = shell_escape(&work_dir.to_string_lossy());
 
@@ -469,7 +450,19 @@ impl RemotePrepRunner {
             self.run_wrapped(&script)?;
         }
 
-        // 3. Dirty check (only meaningful if the worktree pre-existed).
+        // 3-4. Dirty/branch check + checkout. A dirty/non-default worktree is
+        // surfaced for confirmation (issue #479 makes the confirm path
+        // force-reclone); a clean default-branch worktree is checked out.
+        self.dirty_check_and_checkout(&escaped_work)
+    }
+
+    /// Dirty-check + default-branch checkout sequence shared by [`Self::run`]
+    /// after the worktree is known to exist as a git repo.
+    ///
+    /// Returns `PrepOutcome::Dirty` when the worktree is dirty or not on the
+    /// default branch (issue #338). Returns `PrepOutcome::Ready` after a
+    /// successful fetch+checkout to the default branch.
+    fn dirty_check_and_checkout(&self, escaped_work: &str) -> Result<PrepOutcome, String> {
         // `set -e` makes the script fail fast if `cd` fails (e.g., a TOCTOU
         // race that removed the dir between the existence check and here),
         // so `git status` can never run in the wrong directory and produce a
@@ -483,6 +476,9 @@ impl RemotePrepRunner {
         // Issue #338: a clean working copy on a non-default branch also
         // triggers the confirm modal. Only evaluate branch position when
         // clean — a dirty tree triggers the modal regardless of branch.
+        // Issue #479: the confirm path force-reclones, so prep never
+        // in-place discards changes — a dirty/non-default worktree is
+        // surfaced for confirmation rather than reset/cleaned here.
         let not_on_default = if dirty {
             false
         } else {
@@ -495,32 +491,13 @@ impl RemotePrepRunner {
         };
 
         if dirty || not_on_default {
-            match policy {
-                DirtyPolicy::Stop => return Ok(PrepOutcome::Dirty),
-                DirtyPolicy::Discard => {
-                    if dirty {
-                        let script = format!(
-                            "set -e; cd {escaped_work}; \
-                             git reset --hard; \
-                             git clean -fd -e {jefe} -e {jefe_glob} -e {llx} -e {llx_glob}",
-                            jefe = shell_escape(".jefe/"),
-                            jefe_glob = shell_escape(".jefe/**"),
-                            llx = shell_escape(".llxprt/"),
-                            llx_glob = shell_escape(".llxprt/**"),
-                        );
-                        self.run_wrapped(&script)?;
-                    }
-                }
-            }
+            return Ok(PrepOutcome::Dirty);
         }
 
-        // 4. Resolve default branch + fetch + checkout. When the Discard
-        // policy was reached via `not_on_default` alone (clean tree, wrong
-        // branch), the branch switch happens here — there is nothing to
-        // discard, so the cleanup step above is skipped and this checkout
-        // performs the switch. The outcome is `Ready` because prep is
-        // complete (the user already confirmed the modal), not because no
-        // branch switch occurred.
+        // Resolve default branch + fetch + checkout. When reached via a
+        // clean tree already on the default branch, the checkout is a
+        // no-op/fast-forward. The outcome is `Ready` because prep is
+        // complete.
         // The checkout uses a fallback to reset --hard ONLY when the worktree
         // is already on the desired default branch (linked worktrees cannot
         // check out a branch already used elsewhere). If the worktree is on a

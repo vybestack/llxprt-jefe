@@ -152,7 +152,7 @@ fn confirm_text(snapshot: &AppState, kind: ConfirmKind) -> (String, String, bool
             String::from("Working Copy Not Ready"),
             String::from(
                 "The agent working copy is not on the default branch or has uncommitted changes. \
-                 Switch to the default branch, discard non-owned changes, and pull?",
+                 Delete the working copy and re-clone from the configured origin?",
             ),
             false,
         ),

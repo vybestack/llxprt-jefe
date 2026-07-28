@@ -17,8 +17,6 @@
 use std::path::Path;
 use std::process::Stdio;
 
-#[path = "issue_cleanup.rs"]
-mod issue_cleanup;
 /// Safety guards for the destructive force-reclone path (issue #190).
 ///
 /// Re-exported here so callers can reference
@@ -26,9 +24,6 @@ mod issue_cleanup;
 /// module split.
 #[path = "reclone_safety.rs"]
 mod reclone_safety;
-pub(super) use issue_cleanup::{
-    discard_checkout_blocking_tracked_changes, discard_workdir_changes,
-};
 pub(super) use reclone_safety::validate_reclone_target;
 
 /// Check whether `work_dir` exists and is a git working copy.
