@@ -334,6 +334,17 @@ fn request_capture_if_needed(
 /// (matching [`try_capture_history_geometry_from_cache`]'s fallback policy).
 /// Last-good scrollback is shared via `Arc` and refreshed only when
 /// `(agent_id, generation)` changes.
+///
+/// # Thread affinity
+///
+/// The last-good cache and the request-dedup cache are thread-locals, so this
+/// function (and the contention fallback) assume the render/copy path runs on a
+/// single stable OS thread. jefe's main loop is `smol::block_on` on the main
+/// thread, and the render bodies here are invoked from that thread. The
+/// attach-scheduler loop clears the last-good cache the instant it commits a
+/// switch to a different agent (before the background attach runs), so a
+/// contended frame during the handoff returns empty rather than the previous
+/// agent's scrollback.
 #[must_use]
 pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> Vec<String> {
     let Some(ctx_arc) = ctx else {
@@ -377,7 +388,15 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
     lines
 }
 
-fn clear_last_history_lines() {
+/// Clear the cached last-good scrollback.
+///
+/// Called on the no-attachment / no-session early returns so a stale agent's
+/// scrollback does not linger. The attach-scheduler loop also calls this the
+/// instant it commits a switch to a different agent, before the background
+/// attach runs: that closes the window where a contended render frame could
+/// otherwise serve the *previous* agent's scrollback (see the
+/// `LAST_HISTORY_LINES` docs).
+pub fn clear_last_history_lines() {
     LAST_HISTORY_LINES.with(|cell| {
         *cell.borrow_mut() = None;
     });
@@ -439,12 +458,21 @@ thread_local! {
     /// Cache of the last (agent_id, generation) requested by
     /// `capture_history_from_cache` to avoid redundant `CaptureHandle::request`
     /// calls on every render frame (issue #301 review feedback).
+    ///
+    /// Thread-affine: only meaningful on the main render thread. See
+    /// `capture_history_from_cache` for the full assumption.
     static LAST_CAPTURE_REQUEST: std::cell::RefCell<Option<(AgentId, u64)>> =
         const { std::cell::RefCell::new(None) };
 
     /// Last successfully resolved scrollback for an attached `(agent, generation)`.
     /// Refreshed only when that pair changes so steady-state frames avoid a
     /// second full-history clone; used when `try_lock` is contended.
+    ///
+    /// Thread-affine: only meaningful on the main render thread (the input path
+    /// and attach-scheduler loop run cooperatively on that same thread, so the
+    /// scheduler's `clear_last_history_lines()` on agent switch takes effect
+    /// before the next render frame observes contention). See
+    /// `capture_history_from_cache` for the full assumption.
     static LAST_HISTORY_LINES: std::cell::RefCell<Option<LastHistoryEntry>> =
         const { std::cell::RefCell::new(None) };
 }
@@ -519,5 +547,13 @@ mod history_cache_resolve_tests {
     #[test]
     fn contention_empty_when_no_prior() {
         assert!(history_lines_under_contention(None).is_empty());
+    }
+
+    #[test]
+    fn clear_then_contention_returns_empty() {
+        // Simulate the attach-scheduler clearing last-good on agent switch,
+        // then a contended render frame arriving before the new cache fills.
+        super::clear_last_history_lines();
+        assert!(super::last_history_under_contention().is_empty());
     }
 }
