@@ -70,11 +70,18 @@ pub fn check_count_bound(
 ) -> Result<(), crate::jsp::v1::error::JspError> {
     if count > max {
         Err(crate::jsp::v1::error::JspError::bound(format!(
-            "{path}: {count} entries exceeds maximum {max} entries"
+            "{path}: {count} {} exceeds maximum {max} {}",
+            plural_entries(count),
+            plural_entries(max)
         )))
     } else {
         Ok(())
     }
+}
+
+/// The correctly pluralized noun for an entry count.
+const fn plural_entries(count: usize) -> &'static str {
+    if count == 1 { "entry" } else { "entries" }
 }
 
 #[cfg(test)]
@@ -94,5 +101,40 @@ mod tests {
     #[test]
     fn zero_length_accepted() {
         assert!(check_bound("x", 0, MAX_ID_BYTES).is_ok());
+    }
+
+    #[test]
+    fn document_bound_is_inclusive() {
+        assert!(check_bound("doc", MAX_DOCUMENT_BYTES, MAX_DOCUMENT_BYTES).is_ok());
+        let error = check_bound("doc", MAX_DOCUMENT_BYTES + 1, MAX_DOCUMENT_BYTES)
+            .err()
+            .unwrap_or_else(|| panic!("over the document limit must fail"));
+        assert_eq!(error.code(), JspCode::EBound);
+    }
+
+    #[test]
+    fn count_bound_is_inclusive_and_reports_counts() {
+        assert!(check_count_bound("items", MAX_TODOS, MAX_TODOS).is_ok());
+        let error = check_count_bound("items", MAX_TODOS + 1, MAX_TODOS)
+            .err()
+            .unwrap_or_else(|| panic!("over the todo count must fail"));
+        assert_eq!(error.code(), JspCode::EBound);
+        assert!(
+            error.detail().contains("entries"),
+            "a count bound reports entries rather than bytes: {}",
+            error.detail()
+        );
+    }
+
+    #[test]
+    fn count_bound_reports_a_single_entry_in_the_singular() {
+        let error = check_count_bound("items", 2, 1)
+            .err()
+            .unwrap_or_else(|| panic!("over a one-entry limit must fail"));
+        assert!(
+            error.detail().contains("maximum 1 entry"),
+            "a one-entry maximum reads in the singular: {}",
+            error.detail()
+        );
     }
 }

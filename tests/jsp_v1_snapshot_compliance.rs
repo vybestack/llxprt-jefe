@@ -241,10 +241,14 @@ fn s2_unsupported_schema_version_fails() {
         .unwrap_or_else(|| panic!("schema 0 must fail"));
     assert_eq!(error.code(), JspCode::EUnsupportedVersion);
 
-    let mut schema2 = schema0.to_vec();
-    // Replace the '0' after "schema": with '2' (byte index 10).
-    schema2[10] = b'2';
-    let error = parse_snapshot(&schema2)
+    let document = String::from_utf8(schema0.to_vec())
+        .unwrap_or_else(|err| panic!("fixture literal is utf-8: {err}"));
+    let schema2 = document.replacen(r#""schema":0"#, r#""schema":2"#, 1);
+    assert_ne!(
+        schema2, document,
+        "the schema discriminator must have been rewritten"
+    );
+    let error = parse_snapshot(schema2.as_bytes())
         .err()
         .unwrap_or_else(|| panic!("schema 2 must fail"));
     assert_eq!(error.code(), JspCode::EUnsupportedVersion);
@@ -553,7 +557,10 @@ fn s5_unknown_kind_fails() {
 #[test]
 fn s6_error_diagnostics_never_echo_payload() {
     let manifest = load_manifest();
-    let forbidden_tokens = ["supersecret", "leaked", "kill", "raw", "draft", "control"];
+    // Only payload *values* are asserted. Field-name fragments are excluded on
+    // purpose: a closed-shape diagnostic may legitimately name the member it
+    // rejected, and the contract forbids echoing values, not member names.
+    let forbidden_tokens = ["supersecret", "leaked", "kill"];
     for entry in &manifest.fixtures {
         if entry.expected != "error" {
             continue;

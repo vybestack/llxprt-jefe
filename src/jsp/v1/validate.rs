@@ -184,7 +184,7 @@ fn build_availability<T>(
 ///
 /// Diagnostics must name the member the producer actually sent, so a `degraded`
 /// payload reports `last_value` rather than `value`.
-pub enum ValueSlot {
+enum ValueSlot {
     Value,
     LastValue,
 }
