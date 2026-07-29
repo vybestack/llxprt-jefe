@@ -18,7 +18,7 @@ not conflict with this issue.
 
 The user delegated implementation-level choices after the issue's materially
 different architectures were identified. The following bounded decisions are
-therefore the accepted basis for Stack A and the planned Stack B:
+therefore the accepted basis for the unified issue delivery:
 
 1. **Explicit public state:** add `AgentStatus::ServerLost`. It is a transient,
    recoverable state, preserves `runtime_binding` and the runtime launch
@@ -36,11 +36,11 @@ therefore the accepted basis for Stack A and the planned Stack B:
    agent from retained runtime launch signatures. Successful agents become
    `Running`; failures remain `ServerLost`; a summary notice and detailed logs
    identify partial failure. No automatic relaunch occurs.
-4. **Bounded delivery:** use two stacked PRs if the complete diff would exceed
-   the target of 25 files or 1,500 net lines. The first PR owns observation,
-   classification, status, prevention, startup diagnostics, docs, and the
-   native regression. The second owns the user-confirmed batch-recovery flow.
-   The final PR closes #493 after both stacks pass.
+4. **Bounded delivery:** deliver one coherent issue PR after a mandatory scope
+   review. The complete diff is 33 files / 2,032 net lines including this plan:
+   above the preferred target, but below the 40-file / 2,500-line hard stop.
+   Every changed file maps to A1-A12; no dependency, workflow, quality-tool, or
+   unrelated subsystem change is included.
 
 Empirical capability evidence on the development host (psmux 3.3.7) before
 implementation:
@@ -249,48 +249,37 @@ states in A8.
 **Stop:** automatic relaunch, retry scheduler, parallel task subsystem, changes
 to `MAX_DEAD_SIGNATURES`, or recovery behavior for agents not in `ServerLost`.
 
-## Delivery split and expected path budget
+## Unified delivery and actual path budget
 
-### Stack A — observation, status, prevention, diagnostics
+The single issue branch contains three independently green commits:
 
-Expected 14-18 files, approximately 850-1,200 net lines:
+- server observation, classification, `ServerLost`, retention, and regression
+  coverage;
+- non-blocking startup diagnostics, documentation, and the scope ledger;
+- explicit confirmed batch recovery, cancellation, retryable partial failures,
+  and UI/TUI behavior.
 
-- plan;
-- runtime server-health/liveness/multiplexer modules and tests;
-- direct app-shell liveness extraction;
-- domain/status, runtime message/reducer/projection/display matches;
-- app-init tests;
-- Windows docs;
-- real-psmux regression and visible-status TUI scenario.
-
-### Stack B — confirmed batch recovery
-
-Expected 8-12 files, approximately 450-750 net lines:
-
-- recovery modal/message/state/input/runtime orchestration;
-- keybind/help discoverability;
-- focused reducer/orchestration tests;
-- TUI and real-psmux scenario completion.
-
-Each PR independently targets no more than 25 files / 1,500 net lines. A
-mandatory scope review occurs before crossing either target. Work stops without
-explicit approval above 40 files or 2,500 net lines in either PR. If both stacks
-fit under the target as one coherent diff, a single PR is permitted only after
-a recorded scope review confirms every file maps to A1-A12.
+Actual unified scope is 33 files / 2,032 net lines. The required plan contributes
+353 lines; production, tests, scenarios, and docs contribute the remainder. The
+mandatory above-target scope review confirmed every file maps to A1-A12 and the
+change remains below both hard-stop thresholds. No additional work is authorized
+without a new acceptance row.
 
 ## Scope ledger
 
 | Date | Discovery / proposed change | Acceptance mapping | Disposition |
 |---|---|---|---|
-| 2026-07-28 | Add public `AgentStatus::ServerLost` and public typed server observation | A3-A6, A8-A10 | Accepted; Stack A implemented |
-| 2026-07-28 | Choose periodic PID-pinned observer plus `exit-empty off`, not persistent control client | A3, A5, A7, A10-A11 | Accepted; Stack A implemented |
-| 2026-07-28 | Choose user-confirmed best-effort batch relaunch, not automatic relaunch | A8-A9, A11 | Accepted for Stack B; not implemented in Stack A |
-| 2026-07-28 | Extract only the liveness future because `src/app_shell.rs` was 997 lines | A3-A6 | In-scope; reduced `app_shell.rs` to 878 lines |
+| 2026-07-28 | Add public `AgentStatus::ServerLost` and public typed server observation | A3-A6, A8-A10 | Accepted and implemented |
+| 2026-07-28 | Choose periodic PID-pinned observer plus `exit-empty off`, not persistent control client | A3, A5, A7, A10-A11 | Accepted and implemented |
+| 2026-07-28 | Choose user-confirmed best-effort batch relaunch, not automatic relaunch | A8-A9, A11 | Accepted and implemented |
+| 2026-07-28 | Extract only the liveness future because `src/app_shell.rs` was 997 lines | A3-A6 | In-scope; reduced `app_shell.rs` below the hard limit |
 | 2026-07-28 | Installed psmux 3.3.7 exposes server PID/version and supports `exit-empty off` in an isolated probe | A2, A5, A7 | Verified capability; no repository change |
 | 2026-07-28 | Namespace randomization would break cross-instance sharing | Non-goal | Reject for #493; separate decision/follow-up only |
 | 2026-07-28 | Liveness `catch_unwind` hardening is adjacent | Non-goal | Defer; do not implement in #493 |
-| 2026-07-28 | Stack A scope measured at 21 files / 1,570 net lines including this 333-line plan | A1-A7, A10-A12 | Mandatory scope review complete: implementation is 1,237 net lines excluding the required plan; below 25 files and far below hard stop |
+| 2026-07-28 | Unified scope measured at 33 files / 2,032 net lines including this plan | A1-A12 | Mandatory scope review complete: every path maps to acceptance; below 40 files / 2,500 lines hard stop |
 | 2026-07-28 | Schema-1 visible-status scenario cannot execute on native Windows (`HAR-E005`) | A11 | Scenario fixture added and syntax/build path validated; native diagnosis is proven by real-psmux test; execute TUI fixture on Unix CI |
+| 2026-07-28 | Two local branches added avoidable delivery complexity | Delivery only | Corrected before push: recovery commit fast-forwarded onto `issue493`; extra local branch deleted; one PR planned |
+| 2026-07-28 | `origin/main` advanced during implementation | Delivery ancestry | Unified branch rebased cleanly; directly descends from `db042d4`; exact-head gates rerun |
 
 Every changed file must be added to this ledger or map to an allowed path in a
 slice. Reviewer suggestions do not authorize expansion.
@@ -309,17 +298,17 @@ Every finding will be recorded below as **Blocker-Fix**, **In-scope-Fix**,
 
 | Candidate / slice | Command or scenario | Result |
 |---|---|---|
-| Planning baseline | `git fetch origin main`; `main...origin/main` | 0 ahead / 0 behind |
+| Delivery baseline | `git fetch origin main`; `origin/main...issue493` | 0 behind / 3 commits ahead; direct ancestry from `db042d4` |
 | Capability probe | isolated psmux 3.3.7 `display-message`, `show-options`, `set-option`; owned `kill-server` cleanup | Pass |
 | Slice 1 RED | `cargo test --test runtime_server_health` before production contract | Failed as expected: unresolved `ServerHealth`, `ServerIdentity`, and classifier |
 | Focused GREEN | runtime server health (20), app-shell liveness (4), durable projection (1) | Pass |
-| `cargo xtask quick` | Initial native-Windows run lacked Unix `true`/`false`; rerun with existing Git-for-Windows shims on `PATH` | Pass: 2,506 lib + 801 bin tests and all integration targets |
+| `cargo xtask quick` | Native-Windows run with existing Git-for-Windows shims on `PATH` | Pass |
 | `JEFE_REQUIRE_PSMUX=1 cargo test --features psmux-smoke --test psmux_server_loss -- --nocapture` | Isolated namespace: Healthy, once-per-identity option, Gone, Replaced | Pass: 1/1 |
 | Schema-1 TUI scenario | `target/debug/tmux_scenario --scenario dev-docs/tmux-scenarios/v1/issue493-server-loss.json` | Not executable on win32: expected `HAR-E005` Unix-PTY requirement; fixture retained for Unix CI |
-| Exact local gates | fmt, strict Clippy, locked all-feature build/test; Git-for-Windows shims on `PATH` for three existing Unix-command fixtures | Pass |
+| Exact local gates after rebase | fmt, strict Clippy, locked all-feature build, serial locked all-feature test; Git-for-Windows shims on `PATH` | Pass: 2,511 lib + 810 bin tests and all integration/doctest targets |
 | Source-size policy | `cargo xtask check source-size` | Pass; only existing advisory warnings, changed files below hard limit |
 | Required CI exact candidate head | Pending after PR |
-| Ancestry / conflict check | Pending before each PR | Not run |
+| Ancestry / conflict check | Unified `issue493` based directly on current `origin/main`; no PR exists yet | Pass locally; remote conflict status pending PR |
 
 ## Review findings and deferred follow-ups
 
@@ -338,9 +327,17 @@ Local OCR #1 findings and dispositions:
 - **In-scope-Fix — resolved:** stale/no-op server-loss cycles staged unnecessary
   saves; saves now occur only after at least one transition.
 
-Local OCR #2 reported zero Blocker-Fix or In-scope-Fix findings and judged Stack A
-coherent. The running-server startup version refinement and confirmed batch
-recovery remain accepted Stack B work, not optional expansion of this checkpoint.
+Local OCR #2 reviewed confirmed batch recovery. Its findings were dispositioned:
+
+- **In-scope-Fix — resolved:** clarified that `ServerLost` preserves the runtime
+  manager record and recovery intentionally moves that exact signature into the
+  retained cache before relaunch.
+- **In-scope-Fix — resolved:** recovery summaries now preserve and combine any
+  runtime warning rather than clobbering it or leaving competing message slots.
+- **Reject:** direct failure-path attachment mutation, stale modal candidates,
+  lock ordering, and modal-clear timing were verified as correct.
+- **Defer:** broader stub-manager enrichment and unrelated retry infrastructure.
+
 Namespace randomization and liveness-future panic containment remain explicit
 non-goals.
 
