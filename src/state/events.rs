@@ -5,8 +5,7 @@ use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
-    /// Typed completion for a previously staged post-commit effect
-    /// (issue #381 CW01-11).
+    /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
 
     NavigateUp,
@@ -989,14 +988,13 @@ pub enum AppEvent {
     ConfirmShellFocus(crate::domain::AgentId),
     /// Fail a pending focus (attach failed or owner no longer Running).
     FailShellFocus,
-    /// A preview capture result for the selected shell. Correlated by owner
-    /// and generation so stale captures are discarded.
+    /// A preview capture result for the selected shell; stale generations are discarded.
     ShellPreviewResult {
         agent_id: crate::domain::AgentId,
         generation: u64,
         ok: bool,
         lines: Vec<String>,
     },
-    /// A shell was closed (runtime already removed the inventory entry).
+    /// A shell closed after runtime removed its inventory entry.
     ShellClosed(crate::domain::AgentId),
 }
