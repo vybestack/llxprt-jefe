@@ -1,6 +1,7 @@
 //! Test-only panic helpers for clippy-clean assertions.
 
 use std::fmt::Debug;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use jefe::domain::agent_definition::AgentLaunchPlan;
 use jefe::runtime::agent_execution_guard::{
@@ -37,6 +38,13 @@ where
             Err(error) => panic!("{context}: {error:?}"),
         }
     }
+}
+
+pub fn nested_cargo_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .test_unwrap("nested Cargo command lock should not be poisoned")
 }
 
 /// Build an [`AuthorizedLaunchPlan`] from a fixture plan through the real

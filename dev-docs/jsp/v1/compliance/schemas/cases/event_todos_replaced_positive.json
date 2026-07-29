@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 6,
+  "bridge_observed_ms": 106,
+  "event": {
+    "type": "todos.replaced",
+    "revision": 1,
+    "items": []
+  }
+}

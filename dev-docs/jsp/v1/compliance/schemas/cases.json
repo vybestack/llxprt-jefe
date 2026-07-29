@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "kind": "schema-cases",
+  "cases": [
+    {
+      "name": "snapshot_positive",
+      "document_kind": "snapshot",
+      "event_type": null,
+      "file": "cases/snapshot_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "snapshot_negative",
+      "document_kind": "snapshot",
+      "event_type": null,
+      "file": "cases/snapshot_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "heartbeat_positive",
+      "document_kind": "heartbeat",
+      "event_type": null,
+      "file": "cases/heartbeat_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "heartbeat_negative",
+      "document_kind": "heartbeat",
+      "event_type": null,
+      "file": "cases/heartbeat_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_activity_changed_positive",
+      "document_kind": "event",
+      "event_type": "activity.changed",
+      "file": "cases/event_activity_changed_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_activity_changed_negative",
+      "document_kind": "event",
+      "event_type": "activity.changed",
+      "file": "cases/event_activity_changed_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_wait_opened_positive",
+      "document_kind": "event",
+      "event_type": "wait.opened",
+      "file": "cases/event_wait_opened_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_wait_opened_negative",
+      "document_kind": "event",
+      "event_type": "wait.opened",
+      "file": "cases/event_wait_opened_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_wait_resolved_positive",
+      "document_kind": "event",
+      "event_type": "wait.resolved",
+      "file": "cases/event_wait_resolved_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_wait_resolved_negative",
+      "document_kind": "event",
+      "event_type": "wait.resolved",
+      "file": "cases/event_wait_resolved_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_turn_started_positive",
+      "document_kind": "event",
+      "event_type": "turn.started",
+      "file": "cases/event_turn_started_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_turn_started_negative",
+      "document_kind": "event",
+      "event_type": "turn.started",
+      "file": "cases/event_turn_started_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_turn_ended_positive",
+      "document_kind": "event",
+      "event_type": "turn.ended",
+      "file": "cases/event_turn_ended_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_turn_ended_negative",
+      "document_kind": "event",
+      "event_type": "turn.ended",
+      "file": "cases/event_turn_ended_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_todos_replaced_positive",
+      "document_kind": "event",
+      "event_type": "todos.replaced",
+      "file": "cases/event_todos_replaced_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_todos_replaced_negative",
+      "document_kind": "event",
+      "event_type": "todos.replaced",
+      "file": "cases/event_todos_replaced_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_tool_call_created_positive",
+      "document_kind": "event",
+      "event_type": "tool_call.created",
+      "file": "cases/event_tool_call_created_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_tool_call_created_negative",
+      "document_kind": "event",
+      "event_type": "tool_call.created",
+      "file": "cases/event_tool_call_created_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_tool_call_phase_changed_positive",
+      "document_kind": "event",
+      "event_type": "tool_call.phase_changed",
+      "file": "cases/event_tool_call_phase_changed_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_tool_call_phase_changed_negative",
+      "document_kind": "event",
+      "event_type": "tool_call.phase_changed",
+      "file": "cases/event_tool_call_phase_changed_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_assistant_message_displayed_positive",
+      "document_kind": "event",
+      "event_type": "assistant_message.displayed",
+      "file": "cases/event_assistant_message_displayed_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_assistant_message_displayed_negative",
+      "document_kind": "event",
+      "event_type": "assistant_message.displayed",
+      "file": "cases/event_assistant_message_displayed_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_source_error_positive",
+      "document_kind": "event",
+      "event_type": "source.error",
+      "file": "cases/event_source_error_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_source_error_negative",
+      "document_kind": "event",
+      "event_type": "source.error",
+      "file": "cases/event_source_error_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    },
+    {
+      "name": "event_session_ended_positive",
+      "document_kind": "event",
+      "event_type": "session.ended",
+      "file": "cases/event_session_ended_positive.json",
+      "expected": "ok",
+      "expected_code": null
+    },
+    {
+      "name": "event_session_ended_negative",
+      "document_kind": "event",
+      "event_type": "session.ended",
+      "file": "cases/event_session_ended_negative.json",
+      "expected": "error",
+      "expected_code": "JSP-E001"
+    }
+  ]
+}

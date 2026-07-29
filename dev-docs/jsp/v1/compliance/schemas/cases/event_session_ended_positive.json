@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 11,
+  "bridge_observed_ms": 111,
+  "event": {
+    "type": "session.ended"
+  }
+}

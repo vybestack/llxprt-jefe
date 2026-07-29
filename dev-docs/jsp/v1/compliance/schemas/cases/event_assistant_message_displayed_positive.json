@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 9,
+  "bridge_observed_ms": 109,
+  "event": {
+    "type": "assistant_message.displayed",
+    "content": "done",
+    "committed_ms": 42
+  }
+}

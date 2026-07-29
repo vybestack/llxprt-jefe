@@ -1,0 +1,188 @@
+{
+  "schema": 1,
+  "kind": "scenario",
+  "id": "S11",
+  "name": "jefe_restart_fresh_snapshot_current_state",
+  "description": "Jefe restarts and opens a fresh snapshot-first stream. Current state is recovered atomically without cursor negotiation or retained-event delivery.",
+  "base_snapshot": {
+    "schema": 1,
+    "kind": "snapshot",
+    "agent_id": "agent-s11",
+    "lifecycle_generation": 1,
+    "source_epoch": "epoch-s11",
+    "source_sequence": 2,
+    "cursor": 2,
+    "bridge_observed_ms": 11000000,
+    "native_session": {
+      "repository": "repo",
+      "path": "/path",
+      "agent_kind": "llxprt",
+      "pid": 1100,
+      "display_name": "s11"
+    },
+    "process_binding": "unsupported",
+    "native_activity": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": {
+        "state": "acting"
+      }
+    },
+    "current_wait": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": null
+    },
+    "current_turn": "unsupported",
+    "todos": {
+      "provenance": "inferred",
+      "availability": "known",
+      "value": {
+        "revision": 2,
+        "items": [
+          {
+            "text": "retained",
+            "completed": false
+          }
+        ]
+      }
+    },
+    "last_displayed_assistant_message": "unsupported",
+    "last_created_tool_call": "unsupported",
+    "source_terminal_state": "unsupported",
+    "source_error_state": "unsupported"
+  },
+  "steps": [
+    {
+      "index": 0,
+      "kind": "transport_disconnect",
+      "permanent": true,
+      "expected": {
+        "agent_id": "agent-s11",
+        "generation": 1,
+        "source_epoch": "epoch-s11",
+        "last_sequence": 2,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": 2,
+        "todos_count": 1,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "disconnected",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "inferred",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    },
+    {
+      "index": 1,
+      "kind": "fresh_snapshot",
+      "document": {
+        "schema": 1,
+        "kind": "snapshot",
+        "agent_id": "agent-s11",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s11",
+        "source_sequence": 2,
+        "cursor": 2,
+        "bridge_observed_ms": 11005000,
+        "native_session": {
+          "repository": "repo",
+          "path": "/path",
+          "agent_kind": "llxprt",
+          "pid": 1100,
+          "display_name": "s11"
+        },
+        "process_binding": "unsupported",
+        "native_activity": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": {
+            "state": "acting"
+          }
+        },
+        "current_wait": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": null
+        },
+        "current_turn": "unsupported",
+        "todos": {
+          "provenance": "inferred",
+          "availability": "known",
+          "value": {
+            "revision": 2,
+            "items": [
+              {
+                "text": "retained",
+                "completed": false
+              }
+            ]
+          }
+        },
+        "last_displayed_assistant_message": "unsupported",
+        "last_created_tool_call": "unsupported",
+        "source_terminal_state": "unsupported",
+        "source_error_state": "unsupported"
+      },
+      "expected": {
+        "agent_id": "agent-s11",
+        "generation": 1,
+        "source_epoch": "epoch-s11",
+        "last_sequence": 2,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": 2,
+        "todos_count": 1,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "inferred",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    }
+  ]
+}

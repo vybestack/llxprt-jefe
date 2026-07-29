@@ -30,6 +30,17 @@ fn empty_comments(
     )
 }
 
+fn test_repository(repo_id: &str) -> Repository {
+    Repository::new(
+        RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Test Repo".to_string(),
+        repo_id.to_string(),
+        std::path::PathBuf::from("/tmp/test"),
+    )
+}
+
 /// PR-mode state with a single selected PR and a loaded detail (non-empty body).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -40,14 +51,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
         ..AppState::default()
     };
-    state.repositories.push(Repository::new(
-        RepositoryId(repo_id.to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Test Repo".to_string(),
-        repo_id.to_string(),
-        std::path::PathBuf::from("/tmp/test"),
-    ));
+    state.repositories.push(test_repository(repo_id));
     state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrDetail;

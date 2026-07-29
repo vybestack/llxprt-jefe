@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "schema-manifest",
+  "schema_artifact_version": "jsp-v1-compliance-1",
+  "description": "Index of genuine JSON Schema draft 2020-12 artifacts and language-neutral exact-parser cases.",
+  "schemas": [
+    {
+      "kind": "snapshot",
+      "file": "snapshot.schema.json"
+    },
+    {
+      "kind": "event",
+      "file": "event.schema.json"
+    },
+    {
+      "kind": "heartbeat",
+      "file": "heartbeat.schema.json"
+    }
+  ],
+  "cases": "cases.json"
+}

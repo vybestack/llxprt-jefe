@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 2,
+  "bridge_observed_ms": 102,
+  "event": {
+    "type": "wait.opened",
+    "reason": "question"
+  }
+}

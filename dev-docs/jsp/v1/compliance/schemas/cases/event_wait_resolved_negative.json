@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 3,
+  "bridge_observed_ms": 103,
+  "event": {
+    "type": "wait.resolved",
+    "unexpected": true
+  }
+}

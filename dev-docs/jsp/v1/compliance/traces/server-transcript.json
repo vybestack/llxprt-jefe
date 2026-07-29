@@ -1,0 +1,685 @@
+{
+  "schema": 1,
+  "kind": "server-transcript",
+  "transcript_artifact_version": "jsp-v1-compliance-1",
+  "server_version": "reference-server-1",
+  "challenge_nonce": 0,
+  "description": "Reference normalized server transcript with trusted credential/principal bindings and canonical reducer observations. No live networking occurs.",
+  "interactions": [
+    {
+      "name": "register_publisher",
+      "request": {
+        "route": "/jsp/1/register",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": null,
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 201,
+        "kind": "registered",
+        "body": {
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1"
+        }
+      },
+      "assert": "registration_binds_one_identity"
+    },
+    {
+      "name": "publish_snapshot",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "snapshot",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 0,
+          "cursor": 0,
+          "bridge_observed_ms": 1,
+          "native_session": {
+            "repository": "r",
+            "path": "/p",
+            "agent_kind": "llxprt",
+            "pid": 1,
+            "display_name": "d"
+          },
+          "process_binding": "unsupported",
+          "native_activity": {
+            "provenance": "authoritative",
+            "availability": "known",
+            "value": {
+              "state": "idle"
+            }
+          },
+          "current_wait": {
+            "provenance": "authoritative",
+            "availability": "known",
+            "value": null
+          },
+          "current_turn": "unsupported",
+          "todos": "unsupported",
+          "last_displayed_assistant_message": "unsupported",
+          "last_created_tool_call": "unsupported",
+          "source_terminal_state": "unsupported",
+          "source_error_state": "unsupported"
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "accepted",
+        "body": null
+      },
+      "assert": "snapshot_establishes_canonical_state"
+    },
+    {
+      "name": "publish_event_1",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 1,
+          "bridge_observed_ms": 2,
+          "event": {
+            "type": "activity.changed",
+            "state": "acting"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "accepted",
+        "body": null
+      },
+      "assert": "contiguous_event_advances_canonical_state"
+    },
+    {
+      "name": "publish_duplicate_event_1",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 1,
+          "bridge_observed_ms": 2,
+          "event": {
+            "type": "activity.changed",
+            "state": "acting"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "duplicate_noop",
+        "body": null
+      },
+      "assert": "duplicate_sequence_is_noop"
+    },
+    {
+      "name": "publish_out_of_order_event",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 0,
+          "bridge_observed_ms": 3,
+          "event": {
+            "type": "activity.changed",
+            "state": "idle"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "out_of_order_noop",
+        "body": null
+      },
+      "assert": "lower_sequence_is_noop"
+    },
+    {
+      "name": "publish_gap_event",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 5,
+          "bridge_observed_ms": 4,
+          "event": {
+            "type": "activity.changed",
+            "state": "thinking"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 409,
+        "kind": "gap_rejected_fresh_stream_required",
+        "body": {
+          "reason": "sequence_gap_fresh_snapshot_required"
+        }
+      },
+      "assert": "gap_requires_fresh_snapshot_first_stream"
+    },
+    {
+      "name": "event_rejected_until_fresh_snapshot",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 2,
+          "bridge_observed_ms": 5,
+          "event": {
+            "type": "activity.changed",
+            "state": "acting"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 409,
+        "kind": "gap_rejected_fresh_stream_required",
+        "body": {
+          "reason": "fresh_snapshot_required"
+        }
+      },
+      "assert": "contiguous_event_advances_canonical_state"
+    },
+    {
+      "name": "fresh_snapshot_after_gap",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "snapshot",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 5,
+          "cursor": 1,
+          "bridge_observed_ms": 5,
+          "native_session": {
+            "repository": "r",
+            "path": "/p",
+            "agent_kind": "llxprt",
+            "pid": 1,
+            "display_name": "d"
+          },
+          "process_binding": "unsupported",
+          "native_activity": {
+            "provenance": "authoritative",
+            "availability": "known",
+            "value": {
+              "state": "idle"
+            }
+          },
+          "current_wait": {
+            "provenance": "authoritative",
+            "availability": "known",
+            "value": null
+          },
+          "current_turn": "unsupported",
+          "todos": "unsupported",
+          "last_displayed_assistant_message": "unsupported",
+          "last_created_tool_call": "unsupported",
+          "source_terminal_state": "unsupported",
+          "source_error_state": "unsupported"
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "fresh_snapshot_accepted",
+        "body": null
+      },
+      "assert": "fresh_snapshot_required_after_gap"
+    },
+    {
+      "name": "publish_unrelated_agent",
+      "request": {
+        "route": "/jsp/1/publish",
+        "credential_handle": "publisher-other",
+        "principal_handle": "publisher-other-principal",
+        "method": "POST",
+        "agent_id": "srv-other",
+        "lifecycle_generation": 2,
+        "source_epoch": "other-epoch",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-other",
+          "lifecycle_generation": 2,
+          "source_epoch": "other-epoch",
+          "source_sequence": 2,
+          "bridge_observed_ms": 6,
+          "event": {
+            "type": "activity.changed",
+            "state": "idle"
+          }
+        }
+      },
+      "response": {
+        "status": 409,
+        "kind": "unrelated_agent_rejected",
+        "body": {
+          "reason": "unrelated_agent"
+        }
+      },
+      "assert": "unrelated_agent_is_not_stale_generation_or_epoch"
+    },
+    {
+      "name": "publish_stale_generation",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 1,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 1,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 2,
+          "bridge_observed_ms": 5,
+          "event": {
+            "type": "activity.changed",
+            "state": "idle"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 409,
+        "kind": "stale_generation_rejected",
+        "body": {
+          "reason": "stale_lifecycle_generation"
+        }
+      },
+      "assert": "stale_generation_rejected"
+    },
+    {
+      "name": "publish_stale_epoch",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "old-epoch",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "old-epoch",
+          "source_sequence": 2,
+          "bridge_observed_ms": 6,
+          "event": {
+            "type": "activity.changed",
+            "state": "idle"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 409,
+        "kind": "stale_epoch_rejected",
+        "body": {
+          "reason": "stale_source_epoch"
+        }
+      },
+      "assert": "stale_epoch_rejected"
+    },
+    {
+      "name": "observer_attempts_publish",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 2,
+          "bridge_observed_ms": 7,
+          "event": {
+            "type": "activity.changed",
+            "state": "idle"
+          }
+        },
+        "credential_handle": "observer-credential",
+        "principal_handle": "observer-principal"
+      },
+      "response": {
+        "status": 403,
+        "kind": "forbidden_role",
+        "body": null
+      },
+      "assert": "observer_cannot_publish"
+    },
+    {
+      "name": "publisher_observes_unrelated",
+      "request": {
+        "route": "/jsp/1/observe",
+        "method": "GET",
+        "agent_id": "srv-other",
+        "lifecycle_generation": 2,
+        "source_epoch": "other-epoch",
+        "body": null,
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 403,
+        "kind": "forbidden_role",
+        "body": null
+      },
+      "assert": "publisher_cannot_observe_unrelated"
+    },
+    {
+      "name": "observe_stream_snapshot_first",
+      "request": {
+        "route": "/jsp/1/observe",
+        "method": "GET",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": null,
+        "credential_handle": "observer-credential",
+        "principal_handle": "observer-principal"
+      },
+      "stream": [
+        {
+          "kind": "snapshot",
+          "document": {
+            "schema": 1,
+            "kind": "snapshot",
+            "agent_id": "srv-1",
+            "lifecycle_generation": 2,
+            "source_epoch": "srv-epoch-1",
+            "source_sequence": 1,
+            "cursor": 1,
+            "bridge_observed_ms": 8,
+            "native_session": {
+              "repository": "r",
+              "path": "/p",
+              "agent_kind": "llxprt",
+              "pid": 1,
+              "display_name": "d"
+            },
+            "process_binding": "unsupported",
+            "native_activity": {
+              "provenance": "authoritative",
+              "availability": "known",
+              "value": {
+                "state": "idle"
+              }
+            },
+            "current_wait": {
+              "provenance": "authoritative",
+              "availability": "known",
+              "value": null
+            },
+            "current_turn": "unsupported",
+            "todos": "unsupported",
+            "last_displayed_assistant_message": "unsupported",
+            "last_created_tool_call": "unsupported",
+            "source_terminal_state": "unsupported",
+            "source_error_state": "unsupported"
+          }
+        },
+        {
+          "kind": "heartbeat",
+          "document": {
+            "schema": 1,
+            "kind": "heartbeat",
+            "agent_id": "srv-1",
+            "lifecycle_generation": 2,
+            "source_epoch": "srv-epoch-1",
+            "bridge_observed_ms": 10
+          }
+        }
+      ],
+      "assert": "first_item_is_atomic_snapshot_then_contiguous_events"
+    },
+    {
+      "name": "publish_heartbeat_preserves_state",
+      "request": {
+        "route": "/jsp/1/heartbeat",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "heartbeat",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "bridge_observed_ms": 10
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "accepted",
+        "body": null
+      },
+      "assert": "heartbeat_preserves_canonical_native_state"
+    },
+    {
+      "name": "missed_lease_marks_observation_stale",
+      "request": {
+        "route": "/jsp/1/internal/lease_expired",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "now_ms": 21,
+          "lease_ms": 5
+        },
+        "credential_handle": "server-credential",
+        "principal_handle": "server-principal"
+      },
+      "response": {
+        "status": 200,
+        "kind": "observation_health_stale",
+        "body": {
+          "observation_health": "stale",
+          "native_activity": "idle"
+        }
+      },
+      "assert": "missed_lease_marks_observation_stale_not_native_idle"
+    },
+    {
+      "name": "observer_attempts_control",
+      "request": {
+        "route": "/jsp/1/control",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": null,
+        "credential_handle": "observer-credential",
+        "principal_handle": "observer-principal"
+      },
+      "response": {
+        "status": 403,
+        "kind": "forbidden_role",
+        "body": null
+      },
+      "assert": "observer_cannot_control"
+    },
+    {
+      "name": "publish_over_bound",
+      "request": {
+        "route": "/jsp/1/publish",
+        "method": "POST",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": {
+          "schema": 1,
+          "kind": "event",
+          "agent_id": "srv-1",
+          "lifecycle_generation": 2,
+          "source_epoch": "srv-epoch-1",
+          "source_sequence": 3,
+          "bridge_observed_ms": 11,
+          "event": {
+            "type": "tool_call.created",
+            "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "phase": "proposed"
+          }
+        },
+        "credential_handle": "publisher-credential",
+        "principal_handle": "publisher-principal"
+      },
+      "response": {
+        "status": 413,
+        "kind": "bound_exceeded",
+        "body": {
+          "reason": "payload_exceeds_bound"
+        }
+      },
+      "assert": "limit_plus_one_rejected"
+    },
+    {
+      "name": "observe_after_bound_rejection",
+      "request": {
+        "route": "/jsp/1/observe",
+        "method": "GET",
+        "agent_id": "srv-1",
+        "lifecycle_generation": 2,
+        "source_epoch": "srv-epoch-1",
+        "body": null,
+        "credential_handle": "observer-credential",
+        "principal_handle": "observer-principal"
+      },
+      "stream": [
+        {
+          "kind": "snapshot",
+          "document": {
+            "schema": 1,
+            "kind": "snapshot",
+            "agent_id": "srv-1",
+            "lifecycle_generation": 2,
+            "source_epoch": "srv-epoch-1",
+            "source_sequence": 1,
+            "cursor": 1,
+            "bridge_observed_ms": 21,
+            "native_session": {
+              "repository": "r",
+              "path": "/p",
+              "agent_kind": "llxprt",
+              "pid": 1,
+              "display_name": "d"
+            },
+            "process_binding": "unsupported",
+            "native_activity": {
+              "provenance": "authoritative",
+              "availability": "known",
+              "value": {
+                "state": "idle"
+              }
+            },
+            "current_wait": {
+              "provenance": "authoritative",
+              "availability": "known",
+              "value": null
+            },
+            "current_turn": "unsupported",
+            "todos": "unsupported",
+            "last_displayed_assistant_message": "unsupported",
+            "last_created_tool_call": "unsupported",
+            "source_terminal_state": "unsupported",
+            "source_error_state": "unsupported"
+          }
+        },
+        {
+          "kind": "heartbeat",
+          "document": {
+            "schema": 1,
+            "kind": "heartbeat",
+            "agent_id": "srv-1",
+            "lifecycle_generation": 2,
+            "source_epoch": "srv-epoch-1",
+            "bridge_observed_ms": 10
+          }
+        }
+      ],
+      "assert": "rejected_bound_proves_unchanged_canonical_state"
+    }
+  ]
+}

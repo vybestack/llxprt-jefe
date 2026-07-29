@@ -5,8 +5,7 @@ use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
-    /// Typed completion for a previously staged post-commit effect
-    /// (issue #381 CW01-11).
+    /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
 
     NavigateUp,
@@ -996,5 +995,6 @@ pub enum AppEvent {
         ok: bool,
         lines: Vec<String>,
     },
+    /// A shell closed after runtime removed its inventory entry.
     ShellClosed(crate::domain::AgentId),
 }
