@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "agent_type_id": "core.claude-code",
+  "capture_date": "2026-07-26",
+  "release": {
+    "version": "2.1.212",
+    "version_output": "2.1.212 (Claude Code)\n",
+    "executable_path": "/Users/acoliver/.local/share/claude/versions/2.1.212",
+    "executable_sha256": "09ecba2ab2df9b6ee5b0695e26f65dea60fb3b6af3d3542ee09f466838d1e574"
+  },
+  "installation": {
+    "package": "@anthropic-ai/claude-code",
+    "package_version_used_to_install": "2.1.220",
+    "install_selector": "stable",
+    "launcher": "/Users/acoliver/.local/bin/claude"
+  },
+  "official_reference": {
+    "url": "https://code.claude.com/docs/en/cli-reference",
+    "accessed": "2026-07-26"
+  },
+  "captures": {
+    "help": {
+      "argv": ["claude", "--help"],
+      "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
+      "exit_code": 0,
+      "stdout": "help.stdout",
+      "stderr": "help.stderr"
+    },
+    "probe": {
+      "argv": ["claude", "--version"],
+      "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
+      "exit_code": 0,
+      "stdout": "probe.stdout",
+      "stderr": "probe.stderr"
+    },
+    "version": {
+      "argv": ["claude", "--version"],
+      "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
+      "exit_code": 0,
+      "stdout": "version.stdout",
+      "stderr": "version.stderr"
+    }
+  },
+  "verified_mappings": {
+    "initial_interactive_prompt": ["<prompt>"],
+    "continue": ["--continue"],
+    "resume": ["--resume", "<session-id-or-name>"],
+    "model": ["--model", "<model>"],
+    "permission_mode": ["--permission-mode", "<mode>"],
+    "bypass_permissions": ["--dangerously-skip-permissions"]
+  },
+  "permission_modes": [
+    "default",
+    "acceptEdits",
+    "plan",
+    "auto",
+    "dontAsk",
+    "bypassPermissions",
+    "manual"
+  ],
+  "notes": [
+    "Fixture bytes prove the mapping existed in the captured release; they are not a runtime version allow-list.",
+    "The official reference states that --help does not list every supported flag.",
+    "Both the official reference and captured help reproduce every verified mapping flag listed here."
+  ]
+}

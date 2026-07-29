@@ -89,6 +89,37 @@ pub struct LaunchSignatureV1 {
     pub target_fingerprint: Sha256Digest,
 }
 
+impl LaunchSignatureV1 {
+    /// Current launch-signature schema version.
+    pub const VERSION: u64 = 1;
+
+    /// Construct the canonical version-one signature from definition digests.
+    #[must_use]
+    pub fn v1(
+        definition_hash: super::agent_definition::DefinitionSha256,
+        typed_value_hash: super::agent_definition::DefinitionSha256,
+        target_fingerprint: super::agent_definition::DefinitionSha256,
+    ) -> Self {
+        Self {
+            version: Self::VERSION,
+            definition_hash: Sha256Digest::from_definition(definition_hash),
+            typed_value_hash: Sha256Digest::from_definition(typed_value_hash),
+            target_fingerprint: Sha256Digest::from_definition(target_fingerprint),
+        }
+    }
+}
+
+impl Default for LaunchSignatureV1 {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            definition_hash: Sha256Digest::zero(),
+            typed_value_hash: Sha256Digest::zero(),
+            target_fingerprint: Sha256Digest::zero(),
+        }
+    }
+}
+
 /// Canonical lowercase SHA-256 digest used by durable contracts.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
@@ -108,6 +139,14 @@ impl<'de> Deserialize<'de> for Sha256Digest {
 }
 
 impl Sha256Digest {
+    fn zero() -> Self {
+        Self("0".repeat(64))
+    }
+
+    pub(crate) fn from_definition(value: super::agent_definition::DefinitionSha256) -> Self {
+        Self(value.to_hex())
+    }
+
     /// Parse exactly 64 lowercase hexadecimal characters.
     pub fn parse(value: &str) -> Result<Self, StateContractError> {
         if value.len() != 64
@@ -124,6 +163,12 @@ impl Sha256Digest {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Return the canonical lowercase hexadecimal text.
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        self.0.clone()
     }
 }
 

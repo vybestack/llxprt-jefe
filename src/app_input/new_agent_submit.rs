@@ -1,11 +1,11 @@
 //! Pre-submit planning for New Agent package availability validation.
 
-use jefe::domain::{LaunchSignature, llxprt_launch_source};
+use jefe::domain::{AgentLaunchRequest, Id};
 use jefe::services::{CreateAgentParams, prospective_agent_launch};
 use jefe::state::{AppEvent, AppState, ModalState};
 
 pub(super) enum NewAgentPackageProbePlan {
-    Probe(Box<LaunchSignature>),
+    Probe(Box<AgentLaunchRequest>),
     Skip,
     Invalid(String),
 }
@@ -35,7 +35,7 @@ pub(super) fn new_agent_package_probe_plan(state: &AppState) -> NewAgentPackageP
         code_puppy_version: &fields.code_puppy_version,
         code_puppy_yolo: fields.code_puppy_yolo,
         code_puppy_quick_resume: fields.code_puppy_quick_resume,
-        agent_kind: &fields.agent_kind,
+        agent_type_id: &fields.agent_type_id,
         llxprt_version: &fields.llxprt_version,
         mode: &fields.mode,
         llxprt_debug: &fields.llxprt_debug,
@@ -50,10 +50,11 @@ pub(super) fn new_agent_package_probe_plan(state: &AppState) -> NewAgentPackageP
             "invalid new-agent launch configuration".to_owned(),
         );
     };
-    if llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref()).requires_npm()
-        || (signature.agent_kind == jefe::domain::AgentKind::CodePuppy
-            && !signature.code_puppy_version.is_empty())
-    {
+    let version_selected = Id::parse("version-selector")
+        .ok()
+        .and_then(|id| signature.values.get(&id))
+        .is_some_and(|value| matches!(value, jefe::domain::TypedValue::String(value) if !value.trim().is_empty()));
+    if version_selected {
         NewAgentPackageProbePlan::Probe(Box::new(signature))
     } else {
         NewAgentPackageProbePlan::Skip
@@ -67,7 +68,7 @@ pub(super) fn execute_new_agent_package_probe<F, E>(
     probe: F,
 ) -> Result<(), String>
 where
-    F: FnOnce(&LaunchSignature) -> Result<(), E>,
+    F: FnOnce(&AgentLaunchRequest) -> Result<(), E>,
     E: std::fmt::Display,
 {
     match plan {

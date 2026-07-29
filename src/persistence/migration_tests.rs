@@ -64,7 +64,7 @@ fn assert_primary_migration(state: &crate::domain::StateV2) {
         state.repositories[0]
             .agent_defaults
             .values
-            .get(&id("default-profile")),
+            .get(&id("profile")),
         Some(&TypedValue::String("review".to_owned()))
     );
 }
@@ -115,7 +115,7 @@ fn assert_selection_and_preferences(state: &crate::domain::StateV2) {
 }
 
 fn assert_dormant_migration(state: &crate::domain::StateV2) {
-    assert_eq!(state.dormant_records.len(), 3);
+    assert_eq!(state.dormant_records.len(), 6);
     assert!(state.dormant_records.iter().any(|record| {
         record.kind == "schema1.root.future-root-field"
             && record.raw_value == json!({"opaque": true})
@@ -127,6 +127,17 @@ fn assert_dormant_migration(state: &crate::domain::StateV2) {
     assert!(state.dormant_records.iter().any(|record| {
         record.kind == "schema1.agent.future-agent-field"
             && record.stable_id.as_ref() == Some(&state.agents[0].id)
+    }));
+    let legacy_records = state
+        .dormant_records
+        .iter()
+        .filter(|record| record.kind == "schema1.agent.legacy-launch-values")
+        .collect::<Vec<_>>();
+    assert_eq!(legacy_records.len(), 3);
+    assert!(legacy_records.iter().all(|record| {
+        record.raw_value.get("pass_continue").is_some()
+            && record.stable_id.is_some()
+            && record.raw_schema == 1
     }));
 }
 
@@ -306,15 +317,15 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "d9c86254b9b69126f482605301dd73ff1b2e81454f4a0ddb74c2dbc0ea79a313"
+        "331745dd745096662a038abef912d8ce1679ef3295a37c9bcb6c2332b369c00a"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "b265282e2d9552e775c7ecff34ce62c26fbee0244a7a8f18f65cea0e6fec033b"
+        "317635609f3f1ee811c753d07008568a43d250759865199d43b1188f84c0f277"
     );
     assert_eq!(
         agent.launch_signature.target_fingerprint.as_str(),
-        "4b7789f7ba8bfab6a1d9739e1a29c3b6da9d3e8b781c5cb8e0419ddb5bbc81bc"
+        "bce3a6722845694a877fcfffdee9528be975ed9deef7c00bc3047a11e289844b"
     );
 }
 

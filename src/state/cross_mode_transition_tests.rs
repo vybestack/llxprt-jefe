@@ -191,6 +191,8 @@ fn enter_issues_mode_does_not_clobber_existing_prior_focus() {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent One".to_string(),
         std::path::PathBuf::from("/tmp/agent"),
     ));
@@ -244,6 +246,8 @@ fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent One".to_string(),
         std::path::PathBuf::from("/tmp/agent"),
     ));

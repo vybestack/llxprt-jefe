@@ -34,12 +34,6 @@ fn state_for_issue_agent_chooser_send(
 ) -> jefe::state::AppState {
     let mut agent = sample_agent(agent_id);
     agent.work_dir = work_dir.to_path_buf();
-    // sample_agent uses Agent::new which defaults pass_continue = true.
-    assert!(
-        agent.pass_continue,
-        "test fixture: agent must default to pass_continue = true"
-    );
-
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_owned(),
         number: 166,
@@ -74,7 +68,9 @@ fn state_for_issue_agent_chooser_send(
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 String::from("Agent One"),
-                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
             transient_available: false,
@@ -90,6 +86,8 @@ fn state_for_issue_agent_chooser_send(
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("Repo 1"),
         String::from("owner/repo"),
         PathBuf::from("/tmp/repo1"),
@@ -116,26 +114,22 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     let send_info = issue_send_info_from_state(&state)
         .unwrap_or_else(|| panic!("issue_send_info must resolve with chooser + detail + agent"));
 
-    // The send info copies the agent's configured pass_continue (true).
-    assert!(
-        send_info.signature.pass_continue,
-        "send info should inherit the agent's pass_continue = true"
+    assert_eq!(
+        send_info.signature.operation,
+        jefe::domain::agent_definition::Operation::Resume
     );
 
-    // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
-    // This calls the REAL production helper so removing the override would
-    // cause this test to fail.
     let issue_prompt = "This is the issue body content for testing.";
-    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
-    assert!(
-        !launch_sig.pass_continue,
-        "issue-driven launches must force pass_continue = false"
+    let launch_request = prepare_issue_launch_signature(send_info.signature, issue_prompt);
+    assert_eq!(
+        launch_request.operation,
+        jefe::domain::agent_definition::Operation::FreshIssue
     );
-    let instruction = launch_sig
-        .mode_flags
-        .iter()
-        .find(|arg| arg.contains(issue_prompt))
-        .value_or_panic("issue launch signature must include the inlined prompt");
+    let instruction =
+        match jefe::domain::canonical_values::typed_field(&launch_request.values, "prompt") {
+            Some(jefe::domain::TypedValue::String(prompt)) => prompt,
+            other => panic!("expected typed prompt, got {other:?}"),
+        };
     assert!(instruction.contains(issue_prompt));
     assert!(instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"));
     assert!(instruction.contains("decision-complete acceptance matrix"));
@@ -152,25 +146,25 @@ fn code_puppy_issue_send_carries_kind_and_uses_positional_instruction() {
     let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) else {
         panic!("fixture agent should exist");
     };
-    agent.agent_kind = jefe::domain::AgentKind::CodePuppy;
+    agent.type_id = jefe::domain::shipped_agent_type(1);
 
     let send_info = issue_send_info_from_state(&state)
         .unwrap_or_else(|| panic!("CodePuppy issue send info should resolve"));
     assert_eq!(
-        send_info.signature.agent_kind,
-        jefe::domain::AgentKind::CodePuppy
+        send_info.signature.type_id,
+        jefe::domain::shipped_agent_type(1)
     );
 
     let issue_prompt = "Code puppy issue body content.";
-    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
-    assert!(!launch_sig.pass_continue);
-    assert!(!launch_sig.mode_flags.iter().any(|arg| arg == "-i"));
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|arg| arg.contains(issue_prompt))
+    let launch_request = prepare_issue_launch_signature(send_info.signature, issue_prompt);
+    assert_eq!(
+        launch_request.operation,
+        jefe::domain::agent_definition::Operation::FreshIssue
     );
+    assert!(matches!(
+        jefe::domain::canonical_values::typed_field(&launch_request.values, "prompt"),
+        Some(jefe::domain::TypedValue::String(prompt)) if prompt.contains(issue_prompt)
+    ));
 }
 
 /// The `ConfirmIssueDirtyCopy` modal must resolve to `InputMode::Confirm` so
@@ -235,6 +229,8 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
     let seeded = AppState {
         repositories: vec![jefe::domain::Repository::new(
             jefe::domain::RepositoryId("r1".to_owned()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Repo".to_owned(),
             "acme/widgets".to_owned(),
             PathBuf::from("/tmp/repo"),
@@ -347,7 +343,7 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
     let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
     state.repositories[0].github_repo = "acme/widgets".to_owned();
     if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
-        agent.agent_kind = jefe::domain::AgentKind::CodePuppy;
+        agent.type_id = jefe::domain::shipped_agent_type(1);
     }
 
     let send_info =
@@ -360,25 +356,16 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
         .value_or_panic("CodePuppy must carry the same validated clone identity");
     assert_eq!(identity.clone_url(), "https://github.com/acme/widgets.git");
 
-    // Fresh no-resume signature: pass_continue forced off, positional
-    // instruction (no -i).
     let issue_prompt = "Issue body for clone-identity test.";
-    let launch_sig = prepare_issue_launch_signature(send_info.signature, issue_prompt);
-    assert!(
-        !launch_sig.pass_continue,
-        "CodePuppy issue send must be fresh (no resume)"
+    let launch_request = prepare_issue_launch_signature(send_info.signature, issue_prompt);
+    assert_eq!(
+        launch_request.operation,
+        jefe::domain::agent_definition::Operation::FreshIssue
     );
-    assert!(
-        !launch_sig.mode_flags.iter().any(|arg| arg == "-i"),
-        "CodePuppy must not receive -i (runtime prepends it)"
-    );
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|arg| arg.contains(issue_prompt)),
-        "CodePuppy issue signature must contain the inlined prompt"
-    );
+    assert!(matches!(
+        jefe::domain::canonical_values::typed_field(&launch_request.values, "prompt"),
+        Some(jefe::domain::TypedValue::String(prompt)) if prompt.contains(issue_prompt)
+    ));
 }
 
 // ── Issue #186: self-assign the issue to the viewer on send-to-agent ────

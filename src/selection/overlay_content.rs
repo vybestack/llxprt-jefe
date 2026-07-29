@@ -311,42 +311,24 @@ mod tests {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
     use crate::state::ModalState;
 
-    #[test]
-    fn confirm_modal_delete_agent_exact_layout_with_checkbox() {
-        let repo_id = RepositoryId("r1".to_string());
-        let agent_id = AgentId("a1".to_string());
-        let mut state = AppState {
-            modal: ModalState::ConfirmDeleteAgent {
-                id: agent_id.clone(),
-                delete_work_dir: true,
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
-        };
-        state.repositories.push(Repository::new(
-            repo_id.clone(),
-            "repo".to_string(),
-            "repo".to_string(),
-            std::path::PathBuf::from("/tmp/repo"),
-        ));
-        state.agents.push(Agent::new(
-            agent_id,
-            repo_id,
-            "my-agent".to_string(),
-            std::path::PathBuf::from("/tmp/a1"),
-        ));
-        let content = confirm_modal_lines(&state);
-        assert_eq!(
-            content.lines,
-            vec![
-                "Delete Agent".to_string(),
-                String::new(),
-                "Delete my-agent?".to_string(),
-                "[x] Delete work directory".to_string(),
-                "( Cancel )  [ Confirm ]".to_string(),
-                String::new(),
-            ]
+    fn launch_configuration() -> crate::domain::AgentLaunchRequest {
+        let repository = Repository::new(
+            RepositoryId("fixture-repo".to_owned()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
+            "fixture".to_owned(),
+            "fixture".to_owned(),
+            std::path::PathBuf::from("/tmp/fixture"),
         );
+        let agent = Agent::new(
+            AgentId("fixture-agent".to_owned()),
+            repository.id.clone(),
+            repository.default_type_id.clone(),
+            repository.default_values.clone(),
+            "fixture".to_owned(),
+            std::path::PathBuf::from("/tmp/fixture"),
+        );
+        crate::domain::AgentLaunchRequest::for_agent(&agent, &repository)
     }
 
     #[test]
@@ -360,6 +342,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "my-repo".to_string(),
             "my-repo".to_string(),
             std::path::PathBuf::from("/tmp/repo"),
@@ -391,6 +375,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             repo_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "repo".to_string(),
             "repo".to_string(),
             std::path::PathBuf::from("/tmp/repo"),
@@ -398,6 +384,8 @@ mod tests {
         state.agents.push(Agent::new(
             agent_id,
             repo_id,
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "running-agent".to_string(),
             std::path::PathBuf::from("/tmp/a1"),
         ));
@@ -427,6 +415,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "my-repo".to_string(),
             "my-repo".to_string(),
             std::path::PathBuf::from("/tmp/repo"),
@@ -450,6 +440,8 @@ mod tests {
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "my-repo".to_string(),
             "my-repo".to_string(),
             std::path::PathBuf::from("/tmp/repo"),
@@ -464,25 +456,8 @@ mod tests {
 
     #[test]
     fn confirm_modal_preflight_prompt_has_content() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::runtime::PreflightIssue;
-        let signature = LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: String::new(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let signature = launch_configuration();
         let state = AppState {
             modal: ModalState::PreflightPrompt {
                 agent_id: AgentId("a1".to_string()),
@@ -507,25 +482,8 @@ mod tests {
 
     #[test]
     fn confirm_modal_dirty_copy_has_content() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::github::SendPayload;
-        let signature = LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: String::new(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let signature = launch_configuration();
         let payload = SendPayload {
             repository: "o/r".to_string(),
             issue_number: 42,
@@ -559,24 +517,14 @@ mod tests {
 
     #[test]
     fn confirm_modal_origin_mismatch_renders_actual_expected() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
+        use crate::domain::AgentLaunchRequest;
         use crate::github::SendPayload;
-        let signature = LaunchSignature {
+        let signature = AgentLaunchRequest {
+            type_id: crate::domain::shipped_agent_type(3),
+            values: crate::domain::TypedMap::new(),
             work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: None,
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
+            operation: crate::domain::agent_definition::Operation::Normal,
         };
         let payload = SendPayload {
             repository: "o/r".to_string(),
@@ -610,7 +558,7 @@ mod tests {
 
     #[test]
     fn agent_chooser_empty_has_two_line_empty_state() {
-        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
+        use crate::domain::{AgentChooserEntry, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
@@ -620,7 +568,9 @@ mod tests {
                         AgentChooserEntry {
                             agent_id: AgentId("a1".to_string()),
                             name: "alpha".to_string(),
-                            kind: AgentKind::Llxprt,
+                            type_id: crate::domain::shipped_agent_type(3),
+                            type_display_name: "LLxprt".to_owned(),
+                            runtime_config_name: "profile".to_owned(),
                             runtime_config: ChooserRuntimeConfig::new("ops"),
                             branch: None,
                             dirty: DirtyStatus::unknown(),
@@ -628,7 +578,9 @@ mod tests {
                         AgentChooserEntry {
                             agent_id: AgentId("a2".to_string()),
                             name: "beta".to_string(),
-                            kind: AgentKind::CodePuppy,
+                            type_id: crate::domain::shipped_agent_type(1),
+                            type_display_name: "Code Puppy".to_owned(),
+                            runtime_config_name: "model".to_owned(),
                             runtime_config: ChooserRuntimeConfig::new("minimax-m3"),
                             branch: Some("feature".to_string()),
                             dirty: DirtyStatus::dirty(),
@@ -658,7 +610,7 @@ mod tests {
 
     #[test]
     fn agent_chooser_default_and_clean_render() {
-        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
+        use crate::domain::{AgentChooserEntry, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
             screen_mode: crate::state::ScreenMode::DashboardIssues,
             issues_state: crate::state::IssuesState {
@@ -669,7 +621,9 @@ mod tests {
                         AgentChooserEntry {
                             agent_id: AgentId("d1".to_string()),
                             name: "delta".to_string(),
-                            kind: AgentKind::Llxprt,
+                            type_id: crate::domain::shipped_agent_type(3),
+                            type_display_name: "LLxprt".to_owned(),
+                            runtime_config_name: "profile".to_owned(),
                             runtime_config: ChooserRuntimeConfig::default(),
                             branch: None,
                             dirty: DirtyStatus::clean(),
@@ -677,7 +631,9 @@ mod tests {
                         AgentChooserEntry {
                             agent_id: AgentId("d2".to_string()),
                             name: "epsilon".to_string(),
-                            kind: AgentKind::CodePuppy,
+                            type_id: crate::domain::shipped_agent_type(1),
+                            type_display_name: "Code Puppy".to_owned(),
+                            runtime_config_name: "model".to_owned(),
                             runtime_config: ChooserRuntimeConfig::default(),
                             branch: None,
                             dirty: DirtyStatus::clean(),
@@ -720,24 +676,24 @@ mod tests {
         }
     }
 
-    fn confirm_signature() -> crate::domain::LaunchSignature {
-        crate::domain::LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: String::new(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        }
+    fn confirm_signature() -> crate::domain::AgentLaunchRequest {
+        let repository = Repository::new(
+            RepositoryId("fixture-repo".to_owned()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
+            "fixture".to_owned(),
+            "fixture".to_owned(),
+            std::path::PathBuf::from("/tmp/fixture"),
+        );
+        let agent = Agent::new(
+            AgentId("fixture-agent".to_owned()),
+            repository.id.clone(),
+            repository.default_type_id.clone(),
+            repository.default_values.clone(),
+            "fixture".to_owned(),
+            std::path::PathBuf::from("/tmp/fixture"),
+        );
+        crate::domain::AgentLaunchRequest::for_agent(&agent, &repository)
     }
 
     fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {

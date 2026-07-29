@@ -113,8 +113,8 @@ pub fn shell_window_inputs_for(
         owner: agent_id.clone(),
         session_name: session.session_name.clone(),
         lifecycle_generation: session.lifecycle_generation,
-        remote_enabled: session.launch_signature.remote.enabled,
-        work_dir: session.launch_signature.work_dir.clone(),
+        remote_enabled: session.remote.is_some(),
+        work_dir: session.launch_plan.cwd.clone(),
     })
 }
 

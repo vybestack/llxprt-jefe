@@ -66,148 +66,106 @@ fn issue_filter_any_sentinel_is_not_active_but_none_is_active() {
 }
 
 #[test]
-fn agent_pass_continue_defaults_true() {
+fn agent_new_uses_generic_type_and_values() {
+    let type_id =
+        crate::domain::AgentTypeId::parse("core.llxprt").value_or_panic("valid shipped type id");
+    let mut values = crate::domain::TypedMap::new();
+    crate::domain::canonical_values::insert_json(
+        &mut values,
+        "profile",
+        serde_json::Value::String("review".to_owned()),
+    )
+    .value_or_panic("valid profile value");
     let agent = Agent::new(
-        AgentId("test-1".into()),
-        RepositoryId("repo-1".into()),
-        "Test Agent".into(),
-        PathBuf::from("/tmp/test"),
+        AgentId("agent-1".to_owned()),
+        RepositoryId("repo-1".to_owned()),
+        type_id.clone(),
+        values.clone(),
+        "Agent".to_owned(),
+        "/tmp/agent".into(),
     );
-    assert!(agent.pass_continue);
-    assert!(!agent.code_puppy_quick_resume);
-}
-
-#[test]
-fn agent_kind_defaults_to_llxprt() {
-    let agent = Agent::new(
-        AgentId("test-1".into()),
-        RepositoryId("repo-1".into()),
-        "Test Agent".into(),
-        PathBuf::from("/tmp/test"),
-    );
-    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
-    assert_eq!(agent.agent_kind.binary_name(), "llxprt");
-    assert!(!agent.agent_kind.is_kennel());
-}
-
-#[test]
-fn code_puppy_kind_has_expected_identity() {
-    assert_eq!(AgentKind::CodePuppy.binary_name(), "code-puppy");
-    assert_eq!(AgentKind::CodePuppy.label(), "code_puppy");
-    assert!(AgentKind::CodePuppy.is_kennel());
-    assert_eq!(
-        AgentKind::from_form_value("code-puppy"),
-        Some(AgentKind::CodePuppy)
-    );
-}
-
-#[test]
-fn persisted_kinds_default_to_llxprt_when_missing() {
-    let agent_json = json!({
-        "id": "agent-1", "display_id": "#1", "repository_id": "repo-1",
-        "name": "Agent", "description": "", "work_dir": "/tmp/a",
-        "profile": "", "mode_flags": [], "pass_continue": true,
-        "sandbox_enabled": false, "sandbox_engine": "podman",
-        "sandbox_flags": DEFAULT_SANDBOX_FLAGS, "status": "Queued",
-        "runtime_binding": null
-    });
-    let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
-    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
-
-    let repo_json = json!({
-        "id": "repo-1", "name": "Repo", "slug": "repo",
-        "base_dir": "/tmp/repo", "default_profile": "", "agent_ids": []
-    });
-    let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
-    assert_eq!(repo.default_agent_kind, AgentKind::Llxprt);
-}
-
-#[test]
-fn agent_status_defaults_to_queued() {
-    let agent = Agent::new(
-        AgentId("test-1".into()),
-        RepositoryId("repo-1".into()),
-        "Test Agent".into(),
-        PathBuf::from("/tmp/test"),
-    );
+    assert_eq!(agent.type_id, type_id);
+    assert_eq!(agent.values, values);
     assert_eq!(agent.status, AgentStatus::Queued);
+    assert_eq!(agent.origin, AgentOrigin::Persistent);
 }
 
 #[test]
-fn agent_sandbox_defaults_match_requirement() {
-    let agent = Agent::new(
-        AgentId("test-1".into()),
-        RepositoryId("repo-1".into()),
-        "Test Agent".into(),
-        PathBuf::from("/tmp/test"),
+fn repository_new_uses_generic_defaults() {
+    let type_id = crate::domain::AgentTypeId::parse("core.code-puppy")
+        .value_or_panic("valid shipped type id");
+    let mut defaults = crate::domain::TypedMap::new();
+    crate::domain::canonical_values::insert_json(
+        &mut defaults,
+        "model",
+        serde_json::Value::String("fixture-model".to_owned()),
+    )
+    .value_or_panic("valid model value");
+    let repository = Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        type_id.clone(),
+        defaults.clone(),
+        "Repo".to_owned(),
+        "repo".to_owned(),
+        "/tmp/repo".into(),
     );
-    assert!(agent.llxprt_debug.is_empty());
-    assert!(!agent.sandbox_enabled);
-    assert_eq!(agent.sandbox_engine, SandboxEngine::Podman);
-    assert_eq!(agent.sandbox_flags, DEFAULT_SANDBOX_FLAGS);
+    assert_eq!(repository.default_type_id, type_id);
+    assert_eq!(repository.default_values, defaults);
+    assert_eq!(repository.transient_max_concurrent, 0);
+    assert!(repository.transient_agent_dir.as_os_str().is_empty());
 }
 
 #[test]
-fn agent_deserializes_missing_llxprt_debug_as_empty() {
-    let value = json!({
-        "id": "agent-1",
-        "display_id": "#1",
-        "repository_id": "repo-1",
-        "name": "Agent One",
-        "description": "",
-        "work_dir": "/tmp/agent-1",
-        "profile": "",
-        "mode_flags": ["--yolo"],
-        "pass_continue": true,
-        "sandbox_enabled": false,
-        "sandbox_engine": "podman",
-        "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
-        "status": "Queued",
-        "runtime_binding": null
-    });
+fn transient_agent_inherits_generic_repository_defaults_once() {
+    let type_id = crate::domain::AgentTypeId::parse("core.code-puppy")
+        .value_or_panic("valid shipped type id");
+    let mut defaults = crate::domain::TypedMap::new();
+    crate::domain::canonical_values::insert_json(
+        &mut defaults,
+        "yolo",
+        serde_json::Value::Bool(true),
+    )
+    .value_or_panic("valid yolo value");
+    let mut repository = Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        type_id.clone(),
+        defaults.clone(),
+        "Repo".to_owned(),
+        "repo".to_owned(),
+        std::env::temp_dir(),
+    );
+    repository.transient_agent_dir = std::env::temp_dir();
+    let agent = Agent::new_transient(
+        AgentId("transient-1".to_owned()),
+        repository.id.clone(),
+        repository.transient_agent_dir.join("transient-1"),
+        &repository,
+    );
+    assert_eq!(agent.type_id, type_id);
+    assert_eq!(agent.values, defaults);
+    assert_eq!(agent.origin, AgentOrigin::Transient);
 
-    let Ok(agent) = serde_json::from_value::<Agent>(value) else {
-        panic!("agent should deserialize");
-    };
-    assert!(agent.llxprt_debug.is_empty());
-    assert!(!agent.code_puppy_quick_resume);
+    repository.default_values.clear();
+    assert!(!agent.values.is_empty());
 }
 
 #[test]
-fn launch_signature_deserializes_missing_llxprt_debug_as_empty() {
-    let value = json!({
-        "work_dir": "/tmp/agent-1",
-        "profile": "",
-        "mode_flags": ["--yolo"],
-        "pass_continue": true,
-        "sandbox_enabled": true,
-        "sandbox_engine": "podman",
-        "sandbox_flags": DEFAULT_SANDBOX_FLAGS
-    });
-
-    let Ok(signature) = serde_json::from_value::<LaunchSignature>(value) else {
-        panic!("launch signature should deserialize");
+fn runtime_binding_roundtrips_launch_signature_v1() {
+    let binding = RuntimeBinding {
+        session_name: "jefe-agent-1".to_owned(),
+        launch_signature: LaunchSignatureV1::default(),
+        attached: true,
+        last_seen: Some(42),
+        pid: Some(7),
+        process_identity: Some(ProcessIdentity::new(7, 11)),
+        lifecycle_generation: 3,
+        worker_identities: Vec::new(),
     };
-    assert!(signature.llxprt_debug.is_empty());
-    assert!(!signature.code_puppy_quick_resume);
-    assert_eq!(signature.remote, RemoteRepositorySettings::default());
-}
-
-#[test]
-fn repository_deserializes_missing_remote_settings_with_defaults() {
-    let value = json!({
-        "id": "repo-1",
-        "name": "Repo One",
-        "slug": "repo-one",
-        "base_dir": "/tmp/repo-one",
-        "default_profile": "",
-        "agent_ids": []
-    });
-
-    let Ok(repository) = serde_json::from_value::<Repository>(value) else {
-        panic!("repository should deserialize");
-    };
-    assert_eq!(repository.remote, RemoteRepositorySettings::default());
+    let json = serde_json::to_value(&binding).value_or_panic("serialize binding");
+    let restored: RuntimeBinding =
+        serde_json::from_value(json).value_or_panic("deserialize binding");
+    assert_eq!(restored.launch_signature, LaunchSignatureV1::default());
+    assert_eq!(restored.process_identity, Some(ProcessIdentity::new(7, 11)));
 }
 
 #[test]
@@ -294,90 +252,26 @@ fn platform_label_returns_readable_names() {
     );
 }
 
-#[test]
-fn seatbelt_deserialization_still_works_across_platforms() {
-    // Seatbelt must always deserialize (for persisted state portability).
-    // Platform filtering happens at the capabilities layer, not serde.
-    let value = json!({
-        "id": "agent-seatbelt",
-        "display_id": "#1",
-        "repository_id": "repo-1",
-        "name": "Seatbelt Agent",
-        "description": "",
-        "work_dir": "/tmp/sb-agent",
-        "profile": "",
-        "mode_flags": ["--yolo"],
-        "pass_continue": true,
-        "sandbox_enabled": true,
-        "sandbox_engine": "seatbelt",
-        "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
-        "status": "Queued",
-        "runtime_binding": null
-    });
-    let Ok(agent) = serde_json::from_value::<Agent>(value) else {
-        panic!("agent with seatbelt engine should deserialize");
-    };
-    assert_eq!(agent.sandbox_engine, SandboxEngine::Seatbelt);
-}
-
 /// Test 25: issue_base_prompt serializes and deserializes correctly.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
 /// @requirement REQ-ISS-013
 /// @pseudocode component-001 lines 190-195
 #[test]
 fn test_issue_base_prompt_serde_roundtrip() {
-    let repo = Repository {
-        id: RepositoryId("repo-1".to_string()),
-        name: "Test Repo".to_string(),
-        slug: "test-repo".to_string(),
-        base_dir: PathBuf::from("/tmp/test-repo"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: "Prioritize diagnosis".to_string(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 0,
-        agent_ids: vec![],
-        default_llxprt_version: None,
-    };
+    let mut repo = Repository::new(
+        RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Test Repo".to_string(),
+        "test-repo".to_string(),
+        PathBuf::from("/tmp/test-repo"),
+    );
+    repo.issue_base_prompt = "Prioritize diagnosis".to_string();
 
     let json = serde_json::to_value(&repo).value_or_panic("should serialize");
     let repo2: Repository = serde_json::from_value(json).value_or_panic("should deserialize");
 
     assert_eq!(repo2.issue_base_prompt, "Prioritize diagnosis");
-}
-
-/// Test 26: issue_base_prompt backward compatibility with missing field.
-/// @plan PLAN-20260329-ISSUES-MODE.P04
-/// @requirement REQ-ISS-013
-/// @pseudocode component-001 lines 196-200
-#[test]
-fn test_issue_base_prompt_backward_compat() {
-    let value = json!({
-        "id": "repo-1",
-        "name": "Test Repo",
-        "slug": "test-repo",
-        "base_dir": "/tmp/test-repo",
-        "default_profile": "",
-        "remote": {
-            "enabled": false,
-            "login_user": "",
-            "host": "",
-            "run_as_user": "",
-            "setup_env_default": false
-        },
-        "agent_ids": []
-        // Note: no issue_base_prompt field
-    });
-
-    let repo: Repository = serde_json::from_value(value).value_or_panic("should deserialize");
-    assert_eq!(repo.issue_base_prompt, "");
 }
 
 /// Regression for issue #121: a persisted `state.json` written before the
@@ -388,17 +282,13 @@ fn runtime_binding_deserializes_missing_pid_as_none() {
     let value = json!({
         "session_name": "jefe-agent-1",
         "launch_signature": {
-            "work_dir": "/tmp/agent-1",
-            "profile": "",
-            "mode_flags": [],
-            "pass_continue": true,
-            "sandbox_enabled": false,
-            "sandbox_engine": "podman",
-            "sandbox_flags": DEFAULT_SANDBOX_FLAGS
+            "version": 0,
+            "definition_hash": "0".repeat(64),
+            "typed_value_hash": "0".repeat(64),
+            "target_fingerprint": "0".repeat(64)
         },
         "attached": false,
         "last_seen": null
-        // Note: no pid field
     });
 
     let binding: RuntimeBinding =
@@ -415,23 +305,7 @@ fn runtime_binding_deserializes_missing_pid_as_none() {
 fn runtime_binding_roundtrips_pid_when_present() {
     let binding = RuntimeBinding {
         session_name: "jefe-agent-2".to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: PathBuf::from("/tmp/agent-2"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        },
+        launch_signature: LaunchSignatureV1::default(),
         attached: false,
         last_seen: None,
         pid: Some(42_000),
@@ -560,141 +434,6 @@ fn pr_review_thread_supports_unresolved_with_location() {
     );
 }
 
-// =============================================================================
-// Transient Agent Support (issue #213)
-// =============================================================================
-
-#[test]
-fn repository_new_defaults_transient_fields() {
-    let repo = Repository::new(
-        RepositoryId("repo-1".into()),
-        "Test Repo".into(),
-        "test-repo".into(),
-        PathBuf::from("/tmp/repo"),
-    );
-    assert!(repo.transient_agent_dir.as_os_str().is_empty());
-    assert_eq!(repo.default_code_puppy_yolo, Some(true));
-    assert_eq!(repo.default_llxprt_mode_flags, vec!["--yolo"]);
-    assert_eq!(repo.transient_max_concurrent, 0);
-}
-
-#[test]
-fn repository_effective_transient_dir_defaults_to_system_temp_when_empty() {
-    let repo = Repository::new(
-        RepositoryId("repo-1".into()),
-        "Test Repo".into(),
-        "test-repo".into(),
-        PathBuf::from("/tmp/repo"),
-    );
-    assert_eq!(repo.effective_transient_dir(), std::env::temp_dir());
-}
-
-#[test]
-fn repository_effective_transient_dir_returns_configured_dir_when_set() {
-    let mut repo = Repository::new(
-        RepositoryId("repo-1".into()),
-        "Test Repo".into(),
-        "test-repo".into(),
-        PathBuf::from("/tmp/repo"),
-    );
-    repo.transient_agent_dir = PathBuf::from("/var/tmp/jefe-agents");
-    assert_eq!(
-        repo.effective_transient_dir(),
-        PathBuf::from("/var/tmp/jefe-agents")
-    );
-}
-
-#[test]
-fn agent_new_defaults_is_transient_false() {
-    let agent = Agent::new(
-        AgentId("test-1".into()),
-        RepositoryId("repo-1".into()),
-        "Test Agent".into(),
-        PathBuf::from("/tmp/test"),
-    );
-    assert!(!agent.is_transient());
-}
-
-#[test]
-fn agent_new_transient_sets_is_transient_true_and_inherits_repo_defaults() {
-    let mut repo = Repository::new(
-        RepositoryId("repo-1".into()),
-        "My Repo".into(),
-        "my-repo".into(),
-        PathBuf::from("/tmp/repo"),
-    );
-    repo.default_profile = "dev".to_string();
-    repo.default_code_puppy_model = "gpt-5".to_string();
-    repo.default_code_puppy_yolo = Some(true);
-    repo.default_llxprt_mode_flags = vec!["--yolo".to_owned(), "--fast".to_owned()];
-    repo.default_agent_kind = AgentKind::CodePuppy;
-
-    let work_dir = repo.effective_transient_dir().join("jefe-transient-1");
-    let agent = Agent::new_transient(
-        AgentId("transient-1".into()),
-        RepositoryId("repo-1".into()),
-        work_dir.clone(),
-        &repo,
-    );
-
-    assert!(agent.is_transient());
-    assert_eq!(agent.id, AgentId("transient-1".into()));
-    assert_eq!(agent.repository_id, RepositoryId("repo-1".into()));
-    assert_eq!(agent.work_dir, work_dir);
-    assert_eq!(agent.profile, "dev");
-    assert_eq!(agent.code_puppy_model, "gpt-5");
-    assert_eq!(agent.code_puppy_yolo, Some(true));
-    assert_eq!(agent.mode_flags, vec!["--yolo", "--fast"]);
-    assert_eq!(agent.agent_kind, AgentKind::CodePuppy);
-    assert!(!agent.pass_continue, "transient agents are one-shot");
-    assert_eq!(agent.status, AgentStatus::Queued);
-    assert!(agent.name.contains("My Repo"));
-}
-
-#[test]
-fn repository_transient_fields_backward_compat_with_missing_fields() {
-    let repo_json = json!({
-        "id": "repo-1",
-        "name": "Repo",
-        "slug": "repo",
-        "base_dir": "/tmp/repo",
-        "default_profile": "",
-        "agent_ids": []
-        // Note: no transient-agent option fields.
-    });
-    let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
-    assert!(repo.transient_agent_dir.as_os_str().is_empty());
-    assert_eq!(repo.default_code_puppy_yolo, Some(true));
-    assert_eq!(repo.default_llxprt_mode_flags, vec!["--yolo"]);
-    assert_eq!(repo.transient_max_concurrent, 0);
-    assert_eq!(repo.effective_transient_dir(), std::env::temp_dir());
-}
-
-#[test]
-fn agent_is_transient_backward_compat_with_missing_field() {
-    let agent_json = json!({
-        "id": "agent-1",
-        "display_id": "#1",
-        "repository_id": "repo-1",
-        "name": "Agent",
-        "description": "",
-        "work_dir": "/tmp/a",
-        "profile": "",
-        "mode_flags": [],
-        "pass_continue": true,
-        "sandbox_enabled": false,
-        "sandbox_engine": "podman",
-        "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
-        "status": "Queued",
-        "runtime_binding": null
-        // Note: no origin field
-    });
-    let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
-    assert!(!agent.is_transient());
-}
-
-/// A canonical decimal carrying more digits than an f64 can represent must not
-/// be silently truncated when it is encoded as JSON (issue #381).
 #[test]
 fn high_precision_decimals_survive_json_encoding() {
     use crate::domain::canonical_values::typed_to_json;

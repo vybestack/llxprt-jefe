@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "name": "agent-incompatible-zero-spawn",
+  "platform": "macos",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+    ]
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "code-puppy",
+      "path": "bin/code-puppy",
+      "behavior": {
+        "stdout": "0.0.634\n",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Code Puppy  Incompatible", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "missing required capability: interactive", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Code Puppy  Incompatible, enabled  [Create disabled]",
+        "missing required capability: interactive"
+      ],
+      "absent": ["Code Puppy  Installed", "Code Puppy  Incompatible, enabled  [Create enabled]"]
+    },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "code-puppy",
+        "invocation": 1,
+        "argv": ["${workspace}/bin/code-puppy", "--version"],
+        "env": [],
+        "cwd": "${workspace}/repo"
+      }
+    },
+    {
+      "op": "assert-capture",
+      "capture": {
+        "name": "code-puppy",
+        "invocation": 2,
+        "argv": ["${workspace}/bin/code-puppy", "--help"],
+        "env": [],
+        "cwd": "${workspace}/repo"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": { "path": ".captures/code-puppy/3.json", "exists": false }
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

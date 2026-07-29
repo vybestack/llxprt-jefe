@@ -20,6 +20,8 @@ fn prs_mode_state() -> AppState {
     for slug in ["repo-1", "repo-2", "repo-3"] {
         state.repositories.push(Repository::new(
             RepositoryId(slug.to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             slug.to_string(),
             slug.to_string(),
             std::path::PathBuf::from(format!("/tmp/{slug}")),

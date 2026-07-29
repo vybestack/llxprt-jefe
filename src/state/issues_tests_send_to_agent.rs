@@ -5,7 +5,7 @@
 //! source-file-size hard limit.
 
 use crate::domain::{
-    Agent, AgentChooserEntry, AgentChooserGitMetadata, AgentId, AgentKind, IssueDetail, IssueState,
+    Agent, AgentChooserEntry, AgentChooserGitMetadata, AgentId, IssueDetail, IssueState,
     Repository, RepositoryId,
 };
 use crate::state::AppState;
@@ -15,10 +15,21 @@ use crate::state::types::{
     AgentChooserState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
 };
 
+fn set_string(values: &mut crate::domain::TypedMap, field: &str, value: &str) {
+    crate::domain::canonical_values::insert_json(
+        values,
+        field,
+        serde_json::Value::String(value.to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("typed fixture value: {error}"));
+}
+
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),
@@ -68,14 +79,16 @@ fn issues_chooser(state: &AppState) -> &AgentChooserState {
 #[test]
 fn test_send_to_agent_agent_in_different_repository() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut agent = Agent::new(
         AgentId("agent-other".to_string()),
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Other Repo Agent".to_string(),
         std::path::PathBuf::from("/tmp/a-other"),
     );
-    agent.agent_kind = AgentKind::Llxprt;
+    agent.type_id = crate::domain::shipped_agent_type(3);
     state.agents.push(agent);
 
     let state = state
@@ -98,14 +111,16 @@ fn test_send_to_agent_agent_in_different_repository() {
 #[test]
 fn test_send_to_agent_eligible_clears_stale_notice_and_opens_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut agent = Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     );
-    agent.agent_kind = AgentKind::Llxprt;
+    agent.type_id = crate::domain::shipped_agent_type(3);
     state.agents.push(agent);
     state.issues_state.draft_notice = Some("No agents available".to_string());
 
@@ -349,11 +364,13 @@ fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
 #[test]
 fn metadata_cross_repo_agent_dropped_from_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     // Agent in repo-1 (eligible).
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -361,10 +378,12 @@ fn metadata_cross_repo_agent_dropped_from_chooser() {
     let mut other_repo_agent = Agent::new(
         AgentId("agent-other-repo".to_string()),
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Other Repo Agent".to_string(),
         std::path::PathBuf::from("/tmp/a-other"),
     );
-    other_repo_agent.agent_kind = AgentKind::Llxprt;
+    other_repo_agent.type_id = crate::domain::shipped_agent_type(3);
     state.agents.push(other_repo_agent);
     // Metadata for both agents.
     let metadata = vec![
@@ -396,10 +415,12 @@ fn metadata_cross_repo_agent_dropped_from_chooser() {
 #[test]
 fn metadata_running_agent_dropped_from_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut running_agent = Agent::new(
         AgentId("running-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Running Agent".to_string(),
         std::path::PathBuf::from("/tmp/running"),
     );
@@ -409,6 +430,8 @@ fn metadata_running_agent_dropped_from_chooser() {
     state.agents.push(Agent::new(
         AgentId("idle-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Idle Agent".to_string(),
         std::path::PathBuf::from("/tmp/idle"),
     ));
@@ -446,10 +469,12 @@ fn metadata_running_agent_dropped_from_chooser() {
 #[test]
 fn metadata_only_ineligible_agents_keeps_chooser_closed() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut running = Agent::new(
         AgentId("running-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Running Agent".to_string(),
         std::path::PathBuf::from("/tmp/running"),
     );
@@ -482,19 +507,23 @@ fn metadata_only_ineligible_agents_keeps_chooser_closed() {
 fn metadata_unavailable_kind_agent_dropped_from_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
     // Only LLxprt is installed.
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     // A Code Puppy agent (kind not installed) and an LLxprt agent.
     let mut puppy_agent = Agent::new(
         AgentId("puppy-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Puppy Agent".to_string(),
         std::path::PathBuf::from("/tmp/puppy"),
     );
-    puppy_agent.agent_kind = AgentKind::CodePuppy;
+    puppy_agent.type_id = crate::domain::shipped_agent_type(1);
     state.agents.push(puppy_agent);
     state.agents.push(Agent::new(
         AgentId("llxprt-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "LLxprt Agent".to_string(),
         std::path::PathBuf::from("/tmp/llxprt"),
     ));
@@ -531,10 +560,12 @@ fn metadata_unavailable_kind_agent_dropped_from_chooser() {
 #[test]
 fn metadata_stale_removed_agent_dropped_from_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("current-agent".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Current Agent".to_string(),
         std::path::PathBuf::from("/tmp/current"),
     ));
@@ -573,14 +604,16 @@ fn metadata_stale_removed_agent_dropped_from_chooser() {
 #[test]
 fn metadata_cannot_override_identity() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut agent = Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Real Name".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     );
-    agent.profile = "real-profile".to_string();
+    set_string(&mut agent.values, "profile", "real-profile");
     state.agents.push(agent);
 
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
@@ -596,7 +629,10 @@ fn metadata_cannot_override_identity() {
         .unwrap_or_else(|| panic!("chooser must be open"));
     // Identity must come from state, not metadata.
     assert_eq!(chooser.agents[0].name, "Real Name");
-    assert_eq!(chooser.agents[0].kind, AgentKind::Llxprt);
+    assert_eq!(
+        chooser.agents[0].type_id,
+        crate::domain::shipped_agent_type(3)
+    );
     assert_eq!(chooser.agents[0].runtime_config.value, "real-profile");
 }
 
@@ -606,10 +642,12 @@ fn metadata_cannot_override_identity() {
 #[test]
 fn metadata_duplicate_agent_id_first_wins() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -649,16 +687,20 @@ fn metadata_duplicate_agent_id_first_wins() {
 #[test]
 fn nonzero_chooser_index_selects_correct_agent_id() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("agent-alpha".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Alpha".to_string(),
         std::path::PathBuf::from("/tmp/alpha"),
     ));
     state.agents.push(Agent::new(
         AgentId("agent-beta".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Beta".to_string(),
         std::path::PathBuf::from("/tmp/beta"),
     ));
@@ -689,16 +731,20 @@ fn nonzero_chooser_index_selects_correct_agent_id() {
 #[test]
 fn navigate_down_clamps_at_last_entry() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
     state.agents.push(Agent::new(
         AgentId("a2".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".to_string(),
         std::path::PathBuf::from("/tmp/a2"),
     ));
@@ -727,16 +773,20 @@ fn navigate_down_clamps_at_last_entry() {
 #[test]
 fn confirm_closes_chooser_after_nonzero_navigation() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
     state.agents.push(Agent::new(
         AgentId("a2".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".to_string(),
         std::path::PathBuf::from("/tmp/a2"),
     ));
@@ -763,10 +813,12 @@ fn confirm_closes_chooser_after_nonzero_navigation() {
 #[test]
 fn metadata_branch_and_dirty_joined_for_eligible_agent() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -789,10 +841,12 @@ fn metadata_branch_and_dirty_joined_for_eligible_agent() {
 #[test]
 fn no_matching_metadata_gives_unknown_dirty_and_no_branch() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.agents.push(Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
@@ -839,18 +893,19 @@ fn open_agent_chooser_metadata_survives_message_round_trip() {
 #[test]
 fn empty_agent_value_not_replaced_by_repo_default() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
-    let mut agent = Agent::new(
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
+    let agent = Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     );
-    agent.profile = String::new(); // empty agent profile
     state.agents.push(agent);
     // Set a nonempty repo default profile.
     if let Some(repo) = state.repositories.get_mut(0) {
-        repo.default_profile = "repo-default-profile".to_string();
+        set_string(&mut repo.default_values, "profile", "repo-default-profile");
     }
 
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
@@ -872,17 +927,19 @@ fn empty_agent_value_not_replaced_by_repo_default() {
 #[test]
 fn agent_config_preserved_exactly_not_repo_fallback() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let mut agent = Agent::new(
         AgentId("a1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     );
-    agent.profile = "agent-profile".to_string();
+    set_string(&mut agent.values, "profile", "agent-profile");
     state.agents.push(agent);
     if let Some(repo) = state.repositories.get_mut(0) {
-        repo.default_profile = "repo-default".to_string();
+        set_string(&mut repo.default_values, "profile", "repo-default");
     }
 
     let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(

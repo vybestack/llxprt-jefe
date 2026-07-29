@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "name": "agent-remote-operation-matrix",
+  "platform": "linux",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "bin", "mode": 493 },
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "bin/llxprt",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[repositories.repo]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"/srv/project\"\nremote = { enabled = true, login_user = \"dev\", host = \"example.com\", port = 22, run_as_user = \"runner\" }\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
+      { "name": "TERM", "value": "xterm-256color" }
+    ]
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "ssh",
+      "path": "bin/ssh",
+      "behavior": {
+        "stdout": "ssh boundary\n",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": ["LLxprt", "Remote"],
+      "absent": ["error"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

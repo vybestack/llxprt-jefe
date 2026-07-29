@@ -53,6 +53,8 @@ fn stale_completion_keeps_persisted_state_byte_identical() {
     let mut state = AppState::default();
     state.repositories.push(jefe::domain::Repository::new(
         jefe::domain::RepositoryId("repo-1".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test".to_owned(),
         "test".to_owned(),
         PathBuf::from("/tmp/repo"),
@@ -60,6 +62,8 @@ fn stale_completion_keeps_persisted_state_byte_identical() {
     let mut doomed = jefe::domain::Agent::new(
         jefe::domain::AgentId("agent-1".to_owned()),
         jefe::domain::RepositoryId("repo-1".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "doomed".to_owned(),
         PathBuf::from("/tmp/agent"),
     );

@@ -15,7 +15,7 @@
 //!   back to `login_user` when `run_as_user` is empty), matching the user
 //!   that will own the prep/launch side effects.
 //! - **Exact binary**: probes `code-puppy` (not `code_puppy`) or `llxprt`
-//!   — the exact executable name from [`AgentKind::binary_name`].
+//!   — the exact executable name from [`AgentTypeId::binary_name`].
 //!
 //! ## Predicate classification (defect 3)
 //!
@@ -45,7 +45,9 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentKind, RemoteRepositorySettings};
+use jefe::domain::RemoteRepositorySettings;
+use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, CandidateKind};
+use jefe::domain::canonical_values::normalize_remote_path;
 
 /// Sentinel emitted by the probe when the binary IS available.
 const SENTINEL_OK: &str = "JEFE_PROBE_OK";
@@ -153,7 +155,7 @@ pub(super) fn classify_probe_output(
 ///
 /// ## LLxprt path-local resolution (mirrors launch resolver)
 ///
-/// For `AgentKind::Llxprt`, the probe mirrors the **non-mutating** checks in
+/// For `jefe::domain::shipped_agent_type(3)`, the probe mirrors the **non-mutating** checks in
 /// `runtime::commands::resolve_remote_llxprt_command`: it accepts a **global**
 /// `command -v llxprt` OR an executable `<work_dir>/node_modules/.bin/llxprt`.
 /// This keeps the pre-side-effect availability gate consistent with the
@@ -174,44 +176,19 @@ pub(super) fn classify_probe_output(
 pub(super) fn plan_remote_probe(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
-    kind: AgentKind,
+    type_id: &AgentTypeId,
 ) -> Vec<String> {
-    ssh_arguments_as_strings(remote, &remote_probe_command(remote, work_dir, kind))
+    ssh_arguments_as_strings(remote, &remote_probe_command(remote, work_dir, type_id))
         .unwrap_or_else(|error| panic!("plan remote probe: {error}"))
 }
-
-#[must_use]
-#[cfg(test)]
-pub(super) fn plan_remote_code_puppy_probe(
-    remote: &RemoteRepositorySettings,
-    work_dir: &Path,
-    version: &str,
-) -> Vec<String> {
-    ssh_arguments_as_strings(
-        remote,
-        &remote_code_puppy_probe_command(remote, work_dir, version),
-    )
-    .unwrap_or_else(|error| panic!("plan remote Code Puppy probe: {error}"))
-}
-
 fn remote_probe_command(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
-    kind: AgentKind,
+    type_id: &AgentTypeId,
 ) -> String {
-    let inner = probe_inner_command(kind, work_dir);
+    let inner = probe_inner_command(type_id, work_dir);
     wrap_probe_for_effective_user(remote, inner)
 }
-
-fn remote_code_puppy_probe_command(
-    remote: &RemoteRepositorySettings,
-    work_dir: &Path,
-    version: &str,
-) -> String {
-    let inner = probe_inner_command_for_code_puppy(work_dir, version);
-    wrap_probe_for_effective_user(remote, inner)
-}
-
 fn wrap_probe_for_effective_user(remote: &RemoteRepositorySettings, inner: String) -> String {
     let effective = effective_user(remote);
     if effective == remote.login_user.trim() {
@@ -242,51 +219,47 @@ fn wrap_probe_for_effective_user(remote: &RemoteRepositorySettings, inner: Strin
 /// path-local `[ -x ... ]` check, which is itself safe against a missing
 /// directory (the test simply fails).
 ///
-/// For `AgentKind::Llxprt`, this mirrors the launch resolver's non-mutating
+/// For `jefe::domain::shipped_agent_type(3)`, this mirrors the launch resolver's non-mutating
 /// checks: global `command -v llxprt` OR executable
 /// `<work_dir>/node_modules/.bin/llxprt`. For `CodePuppy`, it probes the
 /// exact global `code-puppy` binary only (the launch resolver has no
 /// path-local fallback for code-puppy).
-fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
-    match kind {
-        AgentKind::CodePuppy => probe_inner_command_for_code_puppy(work_dir, ""),
-        AgentKind::Llxprt => {
-            let sentinel_ok = shell_escape(SENTINEL_OK);
-            let sentinel_no = shell_escape(SENTINEL_NO);
-            // LLxprt: mirror launch resolver non-mutating checks — global
-            // command (no cd) OR executable <work_dir>/node_modules/.bin/llxprt.
-            // The global check runs first without cd so a missing work
-            // directory does not mask a globally-installed runtime.
-            let path_local = shell_escape(&format!(
-                "{}/node_modules/.bin/llxprt",
-                work_dir.to_string_lossy()
-            ));
-            format!(
-                "{{ command -v llxprt >/dev/null 2>&1 || [ -x {path_local} ]; }} \
-                 && printf '%s' {sentinel_ok} \
-                 || printf '%s' {sentinel_no}",
-            )
-        }
-    }
-}
-
-fn probe_inner_command_for_code_puppy(_work_dir: &Path, version: &str) -> String {
-    // Do not cd to the work directory: clone-if-missing means it may not exist
-    // yet, while the effective user's global PATH remains authoritative.
-    let binary = if version.trim().is_empty() {
-        "code-puppy"
-    } else {
-        "uvx"
+fn probe_inner_command(type_id: &AgentTypeId, work_dir: &Path) -> String {
+    let definition = AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id == *type_id);
+    let Some(definition) = definition else {
+        return "printf '%s' JEFE_PROBE_NO".to_owned();
     };
-    let sentinel_ok = shell_escape(SENTINEL_OK);
-    let sentinel_no = shell_escape(SENTINEL_NO);
+    let candidates = definition
+        .candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.kind {
+            CandidateKind::PathName { name } => {
+                Some(format!("command -v {} >/dev/null 2>&1", shell_escape(name)))
+            }
+            CandidateKind::RepositoryLlxprt => Some(format!(
+                "[ -x {} ]",
+                shell_escape(&normalize_remote_path(&format!(
+                    "{}/{}",
+                    work_dir.to_string_lossy().trim_end_matches('/'),
+                    candidate.value.to_string_lossy().trim_start_matches('/'),
+                )))
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let check = if candidates.is_empty() {
+        "false".to_owned()
+    } else {
+        candidates.join(" || ")
+    };
     format!(
-        "command -v {binary} >/dev/null 2>&1 \
-         && printf '%s' {sentinel_ok} \
-         || printf '%s' {sentinel_no}",
+        "{{ {check}; }} && printf '%s' {} || printf '%s' {}",
+        shell_escape(SENTINEL_OK),
+        shell_escape(SENTINEL_NO),
     )
 }
-
 /// Execute a remote agent-runtime availability probe.
 ///
 /// Runs `ssh` with the planned argv, captures the output, and classifies the
@@ -309,22 +282,10 @@ fn probe_inner_command_for_code_puppy(_work_dir: &Path, version: &str) -> String
 pub(super) fn execute_remote_probe(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
-    kind: AgentKind,
+    type_id: &AgentTypeId,
 ) -> RemoteProbeResult {
-    execute_remote_probe_command(remote, &remote_probe_command(remote, work_dir, kind))
+    execute_remote_probe_command(remote, &remote_probe_command(remote, work_dir, type_id))
 }
-
-fn execute_remote_code_puppy_probe(
-    remote: &RemoteRepositorySettings,
-    work_dir: &Path,
-    version: &str,
-) -> RemoteProbeResult {
-    execute_remote_probe_command(
-        remote,
-        &remote_code_puppy_probe_command(remote, work_dir, version),
-    )
-}
-
 fn execute_remote_probe_command(
     remote: &RemoteRepositorySettings,
     command: &str,
@@ -352,7 +313,7 @@ fn execute_remote_probe_command(
 /// This is the single entry point called before any destructive/file side
 /// effect (issue git prep, dirty-confirm). It:
 ///
-/// - **Local targets**: delegates to the `installed_agent_kinds` session
+/// - **Local targets**: delegates to the `available_agent_type_ids` session
 ///   snapshot (no PATH I/O during input handling).
 /// - **Remote targets**: runs [`execute_remote_probe`] — a no-install,
 ///   no-setup, side-effect-free `ssh -T` probe for the exact binary, executed
@@ -378,53 +339,30 @@ fn execute_remote_probe_command(
 /// effective user.
 fn require_signature_available(
     target: &WorkTarget,
-    signature: &jefe::domain::LaunchSignature,
-    available: &[AgentKind],
+    signature: &jefe::domain::AgentLaunchRequest,
+    available: &[AgentTypeId],
 ) -> Result<(), String> {
-    if jefe::domain::llxprt_launch_source(signature.agent_kind, signature.llxprt_version.as_ref())
-        .requires_npm()
-    {
-        return jefe::runtime::require_launch_package_available(signature)
-            .map_err(|error| error.to_string());
-    }
-    if signature.agent_kind == AgentKind::CodePuppy
-        && jefe::domain::code_puppy_requires_uvx(&signature.code_puppy_version)
-    {
-        return match target {
-            WorkTarget::Local => jefe::runtime::require_launch_package_available(signature)
-                .map_err(|error| error.to_string()),
-            WorkTarget::Remote(remote) => match execute_remote_code_puppy_probe(
-                remote,
-                &signature.work_dir,
-                &signature.code_puppy_version,
-            ) {
-                RemoteProbeResult::Available => {
-                    jefe::runtime::require_launch_package_available(signature)
-                        .map_err(|error| error.to_string())
-                }
-                RemoteProbeResult::NotAvailable => Err(format!(
-                    "uvx is not installed on the remote host for user '{}'. Install uv on that target or clear the Code Puppy version.",
-                    effective_user(remote)
-                )),
-                RemoteProbeResult::Error(error) => Err(error),
-            },
-        };
-    }
     match target {
         WorkTarget::Local => super::availability::require_local_kind_available_for_target(
-            signature.agent_kind,
+            &signature.type_id,
             available,
         ),
         WorkTarget::Remote(remote) => {
-            let result = execute_remote_probe(remote, &signature.work_dir, signature.agent_kind);
-            match result {
+            match execute_remote_probe(remote, &signature.work_dir, &signature.type_id) {
                 RemoteProbeResult::Available => Ok(()),
-                RemoteProbeResult::NotAvailable => Err(format!(
-                    "{} is not installed on the remote host for user '{}'. \
-                     Install it or select a different agent kind.",
-                    signature.agent_kind.binary_name(),
-                    effective_user(remote)
-                )),
+                RemoteProbeResult::NotAvailable => {
+                    let label = AgentDefinition::shipped()
+                        .into_iter()
+                        .find(|definition| definition.id == signature.type_id)
+                        .map(|definition| definition.display_name)
+                        .ok_or_else(|| {
+                            format!("unknown active agent type {}", signature.type_id)
+                        })?;
+                    Err(format!(
+                        "{label} is not installed on the remote host for user '{}'. Install it or select a different agent type.",
+                        effective_user(remote)
+                    ))
+                }
                 RemoteProbeResult::Error(error) => Err(error),
             }
         }
@@ -435,28 +373,18 @@ fn require_signature_available(
 pub(super) fn require_runtime_available(
     target: &WorkTarget,
     work_dir: &Path,
-    kind: AgentKind,
-    available: &[AgentKind],
+    type_id: &AgentTypeId,
+    available: &[AgentTypeId],
 ) -> Result<(), String> {
-    let signature = jefe::domain::LaunchSignature {
+    let signature = jefe::domain::AgentLaunchRequest {
+        type_id: type_id.clone(),
+        values: jefe::domain::TypedMap::new(),
         work_dir: work_dir.to_path_buf(),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: jefe::domain::SandboxEngine::Podman,
-        sandbox_flags: String::new(),
         remote: match target {
             WorkTarget::Local => RemoteRepositorySettings::default(),
             WorkTarget::Remote(remote) => remote.clone(),
         },
-        agent_kind: kind,
-        llxprt_version: None,
+        operation: jefe::domain::agent_definition::Operation::Normal,
     };
     require_signature_available(target, &signature, available)
 }
@@ -466,42 +394,13 @@ pub(super) fn require_runtime_available(
 /// This is the centralized entry point called BEFORE any destructive/file
 /// side effect (issue git prep, dirty-confirm discard). It:
 ///
-/// 1. Reads the `installed_agent_kinds` snapshot from `app_state` under a
+/// 1. Reads the `available_agent_type_ids` snapshot from `app_state` under a
 ///    short read-lock.
 /// 2. Calls [`require_runtime_available`] with the resolved target, work
 ///    dir, kind, and snapshot.
 /// 3. On `Err`, writes the error into `app_state.error_message` and returns
 ///    `false` so the caller aborts (no prep/prompt operation).
 ///
-/// For **local** targets, this delegates to the session snapshot (no PATH
-/// I/O). For **remote** targets, it executes [`execute_remote_probe`] — a
-/// no-install/no-setup/side-effect-free `ssh -T` probe for the exact binary,
-/// executed as the effective `run_as_user`.
-///
-/// The runtime launch resolver may still resolve again for race safety —
-/// this guard is a pre-side-effect gate, not a substitute for the launch
-/// resolver.
-pub(super) fn pre_side_effect_runtime_available_or_error(
-    app_state: &mut super::AppStateHandle,
-    target: &WorkTarget,
-    signature: &jefe::domain::LaunchSignature,
-) -> bool {
-    let available = {
-        let state = app_state.read();
-        state.installed_agent_kinds.clone()
-    };
-    match require_signature_available(target, signature, &available) {
-        Ok(()) => true,
-        Err(message) => {
-            let mut state = app_state.write();
-            state.error_message = Some(message);
-            drop(state);
-            false
-        }
-    }
-}
-
-/// Shell-escape a single-quoted string (mirrors `runtime::commands`).
 fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }

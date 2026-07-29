@@ -57,7 +57,16 @@ fn empty_resolver() -> AgentExecutableResolver {
 }
 
 fn llxprt_bin_name() -> &'static str {
-    AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name()
+    let definitions = crate::domain::agent_definition::AgentDefinition::shipped();
+    let definition = definitions
+        .get(3)
+        .unwrap_or_else(|| panic!("shipped LLxprt definition"));
+    let binary = definition
+        .candidates
+        .iter()
+        .find_map(|candidate| candidate.kind.path_name())
+        .unwrap_or_else(|| panic!("LLxprt definition has a PATH candidate"));
+    Box::leak(binary.to_owned().into_boxed_str())
 }
 
 fn stage_cache_hit(cache: &Path, sel: &LlxprtNpmPackageSelector) -> PathBuf {
@@ -437,7 +446,6 @@ fn install_failed_diagnostic_names_timeout_phase_distinctly() {
 #[cfg(windows)]
 mod windows_canonical_install {
     use super::*;
-    use crate::domain::AgentKind;
     use crate::runtime::agent_executable::AgentExecutableTarget;
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
@@ -560,7 +568,7 @@ mod windows_canonical_install {
         // cached llxprt bin plus the selector-matching marker.
         let llxprt_cmd = expected_bin_dir.join(format!(
             "{}.cmd",
-            AgentExecutableTarget::Agent(AgentKind::Llxprt).binary_name()
+            AgentExecutableTarget::Agent("llxprt").binary_name()
         ));
         assert!(
             llxprt_cmd.is_file(),

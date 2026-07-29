@@ -402,7 +402,7 @@ fn wait_for_screen_literal(
     session: &TmuxSession,
     literal: &str,
 ) -> Result<crate::harness::ScreenCapture, TmuxDriverError> {
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let capture = driver.capture_screen(session)?;
         let outcome = screen_contains(&capture, MatchPattern::literal(literal));

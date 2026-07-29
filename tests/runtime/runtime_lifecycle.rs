@@ -6,40 +6,34 @@
 //!
 //! Tests for attach/reattach safety, kill, relaunch, and status transitions.
 
-use crate::support::{TestOptionExt, TestResultExt};
+use crate::support::{TestOptionExt, TestResultExt, authorized_launch_plan};
 
 use std::path::PathBuf;
 
-use jefe::domain::{Agent, AgentId, LaunchSignature, RemoteRepositorySettings, RepositoryId};
-use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
+use jefe::domain::agent_definition::{AgentLaunchPlan, Target};
+use jefe::domain::{Agent, AgentId, RepositoryId};
+use jefe::runtime::{AuthorizedLaunchPlan, RuntimeError, RuntimeManager, StubRuntimeManager};
 
 fn make_agent(id: &str, repo_id: &str) -> Agent {
     Agent::new(
         AgentId(id.into()),
         RepositoryId(repo_id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         format!("Test Agent {id}"),
         PathBuf::from(format!("/tmp/test/{id}")),
     )
 }
 
-fn make_signature(agent: &Agent) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: agent.work_dir.clone(),
-        profile: agent.profile.clone(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: agent.mode_flags.clone(),
-        llxprt_debug: agent.llxprt_debug.clone(),
-        pass_continue: agent.pass_continue,
-        sandbox_enabled: agent.sandbox_enabled,
-        sandbox_engine: agent.sandbox_engine,
-        sandbox_flags: agent.sandbox_flags.clone(),
-        remote: RemoteRepositorySettings::default(),
-        agent_kind: agent.agent_kind,
-        llxprt_version: None,
-    }
+fn make_signature(agent: &Agent) -> AuthorizedLaunchPlan {
+    let plan = AgentLaunchPlan {
+        cwd: agent.work_dir.clone(),
+        target: Target::Local {
+            canonical_cwd: agent.work_dir.clone(),
+        },
+        ..AgentLaunchPlan::default()
+    };
+    authorized_launch_plan(&plan)
 }
 
 // =============================================================================
@@ -52,7 +46,7 @@ fn spawn_creates_session_for_agent() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn should succeed");
 
     assert!(
@@ -67,10 +61,10 @@ fn spawn_fails_for_duplicate_agent() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("first spawn should succeed");
 
-    let result = mgr.spawn_session(&agent.id, &agent.work_dir, &sig);
+    let result = mgr.spawn_session(&agent.id, &sig, None);
     assert!(
         matches!(result, Err(RuntimeError::AlreadyRunning(_))),
         "duplicate spawn should fail"
@@ -85,9 +79,9 @@ fn spawn_allows_multiple_different_agents() {
     let sig1 = make_signature(&agent1);
     let sig2 = make_signature(&agent2);
 
-    mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
+    mgr.spawn_session(&agent1.id, &sig1, None)
         .test_unwrap("first spawn should succeed");
-    mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
+    mgr.spawn_session(&agent2.id, &sig2, None)
         .test_unwrap("second spawn should succeed");
 
     assert!(mgr.is_alive(&agent1.id));
@@ -104,7 +98,7 @@ fn attach_to_existing_session_succeeds() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach should succeed");
 
@@ -131,9 +125,9 @@ fn attach_switches_from_previous_session() {
     let sig1 = make_signature(&agent1);
     let sig2 = make_signature(&agent2);
 
-    mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
+    mgr.spawn_session(&agent1.id, &sig1, None)
         .test_unwrap("spawn 1");
-    mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
+    mgr.spawn_session(&agent2.id, &sig2, None)
         .test_unwrap("spawn 2");
 
     mgr.attach(&agent1.id).test_unwrap("attach to 1");
@@ -160,9 +154,9 @@ fn repeated_attach_switching_ends_on_last_selected_agent() {
     let sig1 = make_signature(&agent1);
     let sig2 = make_signature(&agent2);
 
-    mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
+    mgr.spawn_session(&agent1.id, &sig1, None)
         .test_unwrap("spawn a");
-    mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
+    mgr.spawn_session(&agent2.id, &sig2, None)
         .test_unwrap("spawn b");
 
     for i in 0..50 {
@@ -191,7 +185,7 @@ fn detach_clears_attached_agent() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
     mgr.detach().test_unwrap("detach should succeed");
@@ -214,7 +208,7 @@ fn snapshot_returns_some_when_attached() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
 
@@ -234,7 +228,7 @@ fn kill_removes_session() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     assert!(mgr.is_alive(&agent.id));
 
@@ -263,7 +257,7 @@ fn kill_attached_session_clears_attachment() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.attach(&agent.id).test_unwrap("attach");
     mgr.kill(&agent.id).test_unwrap("kill");
@@ -283,9 +277,9 @@ fn kill_one_session_preserves_others() {
     let sig1 = make_signature(&agent1);
     let sig2 = make_signature(&agent2);
 
-    mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
+    mgr.spawn_session(&agent1.id, &sig1, None)
         .test_unwrap("spawn 1");
-    mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
+    mgr.spawn_session(&agent2.id, &sig2, None)
         .test_unwrap("spawn 2");
 
     mgr.kill(&agent1.id).test_unwrap("kill 1");
@@ -304,10 +298,10 @@ fn relaunch_running_session_fails() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
 
-    let result = mgr.relaunch(&agent.id);
+    let result = mgr.relaunch(&agent.id, &sig, None);
     assert!(
         matches!(result, Err(RuntimeError::AlreadyRunning(_))),
         "relaunch running should fail"
@@ -316,21 +310,24 @@ fn relaunch_running_session_fails() {
 
 #[test]
 fn relaunch_dead_session_requires_signature() {
-    // The stub doesn't store signatures after kill, so relaunch fails
-    // Real impl would preserve signatures for relaunch
+    // The stub only accepts relaunch for an agent that was previously killed
+    // (dead marker), mirroring the real manager. Relaunch supplies fresh
+    // authorized authority each time.
     let mut mgr = StubRuntimeManager::default();
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.kill(&agent.id).test_unwrap("kill");
 
-    let result = mgr.relaunch(&agent.id);
-    // Stub returns NotRunning because it can't find stored signature
+    // An agent that was never killed (no dead marker) cannot be relaunched.
+    let other = make_agent("agent-2", "repo-1");
+    let other_sig = make_signature(&other);
+    let result = mgr.relaunch(&other.id, &other_sig, None);
     assert!(
         matches!(result, Err(RuntimeError::NotRunning(_))),
-        "relaunch without stored signature should fail"
+        "relaunch without a prior kill should fail"
     );
 }
 
@@ -351,7 +348,7 @@ fn is_alive_returns_true_for_spawned_agent() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     assert!(mgr.is_alive(&agent.id));
 }
@@ -362,7 +359,7 @@ fn is_alive_returns_false_after_kill() {
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
 
-    mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
+    mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.kill(&agent.id).test_unwrap("kill");
     assert!(!mgr.is_alive(&agent.id));

@@ -27,6 +27,8 @@ fn require_candidate(state: &mut AppState) -> Box<jefe::domain::StateV2> {
 fn make_repo() -> Repository {
     Repository::new(
         RepositoryId("repo-1".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test".to_owned(),
         "test".to_owned(),
         PathBuf::from("/tmp/repo"),
@@ -43,6 +45,8 @@ fn durable_candidate_filters_out_transient_agents() {
     let mut regular = Agent::new(
         AgentId("regular-1".to_owned()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Regular".to_owned(),
         PathBuf::from("/tmp/regular"),
     );
@@ -92,6 +96,8 @@ fn durable_candidate_clears_selection_pointing_at_transient() {
     let mut regular = Agent::new(
         AgentId("regular-1".to_owned()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Regular".to_owned(),
         PathBuf::from("/tmp/regular"),
     );
@@ -136,6 +142,8 @@ fn durable_candidate_keeps_all_non_transient_agents() {
         let mut agent = Agent::new(
             AgentId(format!("agent-{i}")),
             repo.id.clone(),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             format!("Agent {i}"),
             PathBuf::from("/tmp/agent"),
         );
@@ -158,6 +166,8 @@ fn durable_candidate_remaps_selection_when_transient_precedes_persistent() {
         let mut a = Agent::new(
             AgentId("transient-1".to_owned()),
             repo.id.clone(),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Transient".to_owned(),
             repo.effective_transient_dir().join("jefe-transient-1"),
         );
@@ -167,6 +177,8 @@ fn durable_candidate_remaps_selection_when_transient_precedes_persistent() {
     let persistent = Agent::new(
         AgentId("persistent-1".to_owned()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Persistent".to_owned(),
         PathBuf::from("/tmp/persistent-1"),
     );

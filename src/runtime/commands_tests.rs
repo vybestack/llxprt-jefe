@@ -40,31 +40,21 @@ fn remote_attach_plan_uses_direct_ssh_and_excludes_local_psmux_namespace() {
     assert!(!remote_command.contains("JEFE_PSMUX"));
 }
 
-fn base_signature() -> LaunchSignature {
-    LaunchSignature {
+fn base_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: crate::domain::shipped_agent_type(3),
+        values: crate::domain::TypedMap::new(),
         work_dir: std::path::PathBuf::from("/tmp"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        llxprt_version: None,
-    }
+            operation: crate::domain::agent_definition::Operation::Normal,
+        }
 }
 
 #[test]
 
 fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_yolo = None;
 
     assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
@@ -74,7 +64,7 @@ fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
 
 fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.work_dir = std::path::PathBuf::from("/remote/work/puppy");
     signature.code_puppy_quick_resume = true;
     signature.code_puppy_model = "puppy-pro".to_owned();
@@ -98,7 +88,7 @@ fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
 
 fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.pass_continue = true;
 
     let args = code_puppy_launch_args(&signature);
@@ -110,7 +100,7 @@ fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
 
 fn code_puppy_omits_model_argument_when_unset() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
 
     assert_eq!(
         code_puppy_launch_args(&signature),
@@ -122,7 +112,7 @@ fn code_puppy_omits_model_argument_when_unset() {
 
 fn code_puppy_passes_configured_model_as_exact_argv() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_model = "  openrouter/puppy-pro  ".to_owned();
 
     assert_eq!(
@@ -147,7 +137,7 @@ fn llxprt_ignores_code_puppy_model() {
 
 fn code_puppy_passes_explicit_true_yolo_value() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_yolo = Some(true);
 
     assert_eq!(
@@ -160,7 +150,7 @@ fn code_puppy_passes_explicit_true_yolo_value() {
 
 fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.code_puppy_model = "puppy-pro".to_owned();
     signature.pass_continue = false;
     signature.mode_flags = vec!["Read the issue prompt".to_owned()];
@@ -521,7 +511,7 @@ fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
 #[test]
 fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     let plan_no_env = LocalLaunchPlan {
-        executable: super::super::agent_executable::AgentExecutableTarget::Agent(AgentKind::Llxprt),
+        executable: super::super::agent_executable::AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3)),
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
@@ -541,7 +531,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
 
     // With an env assignment, the K=V must sit between the scrub and llxprt.
     let plan_with_env = LocalLaunchPlan {
-        executable: super::super::agent_executable::AgentExecutableTarget::Agent(AgentKind::Llxprt),
+        executable: super::super::agent_executable::AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3)),
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,
@@ -720,7 +710,7 @@ fn launch_args_omits_continue_when_pass_continue_false() {
 
 fn code_puppy_launch_uses_only_supported_args() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.profile = "ignored-profile".to_owned();
     signature.mode_flags = vec!["--yolo".to_owned()];
     signature.pass_continue = true;
@@ -748,7 +738,7 @@ fn code_puppy_launch_uses_only_supported_args() {
 
 fn code_puppy_normal_launch_outputs_only_interactive_flag() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     // Normal launch with LLxprt-style flags that must be stripped.
     signature.mode_flags = vec!["--yolo".to_owned()];
     signature.pass_continue = true;
@@ -760,7 +750,7 @@ fn code_puppy_normal_launch_outputs_only_interactive_flag() {
 
 fn code_puppy_fresh_send_outputs_instruction_positional() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.mode_flags =
         vec!["Read and work on the following GitHub issue.\n\nIssue body".to_owned()];
     signature.pass_continue = false;
@@ -780,7 +770,7 @@ fn code_puppy_fresh_send_outputs_instruction_positional() {
 
 fn code_puppy_strips_all_llxprt_only_flags() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.mode_flags = vec![
         "--yolo".to_owned(),
         "--profile-load".to_owned(),
@@ -797,7 +787,7 @@ fn code_puppy_strips_all_llxprt_only_flags() {
 
 fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.mode_flags = Vec::new();
 
     assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
@@ -807,7 +797,7 @@ fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
 
 fn code_puppy_discards_unrecognized_positional_flags() {
     let mut signature = base_signature();
-    signature.agent_kind = AgentKind::CodePuppy;
+    signature.type_id = crate::domain::shipped_agent_type(1);
     signature.pass_continue = false;
     signature.mode_flags = vec![
         "first instruction".to_owned(),

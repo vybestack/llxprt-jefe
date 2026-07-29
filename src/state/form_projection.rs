@@ -1,144 +1,160 @@
-//! Pure projection of agent form field visibility per agent kind.
-//!
-//! This module is iocraft-free and side-effect-free: it turns an
-//! [`AgentKind`] into a boolean mask of which LLxprt-only form controls
-//! should be visible. The UI components and the selection-content
-//! projection both consume this so rendering and focus navigation agree.
-//!
-//! Code Puppy does not support `--profile-load`, `--sandbox`, `--continue`,
-//! `LLXPRT_DEBUG`, or the sandbox engine/flags — so those controls are hidden
-//! when the active agent kind is [`AgentKind::CodePuppy`].
+//! Definition-driven projections shared by agent and repository forms.
 
-use crate::domain::AgentKind;
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId};
 
-/// All agent kinds supported by Jefe, in canonical order.
-const ALL_AGENT_KINDS: [AgentKind; 2] = [AgentKind::Llxprt, AgentKind::CodePuppy];
-
-/// Resolve the effective agent-kind choices for a form given the installed
-/// snapshot and whether the target repository is remote.
+/// Resolve the effective agent-type choices for a form.
 ///
-/// For remote repositories **both** supported kinds are always offered,
-/// regardless of the local installed snapshot. This is intentional and
-/// correct: the local PATH cannot determine what is installed on a remote
-/// host, so restricting choices to locally-installed runtimes would
-/// prevent the user from selecting a perfectly valid remote runtime.
-///
-/// The **target remote availability probe** (`remote_probe`) is the guard:
-/// it runs a side-effect-free `ssh -T` check for the exact binary on the
-/// remote host immediately before any side effect or launch. An
-/// unavailable remote runtime is caught there, not at form-choice time.
-/// No local startup cache of remote availability is built.
-///
-/// For local repositories only the locally installed kinds are offered so
-/// the user cannot select a runtime that cannot launch.
-///
-/// This is the single shared pure projection consumed by the form-state
-/// cycling logic, the UI form components, and the selection-content
-/// projections. All three must agree on the effective choice set.
+/// Remote repositories expose every shipped definition because local PATH
+/// observations cannot describe a remote host. Local repositories expose only
+/// enabled, compatible IDs captured by startup probing.
 #[must_use]
-pub fn effective_agent_kinds(installed: &[AgentKind], is_remote: bool) -> Vec<AgentKind> {
+pub fn effective_agent_type_ids(available: &[AgentTypeId], is_remote: bool) -> Vec<AgentTypeId> {
     if is_remote {
-        // Both kinds are offered for remote repos — local PATH cannot
-        // determine remote installation. The remote availability probe
-        // (remote_probe) guards before side effects/launch, not the form.
-        ALL_AGENT_KINDS.to_vec()
+        AgentDefinition::shipped()
+            .into_iter()
+            .map(|definition| definition.id)
+            .collect()
     } else {
-        installed.to_vec()
+        available.to_vec()
     }
 }
 
-/// Format the effective agent kinds as a space-separated label list for form
-/// hints (e.g. `"LLxprt / code_puppy"`).
+/// Format effective agent types as a space-separated display-name hint.
 #[must_use]
-pub fn effective_kinds_hint(kinds: &[AgentKind]) -> String {
-    let labels: Vec<&str> = kinds.iter().map(|k| k.label()).collect();
+pub fn effective_types_hint(type_ids: &[AgentTypeId]) -> String {
+    let definitions = AgentDefinition::shipped();
+    let labels = type_ids
+        .iter()
+        .map(|type_id| {
+            definitions
+                .iter()
+                .find(|definition| definition.id == *type_id)
+                .map_or_else(
+                    || type_id.as_str(),
+                    |definition| definition.display_name.as_str(),
+                )
+        })
+        .collect::<Vec<_>>();
     if labels.is_empty() {
-        String::from("no installed agents")
+        "no available agents".to_owned()
     } else {
         format!("space cycles: {}", labels.join(" / "))
     }
 }
 
-/// Per-field visibility mask derived from the active agent kind.
-///
-/// All fields default to `true` (visible). Code Puppy hides the LLxprt-only
-/// controls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AgentFormFieldVisibility {
-    #[default]
-    Llxprt,
-    CodePuppy,
+/// Find a shipped definition by typed ID. Unknown IDs are never defaulted.
+#[must_use]
+pub fn definition_for_type(type_id: &AgentTypeId) -> Option<AgentDefinition> {
+    AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id == *type_id)
 }
+
+/// Parse a form value as a known active type.
+#[must_use]
+pub fn type_id_from_form_value(value: &str) -> Option<AgentTypeId> {
+    let parsed = AgentTypeId::parse(value.trim()).ok()?;
+    definition_for_type(&parsed).map(|definition| definition.id)
+}
+
+/// Definition metadata needed by the temporary structural form shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentFormField {
+    Profile,
+    Model,
+    VersionSelector,
+    Yolo,
+    Interactive,
+    PromptInteractive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentFormFieldVisibility(Vec<AgentFormField>);
 
 impl AgentFormFieldVisibility {
+    fn contains(&self, field: AgentFormField) -> bool {
+        self.0.contains(&field)
+    }
+
     #[must_use]
-    pub const fn shows_llxprt_fields(self) -> bool {
-        matches!(self, Self::Llxprt)
+    pub fn shows_profile_fields(&self) -> bool {
+        self.contains(AgentFormField::Profile)
+    }
+
+    #[must_use]
+    pub fn shows_model_fields(&self) -> bool {
+        self.contains(AgentFormField::Model)
+    }
+
+    #[must_use]
+    pub fn shows_llxprt_fields(&self) -> bool {
+        self.shows_profile_fields() && self.contains(AgentFormField::PromptInteractive)
     }
 }
 
-/// Compute the field-visibility mask for the given agent kind.
-///
-/// # Examples
-///
-/// ```
-/// # use jefe::domain::AgentKind;
-/// use jefe::state::agent_form_visibility;
-/// let llxprt = agent_form_visibility(AgentKind::Llxprt);
-/// assert!(llxprt.shows_llxprt_fields());
-/// let puppy = agent_form_visibility(AgentKind::CodePuppy);
-/// assert!(!puppy.shows_llxprt_fields());
-/// ```
+/// Compute legacy-shell visibility strictly from definition field metadata.
 #[must_use]
-pub fn agent_form_visibility(kind: AgentKind) -> AgentFormFieldVisibility {
-    match kind {
-        AgentKind::Llxprt => AgentFormFieldVisibility::Llxprt,
-        AgentKind::CodePuppy => AgentFormFieldVisibility::CodePuppy,
-    }
+pub fn agent_form_visibility(type_id: Option<&AgentTypeId>) -> AgentFormFieldVisibility {
+    let Some(type_id) = type_id else {
+        return AgentFormFieldVisibility::default();
+    };
+    let Some(definition) = definition_for_type(type_id) else {
+        return AgentFormFieldVisibility::default();
+    };
+    let has_repository = |id: &str| {
+        definition
+            .repository_fields
+            .iter()
+            .any(|field| field.id == id)
+    };
+    let has_agent = |id: &str| definition.agent_fields.iter().any(|field| field.id == id);
+    AgentFormFieldVisibility(
+        [
+            has_repository("profile").then_some(AgentFormField::Profile),
+            has_repository("model").then_some(AgentFormField::Model),
+            has_agent("version_selector").then_some(AgentFormField::VersionSelector),
+            has_repository("yolo").then_some(AgentFormField::Yolo),
+            has_agent("interactive").then_some(AgentFormField::Interactive),
+            has_agent("prompt_interactive").then_some(AgentFormField::PromptInteractive),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    )
 }
 
-/// Resolve the effective [`AgentKind`] from a form value string, falling
-/// back to [`AgentKind::default`] (Llxprt) when the value does not parse.
-#[must_use]
-pub fn kind_from_form_value(value: &str) -> AgentKind {
-    AgentKind::from_form_value(value).unwrap_or_default()
-}
-
-/// Whether a specific agent form focus variant is visible under the given
-/// visibility mask.
-///
-/// Always-visible fields (Shortcut, Name, Description, WorkDir, AgentKind)
-/// return `true` regardless of the mask.
 #[must_use]
 pub fn is_field_visible(
     focus: crate::state::AgentFormFocus,
-    visibility: AgentFormFieldVisibility,
+    visibility: &AgentFormFieldVisibility,
 ) -> bool {
     use crate::state::AgentFormFocus as F;
     match focus {
-        F::Profile
-        | F::Mode
-        | F::LlxprtVersion
-        | F::LlxprtDebug
-        | F::PassContinue
-        | F::Sandbox
-        | F::SandboxEngine
-        | F::SandboxFlags => visibility.shows_llxprt_fields(),
-        F::CodePuppyModel | F::CodePuppyVersion | F::CodePuppyYolo | F::CodePuppyQuickResume => {
-            matches!(visibility, AgentFormFieldVisibility::CodePuppy)
+        F::Profile | F::LlxprtDebug | F::Sandbox | F::SandboxEngine | F::SandboxFlags => {
+            visibility.shows_profile_fields()
         }
-        F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
+        F::CodePuppyModel => visibility.shows_model_fields(),
+        F::CodePuppyVersion => {
+            visibility.shows_model_fields() && visibility.contains(AgentFormField::VersionSelector)
+        }
+        F::LlxprtVersion => {
+            visibility.shows_profile_fields()
+                && visibility.contains(AgentFormField::VersionSelector)
+        }
+        F::CodePuppyYolo => {
+            visibility.shows_model_fields() && visibility.contains(AgentFormField::Yolo)
+        }
+        F::CodePuppyQuickResume => visibility.contains(AgentFormField::Interactive),
+        F::Mode => visibility.shows_profile_fields() && visibility.contains(AgentFormField::Yolo),
+        F::PassContinue => visibility.contains(AgentFormField::PromptInteractive),
+        F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentType => true,
     }
 }
 
-/// Advance focus to the next visible field, skipping hidden ones.
-///
-/// Wraps around. If all fields are hidden (degenerate), returns the original
-/// focus to avoid an infinite loop.
 #[must_use]
 pub fn next_visible_focus(
     focus: crate::state::AgentFormFocus,
-    visibility: AgentFormFieldVisibility,
+    visibility: &AgentFormFieldVisibility,
 ) -> crate::state::AgentFormFocus {
     let start = focus;
     let mut current = focus.next();
@@ -148,18 +164,13 @@ pub fn next_visible_focus(
         }
         current = current.next();
     }
-    // Every field is hidden except possibly `start` — keep the cursor put.
     start
 }
 
-/// Advance focus to the previous visible field, skipping hidden ones.
-///
-/// Wraps around. If all fields are hidden (degenerate), returns the original
-/// focus to avoid an infinite loop.
 #[must_use]
 pub fn prev_visible_focus(
     focus: crate::state::AgentFormFocus,
-    visibility: AgentFormFieldVisibility,
+    visibility: &AgentFormFieldVisibility,
 ) -> crate::state::AgentFormFocus {
     let start = focus;
     let mut current = focus.prev();
@@ -172,32 +183,42 @@ pub fn prev_visible_focus(
     start
 }
 
-/// Whether a repository form field is visible for the selected default runtime.
 #[must_use]
 pub fn is_repository_field_visible(
     focus: crate::state::RepositoryFormFocus,
-    kind: AgentKind,
+    type_id: Option<&AgentTypeId>,
 ) -> bool {
     use crate::state::RepositoryFormFocus as F;
+    let visibility = agent_form_visibility(type_id);
     match focus {
-        F::DefaultCodePuppyModel | F::DefaultCodePuppyYolo | F::DefaultCodePuppyVersion => {
-            kind == AgentKind::CodePuppy
+        F::DefaultProfile => visibility.shows_profile_fields(),
+        F::DefaultCodePuppyModel => visibility.shows_model_fields(),
+        F::DefaultCodePuppyYolo => {
+            visibility.shows_model_fields() && visibility.contains(AgentFormField::Yolo)
         }
-        F::DefaultLlxprtMode | F::DefaultLlxprtVersion => kind == AgentKind::Llxprt,
+        F::DefaultCodePuppyVersion => {
+            visibility.shows_model_fields() && visibility.contains(AgentFormField::VersionSelector)
+        }
+        F::DefaultLlxprtMode => {
+            visibility.shows_profile_fields() && visibility.contains(AgentFormField::Yolo)
+        }
+        F::DefaultLlxprtVersion => {
+            visibility.shows_profile_fields()
+                && visibility.contains(AgentFormField::VersionSelector)
+        }
         _ => true,
     }
 }
 
-/// Advance to the next visible repository field.
 #[must_use]
 pub fn next_visible_repository_focus(
     focus: crate::state::RepositoryFormFocus,
-    kind: AgentKind,
+    type_id: &AgentTypeId,
 ) -> crate::state::RepositoryFormFocus {
     let start = focus;
     let mut current = focus.next();
     while current != start {
-        if is_repository_field_visible(current, kind) {
+        if is_repository_field_visible(current, Some(type_id)) {
             return current;
         }
         current = current.next();
@@ -205,248 +226,18 @@ pub fn next_visible_repository_focus(
     start
 }
 
-/// Advance to the previous visible repository field.
 #[must_use]
 pub fn prev_visible_repository_focus(
     focus: crate::state::RepositoryFormFocus,
-    kind: AgentKind,
+    type_id: &AgentTypeId,
 ) -> crate::state::RepositoryFormFocus {
     let start = focus;
     let mut current = focus.prev();
     while current != start {
-        if is_repository_field_visible(current, kind) {
+        if is_repository_field_visible(current, Some(type_id)) {
             return current;
         }
         current = current.prev();
     }
     start
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::AgentFormFocus as F;
-    use crate::state::transition::TransitionExt;
-
-    #[test]
-    fn llxprt_shows_all_fields() {
-        let vis = agent_form_visibility(AgentKind::Llxprt);
-        assert!(is_field_visible(F::Profile, vis));
-        assert!(is_field_visible(F::Mode, vis));
-        assert!(is_field_visible(F::Sandbox, vis));
-        assert!(is_field_visible(F::SandboxFlags, vis));
-        assert!(!is_field_visible(F::CodePuppyModel, vis));
-    }
-
-    #[test]
-    fn code_puppy_hides_llxprt_only_fields() {
-        let vis = agent_form_visibility(AgentKind::CodePuppy);
-        assert!(!is_field_visible(F::Profile, vis));
-        assert!(!is_field_visible(F::Mode, vis));
-        assert!(!is_field_visible(F::LlxprtDebug, vis));
-        assert!(!is_field_visible(F::PassContinue, vis));
-        assert!(!is_field_visible(F::Sandbox, vis));
-        assert!(!is_field_visible(F::SandboxEngine, vis));
-        assert!(!is_field_visible(F::SandboxFlags, vis));
-        assert!(is_field_visible(F::CodePuppyModel, vis));
-    }
-
-    #[test]
-    fn code_puppy_keeps_common_fields() {
-        let vis = agent_form_visibility(AgentKind::CodePuppy);
-        assert!(is_field_visible(F::Shortcut, vis));
-        assert!(is_field_visible(F::Name, vis));
-        assert!(is_field_visible(F::Description, vis));
-        assert!(is_field_visible(F::WorkDir, vis));
-        assert!(is_field_visible(F::AgentKind, vis));
-    }
-
-    #[test]
-    fn code_puppy_next_focus_skips_hidden_fields() {
-        let vis = agent_form_visibility(AgentKind::CodePuppy);
-        // Runtime selection precedes Code Puppy-specific controls visually.
-        let next = next_visible_focus(F::Profile, vis);
-        assert_eq!(next, F::AgentKind);
-        assert_eq!(next_visible_focus(F::AgentKind, vis), F::CodePuppyModel);
-    }
-
-    #[test]
-    fn code_puppy_resume_focus_is_between_yolo_and_mode() {
-        let vis = agent_form_visibility(AgentKind::CodePuppy);
-        assert_eq!(
-            next_visible_focus(F::CodePuppyYolo, vis),
-            F::CodePuppyQuickResume
-        );
-        assert_eq!(prev_visible_focus(F::Mode, vis), F::CodePuppyQuickResume);
-    }
-
-    #[test]
-    fn llxprt_next_focus_uses_normal_order() {
-        let vis = agent_form_visibility(AgentKind::Llxprt);
-        assert_eq!(next_visible_focus(F::Profile, vis), F::AgentKind);
-        assert_eq!(next_visible_focus(F::AgentKind, vis), F::Mode);
-        assert_eq!(prev_visible_focus(F::Mode, vis), F::AgentKind);
-    }
-
-    #[test]
-    fn kind_from_form_value_parses_variants() {
-        assert_eq!(kind_from_form_value("code_puppy"), AgentKind::CodePuppy);
-        assert_eq!(kind_from_form_value("LLxprt"), AgentKind::Llxprt);
-        assert_eq!(kind_from_form_value("garbage"), AgentKind::Llxprt);
-    }
-
-    // ── Remote kinds: both offered regardless of local install ─────────
-    //
-    // Remote repositories intentionally offer both supported kinds because
-    // the local PATH cannot determine what is installed on the remote host.
-    // The target remote availability probe (remote_probe) guards before
-    // side effects/launch — no local startup cache of remote availability
-    // is built.
-
-    #[test]
-    fn remote_offers_both_kinds_even_when_locally_uninstalled() {
-        // Only LLxprt is locally installed, but a remote repo offers both.
-        let installed = vec![AgentKind::Llxprt];
-        let kinds = effective_agent_kinds(&installed, true);
-        assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
-    }
-
-    #[test]
-    fn remote_offers_both_kinds_even_when_nothing_installed() {
-        // Even with zero local installs, remote offers both kinds.
-        let kinds = effective_agent_kinds(&[], true);
-        assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
-        repository_llxprt_focus_order_is_forward_reverse_and_wrapped();
-    }
-
-    fn new_agent_copies_repository_version_and_appends_at_end() {
-        use crate::domain::{LlxprtNpmPackageSelector, Repository, RepositoryId};
-        use crate::state::{AgentFormFocus, AppEvent, AppState, ModalState};
-
-        let mut repository = Repository::new(
-            RepositoryId("repo-version".to_owned()),
-            "repo".to_owned(),
-            "repo".to_owned(),
-            "/tmp/repo".into(),
-        );
-        repository.default_llxprt_version = LlxprtNpmPackageSelector::normalize("0.9.0");
-        let mut state = AppState {
-            repositories: vec![repository],
-            ..AppState::default()
-        };
-        state = state
-            .apply(AppEvent::OpenNewAgent(RepositoryId(
-                "repo-version".to_owned(),
-            )))
-            .committed_pure();
-        let ModalState::NewAgent { focus, .. } = &mut state.modal else {
-            panic!("expected new-agent modal");
-        };
-        *focus = AgentFormFocus::LlxprtVersion;
-        state = state.apply(AppEvent::FormChar('-')).committed_pure();
-        state = state.apply(AppEvent::FormChar('x')).committed_pure();
-        let ModalState::NewAgent { fields, cursor, .. } = &state.modal else {
-            panic!("expected new-agent modal");
-        };
-        assert_eq!(fields.llxprt_version, "0.9.0-x");
-        assert_eq!(cursor.llxprt_version, 7);
-        assert_eq!(
-            state.repositories[0]
-                .default_llxprt_version
-                .as_ref()
-                .map(LlxprtNpmPackageSelector::as_str),
-            Some("0.9.0")
-        );
-    }
-
-    fn repository_llxprt_focus_order_is_forward_reverse_and_wrapped() {
-        use crate::state::RepositoryFormFocus as R;
-
-        new_agent_copies_repository_version_and_appends_at_end();
-
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultProfile, AgentKind::Llxprt),
-            R::DefaultAgentKind
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultAgentKind, AgentKind::Llxprt),
-            R::DefaultLlxprtMode
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultLlxprtMode, AgentKind::Llxprt),
-            R::DefaultLlxprtVersion
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
-            R::GitHubRepo
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::GitHubRepo, AgentKind::Llxprt),
-            R::DefaultLlxprtVersion
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::DefaultLlxprtVersion, AgentKind::Llxprt),
-            R::DefaultLlxprtMode
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::DefaultLlxprtMode, AgentKind::Llxprt),
-            R::DefaultAgentKind
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::SetupEnvDefault, AgentKind::Llxprt),
-            R::TransientAgentDir
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::Name, AgentKind::Llxprt),
-            R::TransientMaxConcurrent
-        );
-        repository_code_puppy_focus_order_includes_its_version();
-    }
-
-    fn repository_code_puppy_focus_order_includes_its_version() {
-        use crate::state::RepositoryFormFocus as R;
-
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultProfile, AgentKind::CodePuppy),
-            R::DefaultCodePuppyModel
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultCodePuppyModel, AgentKind::CodePuppy),
-            R::DefaultAgentKind
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
-            R::DefaultCodePuppyYolo
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultCodePuppyYolo, AgentKind::CodePuppy),
-            R::DefaultCodePuppyVersion
-        );
-        assert_eq!(
-            next_visible_repository_focus(R::DefaultCodePuppyVersion, AgentKind::CodePuppy),
-            R::GitHubRepo
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::GitHubRepo, AgentKind::CodePuppy),
-            R::DefaultCodePuppyVersion
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::DefaultAgentKind, AgentKind::CodePuppy),
-            R::DefaultCodePuppyModel
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::DefaultCodePuppyVersion, AgentKind::CodePuppy),
-            R::DefaultCodePuppyYolo
-        );
-        assert_eq!(
-            prev_visible_repository_focus(R::DefaultCodePuppyYolo, AgentKind::CodePuppy),
-            R::DefaultAgentKind
-        );
-    }
-    #[test]
-    fn local_restricts_to_installed_kinds() {
-        let installed = vec![AgentKind::Llxprt];
-        let kinds = effective_agent_kinds(&installed, false);
-        assert_eq!(kinds, vec![AgentKind::Llxprt]);
-    }
 }

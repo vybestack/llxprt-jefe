@@ -94,6 +94,20 @@ pub use agent_chooser::{
     agent_chooser_label,
 };
 
+/// Closed four-agent definition contract (issue #382 CW-02).
+pub mod agent_definition;
+pub use agent_definition::AgentTypeId;
+
+/// Return a shipped definition type id by its canonical registry position.
+#[doc(hidden)]
+#[must_use]
+pub fn shipped_agent_type(index: usize) -> agent_definition::AgentTypeId {
+    agent_definition::AgentDefinition::shipped()
+        .get(index)
+        .map(|definition| definition.id.clone())
+        .unwrap_or_default()
+}
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
@@ -101,63 +115,6 @@ pub struct RepositoryId(pub String);
 /// Stable identifier for an agent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
-
-/// Agent runtime used to launch an agent session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentKind {
-    CodePuppy,
-    #[default]
-    Llxprt,
-}
-
-impl AgentKind {
-    /// Executable name for this runtime.
-    #[must_use]
-    pub const fn binary_name(self) -> &'static str {
-        match self {
-            Self::CodePuppy => "code-puppy",
-            Self::Llxprt => "llxprt",
-        }
-    }
-
-    /// User-facing runtime name.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::CodePuppy => "code_puppy",
-            Self::Llxprt => "LLxprt",
-        }
-    }
-
-    /// Product display name for user-facing UI labels (e.g. the agent chooser).
-    ///
-    /// Unlike [`label`](Self::label) (which returns the internal form
-    /// identifier), this returns the human-readable product name.
-    #[must_use]
-    pub const fn display_label(self) -> &'static str {
-        match self {
-            Self::CodePuppy => "Code Puppy",
-            Self::Llxprt => "LLxprt",
-        }
-    }
-
-    /// Parse a value entered or persisted by a form.
-    #[must_use]
-    pub fn from_form_value(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "code_puppy" | "code-puppy" | "codepuppy" => Some(Self::CodePuppy),
-            "llxprt" => Some(Self::Llxprt),
-            _ => None,
-        }
-    }
-
-    /// Whether this runtime uses Kennel-mode branding.
-    #[must_use]
-    pub const fn is_kennel(self) -> bool {
-        matches!(self, Self::CodePuppy)
-    }
-}
 
 /// Check whether a single GitHub owner/repo component contains only valid
 /// characters: ASCII alphanumerics, hyphens, underscores, and dots.
@@ -193,42 +150,18 @@ pub struct RemoteRepositorySettings {
 }
 
 /// A repository is a named codebase container.
-fn default_code_puppy_yolo() -> Option<bool> {
-    default_code_puppy_yolo_enabled().then_some(true)
-}
-
-const fn default_code_puppy_yolo_enabled() -> bool {
-    true
-}
-
-fn default_llxprt_mode_flags() -> Vec<String> {
-    vec!["--yolo".to_owned()]
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
     pub id: RepositoryId,
+    #[serde(default)]
+    pub default_type_id: agent_definition::AgentTypeId,
+    #[serde(default)]
+    pub default_values: TypedMap,
     pub name: String,
     pub slug: String,
     pub base_dir: PathBuf,
-    pub default_profile: String,
-    /// Default Code Puppy model. Empty preserves Code Puppy's own default.
-    #[serde(default)]
-    pub default_code_puppy_model: String,
-    /// Default Code Puppy package version copied into newly created Code Puppy agents.
-    #[serde(default)]
-    pub default_code_puppy_version: String,
-    /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
-    /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
     pub github_repo: String,
-    /// Optional override for the GitHub repository that sources issues and PRs
-    /// (issue #266). When nonblank, all issue/PR reads and mutations are
-    /// routed to this `owner/repo` (e.g. an upstream like
-    /// `vybestack/llxprt-jefe`), while cloning, origin checks, dashboard/git
-    /// display, and GitHub Actions continue to use [`github_repo`]. Blank
-    /// preserves current behavior (issues/PRs sourced from [`github_repo`]).
-    /// `#[serde(default)]` keeps existing schema-v1 data compatible.
     #[serde(default)]
     pub github_issue_pr_repo: String,
     #[serde(default)]
@@ -236,24 +169,9 @@ pub struct Repository {
     #[serde(default)]
     pub issue_base_prompt: String,
     #[serde(default)]
-    pub default_agent_kind: AgentKind,
-    /// Directory for transient agent work copies. Empty defaults to /tmp.
-    #[serde(default)]
     pub transient_agent_dir: PathBuf,
-    /// Default Code Puppy YOLO for transient agents. `None` = no yolo.
-    #[serde(default = "default_code_puppy_yolo")]
-    pub default_code_puppy_yolo: Option<bool>,
-    /// Default LLxprt mode flags for transient agents.
-    #[serde(default = "default_llxprt_mode_flags")]
-    pub default_llxprt_mode_flags: Vec<String>,
-    /// Max concurrent transient agents. 0 = no limit (no queueing).
     #[serde(default)]
     pub transient_max_concurrent: u32,
-    /// Default LLxprt npm package version for newly created LLxprt agents.
-    /// `None` means direct llxprt launch. Copy-on-create only:
-    /// never looked up dynamically at launch, never mutates existing agents.
-    #[serde(default, deserialize_with = "deserialize_optional_selector")]
-    pub default_llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub agent_ids: Vec<AgentId>,
 }
 
@@ -701,6 +619,10 @@ pub enum AgentStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: AgentId,
+    #[serde(default)]
+    pub type_id: agent_definition::AgentTypeId,
+    #[serde(default)]
+    pub values: TypedMap,
     pub display_id: String,
     pub repository_id: RepositoryId,
     #[serde(default)]
@@ -708,38 +630,11 @@ pub struct Agent {
     pub name: String,
     pub description: String,
     pub work_dir: PathBuf,
-    pub profile: String,
-    /// Optional Code Puppy model override. Empty inherits the repository default.
-    #[serde(default)]
-    pub code_puppy_model: String,
-    /// Code Puppy package version. Blank keeps the direct executable launch.
-    #[serde(default)]
-    pub code_puppy_version: String,
-    /// Explicit Code Puppy YOLO choice.
-    #[serde(default)]
-    pub code_puppy_yolo: Option<bool>,
-    /// Resume the latest Code Puppy autosave for the effective work directory.
-    #[serde(default)]
-    pub code_puppy_quick_resume: bool,
-    pub mode_flags: Vec<String>,
-    #[serde(default)]
-    pub llxprt_debug: String,
-    pub pass_continue: bool,
-    #[serde(default)]
-    pub sandbox_enabled: bool,
-    #[serde(default = "default_sandbox_engine")]
-    pub sandbox_engine: SandboxEngine,
-    #[serde(default = "default_sandbox_flags")]
-    pub sandbox_flags: String,
-    #[serde(default)]
-    pub agent_kind: AgentKind,
-    /// LLxprt npm package version selector. `None` means direct
-    /// llxprt launch. Dormant when `agent_kind` is Code Puppy (retained so
-    /// switching back to LLxprt restores it).
-    #[serde(default, deserialize_with = "deserialize_optional_selector")]
-    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
+    /// Runtime-only durable signature used to reject stale restoration.
+    #[serde(skip)]
+    pub persisted_launch_signature: Option<LaunchSignatureV1>,
     /// Whether this agent is persistent or transient (created on-the-fly,
     /// not persisted, cleaned up on exit).
     #[serde(default)]
@@ -780,7 +675,7 @@ impl ProcessIdentity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeBinding {
     pub session_name: String,
-    pub launch_signature: LaunchSignature,
+    pub launch_signature: LaunchSignatureV1,
     pub attached: bool,
     pub last_seen: Option<u64>,
     /// OS PID of the worker process (`llxprt`), used as a liveness fallback
@@ -812,67 +707,28 @@ pub struct RuntimeBinding {
     pub worker_identities: Vec<ProcessIdentity>,
 }
 
-/// Launch signature for recreating runtime sessions.
+/// Generic inputs from application state used to compose one immutable launch plan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LaunchSignature {
+pub struct AgentLaunchRequest {
+    pub type_id: agent_definition::AgentTypeId,
+    pub values: TypedMap,
     pub work_dir: PathBuf,
-    pub profile: String,
-    /// Effective Code Puppy model for this launch.
-    #[serde(default)]
-    pub code_puppy_model: String,
-    /// Trimmed Code Puppy package version. Blank launches the direct executable.
-    #[serde(default)]
-    pub code_puppy_version: String,
-    /// Explicit Code Puppy YOLO value for this launch.
-    #[serde(default)]
-    pub code_puppy_yolo: Option<bool>,
-    /// Resume the latest Code Puppy autosave for the effective work directory.
-    #[serde(default)]
-    pub code_puppy_quick_resume: bool,
-    pub mode_flags: Vec<String>,
-    #[serde(default)]
-    pub llxprt_debug: String,
-    pub pass_continue: bool,
-    pub sandbox_enabled: bool,
-    pub sandbox_engine: SandboxEngine,
-    pub sandbox_flags: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
-    pub agent_kind: AgentKind,
-    /// LLxprt npm package version selector carried through the launch
-    /// signature. `None` means direct llxprt launch. Propagated
-    /// through all runtime bindings/signatures so restart, reattach, relaunch,
-    /// issue send, PR send, and fresh prompts retain the exact selection.
-    #[serde(default, deserialize_with = "deserialize_optional_selector")]
-    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
+    pub operation: agent_definition::Operation,
 }
 
-impl LaunchSignature {
-    /// Build the signature that identifies `agent`'s current session.
-    ///
-    /// Agent fields are used verbatim (only trimmed); repository defaults are
-    /// not substituted, because this describes the session an already-created
-    /// agent owns. Launch-time creation resolves defaults before it reaches
-    /// this point.
+impl AgentLaunchRequest {
+    /// Build a generic resume request from the agent's authoritative typed state.
     #[must_use]
     pub fn for_agent(agent: &Agent, repository: &Repository) -> Self {
         Self {
+            type_id: agent.type_id.clone(),
+            values: agent.values.clone(),
             work_dir: agent.work_dir.clone(),
-            profile: agent.profile.clone(),
-            code_puppy_model: agent.code_puppy_model.trim().to_owned(),
-            code_puppy_version: agent.code_puppy_version.trim().to_owned(),
-            code_puppy_yolo: agent.code_puppy_yolo,
-            code_puppy_quick_resume: agent.code_puppy_quick_resume,
-            mode_flags: agent.mode_flags.clone(),
-            llxprt_debug: agent.llxprt_debug.clone(),
-            pass_continue: agent.pass_continue,
-            sandbox_enabled: agent.sandbox_enabled,
-            sandbox_engine: agent.sandbox_engine,
-            sandbox_flags: agent.sandbox_flags.clone(),
             remote: repository.remote.clone(),
-            agent_kind: agent.agent_kind,
-            llxprt_version: agent.llxprt_version.clone(),
+            operation: agent_definition::Operation::Resume,
         }
     }
 }
@@ -887,31 +743,27 @@ impl Agent {
     ///
     /// Invariant: `pass_continue` defaults to true for new agents.
     #[must_use]
-    pub fn new(id: AgentId, repository_id: RepositoryId, name: String, work_dir: PathBuf) -> Self {
+    pub fn new(
+        id: AgentId,
+        repository_id: RepositoryId,
+        type_id: agent_definition::AgentTypeId,
+        values: TypedMap,
+        name: String,
+        work_dir: PathBuf,
+    ) -> Self {
         Self {
             id: id.clone(),
+            type_id,
+            values,
             display_id: id.0.clone(),
             repository_id,
             shortcut_slot: None,
             name,
             description: String::new(),
             work_dir,
-
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: None,
-            code_puppy_quick_resume: false,
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: true, // Default per REQ-FUNC-004
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            agent_kind: AgentKind::default(),
-            llxprt_version: None,
             status: AgentStatus::default(),
             runtime_binding: None,
+            persisted_launch_signature: None,
             origin: AgentOrigin::default(),
         }
     }
@@ -926,25 +778,27 @@ impl Agent {
 impl Repository {
     /// Create a new repository.
     #[must_use]
-    pub fn new(id: RepositoryId, name: String, slug: String, base_dir: PathBuf) -> Self {
+    pub fn new(
+        id: RepositoryId,
+        default_type_id: agent_definition::AgentTypeId,
+        default_values: TypedMap,
+        name: String,
+        slug: String,
+        base_dir: PathBuf,
+    ) -> Self {
         Self {
             id,
+            default_type_id,
+            default_values,
             name,
             slug,
             base_dir,
-            default_profile: String::new(),
-            default_code_puppy_model: String::new(),
-            default_code_puppy_version: String::new(),
             github_repo: String::new(),
             github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
-            default_agent_kind: AgentKind::default(),
             transient_agent_dir: PathBuf::new(),
-            default_code_puppy_yolo: default_code_puppy_yolo(),
-            default_llxprt_mode_flags: default_llxprt_mode_flags(),
             transient_max_concurrent: 0,
-            default_llxprt_version: None,
             agent_ids: Vec::new(),
         }
     }

@@ -24,8 +24,8 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
 use std::path::PathBuf;
 
 use jefe::domain::{
-    Agent, AgentId, DEFAULT_SANDBOX_FLAGS, LaunchSignature, PrCheckStatus, PrState, PullRequest,
-    RemoteRepositorySettings, Repository, RepositoryId, SandboxEngine,
+    Agent, AgentId, AgentLaunchRequest, PrCheckStatus, PrState, PullRequest,
+    RemoteRepositorySettings, Repository, RepositoryId,
 };
 use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
 
@@ -81,6 +81,8 @@ pub(super) fn dashboard_prs_state() -> AppState {
     for (idx, slug) in ["repo-1", "repo-2"].into_iter().enumerate() {
         let mut repo = Repository::new(
             RepositoryId(slug.to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             format!("Repo {idx}"),
             format!("owner{idx}/{slug}"),
             PathBuf::from(format!("/tmp/{slug}")),
@@ -416,23 +418,13 @@ fn it_search_commit_reloads_with_query() {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 164-175
-fn sample_signature() -> LaunchSignature {
-    LaunchSignature {
+fn sample_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: jefe::domain::shipped_agent_type(3),
+        values: jefe::domain::TypedMap::new(),
         work_dir: PathBuf::from("/tmp/agent"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec![String::from("--yolo")],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
-        agent_kind: jefe::domain::AgentKind::Llxprt,
-        llxprt_version: None,
+        operation: jefe::domain::agent_definition::Operation::Normal,
     }
 }
 
@@ -443,17 +435,17 @@ fn sample_signature() -> LaunchSignature {
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-175
 fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> AppState {
-    let mut agent = Agent::new(
+    let agent = Agent::new(
         agent_id.clone(),
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("PR Agent"),
         work_dir.to_path_buf(),
     );
-    agent.profile = String::new();
-    agent.mode_flags = Vec::new();
 
     let mut state = active_prs_state();
-    state.installed_agent_kinds = vec![jefe::domain::AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state.prs_state.list.replace_items(vec![make_test_pr(42)]);
     state.prs_state.list.set_selected_index(Some(0));
@@ -700,6 +692,8 @@ fn it_missing_github_repo_shows_inline_config_error() {
     // Repository with an EMPTY github_repo slug.
     state.repositories.push(Repository::new(
         RepositoryId("repo-noslugin".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "No Slug Repo".to_string(),
         "repo-no-slug".to_string(),
         PathBuf::from("/tmp/repo-no-slug"),

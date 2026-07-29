@@ -101,6 +101,8 @@ pub(super) fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),
@@ -318,12 +320,16 @@ fn test_key_routing_all_focus_domains() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R1".to_string(),
         "r1".to_string(),
         std::path::PathBuf::from("/tmp/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "R2".to_string(),
         "r2".to_string(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -785,6 +791,8 @@ fn test_comment_page_for_detail_is_ignored_after_repository_scope_changes() {
     };
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Other Repo".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/other"),

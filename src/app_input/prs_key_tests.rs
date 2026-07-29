@@ -13,9 +13,7 @@
 //! @requirement REQ-PR-013
 
 use super::*;
-use jefe::domain::{
-    AgentChooserEntry, AgentId, AgentKind, ChecksFilter, ChooserRuntimeConfig, ReviewDecisionFilter,
-};
+use jefe::domain::{AgentChooserEntry, AgentId, ChecksFilter, ReviewDecisionFilter};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{
@@ -63,8 +61,10 @@ fn prs_state_with_chooser() -> AppState {
         agents: vec![AgentChooserEntry::new(
             AgentId(String::from("a1")),
             String::from("Agent 1"),
-            AgentKind::Llxprt,
-            ChooserRuntimeConfig::default(),
+            jefe::domain::shipped_agent_type(3),
+            "LLxprt".to_owned(),
+            "profile".to_owned(),
+            jefe::domain::ChooserRuntimeConfig::default(),
         )],
         transient_available: false,
     });
@@ -612,6 +612,8 @@ fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
     // list reload (the dispatch layer normally supplies the scope).
     state.repositories.push(jefe::domain::Repository::new(
         jefe::domain::RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "owner/repo".to_string(),
         std::path::PathBuf::from("/tmp/repo1"),
@@ -955,10 +957,6 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
     }
 }
 
-// =============================================================================
-// Review-thread key dispatch tests (issue #119)
-// =============================================================================
-
 /// `r` on ReviewThread subfocus opens the thread-reply composer.
 #[test]
 fn test_r_on_review_thread_opens_thread_reply_composer() {
@@ -981,7 +979,7 @@ fn test_big_r_on_review_thread_toggles_resolve() {
     ));
 }
 
-/// `R` on non-thread subfocus emits a notice (NOT None).
+/// `R` on non-thread subfocus emits a notice.
 #[test]
 fn test_big_r_on_body_emits_show_notice_not_none() {
     let body = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);

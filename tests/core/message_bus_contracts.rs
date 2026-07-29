@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 
 use jefe::domain::{
-    ActionsFilter, Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-    RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    ActionsFilter, Agent, AgentId, AgentStatus, Repository, RepositoryId, RuntimeBinding,
 };
 use jefe::messages::{
     AppMessage, IssuesMessage, MessageDomain, ModalMessage, PersistenceMessage,
@@ -117,12 +116,16 @@ fn typed_navigation_message_updates_state_without_global_event_match() {
         repositories: vec![
             Repository::new(
                 RepositoryId("repo-1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Repo One".into(),
                 "repo-one".into(),
                 PathBuf::from("/repo-one"),
             ),
             Repository::new(
                 RepositoryId("repo-2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Repo Two".into(),
                 "repo-two".into(),
                 PathBuf::from("/repo-two"),
@@ -162,6 +165,8 @@ fn typed_runtime_message_only_updates_runtime_domain_state() {
         agents: vec![Agent::new(
             agent_id.clone(),
             RepositoryId("repo-1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Agent One".into(),
             PathBuf::from("/repo-one/agent-one"),
         )],
@@ -185,28 +190,14 @@ fn typed_kill_agent_clears_runtime_binding() {
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Agent One".into(),
         PathBuf::from("/repo-one/agent-one"),
     );
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: "sess-agent-1".to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: PathBuf::from("/repo-one/agent-one"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec!["--yolo".to_string()],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_string(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: jefe::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        },
+        launch_signature: jefe::domain::LaunchSignatureV1::default(),
         attached: true,
         last_seen: None,
         process_identity: None,

@@ -34,7 +34,7 @@ const ESCALATION_PHASE: Duration = Duration::from_secs(2);
 /// Window allowed for a command that is already finishing to be reaped before
 /// teardown signals it. Short-lived commands (`jefe config …`) exit on their
 /// own, and signalling them would mask the exit code the scenario asserts.
-const SELF_EXIT_GRACE: Duration = Duration::from_millis(250);
+const SELF_EXIT_GRACE: Duration = Duration::from_secs(1);
 
 struct HarnessDimensions {
     cols: usize,

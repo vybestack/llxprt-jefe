@@ -2,36 +2,14 @@ use super::super::agent_executable::AgentExecutableTarget;
 use super::*;
 use crate::domain::{LlxprtNpmPackageSelector, SandboxEngine};
 
-/// Canonicalize a path the way the launch plan stores it for use as a
-/// structured argument: canonicalized, then on Windows with the `\\?\`
-/// verbatim prefix stripped (issue #432). Mirrors the production
-/// `strip_verbatim_prefix` helper so argv assertions track the real argv
-/// instead of the raw canonicalize output.
-#[cfg(windows)]
-fn canonicalize_for_arg(path: &Path) -> PathBuf {
-    let canonical = std::fs::canonicalize(path)
-        .unwrap_or_else(|error| panic!("canonicalize {}: {error}", path.display()));
-    super::super::agent_executable::strip_verbatim_prefix(&canonical)
-}
-
-fn signature(selector: Option<&str>) -> LaunchSignature {
-    LaunchSignature {
+fn signature(selector: Option<&str>) -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: crate::domain::shipped_agent_type(3),
+        values: crate::domain::TypedMap::new(),
         work_dir: Path::new("/tmp/work").to_path_buf(),
-        profile: "review profile".to_owned(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec!["--yolo".to_owned(), "prompt with spaces".to_owned()],
-        llxprt_debug: "trace;safe".to_owned(),
-        pass_continue: true,
-        sandbox_enabled: true,
-        sandbox_engine: SandboxEngine::Docker,
-        sandbox_flags: "--network none".to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: AgentKind::Llxprt,
-        llxprt_version: selector.and_then(LlxprtNpmPackageSelector::normalize),
-    }
+            operation: crate::domain::agent_definition::Operation::Normal,
+        }
 }
 
 #[test]
@@ -40,7 +18,7 @@ fn direct_local_plan_remains_exact() {
     let plan = local_launch_plan(&signature(None));
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3))
     );
     assert_eq!(
         plan.args,
@@ -70,7 +48,7 @@ fn nightly_local_plan_runs_cached_binary_directly() {
     let plan = local_launch_plan(&signature(Some(nightly)));
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3))
     );
     assert_eq!(
         plan.args,
@@ -138,13 +116,13 @@ fn local_metacharacter_selector_dir_name_is_filesystem_safe() {
 
 fn code_puppy_ignores_dormant_selector() {
     let mut sig = signature(Some("nightly"));
-    sig.agent_kind = AgentKind::CodePuppy;
+    sig.type_id = crate::domain::shipped_agent_type(1);
     sig.mode_flags.clear();
     sig.sandbox_enabled = false;
     let plan = local_launch_plan(&sig);
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::CodePuppy)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(1))
     );
     assert_eq!(plan.args, vec!["-i", "--yolo", "false"]);
     assert!(plan.managed_bin_dir.is_none());
@@ -293,8 +271,10 @@ fn windows_npm_cmd_bypasses_cmd_and_preserves_adversarial_argv() {
         &executable,
         &[std::ffi::OsString::from("exec"), selector.clone()],
     );
-    let canonical_node = canonicalize_for_arg(&node);
-    let canonical_cli = canonicalize_for_arg(&cli);
+    let canonical_node =
+        std::fs::canonicalize(&node).unwrap_or_else(|error| panic!("canonical node: {error}"));
+    let canonical_cli =
+        std::fs::canonicalize(&cli).unwrap_or_else(|error| panic!("canonical cli: {error}"));
     let args = command.get_args().collect::<Vec<_>>();
     assert_eq!(command.get_program(), canonical_node);
     assert_eq!(
@@ -336,7 +316,7 @@ fn latest_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
     let plan = local_launch_plan(&signature(Some("latest")));
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3))
     );
     let bin_dir = plan
         .managed_bin_dir
@@ -355,7 +335,7 @@ fn latest_nightly_sentinel_local_runs_cached_binary_with_nightly_dir_name() {
     let plan = local_launch_plan(&signature(Some("latest nightly")));
     assert_eq!(
         plan.executable,
-        AgentExecutableTarget::Agent(AgentKind::Llxprt)
+        AgentExecutableTarget::Agent(crate::domain::shipped_agent_type(3))
     );
     let bin_dir = plan
         .managed_bin_dir
@@ -412,7 +392,7 @@ fn windows_official_llxprt_script_plan_launches_bun_with_entrypoint_first_argume
         Some(std::ffi::OsString::from(".CMD")),
     );
     let executable = resolver
-        .resolve(crate::domain::AgentKind::Llxprt)
+        .resolve(crate::domain::shipped_agent_type(3))
         .unwrap_or_else(|error| panic!("resolve official wrapper: {error}"));
     let prompt = OsString::from("x".repeat(8_092));
     let command = super::super::agent_launcher::command_for_executable(
@@ -423,8 +403,10 @@ fn windows_official_llxprt_script_plan_launches_bun_with_entrypoint_first_argume
             prompt,
         ],
     );
-    let canonical_bun = canonicalize_for_arg(&bun);
-    let canonical_entry = canonicalize_for_arg(&entry);
+    let canonical_bun =
+        std::fs::canonicalize(&bun).unwrap_or_else(|error| panic!("canonical bun: {error}"));
+    let canonical_entry =
+        std::fs::canonicalize(&entry).unwrap_or_else(|error| panic!("canonical entry: {error}"));
     let args = command.get_args().collect::<Vec<_>>();
     assert_eq!(command.get_program(), canonical_bun.as_path());
     assert_eq!(args.len(), 4);

@@ -130,13 +130,7 @@ pub(super) fn dispatch_restart_agent(
     drop(state);
 
     if let Some(signature) = &signature {
-        if !availability::launch_available_or_error(
-            app_state,
-            signature.agent_kind,
-            signature.llxprt_version.as_ref(),
-            &signature.code_puppy_version,
-            &signature.remote,
-        ) {
+        if !availability::launch_available_or_error(app_state, signature) {
             return;
         }
         if let Err(error) = jefe::runtime::require_launch_package_available(signature) {

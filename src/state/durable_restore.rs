@@ -12,9 +12,9 @@ use crate::domain::canonical_values::{
     parse_remote_target, typed_field, typed_map_to_runtime_json,
 };
 use crate::domain::{
-    Agent, AgentId, AgentKind, AgentOrigin, AgentRecord, AgentStatus, Id, LastKnownRuntime,
-    LaunchSignature, RepoPreferences, Repository, RepositoryId, RepositoryLocation,
-    RepositoryRecord, RuntimeBinding, StateV2, TypedMap, UserPreferences,
+    Agent, AgentId, AgentOrigin, AgentRecord, AgentStatus, Id, LastKnownRuntime, RepoPreferences,
+    Repository, RepositoryId, RepositoryLocation, RepositoryRecord, RuntimeBinding, StateV2,
+    TypedMap, UserPreferences,
 };
 use crate::state::PaneFocus;
 
@@ -45,7 +45,7 @@ pub fn from_durable_state(state: &StateV2) -> Projected<RestoredState> {
                 record.id.as_str()
             ));
         };
-        agents.push(restore_agent(record, repository));
+        agents.push(restore_agent(record, repository)?);
     }
 
     let selected_repository_index = state.selection.repository_id.as_ref().and_then(|id| {
@@ -166,6 +166,7 @@ fn restore_remote_settings(values: &TypedMap) -> crate::domain::RemoteRepository
 }
 
 fn restore_repository(record: &RepositoryRecord) -> Projected<Repository> {
+    let default_type_id = active_type_id(&record.agent_defaults.type_id)?;
     let values = &record.agent_defaults.values;
     let mut remote = restore_remote_settings(values);
 
@@ -192,42 +193,37 @@ fn restore_repository(record: &RepositoryRecord) -> Projected<Repository> {
         }
     };
 
-    Ok(Repository {
-        id: RepositoryId(record.id.to_string()),
-        name: record.display_name.clone(),
-        slug: typed_string(values, "slug").unwrap_or_default(),
+    let mut repository = Repository::new(
+        RepositoryId(record.id.to_string()),
+        default_type_id,
+        record.agent_defaults.values.clone(),
+        record.display_name.clone(),
+        typed_string(values, "slug").unwrap_or_default(),
         base_dir,
-        default_profile: typed_string(values, "default_profile").unwrap_or_default(),
-        default_code_puppy_model: typed_string(values, "default_code_puppy_model")
-            .unwrap_or_default(),
-        default_code_puppy_version: typed_string(values, "default_code_puppy_version")
-            .unwrap_or_default(),
-        github_repo: typed_string(values, "github_repo").unwrap_or_default(),
-        github_issue_pr_repo: typed_string(values, "github_issue_pr_repo").unwrap_or_default(),
-        remote,
-        issue_base_prompt: typed_string(values, "issue_base_prompt").unwrap_or_default(),
-        default_agent_kind: agent_kind_from_type(&record.agent_defaults.type_id),
-        transient_agent_dir: typed_string(values, "transient_agent_dir")
-            .map(PathBuf::from)
-            .unwrap_or_default(),
-        default_code_puppy_yolo: typed_bool(values, "default_code_puppy_yolo"),
-        default_llxprt_mode_flags: typed_string_list(values, "default_llxprt_mode_flags")
-            .unwrap_or_default(),
-        transient_max_concurrent: typed_integer(values, "transient_max_concurrent")
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(0),
-        default_llxprt_version: typed_string(values, "default_llxprt_version")
-            .and_then(|value| crate::domain::LlxprtNpmPackageSelector::normalize(&value)),
-        agent_ids: Vec::new(),
-    })
+    );
+    repository.github_repo = typed_string(values, "github_repo").unwrap_or_default();
+    repository.github_issue_pr_repo =
+        typed_string(values, "github_issue_pr_repo").unwrap_or_default();
+    repository.remote = remote;
+    repository.issue_base_prompt = typed_string(values, "issue_base_prompt").unwrap_or_default();
+    repository.transient_agent_dir = typed_string(values, "transient_agent_dir")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    repository.transient_max_concurrent = typed_integer(values, "transient_max_concurrent")
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(0);
+    Ok(repository)
 }
 
-fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
+fn restore_agent(record: &AgentRecord, repository: &Repository) -> Projected<Agent> {
     let values = &record.values;
     let id = AgentId(record.id.to_string());
+    let type_id = active_type_id(&record.type_id)?;
     let mut agent = Agent::new(
         id.clone(),
         repository.id.clone(),
+        type_id,
+        values.clone(),
         typed_string(values, "name").unwrap_or_default(),
         typed_string(values, "work_dir")
             .map(PathBuf::from)
@@ -237,24 +233,6 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
     agent.shortcut_slot =
         typed_integer(values, "shortcut_slot").and_then(|value| u8::try_from(value).ok());
     agent.description = typed_string(values, "description").unwrap_or_default();
-    agent.profile = typed_string(values, "profile").unwrap_or_default();
-    agent.code_puppy_model = typed_string(values, "code_puppy_model").unwrap_or_default();
-    agent.code_puppy_version = typed_string(values, "code_puppy_version").unwrap_or_default();
-    agent.code_puppy_yolo = typed_bool(values, "code_puppy_yolo");
-    agent.code_puppy_quick_resume = typed_bool(values, "code_puppy_quick_resume").unwrap_or(false);
-    agent.mode_flags = typed_string_list(values, "mode_flags").unwrap_or_default();
-    agent.llxprt_debug = typed_string(values, "llxprt_debug").unwrap_or_default();
-    agent.pass_continue = typed_bool(values, "pass_continue").unwrap_or(true);
-    agent.sandbox_enabled = typed_bool(values, "sandbox_enabled").unwrap_or(false);
-    agent.sandbox_engine = typed_string(values, "sandbox_engine")
-        .and_then(|value| sandbox_engine_from_text(&value))
-        .unwrap_or_default();
-    if let Some(flags) = typed_string(values, "sandbox_flags") {
-        agent.sandbox_flags = flags;
-    }
-    agent.agent_kind = agent_kind_from_type(&record.type_id);
-    agent.llxprt_version = typed_string(values, "llxprt_version")
-        .and_then(|value| crate::domain::LlxprtNpmPackageSelector::normalize(&value));
     agent.origin = typed_string(values, "origin")
         .and_then(|value| agent_origin_from_text(&value))
         .unwrap_or(AgentOrigin::Persistent);
@@ -265,7 +243,7 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
         .as_ref()
         .map(|session| RuntimeBinding {
             session_name: session.clone(),
-            launch_signature: LaunchSignature::for_agent(&agent, repository),
+            launch_signature: record.launch_signature.clone(),
             attached: false,
             last_seen: None,
             pid: None,
@@ -276,7 +254,16 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Agent {
             worker_identities: Vec::new(),
             lifecycle_generation: record.runtime.invocation_generation,
         });
-    agent
+    agent.persisted_launch_signature = Some(record.launch_signature.clone());
+    Ok(agent)
+}
+
+fn active_type_id(type_id: &Id) -> Projected<crate::domain::agent_definition::AgentTypeId> {
+    crate::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .map(|definition| definition.id)
+        .ok_or_else(|| ProjectionError::new(format!("unknown active agent type id {type_id}")))
 }
 
 fn agent_status(last_known: LastKnownRuntime) -> AgentStatus {
@@ -287,25 +274,10 @@ fn agent_status(last_known: LastKnownRuntime) -> AgentStatus {
     }
 }
 
-fn agent_kind_from_type(type_id: &Id) -> AgentKind {
-    if type_id.as_str() == "core.code-puppy" {
-        AgentKind::CodePuppy
-    } else {
-        AgentKind::Llxprt
-    }
-}
 fn agent_origin_from_text(value: &str) -> Option<AgentOrigin> {
     match value {
         "persistent" => Some(AgentOrigin::Persistent),
         "transient" => Some(AgentOrigin::Transient),
-        _ => None,
-    }
-}
-fn sandbox_engine_from_text(value: &str) -> Option<crate::domain::SandboxEngine> {
-    match value {
-        "podman" => Some(crate::domain::SandboxEngine::Podman),
-        "docker" => Some(crate::domain::SandboxEngine::Docker),
-        "seatbelt" | "sandbox-exec" => Some(crate::domain::SandboxEngine::Seatbelt),
         _ => None,
     }
 }

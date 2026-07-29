@@ -79,29 +79,19 @@ fn stub_output_generation_is_zero() {
 #[test]
 fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
     let cap = MAX_DEAD_SIGNATURES.get();
-    let mut cache: LruCache<AgentId, LaunchSignature> = LruCache::new(MAX_DEAD_SIGNATURES);
+    let mut cache: LruCache<AgentId, AgentLaunchRequest> = LruCache::new(MAX_DEAD_SIGNATURES);
 
     // Insert well beyond the capacity.
     for i in 0..cap + 10 {
         let id = AgentId(format!("agent-{i}"));
         let _ = cache.put(
             id,
-            LaunchSignature {
+            AgentLaunchRequest {
+                type_id: crate::domain::shipped_agent_type(3),
+                values: crate::domain::TypedMap::new(),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                profile: "default".into(),
-                code_puppy_model: String::new(),
-                code_puppy_version: String::new(),
-                code_puppy_yolo: Some(false),
-                code_puppy_quick_resume: false,
-                mode_flags: vec![],
-                llxprt_debug: String::new(),
-                pass_continue: true,
-                sandbox_enabled: false,
-                sandbox_engine: crate::domain::SandboxEngine::Podman,
-                sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
                 remote: crate::domain::RemoteRepositorySettings::default(),
-                agent_kind: crate::domain::AgentKind::Llxprt,
-                llxprt_version: None,
+                operation: crate::domain::agent_definition::Operation::Normal,
             },
         );
     }

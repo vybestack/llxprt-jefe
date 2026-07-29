@@ -11,6 +11,8 @@ fn remote_agent_work_dir_preserves_unix_tilde_and_trims_trailing_slashes() {
     let repository_id = RepositoryId("remote-repo".to_owned());
     let mut repository = Repository::new(
         repository_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Remote Repo".to_owned(),
         "remote-repo".to_owned(),
         std::path::PathBuf::from("~/remote///"),

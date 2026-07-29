@@ -23,6 +23,8 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
     };
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),

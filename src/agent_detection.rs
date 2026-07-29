@@ -1,45 +1,80 @@
-//! Session-cached detection of installed agent runtimes.
+//! Session-cached detection of installed agent definitions.
 
 use std::sync::OnceLock;
 
-use crate::domain::AgentKind;
-use crate::runtime::{AgentExecutablePlatform, AgentExecutableResolver};
+use crate::agent_candidate::{AgentCandidateResolver, CandidateResolution};
+use crate::agent_candidate_path::PathSnapshot;
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, CandidateKind};
 
-static INSTALLED_AGENT_KINDS: OnceLock<Vec<AgentKind>> = OnceLock::new();
+static INSTALLED_AGENT_TYPES: OnceLock<Vec<AgentTypeId>> = OnceLock::new();
 
-/// Agent kinds whose executable is present on PATH, detected once per session.
+/// Enabled shipped definitions whose executable candidates resolve in this session.
 #[must_use]
-pub fn installed_agent_kinds() -> &'static [AgentKind] {
-    INSTALLED_AGENT_KINDS.get_or_init(detect_installed_agent_kinds)
+pub fn available_agent_type_ids() -> &'static [AgentTypeId] {
+    INSTALLED_AGENT_TYPES.get_or_init(detect_available_agent_type_ids)
 }
 
-fn detect_installed_agent_kinds() -> Vec<AgentKind> {
-    detect_with_resolver(&AgentExecutableResolver::current())
+fn detect_available_agent_type_ids() -> Vec<AgentTypeId> {
+    let snapshot = PathSnapshot::current();
+    let repository_root = std::env::current_dir().unwrap_or_default();
+    let resolver = AgentCandidateResolver::new(&snapshot, repository_root);
+    AgentDefinition::shipped()
+        .into_iter()
+        .filter(|definition| {
+            matches!(
+                resolver.resolve(definition),
+                CandidateResolution::Resolved(_)
+            )
+        })
+        .map(|definition| definition.id)
+        .collect()
 }
 
-/// Pure detection of which agent runtimes are installed, given an explicit
-/// slice of PATH directories.
-///
-/// Returns the kinds whose executable is present and executable (on Unix) or
-/// present as a file (on non-Unix) in any of the supplied directories. The
-/// detection order follows the canonical kind order in the candidate list.
-///
-/// Extracted as a pure function so the detection logic is deterministically
-/// testable without touching the real filesystem or `PATH` environment
-/// variable.
+/// Pure detection of shipped path-name candidates in explicit PATH directories.
 #[must_use]
-pub fn detect_agent_kinds(dirs: &[std::path::PathBuf]) -> Vec<AgentKind> {
-    let resolver = AgentExecutableResolver::for_platform(
-        AgentExecutablePlatform::current(),
-        dirs.to_vec(),
+pub fn detect_agent_type_ids(directories: &[std::path::PathBuf]) -> Vec<AgentTypeId> {
+    let snapshot = PathSnapshot::for_platform(
+        crate::agent_candidate_path::AgentExecutablePlatform::current(),
+        directories.to_vec(),
         std::env::var_os("PATHEXT"),
     );
-    detect_with_resolver(&resolver)
+    let mut detected = AgentDefinition::shipped()
+        .into_iter()
+        .filter(|definition| {
+            definition.candidates.iter().any(|candidate| {
+                let CandidateKind::PathName { name } = &candidate.kind else {
+                    return false;
+                };
+                snapshot.resolve_binary(name).is_some()
+            })
+        })
+        .map(|definition| definition.id)
+        .collect::<Vec<_>>();
+    detected.sort_by_key(shipped_display_order);
+    detected
 }
 
-fn detect_with_resolver(resolver: &AgentExecutableResolver) -> Vec<AgentKind> {
-    [AgentKind::Llxprt, AgentKind::CodePuppy]
+fn shipped_display_order(type_id: &AgentTypeId) -> usize {
+    AgentDefinition::shipped()
         .into_iter()
-        .filter(|kind| resolver.resolve(*kind).is_ok())
+        .position(|definition| definition.id == *type_id)
+        .unwrap_or(usize::MAX)
+}
+/// Project enabled, compatible observations to stable definition identifiers.
+#[must_use]
+pub fn compatible_agent_type_ids(
+    observations: &[crate::agent_status_view::AgentAvailabilityObservation],
+) -> Vec<AgentTypeId> {
+    observations
+        .iter()
+        .filter(|observation| {
+            observation.enabled()
+                && observation.pending_generation().is_none()
+                && matches!(
+                    observation.availability(),
+                    crate::domain::agent_definition::Availability::InstalledCompatible { .. }
+                )
+        })
+        .map(|observation| observation.type_id().clone())
         .collect()
 }

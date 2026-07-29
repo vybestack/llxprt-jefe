@@ -9,7 +9,7 @@
 //! - transient ConPTY readiness on Windows via `portable-pty` (a NotApplicable
 //!   informational finding elsewhere);
 //! - Git and `gh`/auth via `local_command` and `GhClient::check_auth`;
-//! - both agent runtimes via `agent_detection::installed_agent_kinds`;
+//! - both agent runtimes via `agent_detection::available_agent_type_ids`;
 //! - config/state writability via the read-only [`probe_persistence`];
 //! - Windows long-path policy limitations.
 //!
@@ -257,25 +257,23 @@ fn collect_gh_auth(findings: &mut Vec<DiagnosticFinding>) {
 
 /// Probe both agent runtimes via the shared detection cache.
 fn collect_agent_runtimes(findings: &mut Vec<DiagnosticFinding>) {
-    use crate::domain::AgentKind;
-    let installed = crate::agent_detection::installed_agent_kinds();
-    for (kind, finding_kind) in [
-        (AgentKind::Llxprt, FindingKind::LlxprtCode),
-        (AgentKind::CodePuppy, FindingKind::CodePuppy),
-    ] {
-        if installed.contains(&kind) {
-            findings.push(DiagnosticFinding::new(
-                finding_kind,
-                DiagnosticStatus::Pass,
-                format!("{} runtime detected", kind.display_label()),
-            ));
+    let installed = crate::agent_detection::available_agent_type_ids();
+    for definition in crate::domain::agent_definition::AgentDefinition::shipped() {
+        let status = if installed.contains(&definition.id) {
+            DiagnosticStatus::Pass
         } else {
-            findings.push(DiagnosticFinding::new(
-                finding_kind,
-                DiagnosticStatus::Warn,
-                format!("{} runtime not detected", kind.display_label()),
-            ));
-        }
+            DiagnosticStatus::Warn
+        };
+        let state = if status == DiagnosticStatus::Pass {
+            "detected"
+        } else {
+            "not detected"
+        };
+        findings.push(DiagnosticFinding::new(
+            FindingKind::DiagnosticsInternal,
+            status,
+            format!("{} runtime {state}", definition.display_name),
+        ));
     }
 }
 

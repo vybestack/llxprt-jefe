@@ -7,6 +7,8 @@ use crate::state::types::{ModalState, ScreenMode};
 fn seed_repository() -> Repository {
     Repository::new(
         RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_owned(),
         "repo-1".to_owned(),
         std::path::PathBuf::from("/tmp/repo-1"),
@@ -33,26 +35,15 @@ fn default_state_terminal_unfocused() {
 }
 
 #[test]
-fn open_new_agent_initializes_llxprt_debug_blank() {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
-
-    state = state
-        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
-        .committed_pure();
-
-    let ModalState::NewAgent { fields, .. } = state.modal else {
-        panic!("expected new-agent modal, got {:?}", state.modal);
-    };
-    assert!(fields.llxprt_debug.is_empty());
-}
-
-#[test]
 fn open_new_agent_copies_repository_code_puppy_model() {
     let mut repo = seed_repository();
-    repo.default_code_puppy_model = "repo/default-model".to_owned();
+    repo.default_type_id = crate::domain::shipped_agent_type(1);
+    crate::domain::canonical_values::insert_json(
+        &mut repo.default_values,
+        "model",
+        serde_json::Value::String("repo/default-model".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("valid model fixture: {error}"));
     let mut state = AppState {
         repositories: vec![repo],
         ..AppState::default()
@@ -75,12 +66,12 @@ fn open_new_agent_copies_repository_code_puppy_model() {
 #[test]
 fn open_new_agent_defaults_to_repo_kind_when_installed() {
     let mut repo = seed_repository();
-    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    repo.default_type_id = crate::domain::shipped_agent_type(1);
     let mut state = AppState {
         repositories: vec![repo],
-        installed_agent_kinds: vec![
-            crate::domain::AgentKind::Llxprt,
-            crate::domain::AgentKind::CodePuppy,
+        available_agent_type_ids: vec![
+            crate::domain::shipped_agent_type(3),
+            crate::domain::shipped_agent_type(1),
         ],
         ..AppState::default()
     };
@@ -93,7 +84,7 @@ fn open_new_agent_defaults_to_repo_kind_when_installed() {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
     // Repository default is CodePuppy and it is installed → modal starts CP.
-    assert_eq!(fields.agent_kind, "code_puppy");
+    assert_eq!(fields.agent_type_id, "core.code-puppy");
     // CodePuppy agents do not get the LLxprt --yolo default mode.
     assert_eq!(fields.mode, "");
 }
@@ -101,11 +92,11 @@ fn open_new_agent_defaults_to_repo_kind_when_installed() {
 #[test]
 fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed() {
     let mut repo = seed_repository();
-    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    repo.default_type_id = crate::domain::shipped_agent_type(1);
     let mut state = AppState {
         repositories: vec![repo],
         // Only LLxprt is installed locally.
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
 
@@ -117,14 +108,14 @@ fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed(
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
     // Repo default is CodePuppy but it's not installed → fall back to Llxprt.
-    assert_eq!(fields.agent_kind, "LLxprt");
-    assert_eq!(fields.mode, "--yolo");
+    assert_eq!(fields.agent_type_id, "core.llxprt");
+    assert_eq!(fields.mode, "");
 }
 
 #[test]
 fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_installed() {
     let mut repo = seed_repository();
-    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    repo.default_type_id = crate::domain::shipped_agent_type(1);
     repo.remote = RemoteRepositorySettings {
         enabled: true,
         login_user: "ubuntu".to_owned(),
@@ -134,7 +125,7 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
     let mut state = AppState {
         repositories: vec![repo],
         // Only LLxprt installed locally, but remote is authoritative.
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
 
@@ -146,55 +137,7 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
     // Remote repos offer repo default kind regardless of local install.
-    assert_eq!(fields.agent_kind, "code_puppy");
-}
-
-#[test]
-fn llxprt_debug_is_trimmed_when_creating_agent() {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
-
-    state = state
-        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
-        .committed_pure();
-    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
-        panic!("expected new-agent modal");
-    };
-    fields.name = "Agent One".to_owned();
-    fields.work_dir = "/tmp/agent-one".to_owned();
-    fields.llxprt_debug = "   trace=1   ".to_owned();
-
-    state = state.apply(AppEvent::SubmitForm).committed_pure();
-    let Some(created) = state.agents.last() else {
-        panic!("agent should be created");
-    };
-    assert_eq!(created.llxprt_debug, "trace=1");
-}
-
-#[test]
-fn llxprt_debug_is_trimmed_to_empty_when_blank() {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
-
-    state = state
-        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
-        .committed_pure();
-    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
-        panic!("expected new-agent modal");
-    };
-    fields.name = "Agent Two".to_owned();
-    fields.work_dir = "/tmp/agent-two".to_owned();
-    fields.llxprt_debug = "   ".to_owned();
-
-    state = state.apply(AppEvent::SubmitForm).committed_pure();
-    let Some(created) = state.agents.last() else {
-        panic!("agent should be created");
-    };
-    assert!(created.llxprt_debug.is_empty());
+    assert_eq!(fields.agent_type_id, "core.code-puppy");
 }
 
 #[test]
@@ -259,7 +202,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         base_dir: "~/remote/worktrees".to_owned(),
         default_profile: "ship".to_owned(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
         remote_enabled: true,
@@ -292,7 +235,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -319,7 +262,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         code_puppy_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
-        agent_kind: "LLxprt".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
         mode: "--yolo".to_owned(),
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -335,50 +278,20 @@ fn create_agent_rejects_whitespace_only_work_dir() {
 #[test]
 fn update_agent_ignores_whitespace_only_work_dir() {
     let repository = seed_repository();
-    let mut agent = Agent {
-        id: crate::domain::AgentId("agent-1".to_owned()),
-        display_id: "#1".to_owned(),
-        repository_id: repository.id.clone(),
-        shortcut_slot: None,
-        name: "Agent One".to_owned(),
-        description: String::new(),
-        work_dir: std::path::PathBuf::from("/tmp/agent-one"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec!["--yolo".to_owned()],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: crate::domain::SandboxEngine::Podman,
-        sandbox_flags: String::new(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        status: crate::domain::AgentStatus::Running,
-        runtime_binding: None,
-        origin: crate::domain::AgentOrigin::Persistent,
-        llxprt_version: None,
-    };
-
+    let mut agent = Agent::new(
+        crate::domain::AgentId("agent-1".to_owned()),
+        repository.id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Agent One".to_owned(),
+        std::path::PathBuf::from("/tmp/agent-one"),
+    );
     let fields = AgentFormFields {
-        shortcut_slot: None,
         name: "Agent One".to_owned(),
-        description: String::new(),
         work_dir: "   ".to_owned(),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: false,
-        code_puppy_quick_resume: crate::domain::QuickResume::default(),
-        agent_kind: "LLxprt".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
         mode: "--yolo".to_owned(),
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: "podman".to_owned(),
-        sandbox_flags: String::new(),
-        llxprt_version: String::new(),
+        ..AgentFormFields::default()
     };
 
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
@@ -386,57 +299,35 @@ fn update_agent_ignores_whitespace_only_work_dir() {
 }
 
 #[test]
-fn update_agent_empty_llxprt_mode_stays_empty() {
+fn update_agent_empty_mode_disables_declared_yolo_value() {
     let repository = seed_repository();
-    let mut agent = Agent {
-        id: crate::domain::AgentId("agent-yolo".to_owned()),
-        display_id: "#2".to_owned(),
-        repository_id: repository.id.clone(),
-        shortcut_slot: None,
-        name: "Agent Two".to_owned(),
-        description: String::new(),
-        work_dir: std::path::PathBuf::from("/tmp/agent-two"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec!["--fast".to_owned()],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: crate::domain::SandboxEngine::Podman,
-        sandbox_flags: String::new(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        status: crate::domain::AgentStatus::Running,
-        runtime_binding: None,
-        origin: crate::domain::AgentOrigin::Persistent,
-        llxprt_version: None,
-    };
+    let mut values = crate::domain::TypedMap::new();
+    crate::domain::canonical_values::insert_json(
+        &mut values,
+        "yolo",
+        serde_json::Value::Bool(true),
+    )
+    .unwrap_or_else(|error| panic!("valid yolo fixture: {error}"));
+    let mut agent = Agent::new(
+        crate::domain::AgentId("agent-yolo".to_owned()),
+        repository.id.clone(),
+        crate::domain::shipped_agent_type(3),
+        values,
+        "Agent Two".to_owned(),
+        std::path::PathBuf::from("/tmp/agent-two"),
+    );
     let fields = AgentFormFields {
-        shortcut_slot: None,
         name: "Agent Two".to_owned(),
-        description: String::new(),
         work_dir: "/tmp/agent-two".to_owned(),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: false,
-        code_puppy_quick_resume: crate::domain::QuickResume::default(),
-        agent_kind: "LLxprt".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
         mode: "   ".to_owned(),
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: "podman".to_owned(),
-        sandbox_flags: String::new(),
-        llxprt_version: String::new(),
+        ..AgentFormFields::default()
     };
+
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
-    assert!(
-        agent.mode_flags.is_empty(),
-        "empty Llxprt mode must stay empty so yolo can be turned off, got {:?}",
-        agent.mode_flags
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "yolo"),
+        Some(&crate::domain::TypedValue::Bool(false))
     );
 }
 
@@ -449,8 +340,8 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField).committed_pure(); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultProfile → DefaultAgentKind (skips CodePuppyModel for Llxprt)
-    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultAgentKind → DefaultLlxprtMode
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultProfile → DefaultAgentTypeId (skips CodePuppyModel for Llxprt)
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultAgentTypeId → DefaultLlxprtMode
     state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultLlxprtMode → DefaultLlxprtVersion
     state = state.apply(AppEvent::FormNextField).committed_pure(); // DefaultLlxprtVersion → GitHubRepo
     state = state.apply(AppEvent::FormNextField).committed_pure(); // GitHubRepo → IssuePrRepo
@@ -496,7 +387,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "foo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -516,7 +407,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "owner/repo/extra".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -536,7 +427,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "/repo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -556,7 +447,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "owner/".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -576,7 +467,7 @@ fn create_repository_accepts_empty_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: String::new(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -596,7 +487,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -618,7 +509,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "own er/repo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -639,7 +530,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             base_dir: String::new(),
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
-            default_agent_kind: "LLxprt".to_owned(),
+            default_type_id: "core.llxprt".to_owned(),
             github_repo: value.to_owned(),
             github_issue_pr_repo: String::new(),
             remote_enabled: false,
@@ -664,7 +555,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "acme@org/widgets".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -684,7 +575,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "  owner/repo  ".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -709,7 +600,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -733,7 +624,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
@@ -837,6 +728,7 @@ fn code_puppy_yolo_focus_toggles_typed_boolean() {
 fn remote_repository_form_preserves_validated_ssh_transport_fields() {
     let fields = RepositoryFormFields {
         name: "Remote SSH".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         remote_enabled: true,
         login_user: "ubuntu".to_owned(),
         host: "linux.example".to_owned(),
@@ -880,6 +772,7 @@ fn remote_repository_form_rejects_invalid_port_and_unsafe_option() {
 fn local_repository_ignores_stale_invalid_ssh_port() {
     let fields = RepositoryFormFields {
         name: "Local Repository".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         remote_enabled: false,
         ssh_port: "not-a-port".to_owned(),
         ..RepositoryFormFields::default()

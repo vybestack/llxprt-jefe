@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::domain::AgentKind;
+pub use crate::agent_candidate_path::{AgentExecutablePlatform, AgentWrapperKind};
 
 const WINDOWS_DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
 const WINDOWS_REMEDIATION: &str =
@@ -22,32 +22,11 @@ const LLXPRT_ENTRYPOINT_REL: &str = "node_modules/@vybestack/llxprt-code/index.t
 const NPM_NODE_REL: &str = "node.exe";
 const NPM_CLI_REL: &str = "node_modules/npm/bin/npm-cli.js";
 
-/// Operating-system executable-resolution policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentExecutablePlatform {
-    /// Extensionless executable files with Unix execute permissions.
-    Unix,
-    /// Native Windows PATHEXT resolution plus explicitly supported PowerShell wrappers.
-    Windows,
-}
-
-impl AgentExecutablePlatform {
-    /// Return the current target's policy.
-    #[must_use]
-    pub const fn current() -> Self {
-        if cfg!(windows) {
-            Self::Windows
-        } else {
-            Self::Unix
-        }
-    }
-}
-
 /// Executable required by an agent launch plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentExecutableTarget {
     /// A directly launched agent runtime.
-    Agent(AgentKind),
+    Agent(&'static str),
     /// npm used for a selector-backed LLxprt launch or package probe.
     Npm,
     /// uvx used for a pinned Code Puppy package launch or capability probe.
@@ -59,7 +38,7 @@ impl AgentExecutableTarget {
     #[must_use]
     pub const fn binary_name(self) -> &'static str {
         match self {
-            Self::Agent(kind) => kind.binary_name(),
+            Self::Agent(binary) => binary,
             Self::Npm => "npm",
             Self::Uvx => "uvx",
         }
@@ -67,28 +46,11 @@ impl AgentExecutableTarget {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Agent(kind) => kind.label(),
+            Self::Agent(binary) => binary,
             Self::Npm => "npm",
             Self::Uvx => "uvx",
         }
     }
-}
-
-impl From<AgentKind> for AgentExecutableTarget {
-    fn from(value: AgentKind) -> Self {
-        Self::Agent(value)
-    }
-}
-
-/// Process strategy required by a resolved executable form.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentWrapperKind {
-    /// Native executable that can be started directly.
-    Direct,
-    /// Windows command script requiring `cmd.exe` mediation.
-    CommandScript,
-    /// PowerShell script requiring explicit PowerShell mediation.
-    PowerShellScript,
 }
 
 /// Direct script runtime and entrypoint invocation for an official Windows
@@ -134,9 +96,9 @@ impl ResolvedAgentExecutable {
 
     /// Agent runtime represented by this executable, when it is a direct runtime.
     #[must_use]
-    pub const fn runtime(&self) -> Option<AgentKind> {
+    pub const fn runtime(&self) -> Option<&'static str> {
         match self.target {
-            AgentExecutableTarget::Agent(kind) => Some(kind),
+            AgentExecutableTarget::Agent(binary) => Some(binary),
             AgentExecutableTarget::Npm | AgentExecutableTarget::Uvx => None,
         }
     }
@@ -206,9 +168,9 @@ impl AgentExecutableResolver {
     /// Resolve an agent runtime to a supported executable and wrapper strategy.
     pub fn resolve(
         &self,
-        runtime: AgentKind,
+        binary: &'static str,
     ) -> Result<ResolvedAgentExecutable, AgentExecutableError> {
-        self.resolve_target(runtime.into())
+        self.resolve_target(AgentExecutableTarget::Agent(binary))
     }
 
     /// Resolve any executable role used by the agent launch path.
@@ -377,7 +339,7 @@ fn canonical_script_plan(
     if target == AgentExecutableTarget::Npm {
         return canonical_npm_outcome(directory);
     }
-    if matches!(target, AgentExecutableTarget::Agent(AgentKind::Llxprt)) {
+    if matches!(target, AgentExecutableTarget::Agent(_)) {
         return official_llxprt_outcome(directory, wrapper_path);
     }
     CanonicalScriptOutcome::Unmarked

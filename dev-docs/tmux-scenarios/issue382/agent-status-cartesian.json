@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "name": "agent-status-cartesian",
+  "platform": "macos",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "bin/llxprt",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/codex",
+        "content": { "utf8": "#!/bin/sh\nprintf 'codex-cli 0.142.0\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/code-puppy",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.0.634\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+    ]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Codex CLI  Installed, enabled  [Create enabled]", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Claude Code  Not found, enabled  [Create disabled]", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "Code Puppy  Incompatible, enabled  [Create disabled]", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "LLxprt  Incompatible, enabled  [Create disabled]", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agent Types",
+        "Claude Code  Not found, enabled  [Create disabled]",
+        "Code Puppy  Incompatible, enabled  [Create disabled]",
+        "Codex CLI  Installed, enabled  [Create enabled]",
+        "LLxprt  Incompatible, enabled  [Create disabled]",
+        "missing required capability: interactive",
+        "missing required capability: prompt-interactive"
+      ],
+      "absent": ["Probe error"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

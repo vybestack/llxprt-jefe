@@ -6,6 +6,7 @@ use crate::AppContext;
 use jefe::domain::AgentId;
 use jefe::github::GhClient;
 use jefe::persistence::FilePersistenceManager;
+use jefe::persistence::settings_document::PublishedSettings;
 use jefe::runtime::TmuxRuntimeManager;
 use jefe::services::capture_worker::CaptureHandle;
 use jefe::services::persist_worker::PersistHandle;
@@ -19,6 +20,7 @@ use super::pty_passthrough::{
 fn minimal_test_ctx() -> CtxArc {
     Arc::new(Mutex::new(AppContext {
         persistence: FilePersistenceManager::default(),
+        published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),
         runtime: TmuxRuntimeManager::new(24, 80),
         gh_client: GhClient::new(),

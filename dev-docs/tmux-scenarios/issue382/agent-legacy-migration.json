@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "name": "agent-legacy-migration",
+  "platform": "linux",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [{\n    \"id\": \"repo\",\n    \"name\": \"Repo\",\n    \"slug\": \"repo\",\n    \"base_dir\": \"/srv/project\",\n    \"agent_ids\": [\"agent\"]\n  }],\n  \"agents\": [{\n    \"id\": \"agent\",\n    \"display_id\": \"A1\",\n    \"repository_id\": \"repo\",\n    \"kind\": \"code_puppy\",\n    \"name\": \"Legacy Puppy\",\n    \"work_dir\": \"/srv/project/work\",\n    \"profile\": \"\",\n    \"mode_flags\": [\"-i\"],\n    \"pass_continue\": true,\n    \"sandbox_enabled\": false,\n    \"sandbox_engine\": \"\",\n    \"sandbox_flags\": \"\",\n    \"status\": \"Queued\",\n    \"runtime_binding\": null\n  }],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": 0\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "Code Puppy", "timeout_ms": 15000 },
+    {
+      "op": "assert-frame",
+      "contains": ["Code Puppy", "Legacy Puppy"],
+      "absent": ["error", "dormant"]
+    },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

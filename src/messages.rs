@@ -55,7 +55,6 @@ pub struct MessageRoute {
     pub domain: MessageDomain,
     pub name: &'static str,
 }
-/// Navigation, focus, and screen-layout messages.
 #[derive(Debug, Clone)]
 pub enum UiNavigationMessage {
     NavigateUp,
@@ -108,7 +107,6 @@ pub enum UiNavigationMessage {
     /// Resume a hidden shell for `agent_id` (F10 from dashboard, issue #361).
     ResumeShellOverlay(crate::domain::AgentId),
 }
-/// Modal and form-editing messages.
 #[derive(Debug, Clone)]
 pub enum ModalMessage {
     OpenHelp,
@@ -128,27 +126,25 @@ pub enum ModalMessage {
     FormPrevField,
     FormToggleCheckbox,
 }
-/// Repository and agent configuration messages.
 #[derive(Debug, Clone)]
 pub enum RepositoryAgentMessage {
     OpenNewRepository,
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
     OpenNewAgent(RepositoryId),
+    OpenAgentTypeForm(crate::domain::agent_definition::AgentTypeId),
     OpenEditAgent(AgentId),
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
+    ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
 }
-/// Runtime lifecycle messages.
 #[derive(Debug, Clone)]
 pub enum RuntimeMessage {
     KillAgent(AgentId),
     RelaunchAgent(AgentId),
-    /// Kill then relaunch an agent in one action (issue #117).
     RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
 }
-/// Persistence result messages.
 #[derive(Debug, Clone)]
 pub enum PersistenceMessage {
     LoadSuccess,
@@ -162,7 +158,6 @@ pub enum PersistenceMessage {
     /// written by the root shell after every state guard is released.
     StageSave,
 }
-/// Theme messages.
 #[derive(Debug, Clone)]
 pub enum ThemeMessage {
     SetTheme(String),

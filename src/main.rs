@@ -28,6 +28,7 @@ use jefe::theme::FileThemeManager;
 /// Shared application context passed to the root component.
 struct AppContext {
     persistence: jefe::persistence::FilePersistenceManager,
+    published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
@@ -200,6 +201,19 @@ fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRu
     )
 }
 
+fn run_app(context: Arc<std::sync::Mutex<AppContext>>) {
+    smol::block_on(async {
+        let mut app = element!(app_shell::App(context: Some(context)));
+        if is_fullscreen_enabled() {
+            if let Err(error) = app.fullscreen().await {
+                error!(%error, "fullscreen mode failed");
+            }
+        } else if let Err(error) = app.render_loop().await {
+            error!(%error, "render loop failed");
+        }
+    });
+}
+
 fn main() {
     run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
@@ -226,6 +240,7 @@ fn main() {
         state_path: startup.paths.state.path.clone(),
     };
     let themes_dir = startup.paths.themes.clone();
+    let published_settings = startup.settings;
     let persistence = startup.manager;
 
     // Initialize structured logging only after persistence has validated.
@@ -253,6 +268,7 @@ fn main() {
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         persistence,
+        published_settings,
         theme_manager,
         runtime,
         gh_client: jefe::github::GhClient::new(),
@@ -262,18 +278,7 @@ fn main() {
     }));
 
     let _console_guard = prepare_console_and_detect_font();
-
-    smol::block_on(async {
-        let mut app = element!(app_shell::App(context: Some(context)));
-
-        if is_fullscreen_enabled() {
-            if let Err(e) = app.fullscreen().await {
-                error!(error = %e, "fullscreen mode failed");
-            }
-        } else if let Err(e) = app.render_loop().await {
-            error!(error = %e, "render loop failed");
-        }
-    });
+    run_app(context);
 }
 
 /// Set the console output code page to UTF-8 (issue #434) and then probe the

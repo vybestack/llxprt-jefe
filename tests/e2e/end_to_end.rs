@@ -41,6 +41,8 @@ fn create_test_environment() -> (AppState, FilePersistenceManager, FileThemeMana
     // Add test data
     let repo = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "llxprt-code".into(),
         "llxprt-code".into(),
         PathBuf::from("/projects/llxprt-code"),
@@ -50,6 +52,8 @@ fn create_test_environment() -> (AppState, FilePersistenceManager, FileThemeMana
     let agent = Agent::new(
         AgentId("agent-1".into()),
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Fix issue #1234".into(),
         PathBuf::from("/worktrees/issue-1234"),
     );
@@ -164,6 +168,8 @@ fn persistence_roundtrip_preserves_state() {
     // Create state with data
     let repo = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "llxprt-code".into(),
         "llxprt-code".into(),
         PathBuf::from("/projects/llxprt-code"),
@@ -171,6 +177,8 @@ fn persistence_roundtrip_preserves_state() {
     let agent = Agent::new(
         AgentId("agent-1".into()),
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Fix issue #1234".into(),
         PathBuf::from("/worktrees/issue-1234"),
     );

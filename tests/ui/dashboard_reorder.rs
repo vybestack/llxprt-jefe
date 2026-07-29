@@ -16,18 +16,24 @@ use std::path::PathBuf;
 fn create_dashboard_test_state() -> AppState {
     let repo1 = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "alpha".into(),
         "alpha".into(),
         PathBuf::from("/projects/alpha"),
     );
     let repo2 = Repository::new(
         RepositoryId("repo-b".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "bravo".into(),
         "bravo".into(),
         PathBuf::from("/projects/bravo"),
     );
     let repo3 = Repository::new(
         RepositoryId("repo-c".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "charlie".into(),
         "charlie".into(),
         PathBuf::from("/projects/charlie"),
@@ -36,6 +42,8 @@ fn create_dashboard_test_state() -> AppState {
     let mut a1 = Agent::new(
         AgentId("a1".into()),
         repo1.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "alpha-1".into(),
         PathBuf::from("/projects/alpha/a1"),
     );
@@ -43,6 +51,8 @@ fn create_dashboard_test_state() -> AppState {
     let mut a2 = Agent::new(
         AgentId("a2".into()),
         repo2.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "bravo-1".into(),
         PathBuf::from("/projects/bravo/a2"),
     );
@@ -50,6 +60,8 @@ fn create_dashboard_test_state() -> AppState {
     let mut a3 = Agent::new(
         AgentId("a3".into()),
         repo3.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "charlie-1".into(),
         PathBuf::from("/projects/charlie/a3"),
     );
@@ -223,6 +235,8 @@ fn full_reorder_flow_repository_grab_move_drop_preserves_order() {
 fn create_multi_agent_dashboard_state() -> AppState {
     let repo = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "alpha".into(),
         "alpha".into(),
         PathBuf::from("/projects/alpha"),
@@ -231,6 +245,8 @@ fn create_multi_agent_dashboard_state() -> AppState {
     let mut a1 = Agent::new(
         AgentId("a1".into()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "agent-one".into(),
         PathBuf::from("/projects/alpha/a1"),
     );
@@ -238,6 +254,8 @@ fn create_multi_agent_dashboard_state() -> AppState {
     let mut a2 = Agent::new(
         AgentId("a2".into()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "agent-two".into(),
         PathBuf::from("/projects/alpha/a2"),
     );
@@ -245,6 +263,8 @@ fn create_multi_agent_dashboard_state() -> AppState {
     let mut a3 = Agent::new(
         AgentId("a3".into()),
         repo.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "agent-three".into(),
         PathBuf::from("/projects/alpha/a3"),
     );
@@ -375,49 +395,42 @@ fn grab_mode_uses_visible_index_space_when_idle_repositories_hidden() {
 // Agent grab scope isolation
 // ============================================================================
 
+fn running_agent(id: &str, name: &str, repository_id: &RepositoryId) -> Agent {
+    let mut agent = Agent::new(
+        AgentId(id.into()),
+        repository_id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
+        name.into(),
+        PathBuf::from(format!("/projects/{name}/{id}")),
+    );
+    agent.status = AgentStatus::Running;
+    agent
+}
+
 #[test]
 fn agent_grab_only_affects_agents_within_selected_repository() {
     let repo1 = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "alpha".into(),
         "alpha".into(),
         PathBuf::from("/projects/alpha"),
     );
     let repo2 = Repository::new(
         RepositoryId("repo-b".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "bravo".into(),
         "bravo".into(),
         PathBuf::from("/projects/bravo"),
     );
 
-    let mut a1 = Agent::new(
-        AgentId("a1".into()),
-        repo1.id.clone(),
-        "alpha-one".into(),
-        PathBuf::from("/projects/alpha/a1"),
-    );
-    a1.status = AgentStatus::Running;
-    let mut a2 = Agent::new(
-        AgentId("a2".into()),
-        repo1.id.clone(),
-        "alpha-two".into(),
-        PathBuf::from("/projects/alpha/a2"),
-    );
-    a2.status = AgentStatus::Running;
-    let mut b1 = Agent::new(
-        AgentId("b1".into()),
-        repo2.id.clone(),
-        "bravo-one".into(),
-        PathBuf::from("/projects/bravo/b1"),
-    );
-    b1.status = AgentStatus::Running;
-    let mut b2 = Agent::new(
-        AgentId("b2".into()),
-        repo2.id.clone(),
-        "bravo-two".into(),
-        PathBuf::from("/projects/bravo/b2"),
-    );
-    b2.status = AgentStatus::Running;
+    let a1 = running_agent("a1", "alpha-one", &repo1.id);
+    let a2 = running_agent("a2", "alpha-two", &repo1.id);
+    let b1 = running_agent("b1", "bravo-one", &repo2.id);
+    let b2 = running_agent("b2", "bravo-two", &repo2.id);
 
     let mut state = AppState {
         screen_mode: ScreenMode::Dashboard,

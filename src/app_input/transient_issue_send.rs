@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use jefe::domain::{AgentId, LaunchSignature, Repository};
+use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 use jefe::state::AppEvent;
 
 use super::clone_identity::CloneIdentity;
@@ -39,6 +39,39 @@ fn is_transient_slot_selected(chooser: Option<&jefe::state::AgentChooserState>) 
     chooser.transient_available && chooser.selected_index == chooser.agents.len()
 }
 
+fn queue_transient_issue(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    repo: &Repository,
+    repo_id: jefe::domain::RepositoryId,
+    payload: jefe::github::SendPayload,
+    prompt: &str,
+) {
+    let work_dir = generate_transient_work_dir(repo);
+    let launch_signature = prepare_issue_launch_signature(
+        super::launch_signature_for_transient(repo, &work_dir),
+        prompt,
+    );
+    let queue_item = jefe::state::QueuedTransientSend {
+        repository_id: repo_id,
+        work_dir,
+        launch_signature,
+        payload: jefe::state::TransientPayload::Issue { payload },
+    };
+    let mut state = app_state.write();
+    let position = state.push_transient_queue_item(queue_item);
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    schedule_durable_save(ctx, persisted);
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::TransientAgentQueued {
+            queue_position: position,
+        },
+    );
+}
+
 /// Dispatch a transient issue send: close the chooser, check queue capacity,
 /// generate a temp dir, create the transient agent, clone + launch.
 pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -53,31 +86,11 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         return;
     };
     let (payload, repo, repo_id) = payload_and_repo;
+    let prompt = issues_dispatch::format_issue_prompt(&payload);
 
-    if let Some(_queue_pos) =
-        check_transient_queue_capacity(app_state, &repo_id, repo.transient_max_concurrent)
+    if check_transient_queue_capacity(app_state, &repo_id, repo.transient_max_concurrent).is_some()
     {
-        let work_dir = generate_transient_work_dir(&repo);
-        let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
-        let _clone_identity = CloneIdentity::from_repository(&repo);
-        let queue_item = jefe::state::QueuedTransientSend {
-            repository_id: repo_id,
-            work_dir,
-            launch_signature: launch_sig,
-            payload: jefe::state::TransientPayload::Issue { payload },
-        };
-        let mut state = app_state.write();
-        let pos = state.push_transient_queue_item(queue_item);
-        let persisted = durable_save_request(&mut state);
-        drop(state);
-        schedule_durable_save(ctx, persisted);
-        apply_and_persist(
-            app_state,
-            ctx,
-            AppEvent::TransientAgentQueued {
-                queue_position: pos,
-            },
-        );
+        queue_transient_issue(app_state, ctx, &repo, repo_id, payload, &prompt);
         return;
     }
 
@@ -88,7 +101,10 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         work_dir.clone(),
         &repo,
     );
-    let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
+    let launch_sig = prepare_issue_launch_signature(
+        super::launch_signature_for_transient(&repo, &work_dir),
+        &prompt,
+    );
     let clone_identity = CloneIdentity::from_repository(&repo);
     let agent_id = agent.id.clone();
 
@@ -113,7 +129,7 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
 /// argument count under the clippy limit).
 struct TransientPrepContext {
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     clone_identity: Option<CloneIdentity>,
     payload: jefe::github::SendPayload,
     agent_id: AgentId,
@@ -127,13 +143,9 @@ fn transient_issue_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::launch_available_or_error(
-        app_state,
-        prep.launch_sig.agent_kind,
-        prep.launch_sig.llxprt_version.as_ref(),
-        &prep.launch_sig.code_puppy_version,
-        &prep.launch_sig.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig)
+        || !super::availability::prepare_launch_or_error(app_state, &prep.launch_sig)
+    {
         fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
     }
@@ -145,14 +157,6 @@ fn transient_issue_availability_and_target(
             return None;
         }
     };
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &prep.launch_sig,
-    ) {
-        fail_transient_agent(app_state, ctx, &prep.agent_id);
-        return None;
-    }
     Some(target)
 }
 
@@ -165,14 +169,12 @@ fn handle_transient_prep_outcome(
 ) {
     match outcome {
         Ok(PrepOutcome::Ready) => {
-            let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
-            let launch_sig = prepare_issue_launch_signature(prep.launch_sig.clone(), &prompt);
             launch_transient_issue_agent(
                 app_state,
                 ctx,
                 prep.agent_id.clone(),
                 prep.work_dir.clone(),
-                launch_sig,
+                prep.launch_sig.clone(),
                 issue_assignment_from_payload(&prep.payload),
             );
         }
@@ -334,10 +336,11 @@ fn launch_transient_issue_agent(
     ctx: &SharedContext,
     agent_id: AgentId,
     work_dir: PathBuf,
-    launch_sig: LaunchSignature,
+    launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
-    let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    let launched =
+        spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched_ok = launched.is_ok();
     let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched_ok);
     if launched_ok {
@@ -355,10 +358,7 @@ fn launch_transient_issue_agent(
     } else {
         // Surface the failure, then remove the transient agent and clean up
         // its temp directory via fail_transient_agent.
-        let error_msg = format!(
-            "Failed to launch transient {} agent",
-            launch_sig.agent_kind.label()
-        );
+        let error_msg = format!("Failed to launch transient {} agent", launch_sig.type_id);
         apply_send_to_agent_failed(app_state, ctx, error_msg);
         fail_transient_agent(app_state, ctx, &agent_id);
     }
@@ -372,7 +372,7 @@ fn launch_transient_issue_agent(
 pub(super) struct TransientDequeuedIssue {
     pub agent_id: AgentId,
     pub work_dir: PathBuf,
-    pub launch_sig: LaunchSignature,
+    pub launch_sig: AgentLaunchRequest,
     pub clone_identity: Option<CloneIdentity>,
     pub payload: jefe::github::SendPayload,
 }

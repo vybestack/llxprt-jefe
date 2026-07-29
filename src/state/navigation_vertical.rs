@@ -9,6 +9,10 @@ use super::types::PaneFocus;
 
 impl AppState {
     pub(super) fn handle_navigate_up(&mut self) {
+        if self.agents.is_empty() && !self.agent_type_availability.is_empty() {
+            self.selected_agent_type_index = self.selected_agent_type_index.saturating_sub(1);
+            return;
+        }
         match self.pane_focus {
             PaneFocus::Repositories => {
                 let visible_repo_indices = self.visible_repository_indices();
@@ -55,6 +59,11 @@ impl AppState {
     }
 
     pub(super) fn handle_navigate_down(&mut self) {
+        if self.agents.is_empty() && !self.agent_type_availability.is_empty() {
+            let last = self.agent_type_availability.len().saturating_sub(1);
+            self.selected_agent_type_index = (self.selected_agent_type_index + 1).min(last);
+            return;
+        }
         match self.pane_focus {
             PaneFocus::Repositories => {
                 let visible_repo_indices = self.visible_repository_indices();

@@ -12,7 +12,7 @@
 //! (`state::issues_rewrite_ops`); this module owns only the boundary I/O
 //! (availability probe, agent subprocess, applying the result events).
 
-use jefe::domain::{LaunchSignature, Repository, build_rewrite_instruction};
+use jefe::domain::{AgentLaunchRequest, Repository, build_rewrite_instruction};
 use jefe::runtime::run_non_interactive;
 use jefe::state::{AppEvent, AppState};
 use tempfile::NamedTempFile;
@@ -37,13 +37,7 @@ pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: 
         Ok(Some(context)) => context,
     };
 
-    if !super::availability::launch_available_or_error(
-        app_state,
-        context.signature.agent_kind,
-        context.signature.llxprt_version.as_ref(),
-        &context.signature.code_puppy_version,
-        &context.signature.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &context.signature) {
         return;
     }
 
@@ -110,7 +104,7 @@ fn spawn_rewrite_task(
 /// Resolved context required to run a non-interactive rewrite.
 struct RewriteContext {
     instruction: String,
-    signature: LaunchSignature,
+    signature: AgentLaunchRequest,
     /// Agent writes ONLY the rewritten issue here; kept alive across the
     /// async spawn so the OS does not delete the path early (issue #359).
     output_file: NamedTempFile,

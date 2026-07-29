@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
-use jefe::domain::{AgentId, AgentKind, LaunchSignature, Repository, RepositoryId};
+use jefe::domain::{AgentId, AgentLaunchRequest, Repository, RepositoryId};
 use jefe::runtime::NpmPackageAvailabilityError;
 use jefe::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
@@ -17,6 +17,8 @@ use super::new_agent_submit::{
 fn new_agent_state(root: &Path) -> (AppState, PathBuf) {
     let repository = Repository::new(
         RepositoryId("repo-package-probe".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Package Probe".to_owned(),
         "package-probe".to_owned(),
         root.join("repository"),
@@ -27,7 +29,7 @@ fn new_agent_state(root: &Path) -> (AppState, PathBuf) {
         fields: AgentFormFields {
             name: "Prospective Agent".to_owned(),
             work_dir: work_dir.to_string_lossy().into_owned(),
-            agent_kind: "llxprt".to_owned(),
+            agent_type_id: "core.llxprt".to_owned(),
             llxprt_version: " nightly ".to_owned(),
             ..AgentFormFields::default()
         },
@@ -40,7 +42,7 @@ fn new_agent_state(root: &Path) -> (AppState, PathBuf) {
             repositories: vec![repository],
             selected_repository_index: Some(0),
             modal,
-            installed_agent_kinds: vec![AgentKind::Llxprt],
+            available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
             ..AppState::default()
         },
         work_dir,
@@ -49,7 +51,7 @@ fn new_agent_state(root: &Path) -> (AppState, PathBuf) {
 
 fn submit_with_probe<F>(state: &mut AppState, probe: F) -> bool
 where
-    F: FnOnce(&LaunchSignature) -> Result<(), NpmPackageAvailabilityError>,
+    F: FnOnce(&AgentLaunchRequest) -> Result<(), NpmPackageAvailabilityError>,
 {
     let plan = new_agent_package_probe_plan(state);
     let result = execute_new_agent_package_probe(&plan, probe);
@@ -118,11 +120,18 @@ fn successful_package_probe_uses_prospective_signature_and_submit_proceeds() {
     );
     let agent = &state.agents[0];
     let repository = &state.repositories[0];
-    assert_eq!(
-        observed_signature.borrow().as_ref(),
-        Some(&launch_signature_for_agent(agent, repository)),
-        "probe must receive the exact launch target produced by submission"
-    );
+    let observed = observed_signature.borrow();
+    let observed = observed
+        .as_ref()
+        .unwrap_or_else(|| panic!("probe must observe a launch request"));
+    let actual = launch_signature_for_agent(agent, repository);
+    assert_eq!(observed.type_id, actual.type_id);
+    assert_eq!(observed.work_dir, actual.work_dir);
+    assert_eq!(observed.remote, actual.remote);
+    assert_eq!(observed.operation, actual.operation);
+    for (key, value) in &observed.values {
+        assert_eq!(actual.values.get(key), Some(value));
+    }
 }
 
 #[test]
@@ -133,7 +142,7 @@ fn pinned_code_puppy_new_agent_plans_exact_selected_package_probe() {
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("new-agent modal should be open");
     };
-    fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.agent_type_id = jefe::domain::shipped_agent_type(1).to_string();
     fields.llxprt_version.clear();
     fields.code_puppy_version = "  0.0.361  ".to_owned();
 
@@ -141,8 +150,11 @@ fn pinned_code_puppy_new_agent_plans_exact_selected_package_probe() {
     let called = Cell::new(false);
     let result = execute_new_agent_package_probe(&plan, |signature| {
         called.set(true);
-        assert_eq!(signature.agent_kind, AgentKind::CodePuppy);
-        assert_eq!(signature.code_puppy_version, "0.0.361");
+        assert_eq!(signature.type_id, jefe::domain::shipped_agent_type(1));
+        assert!(matches!(
+            jefe::domain::canonical_values::typed_field(&signature.values, "version_selector"),
+            Some(jefe::domain::TypedValue::String(value)) if value == "0.0.361"
+        ));
         Ok::<(), &'static str>(())
     });
     assert!(result.is_ok());

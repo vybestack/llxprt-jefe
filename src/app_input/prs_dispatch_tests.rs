@@ -61,6 +61,8 @@ fn state_with_invalid_slug() -> AppState {
     // Repository with an EMPTY github_repo slug → InvalidSlug.
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -353,6 +355,8 @@ fn state_with_mergeable_pr(value: Option<bool>) -> AppState {
     state.prs_state.list.set_selected_index(Some(0));
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),

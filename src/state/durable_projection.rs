@@ -14,20 +14,18 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::{Value, json};
 
+use crate::domain::agent_definition::{RemoteTarget, Target};
 use crate::domain::canonical_values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path, stable_id,
-    type_id, typed_map_hash,
+    canonical_local_target, canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
+    launch_value_fingerprint, normalize_remote_path, shipped_definition_hash, stable_id,
 };
 use crate::domain::{
-    Agent, AgentDefaults, AgentId, AgentKind, AgentOrigin, AgentRecord, AgentStatus, DormantRecord,
-    Id, LastKnownRuntime, LaunchSignatureV1, LocalRepositoryLocation, Preferences,
+    Agent, AgentDefaults, AgentId, AgentOrigin, AgentRecord, AgentStatus, DormantRecord, Id,
+    LastKnownRuntime, LaunchSignatureV1, LocalRepositoryLocation, Preferences,
     RemoteRepositoryLocation, Repository, RepositoryId, RepositoryLocation, RepositoryRecord,
     RuntimeRecord, STATE_SCHEMA_V2, Selection, StateV2, TypedMap, UserPreferences,
 };
 use crate::state::{AppState, PaneFocus};
-
-/// Version tag stamped into every projected [`LaunchSignatureV1`].
-const DEFINITION_VERSION: &str = "1";
 
 /// Runtime fields restored from a durable document.
 ///
@@ -234,9 +232,11 @@ fn repository_record(
     let Some(id) = repository_ids.get(&repository.id).cloned() else {
         return error(format!("repository {} has no durable id", repository.id.0));
     };
-    let values = json_map_to_typed(repository_values(repository)?).map_err(map_detail)?;
-    let type_id =
-        type_id(Some(agent_kind_text(repository.default_agent_kind))).map_err(map_detail)?;
+    let mut values = repository.default_values.clone();
+    merge_structural_values(&mut values, repository_values(repository)?)?;
+    let type_id = Id::parse(repository.default_type_id.as_str()).map_err(|error| {
+        ProjectionError::new(format!("invalid repository agent type id: {error}"))
+    })?;
     Ok(RepositoryRecord {
         id,
         location: repository_location(repository),
@@ -272,6 +272,13 @@ fn remote_identity(repository: &Repository) -> String {
         &repository.base_dir.to_string_lossy(),
     )
 }
+fn merge_structural_values(values: &mut TypedMap, structural: Value) -> Projected<()> {
+    let structural = json_map_to_typed(structural).map_err(map_detail)?;
+    for (key, value) in structural {
+        values.insert(key, value);
+    }
+    Ok(())
+}
 
 fn repository_values(repository: &Repository) -> Projected<Value> {
     let remote = json!({
@@ -286,22 +293,39 @@ fn repository_values(repository: &Repository) -> Projected<Value> {
     });
     Ok(json!({
         "slug": repository.slug,
-        "default_profile": repository.default_profile,
-        "default_code_puppy_model": repository.default_code_puppy_model,
-        "default_code_puppy_version": repository.default_code_puppy_version,
         "github_repo": repository.github_repo,
         "github_issue_pr_repo": repository.github_issue_pr_repo,
         "remote": remote,
         "issue_base_prompt": repository.issue_base_prompt,
         "transient_agent_dir": path_text(&repository.transient_agent_dir)?,
-        "default_code_puppy_yolo": repository.default_code_puppy_yolo,
-        "default_llxprt_mode_flags": repository.default_llxprt_mode_flags,
         "transient_max_concurrent": repository.transient_max_concurrent,
-        "default_llxprt_version": repository
-            .default_llxprt_version
-            .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
     }))
+}
+
+/// Compute the durable launch signature for current agent values and target.
+pub fn current_launch_signature(
+    agent: &Agent,
+    repository: &Repository,
+) -> Projected<LaunchSignatureV1> {
+    let type_id = Id::parse(agent.type_id.as_str())
+        .map_err(|error| ProjectionError::new(format!("invalid agent type id: {error}")))?;
+    let definition_hash = shipped_definition_hash(&type_id).map_err(map_detail)?;
+    let definition = crate::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .ok_or_else(|| ProjectionError::new(format!("unknown agent type {type_id}")))?;
+    let typed_value_hash = crate::domain::Sha256Digest::from_definition(
+        launch_value_fingerprint(&definition, &agent.values).map_err(map_detail)?,
+    );
+    let target = agent_launch_target(agent, repository)?;
+    let target_fingerprint =
+        crate::domain::Sha256Digest::from_definition(launch_target_fingerprint(&target));
+    Ok(LaunchSignatureV1 {
+        version: 1,
+        definition_hash,
+        typed_value_hash,
+        target_fingerprint,
+    })
 }
 
 fn agent_record(
@@ -319,14 +343,11 @@ fn agent_record(
             agent.display_id
         ));
     };
-    let type_id = type_id(Some(agent_kind_text(agent.agent_kind))).map_err(map_detail)?;
-    let values = json_map_to_typed(agent_values(agent)?).map_err(map_detail)?;
-    let definition_hash =
-        digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(map_detail)?;
-    let typed_value_hash = typed_map_hash(&values).map_err(map_detail)?;
-    let work_target = agent_work_target(agent, repository);
-    let target_fingerprint =
-        digest_parts(&[&repository_identity(repository), &work_target]).map_err(map_detail)?;
+    let type_id = Id::parse(agent.type_id.as_str())
+        .map_err(|error| ProjectionError::new(format!("invalid agent type id: {error}")))?;
+    let mut values = agent.values.clone();
+    merge_structural_values(&mut values, agent_values(agent)?)?;
+    let launch_signature = current_launch_signature(agent, repository)?;
     let (session_id, invocation_generation) =
         agent.runtime_binding.as_ref().map_or((None, 0), |binding| {
             (
@@ -339,12 +360,7 @@ fn agent_record(
         repository_id,
         type_id,
         values,
-        launch_signature: LaunchSignatureV1 {
-            version: 1,
-            definition_hash,
-            typed_value_hash,
-            target_fingerprint,
-        },
+        launch_signature,
         runtime: RuntimeRecord {
             session_id,
             invocation_generation,
@@ -360,39 +376,26 @@ fn agent_values(agent: &Agent) -> Projected<Value> {
         "name": agent.name,
         "description": agent.description,
         "work_dir": path_text(&agent.work_dir)?,
-        "profile": agent.profile,
-        "code_puppy_model": agent.code_puppy_model,
-        "code_puppy_version": agent.code_puppy_version,
-        "code_puppy_yolo": agent.code_puppy_yolo,
-        "code_puppy_quick_resume": agent.code_puppy_quick_resume,
-        "mode_flags": agent.mode_flags,
-        "llxprt_debug": agent.llxprt_debug,
-        "pass_continue": agent.pass_continue,
-        "sandbox_enabled": agent.sandbox_enabled,
-        "sandbox_engine": sandbox_engine_text(agent.sandbox_engine),
-        "sandbox_flags": agent.sandbox_flags,
-        "llxprt_version": agent
-            .llxprt_version
-            .as_ref()
-            .map(|selector| selector.as_str().to_owned()),
         "origin": agent_origin_text(agent.origin),
     }))
 }
 
-fn agent_work_target(agent: &Agent, repository: &Repository) -> String {
-    let work_dir = agent.work_dir.to_string_lossy();
+fn agent_launch_target(agent: &Agent, repository: &Repository) -> Projected<Target> {
     if repository.remote.enabled {
-        normalize_remote_path(&work_dir)
-    } else {
-        work_dir.into_owned()
+        return Ok(Target::Remote(RemoteTarget {
+            user: repository.remote.login_user.trim().to_owned(),
+            host: repository.remote.host.trim().to_owned(),
+            port: repository.remote.port,
+            run_as_user: repository.remote.run_as_user.trim().to_owned(),
+            canonical_cwd: std::path::PathBuf::from(normalize_remote_path(
+                &agent.work_dir.to_string_lossy(),
+            )),
+        }));
     }
-}
-
-fn repository_identity(repository: &Repository) -> String {
-    match repository_location(repository) {
-        RepositoryLocation::Local(local) => local.local_path,
-        RepositoryLocation::Remote(remote) => remote.remote_target,
-    }
+    canonical_local_target(&agent.work_dir)
+        .map(std::path::PathBuf::from)
+        .map(|canonical_cwd| Target::Local { canonical_cwd })
+        .map_err(map_detail)
 }
 
 fn project_selection(
@@ -465,25 +468,10 @@ fn last_known_runtime(status: AgentStatus) -> LastKnownRuntime {
     }
 }
 
-const fn agent_kind_text(kind: AgentKind) -> &'static str {
-    match kind {
-        AgentKind::CodePuppy => "code-puppy",
-        AgentKind::Llxprt => "llxprt",
-    }
-}
-
 const fn agent_origin_text(origin: AgentOrigin) -> &'static str {
     match origin {
         AgentOrigin::Persistent => "persistent",
         AgentOrigin::Transient => "transient",
-    }
-}
-
-const fn sandbox_engine_text(engine: crate::domain::SandboxEngine) -> &'static str {
-    match engine {
-        crate::domain::SandboxEngine::Podman => "podman",
-        crate::domain::SandboxEngine::Docker => "docker",
-        crate::domain::SandboxEngine::Seatbelt => "seatbelt",
     }
 }
 

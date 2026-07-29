@@ -16,6 +16,8 @@ fn create_test_state() -> AppState {
     let mut state = AppState::default();
     let repo = Repository::new(
         RepositoryId("test_repo".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "test_repo".to_string(),
         "test_repo".to_string(),
         std::path::PathBuf::from("/tmp"),

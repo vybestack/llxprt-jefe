@@ -1,8 +1,3 @@
-//! Root application component (App) for the Jefe TUI.
-//!
-//! Houses the iocraft component lifecycle: state hooks, futures,
-//! terminal event handling, PTY attachment, and render composition.
-
 use iocraft::prelude::*;
 use tracing::{debug, trace, warn};
 
@@ -35,13 +30,11 @@ use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Props for the root app component.
 #[derive(Default, Props)]
 pub struct AppProps {
     pub context: Option<Arc<std::sync::Mutex<AppContext>>>,
 }
 
-/// Root application component that manages state and renders the UI.
 #[component]
 pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let should_quit = hooks.use_state(|| false);
@@ -56,10 +49,23 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     let ctx = props.context.clone();
 
-    if !initialized.get() {
+    let startup_probe_effects = if initialized.get() {
+        Vec::new()
+    } else {
         initialized.set(true);
-        crate::app_init::init_app_state(&mut app_state, &ctx);
-    }
+        crate::app_init::init_app_state(&mut app_state, &ctx)
+    };
+
+    hooks.use_future({
+        let app_state = app_state;
+        async move {
+            crate::app_shell_workers::run_agent_availability_probes(
+                startup_probe_effects,
+                app_state,
+            )
+            .await;
+        }
+    });
 
     let mut gh_delivery_handler = hooks.use_async_handler({
         let app_state = app_state;
@@ -821,20 +827,13 @@ fn wants_live_snapshot(status: AgentStatus) -> bool {
     matches!(status, AgentStatus::Running | AgentStatus::Dead)
 }
 
-/// Public test accessor for [`wants_live_snapshot`] (issue #301 review:
-/// tests relocated to `app_input_tests.rs` to keep this file under the
-/// source-file size limit).
 #[cfg(test)]
 #[must_use]
 pub fn wants_live_snapshot_pub(status: AgentStatus) -> bool {
     wants_live_snapshot(status)
 }
 
-/// Capture terminal output for the currently selected agent if available.
-///
-/// Dead agents read their preview from an in-memory cache within `AppState`,
-/// populated once by the off-lock liveness worker (issue #374 S4) and excluded
-/// from persistence, so rendering never shells out to tmux per frame.
+/// Capture terminal output without shelling out during render.
 pub fn capture_terminal_snapshot(
     ctx: Option<&CtxArc>,
     snapshot: &AppState,

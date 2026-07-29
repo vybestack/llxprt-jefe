@@ -29,8 +29,16 @@ mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
+mod form_submit_ops;
 mod form_validation_issue403;
 mod form_workflow_dispatch;
+/// Definition-driven New Agent UI state and typed intent reducer.
+pub mod generated_agent_form;
+/// Definition-driven typed form projection and deterministic reducer.
+pub mod generated_form;
+mod generated_form_ops;
+mod generated_form_projection;
+mod generated_form_submit;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;
 mod issues_inline_ops;
@@ -119,9 +127,10 @@ use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
 };
 pub use form_projection::{
-    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
-    is_field_visible, is_repository_field_visible, kind_from_form_value, next_visible_focus,
+    AgentFormFieldVisibility, agent_form_visibility, definition_for_type, effective_agent_type_ids,
+    effective_types_hint, is_field_visible, is_repository_field_visible, next_visible_focus,
     next_visible_repository_focus, prev_visible_focus, prev_visible_repository_focus,
+    type_id_from_form_value,
 };
 use tracing::{debug, trace};
 impl AppState {

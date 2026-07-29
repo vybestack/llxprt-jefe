@@ -12,8 +12,8 @@ use crate::ui::screens::{
     ThemePickerScreen,
 };
 use crate::ui::{
-    AuthModal, ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
-    WorkflowDispatchForm,
+    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, NewAgentForm,
+    NewRepositoryForm, SplitScreen, WorkflowDispatchForm,
 };
 
 /// Data needed to render a confirmation modal.
@@ -318,6 +318,21 @@ macro_rules! form_modal {
     };
 }
 
+fn generated_agent_modal(
+    snapshot: &AppState,
+    colors: &ThemeColors,
+    available_rows: u16,
+) -> AnyElement<'static> {
+    element! {
+        GeneratedAgentForm(
+            state: snapshot.clone(),
+            colors: colors.clone(),
+            available_rows: available_rows,
+        )
+    }
+    .into_any()
+}
+
 /// Build the modal element for the current modal state, if any.
 ///
 /// `help_scroll_offset` and `available_rows` are forwarded to the `HelpModal`
@@ -357,6 +372,9 @@ pub fn build_modal_element(
         }
         ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
             Some(form_modal!(NewAgentForm, snapshot, colors))
+        }
+        ModalState::GeneratedAgent { .. } => {
+            Some(generated_agent_modal(snapshot, colors, available_rows))
         }
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))

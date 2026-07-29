@@ -72,6 +72,7 @@ message_names!(RepositoryAgentMessage {
     Self::OpenEditRepository(_) => "OpenEditRepository",
     Self::OpenDeleteRepository(_) => "OpenDeleteRepository",
     Self::OpenNewAgent(_) => "OpenNewAgent",
+    Self::OpenAgentTypeForm(_) => "OpenAgentTypeForm",
     Self::OpenEditAgent(_) => "OpenEditAgent",
     Self::OpenDeleteAgent(_) => "OpenDeleteAgent",
     Self::ToggleDeleteWorkDir => "ToggleDeleteWorkDir",

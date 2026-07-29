@@ -28,6 +28,11 @@ impl AppState {
     /// Move the focused form-field cursor to the end of the field
     /// (End key, issue #406).
     pub(super) fn handle_form_move_cursor_end(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::CursorEnd,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository {
                 fields,

@@ -519,6 +519,8 @@ fn state_with_agent() -> crate::state::AppState {
     let repo_id = RepositoryId("test/repo".into());
     let repo = Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "test/repo".into(),
         "test-repo".into(),
         std::path::PathBuf::from("/tmp"),
@@ -526,6 +528,8 @@ fn state_with_agent() -> crate::state::AppState {
     let mut agent = Agent::new(
         AgentId("agent-1".into()),
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".into(),
         std::path::PathBuf::from("/tmp"),
     );
@@ -587,6 +591,8 @@ fn state_with_two_agents() -> crate::state::AppState {
     let repo_id = RepositoryId("test/repo".into());
     let repo = Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "test/repo".into(),
         "test-repo".into(),
         std::path::PathBuf::from("/tmp"),
@@ -594,12 +600,16 @@ fn state_with_two_agents() -> crate::state::AppState {
     let agent1 = Agent::new(
         AgentId("agent-1".into()),
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".into(),
         std::path::PathBuf::from("/tmp"),
     );
     let agent2 = Agent::new(
         AgentId("agent-2".into()),
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".into(),
         std::path::PathBuf::from("/tmp"),
     );
@@ -652,12 +662,16 @@ fn state_with_two_repos() -> crate::state::AppState {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
     let repo1 = Repository::new(
         RepositoryId("repo1".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo1".into(),
         "repo1".into(),
         std::path::PathBuf::from("/tmp/r1"),
     );
     let repo2 = Repository::new(
         RepositoryId("repo2".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo2".into(),
         "repo2".into(),
         std::path::PathBuf::from("/tmp/r2"),
@@ -665,12 +679,16 @@ fn state_with_two_repos() -> crate::state::AppState {
     let agent1 = Agent::new(
         AgentId("a1".into()),
         RepositoryId("repo1".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "A1".into(),
         std::path::PathBuf::from("/tmp/r1"),
     );
     let agent2 = Agent::new(
         AgentId("a2".into()),
         RepositoryId("repo2".into()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "A2".into(),
         std::path::PathBuf::from("/tmp/r2"),
     );

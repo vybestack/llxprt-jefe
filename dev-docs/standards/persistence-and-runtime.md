@@ -75,6 +75,25 @@ to reach disk.
   when a write is confirmed authoritative. A superseded write is normal
   coalescing rather than a user-facing failure, and a completion whose
   correlation no longer matches changes nothing.
+
+### Agent launch persistence and restore
+
+Schema-2 stores the generic agent type ID and typed values directly. Its
+`LaunchSignatureV1` is the canonical definition/value/target digest shared by
+projection, migration, planning, runtime binding, and startup reconciliation.
+Only fields declared `launch_signature` contribute to the value digest.
+
+Schema-1 product aliases are migrated one way into typed values; unknown legacy
+records are retained as dormant raw records rather than guessed. Startup may
+register an already-live tmux session without reprobe or package effects only
+after the persisted signature matches a freshly projected signature and live
+session/process evidence agrees. A stale definition, value, target, binding, or
+process is non-executable and never reaches runtime registration.
+
+Fresh execution always uses a finalized immutable `AgentLaunchPlan`. Package
+selection finalizes wrapper, structural prefix, executable, and physical
+fingerprint before planning. Runtime receives the plan plus separately validated
+remote transport settings and does not reinterpret agent type identity.
 - **Reads never rewrite.** Schema-1 documents are migrated in memory on load;
   the legacy bytes stay authoritative until a save replaces them, and that
   replacement first retains the originals in a content-addressed sibling

@@ -5,7 +5,7 @@
 use iocraft::prelude::*;
 use tracing::warn;
 
-use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
+use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine};
 use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
@@ -526,26 +526,41 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         return;
     }
 
+    // Capture the selected operation from the generated agent form BEFORE
+    // SubmitForm consumes the result and closes the modal. The canonical
+    // launch signature defaults to Resume; the generated form lets the user
+    // choose among the definition-supported operations.
+    let generated_operation = {
+        let state_ro = app_state.read();
+        match &state_ro.modal {
+            ModalState::GeneratedAgent { form, .. } => Some(form.selected_operation()),
+            _ => None,
+        }
+    };
+
     let is_new_agent = {
         let state_ro = app_state.read();
-        matches!(state_ro.modal, ModalState::NewAgent { .. })
+        matches!(
+            state_ro.modal,
+            ModalState::NewAgent { .. } | ModalState::GeneratedAgent { .. }
+        )
     };
 
     let launch_after_submit = submit_form_and_snapshot_launch(app_state, ctx, is_new_agent);
-    let Some((agent_id, work_dir, signature)) = launch_after_submit else {
+    let Some((agent_id, work_dir, mut signature)) = launch_after_submit else {
         return;
     };
+
+    // Honor the operation the user selected in the generated form, overriding
+    // the canonical Resume default.
+    if let Some(operation) = generated_operation {
+        signature.operation = operation;
+    }
 
     // Enforce local installed-kind availability before any launch attempt.
     // Remote repositories skip this because remote PATH resolution is
     // authoritative.
-    if !super::availability::launch_available_or_error(
-        app_state,
-        signature.agent_kind,
-        signature.llxprt_version.as_ref(),
-        &signature.code_puppy_version,
-        &signature.remote,
-    ) {
+    if !super::availability::launch_available_or_error(app_state, &signature) {
         return;
     }
 
@@ -556,86 +571,66 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let _ = execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
 }
 
-type FormLaunchSelection = (
-    jefe::domain::AgentKind,
-    Option<jefe::domain::LlxprtNpmPackageSelector>,
-    String,
-    jefe::domain::RemoteRepositorySettings,
-);
-
-fn agent_form_launch_selection(
-    fields: &jefe::state::AgentFormFields,
-    remote: jefe::domain::RemoteRepositorySettings,
-) -> FormLaunchSelection {
-    (
-        jefe::domain::AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default(),
-        jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.llxprt_version),
-        fields.code_puppy_version.clone(),
-        remote,
-    )
-}
-
-/// Pre-submit validation: check that the selected agent kind is locally
-/// installed for local repositories. For repository forms, validates the
-/// `default_agent_kind` field. For agent forms, validates the `agent_kind`
-/// field. Sets a visible error and returns `false` (modal stays open) when
-/// the kind is not installed and the repository is not remote-enabled.
 fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
-    use jefe::domain::{AgentKind, RemoteRepositorySettings};
-
     let state = app_state.read();
-    let selection = match &state.modal {
+    let (type_id, remote) = match &state.modal {
         ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
-            let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
-            let selector =
-                jefe::domain::LlxprtNpmPackageSelector::normalize(&fields.default_llxprt_version);
-            jefe::state::AppState::remote_settings_from_fields(fields).map(|remote| {
-                (
-                    kind,
-                    selector,
-                    fields.default_code_puppy_version.clone(),
-                    remote,
-                )
-            })
+            let type_id =
+                match jefe::domain::agent_definition::AgentTypeId::parse(&fields.default_type_id) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        drop(state);
+                        app_state.write().error_message = Some(error.to_string());
+                        return false;
+                    }
+                };
+            let remote = match jefe::state::AppState::remote_settings_from_fields(fields) {
+                Ok(value) => value,
+                Err(error) => {
+                    drop(state);
+                    app_state.write().error_message = Some(error);
+                    return false;
+                }
+            };
+            (type_id, remote)
         }
         ModalState::NewAgent {
             repository_id,
             fields,
             ..
         } => {
-            let remote = state
-                .repository_by_id(repository_id)
-                .map_or_else(RemoteRepositorySettings::default, |repo| {
-                    repo.remote.clone()
-                });
-            Ok(agent_form_launch_selection(fields, remote))
+            let Some(repository) = state.repository_by_id(repository_id) else {
+                return false;
+            };
+            let Ok(type_id) =
+                jefe::domain::agent_definition::AgentTypeId::parse(&fields.agent_type_id)
+            else {
+                return false;
+            };
+            (type_id, repository.remote.clone())
         }
         ModalState::EditAgent { id, fields, .. } => {
-            let remote = state
-                .repository_for_agent(id)
-                .map_or_else(RemoteRepositorySettings::default, |repo| {
-                    repo.remote.clone()
-                });
-            Ok(agent_form_launch_selection(fields, remote))
+            let Some(repository) = state.repository_for_agent(id) else {
+                return false;
+            };
+            let Ok(type_id) =
+                jefe::domain::agent_definition::AgentTypeId::parse(&fields.agent_type_id)
+            else {
+                return false;
+            };
+            (type_id, repository.remote.clone())
         }
         _ => return true,
     };
     drop(state);
-    let (kind, selector, code_puppy_version, remote) = match selection {
-        Ok(selection) => selection,
-        Err(error) => {
-            app_state.write().error_message = Some(error);
-            return false;
-        }
+    let request = jefe::domain::AgentLaunchRequest {
+        type_id,
+        values: jefe::domain::TypedMap::new(),
+        work_dir: std::path::PathBuf::new(),
+        remote,
+        operation: jefe::domain::agent_definition::Operation::Normal,
     };
-
-    super::availability::launch_available_or_error(
-        app_state,
-        kind,
-        selector.as_ref(),
-        &code_puppy_version,
-        &remote,
-    )
+    super::availability::launch_available_or_error(app_state, &request)
 }
 
 /// Extract workflow dispatch form data if the modal is a WorkflowDispatch
@@ -738,7 +733,7 @@ fn submit_form_and_snapshot_launch(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     is_new_agent: bool,
-) -> Option<(AgentId, std::path::PathBuf, LaunchSignature)> {
+) -> Option<(AgentId, std::path::PathBuf, AgentLaunchRequest)> {
     let package_probe_plan = {
         let state = app_state.read();
         super::new_agent_submit::new_agent_package_probe_plan(&state)
@@ -803,7 +798,7 @@ fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Opt
             Some(AppEvent::FormToggleCheckbox)
         }
         FocusedFormField::Agent(
-            AgentFormFocus::AgentKind
+            AgentFormFocus::AgentType
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::Shortcut,
@@ -841,7 +836,7 @@ fn cycle_sandbox_engine(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         &mut state.modal
     {
         SandboxEngine::next_from_form_value(&fields.sandbox_engine)
-            .label()
+            .as_llxprt_arg()
             .clone_into(&mut fields.sandbox_engine);
     }
     let persisted = durable_save_request(&mut state);

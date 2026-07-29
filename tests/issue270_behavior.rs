@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use jefe::domain::{Agent, AgentId, AgentKind, LaunchSignature, Repository, RepositoryId};
+use jefe::domain::canonical_values::{required_id, typed_field};
+use jefe::domain::{Agent, AgentId, AgentTypeId, Repository, RepositoryId, TypedMap, TypedValue};
 use jefe::selection::{agent_form_content_lines, repository_form_content_lines};
 use jefe::services::{CreateAgentParams, create_agent, prospective_agent_launch};
 use jefe::state::transition::TransitionExt;
@@ -20,32 +21,40 @@ impl<T> OptionTestExt<T> for Option<T> {
     }
 }
 
-trait ResultTestExt<T> {
-    fn value_or_panic(self, message: &str) -> T;
-}
-
-impl<T, E: std::fmt::Debug> ResultTestExt<T> for Result<T, E> {
-    fn value_or_panic(self, message: &str) -> T {
-        self.unwrap_or_else(|error| panic!("{message}: {error:?}"))
-    }
-}
-
-fn repository(kind: AgentKind) -> Repository {
-    let mut repository = Repository::new(
+fn repository(kind: AgentTypeId) -> Repository {
+    Repository::new(
         RepositoryId("repo-270".to_owned()),
+        kind,
+        TypedMap::new(),
         "Issue 270".to_owned(),
         "issue-270".to_owned(),
         PathBuf::from("/tmp/issue-270"),
-    );
-    repository.default_agent_kind = kind;
-    repository
+    )
+}
+
+fn set_string(values: &mut TypedMap, field: &str, value: &str) {
+    let normalized = field.replace('_', "-");
+    let id = required_id(&normalized)
+        .unwrap_or_else(|error| panic!("valid typed field {field}: {error}"));
+    values.insert(id, TypedValue::String(value.to_owned()));
+}
+
+fn string_value<'a>(values: &'a TypedMap, field: &str) -> Option<&'a str> {
+    match typed_field(values, field) {
+        Some(TypedValue::String(value)) => Some(value),
+        None => None,
+        other => panic!("expected string field {field}, got {other:?}"),
+    }
 }
 
 fn state_with_repository(repository: Repository) -> AppState {
     AppState {
         repositories: vec![repository],
         selected_repository_index: Some(0),
-        installed_agent_kinds: vec![AgentKind::Llxprt, AgentKind::CodePuppy],
+        available_agent_type_ids: vec![
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::shipped_agent_type(1),
+        ],
         ..AppState::default()
     }
 }
@@ -61,7 +70,7 @@ fn create_params<'a>(repository: &'a Repository, version: &'a str) -> CreateAgen
         code_puppy_version: version,
         code_puppy_yolo: false,
         code_puppy_quick_resume: jefe::domain::QuickResume::default(),
-        agent_kind: "code_puppy",
+        agent_type_id: "core.code-puppy",
         llxprt_version: "",
         mode: "",
         llxprt_debug: "",
@@ -76,28 +85,30 @@ fn create_params<'a>(repository: &'a Repository, version: &'a str) -> CreateAgen
 
 #[test]
 fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switching() {
-    let puppy = agent_form_visibility(AgentKind::CodePuppy);
-    let llxprt = agent_form_visibility(AgentKind::Llxprt);
+    let puppy_id = jefe::domain::shipped_agent_type(1);
+    let llxprt_id = jefe::domain::shipped_agent_type(3);
+    let puppy = agent_form_visibility(Some(&puppy_id));
+    let llxprt = agent_form_visibility(Some(&llxprt_id));
 
-    assert!(is_field_visible(AgentFormFocus::CodePuppyVersion, puppy));
-    assert!(!is_field_visible(AgentFormFocus::CodePuppyVersion, llxprt));
+    assert!(is_field_visible(AgentFormFocus::CodePuppyVersion, &puppy));
+    assert!(!is_field_visible(AgentFormFocus::CodePuppyVersion, &llxprt));
     assert_eq!(
-        next_visible_focus(AgentFormFocus::CodePuppyModel, puppy),
+        next_visible_focus(AgentFormFocus::CodePuppyModel, &puppy),
         AgentFormFocus::CodePuppyVersion
     );
     assert_eq!(
-        prev_visible_focus(AgentFormFocus::CodePuppyVersion, puppy),
+        prev_visible_focus(AgentFormFocus::CodePuppyVersion, &puppy),
         AgentFormFocus::CodePuppyModel
     );
 
-    let mut state = state_with_repository(repository(AgentKind::CodePuppy))
+    let mut state = state_with_repository(repository(jefe::domain::shipped_agent_type(1)))
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-270".to_owned())))
         .committed_pure();
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("new-agent modal should be open");
     };
     fields.code_puppy_version = "0.0.361-rc1".to_owned();
-    fields.agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.agent_type_id = "core.llxprt".to_owned();
     assert!(
         !agent_form_content_lines(&state)
             .value_or_panic("agent form content")
@@ -108,7 +119,7 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("new-agent modal should remain open");
     };
-    fields.agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.agent_type_id = "core.code-puppy".to_owned();
     assert!(
         agent_form_content_lines(&state)
             .value_or_panic("agent form content")
@@ -119,27 +130,26 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
 
 #[test]
 fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained() {
+    let puppy = jefe::domain::shipped_agent_type(1);
+    let llxprt = jefe::domain::shipped_agent_type(3);
     assert!(is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyVersion,
-        AgentKind::CodePuppy
+        Some(&puppy)
     ));
     assert!(!is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyVersion,
-        AgentKind::Llxprt
+        Some(&llxprt)
     ));
     assert_eq!(
-        next_visible_repository_focus(RepositoryFormFocus::DefaultAgentKind, AgentKind::CodePuppy),
+        next_visible_repository_focus(RepositoryFormFocus::DefaultAgentType, &puppy),
         RepositoryFormFocus::DefaultCodePuppyYolo
     );
     assert_eq!(
-        next_visible_repository_focus(
-            RepositoryFormFocus::DefaultCodePuppyYolo,
-            AgentKind::CodePuppy
-        ),
+        next_visible_repository_focus(RepositoryFormFocus::DefaultCodePuppyYolo, &puppy),
         RepositoryFormFocus::DefaultCodePuppyVersion
     );
 
-    let mut state = state_with_repository(repository(AgentKind::CodePuppy))
+    let mut state = state_with_repository(repository(jefe::domain::shipped_agent_type(1)))
         .apply(AppEvent::OpenEditRepository(RepositoryId(
             "repo-270".to_owned(),
         )))
@@ -148,7 +158,7 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
         panic!("edit-repository modal should be open");
     };
     fields.default_code_puppy_version = "0.0.361".to_owned();
-    fields.default_agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.default_type_id = "core.llxprt".to_owned();
     assert!(
         !repository_form_content_lines(&state)
             .value_or_panic("repository form content")
@@ -159,7 +169,7 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("edit-repository modal should remain open");
     };
-    fields.default_agent_kind = AgentKind::CodePuppy.label().to_owned();
+    fields.default_type_id = "core.code-puppy".to_owned();
     fields.default_code_puppy_version = "  0.0.361  ".to_owned();
     assert!(
         repository_form_content_lines(&state)
@@ -168,15 +178,21 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
             .any(|line| line.contains("Default Version") && line.contains("0.0.361"))
     );
     state = state.apply(AppEvent::SubmitForm).committed_pure();
-    assert_eq!(state.repositories[0].default_code_puppy_version, "0.0.361");
+    assert_eq!(
+        string_value(&state.repositories[0].default_values, "version_selector"),
+        Some("0.0.361")
+    );
 }
 
 #[test]
 fn create_and_edit_mappings_trim_code_puppy_versions() {
-    let repository = repository(AgentKind::CodePuppy);
+    let repository = repository(jefe::domain::shipped_agent_type(1));
     let agent = create_agent(create_params(&repository, "  0.0.361-rc1  "))
         .value_or_panic("valid Code Puppy agent");
-    assert_eq!(agent.code_puppy_version, "0.0.361-rc1");
+    assert_eq!(
+        string_value(&agent.values, "version_selector"),
+        Some("0.0.361-rc1")
+    );
 
     let mut state = state_with_repository(repository);
     state.agents.push(agent);
@@ -189,13 +205,20 @@ fn create_and_edit_mappings_trim_code_puppy_versions() {
     };
     fields.code_puppy_version = "  nightly  ".to_owned();
     state = state.apply(AppEvent::SubmitForm).committed_pure();
-    assert_eq!(state.agents[0].code_puppy_version, "nightly");
+    assert_eq!(
+        string_value(&state.agents[0].values, "version_selector"),
+        Some("nightly")
+    );
 }
 
 #[test]
 fn repository_default_copies_once_into_new_persistent_and_transient_code_puppy_agents() {
-    let mut repository = repository(AgentKind::CodePuppy);
-    repository.default_code_puppy_version = "  0.0.361  ".to_owned();
+    let mut repository = repository(jefe::domain::shipped_agent_type(1));
+    set_string(
+        &mut repository.default_values,
+        "version_selector",
+        "0.0.361",
+    );
 
     let persistent = create_agent(create_params(&repository, ""))
         .value_or_panic("valid persistent Code Puppy agent");
@@ -205,20 +228,36 @@ fn repository_default_copies_once_into_new_persistent_and_transient_code_puppy_a
         repository.effective_transient_dir().join("transient-270"),
         &repository,
     );
-    assert_eq!(persistent.code_puppy_version, "0.0.361");
-    assert_eq!(transient.code_puppy_version, "0.0.361");
+    assert_eq!(
+        string_value(&persistent.values, "version_selector"),
+        Some("")
+    );
+    assert_eq!(
+        string_value(&transient.values, "version_selector"),
+        Some("0.0.361")
+    );
 
-    repository.default_code_puppy_version = "later".to_owned();
-    assert_eq!(persistent.code_puppy_version, "0.0.361");
-    assert_eq!(transient.code_puppy_version, "0.0.361");
+    set_string(&mut repository.default_values, "version_selector", "later");
+    assert_eq!(
+        string_value(&persistent.values, "version_selector"),
+        Some("")
+    );
+    assert_eq!(
+        string_value(&transient.values, "version_selector"),
+        Some("0.0.361")
+    );
 }
 
 #[test]
 fn llxprt_agents_do_not_copy_code_puppy_repository_default() {
-    let mut repository = repository(AgentKind::Llxprt);
-    repository.default_code_puppy_version = "0.0.361".to_owned();
+    let mut repository = repository(jefe::domain::shipped_agent_type(3));
+    set_string(
+        &mut repository.default_values,
+        "version_selector",
+        "0.0.361",
+    );
     let persistent = create_agent(CreateAgentParams {
-        agent_kind: "LLxprt",
+        agent_type_id: "core.llxprt",
         ..create_params(&repository, "")
     })
     .value_or_panic("valid persistent LLxprt agent");
@@ -230,54 +269,24 @@ fn llxprt_agents_do_not_copy_code_puppy_repository_default() {
             .join("transient-llxprt-270"),
         &repository,
     );
-    assert_eq!(persistent.code_puppy_version, "");
-    assert_eq!(agent.code_puppy_version, "");
-}
-
-#[test]
-fn prospective_launch_carries_trimmed_pin_and_legacy_signature_defaults_blank() {
-    let repository = repository(AgentKind::CodePuppy);
-    let signature = prospective_agent_launch(&create_params(&repository, "  0.0.361-rc1  "))
-        .value_or_panic("valid prospective launch");
-    assert_eq!(signature.code_puppy_version, "0.0.361-rc1");
-
-    let value = serde_json::to_value(&signature).value_or_panic("serialize launch signature");
-    let mut object = value
-        .as_object()
-        .cloned()
-        .value_or_panic("signature object");
-    object.remove("code_puppy_version");
-    let legacy: LaunchSignature =
-        serde_json::from_value(object.into()).value_or_panic("legacy signature should deserialize");
-    assert_eq!(legacy.code_puppy_version, "");
-}
-
-#[test]
-fn legacy_missing_code_puppy_version_fields_deserialize_blank() {
-    let repository_value = serde_json::to_value(repository(AgentKind::CodePuppy))
-        .value_or_panic("serialize repository");
-    let mut repository_object = repository_value
-        .as_object()
-        .cloned()
-        .value_or_panic("repository object");
-    repository_object.remove("default_code_puppy_version");
-    let restored_repository: Repository = serde_json::from_value(repository_object.into())
-        .value_or_panic("legacy repository should deserialize");
-    assert_eq!(restored_repository.default_code_puppy_version, "");
-
-    let agent = Agent::new(
-        AgentId("legacy-agent-270".to_owned()),
-        restored_repository.id,
-        "Legacy".to_owned(),
-        PathBuf::from("/tmp/legacy-agent-270"),
+    assert_eq!(
+        string_value(&persistent.values, "version_selector"),
+        Some("")
     );
-    let agent_value = serde_json::to_value(agent).value_or_panic("serialize agent");
-    let mut agent_object = agent_value
-        .as_object()
-        .cloned()
-        .value_or_panic("agent object");
-    agent_object.remove("code_puppy_version");
-    let restored_agent: Agent = serde_json::from_value(agent_object.into())
-        .value_or_panic("legacy agent should deserialize");
-    assert_eq!(restored_agent.code_puppy_version, "");
+    assert_eq!(
+        string_value(&agent.values, "version_selector"),
+        Some("0.0.361")
+    );
+}
+
+#[test]
+fn prospective_launch_carries_trimmed_pin_as_a_typed_value() {
+    let repository = repository(jefe::domain::shipped_agent_type(1));
+    let request = prospective_agent_launch(&create_params(&repository, "  0.0.361-rc1  "))
+        .value_or_panic("valid prospective launch");
+    assert_eq!(request.type_id, jefe::domain::shipped_agent_type(1));
+    assert_eq!(
+        string_value(&request.values, "version_selector"),
+        Some("0.0.361-rc1")
+    );
 }

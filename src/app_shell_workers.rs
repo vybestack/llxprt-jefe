@@ -16,6 +16,68 @@ use jefe::services::capture_worker::{CaptureHandle, should_store_result};
 
 use crate::AppContext;
 
+struct AgentAvailabilityProbeAdapter;
+
+impl jefe::services::effect_executor::EffectAdapter for AgentAvailabilityProbeAdapter {
+    fn execute(
+        &mut self,
+        issued: &jefe::domain::effects::IssuedEffect,
+    ) -> jefe::services::effect_executor::AdapterExecution {
+        let result = match &issued.effect {
+            jefe::domain::effects::Effect::AgentProbe(
+                jefe::domain::effects::ProbeEffect::CheckAgentAvailability(probe),
+            ) => {
+                let result = jefe::runtime::run_local_agent_probe(
+                    &probe.definition,
+                    &probe.resolution,
+                    probe.generation,
+                );
+                Ok(jefe::domain::effects::EffectResponse::AgentProbe(
+                    jefe::domain::effects::ProbeResponse::Availability {
+                        availability: Box::new(result.availability().clone()),
+                        generation: probe.generation,
+                    },
+                ))
+            }
+            other => Err(jefe::domain::effects::EffectError::new(
+                jefe::domain::effects::EffectErrorKind::Unavailable,
+                false,
+                &format!(
+                    "{:?} effects are not wired in this composition",
+                    other.family()
+                ),
+            )),
+        };
+        jefe::services::effect_executor::AdapterExecution::Completed(result)
+    }
+}
+
+/// Execute committed startup probes off the UI executor and deliver correlated results.
+pub async fn run_agent_availability_probes(
+    effects: Vec<jefe::domain::effects::IssuedEffect>,
+    mut app_state: crate::app_input::AppStateHandle,
+) {
+    if effects.is_empty() {
+        return;
+    }
+    let completions = smol::unblock(move || {
+        let mut adapter = AgentAvailabilityProbeAdapter;
+        let mut completions = Vec::new();
+        jefe::services::effect_executor::run_effects(effects, &mut adapter, |completion| {
+            completions.push(completion);
+            Vec::new()
+        });
+        completions
+    })
+    .await;
+    for completion in completions {
+        let mut state = app_state.write();
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
+        );
+    }
+}
 /// Check whether the attached PTY has new data since the last render.
 ///
 /// Uses `try_lock` so the timer future never blocks on the `AppContext` mutex.

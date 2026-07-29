@@ -24,12 +24,16 @@ fn dashboard_state() -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp/repo1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("repo-2".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         "repo-2".to_string(),
         std::path::PathBuf::from("/tmp/repo2"),

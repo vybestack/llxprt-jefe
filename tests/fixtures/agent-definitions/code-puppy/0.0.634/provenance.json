@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "agent_type_id": "core.code-puppy",
+  "capture_date": "2026-07-26",
+  "release": {
+    "version": "0.0.634",
+    "version_output_note": "The raw version stream includes terminal palette control sequences; the parsed identity is 0.0.634.",
+    "executable_path": "/Users/acoliver/.local/share/uv/tools/code-puppy/bin/code-puppy",
+    "executable_sha256": "d2d800f5e517334f68cc228353372898445832be584fb1df417c217f1f4a64a5"
+  },
+  "captures": {
+    "help": {"argv":["code-puppy","--help"],"exit_code":0,"stdout":"help.stdout","stderr":"help.stderr"},
+    "probe": {"argv":["code-puppy","--version"],"exit_code":0,"stdout":"probe.stdout","stderr":"probe.stderr"},
+    "version": {"argv":["code-puppy","--version"],"exit_code":0,"stdout":"version.stdout","stderr":"version.stderr"}
+  },
+  "verified_mappings": {
+    "interactive": ["--interactive"],
+    "model": ["--model","<model>"],
+    "resume": ["--resume","<path>"],
+    "quick_resume": ["--quick-resume","<optional-path>"],
+    "yolo": ["--yolo","<true-or-false>"]
+  },
+  "notes": ["Fixture bytes are deterministic provenance, not a runtime version allow-list."]
+}

@@ -16,12 +16,14 @@ use crate::persistence::paths::{
     ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
     SourceValidity, decide_import, import_state_source, physical_identity, resolve,
 };
+use crate::persistence::settings_document::PublishedSettings;
 use crate::persistence::{FilePersistenceManager, PersistencePaths};
 
-/// Fully resolved startup paths and the persistence manager that consumes them.
+/// Fully resolved startup paths, published settings, and their persistence manager.
 #[derive(Debug)]
 pub struct StartupPersistence {
     pub paths: ResolvedPaths,
+    pub settings: PublishedSettings,
     pub manager: FilePersistenceManager,
 }
 
@@ -29,13 +31,17 @@ pub struct StartupPersistence {
 pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
     let paths = resolve(config_dir)?;
     apply_state_import(&paths.state)?;
-    validate_settings(&paths.settings.path)?;
+    let settings = validate_settings(&paths.settings.path)?;
     validate_state(&paths.state.path)?;
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
         state_path: paths.state.path.clone(),
     });
-    Ok(StartupPersistence { paths, manager })
+    Ok(StartupPersistence {
+        paths,
+        settings,
+        manager,
+    })
 }
 
 fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
@@ -90,14 +96,14 @@ fn inspect_sources(file: &ResolvedFile) -> Result<Vec<InspectedSource>, PathErro
     Ok(inspected)
 }
 
-fn validate_settings(path: &Path) -> Result<(), PathError> {
+fn validate_settings(path: &Path) -> Result<PublishedSettings, PathError> {
     let Some(bytes) = read_optional(path)? else {
-        return Ok(());
+        return Ok(PublishedSettings::default());
     };
     let catalog = builtin_owner_catalog()
         .map_err(|error| path_error(path, CfgCode::E005, 2, &format!("owner catalog: {error}")))?;
     migrate_settings(&bytes, &catalog)
-        .map(|_| ())
+        .map(|migration| migration.published().clone())
         .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))
 }
 

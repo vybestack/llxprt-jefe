@@ -86,6 +86,8 @@ fn agent(name: &str, status: AgentStatus) -> Agent {
     let mut a = Agent::new(
         AgentId(name.to_string()),
         RepositoryId("r".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         name.to_string(),
         std::path::PathBuf::from("/tmp"),
     );

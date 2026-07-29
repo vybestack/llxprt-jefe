@@ -9,7 +9,10 @@ use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
-use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
+use crate::domain::AgentLaunchRequest;
+use crate::domain::agent_definition::AgentLaunchPlan;
+use crate::domain::{AgentId, RemoteRepositorySettings};
+use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -43,23 +46,25 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     None => NonZeroUsize::MIN,
 };
 
-fn retained_relaunch_signature(
-    dead_signatures: &mut LruCache<AgentId, LaunchSignature>,
-    agent_id: &AgentId,
-) -> Result<LaunchSignature, RuntimeError> {
-    dead_signatures
-        .get(agent_id)
-        .cloned()
-        .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))
-}
+/// Marker that a killed agent is eligible for relaunch.
+///
+/// Relaunch authority (the [`AuthorizedLaunchPlan`]) is supplied by the caller
+/// at relaunch time through the authorized-preparation contract, so this marker
+/// only records that the agent was previously running and is now dead. Its
+/// bounded LRU membership is what `relaunch` checks before accepting a new
+/// launch proof.
+#[derive(Debug, Clone, Copy, Default)]
+struct RetainedLaunch;
 
+/// Pop a successfully relaunched agent from the dead-marker cache; leave the
+/// marker in place on failure so the caller can retry.
 fn complete_relaunch_attempt(
-    dead_signatures: &mut LruCache<AgentId, LaunchSignature>,
+    dead_plans: &mut LruCache<AgentId, RetainedLaunch>,
     agent_id: &AgentId,
     result: Result<(), RuntimeError>,
 ) -> Result<(), RuntimeError> {
     if result.is_ok() {
-        let _ = dead_signatures.pop(agent_id);
+        let _ = dead_plans.pop(agent_id);
     }
     result
 }
@@ -107,8 +112,8 @@ pub trait RuntimeManager: Send {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError>;
 
     /// Spawn a new runtime session and force a fresh tmux process.
@@ -118,10 +123,10 @@ pub trait RuntimeManager: Send {
     fn spawn_session_fresh(
         &mut self,
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
-        self.spawn_session(agent_id, work_dir, signature)
+        self.spawn_session(agent_id, launch, remote)
     }
 
     /// Attach to an existing session.
@@ -137,10 +142,15 @@ pub trait RuntimeManager: Send {
     /// @pseudocode component-002 lines 21-26
     fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
 
-    /// Relaunch a dead session using its stored launch signature.
+    /// Relaunch a dead session using newly cleared launch authority.
     ///
     /// @pseudocode component-002 lines 27-32
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
+    fn relaunch(
+        &mut self,
+        agent_id: &AgentId,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> Result<(), RuntimeError>;
 
     /// Check if a session is alive.
     ///
@@ -245,7 +255,7 @@ pub struct TmuxRuntimeManager {
     ///
     /// Bounded by [`MAX_DEAD_SIGNATURES`]: once full, the least-recently-used
     /// dead signature is evicted to make room for newer ones.
-    dead_signatures: LruCache<AgentId, LaunchSignature>,
+    dead_plans: LruCache<AgentId, RetainedLaunch>,
     /// Session names for which clipboard passthrough has already been enforced.
     ///
     /// Avoids re-running the tmux option commands on every attach. Populated
@@ -332,7 +342,7 @@ impl TmuxRuntimeManager {
             sessions: HashMap::new(),
             viewer: None,
             attached_agent_id: None,
-            dead_signatures: LruCache::new(MAX_DEAD_SIGNATURES),
+            dead_plans: LruCache::new(MAX_DEAD_SIGNATURES),
             clipboard_enforced: HashSet::new(),
             prefix_enforced: HashSet::new(),
             rows,
@@ -375,11 +385,7 @@ impl TmuxRuntimeManager {
             .map(|(agent_id, session)| LivenessCheck {
                 agent_id: agent_id.clone(),
                 session_name: session.session_name.clone(),
-                remote: if session.launch_signature.remote.enabled {
-                    Some(session.launch_signature.remote.clone())
-                } else {
-                    None
-                },
+                remote: session.remote.clone(),
                 binding_session_name: Some(session.session_name.clone()),
                 lifecycle_generation: session.lifecycle_generation,
             })
@@ -391,7 +397,7 @@ impl TmuxRuntimeManager {
     pub fn session_exists_for_signature(
         &self,
         agent_id: &AgentId,
-        signature: &LaunchSignature,
+        signature: &AgentLaunchRequest,
     ) -> bool {
         self.session_liveness_for_signature(agent_id, signature) == liveness::SessionLiveness::Alive
     }
@@ -401,7 +407,7 @@ impl TmuxRuntimeManager {
     pub fn session_liveness_for_signature(
         &self,
         agent_id: &AgentId,
-        signature: &LaunchSignature,
+        signature: &AgentLaunchRequest,
     ) -> liveness::SessionLiveness {
         let session_name = RuntimeSession::session_name_for(agent_id);
         if signature.remote.enabled {
@@ -442,9 +448,7 @@ impl TmuxRuntimeManager {
         self.clipboard_enforced.remove(&session.session_name);
         self.prefix_enforced.remove(&session.session_name);
 
-        let _ = self
-            .dead_signatures
-            .put(agent_id.clone(), session.launch_signature.clone());
+        let _ = self.dead_plans.put(agent_id.clone(), RetainedLaunch);
         true
     }
 
@@ -485,14 +489,14 @@ impl TmuxRuntimeManager {
 
     fn kill_before_fresh_spawn(
         allow_reattach: bool,
-        signature: &LaunchSignature,
+        remote: Option<&RemoteRepositorySettings>,
         session_name: &str,
     ) {
         if allow_reattach {
             return;
         }
-        let result = if signature.remote.enabled {
-            commands::kill_remote_session(&signature.remote, session_name)
+        let result = if let Some(remote) = remote {
+            commands::kill_remote_session(remote, session_name)
         } else {
             commands::kill_session(session_name)
         };
@@ -505,31 +509,46 @@ impl TmuxRuntimeManager {
         }
     }
 
-    fn create_or_reattach_after_probe(
-        &self,
+    /// Probe whether a session is alive using the optional remote transport.
+    fn session_alive_for_remote(
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> liveness::SessionLiveness {
+        let session_name = RuntimeSession::session_name_for(agent_id);
+        if let Some(remote) = remote {
+            match commands::remote_session_exists(remote, &session_name) {
+                Ok(true) => liveness::SessionLiveness::Alive,
+                Ok(false) => liveness::SessionLiveness::Missing,
+                Err(_) => liveness::SessionLiveness::Unavailable,
+            }
+        } else {
+            liveness::session_liveness(&session_name)
+        }
+    }
+
+    fn create_or_reattach_after_probe(
+        agent_id: &AgentId,
+        plan: &AgentLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
         allow_reattach: bool,
         session_name: &str,
+        session_host_root: Option<&Path>,
     ) -> Result<bool, RuntimeError> {
-        if allow_reattach && self.session_exists_for_signature(agent_id, signature) {
+        if allow_reattach
+            && Self::session_alive_for_remote(agent_id, remote) == liveness::SessionLiveness::Alive
+        {
             return Ok(true);
         }
-        Self::kill_before_fresh_spawn(allow_reattach, signature, session_name);
+        Self::kill_before_fresh_spawn(allow_reattach, remote, session_name);
         debug!(session_name, "creating new tmux session");
-        // AC5: reattach is handled above (early return). Only the create path
-        // receives the session-host root, so reattach never stages, replaces,
-        // or duplicates a host/worker.
-        match commands::create_session(
-            session_name,
-            work_dir,
-            signature,
-            self.session_host_root.as_deref(),
-        ) {
+        // Reattach is handled above. Only the create path receives the
+        // session-host root, so reattach never stages or replaces a host.
+        match commands::create_session(session_name, plan, remote, session_host_root) {
             Ok(()) => Ok(false),
             Err(_error)
-                if allow_reattach && self.session_exists_for_signature(agent_id, signature) =>
+                if allow_reattach
+                    && Self::session_alive_for_remote(agent_id, remote)
+                        == liveness::SessionLiveness::Alive =>
             {
                 Ok(true)
             }
@@ -540,8 +559,8 @@ impl TmuxRuntimeManager {
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        plan: &AgentLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
         allow_reattach: bool,
     ) -> Result<(), RuntimeError> {
         // Check for duplicate runtime mapping in this process.
@@ -557,27 +576,28 @@ impl TmuxRuntimeManager {
         let session_name = RuntimeSession::session_name_for(agent_id);
 
         // Reattach-first behavior is only allowed for restore/startup paths.
-        let can_reattach = allow_reattach && self.session_exists_for_signature(agent_id, signature);
+        let can_reattach = allow_reattach
+            && Self::session_alive_for_remote(agent_id, remote) == liveness::SessionLiveness::Alive;
         let reattached = if can_reattach {
             true
         } else {
-            super::package_probe::require_launch_package_available(signature)?;
-            self.create_or_reattach_after_probe(
+            Self::create_or_reattach_after_probe(
                 agent_id,
-                work_dir,
-                signature,
+                plan,
+                remote,
                 allow_reattach,
                 &session_name,
+                self.session_host_root.as_deref(),
             )?
         };
         if reattached {
             debug!(session_name = %session_name, "reattaching to existing tmux session");
-            if signature.remote.enabled {
-                self.ensure_remote_prefix_passthrough(&signature.remote, &session_name);
+            if let Some(remote) = remote {
+                self.ensure_remote_prefix_passthrough(remote, &session_name);
             } else {
                 self.ensure_prefix_passthrough(&session_name);
             }
-        } else if !signature.remote.enabled {
+        } else if remote.is_none() {
             self.ensure_clipboard_passthrough(&session_name);
             self.ensure_prefix_passthrough(&session_name);
         }
@@ -595,7 +615,7 @@ impl TmuxRuntimeManager {
         // means the pane's direct command (the llxprt worker) is still
         // running, so `#{pane_pid}` is the worker PID. We capture it here so
         // it persists into RuntimeBinding for the PID-liveness fallback.
-        let captured_pid = if signature.remote.enabled {
+        let captured_pid = if remote.is_some() {
             None
         } else {
             commands::pane_pid(&session_name)
@@ -604,7 +624,12 @@ impl TmuxRuntimeManager {
         // Store/refresh session binding. Bump the lifecycle generation so
         // stale liveness results from a prior binding are rejected (issue
         // #301 Phase 4).
-        let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
+        let mut session = RuntimeSession::new(
+            agent_id.clone(),
+            session_name,
+            plan.clone(),
+            remote.cloned(),
+        );
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
@@ -614,8 +639,8 @@ impl TmuxRuntimeManager {
         session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 
-        // Remove from dead signatures if present.
-        let _ = self.dead_signatures.pop(agent_id);
+        // Remove from dead plans if present.
+        let _ = self.dead_plans.pop(agent_id);
 
         Ok(())
     }
@@ -625,25 +650,33 @@ impl RuntimeManager for TmuxRuntimeManager {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
-        info!(agent_id = %agent_id.0, work_dir = %work_dir.display(), "spawning runtime session");
-        self.spawn_session_internal(agent_id, work_dir, signature, true)
+        let cleared = launch
+            .prepare_current(&ProcessSandboxInspector::new())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+        let plan = cleared.plan();
+        info!(agent_id = %agent_id.0, work_dir = %plan.cwd.display(), "spawning runtime session");
+        self.spawn_session_internal(agent_id, plan, remote, true)
     }
 
     fn spawn_session_fresh(
         &mut self,
         agent_id: &AgentId,
-        work_dir: &Path,
-        signature: &LaunchSignature,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        let cleared = launch
+            .prepare_current(&ProcessSandboxInspector::new())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+        let plan = cleared.plan();
         info!(
             agent_id = %agent_id.0,
-            work_dir = %work_dir.display(),
+            work_dir = %plan.cwd.display(),
             "spawning fresh runtime session"
         );
-        self.spawn_session_internal(agent_id, work_dir, signature, false)
+        self.spawn_session_internal(agent_id, plan, remote, false)
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
@@ -678,17 +711,12 @@ impl RuntimeManager for TmuxRuntimeManager {
                 return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
             };
             let session_name = session.session_name.clone();
-            let remote_enabled = session.launch_signature.remote.enabled;
-            let remote_settings = if remote_enabled {
-                Some(session.launch_signature.remote.clone())
-            } else {
-                None
-            };
+            let remote_settings = session.remote.clone();
 
             // Enforce clipboard passthrough (memoized) before spawning the
             // local viewer — the attach hot path no longer relies on
             // AttachedViewer::spawn to do this.
-            if !remote_enabled {
+            if remote_settings.is_none() {
                 self.ensure_clipboard_passthrough(&session_name);
                 // Same invariant for tmux prefix passthrough (#200): a
                 // session reattached after an upgrade must not keep the
@@ -754,10 +782,10 @@ impl RuntimeManager for TmuxRuntimeManager {
             .remove(agent_id)
             .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
 
-        // Store signature for relaunch
-        let _ = self
-            .dead_signatures
-            .put(agent_id.clone(), session.launch_signature.clone());
+        // Mark the killed agent as eligible for relaunch. The relaunch
+        // authority itself is supplied later through the authorized-preparation
+        // contract, so only a dead marker is retained here.
+        let _ = self.dead_plans.put(agent_id.clone(), RetainedLaunch);
 
         // Clear clipboard and prefix passthrough memoization for this session
         // so a recreated session with the same name re-enforces on next attach
@@ -778,8 +806,8 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
 
         // Kill tmux session
-        if session.launch_signature.remote.enabled {
-            commands::kill_remote_session(&session.launch_signature.remote, &session.session_name)?;
+        if let Some(remote) = session.remote.as_ref() {
+            commands::kill_remote_session(remote, &session.session_name)?;
         } else {
             commands::kill_session(&session.session_name)?;
             // AC7: a successful local kill removes only this session's host
@@ -816,33 +844,27 @@ impl RuntimeManager for TmuxRuntimeManager {
         Ok(())
     }
 
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+    fn relaunch(
+        &mut self,
+        agent_id: &AgentId,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> Result<(), RuntimeError> {
         info!(agent_id = %agent_id.0, "relaunching runtime session");
-        // Check not already running
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
-
-        // Borrow a clone for the attempt. The retained entry remains available
-        // if any package probe, tmux spawn, or attach prerequisite fails.
-        let signature = retained_relaunch_signature(&mut self.dead_signatures, agent_id)?;
-
-        // Spawn with stored signature using force-fresh semantics so runtime
-        // warnings are surfaced consistently through the relaunch path.
-        // spawn_session_fresh → spawn_session_internal already sets
-        // session.lifecycle_generation, so no explicit bump is needed here.
-        let work_dir = signature.work_dir.clone();
-        let result = self.spawn_session_fresh(agent_id, &work_dir, &signature);
-        complete_relaunch_attempt(&mut self.dead_signatures, agent_id, result)
+        if self.dead_plans.peek(agent_id).is_none() {
+            return Err(RuntimeError::NotRunning(agent_id.clone()));
+        }
+        let result = self.spawn_session_fresh(agent_id, launch, remote);
+        complete_relaunch_attempt(&mut self.dead_plans, agent_id, result)
     }
 
     fn is_alive(&self, agent_id: &AgentId) -> bool {
         if let Some(session) = self.sessions.get(agent_id) {
-            if session.launch_signature.remote.enabled {
-                liveness::check_remote_session_alive(
-                    &session.launch_signature.remote,
-                    &session.session_name,
-                )
+            if let Some(remote) = session.remote.as_ref() {
+                liveness::check_remote_session_alive(remote, &session.session_name)
             } else {
                 liveness::check_session_alive(&session.session_name)
             }
@@ -853,13 +875,9 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn session_exists(&self, agent_id: &AgentId) -> bool {
         if let Some(session) = self.sessions.get(agent_id)
-            && session.launch_signature.remote.enabled
+            && let Some(remote) = session.remote.as_ref()
         {
-            return commands::remote_session_exists(
-                &session.launch_signature.remote,
-                &session.session_name,
-            )
-            .unwrap_or(false);
+            return commands::remote_session_exists(remote, &session.session_name).unwrap_or(false);
         }
 
         let session_name = RuntimeSession::session_name_for(agent_id);

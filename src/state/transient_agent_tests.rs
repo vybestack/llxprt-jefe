@@ -1,8 +1,6 @@
 //! Tests for transient agent state-layer behavior (issue #213).
 
-use crate::domain::{
-    Agent, AgentChooserEntry, AgentId, AgentKind, AgentStatus, Repository, RepositoryId,
-};
+use crate::domain::{Agent, AgentChooserEntry, AgentId, AgentStatus, Repository, RepositoryId};
 use crate::state::{AgentChooserState, AppEvent, AppState};
 
 use crate::state::transition::TransitionExt;
@@ -24,6 +22,8 @@ impl<T> PanicOption<T> for Option<T> {
 fn make_repo_with_github(github_repo: &str) -> Repository {
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_owned(),
         "test-repo".to_owned(),
         PathBuf::from("/tmp/repo"),
@@ -39,6 +39,8 @@ fn make_agent(repo_id: &RepositoryId, name: &str, status: AgentStatus) -> Agent 
     let mut agent = Agent::new(
         AgentId(format!("agent-{name}").to_lowercase()),
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         name.to_owned(),
         PathBuf::from("/tmp/agent"),
     );
@@ -52,7 +54,7 @@ fn is_transient_available_true_when_github_repo_set_and_kinds_installed() {
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     assert!(state.is_transient_available_for_repo(state.selected_repository_id()));
 }
 
@@ -62,9 +64,9 @@ fn is_transient_available_false_when_installed_kinds_dont_match_default() {
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    // repo.default_agent_kind is Llxprt (the default); installing only
+    // repo.default_type_id is Llxprt (the default); installing only
     // CodePuppy must NOT make the transient slot available.
-    state.installed_agent_kinds = vec![AgentKind::CodePuppy];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(1)];
     assert!(!state.is_transient_available_for_repo(state.selected_repository_id()));
 }
 
@@ -74,7 +76,7 @@ fn is_transient_available_false_when_no_github_repo() {
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     assert!(!state.is_transient_available_for_repo(state.selected_repository_id()));
 }
 
@@ -85,7 +87,7 @@ fn is_transient_available_false_when_no_installed_kinds_and_not_remote() {
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    state.installed_agent_kinds = vec![];
+    state.available_agent_type_ids = vec![];
     assert!(!state.is_transient_available_for_repo(state.selected_repository_id()));
 }
 
@@ -96,7 +98,7 @@ fn is_transient_available_true_for_remote_repo_even_without_installed_kinds() {
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
-    state.installed_agent_kinds = vec![];
+    state.available_agent_type_ids = vec![];
     assert!(state.is_transient_available_for_repo(state.selected_repository_id()));
 }
 

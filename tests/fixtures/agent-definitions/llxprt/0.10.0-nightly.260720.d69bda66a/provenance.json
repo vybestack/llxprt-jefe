@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "agent_type_id": "core.llxprt",
+  "capture_date": "2026-07-26",
+  "release": {
+    "version": "0.10.0-nightly.260720.d69bda66a",
+    "version_output": "0.10.0-nightly.260720.d69bda66a\n",
+    "executable_path": "/opt/homebrew/lib/node_modules/@vybestack/llxprt-code/bin/llxprt.cjs",
+    "executable_sha256": "4758013dd4412bb23f64acf68caf1945464af9b87bb31b34f13439bb53f160b4"
+  },
+  "captures": {
+    "help": {"argv":["llxprt","--help"],"exit_code":0,"stdout":"help.stdout","stderr":"help.stderr"},
+    "probe": {"argv":["llxprt","--version"],"exit_code":0,"stdout":"probe.stdout","stderr":"probe.stderr"},
+    "version": {"argv":["llxprt","--version"],"exit_code":0,"stdout":"version.stdout","stderr":"version.stderr"}
+  },
+  "verified_mappings": {
+    "profile": ["--profile-load","<profile>"],
+    "interactive_prompt": ["--prompt-interactive","<prompt>"],
+    "sandbox": ["--sandbox"],
+    "sandbox_engine": ["--sandbox-engine","<engine>"],
+    "yolo": ["--yolo"],
+    "approval": ["--approval-mode","<mode>"],
+    "continue": ["--continue","<optional-session-id>"]
+  },
+  "notes": ["Fixture bytes are deterministic provenance, not a runtime version allow-list."]
+}

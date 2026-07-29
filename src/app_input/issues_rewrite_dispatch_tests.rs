@@ -6,7 +6,7 @@
 //! boundary I/O and is not unit-tested here.
 
 use super::resolve_rewrite_context_from_state;
-use jefe::domain::{AgentKind, Repository, RepositoryId};
+use jefe::domain::{Repository, RepositoryId};
 use jefe::state::AppEvent;
 use jefe::state::AppState;
 use jefe::state::transition::TransitionExt;
@@ -17,11 +17,13 @@ fn base_state() -> AppState {
     let mut state = AppState::default();
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test Repo".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/test"),
     );
-    repo.default_agent_kind = AgentKind::Llxprt;
+    repo.default_type_id = jefe::domain::shipped_agent_type(3);
     repo.github_repo = "owner/repo".to_string();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
@@ -119,14 +121,14 @@ fn resolves_instruction_and_signature_from_draft_and_repo() {
         "instruction must name the temp-file output path (issue #359): {}",
         ctx.instruction
     );
-    assert_eq!(ctx.signature.agent_kind, AgentKind::Llxprt);
+    assert_eq!(ctx.signature.type_id, jefe::domain::shipped_agent_type(3));
 }
 
 #[test]
 fn resolves_signature_for_code_puppy_default() {
     let mut state = with_new_issue_draft(base_state(), "draft");
-    state.repositories[0].default_agent_kind = AgentKind::CodePuppy;
+    state.repositories[0].default_type_id = jefe::domain::shipped_agent_type(1);
     let ctx = resolve_or_panic(&state)
         .unwrap_or_else(|| panic!("Code Puppy default repo must resolve a rewrite context"));
-    assert_eq!(ctx.signature.agent_kind, AgentKind::CodePuppy);
+    assert_eq!(ctx.signature.type_id, jefe::domain::shipped_agent_type(1));
 }

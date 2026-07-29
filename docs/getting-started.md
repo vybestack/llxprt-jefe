@@ -24,6 +24,15 @@ Then install Jefe from the portable GitHub Release zip and launch it from
 PowerShell. See [Windows support](windows-support.md) for the full native
 Windows guide.
 
+Jefe discovers installed agents from its shipped definitions. The agent picker
+shows only definitions whose declared executable candidate and capability probe
+are compatible with the selected target. In generated agent forms, **Version
+Selector** is optional: leave it blank to use a directly installed executable,
+or enter a supported exact/latest selector to use that definition's package
+candidate. Jefe-managed local npm selections are installed into Jefe's cache;
+remote package selections use structural remote runner arguments and never a
+shell template.
+
 ### Authenticate and fork
 Authenticate the GitHub CLI, then fork `vybestack/llxprt-jefe` into your own account if you do not already have a writable tutorial repository:
 

@@ -72,8 +72,8 @@ pub(super) struct Schema1Repository {
     pub remote: Schema1Remote,
     #[serde(default)]
     pub issue_base_prompt: String,
-    #[serde(default)]
-    pub default_agent_kind: Option<String>,
+    #[serde(default, alias = "default_agent_kind")]
+    pub default_type_id: Option<String>,
     #[serde(default)]
     pub transient_agent_dir: PathBuf,
     #[serde(default = "default_code_puppy_yolo")]
@@ -147,7 +147,7 @@ pub(super) struct Schema1Agent {
     pub sandbox_engine: String,
     #[serde(default)]
     pub sandbox_flags: String,
-    #[serde(default)]
+    #[serde(default, alias = "type_id")]
     pub agent_kind: Option<String>,
     #[serde(default)]
     pub llxprt_version: Option<String>,

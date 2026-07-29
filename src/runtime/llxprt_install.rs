@@ -15,7 +15,7 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -24,13 +24,13 @@ use crate::domain::{LLXPRT_NPM_PACKAGE, LlxprtNpmPackageSelector};
 use super::agent_executable::{
     AgentExecutableError, AgentExecutableResolver, AgentExecutableTarget,
 };
-use super::agent_launcher::command_for_executable;
+use super::agent_probe::command_for_path;
 use super::command_capture::run_command_capture_with_timeout;
 
 /// Generous wall-clock budget for a fresh install of `@vybestack/llxprt-code`
 /// (a large package). A cache hit returns well inside this bound; a miss pays
 /// the registry fetch + extract once per selector.
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const INSTALL_TIMEOUT: Duration = Duration::new(300, 0);
 
 /// Subdirectory of the cache dir holding all jefe-managed version installs.
 const VERSIONS_SUBDIR: &str = "llxprt-versions";
@@ -196,7 +196,7 @@ fn is_cache_hit(install_dir: &Path, bin_dir: &Path, selector: &LlxprtNpmPackageS
 /// execute bit would produce a false cache hit and then fail at launch time
 /// (see `AgentExecutableResolver::resolve_unix`), so it is not counted here.
 fn managed_binary_exists(bin_dir: &Path) -> bool {
-    let base = AgentExecutableTarget::Agent(crate::domain::AgentKind::Llxprt).binary_name();
+    let base = AgentExecutableTarget::Agent("llxprt").binary_name();
     managed_binary_exists_for(bin_dir, base)
 }
 
@@ -315,7 +315,14 @@ fn run_npm_install(
             }
         })?;
     let arguments = vec![OsString::from("install")];
-    let mut command = command_for_executable(&executable, &arguments);
+    let mut command = if let Some(plan) = executable.script_launch_plan() {
+        let mut command = Command::new(plan.runtime());
+        command.arg(plan.entrypoint());
+        command.args(&arguments);
+        command
+    } else {
+        command_for_path(executable.path(), executable.wrapper_kind(), &arguments)
+    };
     command.current_dir(install_dir);
     command.stdin(Stdio::null());
     let output = run_command_capture_with_timeout(command, timeout, "jefe llxprt install")
@@ -385,35 +392,6 @@ fn local_managed_bin_dir_under(
         &AgentExecutableResolver::current(),
         INSTALL_TIMEOUT,
     )
-}
-
-/// Resolve an agent executable from a jefe-managed `node_modules/.bin`
-/// directory, applying the same launchability checks as PATH resolution.
-///
-/// Used by the local launch path (`commands::local_launch_command`) to resolve
-/// the cached `llxprt` binary from the jefe-managed install dir instead of
-/// searching PATH, so the work directory's `node_modules` cannot shadow the
-/// pinned version.
-pub fn resolve_managed_executable(
-    bin_dir: &Path,
-    target: AgentExecutableTarget,
-) -> Result<super::agent_executable::ResolvedAgentExecutable, super::errors::RuntimeError> {
-    // A scoped resolver that searches only the managed bin dir reuses the
-    // platform-aware launchability checks (Unix execute bit, Windows
-    // PATHEXT) so the cached binary is held to the same standard as a PATH
-    // resolution.
-    let scoped = AgentExecutableResolver::for_platform(
-        AgentExecutableResolver::current().platform(),
-        vec![bin_dir.to_path_buf()],
-        std::env::var_os("PATHEXT"),
-    );
-    scoped.resolve_target(target).map_err(|error| {
-        super::errors::RuntimeError::SpawnFailed(format!(
-            "cached llxprt binary '{}' was not found in the jefe-managed install dir {}: {error}",
-            target.binary_name(),
-            bin_dir.display()
-        ))
-    })
 }
 
 #[cfg(test)]

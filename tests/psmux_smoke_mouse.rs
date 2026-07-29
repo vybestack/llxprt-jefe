@@ -315,7 +315,7 @@ fn assert_page_keys_delivered_as_csi_tilde(
         .write_input(b"\x1b[5~\x1b[6~")
         .unwrap_or_else(|error| panic!("write PageUp/PageDown: {error}"));
 
-    let capture = poll_for_capture(namespace, session, "PSMUX_BYTE_7E", "PageUp/PageDown bytes");
+    let capture = poll_for_capture(namespace, session, "PSMUX_BYTE_36", "PageUp/PageDown bytes");
 
     for needle in [
         "PSMUX_BYTE_1B",

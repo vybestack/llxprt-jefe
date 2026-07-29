@@ -212,6 +212,8 @@ mod tests {
                 Agent::new(
                     AgentId(format!("agent-{index}")),
                     RepositoryId(String::from("repo")),
+                    crate::domain::shipped_agent_type(3),
+                    crate::domain::TypedMap::new(),
                     format!("Agent {index}"),
                     PathBuf::from("/tmp"),
                 )

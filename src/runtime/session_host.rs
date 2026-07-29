@@ -23,7 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::sha256::Sha256;
 
-use super::agent_executable::ResolvedAgentExecutable;
+use super::agent_executable::AgentWrapperKind;
 use super::errors::RuntimeError;
 use super::multiplexer::MultiplexerPlan;
 
@@ -168,7 +168,8 @@ pub fn session_host_stage_request<'a>(
 /// unchanged (AC9).
 pub fn resolve_local_pane_command(
     multiplexer: &MultiplexerPlan,
-    executable: &ResolvedAgentExecutable,
+    executable: &Path,
+    wrapper: AgentWrapperKind,
     pane_args: &[std::ffi::OsString],
     environment: &[(std::ffi::OsString, std::ffi::OsString)],
     session_host: Option<(&Path, &str)>,
@@ -185,6 +186,7 @@ pub fn resolve_local_pane_command(
             multiplexer
                 .agent_pane_command_args_with_staged_host(
                     executable,
+                    wrapper,
                     &staged,
                     pane_args,
                     environment,
@@ -192,7 +194,7 @@ pub fn resolve_local_pane_command(
                 .map_err(RuntimeError::Multiplexer)
         }
         None => multiplexer
-            .agent_pane_command_args(executable, pane_args, environment)
+            .agent_pane_command_args(executable, wrapper, pane_args, environment)
             .map_err(RuntimeError::Multiplexer),
     }
 }

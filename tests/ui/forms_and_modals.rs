@@ -18,6 +18,8 @@ fn create_form_test_state() -> AppState {
 
     let repo = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "llxprt-code".into(),
         "llxprt-code".into(),
         PathBuf::from("/projects/llxprt-code"),
@@ -27,6 +29,8 @@ fn create_form_test_state() -> AppState {
     let agent = Agent::new(
         AgentId("agent-1".into()),
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test Agent".into(),
         PathBuf::from("/worktrees/test"),
     );
@@ -251,52 +255,6 @@ fn open_new_agent_form_initializes_llxprt_debug_blank() {
 }
 
 #[test]
-fn open_edit_agent_form_copies_llxprt_debug_value() {
-    let mut state = create_form_test_state();
-    state.agents[0].llxprt_debug = "trace=agent".into();
-    state.modal = ModalState::None;
-    let agent_id = AgentId("agent-1".into());
-
-    state = state
-        .apply(AppEvent::OpenEditAgent(agent_id))
-        .committed_pure();
-
-    let ModalState::EditAgent { fields, .. } = state.modal else {
-        panic!("expected edit-agent modal, got {:?}", state.modal);
-    };
-    assert_eq!(fields.llxprt_debug, "trace=agent");
-}
-
-#[test]
-fn submit_new_agent_form_trims_llxprt_debug() {
-    let mut state = create_form_test_state();
-    state.modal = ModalState::None;
-    let repo_id = RepositoryId("repo-1".into());
-
-    state = state
-        .apply(AppEvent::OpenNewAgent(repo_id))
-        .committed_pure();
-
-    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
-        panic!("expected new-agent modal");
-    };
-    fields.name = "Agent With Debug".into();
-    fields.work_dir = "/tmp/agent-with-debug".into();
-    fields.llxprt_debug = "   io=trace   ".into();
-
-    state = state.apply(AppEvent::SubmitForm).committed_pure();
-    let Some(created) = state
-        .agents
-        .iter()
-        .find(|agent| agent.name == "Agent With Debug")
-    else {
-        panic!("new agent should be created");
-    };
-
-    assert_eq!(created.llxprt_debug, "io=trace");
-}
-
-#[test]
 fn repository_form_cursor_moves_and_inserts_in_place() {
     let mut state = create_form_test_state();
 
@@ -356,10 +314,10 @@ fn repository_form_toggles_remote_fields() {
         panic!("expected new-repository modal, got {:?}", state.modal);
     };
     assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
-    assert!(!fields.default_agent_kind.is_empty());
+    assert!(!fields.default_type_id.is_empty());
     assert_eq!(
-        fields.default_agent_kind,
-        jefe::domain::AgentKind::Llxprt.label()
+        fields.default_type_id,
+        jefe::domain::shipped_agent_type(3).to_string()
     );
     assert!(fields.remote_enabled);
     assert_eq!(fields.login_user, "op");

@@ -1,7 +1,6 @@
-use jefe::domain::{AgentId, AgentKind, LaunchSignature, PlatformCapabilities, SandboxEngine};
+use jefe::domain::{AgentId, AgentLaunchRequest};
 use jefe::runtime::{
-    PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight,
-    validate_code_puppy_launch,
+    PreflightAction, PreflightIssue, execute_preflight_action, validate_launch_request,
 };
 use jefe::state::ModalState;
 
@@ -16,7 +15,7 @@ use super::{
 /// not enabled). Returns `false` if a `PreflightPrompt` modal was opened and
 /// the caller should abort the immediate launch path.
 ///
-/// Preflight is gated to [`AgentKind::Llxprt`] only: CodePuppy does not use
+/// Preflight is gated to [`jefe::domain::shipped_agent_type(3)`] only: CodePuppy does not use
 /// the LLxprt sandbox flags/engine, and stale `sandbox_enabled`/`sandbox_engine`
 /// fields persisted from a prior LLxprt configuration must not trigger LLxprt
 /// preflight for a CodePuppy agent.
@@ -24,10 +23,10 @@ pub fn preflight_or_prompt(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
 ) -> bool {
-    if let Err(diagnostic) = validate_code_puppy_launch(signature) {
+    if let Err(diagnostic) = validate_launch_request(signature) {
         open_preflight_prompt(
             app_state,
             ctx,
@@ -41,22 +40,6 @@ pub fn preflight_or_prompt(
         return false;
     }
 
-    if !should_run_sandbox_preflight(signature) {
-        return true;
-    }
-
-    if let Some(issue) = sandbox_preflight(signature.sandbox_engine) {
-        open_preflight_prompt(
-            app_state,
-            ctx,
-            agent_id,
-            signature,
-            issue,
-            issue_self_assignment,
-        );
-        return false;
-    }
-
     true
 }
 
@@ -64,7 +47,7 @@ fn open_preflight_prompt(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     issue: PreflightIssue,
     issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
 ) {
@@ -82,19 +65,6 @@ fn open_preflight_prompt(
     schedule_durable_save(ctx, persisted);
 }
 
-/// Pure predicate: should sandbox preflight run for this signature?
-///
-/// Preflight runs only when **both** conditions hold:
-/// 1. `sandbox_enabled` is true, AND
-/// 2. `agent_kind == Llxprt` (CodePuppy has no LLxprt sandbox subsystem).
-///
-/// This gates out CodePuppy agents that carry stale `sandbox_enabled = true`
-/// from persisted edit data — they must not run LLxprt preflight.
-#[must_use]
-pub(super) fn should_run_sandbox_preflight(signature: &LaunchSignature) -> bool {
-    signature.sandbox_enabled && signature.agent_kind == AgentKind::Llxprt
-}
-
 /// Handle preflight prompt confirmation: execute remediation, re-check, then launch.
 ///
 /// Preflight is LLxprt-only: CodePuppy does not have a sandbox subsystem and
@@ -103,7 +73,7 @@ pub(super) fn handle_preflight_prompt_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
-    mut signature: LaunchSignature,
+    mut signature: AgentLaunchRequest,
     issue: PreflightIssue,
     issue_self_assignment: Option<jefe::state::IssueSelfAssignmentFollowUp>,
 ) {
@@ -111,13 +81,7 @@ pub(super) fn handle_preflight_prompt_enter(
         return;
     }
 
-    // Gate preflight re-check to LLxprt — CodePuppy should never have reached
-    // this modal, but if it did, skip further sandbox preflight.
-    let next = if signature.agent_kind == AgentKind::Llxprt {
-        sandbox_preflight(signature.sandbox_engine)
-    } else {
-        None
-    };
+    let next = None;
     if let Some(next) = next {
         persist_next_preflight(
             app_state,
@@ -155,7 +119,7 @@ fn apply_preflight_action(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
-    signature: &mut LaunchSignature,
+    signature: &mut AgentLaunchRequest,
     action: PreflightAction,
 ) -> bool {
     match action {
@@ -179,37 +143,23 @@ fn apply_preflight_action(
 fn apply_engine_switch(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    agent_id: &AgentId,
-    signature: &mut LaunchSignature,
-    target_engine: SandboxEngine,
+    _agent_id: &AgentId,
+    _signature: &mut AgentLaunchRequest,
+    _target_engine: jefe::domain::SandboxEngine,
 ) -> bool {
-    let caps = PlatformCapabilities::current();
-    let Some(normalized_engine) = caps.normalize_engine(target_engine) else {
-        persist_modal_close(
-            app_state,
-            ctx,
-            Some(format!(
-                "No supported sandbox engines are available on {}. Disable sandbox to continue.",
-                caps.platform_label()
-            )),
-        );
-        return false;
-    };
-
-    signature.sandbox_engine = normalized_engine;
-    let mut state = app_state.write();
-    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
-        agent.sandbox_engine = normalized_engine;
-    }
-    drop(state);
-    true
+    persist_modal_close(
+        app_state,
+        ctx,
+        Some("sandbox remediation must be declared by the active agent definition".to_owned()),
+    );
+    false
 }
 
 fn persist_next_preflight(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
-    signature: LaunchSignature,
+    signature: AgentLaunchRequest,
     issue: PreflightIssue,
     issue_self_assignment: Option<jefe::state::IssueSelfAssignmentFollowUp>,
 ) {

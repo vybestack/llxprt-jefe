@@ -11,27 +11,17 @@
 //!   `issues_send.rs`, `preflight.rs`, and `app_input/mod.rs`).
 
 use super::{AppEvent, AppState, ConfirmFocus, ModalState};
-use crate::domain::{AgentId, LaunchSignature, RepositoryId, SandboxEngine};
+use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
 use crate::github::SendPayload;
 use crate::state::transition::TransitionExt;
 
-fn sample_signature() -> LaunchSignature {
-    LaunchSignature {
+fn sample_signature() -> AgentLaunchRequest {
+    AgentLaunchRequest {
+        type_id: crate::domain::shipped_agent_type(3),
+        values: crate::domain::TypedMap::new(),
         work_dir: std::path::PathBuf::from("/tmp"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
         remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        llxprt_version: None,
+        operation: crate::domain::agent_definition::Operation::Normal,
     }
 }
 

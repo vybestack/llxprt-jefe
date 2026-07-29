@@ -11,7 +11,7 @@
 use super::*;
 use std::path::Path;
 
-use jefe::domain::{AgentKind, RemoteRepositorySettings};
+use jefe::domain::RemoteRepositorySettings;
 
 trait TestResultExt<T> {
     fn error_or_panic(self, context: &str) -> String;
@@ -213,7 +213,7 @@ fn probe_plan_uses_ssh_t_not_tt() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     assert!(argv.iter().any(|a| a == "-T"), "must use -T: {argv:?}");
     assert!(
@@ -227,7 +227,7 @@ fn probe_plan_uses_batch_mode_and_connect_timeout() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     assert!(argv.iter().any(|a| a == "BatchMode=yes"));
     assert!(argv.iter().any(|a| a == "ConnectTimeout=10"));
@@ -245,31 +245,16 @@ fn probe_plan_targets_login_user_at_host() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     assert!(argv.iter().any(|a| a == "ubuntu@build.example.com"));
 }
-
-#[test]
-fn pinned_code_puppy_probe_requires_uvx_not_global_code_puppy() {
-    let argv =
-        plan_remote_code_puppy_probe(&valid_remote(), Path::new("/home/ubuntu/work"), "0.0.361");
-    let Some(command) = argv.iter().find(|argument| argument.contains("command -v")) else {
-        panic!("must have command -v: {argv:?}");
-    };
-    assert!(command.contains("command -v uvx"), "probe: {command}");
-    assert!(
-        !command.contains("command -v code-puppy"),
-        "probe: {command}"
-    );
-}
-
 #[test]
 fn probe_plan_probes_exact_code_puppy_binary() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let Some(command) = argv.iter().find(|a| a.contains("command -v")) else {
         panic!("must have command -v: {argv:?}");
@@ -289,7 +274,7 @@ fn probe_plan_probes_exact_llxprt_binary() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let Some(command) = argv.iter().find(|a| a.contains("command -v")) else {
         panic!("must have command -v: {argv:?}");
@@ -309,14 +294,14 @@ fn probe_plan_llxprt_includes_path_local_node_modules_bin() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let command = argv
         .iter()
         .find(|a| a.contains("JEFE_PROBE"))
         .unwrap_or_else(|| panic!("must have sentinel command: {argv:?}"));
     assert!(
-        command.contains("/home/ubuntu/work/node_modules/.bin/llxprt"),
+        command.contains("/home/ubuntu/work/.llxprt/bin/llxprt"),
         "LLxprt probe must include path-local node_modules/.bin/llxprt: {argv:?}"
     );
 }
@@ -328,7 +313,7 @@ fn probe_plan_llxprt_uses_or_between_global_and_path_local() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let command = argv
         .iter()
@@ -336,11 +321,11 @@ fn probe_plan_llxprt_uses_or_between_global_and_path_local() {
         .unwrap_or_else(|| panic!("must have sentinel command: {argv:?}"));
     // Both the global command -v and the path-local [ -x ... ] must appear.
     assert!(
-        command.contains("command -v llxprt"),
+        command.contains("command -v 'llxprt'"),
         "must probe global llxprt: {argv:?}"
     );
     assert!(
-        command.contains("[ -x ") && command.contains("node_modules/.bin/llxprt"),
+        command.contains("[ -x ") && command.contains(".llxprt/bin/llxprt"),
         "must probe path-local executable: {argv:?}"
     );
 }
@@ -352,7 +337,7 @@ fn probe_plan_code_puppy_does_not_include_path_local() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let command = argv
         .iter()
@@ -363,7 +348,7 @@ fn probe_plan_code_puppy_does_not_include_path_local() {
         "CodePuppy probe must NOT include path-local: {argv:?}"
     );
     assert!(
-        command.contains("command -v code-puppy"),
+        command.contains("command -v 'code-puppy'"),
         "CodePuppy probe must use global command -v: {argv:?}"
     );
 }
@@ -378,7 +363,7 @@ fn probe_plan_llxprt_escapes_work_dir_in_path_local() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new(adversarial_work),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let command = argv
         .iter()
@@ -389,7 +374,7 @@ fn probe_plan_llxprt_escapes_work_dir_in_path_local() {
     // (shell-inert), not unescaped shell separators. We verify by checking
     // the escaped form appears (the `'` before `;` proves it's quoted).
     assert!(
-        command.contains("node_modules/.bin/llxprt"),
+        command.contains(".llxprt/bin/llxprt"),
         "must still reference node_modules/.bin/llxprt: {argv:?}"
     );
     // The raw unescaped `; rm -rf /` (with a space before rm and a real
@@ -413,7 +398,7 @@ fn probe_plan_llxprt_no_install_or_setup() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     for arg in &argv {
         assert!(
@@ -438,7 +423,7 @@ fn probe_plan_llxprt_path_local_uses_executable_check_not_existence() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let command = argv
         .iter()
@@ -455,7 +440,7 @@ fn probe_plan_does_not_run_install_or_setup() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     for arg in &argv {
         assert!(
@@ -478,7 +463,7 @@ fn probe_plan_uses_sentinel_protocol() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let Some(command) = argv.iter().find(|a| a.contains("JEFE_PROBE")) else {
         panic!("must use sentinel: {argv:?}");
@@ -492,7 +477,7 @@ fn probe_plan_wraps_effective_user_when_run_as_differs() {
     let argv = plan_remote_probe(
         &remote_with_run_as(),
         Path::new("/home/acoliver/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let Some(command) = argv.iter().find(|a| a.contains("sudo")) else {
         panic!("must wrap in sudo: {argv:?}");
@@ -508,7 +493,7 @@ fn probe_plan_no_sudo_when_effective_equals_login() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     assert!(
         !argv.iter().any(|a| a.contains("sudo")),
@@ -525,7 +510,7 @@ fn probe_plan_does_not_cd_to_work_dir_for_global_check() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let command = argv
         .iter()
@@ -536,7 +521,7 @@ fn probe_plan_does_not_cd_to_work_dir_for_global_check() {
         "CodePuppy probe must NOT cd to work dir (global check only): {argv:?}"
     );
     assert!(
-        command.starts_with("command -v code-puppy"),
+        command.starts_with("{ command -v 'code-puppy'"),
         "global check must run first without cd: {argv:?}"
     );
 }
@@ -548,7 +533,7 @@ fn probe_plan_llxprt_global_check_has_no_cd() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
+        &jefe::domain::shipped_agent_type(3),
     );
     let command = argv
         .iter()
@@ -559,7 +544,8 @@ fn probe_plan_llxprt_global_check_has_no_cd() {
         "LLxprt probe must NOT cd to work dir: {argv:?}"
     );
     assert!(
-        command.starts_with("{ command -v llxprt"),
+        command
+            .starts_with("{ [ -x '/home/ubuntu/work/.llxprt/bin/llxprt' ] || command -v 'llxprt'"),
         "global check must run first without cd: {argv:?}"
     );
 }
@@ -572,7 +558,7 @@ fn probe_plan_code_puppy_works_without_existing_workdir() {
     let argv = plan_remote_probe(
         &valid_remote(),
         Path::new("/nonexistent/path"),
-        AgentKind::CodePuppy,
+        &jefe::domain::shipped_agent_type(1),
     );
     let command = argv
         .iter()
@@ -592,8 +578,8 @@ fn require_local_available_passes_when_installed() {
     let result = require_runtime_available(
         &target,
         Path::new("/tmp/work"),
-        AgentKind::CodePuppy,
-        &[AgentKind::CodePuppy],
+        &jefe::domain::shipped_agent_type(1),
+        &[jefe::domain::shipped_agent_type(1)],
     );
     assert!(result.is_ok());
 }
@@ -604,11 +590,11 @@ fn require_local_fails_when_not_installed() {
     let result = require_runtime_available(
         &target,
         Path::new("/tmp/work"),
-        AgentKind::CodePuppy,
-        &[AgentKind::Llxprt],
+        &jefe::domain::shipped_agent_type(1),
+        &[jefe::domain::shipped_agent_type(3)],
     );
     let err = result.error_or_panic("local availability check should fail");
-    assert!(err.contains("code_puppy"));
+    assert!(err.contains("Code Puppy"));
     assert!(err.contains("PATH"));
 }
 
@@ -624,13 +610,13 @@ fn require_local_fails_when_not_installed() {
 #[test]
 fn require_runtime_local_wires_to_local_check() {
     let target = WorkTarget::Local;
-    let available = &[AgentKind::Llxprt];
+    let available = &[jefe::domain::shipped_agent_type(3)];
     // CodePuppy not in local snapshot → error.
     assert!(
         require_runtime_available(
             &target,
             Path::new("/tmp/work"),
-            AgentKind::CodePuppy,
+            &jefe::domain::shipped_agent_type(1),
             available
         )
         .is_err()
@@ -640,7 +626,7 @@ fn require_runtime_local_wires_to_local_check() {
         require_runtime_available(
             &target,
             Path::new("/tmp/work"),
-            AgentKind::Llxprt,
+            &jefe::domain::shipped_agent_type(3),
             available
         )
         .is_ok()

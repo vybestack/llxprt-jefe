@@ -11,40 +11,48 @@ use std::collections::HashMap;
 use super::super::RuntimeError;
 use super::super::manager::TmuxRuntimeManager;
 use super::{ShellWindowInputs, shell_window_inputs_for};
-use crate::domain::{AgentId, LaunchSignature};
+use crate::domain::AgentId;
+use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::runtime::RuntimeSession;
 
-fn local_signature(work_dir: &str) -> LaunchSignature {
-    LaunchSignature {
-        work_dir: std::path::PathBuf::from(work_dir),
-        profile: "default".into(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec![],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: crate::domain::SandboxEngine::Podman,
-        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-        remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-        llxprt_version: None,
+fn local_plan(work_dir: &str) -> AgentLaunchPlan {
+    AgentLaunchPlan {
+        cwd: std::path::PathBuf::from(work_dir),
+        ..AgentLaunchPlan::default()
     }
 }
 
-fn remote_signature() -> LaunchSignature {
-    let mut sig = local_signature("/tmp/remote");
-    sig.remote.enabled = true;
-    sig.remote.host = "example.com".into();
-    sig
+fn remote_plan() -> AgentLaunchPlan {
+    let mut plan = local_plan("/tmp/remote");
+    plan.target = crate::domain::agent_definition::Target::Remote(
+        crate::domain::agent_definition::RemoteTarget {
+            user: "user".into(),
+            host: "example.com".into(),
+            port: None,
+            run_as_user: String::new(),
+            canonical_cwd: std::path::PathBuf::from("/tmp/remote"),
+        },
+    );
+    plan
 }
 
-fn manager_with_session(agent_id: &AgentId, signature: LaunchSignature) -> TmuxRuntimeManager {
+fn manager_with_session(
+    agent_id: &AgentId,
+    plan: AgentLaunchPlan,
+    remote_enabled: bool,
+) -> TmuxRuntimeManager {
     let mut mgr = TmuxRuntimeManager::new(24, 80);
     let session_name = RuntimeSession::session_name_for(agent_id);
-    let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature);
+    let remote = if remote_enabled {
+        Some(crate::domain::RemoteRepositorySettings {
+            enabled: true,
+            host: "example.com".into(),
+            ..crate::domain::RemoteRepositorySettings::default()
+        })
+    } else {
+        None
+    };
+    let mut session = RuntimeSession::new(agent_id.clone(), session_name, plan, remote);
     session.lifecycle_generation = 7;
     mgr.sessions.insert(agent_id.clone(), session);
     mgr
@@ -55,7 +63,7 @@ fn manager_with_session(agent_id: &AgentId, signature: LaunchSignature) -> TmuxR
 #[test]
 fn snapshot_inputs_carries_session_name_and_local_owner_for_local_agent() {
     let agent_id = AgentId("local-agent".into());
-    let mgr = manager_with_session(&agent_id, local_signature("/tmp/work"));
+    let mgr = manager_with_session(&agent_id, local_plan("/tmp/work"), false);
     let inputs = shell_window_inputs_for(&mgr.sessions, &agent_id);
     assert!(inputs.is_some(), "local session yields snapshot inputs");
     let inputs = inputs.map(|i| {
@@ -86,7 +94,7 @@ fn snapshot_inputs_missing_for_unknown_agent() {
 #[test]
 fn snapshot_inputs_reports_remote_enabled_for_remote_agent() {
     let agent_id = AgentId("remote-agent".into());
-    let mgr = manager_with_session(&agent_id, remote_signature());
+    let mgr = manager_with_session(&agent_id, remote_plan(), true);
     let inputs = shell_window_inputs_for(&mgr.sessions, &agent_id);
     assert!(
         inputs.is_some(),
@@ -145,7 +153,7 @@ fn execute_select_rejects_remote_snapshot_without_subprocess() {
 #[test]
 fn revalidate_accepts_matching_owner() {
     let agent_id = AgentId("owner-1".into());
-    let mgr = manager_with_session(&agent_id, local_signature("/tmp/w"));
+    let mgr = manager_with_session(&agent_id, local_plan("/tmp/w"), false);
     let sessions: HashMap<AgentId, RuntimeSession> = mgr.sessions.clone();
     let inputs = shell_window_inputs_for(&mgr.sessions, &agent_id)
         .unwrap_or_else(|| panic!("expected matching shell inputs"));
@@ -159,12 +167,12 @@ fn revalidate_accepts_matching_owner() {
 fn revalidate_rejects_when_owner_changed() {
     let original = AgentId("owner-orig".into());
     let next = AgentId("owner-next".into());
-    let mut mgr = manager_with_session(&original, local_signature("/tmp/w"));
+    let mut mgr = manager_with_session(&original, local_plan("/tmp/w"), false);
     // Simulate the background attach swapping the attached session to a
     // different owner while the shell operation was off-lock.
     mgr.sessions.clear();
     let session_name = RuntimeSession::session_name_for(&next);
-    let session = RuntimeSession::new(next.clone(), session_name, local_signature("/tmp/w"));
+    let session = RuntimeSession::new(next.clone(), session_name, local_plan("/tmp/w"), None);
     mgr.sessions.insert(next, session);
     let sessions = mgr.sessions.clone();
 
@@ -189,7 +197,8 @@ fn revalidate_rejects_when_session_name_differs() {
     let session = RuntimeSession::new(
         agent_id.clone(),
         "jefe-different-name".to_owned(),
-        local_signature("/tmp/w"),
+        local_plan("/tmp/w"),
+        None,
     );
     sessions.insert(agent_id, session);
 
@@ -210,7 +219,7 @@ fn revalidate_rejects_when_session_name_differs() {
 #[test]
 fn revalidate_rejects_when_lifecycle_generation_changes() {
     let agent_id = AgentId("owner-generation".into());
-    let mut mgr = manager_with_session(&agent_id, local_signature("/tmp/w"));
+    let mut mgr = manager_with_session(&agent_id, local_plan("/tmp/w"), false);
     let inputs = shell_window_inputs_for(&mgr.sessions, &agent_id)
         .unwrap_or_else(|| panic!("expected matching shell inputs"));
     if let Some(session) = mgr.sessions.get_mut(&agent_id) {

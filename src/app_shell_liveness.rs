@@ -391,6 +391,8 @@ mod tests {
         let mut agent = Agent::new(
             AgentId(id.into()),
             RepositoryId("repo".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             id.into(),
             PathBuf::from("/tmp"),
         );
@@ -402,6 +404,8 @@ mod tests {
         let mut agent = Agent::new(
             AgentId(id.into()),
             RepositoryId("repo".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             id.into(),
             PathBuf::from("/tmp"),
         );
@@ -470,23 +474,7 @@ mod tests {
         let mut agent = fixture_running_agent("a");
         agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
             session_name: "jefe-current".into(),
-            launch_signature: jefe::domain::LaunchSignature {
-                work_dir: PathBuf::from("/tmp"),
-                profile: String::new(),
-                code_puppy_model: String::new(),
-                code_puppy_version: String::new(),
-                code_puppy_yolo: None,
-                code_puppy_quick_resume: false,
-                mode_flags: vec![],
-                llxprt_debug: String::new(),
-                pass_continue: true,
-                sandbox_enabled: false,
-                sandbox_engine: jefe::domain::SandboxEngine::Podman,
-                sandbox_flags: jefe::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-                remote: RemoteRepositorySettings::default(),
-                agent_kind: jefe::domain::AgentKind::Llxprt,
-                llxprt_version: None,
-            },
+            launch_signature: jefe::domain::LaunchSignatureV1::default(),
             attached: false,
             last_seen: None,
             pid: None,

@@ -124,13 +124,15 @@ fn resolve_git_display(info: &ChooserAgentInfo) -> (Option<String>, DirtyStatus)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{Agent, AgentId, AgentKind, Repository, RepositoryId};
+    use jefe::domain::{Agent, AgentId, AgentTypeId, Repository, RepositoryId};
     use jefe::state::AppState;
     use std::path::PathBuf;
 
     fn make_repo(repo_id: &str, remote: bool) -> Repository {
         let mut repo = Repository::new(
             RepositoryId(repo_id.to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             format!("Test {repo_id}"),
             repo_id.to_string(),
             PathBuf::from("/tmp/test"),
@@ -139,14 +141,16 @@ mod tests {
         repo
     }
 
-    fn make_agent(id: &str, repo_id: &str, kind: AgentKind) -> Agent {
+    fn make_agent(id: &str, repo_id: &str, kind: AgentTypeId) -> Agent {
         let mut agent = Agent::new(
             AgentId(id.to_string()),
             RepositoryId(repo_id.to_string()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             format!("Agent {id}"),
             PathBuf::from("/tmp/agent"),
         );
-        agent.agent_kind = kind;
+        agent.type_id = kind;
         agent
     }
 
@@ -154,7 +158,10 @@ mod tests {
         let mut state = AppState::default();
         state.repositories.push(make_repo(repo_id, false));
         state.selected_repository_index = Some(0);
-        state.installed_agent_kinds = vec![AgentKind::Llxprt, AgentKind::CodePuppy];
+        state.available_agent_type_ids = vec![
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::shipped_agent_type(1),
+        ];
         for agent in agents {
             state.agents.push(agent.clone());
         }
@@ -170,7 +177,7 @@ mod tests {
 
     #[test]
     fn build_metadata_carries_agent_id() {
-        let agent = make_agent("a1", "r1", AgentKind::Llxprt);
+        let agent = make_agent("a1", "r1", jefe::domain::shipped_agent_type(3));
         let state = state_with_repo_and_agents("r1", &[agent]);
         let md = build_chooser_metadata(&state);
         assert_eq!(md.len(), 1);
@@ -182,9 +189,8 @@ mod tests {
         let mut state = AppState::default();
         state.repositories.push(make_repo("r1", true));
         state.selected_repository_index = Some(0);
-        state.installed_agent_kinds = vec![AgentKind::Llxprt];
-        let mut agent = make_agent("a1", "r1", AgentKind::Llxprt);
-        agent.profile = "ops".to_string();
+        state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];
+        let agent = make_agent("a1", "r1", jefe::domain::shipped_agent_type(3));
         state.agents.push(agent);
         let md = build_chooser_metadata(&state);
         assert_eq!(md.len(), 1);
@@ -194,9 +200,8 @@ mod tests {
 
     #[test]
     fn build_metadata_local_nonexistent_workdir_has_no_branch_or_dirty() {
-        let mut agent = make_agent("a1", "r1", AgentKind::Llxprt);
+        let mut agent = make_agent("a1", "r1", jefe::domain::shipped_agent_type(3));
         agent.work_dir = PathBuf::from("/nonexistent/path/that/does/not/exist");
-        agent.profile = "ops".to_string();
         let state = state_with_repo_and_agents("r1", &[agent]);
         let md = build_chooser_metadata(&state);
         assert_eq!(md.len(), 1);
@@ -214,8 +219,7 @@ mod tests {
 
     #[test]
     fn build_metadata_includes_agent_with_custom_profile_as_eligible() {
-        let mut agent = make_agent("a1", "r1", AgentKind::Llxprt);
-        agent.profile = "agent-profile".to_string();
+        let agent = make_agent("a1", "r1", jefe::domain::shipped_agent_type(3));
         let state = state_with_repo_and_agents("r1", &[agent]);
         let md = build_chooser_metadata(&state);
         assert_eq!(
@@ -229,9 +233,9 @@ mod tests {
     fn build_metadata_preserves_deterministic_order() {
         // Concurrent probing must preserve the selector's deterministic order.
         let agents = vec![
-            make_agent("c3", "r1", AgentKind::Llxprt),
-            make_agent("a1", "r1", AgentKind::Llxprt),
-            make_agent("b2", "r1", AgentKind::CodePuppy),
+            make_agent("c3", "r1", jefe::domain::shipped_agent_type(3)),
+            make_agent("a1", "r1", jefe::domain::shipped_agent_type(3)),
+            make_agent("b2", "r1", jefe::domain::shipped_agent_type(1)),
         ];
         let state = state_with_repo_and_agents("r1", &agents);
         let md = build_chooser_metadata(&state);
@@ -248,7 +252,9 @@ mod tests {
         ChooserAgentInfo {
             agent_id: AgentId(id.to_string()),
             name: id.to_string(),
-            kind: AgentKind::Llxprt,
+            type_id: jefe::domain::shipped_agent_type(3),
+            type_display_name: "LLxprt".to_owned(),
+            runtime_config_name: "profile".to_owned(),
             runtime_config: String::new(),
             is_remote: true,
             github_repo: "o/r".to_string(),

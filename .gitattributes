@@ -1,0 +1,2 @@
+# Captured CLI transcripts are byte-exact provenance fixtures, not source text.
+tests/fixtures/agent-definitions/**/help.stdout -text -diff

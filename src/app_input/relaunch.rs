@@ -2,13 +2,14 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, ProcessIdentity};
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
+use jefe::domain::{AgentId, AgentStatus, ProcessIdentity};
+use jefe::runtime::launch_compose::PreparedLaunch;
+use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
 use tracing::warn;
 
 use super::agent_runtime::{
-    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    clear_agent_runtime_attachment, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
 };
 use super::{
@@ -78,10 +79,12 @@ pub(super) fn recoverable_server_lost_ids(
         .iter()
         .filter(|agent| agent.status == AgentStatus::ServerLost)
         .filter(|agent| {
-            agent.runtime_binding.as_ref().is_some_and(|binding| {
-                !binding.launch_signature.remote.enabled
-                    && requested.map_or(true, |ids| ids.contains(&agent.id))
-            })
+            state
+                .repositories
+                .iter()
+                .find(|repository| repository.id == agent.repository_id)
+                .is_some_and(|repository| !repository.remote.enabled)
+                && requested.map_or(true, |ids| ids.contains(&agent.id))
         })
         .map(|agent| agent.id.clone())
         .collect()
@@ -98,13 +101,7 @@ fn relaunch_preflight_passed(
     let Some((_, signature)) = agent_sig else {
         return true;
     };
-    if !availability::launch_available_or_error(
-        app_state,
-        signature.agent_kind,
-        signature.llxprt_version.as_ref(),
-        &signature.code_puppy_version,
-        &signature.remote,
-    ) {
+    if !availability::launch_available_or_error(app_state, &signature) {
         return false;
     }
     preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
@@ -115,17 +112,19 @@ fn relaunch_runtime_session(
     ctx: &SharedContext,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
+    let state_ro = app_state.read();
+    let (agent, signature) = agent_and_signature(&state_ro, agent_id)
+        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+    drop(state_ro);
+    let evidence = availability::launch_state_evidence(app_state, &signature)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(&signature, &evidence)?;
+
     let ctx_arc = ctx.as_ref().ok_or_else(|| {
         RuntimeError::SpawnFailed("runtime context unavailable during relaunch".to_owned())
     })?;
     let mut ctx_guard = ctx_arc.lock().map_err(|_| {
         RuntimeError::SpawnFailed("runtime context lock unavailable during relaunch".to_owned())
     })?;
-
-    let state_ro = app_state.read();
-    let (agent, signature) = agent_and_signature(&state_ro, agent_id)
-        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
-    drop(state_ro);
 
     // Relaunch guard (issue #332): if a validated orphan worker descendant is
     // still alive, spawning now would create a duplicate --continue worker.
@@ -137,12 +136,7 @@ fn relaunch_runtime_session(
         return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
     }
 
-    spawn_relaunch_session(
-        &mut ctx_guard.runtime,
-        agent_id,
-        &agent.work_dir,
-        &signature,
-    )?;
+    spawn_relaunch_session(&mut ctx_guard.runtime, agent_id, &agent.work_dir, &prepared)?;
     std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
     if let Err(error) = attach_relaunched_session(&mut ctx_guard.runtime, agent_id) {
         let _ = ctx_guard.runtime.mark_session_dead(agent_id);
@@ -156,12 +150,14 @@ fn relaunch_runtime_session(
 pub(super) fn spawn_relaunch_session<R: RuntimeManager>(
     runtime: &mut R,
     agent_id: &AgentId,
-    work_dir: &Path,
-    signature: &LaunchSignature,
+    _work_dir: &Path,
+    prepared: &PreparedLaunch,
 ) -> Result<(), RuntimeError> {
-    match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
+    match runtime.spawn_session_fresh(agent_id, prepared.authorized(), prepared.remote()) {
         Ok(()) => Ok(()),
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id),
+        Err(RuntimeError::AlreadyRunning(_)) => {
+            runtime.relaunch(agent_id, prepared.authorized(), prepared.remote())
+        }
         Err(error) => Err(error),
     }
 }
@@ -260,6 +256,15 @@ fn recover_server_lost_runtime(
         return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
     }
 
+    let request = {
+        let state = app_state.read();
+        agent_and_signature(&state, agent_id)
+            .map(|(_, request)| request)
+            .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?
+    };
+    let evidence = availability::launch_state_evidence(app_state, &request)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(&request, &evidence)?;
+
     let ctx_arc = ctx.as_ref().ok_or_else(|| {
         RuntimeError::SpawnFailed("runtime context unavailable during recovery".to_owned())
     })?;
@@ -271,7 +276,9 @@ fn recover_server_lost_runtime(
     if !ctx_guard.runtime.mark_session_dead(agent_id) {
         warn!(agent_id = %agent_id.0, "psmux recovery: manager session record was already absent");
     }
-    ctx_guard.runtime.relaunch(agent_id)?;
+    ctx_guard
+        .runtime
+        .relaunch(agent_id, prepared.authorized(), prepared.remote())?;
     if let Err(error) = ctx_guard.runtime.attach(agent_id) {
         if !ctx_guard.runtime.mark_session_dead(agent_id) {
             warn!(agent_id = %agent_id.0, "psmux recovery: relaunched session record was absent after attach failure");
@@ -372,15 +379,13 @@ fn persist_relaunch_success(
     process_identity: Option<ProcessIdentity>,
 ) {
     let agent_sig = agent_and_signature(state, agent_id);
-    let relaunch_kind = agent_sig
-        .as_ref()
-        .map(|(_, signature)| signature.agent_kind);
     if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-            signature,
+            jefe::runtime::launch_compose::launch_signature_from_request(&signature)
+                .unwrap_or_default(),
             pid,
             process_identity,
         );
@@ -389,13 +394,6 @@ fn persist_relaunch_success(
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
-    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(state);
-        }
-    }
 }
 
 pub(super) fn persist_relaunch_failure(

@@ -239,6 +239,8 @@ fn state_with_active_prs_and_persisted_fields() -> AppState {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Agent One".to_string(),
         PathBuf::from("/tmp/repo-1"),
     ));

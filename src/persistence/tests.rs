@@ -294,29 +294,20 @@ fn file_persistence_atomic_write_creates_parent_dirs() {
 /// @requirement REQ-ISS-012
 #[test]
 fn test_issue_base_prompt_state_round_trip() {
-    use crate::domain::{RemoteRepositorySettings, Repository, RepositoryId};
+    use crate::domain::{Repository, RepositoryId};
     use std::path::PathBuf;
 
-    let repo = Repository {
-        id: RepositoryId("repo-issues".to_string()),
-        name: "Issues Repo".to_string(),
-        slug: "issues-repo".to_string(),
-        base_dir: PathBuf::from("/tmp/issues-repo"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: "fork-owner/issues-repo".to_string(),
-        github_issue_pr_repo: "upstream-owner/issues-repo".to_string(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: "Always reproduce the bug first".to_string(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 0,
-        agent_ids: vec![],
-        default_llxprt_version: None,
-    };
+    let mut repo = Repository::new(
+        RepositoryId("repo-issues".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Issues Repo".to_string(),
+        "issues-repo".to_string(),
+        PathBuf::from("/tmp/issues-repo"),
+    );
+    repo.github_repo = "fork-owner/issues-repo".to_string();
+    repo.github_issue_pr_repo = "upstream-owner/issues-repo".to_string();
+    repo.issue_base_prompt = "Always reproduce the bug first".to_string();
 
     let state = State {
         schema_version: STATE_SCHEMA_VERSION,
@@ -821,27 +812,28 @@ fn legacy_state_without_preferences_deserializes_to_default() {
 
 // ── Issue #163 FIX 8: Full restart-hydration integration test ─────────────
 
+fn repository_fixture(id: &str, name: &str, path: &str) -> Repository {
+    Repository::new(
+        RepositoryId(id.to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        name.to_owned(),
+        id.to_owned(),
+        std::path::PathBuf::from(path),
+    )
+}
+
 /// End-to-end restart test: save → load → restore → enter-mode proves no
 /// cross-repo leakage through the real persistence layer.
 #[test]
 fn restart_hydration_preserves_per_repo_preferences() {
     use crate::domain::{
-        IssueFilter, IssueFilterState, PrFilter, PrFilterState, RepoPreferences, Repository,
-        RepositoryId, UserPreferences,
+        IssueFilter, IssueFilterState, PrFilter, PrFilterState, RepoPreferences, RepositoryId,
+        UserPreferences,
     };
 
-    let repo1 = Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/repo1"),
-    );
-    let repo2 = Repository::new(
-        RepositoryId("repo-2".to_string()),
-        "Repo 2".to_string(),
-        "repo-2".to_string(),
-        std::path::PathBuf::from("/tmp/repo2"),
-    );
+    let repo1 = repository_fixture("repo-1", "Repo 1", "/tmp/repo1");
+    let repo2 = repository_fixture("repo-2", "Repo 2", "/tmp/repo2");
 
     let prefs1 = RepoPreferences {
         issue_filter: IssueFilter {

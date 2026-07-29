@@ -2,7 +2,7 @@
 //! style, warning), split out of `commands.rs` so that file stays under the
 //! source-size hard limit.
 
-use super::{
+use super::commands::{
     apply_session_style, configure_prefix_for_passthrough, enforce_clipboard_passthrough,
     tmux_cmd_status,
 };

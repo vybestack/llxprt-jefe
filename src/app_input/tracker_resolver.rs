@@ -120,29 +120,20 @@ pub(super) fn resolve_tracker_for_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{RemoteRepositorySettings, Repository, RepositoryId};
+    use jefe::domain::{Repository, RepositoryId};
 
     fn make_repo(github_repo: &str, github_issue_pr_repo: &str) -> Repository {
-        Repository {
-            id: RepositoryId("repo-1".to_owned()),
-            name: "Test".to_owned(),
-            slug: "test".to_owned(),
-            base_dir: std::path::PathBuf::from("/tmp/test"),
-            default_profile: String::new(),
-            default_code_puppy_model: String::new(),
-            default_code_puppy_version: String::new(),
-            github_repo: github_repo.to_owned(),
-            github_issue_pr_repo: github_issue_pr_repo.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            issue_base_prompt: String::new(),
-            default_agent_kind: jefe::domain::AgentKind::Llxprt,
-            transient_agent_dir: std::path::PathBuf::new(),
-            default_code_puppy_yolo: None,
-            default_llxprt_mode_flags: Vec::new(),
-            transient_max_concurrent: 0,
-            agent_ids: Vec::new(),
-            default_llxprt_version: None,
-        }
+        let mut repository = Repository::new(
+            RepositoryId("repo-1".to_owned()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
+            "Test".to_owned(),
+            "test".to_owned(),
+            std::path::PathBuf::from("/tmp/test"),
+        );
+        repository.github_repo = github_repo.to_owned();
+        repository.github_issue_pr_repo = github_issue_pr_repo.to_owned();
+        repository
     }
 
     fn target_or_panic(

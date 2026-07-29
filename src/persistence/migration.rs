@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+#[path = "migration_legacy.rs"]
+mod legacy;
 #[path = "migration_schema1.rs"]
 mod schema1;
 #[path = "migration_settings.rs"]
@@ -21,20 +23,20 @@ use schema1::{
     Schema1Agent, Schema1Preferences, Schema1RepoPreferences, Schema1Repository, Schema1State,
 };
 use values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path, stable_id,
-    type_id, typed_map_hash,
+    canonical_local_target, canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
+    launch_value_fingerprint, normalize_remote_path, shipped_definition_hash, stable_id, type_id,
 };
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, FILE_LIMIT, PATH_LIMIT, Severity};
 use super::paths::physical_identity;
 use super::state_v2::StateDocument;
+use crate::domain::agent_definition::{AgentDefinition, FieldKind, RemoteTarget, Target};
 use crate::domain::{
     AgentDefaults, AgentRecord, DormantRecord, Id, LastKnownRuntime, LaunchSignatureV1,
     LocalRepositoryLocation, Preferences, RemoteRepositoryLocation, RepositoryLocation,
     RepositoryRecord, RuntimeRecord, Selection, StateV2, TypedMap,
 };
 
-const DEFINITION_VERSION: &str = "1";
 const DORMANT_REASON: &str = "schema-1 owner or field is unavailable in schema 2";
 
 /// Result of parsing current state or migrating one schema-1 candidate.
@@ -104,12 +106,17 @@ fn current_state(bytes: &[u8]) -> Result<StateMigration, Vec<Diagnostic>> {
 }
 
 fn migrate_schema1_value(value: Value) -> Result<StateMigration, Vec<Diagnostic>> {
+    let raw_agents = value
+        .get("agents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let source: Schema1State =
         serde_json::from_value(value).map_err(|error| vec![malformed(error.to_string())])?;
     if source.schema_version != 1 {
         return Err(vec![malformed("unsupported schema_version")]);
     }
-    let (state, mut diagnostics) = migrate_schema1(source)?;
+    let (state, mut diagnostics) = migrate_schema1(source, raw_agents)?;
     diagnostics.sort();
     let encoded = serde_json::to_vec(&state).map_err(|error| vec![malformed(error.to_string())])?;
     let document = StateDocument::parse(&encoded)?;
@@ -122,21 +129,33 @@ fn migrate_schema1_value(value: Value) -> Result<StateMigration, Vec<Diagnostic>
 
 struct MigratedRepository {
     source_id: String,
-    identity: String,
     remote: bool,
+    remote_user: String,
+    remote_host: String,
+    remote_port: Option<u16>,
+    remote_run_as_user: String,
     record: RepositoryRecord,
 }
 
 struct MigratedAgent {
+    source_index: usize,
     source_id: String,
     source_repository_id: String,
     record: AgentRecord,
 }
 
-fn migrate_schema1(source: Schema1State) -> Result<(StateV2, Vec<Diagnostic>), Vec<Diagnostic>> {
+fn migrate_schema1(
+    source: Schema1State,
+    raw_agents: Vec<Value>,
+) -> Result<(StateV2, Vec<Diagnostic>), Vec<Diagnostic>> {
     let mut dormant_records = Vec::new();
     let repositories = migrate_repositories(source.repositories, &mut dormant_records)?;
-    let agents = migrate_agents(source.agents, &repositories, &mut dormant_records)?;
+    let agents = migrate_agents(
+        source.agents,
+        raw_agents,
+        &repositories,
+        &mut dormant_records,
+    )?;
     let mut diagnostics = Vec::new();
     let selection = migrate_selection(
         source.selected_repository_index,
@@ -193,8 +212,9 @@ fn migrate_repositories(
             stable_id("repo", &[&identity, &ordinal_text]).map_err(malformed_vec)?
         };
         *ordinal += 1;
-        let values = repository_values(&source).map_err(malformed_vec)?;
-        let type_id = type_id(source.default_agent_kind.as_deref()).map_err(malformed_vec)?;
+        let type_id = type_id(source.default_type_id.as_deref()).map_err(malformed_vec)?;
+        let definition = shipped_definition(&type_id).map_err(malformed_vec)?;
+        let values = repository_values(&source, &definition).map_err(malformed_vec)?;
         let location = repository_location(&source, &identity);
         record_unknowns("schema1.repository", Some(&id), source.unknown, dormant)?;
         record_unknowns(
@@ -206,8 +226,11 @@ fn migrate_repositories(
         let _ = source.agent_ids;
         repositories.push(MigratedRepository {
             source_id: source.id,
-            identity,
             remote: source.remote.enabled,
+            remote_user: source.remote.login_user,
+            remote_host: source.remote.host,
+            remote_port: source.remote.port,
+            remote_run_as_user: source.remote.run_as_user,
             record: RepositoryRecord {
                 id,
                 location,
@@ -229,12 +252,13 @@ fn expand_legacy_home(path: &Path) -> Option<PathBuf> {
         text.strip_prefix("~/").or(windows_suffix)?
     };
     // Do not reinterpret an MSYS-style HOME as a native Windows path.
-    let mut home = host_home()?;
+    let home = host_home()?;
     if cfg!(windows) && home.to_string_lossy().starts_with('/') {
         return None;
     }
-    home.push(suffix);
-    Some(home)
+    let mut canonical_home = std::fs::canonicalize(home).ok()?;
+    canonical_home.push(Path::new(suffix));
+    Some(canonical_home)
 }
 
 fn host_home() -> Option<PathBuf> {
@@ -278,7 +302,10 @@ fn repository_location(source: &Schema1Repository, identity: &str) -> Repository
     }
 }
 
-fn repository_values(source: &Schema1Repository) -> Result<TypedMap, String> {
+fn repository_values(
+    source: &Schema1Repository,
+    definition: &AgentDefinition,
+) -> Result<TypedMap, String> {
     let remote = json!({
         "enabled": source.remote.enabled,
         "login_user": source.remote.login_user,
@@ -289,32 +316,98 @@ fn repository_values(source: &Schema1Repository) -> Result<TypedMap, String> {
         "run_as_user": source.remote.run_as_user,
         "setup_env_default": source.remote.setup_env_default,
     });
-    json_map_to_typed(json!({
+    let mut values = json_map_to_typed(json!({
         "slug": source.slug,
-        "default_profile": source.default_profile,
-        "default_code_puppy_model": source.default_code_puppy_model,
-        "default_code_puppy_version": source.default_code_puppy_version,
         "github_repo": source.github_repo,
         "github_issue_pr_repo": source.github_issue_pr_repo,
         "remote": remote,
         "issue_base_prompt": source.issue_base_prompt,
         "transient_agent_dir": source.transient_agent_dir,
-        "default_code_puppy_yolo": source.default_code_puppy_yolo,
-        "default_llxprt_mode_flags": source.default_llxprt_mode_flags,
         "transient_max_concurrent": source.transient_max_concurrent,
-        "default_llxprt_version": source.default_llxprt_version,
-    }))
+    }))?;
+    if declares_repository_field(definition, "profile") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "profile",
+            json!(source.default_profile),
+        )?;
+    }
+    if declares_repository_field(definition, "model") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "model",
+            json!(source.default_code_puppy_model),
+        )?;
+    }
+    if let Some(value) = repository_yolo(source, definition) {
+        crate::domain::canonical_values::insert_json(&mut values, "yolo", json!(value))?;
+    }
+    if declares_agent_field(definition, "version_selector") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "version_selector",
+            json!(repository_version_selector(source, definition)),
+        )?;
+    }
+    Ok(values)
+}
+
+fn repository_version_selector(source: &Schema1Repository, definition: &AgentDefinition) -> String {
+    if declares_repository_field(definition, "model") {
+        source.default_code_puppy_version.clone()
+    } else {
+        source.default_llxprt_version.clone().unwrap_or_default()
+    }
+}
+
+fn repository_yolo(source: &Schema1Repository, definition: &AgentDefinition) -> Option<bool> {
+    let field = definition
+        .repository_fields
+        .iter()
+        .find(|field| field.id == "yolo")?;
+    match field.kind {
+        FieldKind::OptionalBoolean => source.default_code_puppy_yolo,
+        FieldKind::Boolean => Some(
+            source
+                .default_llxprt_mode_flags
+                .iter()
+                .any(|value| value == "--yolo"),
+        ),
+        _ => None,
+    }
+}
+
+fn shipped_definition(type_id: &Id) -> Result<AgentDefinition, String> {
+    AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == type_id.as_str())
+        .ok_or_else(|| format!("unknown shipped agent definition {}", type_id.as_str()))
+}
+
+fn declares_repository_field(definition: &AgentDefinition, id: &str) -> bool {
+    definition
+        .repository_fields
+        .iter()
+        .any(|field| field.id == id)
+}
+
+fn declares_agent_field(definition: &AgentDefinition, id: &str) -> bool {
+    definition.agent_fields.iter().any(|field| field.id == id)
 }
 
 fn migrate_agents(
     sources: Vec<Schema1Agent>,
+    raw_sources: Vec<Value>,
     repositories: &[MigratedRepository],
     dormant: &mut Vec<DormantRecord>,
 ) -> Result<Vec<MigratedAgent>, Vec<Diagnostic>> {
+    if sources.len() != raw_sources.len() {
+        return Err(vec![malformed("schema-1 agent source alignment failed")]);
+    }
     let mut collisions = BTreeMap::<(String, String), u64>::new();
     let mut claimed_ids = BTreeSet::<Id>::new();
     let mut agents = Vec::with_capacity(sources.len());
-    for source in sources {
+    for (source_index, (source, raw_source)) in sources.into_iter().zip(raw_sources).enumerate() {
         let repository = resolve_repository(&source.repository_id, repositories)?;
         let (work_target, home_expanded) = agent_work_target(&source, repository)?;
         let source_identity = agent_source_identity(&source, &work_target);
@@ -345,10 +438,21 @@ fn migrate_agents(
             .map_err(malformed_vec)?
         };
         *ordinal += 1;
+        // An unknown schema-1 agent kind cannot become an executable schema-2
+        // agent, because schema-2 carries a strict type id. Preserve the entire
+        // agent record as a single dormant entry so the user does not lose it,
+        // rather than failing the whole migration. The record's stable id is
+        // the migrated agent id so the durable document can reference it.
+        if type_id(source.agent_kind.as_deref()).is_err() {
+            record_unknown_agent(&source, raw_source, &id, dormant);
+            continue;
+        }
         let record =
             migrate_agent_record(&source, repository, &work_target, home_expanded, id.clone())?;
+        legacy::record_legacy_launch_values(&source, &raw_source, &id, DORMANT_REASON, dormant);
         record_unknowns("schema1.agent", Some(&id), source.unknown, dormant)?;
         agents.push(MigratedAgent {
+            source_index,
             source_id: source.id,
             source_repository_id: source.repository_id,
             record,
@@ -365,13 +469,30 @@ fn migrate_agent_record(
     id: Id,
 ) -> Result<AgentRecord, Vec<Diagnostic>> {
     let type_id = type_id(source.agent_kind.as_deref()).map_err(malformed_vec)?;
-    let values =
-        agent_values(source, home_expanded.then_some(work_target)).map_err(malformed_vec)?;
-    let definition_hash =
-        digest_parts(&[type_id.as_str(), DEFINITION_VERSION]).map_err(malformed_vec)?;
-    let typed_value_hash = typed_map_hash(&values).map_err(malformed_vec)?;
-    let target_fingerprint =
-        digest_parts(&[&repository.identity, work_target]).map_err(malformed_vec)?;
+    let definition = shipped_definition(&type_id).map_err(malformed_vec)?;
+    let values = agent_values(source, &definition, home_expanded.then_some(work_target))
+        .map_err(malformed_vec)?;
+    let definition_hash = shipped_definition_hash(&type_id).map_err(malformed_vec)?;
+    let typed_value_hash = crate::domain::Sha256Digest::parse(
+        &launch_value_fingerprint(&definition, &values)
+            .map_err(malformed_vec)?
+            .to_hex(),
+    )
+    .map_err(|error| malformed_vec(error.to_string()))?;
+    let target = if repository.remote {
+        Target::Remote(RemoteTarget {
+            user: repository.remote_user.trim().to_owned(),
+            host: repository.remote_host.trim().to_owned(),
+            port: repository.remote_port,
+            run_as_user: repository.remote_run_as_user.trim().to_owned(),
+            canonical_cwd: std::path::PathBuf::from(normalize_remote_path(work_target)),
+        })
+    } else {
+        Target::Local {
+            canonical_cwd: std::path::PathBuf::from(work_target),
+        }
+    };
+    let target_fingerprint = launch_target_fingerprint(&target);
     let (session_id, invocation_generation) =
         source
             .runtime_binding
@@ -393,7 +514,8 @@ fn migrate_agent_record(
             version: 1,
             definition_hash,
             typed_value_hash,
-            target_fingerprint,
+            target_fingerprint: crate::domain::Sha256Digest::parse(&target_fingerprint.to_hex())
+                .map_err(|error| malformed_vec(error.to_string()))?,
         },
         runtime: RuntimeRecord {
             session_id,
@@ -418,29 +540,63 @@ fn last_known_runtime(status: Option<&Value>) -> LastKnownRuntime {
 
 fn agent_values(
     source: &Schema1Agent,
+    definition: &AgentDefinition,
     work_dir_override: Option<&str>,
 ) -> Result<TypedMap, String> {
     let work_dir = work_dir_override.map_or(source.work_dir.as_path(), Path::new);
-    json_map_to_typed(json!({
+    let mut values = json_map_to_typed(json!({
         "display_id": source.display_id,
         "shortcut_slot": source.shortcut_slot,
         "name": source.name,
         "description": source.description,
         "work_dir": work_dir,
-        "profile": source.profile,
-        "code_puppy_model": source.code_puppy_model,
-        "code_puppy_version": source.code_puppy_version,
-        "code_puppy_yolo": source.code_puppy_yolo,
-        "code_puppy_quick_resume": source.code_puppy_quick_resume,
-        "mode_flags": source.mode_flags,
-        "llxprt_debug": source.llxprt_debug,
-        "pass_continue": source.pass_continue,
-        "sandbox_enabled": source.sandbox_enabled,
-        "sandbox_engine": source.sandbox_engine,
-        "sandbox_flags": source.sandbox_flags,
-        "llxprt_version": source.llxprt_version,
         "origin": source.origin.as_deref().unwrap_or("persistent"),
-    }))
+    }))?;
+    if declares_repository_field(definition, "profile") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "profile",
+            json!(source.profile),
+        )?;
+    }
+    if declares_repository_field(definition, "model") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "model",
+            json!(source.code_puppy_model),
+        )?;
+    }
+    if let Some(value) = agent_yolo(source, definition) {
+        crate::domain::canonical_values::insert_json(&mut values, "yolo", json!(value))?;
+    }
+    if declares_agent_field(definition, "version_selector") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "version_selector",
+            json!(agent_version_selector(source, definition)),
+        )?;
+    }
+    Ok(values)
+}
+
+fn agent_version_selector(source: &Schema1Agent, definition: &AgentDefinition) -> String {
+    if declares_repository_field(definition, "model") {
+        source.code_puppy_version.clone()
+    } else {
+        source.llxprt_version.clone().unwrap_or_default()
+    }
+}
+
+fn agent_yolo(source: &Schema1Agent, definition: &AgentDefinition) -> Option<bool> {
+    let field = definition
+        .repository_fields
+        .iter()
+        .find(|field| field.id == "yolo")?;
+    match field.kind {
+        FieldKind::OptionalBoolean => source.code_puppy_yolo,
+        FieldKind::Boolean => Some(source.mode_flags.iter().any(|value| value == "--yolo")),
+        _ => None,
+    }
 }
 
 fn agent_work_target(
@@ -453,8 +609,15 @@ fn agent_work_target(
     }
     let expanded = expand_legacy_home(&source.work_dir);
     let effective = expanded.as_deref().unwrap_or(&source.work_dir);
-    let identity = physical_identity(effective).map_err(|error| vec![*error.diagnostic])?;
-    let target = path_text(identity.canonical_path()).map(str::to_owned)?;
+    let target = canonical_local_target(effective).map_err(|detail| {
+        vec![Diagnostic::new(
+            CfgCode::E001,
+            Severity::Error,
+            DiagnosticPath::root(),
+            None,
+            detail,
+        )]
+    })?;
     Ok((target, expanded.is_some()))
 }
 
@@ -479,12 +642,7 @@ fn migrate_selection(
         "/selected_repository_index",
         diagnostics,
     );
-    let mut agent_id = selected_id(
-        agent_index,
-        agents.iter().map(|item| &item.record.id).collect(),
-        "/selected_agent_index",
-        diagnostics,
-    );
+    let mut agent_id = selected_agent_id(agent_index, agents, diagnostics);
     if let (Some(repository_id), Some(selected_agent)) = (&repository_id, &agent_id)
         && agents.iter().any(|agent| {
             &agent.record.id == selected_agent && &agent.record.repository_id != repository_id
@@ -519,6 +677,22 @@ fn selected_id(
         ));
         None
     }
+}
+
+fn selected_agent_id(
+    index: Option<usize>,
+    agents: &[MigratedAgent],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<Id> {
+    let index = index?;
+    if let Some(agent) = agents.iter().find(|agent| agent.source_index == index) {
+        return Some(agent.record.id.clone());
+    }
+    diagnostics.push(repair_warning(
+        "/selected_agent_index",
+        "selected agent is unavailable after migration",
+    ));
+    None
 }
 
 fn migrate_last_selected(
@@ -637,6 +811,24 @@ fn record_unknowns(
         });
     }
     Ok(())
+}
+
+fn record_unknown_agent(
+    source: &Schema1Agent,
+    raw_value: Value,
+    id: &Id,
+    dormant: &mut Vec<DormantRecord>,
+) {
+    dormant.push(DormantRecord {
+        kind: format!(
+            "schema1.agent.unknown-kind.{}",
+            source.agent_kind.as_deref().unwrap_or("none")
+        ),
+        stable_id: Some(id.clone()),
+        raw_schema: 1,
+        reason: DORMANT_REASON.to_owned(),
+        raw_value,
+    });
 }
 
 fn resolve_repository<'a>(

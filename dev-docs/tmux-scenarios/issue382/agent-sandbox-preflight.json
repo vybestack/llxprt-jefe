@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "name": "agent-sandbox-preflight",
+  "platform": "linux",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "bin", "mode": 493 },
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "bin/llxprt",
+        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
+        "mode": 493
+      },
+      {
+        "path": "bin/podman",
+        "content": { "utf8": "#!/bin/sh\n# missing engine: emulate a non-inspectable container engine\nexit 127\n" },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+    ]
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
+    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Unavailable", "timeout_ms": 15000 },
+    {
+      "op": "capture",
+      "name": "git-clone",
+      "path": "bin/git",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "capture",
+      "name": "ssh",
+      "path": "bin/ssh",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "capture",
+      "name": "tmux",
+      "path": "bin/tmux",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["Unavailable", "sandbox"],
+      "absent": ["started", "Running"]
+    },
+    { "op": "key", "key": "escape", "modifiers": [] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

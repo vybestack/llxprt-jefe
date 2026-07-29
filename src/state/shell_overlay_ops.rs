@@ -440,6 +440,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             RepositoryId("repo".into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Agent".into(),
             std::path::PathBuf::from("/tmp/agent"),
         );
@@ -481,6 +483,8 @@ mod tests {
         let mut agent = Agent::new(
             agent_id.clone(),
             RepositoryId("repo".into()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Agent".into(),
             std::path::PathBuf::from("/tmp/agent"),
         );

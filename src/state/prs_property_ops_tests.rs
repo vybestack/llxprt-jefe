@@ -46,6 +46,8 @@ fn make_state_with_detail() -> AppState {
 fn add_repo(state: &mut AppState) {
     state.repositories.push(crate::domain::Repository::new(
         RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo".to_string(),
         "owner/repo".to_string(),
         std::path::PathBuf::from("/tmp/repo"),

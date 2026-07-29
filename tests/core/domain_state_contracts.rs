@@ -19,17 +19,17 @@ use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 // =============================================================================
 
 #[test]
-fn agent_pass_continue_defaults_true() {
+fn agent_defaults_to_generic_llxprt_with_empty_values() {
     let agent = Agent::new(
         AgentId("test".into()),
         RepositoryId("repo".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test".into(),
         PathBuf::from("/tmp"),
     );
-    assert!(
-        agent.pass_continue,
-        "pass_continue must default to true per REQ-FUNC-004"
-    );
+    assert_eq!(agent.type_id.as_str(), "core.llxprt");
+    assert!(agent.values.is_empty());
 }
 
 #[test]
@@ -37,6 +37,8 @@ fn agent_status_defaults_to_queued() {
     let agent = Agent::new(
         AgentId("test".into()),
         RepositoryId("repo".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Test".into(),
         PathBuf::from("/tmp"),
     );
@@ -50,12 +52,16 @@ fn repository_slug_must_be_unique() {
     let mut state = AppState::default();
     let repo1 = Repository::new(
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo One".into(),
         "repo-one".into(),
         PathBuf::from("/repos/one"),
     );
     let repo2 = Repository::new(
         RepositoryId("r2".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo Two".into(),
         "repo-one".into(), // Same slug - should be rejected
         PathBuf::from("/repos/two"),
@@ -78,12 +84,16 @@ fn navigate_up_decrements_selection() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R1".into(),
         "r1".into(),
         PathBuf::from("/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R2".into(),
         "r2".into(),
         PathBuf::from("/r2"),
@@ -105,6 +115,8 @@ fn navigate_up_at_zero_stays_at_zero() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R1".into(),
         "r1".into(),
         PathBuf::from("/r1"),
@@ -126,12 +138,16 @@ fn navigate_down_increments_selection() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R1".into(),
         "r1".into(),
         PathBuf::from("/r1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId("r2".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R2".into(),
         "r2".into(),
         PathBuf::from("/r2"),
@@ -153,6 +169,8 @@ fn navigate_down_at_end_stays_at_end() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "R1".into(),
         "r1".into(),
         PathBuf::from("/r1"),
@@ -172,6 +190,8 @@ fn navigate_down_at_end_stays_at_end() {
 fn contract_repository(id: &str) -> Repository {
     Repository::new(
         RepositoryId(id.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         id.to_uppercase(),
         id.into(),
         PathBuf::from(format!("/{id}")),
@@ -182,6 +202,8 @@ fn contract_agent(id: &str, repository: &str, status: AgentStatus) -> Agent {
     let mut agent = Agent::new(
         AgentId(id.into()),
         RepositoryId(repository.into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         format!("Agent {id}"),
         PathBuf::from(format!("/{repository}/{id}")),
     );
@@ -234,6 +256,8 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
     let state = AppState {
         repositories: vec![Repository::new(
             RepositoryId("r1".into()),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
@@ -242,6 +266,8 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
             Agent::new(
                 AgentId("idle".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A".into(),
                 PathBuf::from("/r1/idle"),
             ),
@@ -249,6 +275,8 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
                 let mut running = Agent::new(
                     AgentId("running".into()),
                     RepositoryId("r1".into()),
+                    jefe::domain::shipped_agent_type(3),
+                    jefe::domain::TypedMap::new(),
                     "Running A".into(),
                     PathBuf::from("/r1/running"),
                 );
@@ -318,12 +346,16 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
         repositories: vec![
             Repository::new(
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R1".into(),
                 "r1".into(),
                 PathBuf::from("/r1"),
             ),
             Repository::new(
                 RepositoryId("r2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R2".into(),
                 "r2".into(),
                 PathBuf::from("/r2"),
@@ -333,12 +365,16 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
             Agent::new(
                 AgentId("a1".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A1".into(),
                 PathBuf::from("/r1/a1"),
             ),
             Agent::new(
                 AgentId("a2".into()),
                 RepositoryId("r2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Idle A2".into(),
                 PathBuf::from("/r2/a2"),
             ),
@@ -381,12 +417,16 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
         repositories: vec![
             Repository::new(
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R1".into(),
                 "r1".into(),
                 PathBuf::from("/r1"),
             ),
             Repository::new(
                 RepositoryId("r2".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "R2".into(),
                 "r2".into(),
                 PathBuf::from("/r2"),
@@ -396,6 +436,8 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
             let mut running = Agent::new(
                 AgentId("a1".into()),
                 RepositoryId("r1".into()),
+                jefe::domain::shipped_agent_type(3),
+                jefe::domain::TypedMap::new(),
                 "Running A1".into(),
                 PathBuf::from("/r1/a1"),
             );
@@ -534,6 +576,8 @@ fn agent_status_changed_updates_agent() {
     state.agents.push(Agent::new(
         agent_id.clone(),
         RepositoryId("repo".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Agent 1".into(),
         PathBuf::from("/work"),
     ));
@@ -564,6 +608,8 @@ fn kill_agent_sets_status_to_dead() {
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("repo".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Agent 1".into(),
         PathBuf::from("/work"),
     );
@@ -591,12 +637,16 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
     let mut state = AppState::default();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo A".into(),
         "repo-a".into(),
         PathBuf::from("/repo-a"),
     );
     let repo_b = Repository::new(
         RepositoryId("repo-b".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo B".into(),
         "repo-b".into(),
         PathBuf::from("/repo-b"),
@@ -606,6 +656,8 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
     let mut a1 = Agent::new(
         AgentId("a1".into()),
         repo_a.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "A1".into(),
         PathBuf::from("/repo-a/a1"),
     );
@@ -614,6 +666,8 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
     let mut b1 = Agent::new(
         AgentId("b1".into()),
         repo_b.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "B1".into(),
         PathBuf::from("/repo-b/b1"),
     );
@@ -638,12 +692,16 @@ fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
     let mut state = AppState::default();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo A".into(),
         "repo-a".into(),
         PathBuf::from("/repo-a"),
     );
     let repo_b = Repository::new(
         RepositoryId("repo-b".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo B".into(),
         "repo-b".into(),
         PathBuf::from("/repo-b"),
@@ -653,6 +711,8 @@ fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
     let mut a1 = Agent::new(
         AgentId("a1".into()),
         repo_a.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "A1".into(),
         PathBuf::from("/repo-a/a1"),
     );
@@ -662,6 +722,8 @@ fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
     let mut b1 = Agent::new(
         AgentId("b1".into()),
         repo_b.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "B1".into(),
         PathBuf::from("/repo-b/b1"),
     );
@@ -687,12 +749,16 @@ fn repository_navigation_restores_last_selected_agent_per_repo() {
     let mut state = AppState::default();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo A".into(),
         "repo-a".into(),
         PathBuf::from("/repo-a"),
     );
     let repo_b = Repository::new(
         RepositoryId("repo-b".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo B".into(),
         "repo-b".into(),
         PathBuf::from("/repo-b"),
@@ -702,18 +768,24 @@ fn repository_navigation_restores_last_selected_agent_per_repo() {
     let a1 = Agent::new(
         AgentId("a1".into()),
         repo_a.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "A1".into(),
         PathBuf::from("/repo-a/a1"),
     );
     let a2 = Agent::new(
         AgentId("a2".into()),
         repo_a.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "A2".into(),
         PathBuf::from("/repo-a/a2"),
     );
     let b1 = Agent::new(
         AgentId("b1".into()),
         repo_b.id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "B1".into(),
         PathBuf::from("/repo-b/b1"),
     );
@@ -790,6 +862,8 @@ fn theme_resolve_failed_sets_warning() {
 fn form_created_agent_has_running_status() {
     let repo = Repository::new(
         RepositoryId("repo-1".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo One".into(),
         "repo-one".into(),
         PathBuf::from("/tmp/repo-one"),

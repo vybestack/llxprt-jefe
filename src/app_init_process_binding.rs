@@ -109,6 +109,8 @@ mod tests {
         let repository_id = RepositoryId("binding-repo".to_owned());
         let repository = Repository::new(
             repository_id.clone(),
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Binding Repo".to_owned(),
             "binding-repo".to_owned(),
             std::path::PathBuf::from("/tmp/binding-repo"),
@@ -116,6 +118,8 @@ mod tests {
         let mut agent = Agent::new(
             AgentId("binding-agent".to_owned()),
             repository_id,
+            jefe::domain::shipped_agent_type(3),
+            jefe::domain::TypedMap::new(),
             "Binding Agent".to_owned(),
             std::path::PathBuf::from("/tmp/binding-agent"),
         );
@@ -129,9 +133,17 @@ mod tests {
             ..AppState::default()
         };
 
+        let launch_signature =
+            jefe::runtime::launch_compose::launch_signature_from_request(&signature)
+                .unwrap_or_else(|error| panic!("fixture signature: {error}"));
         super::super::apply_restored_state(
             &mut state,
-            vec![(agent_id.clone(), signature, resolved.pid, resolved.identity)],
+            vec![super::super::RevivedAgent {
+                agent_id: agent_id.clone(),
+                launch_signature,
+                pid: resolved.pid,
+                process_identity: resolved.identity,
+            }],
             Vec::new(),
             None,
         );

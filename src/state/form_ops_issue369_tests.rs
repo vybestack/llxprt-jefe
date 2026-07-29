@@ -28,14 +28,14 @@ fn new_repository_modal_starts_focused_on_name() {
 #[test]
 fn llxprt_tab_from_default_version_lands_on_github_repo() {
     let mut state = AppState {
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Advance to DefaultLlxprtVersion (skip hidden CodePuppy fields).
     state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField).committed_pure(); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultAgentKind
+    state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultAgentTypeId
     state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultLlxprtMode
     state = state.apply(AppEvent::FormNextField).committed_pure(); // → DefaultLlxprtVersion
 
@@ -60,7 +60,7 @@ fn llxprt_tab_from_default_version_lands_on_github_repo() {
 #[test]
 fn llxprt_shift_tab_from_github_repo_lands_on_default_version() {
     let mut state = AppState {
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
@@ -125,7 +125,7 @@ fn tab_from_github_repo_lands_on_issue_pr_repo() {
 #[test]
 fn transient_fields_are_reachable_after_setup_env_default() {
     let mut state = AppState {
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
@@ -152,7 +152,7 @@ fn transient_fields_are_reachable_after_setup_env_default() {
 #[test]
 fn shift_tab_from_name_wraps_to_transient_max_concurrent() {
     let mut state = AppState {
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();

@@ -102,6 +102,8 @@ fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo".to_string(),
         "repo".to_string(),
         std::path::PathBuf::from("/tmp/repo"),
@@ -110,6 +112,8 @@ fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
     let mut agent = Agent::new(
         agent_id,
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "agent".to_string(),
         std::path::PathBuf::from("/tmp/agent"),
     );
@@ -129,26 +133,16 @@ fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
 fn sidebar_lines_include_selection_prefix() {
     use crate::domain::{AgentId, Repository, RepositoryId};
     let mut state = AppState::default();
-    state.repositories.push(Repository {
-        id: RepositoryId("r1".to_string()),
-        name: "repo-one".to_string(),
-        slug: "repo-one".to_string(),
-        base_dir: std::path::PathBuf::new(),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: crate::domain::RemoteRepositorySettings::default(),
-        issue_base_prompt: String::new(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: std::path::PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 0,
-        default_llxprt_version: None,
-        agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
-    });
+    let mut repository = Repository::new(
+        RepositoryId("r1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "repo-one".to_string(),
+        "repo-one".to_string(),
+        std::path::PathBuf::new(),
+    );
+    repository.agent_ids = vec![AgentId("a1".to_string()), AgentId("a2".to_string())];
+    state.repositories.push(repository);
     // Select the first repo so the rendered "> " prefix appears.
     state.selected_repository_index = Some(0);
     let content = pane_content_lines(SelectablePane::Sidebar, &state, None, &[], 120, 40);
@@ -163,7 +157,7 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
 
     let fields = RepositoryFormFields {
         default_profile: "profile".to_owned(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         default_llxprt_version: "0.9.0".to_owned(),
         github_repo: "owner/repo".to_owned(),
         ..RepositoryFormFields::default()
@@ -177,7 +171,7 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
                 ..RepositoryFormCursor::default()
             },
         },
-        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
         ..AppState::default()
     };
     let lines = crate::selection::repository_form_content_lines(&state)
@@ -279,6 +273,8 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
     let mut state = AppState::default();
     state.repositories.push(crate::domain::Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Kennel Repo".to_owned(),
         "kennel".to_owned(),
         std::path::PathBuf::from("/tmp/kennel"),
@@ -286,10 +282,12 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
     let mut agent = crate::domain::Agent::new(
         crate::domain::AgentId("puppy".to_owned()),
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Puppy".to_owned(),
         std::path::PathBuf::from("/tmp/kennel/puppy"),
     );
-    agent.agent_kind = crate::domain::AgentKind::CodePuppy;
+    agent.type_id = crate::domain::shipped_agent_type(1);
     state.agents.push(agent);
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
@@ -501,6 +499,8 @@ fn agent_chooser_lines_include_header_and_agent_names() {
     let repo_id = RepositoryId("r1".to_string());
     state.repositories.push(Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo".to_string(),
         "repo".to_string(),
         std::path::PathBuf::from("/tmp/repo"),
@@ -508,12 +508,16 @@ fn agent_chooser_lines_include_header_and_agent_names() {
     state.agents.push(Agent::new(
         AgentId("a1".to_string()),
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "alpha".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
     state.agents.push(Agent::new(
         AgentId("a2".to_string()),
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "beta".to_string(),
         std::path::PathBuf::from("/tmp/a2"),
     ));
@@ -613,6 +617,8 @@ fn confirm_modal_lines_include_title_and_message() {
     let repo_id = RepositoryId("r1".to_string());
     state.repositories.push(Repository::new(
         repo_id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "repo".to_string(),
         "repo".to_string(),
         std::path::PathBuf::from("/tmp/repo"),
@@ -621,6 +627,8 @@ fn confirm_modal_lines_include_title_and_message() {
     state.agents.push(Agent::new(
         agent_id.clone(),
         repo_id,
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "my-agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));

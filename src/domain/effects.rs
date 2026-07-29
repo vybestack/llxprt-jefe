@@ -9,6 +9,9 @@
 
 use std::num::NonZeroU8;
 
+use crate::agent_candidate::CandidateResolution;
+
+use super::agent_definition::{AgentDefinition, Availability};
 use super::{AgentId, Id, StateV2};
 
 /// Maximum ordered effects (including completion-produced follow-ups) that
@@ -195,7 +198,15 @@ pub enum PersistenceResponse {
     Superseded { revision: u64 },
 }
 
-/// Local agent liveness probe operations.
+/// One resolved definition probe requested by the availability reducer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentAvailabilityProbe {
+    pub definition: Box<AgentDefinition>,
+    pub resolution: CandidateResolution,
+    pub generation: u64,
+}
+
+/// Local agent probe operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeEffect {
     /// Check whether the agent's runtime session is currently alive.
@@ -203,12 +214,20 @@ pub enum ProbeEffect {
         agent_id: AgentId,
         session_id: String,
     },
+    /// Probe one physically resolved definition for identity and capabilities.
+    CheckAgentAvailability(AgentAvailabilityProbe),
 }
 
 /// Agent probe completion payloads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeResponse {
-    Liveness { alive: bool },
+    Liveness {
+        alive: bool,
+    },
+    Availability {
+        availability: Box<Availability>,
+        generation: u64,
+    },
 }
 
 /// Local runtime session operations.

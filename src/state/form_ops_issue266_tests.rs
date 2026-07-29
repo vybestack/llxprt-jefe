@@ -7,6 +7,8 @@ use crate::domain::{Repository, RepositoryId};
 fn seed_repository() -> Repository {
     Repository::new(
         RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_owned(),
         "repo-1".to_owned(),
         std::path::PathBuf::from("/tmp/repo-1"),
@@ -26,7 +28,7 @@ fn issue266_valid_fields() -> RepositoryFormFields {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_type_id: "core.llxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         github_issue_pr_repo: String::new(),
         remote_enabled: false,

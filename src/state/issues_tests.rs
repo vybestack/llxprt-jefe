@@ -74,6 +74,8 @@ fn state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test-repo"),
@@ -139,6 +141,8 @@ fn test_exit_issues_mode_restores_focus() {
     // Set up 2 agents for the selected repository
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -149,12 +153,16 @@ fn test_exit_issues_mode_restores_focus() {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         PathBuf::from("/tmp/agent1"),
     ));
     state.agents.push(Agent::new(
         AgentId("agent-2".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".to_string(),
         PathBuf::from("/tmp/agent2"),
     ));
@@ -182,6 +190,8 @@ fn test_exit_issues_mode_fallback_when_target_gone() {
     // Set up repository with 2 agents
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -191,12 +201,16 @@ fn test_exit_issues_mode_fallback_when_target_gone() {
     state.agents.push(Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 1".to_string(),
         PathBuf::from("/tmp/agent1"),
     ));
     state.agents.push(Agent::new(
         AgentId("agent-2".to_string()),
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Agent 2".to_string(),
         PathBuf::from("/tmp/agent2"),
     ));
@@ -358,6 +372,8 @@ fn test_issue_list_loaded_selects_first() {
     // Set up repository
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -394,6 +410,8 @@ fn test_issue_list_loaded_empty() {
     // Set up repository
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -430,6 +448,8 @@ fn test_issue_list_loaded_stale_scope_discarded() {
     // Set up repo at index 0 with id "repo-1"
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -585,6 +605,8 @@ fn test_issue_list_page_loaded_appends() {
     // Set up repository
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -638,6 +660,8 @@ fn test_issue_list_page_loaded_stale_filter_discarded() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -684,6 +708,8 @@ fn test_issue_list_page_loaded_stale_cursor_discarded() {
     let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         "repo-1".to_string(),
         PathBuf::from("/tmp/repo1"),
@@ -872,6 +898,8 @@ fn test_stale_scope_list_loaded_discarded() {
     // Set up repo "repo-A" at index 0
     state.repositories.push(Repository::new(
         RepositoryId("repo-A".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo A".to_string(),
         "repo-a".to_string(),
         PathBuf::from("/tmp/repo-a"),

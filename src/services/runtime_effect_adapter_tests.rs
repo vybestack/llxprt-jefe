@@ -9,10 +9,7 @@ use crate::domain::effects::{
     Correlation, CorrelationId, Effect, EffectError, EffectErrorKind, EffectFamily, EffectResponse,
     IssuedEffect, RetryPolicy, RuntimeEffect, RuntimeResponse, SemanticKey, TimerEffect,
 };
-use crate::domain::{
-    AgentId, AgentKind, Id, LaunchSignature, LlxprtNpmPackageSelector, RemoteRepositorySettings,
-    SandboxEngine,
-};
+use crate::domain::{AgentId, Id};
 use crate::runtime::{RuntimeManager, StubRuntimeManager};
 use crate::services::effect_executor::{AdapterExecution, EffectAdapter};
 use crate::services::runtime_effect_adapter::RuntimeEffectAdapter;
@@ -48,26 +45,15 @@ fn issued(effect: Effect, family: EffectFamily, subject: &str) -> IssuedEffect {
 
 fn manager_with_session(agent_id: &AgentId) -> StubRuntimeManager {
     let mut manager = StubRuntimeManager::default();
-    let signature = LaunchSignature {
-        work_dir: std::path::PathBuf::from("/tmp/agent"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        code_puppy_version: String::new(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        agent_kind: AgentKind::Llxprt,
-        llxprt_version: LlxprtNpmPackageSelector::normalize("nightly"),
+    let plan = crate::domain::agent_definition::AgentLaunchPlan {
+        cwd: std::path::PathBuf::from("/tmp/agent"),
+        target: crate::domain::agent_definition::Target::Local {
+            canonical_cwd: std::path::PathBuf::from("/tmp/agent"),
+        },
+        ..crate::domain::agent_definition::AgentLaunchPlan::default()
     };
-    if let Err(error) =
-        manager.spawn_session(agent_id, std::path::Path::new("/tmp/agent"), &signature)
-    {
+    let authorized = crate::runtime::test_support::authorized_launch_plan(&plan);
+    if let Err(error) = manager.spawn_session(agent_id, &authorized, None) {
         panic!("spawn must succeed: {error}");
     }
     manager

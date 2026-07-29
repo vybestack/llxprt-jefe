@@ -6,9 +6,7 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::domain::{
-    Agent, AgentChooserEntry, AgentId, AgentKind, ChooserRuntimeConfig, RepositoryId,
-};
+use jefe::domain::{Agent, AgentChooserEntry, AgentId, RepositoryId};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
@@ -78,8 +76,10 @@ fn issues_state_with_chooser() -> AppState {
                 agents: vec![AgentChooserEntry::new(
                     AgentId(String::from("a1")),
                     String::from("Agent 1"),
-                    AgentKind::Llxprt,
-                    ChooserRuntimeConfig::default(),
+                    jefe::domain::shipped_agent_type(3),
+                    "LLxprt".to_owned(),
+                    "profile".to_owned(),
+                    jefe::domain::ChooserRuntimeConfig::default(),
                 )],
                 transient_available: false,
             }),
@@ -106,6 +106,8 @@ fn add_agent(state: &mut AppState) {
     state.agents.push(Agent::new(
         AgentId(String::from("agent-1")),
         RepositoryId(String::from("repo-1")),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         String::from("Agent One"),
         PathBuf::from("/tmp/agent"),
     ));

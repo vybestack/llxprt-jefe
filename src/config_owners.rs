@@ -22,17 +22,47 @@ pub fn builtin_owner_catalog() -> Result<OwnerCatalog, ConfigContractError> {
             secret_paths: BTreeSet::new(),
         })?;
     }
+    for definition in crate::domain::agent_definition::AgentDefinition::shipped() {
+        catalog.insert(OwnerDescriptor {
+            owner_id: Id::parse(definition.id.as_str())?,
+            version: version.clone(),
+            kind: OwnerKind::Agent,
+            defaults: BTreeMap::new(),
+            secret_paths: BTreeSet::new(),
+        })?;
+    }
     Ok(catalog)
 }
 
-const BUILTIN_OWNERS: [(&str, OwnerKind); 9] = [
-    ("core.code-puppy", OwnerKind::Agent),
+const BUILTIN_OWNERS: [(&str, OwnerKind); 7] = [
     ("core.dashboard", OwnerKind::Screen),
     ("core.errors", OwnerKind::Screen),
-    ("core.llxprt", OwnerKind::Agent),
     ("core.repositories", OwnerKind::Screen),
     ("core.terminals", OwnerKind::Screen),
     ("github.actions", OwnerKind::Screen),
     ("github.issues", OwnerKind::Screen),
     ("github.pull-requests", OwnerKind::Screen),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_shipped_definition_is_a_published_agent_owner() {
+        let catalog = builtin_owner_catalog()
+            .unwrap_or_else(|error| panic!("built-in owner catalog must publish: {error}"));
+
+        for definition in crate::domain::agent_definition::AgentDefinition::shipped() {
+            let owner_id = Id::parse(definition.id.as_str())
+                .unwrap_or_else(|error| panic!("definition id must be an owner id: {error}"));
+            assert!(
+                catalog
+                    .get(&owner_id)
+                    .is_some_and(|owner| owner.kind == OwnerKind::Agent),
+                "{} must publish as an agent owner",
+                definition.id.as_str()
+            );
+        }
+    }
+}

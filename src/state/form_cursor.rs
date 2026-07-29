@@ -114,7 +114,7 @@ pub(super) fn handle_repository_field_char(
             &mut cursor.transient_max_concurrent,
             c,
         ),
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
         | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {
@@ -182,7 +182,7 @@ pub(super) fn move_repository_field_cursor_right(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
         | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
@@ -240,7 +240,7 @@ pub(super) fn move_agent_field_cursor_right(
 ) {
     match focus {
         AgentFormFocus::Shortcut
-        | AgentFormFocus::AgentKind
+        | AgentFormFocus::AgentType
         | AgentFormFocus::CodePuppyYolo
         | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue
@@ -299,7 +299,7 @@ pub(super) fn move_repository_field_cursor_start(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
         | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
@@ -337,7 +337,7 @@ pub(super) fn move_repository_field_cursor_end(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
         | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
@@ -386,7 +386,7 @@ pub(super) fn move_repository_field_cursor_end(
 pub(super) fn move_agent_field_cursor_start(cursor: &mut AgentFormCursor, focus: AgentFormFocus) {
     match focus {
         AgentFormFocus::Shortcut
-        | AgentFormFocus::AgentKind
+        | AgentFormFocus::AgentType
         | AgentFormFocus::CodePuppyYolo
         | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue
@@ -412,7 +412,7 @@ pub(super) fn move_agent_field_cursor_end(
 ) {
     match focus {
         AgentFormFocus::Shortcut
-        | AgentFormFocus::AgentKind
+        | AgentFormFocus::AgentType
         | AgentFormFocus::CodePuppyYolo
         | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue
@@ -443,7 +443,7 @@ pub(super) fn move_repository_field_cursor_left(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::DefaultAgentKind
+        RepositoryFormFocus::DefaultAgentType
         | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
@@ -492,7 +492,7 @@ pub(super) fn move_repository_field_cursor_left(
 pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: AgentFormFocus) {
     match focus {
         AgentFormFocus::Shortcut
-        | AgentFormFocus::AgentKind
+        | AgentFormFocus::AgentType
         | AgentFormFocus::CodePuppyYolo
         | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue

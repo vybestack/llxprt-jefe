@@ -1,12 +1,13 @@
 //! Form input handling: character insertion, deletion, cursor movement, field
 //! navigation, checkbox toggling, and form submission logic.
 
-use crate::domain::{AgentKind, RepositoryId, SandboxEngine};
+use crate::domain::SandboxEngine;
+use crate::domain::agent_definition::AgentTypeId;
 
 use super::AppState;
 use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus, WorkflowDispatchFormFocus,
+    RepositoryFormFields, RepositoryFormFocus,
 };
 use super::util::{delete_char_at, delete_char_before, insert_char_at};
 
@@ -16,11 +17,13 @@ impl AppState {
         focus: RepositoryFormFocus,
         forward: bool,
     ) -> RepositoryFormFocus {
-        let kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+        let Some(type_id) = crate::state::type_id_from_form_value(&fields.default_type_id) else {
+            return focus;
+        };
         if forward {
-            crate::state::next_visible_repository_focus(focus, kind)
+            crate::state::next_visible_repository_focus(focus, &type_id)
         } else {
-            crate::state::prev_visible_repository_focus(focus, kind)
+            crate::state::prev_visible_repository_focus(focus, &type_id)
         }
     }
 
@@ -35,7 +38,7 @@ impl AppState {
     }
 
     fn handle_agent_field_char(
-        installed: &[AgentKind],
+        installed: &[AgentTypeId],
         fields: &mut AgentFormFields,
         cursor: &mut AgentFormCursor,
         focus: AgentFormFocus,
@@ -86,7 +89,7 @@ impl AppState {
                     insert_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug, c);
                 false
             }
-            AgentFormFocus::AgentKind
+            AgentFormFocus::AgentType
             | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
@@ -104,7 +107,7 @@ impl AppState {
     }
 
     fn handle_new_agent_char(
-        installed: &[AgentKind],
+        installed: &[AgentTypeId],
         fields: &mut AgentFormFields,
         cursor: &mut AgentFormCursor,
         focus: AgentFormFocus,
@@ -117,7 +120,7 @@ impl AppState {
         Self::handle_agent_field_char(installed, fields, cursor, focus, c) && !*work_dir_manual
     }
 
-    fn effective_agent_kinds_for_current_form(&self) -> Vec<AgentKind> {
+    fn effective_agent_type_ids_for_current_form(&self) -> Vec<AgentTypeId> {
         let is_remote = match &self.modal {
             ModalState::NewAgent { repository_id, .. } => self
                 .repository_by_id(repository_id)
@@ -127,28 +130,34 @@ impl AppState {
                 .is_some_and(|repo| repo.remote.enabled),
             _ => false,
         };
-        super::form_runtime::effective_agent_kinds(&self.installed_agent_kinds, is_remote)
+        super::form_runtime::effective_agent_type_ids(&self.available_agent_type_ids, is_remote)
     }
 
     /// Resolve effective agent kinds for a repository form (New/Edit).
     ///
-    /// Repository forms with `remote_enabled` offer both AgentKind variants
+    /// Repository forms with `remote_enabled` offer both AgentTypeId variants
     /// regardless of local installed snapshot. Local forms offer installed
     /// kinds only. This matches what the UI hint and the selection projection
     /// render.
-    fn effective_agent_kinds_for_repository_form(&self) -> Vec<AgentKind> {
+    fn effective_agent_type_ids_for_repository_form(&self) -> Vec<AgentTypeId> {
         let is_remote = match &self.modal {
             ModalState::NewRepository { fields, .. }
             | ModalState::EditRepository { fields, .. } => fields.remote_enabled,
             _ => false,
         };
-        super::form_runtime::effective_agent_kinds(&self.installed_agent_kinds, is_remote)
+        super::form_runtime::effective_agent_type_ids(&self.available_agent_type_ids, is_remote)
     }
 
     pub(super) fn handle_form_char(&mut self, c: char) {
-        let agent_kinds = self.effective_agent_kinds_for_current_form();
-        let repo_kinds = self.effective_agent_kinds_for_repository_form();
-        let refresh_work_dir = self.form_char_refreshes_work_dir(&agent_kinds, &repo_kinds, c);
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Insert(c),
+        ) {
+            return;
+        }
+        let agent_type_ids = self.effective_agent_type_ids_for_current_form();
+        let repository_type_ids = self.effective_agent_type_ids_for_repository_form();
+        let refresh_work_dir =
+            self.form_char_refreshes_work_dir(&agent_type_ids, &repository_type_ids, c);
 
         if refresh_work_dir {
             self.refresh_new_agent_work_dir();
@@ -159,8 +168,8 @@ impl AppState {
     /// the new-agent work-dir should be refreshed afterwards.
     fn form_char_refreshes_work_dir(
         &mut self,
-        agent_kinds: &[AgentKind],
-        repo_kinds: &[AgentKind],
+        agent_type_ids: &[AgentTypeId],
+        repository_type_ids: &[AgentTypeId],
         c: char,
     ) -> bool {
         match &mut self.modal {
@@ -183,7 +192,7 @@ impl AppState {
                 if crate::state::form_cursor::handle_repository_field_char(
                     fields, cursor, *focus, c,
                 ) {
-                    Self::toggle_repository_checkbox(repo_kinds, fields, *focus);
+                    Self::toggle_repository_checkbox(repository_type_ids, fields, *focus);
                 }
                 false
             }
@@ -193,16 +202,21 @@ impl AppState {
                 cursor,
                 work_dir_manual,
                 ..
-            } => {
-                Self::handle_new_agent_char(agent_kinds, fields, cursor, *focus, work_dir_manual, c)
-            }
+            } => Self::handle_new_agent_char(
+                agent_type_ids,
+                fields,
+                cursor,
+                *focus,
+                work_dir_manual,
+                c,
+            ),
             ModalState::EditAgent {
                 fields,
                 focus,
                 cursor,
                 ..
             } => {
-                let _ = Self::handle_agent_field_char(agent_kinds, fields, cursor, *focus, c);
+                let _ = Self::handle_agent_field_char(agent_type_ids, fields, cursor, *focus, c);
                 false
             }
             ModalState::WorkflowDispatch {
@@ -285,7 +299,7 @@ impl AppState {
             | RepositoryFormFocus::RunAsUser => {
                 super::form_delete_helpers::delete_remote_field_before(fields, cursor, focus);
             }
-            RepositoryFormFocus::DefaultAgentKind
+            RepositoryFormFocus::DefaultAgentType
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::SetupEnvDefault => {}
@@ -347,7 +361,7 @@ impl AppState {
             | RepositoryFormFocus::RunAsUser => {
                 super::form_delete_helpers::delete_remote_field_at(fields, cursor, focus);
             }
-            RepositoryFormFocus::DefaultAgentKind
+            RepositoryFormFocus::DefaultAgentType
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::SetupEnvDefault => {}
@@ -395,7 +409,7 @@ impl AppState {
                 cursor.llxprt_debug =
                     delete_char_before(&mut fields.llxprt_debug, cursor.llxprt_debug);
             }
-            AgentFormFocus::AgentKind
+            AgentFormFocus::AgentType
             | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
@@ -415,7 +429,7 @@ impl AppState {
     ) {
         match focus {
             AgentFormFocus::Shortcut
-            | AgentFormFocus::AgentKind
+            | AgentFormFocus::AgentType
             | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
@@ -506,6 +520,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_delete(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Delete,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository {
                 fields,
@@ -629,6 +648,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_next_field(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Next,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
@@ -636,10 +660,10 @@ impl AppState {
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
-                let visibility = super::form_projection::agent_form_visibility(
-                    super::form_projection::kind_from_form_value(&fields.agent_kind),
-                );
-                *focus = super::form_projection::next_visible_focus(*focus, visibility);
+                let type_id =
+                    super::form_projection::type_id_from_form_value(&fields.agent_type_id);
+                let visibility = super::form_projection::agent_form_visibility(type_id.as_ref());
+                *focus = super::form_projection::next_visible_focus(*focus, &visibility);
             }
             ModalState::WorkflowDispatch { focus, .. } => {
                 *focus = focus.next();
@@ -649,6 +673,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_prev_field(&mut self) {
+        if self.handle_generated_form_intent(
+            super::generated_agent_form::GeneratedAgentFormIntent::Previous,
+        ) {
+            return;
+        }
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
@@ -656,10 +685,10 @@ impl AppState {
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
-                let visibility = super::form_projection::agent_form_visibility(
-                    super::form_projection::kind_from_form_value(&fields.agent_kind),
-                );
-                *focus = super::form_projection::prev_visible_focus(*focus, visibility);
+                let type_id =
+                    super::form_projection::type_id_from_form_value(&fields.agent_type_id);
+                let visibility = super::form_projection::agent_form_visibility(type_id.as_ref());
+                *focus = super::form_projection::prev_visible_focus(*focus, &visibility);
             }
             ModalState::WorkflowDispatch { focus, .. } => {
                 *focus = focus.prev();
@@ -669,16 +698,16 @@ impl AppState {
     }
 
     pub(super) fn toggle_repository_checkbox(
-        installed: &[AgentKind],
+        installed: &[AgentTypeId],
         fields: &mut RepositoryFormFields,
         focus: RepositoryFormFocus,
     ) {
         match focus {
-            RepositoryFormFocus::DefaultAgentKind => {
+            RepositoryFormFocus::DefaultAgentType => {
                 if let Some(next) =
-                    super::form_runtime::next_installed_kind(installed, &fields.default_agent_kind)
+                    super::form_runtime::next_available_type(installed, &fields.default_type_id)
                 {
-                    next.label().clone_into(&mut fields.default_agent_kind);
+                    next.as_str().clone_into(&mut fields.default_type_id);
                 }
             }
             RepositoryFormFocus::RemoteEnabled => fields.remote_enabled = !fields.remote_enabled,
@@ -696,18 +725,18 @@ impl AppState {
         // Resolve effective agent kinds BEFORE the mutable modal match to
         // avoid borrowing self twice (kind resolution reads
         // repository/installed-agent state).
-        let agent_kinds = self.effective_agent_kinds_for_current_form();
-        let repo_kinds = self.effective_agent_kinds_for_repository_form();
+        let agent_type_ids = self.effective_agent_type_ids_for_current_form();
+        let repository_type_ids = self.effective_agent_type_ids_for_repository_form();
 
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                Self::toggle_repository_checkbox(&repo_kinds, fields, *focus);
+                Self::toggle_repository_checkbox(&repository_type_ids, fields, *focus);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
-                if matches!(focus, AgentFormFocus::AgentKind) {
-                    super::form_runtime::cycle_agent_field(&agent_kinds, fields, *focus, ' ');
+                if matches!(focus, AgentFormFocus::AgentType) {
+                    super::form_runtime::cycle_agent_field(&agent_type_ids, fields, *focus, ' ');
                 }
                 Self::toggle_agent_checkbox_fields(fields, *focus);
             }
@@ -720,8 +749,8 @@ impl AppState {
         }
     }
 
-    /// Toggle non-AgentKind checkbox fields for agent forms (PassContinue,
-    /// Shortcut, Sandbox, SandboxEngine). AgentKind is handled separately
+    /// Toggle non-AgentTypeId checkbox fields for agent forms (PassContinue,
+    /// Shortcut, Sandbox, SandboxEngine). AgentTypeId is handled separately
     /// because it depends on the effective kind list (remote vs local).
     fn toggle_agent_checkbox_fields(fields: &mut AgentFormFields, focus: AgentFormFocus) {
         match focus {
@@ -784,136 +813,6 @@ impl AppState {
                     },
                 );
         }
-    }
-
-    pub(super) fn handle_submit_form(&mut self) {
-        match self.modal.clone() {
-            ModalState::NewRepository { fields, .. } => {
-                if let Err(error) =
-                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
-                {
-                    self.error_message = Some(error.to_string());
-                    return;
-                }
-                self.error_message = None;
-                if let Some(repo) = Self::create_repository_from_fields(&fields) {
-                    // Issue #404: a freshly created repo has no agents, so under
-                    // active-only mode it would vanish immediately. Record it as
-                    // sticky so it stays visible until the user navigates away —
-                    // mirroring the sticky-dead-agent behavior (issue #116).
-                    self.sticky_empty_repository_ids.insert(repo.id.clone());
-                    self.repositories.push(repo);
-                    self.selected_repository_index = Some(self.repositories.len() - 1);
-                    self.modal = ModalState::None;
-                }
-            }
-            ModalState::EditRepository { id, fields, .. } => {
-                if let Err(error) =
-                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
-                {
-                    self.error_message = Some(error.to_string());
-                    return;
-                }
-                self.error_message = None;
-                let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
-                    return;
-                };
-                if Self::update_repository_from_fields(repo, &fields) {
-                    self.modal = ModalState::None;
-                }
-            }
-            ModalState::NewAgent {
-                repository_id,
-                fields,
-                ..
-            } => self.submit_new_agent(&repository_id, &fields),
-            ModalState::EditAgent { id, fields, .. } => self.submit_edit_agent(&id, &fields),
-            ModalState::WorkflowDispatch { focus, .. } => self.submit_workflow_dispatch(focus),
-            _ => {
-                self.modal = ModalState::None;
-            }
-        }
-    }
-
-    fn submit_new_agent(&mut self, repository_id: &RepositoryId, fields: &AgentFormFields) {
-        if let Err(message) = Self::validate_agent_form_fields(fields) {
-            self.error_message = Some(message);
-            return;
-        }
-        let next_display_index = self.agents.len() + 1;
-        if let Some(repository) = self.repository_by_id(repository_id).cloned() {
-            if let Err(message) =
-                self.validate_new_agent_uniqueness(repository_id, fields, &repository)
-            {
-                self.error_message = Some(message);
-                return;
-            }
-            if let Some(agent) =
-                Self::create_agent_from_fields(&repository, fields, next_display_index)
-            {
-                self.error_message = None;
-                self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
-                self.agents.push(agent);
-                self.selected_agent_index = Some(self.agents.len() - 1);
-                self.remember_selected_agent_for_current_repo();
-                self.modal = ModalState::None;
-            }
-        }
-    }
-
-    fn submit_edit_agent(&mut self, id: &crate::domain::AgentId, fields: &AgentFormFields) {
-        if fields.name.trim().is_empty() {
-            return;
-        }
-        if let Err(message) = Self::validate_agent_form_fields(fields) {
-            self.error_message = Some(message);
-            return;
-        }
-
-        self.enforce_shortcut_uniqueness(id, fields.shortcut_slot);
-        let repository = self.repository_for_agent(id).cloned();
-        if let Some(repository) = repository {
-            if Self::validated_agent_work_dir(&repository, &fields.work_dir).is_none() {
-                return;
-            }
-            if let Err(message) = self.validate_edit_agent_uniqueness(id, fields, &repository) {
-                self.error_message = Some(message);
-                return;
-            }
-            if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == id) {
-                self.error_message = None;
-                Self::update_agent_from_fields(agent, &repository, fields);
-            }
-        }
-        self.remember_selected_agent_for_current_repo();
-        self.modal = ModalState::None;
-    }
-
-    fn submit_workflow_dispatch(&mut self, focus: WorkflowDispatchFormFocus) {
-        match focus {
-            WorkflowDispatchFormFocus::Cancel => {
-                self.modal = ModalState::None;
-            }
-            // The authoritative submit path is `handle_workflow_dispatch_submit`
-            // in app_input/modal_handlers.rs, which validates the ref, resolves
-            // the repository, closes the modal, and emits the dispatch message.
-            // This reducer arm must NOT close the modal on its own: if a stray
-            // `SubmitForm` ever reaches a WorkflowDispatch modal without going
-            // through the handler, closing here would silently swallow the
-            // dispatch. Leave the modal open so the user can retry.
-            WorkflowDispatchFormFocus::Submit
-            | WorkflowDispatchFormFocus::RefName
-            | WorkflowDispatchFormFocus::Inputs => {}
-        }
-    }
-
-    /// Validate a WorkflowDispatch submit. Returns the parsed params if the
-    /// ref_name is non-empty, or `None` if validation failed (in which case
-    /// the caller should keep the modal open). Delegates to the pure parser
-    /// in [`form_workflow_dispatch`] (newline-separated `key=value` pairs).
-    #[must_use]
-    pub fn parse_workflow_dispatch_inputs(inputs: &str) -> Vec<(String, String)> {
-        crate::state::form_workflow_dispatch::parse_inputs(inputs)
     }
 }
 

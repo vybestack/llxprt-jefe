@@ -389,11 +389,12 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
     let repo_count = state.visible_repository_indices().len();
     let running = state.agents.iter().filter(|a| a.is_running()).count();
     let agent_count = state.visible_agent_count();
-    let kennel_suffix = state
-        .selected_agent()
-        .filter(|agent| agent.agent_kind.is_kennel())
-        .map_or("", |_| " (Kennel mode)");
-    let left = format!("LLxprt Jefe{kennel_suffix} - {}", crate::VERSION);
+    let type_suffix = if state.is_kennel_mode() {
+        " (Kennel mode)"
+    } else {
+        ""
+    };
+    let left = format!("LLxprt Jefe{type_suffix} - {}", crate::VERSION);
     let center = format!("{repo_count} repos | {running}/{agent_count} running");
     let line = format!("{left}   {center}");
     PaneContent::new(SelectablePane::StatusBar, vec![line])

@@ -5,6 +5,6 @@
 //! without depending on `persistence/`.
 
 pub(super) use crate::domain::canonical_values::{
-    canonical_remote_target, digest_parts, json_map_to_typed, normalize_remote_path, stable_id,
-    type_id, typed_map_hash,
+    canonical_local_target, canonical_remote_target, json_map_to_typed, launch_target_fingerprint,
+    launch_value_fingerprint, normalize_remote_path, shipped_definition_hash, stable_id, type_id,
 };

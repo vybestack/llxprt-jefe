@@ -1,27 +1,16 @@
 use super::*;
-use crate::domain::{AgentStatus, RemoteRepositorySettings, Repository, RepositoryId};
+use crate::domain::canonical_values::typed_field;
+use crate::domain::{AgentStatus, RemoteRepositorySettings, Repository, RepositoryId, TypedValue};
 
 fn local_repository() -> Repository {
-    Repository {
-        id: RepositoryId("repo-1".to_owned()),
-        name: "Repo 1".to_owned(),
-        slug: "repo-1".to_owned(),
-        base_dir: std::path::PathBuf::from("/tmp/repo-1"),
-        default_profile: String::new(),
-        default_code_puppy_model: String::new(),
-        default_code_puppy_version: String::new(),
-        github_repo: String::new(),
-        github_issue_pr_repo: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        issue_base_prompt: String::new(),
-        default_agent_kind: crate::domain::AgentKind::Llxprt,
-        transient_agent_dir: std::path::PathBuf::new(),
-        default_code_puppy_yolo: None,
-        default_llxprt_mode_flags: Vec::new(),
-        transient_max_concurrent: 0,
-        default_llxprt_version: None,
-        agent_ids: Vec::new(),
-    }
+    Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
+        std::path::PathBuf::from("/tmp/repo-1"),
+    )
 }
 
 fn remote_repository() -> Repository {
@@ -53,7 +42,7 @@ fn params<'a>(
         code_puppy_version: "",
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
-        agent_kind: "LLxprt",
+        agent_type_id: "core.llxprt",
         mode: "",
         llxprt_debug: "",
         llxprt_version: "",
@@ -107,60 +96,47 @@ fn create_agent_normalizes_profile() {
         profile: "  ",
         ..params(&repo, "Agent", "/tmp/agent")
     });
-    assert_eq!(blank.profile, "");
+    assert_eq!(
+        typed_field(&blank.values, "profile"),
+        Some(&TypedValue::String(String::new()))
+    );
 
     let brackets = created(CreateAgentParams {
         profile: "[]",
         ..params(&repo, "Agent", "/tmp/agent")
     });
-    assert_eq!(brackets.profile, "");
+    assert_eq!(
+        typed_field(&brackets.values, "profile"),
+        Some(&TypedValue::String(String::new()))
+    );
 
     let custom = created(CreateAgentParams {
         profile: "custom",
         ..params(&repo, "Agent", "/tmp/agent")
     });
-    assert_eq!(custom.profile, "custom");
+    assert_eq!(
+        typed_field(&custom.values, "profile"),
+        Some(&TypedValue::String("custom".to_owned()))
+    );
 }
 
 #[test]
-fn create_agent_normalizes_mode_flags() {
+fn create_agent_maps_declared_yolo_input_to_typed_values() {
     let repo = local_repository();
-
-    // An empty mode must stay empty: yolo is opt-in via the form's pre-filled
-    // mode field, not injected here. This lets an agent run non-yolo (#210).
-    let empty_mode = created(params(&repo, "Agent", "/tmp/agent"));
-    assert!(empty_mode.mode_flags.is_empty());
-
-    let explicit = created(CreateAgentParams {
-        mode: "--fast --verbose",
-        ..params(&repo, "Agent", "/tmp/agent")
-    });
+    let disabled = created(params(&repo, "Agent", "/tmp/agent"));
     assert_eq!(
-        explicit.mode_flags,
-        vec!["--fast".to_owned(), "--verbose".to_owned()]
+        typed_field(&disabled.values, "yolo"),
+        Some(&TypedValue::Bool(false))
     );
 
-    // The pre-filled new-agent default still round-trips through create.
-    let yolo_default = created(CreateAgentParams {
+    let enabled = created(CreateAgentParams {
         mode: "--yolo",
         ..params(&repo, "Agent", "/tmp/agent")
     });
-    assert_eq!(yolo_default.mode_flags, vec!["--yolo".to_owned()]);
-}
-
-#[test]
-fn create_agent_normalizes_sandbox_engine_via_platform() {
-    let repo = local_repository();
-    let caps = PlatformCapabilities::current();
-    let expected = SandboxEngine::from_form_value("docker")
-        .and_then(|engine| caps.normalize_engine(engine))
-        .unwrap_or_default();
-
-    let agent = created(CreateAgentParams {
-        sandbox_engine: "docker",
-        ..params(&repo, "Agent", "/tmp/agent")
-    });
-    assert_eq!(agent.sandbox_engine, expected);
+    assert_eq!(
+        typed_field(&enabled.values, "yolo"),
+        Some(&TypedValue::Bool(true))
+    );
 }
 
 #[test]

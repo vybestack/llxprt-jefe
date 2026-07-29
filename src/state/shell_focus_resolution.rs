@@ -50,6 +50,8 @@ mod tests {
         let repository_id = RepositoryId("repo".into());
         state.repositories.push(Repository::new(
             repository_id.clone(),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
             "Repo".into(),
             "repo".into(),
             PathBuf::from("/tmp"),
@@ -58,6 +60,8 @@ mod tests {
             let mut agent = Agent::new(
                 AgentId(id.into()),
                 repository_id.clone(),
+                crate::domain::shipped_agent_type(3),
+                crate::domain::TypedMap::new(),
                 id.into(),
                 PathBuf::from(format!("/tmp/{id}")),
             );

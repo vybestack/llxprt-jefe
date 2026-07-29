@@ -1,14 +1,10 @@
-//! Tests for mouse_routing.rs (issue #197).
-//!
-//! Exercises pure helpers and gesture-state-machine wiring without a live runtime.
-
 use super::{
     WheelDirection, active_overlay_for, gesture_event_kind, is_blocking_modal_open,
     is_event_over_terminal_pane, is_wheel_event, next_wheel_scroll_offset, resolve_pane,
     wheel_to_terminal_scroll_event,
 };
 use crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
-use jefe::domain::{Agent, AgentId, AgentKind, Repository, RepositoryId};
+use jefe::domain::{Agent, AgentId, AgentTypeId, Repository, RepositoryId};
 use jefe::runtime::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use jefe::selection::{
     GestureAction, GestureEvent, GestureEventKind, GestureState, OverlayPane, SelectablePane,
@@ -107,11 +103,13 @@ fn gesture_event_kind_classifies_wheel_right_middle_as_other() {
 
 // ── Finding F: non-dashboard mode disables terminal routing ──────────────────
 
-fn focused_terminal_state(kind: AgentKind) -> AppState {
+fn focused_terminal_state(kind: AgentTypeId) -> AppState {
     let repo_id = RepositoryId("repo-1".into());
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         repo_id.clone(),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "repo".into(),
         "repo".into(),
         PathBuf::from("/tmp/repo"),
@@ -119,10 +117,12 @@ fn focused_terminal_state(kind: AgentKind) -> AppState {
     let mut agent = Agent::new(
         AgentId("agent-1".into()),
         repo_id,
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "agent".into(),
         PathBuf::from("/tmp/agent"),
     );
-    agent.agent_kind = kind;
+    agent.type_id = kind;
     state.agents.push(agent);
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
@@ -133,7 +133,7 @@ fn focused_terminal_state(kind: AgentKind) -> AppState {
 
 #[test]
 fn terminal_pane_resolves_in_dashboard_mode() {
-    let mut state = focused_terminal_state(AgentKind::CodePuppy);
+    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     state.screen_mode = ScreenMode::Dashboard;
     // terminal_input_enabled=false means the terminal pane IS selectable
     // (it's not occupied by PTY input routing in this context).
@@ -148,7 +148,7 @@ fn terminal_pane_not_routed_in_issues_mode() {
     // Finding F: terminal routing is disabled in non-Dashboard modes even when
     // terminal_focused is true. The terminal pane should not resolve as a
     // selectable terminal in Issues mode (there is no TerminalView there).
-    let mut state = focused_terminal_state(AgentKind::CodePuppy);
+    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     state.screen_mode = ScreenMode::DashboardIssues;
     // In Issues mode, the coordinate would map to IssueList/IssueDetail, not
     // TerminalView. This test verifies the geometry doesn't produce a
@@ -225,7 +225,7 @@ fn search_is_not_blocking_modal() {
 #[test]
 fn focused_terminal_behind_theme_picker_does_not_route_to_terminal() {
     // Finding G: even with a focused terminal, ThemePicker blocks.
-    let mut state = focused_terminal_state(AgentKind::CodePuppy);
+    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     state.modal = ModalState::ThemePicker {
         available_themes: Vec::new(),
         selected_index: 0,
@@ -380,7 +380,7 @@ fn stray_left_down_while_pending_flushes_buffered_down() {
 
 #[test]
 fn resolve_pane_terminal_input_enabled_excludes_terminal() {
-    let mut state = focused_terminal_state(AgentKind::CodePuppy);
+    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     state.screen_mode = ScreenMode::Dashboard;
     // When terminal_input_enabled=true (focused terminal), the dashboard
     // terminal region returns None (pane_at excludes it).
@@ -392,7 +392,7 @@ fn resolve_pane_terminal_input_enabled_excludes_terminal() {
 
 #[test]
 fn resolve_pane_terminal_not_enabled_includes_terminal() {
-    let mut state = focused_terminal_state(AgentKind::CodePuppy);
+    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     state.screen_mode = ScreenMode::Dashboard;
     // When terminal_input_enabled=false (unfocused/preview), the terminal
     // region resolves to TerminalView.
@@ -418,7 +418,7 @@ fn resolve_pane_terminal_not_enabled_includes_terminal() {
 fn focused_terminal_drag_resolves_to_terminalview_selection_via_production_geometry() {
     use jefe::selection::{SelectionPoint, point_to_content_coords};
 
-    let state = focused_terminal_state(AgentKind::CodePuppy);
+    let state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     // Mirror the production resolve_terminal_point: resolve_pane with
     // terminal_input_enabled = false (NOT true) so the terminal region is
     // selectable while focused.
@@ -530,7 +530,7 @@ fn terminal_selection_text_matches_snapshot_including_unicode() {
         cells,
         wraps: Vec::new(),
     };
-    let state = focused_terminal_state(AgentKind::CodePuppy);
+    let state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
     let content = pane_content_lines(
         SelectablePane::TerminalView,
         &state,
@@ -995,6 +995,6 @@ fn non_detail_pane_has_no_wrap_projection() {
     let state = AppState::default();
     assert!(
         detail_wrap_projection(&state, SelectablePane::IssueList, 120).is_none(),
-        "IssueList must not produce a wrap projection"
+        "IssueList has no wrap projection"
     );
 }

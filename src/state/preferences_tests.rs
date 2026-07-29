@@ -22,6 +22,8 @@ fn state_with_repo_and_prefs(repo_id: &str, prefs: RepoPreferences) -> AppState 
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test Repo".to_string(),
         repo_id.to_string(),
         std::path::PathBuf::from("/tmp/test"),
@@ -43,12 +45,16 @@ fn state_with_two_repos(
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId(repo1.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 1".to_string(),
         repo1.to_string(),
         std::path::PathBuf::from("/tmp/repo1"),
     ));
     state.repositories.push(Repository::new(
         RepositoryId(repo2.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Repo 2".to_string(),
         repo2.to_string(),
         std::path::PathBuf::from("/tmp/repo2"),
@@ -91,6 +97,8 @@ fn enter_prs_mode_defaults_to_open_when_no_prefs() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp"),
@@ -249,6 +257,8 @@ fn enter_issues_mode_defaults_to_open() {
     let mut state = AppState::default();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Test".to_string(),
         "repo-1".to_string(),
         std::path::PathBuf::from("/tmp"),
@@ -821,6 +831,8 @@ fn pr_jump_to_agent_in_other_repo_does_not_leak_filter() {
     state.agents.push(Agent::new(
         AgentId("jefe-agent".to_string()),
         RepositoryId("jefe".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Jefe Agent".to_string(),
         std::path::PathBuf::from("/tmp/jefe"),
     ));
@@ -873,6 +885,8 @@ fn issue_jump_to_agent_in_other_repo_does_not_leak_filter() {
     state.agents.push(Agent::new(
         AgentId("jefe-agent".to_string()),
         RepositoryId("jefe".to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
         "Jefe Agent".to_string(),
         std::path::PathBuf::from("/tmp/jefe"),
     ));

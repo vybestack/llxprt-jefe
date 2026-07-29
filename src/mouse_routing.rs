@@ -809,7 +809,9 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     use jefe::selection::OverlayPane;
     match &state.modal {
         jefe::state::ModalState::Help => return OverlayPane::HelpModal,
-        jefe::state::ModalState::NewAgent { .. } | jefe::state::ModalState::EditAgent { .. } => {
+        jefe::state::ModalState::NewAgent { .. }
+        | jefe::state::ModalState::EditAgent { .. }
+        | jefe::state::ModalState::GeneratedAgent { .. } => {
             return OverlayPane::AgentForm;
         }
         jefe::state::ModalState::NewRepository { .. }

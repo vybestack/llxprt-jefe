@@ -1,15 +1,35 @@
 //! Repository-form behavior tests for transient launch defaults (issue #317).
 
-use jefe::domain::{AgentKind, Repository, RepositoryId};
+use jefe::domain::canonical_values::{required_id, typed_field};
+use jefe::domain::{Repository, RepositoryId, TypedMap, TypedValue};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AppEvent, AppState, ModalState, RepositoryFormFocus, is_repository_field_visible,
 };
 
+fn set_yolo(values: &mut TypedMap, value: bool) {
+    let id = required_id("yolo").unwrap_or_else(|error| panic!("valid yolo field id: {error}"));
+    values.insert(id, TypedValue::Bool(value));
+}
+
+fn set_mode(values: &mut TypedMap, value: &str) {
+    let id = required_id("mode-flags")
+        .unwrap_or_else(|error| panic!("valid mode-flags field id: {error}"));
+    values.insert(id, TypedValue::String(value.to_owned()));
+}
+
+fn yolo_value(values: &TypedMap) -> Option<bool> {
+    match typed_field(values, "yolo") {
+        Some(TypedValue::Bool(value)) => Some(*value),
+        None => None,
+        other => panic!("expected typed yolo field, got {other:?}"),
+    }
+}
+
 #[test]
 fn new_repository_defaults_transient_yolo_for_both_runtimes() {
     let state = AppState {
-        installed_agent_kinds: vec![AgentKind::Llxprt],
+        available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
         ..AppState::default()
     }
     .apply(AppEvent::OpenNewRepository)
@@ -31,14 +51,14 @@ fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
         panic!("expected new-repository modal");
     };
     fields.name = "Repo".to_owned();
-    fields.default_agent_kind = AgentKind::Llxprt.label().to_owned();
+    fields.default_type_id = jefe::domain::shipped_agent_type(3).to_string();
     fields.default_llxprt_mode = "  --yolo   --fast  ".to_owned();
 
     state = state.apply(AppEvent::SubmitForm).committed_pure();
 
     assert_eq!(
-        state.repositories[0].default_llxprt_mode_flags,
-        vec!["--yolo", "--fast"]
+        yolo_value(&state.repositories[0].default_values),
+        Some(true)
     );
 
     let repository_id = state.repositories[0].id.clone();
@@ -52,19 +72,24 @@ fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
 
     state = state.apply(AppEvent::SubmitForm).committed_pure();
 
-    assert!(state.repositories[0].default_llxprt_mode_flags.is_empty());
+    assert_eq!(
+        yolo_value(&state.repositories[0].default_values),
+        Some(false)
+    );
 }
 
 #[test]
 fn edit_repository_loads_mode_and_code_puppy_yolo_choices() {
     let mut repository = Repository::new(
         RepositoryId("repo-317".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Repo".to_owned(),
         "repo".to_owned(),
         "/tmp/repo-317".into(),
     );
-    repository.default_llxprt_mode_flags = vec!["--fast".to_owned()];
-    repository.default_code_puppy_yolo = None;
+    set_yolo(&mut repository.default_values, false);
+    set_mode(&mut repository.default_values, "--fast");
     let state = AppState {
         repositories: vec![repository],
         ..AppState::default()
@@ -85,7 +110,7 @@ fn edit_repository_loads_mode_and_code_puppy_yolo_choices() {
 #[test]
 fn repository_mode_field_supports_character_and_backspace_editing() {
     let mut state = AppState {
-        installed_agent_kinds: vec![AgentKind::Llxprt],
+        available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
         ..AppState::default()
     }
     .apply(AppEvent::OpenNewRepository)
@@ -107,38 +132,22 @@ fn repository_mode_field_supports_character_and_backspace_editing() {
 
 #[test]
 fn repository_runtime_specific_fields_are_visible_only_for_their_runtime() {
+    let llxprt = jefe::domain::shipped_agent_type(3);
+    let code_puppy = jefe::domain::shipped_agent_type(1);
     assert!(is_repository_field_visible(
         RepositoryFormFocus::DefaultLlxprtMode,
-        AgentKind::Llxprt
+        Some(&llxprt)
     ));
     assert!(!is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyYolo,
-        AgentKind::Llxprt
+        Some(&llxprt)
     ));
     assert!(!is_repository_field_visible(
         RepositoryFormFocus::DefaultLlxprtMode,
-        AgentKind::CodePuppy
+        Some(&code_puppy)
     ));
     assert!(is_repository_field_visible(
         RepositoryFormFocus::DefaultCodePuppyYolo,
-        AgentKind::CodePuppy
+        Some(&code_puppy)
     ));
-}
-
-#[test]
-fn explicit_persisted_yolo_opt_outs_survive_deserialization() {
-    let repository: Repository = serde_json::from_value(serde_json::json!({
-        "id": "repo-1",
-        "name": "Repo",
-        "slug": "repo",
-        "base_dir": "/tmp/repo",
-        "default_profile": "",
-        "default_code_puppy_yolo": null,
-        "default_llxprt_mode_flags": [],
-        "agent_ids": []
-    }))
-    .unwrap_or_else(|error| panic!("repository should deserialize: {error}"));
-
-    assert_eq!(repository.default_code_puppy_yolo, None);
-    assert!(repository.default_llxprt_mode_flags.is_empty());
 }

@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use crate::domain::{AgentId, LaunchSignature, RepositoryId};
+use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
 use crate::runtime::PreflightIssue;
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -203,6 +203,16 @@ pub enum ModalState {
         /// Track if work_dir was manually edited (stop auto-deriving from name).
         work_dir_manual: bool,
     },
+    /// Definition-driven New Agent form opened from the Agent Types surface.
+    GeneratedAgent {
+        /// Selected definition/type ID captured at open time so the canonical
+        /// submit path retains the sole authority even after the form result
+        /// is consumed.
+        type_id: Box<crate::domain::agent_definition::AgentTypeId>,
+        form: Box<super::generated_agent_form::GeneratedAgentForm>,
+        return_focus: PaneFocus,
+        return_agent_type_index: usize,
+    },
     EditAgent {
         id: AgentId,
         fields: AgentFormFields,
@@ -230,7 +240,7 @@ pub enum ModalState {
         /// The agent being launched (so we can resume after remediation).
         agent_id: AgentId,
         /// The launch signature (so we can resume the spawn).
-        signature: LaunchSignature,
+        signature: AgentLaunchRequest,
         /// The issue that was detected.
         issue: PreflightIssue,
         /// Placeholder for future multi-issue handling.
@@ -252,7 +262,7 @@ pub enum ModalState {
     ConfirmIssueDirtyCopy {
         agent_id: AgentId,
         work_dir: std::path::PathBuf,
-        signature: LaunchSignature,
+        signature: AgentLaunchRequest,
         payload: crate::github::SendPayload,
         confirm_focus: ConfirmFocus,
     },
@@ -265,7 +275,7 @@ pub enum ModalState {
     ConfirmIssueOriginMismatch {
         agent_id: AgentId,
         work_dir: std::path::PathBuf,
-        signature: LaunchSignature,
+        signature: AgentLaunchRequest,
         payload: crate::github::SendPayload,
         actual: String,
         expected: String,
@@ -368,12 +378,18 @@ pub struct AppState {
     // Data
     pub repositories: Vec<crate::domain::Repository>,
     pub agents: Vec<crate::domain::Agent>,
-    /// Runtime availability snapshot detected once during startup.
-    pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
+    /// Enabled, compatible agent types observed by the startup probe boundary.
+    pub available_agent_type_ids: Vec<crate::domain::agent_definition::AgentTypeId>,
+    /// Definition-driven runtime availability observed once during startup.
+    pub agent_type_availability: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// Monotonic generation allocated by the state-owned availability boundary.
+    pub agent_probe_generation: u64,
 
     // Selection
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
+    /// Runtime-only selected row in the Agent Types status surface.
+    pub selected_agent_type_index: usize,
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state
@@ -693,7 +709,7 @@ pub enum TransientPayload {
 pub struct QueuedTransientSend {
     pub repository_id: RepositoryId,
     pub work_dir: std::path::PathBuf,
-    pub launch_signature: LaunchSignature,
+    pub launch_signature: AgentLaunchRequest,
     pub payload: TransientPayload,
 }
 

@@ -10,10 +10,7 @@ mod shell_reconcile;
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::{
-    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, ProcessIdentity,
-    SandboxEngine,
-};
+use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, ProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
@@ -29,8 +26,8 @@ use crate::app_input::{SharedContext, durable_save_request, schedule_durable_sav
 fn launch_signature_for_agent(
     agent: &Agent,
     repository: &jefe::domain::Repository,
-) -> LaunchSignature {
-    LaunchSignature::for_agent(agent, repository)
+) -> AgentLaunchRequest {
+    AgentLaunchRequest::for_agent(agent, repository)
 }
 
 fn append_warning(state: &mut AppState, warning: String) {
@@ -93,36 +90,22 @@ fn run_startup_session_host_cleanup(state: &AppState, runtime: &TmuxRuntimeManag
         });
 }
 
-fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
-    let caps = PlatformCapabilities::current();
-    let mut normalized_agent_count = 0usize;
+fn agent_type_enabled(
+    settings: &jefe::persistence::settings_document::PublishedSettings,
+    type_id: &jefe::domain::agent_definition::AgentTypeId,
+) -> bool {
+    let Ok(owner_id) = jefe::domain::Id::parse(type_id.as_str()) else {
+        return true;
+    };
+    settings
+        .agents
+        .get(&owner_id)
+        .and_then(|owner| owner.enabled)
+        .unwrap_or(true)
+}
 
-    for agent in &mut state.agents {
-        if !caps.is_engine_supported(agent.sandbox_engine) {
-            warn!(
-                agent = %agent.name,
-                engine = agent.sandbox_engine.label(),
-                platform = caps.platform_label(),
-                "persisted sandbox engine not supported on this platform, normalizing to Podman"
-            );
-            agent.sandbox_engine = caps
-                .normalize_engine(agent.sandbox_engine)
-                .unwrap_or(SandboxEngine::Podman);
-            normalized_agent_count += 1;
-        }
-    }
-
-    if normalized_agent_count == 0 {
-        return false;
-    }
-
-    append_warning(
-        state,
-        format!(
-            "Normalized {normalized_agent_count} unsupported sandbox engine setting(s) to Podman for this platform."
-        ),
-    );
-    true
+fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
+    false
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionEvidence {
@@ -166,13 +149,19 @@ enum StartupClassification {
 fn binding_evidence(
     binding: Option<&jefe::domain::RuntimeBinding>,
     agent_id: &AgentId,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
+    durable_signature_matches: bool,
 ) -> BindingEvidence {
+    if !durable_signature_matches {
+        return BindingEvidence::Inconsistent;
+    }
     let Some(binding) = binding else {
         return BindingEvidence::Legacy;
     };
+    let current_signature =
+        jefe::runtime::launch_compose::launch_signature_from_request(signature).ok();
     if binding.session_name != RuntimeSession::session_name_for(agent_id)
-        || binding.launch_signature != *signature
+        || current_signature.as_ref() != Some(&binding.launch_signature)
     {
         return BindingEvidence::Inconsistent;
     }
@@ -203,14 +192,6 @@ fn classify_startup(
         return StartupClassification::Orphaned;
     }
     if binding == BindingEvidence::Inconsistent {
-        // A live session is ground truth: the agent is still running even if
-        // the persisted binding signature drifted (e.g. a new binary recomputed
-        // LaunchSignature fields differently). Returning Running lets
-        // restore_runtime_sessions reattach the live session and refresh the
-        // binding instead of marking the agent Dead (issue #323).
-        if session == SessionEvidence::Alive {
-            return StartupClassification::Running;
-        }
         return StartupClassification::Inconsistent;
     }
     if !remote && process == ProcessLiveness::ReusedPid {
@@ -232,15 +213,32 @@ fn classify_startup(
     }
 }
 
+fn durable_signature_matches(agent: &Agent, repository: &jefe::domain::Repository) -> bool {
+    match agent.persisted_launch_signature.as_ref() {
+        None => true,
+        Some(persisted) => {
+            jefe::state::durable_projection::current_launch_signature(agent, repository)
+                .is_ok_and(|current| current == *persisted)
+        }
+    }
+}
+
 fn classify_agent_startup(
     agent: &Agent,
-    signature: &LaunchSignature,
+    repository: &jefe::domain::Repository,
+    signature: &AgentLaunchRequest,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
     let session = runtime
         .session_liveness_for_signature(&agent.id, signature)
         .into();
-    let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id, signature);
+    let durable_signature_matches = durable_signature_matches(agent, repository);
+    let binding = binding_evidence(
+        agent.runtime_binding.as_ref(),
+        &agent.id,
+        signature,
+        durable_signature_matches,
+    );
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
     } else {
@@ -280,14 +278,78 @@ fn process_liveness_for_binding(
 /// Load persisted state and settings into `app_state` exactly once.
 ///
 /// Reconciles any agents that were persisted as Running against actual live
+fn restore_persisted_state(
+    state: &mut AppState,
+    persisted: jefe::state::durable_projection::RestoredState,
+) {
+    state.repositories = persisted.repositories;
+    state.agents = persisted.agents;
+    state.selected_repository_index = persisted.selected_repository_index;
+    state.selected_agent_index = persisted.selected_agent_index;
+    state.hide_idle_repositories = persisted.hide_idle_repositories;
+    state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
+    state.durable_revision = persisted.revision;
+    state.dormant_records = persisted.dormant_records;
+    state.pane_focus = persisted.pane_focus;
+    state.terminal_focused =
+        persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
+    state.user_preferences = persisted.user_preferences;
+}
+
+fn observe_agent_types(
+    state: &mut AppState,
+    settings: &jefe::persistence::settings_document::PublishedSettings,
+) -> Vec<jefe::domain::effects::IssuedEffect> {
+    let repository_root = state.selected_repository().map_or_else(
+        || std::path::PathBuf::from("."),
+        |repository| repository.base_dir.clone(),
+    );
+    match jefe::agent_registry::AgentTypeRegistry::shipped() {
+        Ok(registry) => {
+            let startup = match crate::app_input::observe_startup_agent_availability(
+                &registry,
+                &repository_root,
+                state.agent_probe_generation,
+                |type_id| agent_type_enabled(settings, type_id),
+            ) {
+                Ok(startup) => startup,
+                Err(error) => {
+                    append_warning(state, error);
+                    return Vec::new();
+                }
+            };
+            state.agent_probe_generation = startup.latest_generation;
+            state.available_agent_type_ids =
+                jefe::agent_detection::compatible_agent_type_ids(&startup.observations);
+            state.agent_type_availability = startup.observations;
+            jefe::state::transition::commit_in_place(
+                state,
+                jefe::messages::AppMessage::RepositoryAgent(
+                    jefe::messages::RepositoryAgentMessage::ProbeAgentAvailability(startup.probes),
+                ),
+            )
+        }
+        Err(error) => {
+            append_warning(
+                state,
+                format!("Agent type registry could not be published: {error}"),
+            );
+            Vec::new()
+        }
+    }
+}
+
 /// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
-pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
+pub fn init_app_state(
+    app_state: &mut HookState<AppState>,
+    ctx: &SharedContext,
+) -> Vec<jefe::domain::effects::IssuedEffect> {
     let multiplexer_warning = windows_multiplexer_startup_warning();
     let Some(ctx_arc) = ctx else {
-        return;
+        return Vec::new();
     };
     let Ok(ctx_guard) = ctx_arc.lock() else {
-        return;
+        return Vec::new();
     };
 
     let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
@@ -304,33 +366,12 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         });
 
     let mut state = app_state.write();
-    state.repositories = persisted.repositories;
-    state.agents = persisted.agents;
-    state.installed_agent_kinds = jefe::agent_detection::installed_agent_kinds().to_vec();
-    state.selected_repository_index = persisted.selected_repository_index;
-    state.selected_agent_index = persisted.selected_agent_index;
-    state.hide_idle_repositories = persisted.hide_idle_repositories;
-    state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
-    // The durable revision read from disk is the watermark later saves build
-    // on, so an acknowledged write can be told apart from one that lost a race.
-    state.durable_revision = persisted.revision;
-    state.dormant_records = persisted.dormant_records;
-    // Restore the persisted pane focus and terminal-focus so an explicitly
-    // focused view survives restart (issue #160). `terminal_focused` is only
-    // meaningful when the terminal pane is active, so clamp an inconsistent
-    // persisted pair (terminal_focused=true but pane != Terminal) back to false;
-    // the per-keypress defensive guard in app_shell would clear it anyway.
-    state.pane_focus = persisted.pane_focus;
-    state.terminal_focused =
-        persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
-    state.user_preferences = persisted.user_preferences;
+    restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
-    // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
-    // settings.toml is the source of truth; this runtime copy is read every
-    // render frame by the terminal view.
     state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
+    let agent_probe_effects = observe_agent_types(&mut state, &ctx_guard.published_settings);
 
     // Log platform engine diagnostic at startup.
     tracing::info!("{}", platform_engine_diagnostic());
@@ -370,6 +411,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
             warn!(error = %e, theme = %settings.theme, "could not activate saved theme");
         }
     }
+    agent_probe_effects
 }
 
 /// Find Running agents whose tmux sessions no longer exist.
@@ -394,7 +436,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
             continue;
         };
         let signature = launch_signature_for_agent(agent, repository);
-        match classify_agent_startup(agent, &signature, runtime) {
+        match classify_agent_startup(agent, repository, &signature, runtime) {
             StartupClassification::Orphaned => {
                 // Dead pane with surviving validated worker descendants
                 // (issue #332): reap the orphan tree and remove the stale
@@ -440,7 +482,7 @@ fn apply_dead_reconciliations(
 enum RestoreOneOutcome {
     /// Agent was revived/reattached; carries its signature and worker PID.
     Revived {
-        signature: Box<LaunchSignature>,
+        launch_signature: jefe::domain::LaunchSignatureV1,
         pid: Option<u32>,
         process_identity: Option<ProcessIdentity>,
     },
@@ -449,6 +491,12 @@ enum RestoreOneOutcome {
     /// Agent should be left as-is (non-running, or local orphan kept Running).
     Skip,
 }
+struct RevivedAgent {
+    agent_id: AgentId,
+    launch_signature: jefe::domain::LaunchSignatureV1,
+    pid: Option<u32>,
+    process_identity: Option<ProcessIdentity>,
+}
 
 /// Process one agent during restore: decide Dead / Skip / Revive and, when
 /// reviving, drive the runtime and capture the worker PID.
@@ -456,7 +504,7 @@ fn restore_one_agent(
     agent: &Agent,
     repositories: &[jefe::domain::Repository],
     runtime: &mut TmuxRuntimeManager,
-    runtime_warning: &mut Option<String>,
+    runtime_warning: Option<&String>,
 ) -> RestoreOneOutcome {
     if agent.status != AgentStatus::Running {
         return RestoreOneOutcome::Skip;
@@ -475,7 +523,7 @@ fn restore_one_agent(
         binding.and_then(|value| value.process_identity),
     );
 
-    match classify_agent_startup(agent, &signature, runtime) {
+    match classify_agent_startup(agent, &repository, &signature, runtime) {
         StartupClassification::Stopped
         | StartupClassification::Stale
         | StartupClassification::Inconsistent
@@ -490,8 +538,13 @@ fn restore_one_agent(
                     );
                     let process =
                         process_binding::resolve_process_binding(fresh_process, persisted_process);
+                    let Ok(launch_signature) =
+                        jefe::runtime::launch_compose::launch_signature_from_request(&signature)
+                    else {
+                        return RestoreOneOutcome::Dead;
+                    };
                     RestoreOneOutcome::Revived {
-                        signature: Box::new(signature),
+                        launch_signature,
                         pid: process.pid,
                         process_identity: process.identity,
                     }
@@ -524,28 +577,28 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         return;
     };
 
-    let mut revived_running: Vec<(
-        AgentId,
-        LaunchSignature,
-        Option<u32>,
-        Option<ProcessIdentity>,
-    )> = Vec::new();
+    let mut revived_running = Vec::new();
     let mut newly_dead = Vec::new();
-    let mut runtime_warning: Option<String> = None;
+    let runtime_warning: Option<String> = None;
 
     for agent in agents {
         match restore_one_agent(
             &agent,
             &repositories,
             &mut ctx_guard.runtime,
-            &mut runtime_warning,
+            runtime_warning.as_ref(),
         ) {
             RestoreOneOutcome::Revived {
-                signature,
+                launch_signature,
                 pid,
                 process_identity,
             } => {
-                revived_running.push((agent.id.clone(), *signature, pid, process_identity));
+                revived_running.push(RevivedAgent {
+                    agent_id: agent.id.clone(),
+                    launch_signature,
+                    pid,
+                    process_identity,
+                });
             }
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
             RestoreOneOutcome::Skip => {}
@@ -579,20 +632,34 @@ enum ReviveOutcome {
 /// Attempt to reattach/respawn one agent's session.
 ///
 /// `spawn_session` is the registration path into the runtime manager's
-/// in-memory map; `AlreadyRunning` means the session is already tracked.
+/// in-memory map; `AlreadyRunning` means the session is already tracked. The
+/// launch authority is built through the same authorized-preparation contract
+/// (`observe_launch_state` + `prepare_launch`) used by the relaunch and
+/// fresh-send routes — no bypass helper forges a plan.
 fn revive_agent_session(
     agent: &jefe::domain::Agent,
-    signature: &LaunchSignature,
+    signature: &AgentLaunchRequest,
     runtime: &mut TmuxRuntimeManager,
-    runtime_warning: &mut Option<String>,
+    runtime_warning: Option<&String>,
 ) -> ReviveOutcome {
-    match runtime.spawn_session(&agent.id, &agent.work_dir, signature) {
+    // Derive the launch proof through the authorized-preparation contract.
+    // `observe_launch_state` is the state-root entry for routes that do not own
+    // AppState (the startup restore path). If preparation cannot supply a
+    // proof (e.g. remote restore, whose evidence must be state-owned, or an
+    // uninstalled agent), the session is left to be marked Dead by the caller.
+    let prepared = match jefe::runtime::launch_compose::observe_launch_state(signature)
+        .and_then(|evidence| jefe::runtime::launch_compose::prepare_launch(signature, &evidence))
+    {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            warn!(agent_id = %agent.id.0, error = %error, "could not authorize restored session");
+            return ReviveOutcome::Died;
+        }
+    };
+    let remote = prepared.remote();
+    match runtime.spawn_session(&agent.id, prepared.authorized(), remote) {
         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-            // SSH-agent warning is only relevant for LLxprt sandbox sessions;
-            // CodePuppy does not use the LLxprt sandbox subsystem.
-            if runtime_warning.is_none() && agent.agent_kind == jefe::domain::AgentKind::Llxprt {
-                *runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
-            }
+            let _ = runtime_warning;
             ReviveOutcome::Revived
         }
         Err(e) => {
@@ -605,26 +672,25 @@ fn revive_agent_session(
 /// Apply restored session results to app state and persist.
 fn apply_restored_state(
     state: &mut AppState,
-    revived_running: Vec<(
-        AgentId,
-        LaunchSignature,
-        Option<u32>,
-        Option<ProcessIdentity>,
-    )>,
+    revived_running: Vec<RevivedAgent>,
     newly_dead: Vec<AgentId>,
     runtime_warning: Option<String>,
 ) {
-    for (agent_id, signature, pid, process_identity) in revived_running {
-        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
+    for revived in revived_running {
+        if let Some(agent) = state
+            .agents
+            .iter_mut()
+            .find(|agent| agent.id == revived.agent_id)
+        {
             agent.status = AgentStatus::Running;
-            let session_name = RuntimeSession::session_name_for(&agent_id);
+            let session_name = RuntimeSession::session_name_for(&revived.agent_id);
             agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
                 session_name,
-                launch_signature: signature,
+                launch_signature: revived.launch_signature,
                 attached: false,
                 last_seen: None,
-                process_identity,
-                pid,
+                process_identity: revived.process_identity,
+                pid: revived.pid,
                 lifecycle_generation: 0,
                 worker_identities: Vec::new(),
             });
@@ -647,45 +713,93 @@ fn apply_restored_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jefe::domain::{AgentKind, Repository, RepositoryId};
+    use jefe::domain::{Repository, RepositoryId, TypedValue};
 
     fn code_puppy_agent_and_repository() -> (Agent, Repository) {
         let repository_id = RepositoryId("repo-model".to_owned());
-        let mut repository = Repository::new(
+        let repository = Repository::new(
             repository_id.clone(),
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::TypedMap::new(),
             "Model Repo".to_owned(),
             "model-repo".to_owned(),
             std::path::PathBuf::from("/tmp/model-repo"),
         );
-        repository.default_code_puppy_model = "  repo/default-model  ".to_owned();
-
-        let mut agent = Agent::new(
+        let agent = Agent::new(
             AgentId("agent-model".to_owned()),
             repository_id,
+            jefe::domain::shipped_agent_type(1),
+            jefe::domain::TypedMap::new(),
             "Model Agent".to_owned(),
             std::path::PathBuf::from("/tmp/model-agent"),
         );
-        agent.agent_kind = AgentKind::CodePuppy;
         (agent, repository)
     }
 
-    #[test]
-    fn launch_signature_uses_agent_code_puppy_model() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.code_puppy_model = "  agent/model  ".to_owned();
-
-        let signature = launch_signature_for_agent(&agent, &repository);
-
-        assert_eq!(signature.code_puppy_model, "agent/model");
+    fn set_string(values: &mut jefe::domain::TypedMap, field: &str, value: &str) {
+        jefe::domain::canonical_values::insert_json(
+            values,
+            field,
+            serde_json::Value::String(value.to_owned()),
+        )
+        .unwrap_or_else(|error| panic!("valid {field} fixture: {error}"));
     }
 
     #[test]
-    fn launch_signature_does_not_dynamically_inherit_repository_model() {
-        let (agent, repository) = code_puppy_agent_and_repository();
+    fn launch_request_uses_agent_type_values_and_repository_target() {
+        let (mut agent, mut repository) = code_puppy_agent_and_repository();
+        set_string(
+            &mut repository.default_values,
+            "model",
+            "repo/default-model",
+        );
+        set_string(&mut agent.values, "model", "agent/model");
+        repository.remote.host = "build.example.com".to_owned();
 
-        let signature = launch_signature_for_agent(&agent, &repository);
+        let request = launch_signature_for_agent(&agent, &repository);
 
-        assert!(signature.code_puppy_model.is_empty());
+        assert_eq!(request.type_id, agent.type_id);
+        assert_eq!(request.values, agent.values);
+        assert_eq!(request.work_dir, agent.work_dir);
+        assert_eq!(request.remote, repository.remote);
+        assert_eq!(
+            request.operation,
+            jefe::domain::agent_definition::Operation::Resume
+        );
+        assert_eq!(
+            jefe::domain::canonical_values::typed_field(&request.values, "model"),
+            Some(&TypedValue::String("agent/model".to_owned()))
+        );
+    }
+
+    #[test]
+    fn launch_request_does_not_dynamically_inherit_repository_values() {
+        let (agent, mut repository) = code_puppy_agent_and_repository();
+        set_string(
+            &mut repository.default_values,
+            "model",
+            "repo/default-model",
+        );
+
+        let request = launch_signature_for_agent(&agent, &repository);
+
+        assert!(jefe::domain::canonical_values::typed_field(&request.values, "model").is_none());
+    }
+
+    #[test]
+    fn durable_signature_rejects_changed_values_and_target() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        let current =
+            jefe::state::durable_projection::current_launch_signature(&agent, &repository)
+                .unwrap_or_else(|error| panic!("fixture signature must project: {error}"));
+        agent.persisted_launch_signature = Some(current);
+        assert!(durable_signature_matches(&agent, &repository));
+
+        set_string(&mut agent.values, "model", "changed-model");
+        assert!(!durable_signature_matches(&agent, &repository));
+        agent.values.clear();
+        agent.work_dir = std::path::PathBuf::from("/tmp/changed-target");
+        assert!(!durable_signature_matches(&agent, &repository));
     }
 
     #[test]
@@ -814,10 +928,9 @@ mod tests {
     }
 
     #[test]
-    fn live_session_survives_mismatched_binding_for_reattach() {
-        // Issue #323: a live tmux session must not be killed just because the
-        // persisted binding signature drifted. The session is the ground truth;
-        // the binding can be refreshed during restore.
+    fn live_session_with_mismatched_binding_is_rejected() {
+        // A live session is reattachable only when its persisted launch
+        // signature still matches current definition, values, and target.
         for liveness in [
             ProcessLiveness::Alive,
             ProcessLiveness::Dead,
@@ -831,8 +944,8 @@ mod tests {
                     liveness,
                     jefe::runtime::OrphanClassification::NoOrphan,
                 ),
-                StartupClassification::Running,
-                "Alive session with Inconsistent binding and {liveness:?} process should be Running"
+                StartupClassification::Inconsistent,
+                "live session with inconsistent signature and {liveness:?} process must not reattach"
             );
         }
     }
@@ -864,93 +977,21 @@ mod tests {
     }
 
     #[test]
-    fn binding_evidence_rejects_wrong_session_signature_and_pid() {
-        let (agent, repository) = code_puppy_agent_and_repository();
-        let signature = launch_signature_for_agent(&agent, &repository);
-        let mut binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: signature.clone(),
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Coherent
-        );
-        binding.session_name = "jefe-wrong-agent".to_owned();
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Inconsistent
-        );
-        binding.session_name = RuntimeSession::session_name_for(&agent.id);
-        binding.launch_signature.profile = "wrong-profile".to_owned();
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Inconsistent
-        );
-        binding.launch_signature = signature.clone();
-        binding.pid = Some(42);
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Inconsistent
-        );
-        assert_eq!(
-            binding_evidence(None, &agent.id, &signature),
-            BindingEvidence::Legacy
-        );
-        binding_evidence_rejects_different_llxprt_selector();
-        binding_evidence_rejects_different_code_puppy_version();
-    }
+    fn published_agent_enablement_is_separate_from_availability() {
+        let catalog = jefe::config_owners::builtin_owner_catalog()
+            .unwrap_or_else(|error| panic!("owner catalog must publish: {error}"));
+        let migration = jefe::persistence::migration::migrate_settings(
+            b"settings_schema = 2\n[agents.\"core.codex\"]\nenabled = false\n",
+            &catalog,
+        )
+        .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"));
+        let type_id = jefe::domain::agent_definition::AgentTypeId::parse("core.codex")
+            .unwrap_or_else(|error| panic!("type id must parse: {error}"));
 
-    fn binding_evidence_rejects_different_code_puppy_version() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.code_puppy_version = "0.0.361".to_owned();
-        let signature = launch_signature_for_agent(&agent, &repository);
-        assert_eq!(signature.code_puppy_version, "0.0.361");
-        let mut bound_signature = signature.clone();
-        bound_signature.code_puppy_version = "0.0.360".to_owned();
-        let binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: bound_signature,
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Inconsistent
-        );
-    }
+        assert!(!agent_type_enabled(migration.published(), &type_id));
 
-    fn binding_evidence_rejects_different_llxprt_selector() {
-        let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.agent_kind = jefe::domain::AgentKind::Llxprt;
-        agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
-        let signature = launch_signature_for_agent(&agent, &repository);
-        assert_eq!(signature.llxprt_version, agent.llxprt_version);
-        let mut bound_signature = signature.clone();
-        bound_signature.llxprt_version =
-            jefe::domain::LlxprtNpmPackageSelector::normalize("latest");
-        let binding = jefe::domain::RuntimeBinding {
-            session_name: RuntimeSession::session_name_for(&agent.id),
-            launch_signature: bound_signature,
-            attached: false,
-            last_seen: None,
-            pid: Some(41),
-            process_identity: Some(ProcessIdentity::new(41, 900)),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        };
-        assert_eq!(
-            binding_evidence(Some(&binding), &agent.id, &signature),
-            BindingEvidence::Inconsistent
-        );
+        let absent = jefe::domain::agent_definition::AgentTypeId::parse("core.llxprt")
+            .unwrap_or_else(|error| panic!("type id must parse: {error}"));
+        assert!(agent_type_enabled(migration.published(), &absent));
     }
 }

@@ -8,7 +8,21 @@
 //! Pseudocode reference: component-002 lines 01-35
 
 mod agent_executable;
+/// Pure execution authorization guard (issue #382 CW02-12 / S8).
+pub mod agent_execution_guard;
+/// Definition-driven post-preflight fresh-send assembly (issue #382 S11).
+pub mod agent_fresh_send;
 mod agent_launcher;
+/// Definition-driven immutable local launch plan generation (issue #382 S7).
+pub mod agent_plan;
+/// Ordered execution preparation boundary (issue #382 CW02-09 / S10).
+pub mod agent_preflight;
+mod agent_probe;
+mod agent_probe_parse;
+mod agent_probe_process;
+/// Definition-driven immutable remote launch plan generation (issue #382 S9).
+pub mod agent_remote_plan;
+mod agent_remote_probe;
 mod async_attach;
 mod attach;
 mod attach_mode_recovery;
@@ -17,6 +31,7 @@ mod capabilities;
 mod capture_ops;
 mod command_capture;
 mod commands;
+mod commands_finalize;
 mod errors;
 /// External terminal launch boundary (issue #222).
 mod external_terminal;
@@ -26,6 +41,7 @@ mod identity;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
+pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod llxprt_install;
@@ -36,6 +52,8 @@ mod multiplexer;
 mod non_interactive;
 mod orphan;
 mod package_probe;
+/// Generic package-backed invocation and preparation boundary (issue #382 S12).
+pub mod package_runtime;
 mod pane_capture;
 mod preflight;
 mod process;
@@ -50,17 +68,29 @@ mod shell_window;
 mod socket;
 mod stub_manager;
 
+pub use crate::agent_candidate_path::{AgentExecutablePlatform, AgentWrapperKind};
 pub use agent_executable::{
-    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentExecutableTarget,
-    AgentWrapperKind, CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
+    AgentExecutableError, AgentExecutableResolver, AgentExecutableTarget,
+    CanonicalScriptLaunchPlan, ResolvedAgentExecutable,
+};
+pub use agent_execution_guard::{
+    AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
+    StaleDimension, authorize_execution,
+};
+pub use agent_fresh_send::{
+    FreshSendRejection, PreparedFreshSend, fresh_send_support, prepare_fresh_send,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
+pub use agent_preflight::{
+    AuthorizedLaunchPlan, InspectOutcome, LaunchProofError, PreflightCleared, PreparationOutcome,
+    ProcessSandboxInspector, SandboxInspector, UnavailableReason, prepare_execution,
+};
+pub use agent_probe::{
+    AgentProbeResult, AgentProbeTarget, run_local_agent_probe, run_local_agent_probe_with_cache,
+};
 pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
-pub use capabilities::{
-    AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
-    validate_code_puppy_launch,
-};
+pub use capabilities::validate_launch_request;
 pub use capture_ops::snapshot_from_lines;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
@@ -96,9 +126,7 @@ pub use orphan::{
     classify_orphan_state, descendant_liveness, descendant_still_matches_anchor,
     enumerate_descendants, reap_orphan_session, reap_orphan_tree,
 };
-pub use package_probe::{
-    NpmPackageAvailabilityError, require_launch_package_available, require_npm_package_available,
-};
+pub use package_probe::{NpmPackageAvailabilityError, require_launch_package_available};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -160,37 +188,79 @@ mod session_host_tests;
 #[path = "job_object_tests.rs"]
 mod job_object_tests;
 
+/// Shared test support for sealing a fixture [`AgentLaunchPlan`] into an
+/// [`AuthorizedLaunchPlan`] through the real authorize + preflight proof chain.
+///
+/// Available only under `cfg(test)`. In-crate test modules use this to build
+/// runtime launch proofs without forging private fields or adding backdoors.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use crate::domain::agent_definition::AgentLaunchPlan;
+    use crate::runtime::agent_execution_guard::{
+        AuthorizationResult, ExecutionEvidence, authorize_execution,
+    };
+    use crate::runtime::agent_preflight::{
+        AuthorizedLaunchPlan, PreparationOutcome, ProcessSandboxInspector, prepare_execution,
+    };
+
+    /// Seal `plan` into an [`AuthorizedLaunchPlan`] using evidence derived from
+    /// the plan's own generation-bearing fields so the (default) fixture
+    /// authorizes and clears preflight trivially.
+    #[must_use]
+    pub fn authorized_launch_plan(plan: &AgentLaunchPlan) -> AuthorizedLaunchPlan {
+        let evidence = ExecutionEvidence::new(
+            plan.definition_sha256,
+            plan.executable_fingerprint.clone(),
+            plan.probe_generation,
+            plan.target_generation,
+            plan.activation_generation,
+        );
+        let authorized = match authorize_execution(plan, &evidence) {
+            AuthorizationResult::Authorized(authorized) => authorized,
+            AuthorizationResult::Rejected(error) => panic!("fixture must authorize: {error}"),
+        };
+        let cleared = match prepare_execution(authorized, None, &ProcessSandboxInspector::new()) {
+            PreparationOutcome::Cleared(cleared) => cleared,
+            PreparationOutcome::Unavailable(reason) => {
+                panic!("fixture must clear preflight: {reason}")
+            }
+        };
+        AuthorizedLaunchPlan::from_cleared(cleared, plan.clone(), evidence)
+            .unwrap_or_else(|error| panic!("fixture must seal: {error}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::domain::{AgentId, LaunchSignature};
+    use crate::domain::AgentId;
+    use crate::domain::agent_definition::AgentLaunchPlan;
+    use crate::runtime::agent_preflight::AuthorizedLaunchPlan;
+    use crate::runtime::test_support::authorized_launch_plan;
+
+    fn fixture_plan(work_dir: &str) -> AgentLaunchPlan {
+        AgentLaunchPlan {
+            cwd: PathBuf::from(work_dir),
+            ..AgentLaunchPlan::default()
+        }
+    }
+
+    /// Seal a fixture plan into an [`AuthorizedLaunchPlan`] through the real
+    /// authorize + preflight proof chain, deriving matching evidence from the
+    /// plan's own fields.
+    fn authorized(plan: &AgentLaunchPlan) -> AuthorizedLaunchPlan {
+        authorized_launch_plan(plan)
+    }
 
     #[test]
     fn stub_spawn_and_attach() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = authorized(&fixture_plan("/tmp"));
 
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
         }
         assert!(mgr.is_alive(&agent_id));
@@ -205,26 +275,9 @@ mod tests {
     fn stub_kill_removes_session() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = authorized(&fixture_plan("/tmp"));
 
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
         }
         if let Err(error) = mgr.kill(&agent_id) {
@@ -244,29 +297,11 @@ mod tests {
     fn stub_duplicate_spawn_fails() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
-
-        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+        let plan = authorized(&fixture_plan("/tmp"));
+        if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("first spawn should succeed: {error}");
         }
-        let result = mgr.spawn_session(&agent_id, &work_dir, &signature);
+        let result = mgr.spawn_session(&agent_id, &plan, None);
         assert!(result.is_err());
     }
 
@@ -274,31 +309,14 @@ mod tests {
     fn stub_spawn_session_fresh_matches_spawn_semantics() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("fresh-test".into());
-        let work_dir = PathBuf::from("/tmp");
-        let signature = LaunchSignature {
-            work_dir: work_dir.clone(),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        };
+        let plan = authorized(&fixture_plan("/tmp"));
 
-        if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {
+        if let Err(error) = mgr.spawn_session_fresh(&agent_id, &plan, None) {
             panic!("fresh spawn should succeed: {error}");
         }
         assert!(mgr.is_alive(&agent_id));
 
-        let duplicate = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature);
+        let duplicate = mgr.spawn_session_fresh(&agent_id, &plan, None);
         assert!(duplicate.is_err());
     }
 
