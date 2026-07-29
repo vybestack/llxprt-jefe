@@ -78,6 +78,32 @@ pub use issue_rewrite::build_rewrite_instruction;
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
 
+/// CW-03 single-chord keymap grammar, modifiers, and crossterm translation
+/// (issue #383 S0).
+pub mod keymap;
+#[cfg(test)]
+#[path = "keymap_tests.rs"]
+mod keymap_tests;
+
+/// CW-03 closed action/binding value types (issue #383 S0).
+pub mod action_registry;
+#[cfg(test)]
+#[path = "action_registry_tests.rs"]
+mod action_registry_tests;
+
+/// CW-03 ordered context stack and context identifiers (issue #383 S0).
+pub mod input_context;
+#[cfg(test)]
+#[path = "input_context_tests.rs"]
+mod input_context_tests;
+
+/// CW-03 source-derived default action inventory and golden projection
+/// groundwork (issue #383 S0).
+pub mod default_action_inventory;
+#[cfg(test)]
+#[path = "default_action_inventory_tests.rs"]
+mod default_action_inventory_tests;
+
 // Normalized LLxprt npm package selector.
 mod llxprt_version;
 pub use llxprt_version::{

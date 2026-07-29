@@ -30,28 +30,9 @@ fn empty_comments(
     )
 }
 
-/// PR-mode state with a single selected PR and a loaded detail (non-empty body).
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
-    let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
-        ..AppState::default()
-    };
-    state.repositories.push(Repository::new(
-        RepositoryId(repo_id.to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Test Repo".to_string(),
-        repo_id.to_string(),
-        std::path::PathBuf::from("/tmp/test"),
-    ));
-    state.selected_repository_index = Some(0);
-    state.prs_state.active = true;
-    state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.list.replace_items(vec![PullRequest {
+/// Build the single PR-list item used by the detail fixture.
+fn detail_list_item(pr_number: u64) -> PullRequest {
+    PullRequest {
         number: pr_number,
         title: format!("PR #{pr_number}"),
         state: PrState::Open,
@@ -68,9 +49,12 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
-    }]);
-    state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.pr_detail = Some(PullRequestDetail {
+    }
+}
+
+/// Build the loaded PR detail (non-empty body) used by the detail fixture.
+fn loaded_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail {
+    PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: pr_number,
         title: format!("PR #{pr_number}"),
@@ -94,7 +78,36 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         comments: empty_comments(RepositoryId(repo_id.to_string()), pr_number),
         mergeable: None,
         merge_state_status: None,
-    });
+    }
+}
+
+/// PR-mode state with a single selected PR and a loaded detail (non-empty body).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
+    let mut state = AppState {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        ..AppState::default()
+    };
+    state.repositories.push(Repository::new(
+        RepositoryId(repo_id.to_string()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Test Repo".to_string(),
+        repo_id.to_string(),
+        std::path::PathBuf::from("/tmp/test"),
+    ));
+    state.selected_repository_index = Some(0);
+    state.prs_state.active = true;
+    state.prs_state.pr_focus = PrFocus::PrDetail;
+    state
+        .prs_state
+        .list
+        .replace_items(vec![detail_list_item(pr_number)]);
+    state.prs_state.list.set_selected_index(Some(0));
+    state.prs_state.pr_detail = Some(loaded_detail(repo_id, pr_number));
     state.prs_state.inline_state = InlineState::None;
     state
 }
