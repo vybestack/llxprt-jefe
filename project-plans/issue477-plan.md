@@ -331,11 +331,11 @@ xtask ci: test
 exit status: 0
 ```
 
-The final pre-plan-update scope relative to `origin/main` is 87 files, 18,984
-insertions, and 30 deletions (18,954 net lines). The user-approved hard-scope
+The final scope relative to `origin/main` is 87 files, 18,991 insertions, and 30
+deletions (18,961 net lines). The user-approved hard-scope
 exception covers this single issue-linked PR. `origin/main` is an ancestor of
 HEAD, `.llxprt` is untouched, and the dependency diff consists of the
 `serde_json` `raw_value` feature plus `jsonschema` 0.33 with default features
-disabled and its lockfile closure. The successful exact-head run is preserved
-in `/tmp/issue477-final-exact-head-ci-candidate.log` with exit marker
-`/tmp/issue477-final-exact-head-ci-candidate.exit`.
+disabled and its lockfile closure. The successful true-final exact-head run is
+preserved in `/tmp/issue477-true-final-exact-head-ci.log` with exit marker
+`/tmp/issue477-true-final-exact-head-ci.exit`.
