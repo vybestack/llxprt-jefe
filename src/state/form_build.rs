@@ -256,7 +256,7 @@ impl AppState {
             agent.work_dir = std::path::PathBuf::from(new_dir);
         }
         let mut values = if agent.type_id == type_id {
-            agent.values.clone()
+            declared_values(&definition, &agent.values)
         } else if repository.default_type_id == type_id {
             repository.default_values.clone()
         } else {
@@ -274,6 +274,18 @@ fn active_type_id(value: &str) -> Option<AgentTypeId> {
 
 fn definition_for_type(type_id: &AgentTypeId) -> Option<AgentDefinition> {
     super::form_projection::definition_for_type(type_id)
+}
+
+fn declared_values(definition: &AgentDefinition, values: &TypedMap) -> TypedMap {
+    definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .filter_map(|field| {
+            let key = typed_key(&field.id)?;
+            values.get(&key).cloned().map(|value| (key, value))
+        })
+        .collect()
 }
 
 fn default_values(definition: &AgentDefinition) -> TypedMap {
