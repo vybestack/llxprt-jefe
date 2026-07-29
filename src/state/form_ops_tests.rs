@@ -341,6 +341,12 @@ fn update_llxprt_agent_replaces_obsolete_prompt_interactive_value() {
         serde_json::Value::Bool(true),
     )
     .unwrap_or_else(|error| panic!("valid obsolete prompt fixture: {error}"));
+    crate::domain::canonical_values::insert_json(
+        &mut values,
+        "future_metadata",
+        serde_json::Value::String("preserve me".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("valid undeclared metadata fixture: {error}"));
     let mut agent = Agent::new(
         crate::domain::AgentId("agent-obsolete-prompt".to_owned()),
         repository.id.clone(),
@@ -365,6 +371,10 @@ fn update_llxprt_agent_replaces_obsolete_prompt_interactive_value() {
     );
     assert!(
         crate::domain::canonical_values::typed_field(&agent.values, "prompt_interactive").is_none()
+    );
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "future_metadata"),
+        Some(&crate::domain::TypedValue::String("preserve me".to_owned()))
     );
 }
 #[test]

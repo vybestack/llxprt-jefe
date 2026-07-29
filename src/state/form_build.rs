@@ -256,7 +256,9 @@ impl AppState {
             agent.work_dir = std::path::PathBuf::from(new_dir);
         }
         let mut values = if agent.type_id == type_id {
-            declared_values(&definition, &agent.values)
+            let mut values = agent.values.clone();
+            remove_replaced_agent_values(&definition, &mut values);
+            values
         } else if repository.default_type_id == type_id {
             repository.default_values.clone()
         } else {
@@ -276,16 +278,21 @@ fn definition_for_type(type_id: &AgentTypeId) -> Option<AgentDefinition> {
     super::form_projection::definition_for_type(type_id)
 }
 
-fn declared_values(definition: &AgentDefinition, values: &TypedMap) -> TypedMap {
-    definition
-        .repository_fields
+fn remove_replaced_agent_values(definition: &AgentDefinition, values: &mut TypedMap) {
+    let declares_continue = definition
+        .agent_fields
         .iter()
-        .chain(definition.agent_fields.iter())
-        .filter_map(|field| {
-            let key = typed_key(&field.id)?;
-            values.get(&key).cloned().map(|value| (key, value))
-        })
-        .collect()
+        .any(|field| field.id == "continue");
+    let declares_prompt_boolean = definition
+        .agent_fields
+        .iter()
+        .any(|field| field.id == "prompt_interactive");
+    if declares_continue
+        && !declares_prompt_boolean
+        && let Some(key) = typed_key("prompt_interactive")
+    {
+        values.remove(&key);
+    }
 }
 
 fn default_values(definition: &AgentDefinition) -> TypedMap {

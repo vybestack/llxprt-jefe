@@ -7,9 +7,8 @@ case "${1:-}" in
     exit 0
     ;;
   checkout)
-    shift
-    if [ "${1:-}" = "-B" ]; then
-      "$real_git" reset --hard --quiet "${3:?missing revision}"
+    if [ "${2:-}" = "-B" ]; then
+      "$real_git" reset --hard --quiet "${4:-HEAD}"
       exit 0
     fi
     ;;
