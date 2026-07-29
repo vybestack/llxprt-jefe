@@ -207,6 +207,7 @@ fn capture_records_exact_process_boundary_fields() {
 fn wait_timeout_escalates_and_reaps_hanging_process_tree() {
     let steps = r#"{"op":"wait","source":"frame","literal":"PROBE READY","timeout_ms":10000},
            {"op":"text","text":"run slow-tool\n"},
+           {"op":"wait","source":"frame","literal":"SLOW-TOOL-STARTED","timeout_ms":10000},
            {"op":"wait","source":"frame","literal":"NEVER-PRINTED","timeout_ms":1500},
            {"op":"finish"}"#;
     let probe = bin_path("jefe-harness-probe");
@@ -215,7 +216,7 @@ fn wait_timeout_escalates_and_reaps_hanging_process_tree() {
             "terminal":{{"cols":100,"rows":30}},
             "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],"files":[],"env":[]}},
             "steps":[
-                {{"op":"capture","name":"slow-tool","path":"bin/slow-tool","behavior":{{"stdout":"","stderr":"","exit_code":0,"stdin_limit":0,"hang":true,"spawn_child_hang":true}}}},
+                {{"op":"capture","name":"slow-tool","path":"bin/slow-tool","behavior":{{"stdout":"","stderr":"SLOW-TOOL-STARTED\n","exit_code":0,"stdin_limit":0,"hang":true,"spawn_child_hang":true}}}},
                 {{"op":"launch","argv":["{}"],"env":[],"cwd":"work"}},
                 {steps}
             ],"secrets":[]}}"#,
