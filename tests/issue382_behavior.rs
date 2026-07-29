@@ -744,7 +744,7 @@ fn assert_llxprt_remote_golden() {
     };
     assert_eq!(
         transcript.remote_command(),
-        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--prompt-interactive'"
+        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--prompt-interactive'"
     );
     let agent_argv: Vec<String> = transcript
         .agent_argv()
@@ -756,6 +756,7 @@ fn assert_llxprt_remote_golden() {
         &[
             "--profile-load".to_string(),
             "dev".to_string(),
+            "--yolo".to_string(),
             "--prompt-interactive".to_string(),
         ]
     );

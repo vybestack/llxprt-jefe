@@ -317,11 +317,11 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "331745dd745096662a038abef912d8ce1679ef3295a37c9bcb6c2332b369c00a"
+        "7572f5e82ecab05268886416c27e70b6c76b37a51ca5d7053a9c2d865de4d8a8"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "317635609f3f1ee811c753d07008568a43d250759865199d43b1188f84c0f277"
+        "14e6bc5b61c3f4bc64e1f6c436e37ab779d98e9e5eed98141ad90339c637307c"
     );
     assert_eq!(
         agent.launch_signature.target_fingerprint.as_str(),

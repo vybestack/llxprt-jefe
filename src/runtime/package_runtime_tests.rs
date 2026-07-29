@@ -127,7 +127,7 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
     let candidate = resolve_package(&definition, &bin, "2.0.0");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let plan = local_base_plan(&definition, &candidate, 8, cache.path());
-    assert!(plan.argv.is_empty(), "managed binary receives only emitted argv");
+    assert_eq!(plan.argv, [OsString::from("--yolo")]);
     assert!(plan.executable.starts_with(cache.path()));
     assert!(
         plan.executable
@@ -214,6 +214,7 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
             "--package=@vybestack/llxprt-code@nightly",
             "--",
             "llxprt",
+            "--yolo",
         ]
         .map(OsString::from)
     );
