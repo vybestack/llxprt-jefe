@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jefe.dev/schema/jsp/1/event.schema.json",
+  "title": "JSP/1 event",
+  "description": "Closed JSP/1 event inventory with payload and parser bounds.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "event"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "lifecycle_generation": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "source_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "source_sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "bridge_observed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "activity.changed"
+            },
+            "state": {
+              "enum": [
+                "idle",
+                "thinking",
+                "acting"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "wait.opened"
+            },
+            "reason": {
+              "enum": [
+                "permission",
+                "question",
+                "elicitation",
+                "choice",
+                "user_input",
+                "other"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "wait.resolved"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "turn.started"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "turn.ended"
+            },
+            "outcome": {
+              "enum": [
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "todos.replaced"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18446744073709551615
+            },
+            "items": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "x-jsp-maxUtf8Bytes": 2048
+                  },
+                  "completed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "text",
+                  "completed"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "type",
+            "revision",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool_call.created"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 256,
+              "x-jsp-maxUtf8Bytes": 256
+            },
+            "phase": {
+              "enum": [
+                "proposed",
+                "awaiting_approval",
+                "scheduled",
+                "executing",
+                "succeeded",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "label",
+            "phase"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "tool_call.phase_changed"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 256,
+              "x-jsp-maxUtf8Bytes": 256
+            },
+            "phase": {
+              "enum": [
+                "proposed",
+                "awaiting_approval",
+                "scheduled",
+                "executing",
+                "succeeded",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "label",
+            "phase"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "assistant_message.displayed"
+            },
+            "content": {
+              "type": "string",
+              "maxLength": 16384,
+              "x-jsp-maxUtf8Bytes": 16384
+            },
+            "committed_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          },
+          "required": [
+            "type",
+            "content",
+            "committed_ms"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "source.error"
+            },
+            "summary": {
+              "type": "string",
+              "maxLength": 2048,
+              "x-jsp-maxUtf8Bytes": 2048
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "type",
+            "summary",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "session.ended"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "agent_id",
+    "lifecycle_generation",
+    "source_epoch",
+    "source_sequence",
+    "bridge_observed_ms",
+    "event"
+  ],
+  "additionalProperties": false
+}

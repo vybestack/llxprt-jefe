@@ -44,6 +44,11 @@ pub fn parse_heartbeat(input: &[u8]) -> Result<HeartbeatRecord, JspError> {
     check_document_bound(input)?;
     expect_kind(input, "heartbeat")?;
     let wire: HeartbeatWire = deserialize_closed(input)?;
+    convert_heartbeat(wire)
+}
+
+/// Convert a deserialized heartbeat envelope into a typed record.
+pub(super) fn convert_heartbeat(wire: HeartbeatWire) -> Result<HeartbeatRecord, JspError> {
     Ok(HeartbeatRecord {
         identity: build_event_identity(
             &wire.agent_id,
@@ -55,7 +60,7 @@ pub fn parse_heartbeat(input: &[u8]) -> Result<HeartbeatRecord, JspError> {
 }
 
 /// Convert a deserialized event envelope into a typed record.
-fn convert_event(wire: EventWire) -> Result<EventRecord, JspError> {
+pub(super) fn convert_event(wire: EventWire) -> Result<EventRecord, JspError> {
     let identity = build_event_identity(
         &wire.agent_id,
         wire.lifecycle_generation,
@@ -75,8 +80,8 @@ fn convert_payload(payload: EventPayloadWire) -> Result<ObservationEvent, JspErr
     match payload {
         EventPayloadWire::ActivityChanged { state } => convert_activity(&state),
         EventPayloadWire::WaitOpened { reason } => convert_wait_opened(&reason),
-        EventPayloadWire::WaitResolved => Ok(ObservationEvent::WaitResolved),
-        EventPayloadWire::TurnStarted => Ok(ObservationEvent::TurnStarted),
+        EventPayloadWire::WaitResolved {} => Ok(ObservationEvent::WaitResolved),
+        EventPayloadWire::TurnStarted {} => Ok(ObservationEvent::TurnStarted),
         EventPayloadWire::TurnEnded { outcome } => convert_turn_ended(&outcome),
         EventPayloadWire::TodosReplaced { revision, items } => convert_todos(revision, &items),
         EventPayloadWire::ToolCallCreated { label, phase } => {
@@ -94,7 +99,7 @@ fn convert_payload(payload: EventPayloadWire) -> Result<ObservationEvent, JspErr
             committed_ms,
         } => convert_message(&content, committed_ms),
         EventPayloadWire::SourceError { summary, code } => convert_source_error(&summary, &code),
-        EventPayloadWire::SessionEnded => Ok(ObservationEvent::SessionEnded),
+        EventPayloadWire::SessionEnded {} => Ok(ObservationEvent::SessionEnded),
     }
 }
 

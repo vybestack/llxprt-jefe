@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "kind": "scenario-manifest",
+  "scenario_artifact_version": "jsp-v1-compliance-1",
+  "description": "Enumerates all 15 language-neutral JSP/1 reference scenarios. Each scenario file defines a base snapshot, an ordered list of steps, and the expected normalized projection after each step. External implementations must produce byte-identical projections. Current-state JSP/1 semantics: no replay/history/resume/resync; gaps, reconnects, and epoch changes require a fresh snapshot-first stream. Tool-call projection is last-created-tool (no tool IDs).",
+  "scenarios": [
+    {
+      "id": "S1",
+      "name": "ready_session_no_active_turn",
+      "file": "s01_ready_session.json"
+    },
+    {
+      "id": "S2",
+      "name": "turn_starts_emits_assistant_text",
+      "file": "s02_turn_starts_text.json"
+    },
+    {
+      "id": "S3",
+      "name": "tool_proposed_awaiting_approved_executing_succeeded",
+      "file": "s03_tool_lifecycle.json"
+    },
+    {
+      "id": "S4",
+      "name": "explicit_user_question_and_resolution",
+      "file": "s04_wait_question.json"
+    },
+    {
+      "id": "S5",
+      "name": "todo_list_replacement_and_completion",
+      "file": "s05_todos.json"
+    },
+    {
+      "id": "S6",
+      "name": "turn_failure",
+      "file": "s06_turn_failure.json"
+    },
+    {
+      "id": "S7",
+      "name": "turn_cancellation",
+      "file": "s07_turn_cancelled.json"
+    },
+    {
+      "id": "S8",
+      "name": "two_concurrent_tool_calls_interleaved",
+      "file": "s08_concurrent_tools.json"
+    },
+    {
+      "id": "S9",
+      "name": "stream_disconnect_during_assistant_draft",
+      "file": "s09_disconnect_draft.json"
+    },
+    {
+      "id": "S10",
+      "name": "publisher_overflow_observation_gap",
+      "file": "s10_overflow_gap.json"
+    },
+    {
+      "id": "S11",
+      "name": "jefe_restart_fresh_snapshot_current_state",
+      "file": "s11_restart_snapshot_first.json"
+    },
+    {
+      "id": "S12",
+      "name": "jefe_restart_fresh_stream_without_retained_events",
+      "file": "s12_restart_no_history.json"
+    },
+    {
+      "id": "S13",
+      "name": "agent_relaunch_new_generation_and_epoch",
+      "file": "s13_agent_relaunch.json"
+    },
+    {
+      "id": "S14",
+      "name": "two_instances_same_repo_branch_directory",
+      "file": "s14_two_instances.json"
+    },
+    {
+      "id": "S15",
+      "name": "no_content_privacy_mode",
+      "file": "s15_privacy_mode.json"
+    }
+  ]
+}

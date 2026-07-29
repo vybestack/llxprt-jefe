@@ -1,0 +1,1105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jefe.dev/schema/jsp/1/snapshot.schema.json",
+  "title": "JSP/1 snapshot",
+  "description": "Closed JSP/1 snapshot including the complete field-state algebra and parser bounds.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "snapshot"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "lifecycle_generation": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "source_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "source_sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "cursor": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "bridge_observed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "native_session": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "maxLength": 256,
+          "x-jsp-maxUtf8Bytes": 256
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 4096,
+          "x-jsp-maxUtf8Bytes": 4096
+        },
+        "agent_kind": {
+          "type": "string",
+          "maxLength": 64,
+          "x-jsp-maxUtf8Bytes": 64
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 256,
+          "x-jsp-maxUtf8Bytes": 256
+        }
+      },
+      "required": [
+        "repository",
+        "path",
+        "agent_kind",
+        "pid",
+        "display_name"
+      ],
+      "additionalProperties": false
+    },
+    "process_binding": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "pid": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "started_at_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "pid",
+                "started_at_ms"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "pid": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "started_at_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "pid",
+                "started_at_ms"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "native_activity": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "enum": [
+                    "idle",
+                    "thinking",
+                    "acting"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "enum": [
+                    "idle",
+                    "thinking",
+                    "acting"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "current_wait": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "enum": [
+                        "permission",
+                        "question",
+                        "elicitation",
+                        "choice",
+                        "user_input",
+                        "other"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "current_turn": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "elapsed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "elapsed_ms"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "elapsed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "elapsed_ms"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "todos": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 18446744073709551615
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "x-jsp-maxUtf8Bytes": 2048
+                      },
+                      "completed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "completed"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 18446744073709551615
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "x-jsp-maxUtf8Bytes": 2048
+                      },
+                      "completed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "completed"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "items"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "last_displayed_assistant_message": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "maxLength": 16384,
+                  "x-jsp-maxUtf8Bytes": 16384
+                },
+                "committed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "content",
+                "committed_ms"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "maxLength": 16384,
+                  "x-jsp-maxUtf8Bytes": 16384
+                },
+                "committed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "content",
+                "committed_ms"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "last_created_tool_call": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "x-jsp-maxUtf8Bytes": 256
+                },
+                "phase": {
+                  "enum": [
+                    "proposed",
+                    "awaiting_approval",
+                    "scheduled",
+                    "executing",
+                    "succeeded",
+                    "failed",
+                    "cancelled"
+                  ]
+                }
+              },
+              "required": [
+                "label",
+                "phase"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "x-jsp-maxUtf8Bytes": 256
+                },
+                "phase": {
+                  "enum": [
+                    "proposed",
+                    "awaiting_approval",
+                    "scheduled",
+                    "executing",
+                    "succeeded",
+                    "failed",
+                    "cancelled"
+                  ]
+                }
+              },
+              "required": [
+                "label",
+                "phase"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "source_terminal_state": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "summary": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "x-jsp-maxUtf8Bytes": 2048
+                    },
+                    "code": {
+                      "type": "string",
+                      "maxLength": 128,
+                      "x-jsp-maxUtf8Bytes": 128
+                    }
+                  },
+                  "required": [
+                    "summary",
+                    "code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "source_error_state": {
+      "oneOf": [
+        {
+          "const": "unsupported"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "known"
+            },
+            "value": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "x-jsp-maxUtf8Bytes": 2048
+                },
+                "code": {
+                  "type": "string",
+                  "maxLength": 128,
+                  "x-jsp-maxUtf8Bytes": 128
+                }
+              },
+              "required": [
+                "summary",
+                "code"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "provenance",
+            "availability"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provenance": {
+              "enum": [
+                "authoritative",
+                "inferred"
+              ]
+            },
+            "availability": {
+              "const": "degraded"
+            },
+            "last_value": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "x-jsp-maxUtf8Bytes": 2048
+                },
+                "code": {
+                  "type": "string",
+                  "maxLength": 128,
+                  "x-jsp-maxUtf8Bytes": 128
+                }
+              },
+              "required": [
+                "summary",
+                "code"
+              ],
+              "additionalProperties": false
+            },
+            "as_of_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "diagnostic_code": {
+              "type": "string",
+              "maxLength": 128,
+              "x-jsp-maxUtf8Bytes": 128
+            }
+          },
+          "required": [
+            "provenance",
+            "availability",
+            "last_value",
+            "as_of_ms",
+            "diagnostic_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "agent_id",
+    "lifecycle_generation",
+    "source_epoch",
+    "source_sequence",
+    "cursor",
+    "bridge_observed_ms",
+    "native_session",
+    "process_binding",
+    "native_activity",
+    "current_wait",
+    "current_turn",
+    "todos",
+    "last_displayed_assistant_message",
+    "last_created_tool_call",
+    "source_terminal_state",
+    "source_error_state"
+  ],
+  "additionalProperties": false
+}

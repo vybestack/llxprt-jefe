@@ -75,9 +75,9 @@ pub enum EventPayloadWire {
     #[serde(rename = "wait.opened")]
     WaitOpened { reason: String },
     #[serde(rename = "wait.resolved")]
-    WaitResolved,
+    WaitResolved {},
     #[serde(rename = "turn.started")]
-    TurnStarted,
+    TurnStarted {},
     #[serde(rename = "turn.ended")]
     TurnEnded { outcome: String },
     #[serde(rename = "todos.replaced")]
@@ -94,5 +94,5 @@ pub enum EventPayloadWire {
     #[serde(rename = "source.error")]
     SourceError { summary: String, code: String },
     #[serde(rename = "session.ended")]
-    SessionEnded,
+    SessionEnded {},
 }

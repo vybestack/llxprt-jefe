@@ -11,10 +11,11 @@
 
 use std::process::Command;
 
-use crate::support::TestResultExt;
+use crate::support::{TestResultExt, nested_cargo_lock};
 
 #[test]
 fn clippy_allow_policy_passes_on_repo() {
+    let _cargo_lock = nested_cargo_lock();
     let output = Command::new("cargo")
         .args(["xtask", "check", "clippy-allows"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))

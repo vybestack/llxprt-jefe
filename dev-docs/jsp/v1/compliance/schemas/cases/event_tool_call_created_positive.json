@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 7,
+  "bridge_observed_ms": 107,
+  "event": {
+    "type": "tool_call.created",
+    "label": "read",
+    "phase": "proposed"
+  }
+}

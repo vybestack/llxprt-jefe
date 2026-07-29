@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "kind": "snapshot",
+  "agent_id": "agent-alex",
+  "lifecycle_generation": 7,
+  "source_epoch": "epoch-001",
+  "source_sequence": 42,
+  "cursor": 41,
+  "bridge_observed_ms": 1785921964000,
+  "native_session": {
+    "repository": "vybestack/llxprt-jefe",
+    "path": "/Users/dev/src/jefe",
+    "agent_kind": "llxprt",
+    "pid": 12345,
+    "display_name": "main-worker"
+  },
+  "process_binding": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": {
+      "pid": 12345,
+      "started_at_ms": 1785921000000
+    }
+  },
+  "native_activity": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "state": "idle" }
+  },
+  "current_wait": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": null
+  },
+  "current_turn": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "elapsed_ms": 12000 }
+  },
+  "todos": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": {
+      "revision": 3,
+      "items": [
+        { "text": "Write parser", "completed": false },
+        { "text": "Add tests", "completed": true }
+      ]
+    }
+  },
+  "last_displayed_assistant_message": {
+    "provenance": "inferred",
+    "availability": "known",
+    "value": {
+      "content": "Done.",
+      "committed_ms": 1785921900000
+    }
+  },
+  "last_created_tool_call": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": { "label": "Read", "phase": "succeeded" }
+  },
+  "source_terminal_state": {
+    "provenance": "authoritative",
+    "availability": "known",
+    "value": null
+  },
+  "source_error_state": "unsupported"
+}

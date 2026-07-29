@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 1,
+  "bridge_observed_ms": 101,
+  "event": {
+    "type": "activity.changed",
+    "state": "acting",
+    "unexpected": true
+  }
+}

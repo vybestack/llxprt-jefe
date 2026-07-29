@@ -18,7 +18,7 @@ repository = "https://github.com/vybestack/jefe"
 [dependencies]
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["raw_value"] }
 toml = "0.8"
 
 # Terminal UI
@@ -62,6 +62,7 @@ comrak = { version = "0.53", default-features = false }
 # the rewritten draft to a NamedTempFile so stdout thinking/tool noise cannot
 # pollute the composer.
 tempfile = "3.0"
+jsonschema = { version = "0.33", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }
@@ -117,6 +118,10 @@ path = "src/bin/jefe-harness-probe.rs"
 [[bin]]
 name = "tmux_scenario"
 path = "src/bin/tmux_scenario.rs"
+
+[[bin]]
+name = "jefe-jsp-compliance"
+path = "src/bin/jefe-jsp-compliance.rs"
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "event",
+  "agent_id": "schema-agent",
+  "lifecycle_generation": 1,
+  "source_epoch": "schema-epoch",
+  "source_sequence": 5,
+  "bridge_observed_ms": 105,
+  "event": {
+    "type": "turn.ended",
+    "outcome": "completed",
+    "unexpected": true
+  }
+}

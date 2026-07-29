@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "kind": "scenario",
+  "id": "S13",
+  "name": "agent_relaunch_new_generation_and_epoch",
+  "description": "A fresh snapshot binds the relaunched generation and epoch before a delayed, otherwise valid event from the old generation is rejected without mutation.",
+  "base_snapshot": {
+    "schema": 1,
+    "kind": "snapshot",
+    "agent_id": "agent-s13",
+    "lifecycle_generation": 1,
+    "source_epoch": "epoch-s13a",
+    "source_sequence": 0,
+    "cursor": 0,
+    "bridge_observed_ms": 13000000,
+    "native_session": {
+      "repository": "repo",
+      "path": "/path",
+      "agent_kind": "llxprt",
+      "pid": 1300,
+      "display_name": "s13"
+    },
+    "process_binding": "unsupported",
+    "native_activity": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": {
+        "state": "acting"
+      }
+    },
+    "current_wait": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": null
+    },
+    "current_turn": "unsupported",
+    "todos": "unsupported",
+    "last_displayed_assistant_message": "unsupported",
+    "last_created_tool_call": "unsupported",
+    "source_terminal_state": "unsupported",
+    "source_error_state": "unsupported"
+  },
+  "steps": [
+    {
+      "index": 0,
+      "kind": "fresh_snapshot",
+      "document": {
+        "schema": 1,
+        "kind": "snapshot",
+        "agent_id": "agent-s13",
+        "lifecycle_generation": 2,
+        "source_epoch": "epoch-s13b",
+        "source_sequence": 0,
+        "cursor": 0,
+        "bridge_observed_ms": 13002000,
+        "native_session": {
+          "repository": "repo",
+          "path": "/path",
+          "agent_kind": "llxprt",
+          "pid": 1301,
+          "display_name": "s13"
+        },
+        "process_binding": "unsupported",
+        "native_activity": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": {
+            "state": "idle"
+          }
+        },
+        "current_wait": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": null
+        },
+        "current_turn": "unsupported",
+        "todos": "unsupported",
+        "last_displayed_assistant_message": "unsupported",
+        "last_created_tool_call": "unsupported",
+        "source_terminal_state": "unsupported",
+        "source_error_state": "unsupported"
+      },
+      "expected": {
+        "agent_id": "agent-s13",
+        "generation": 2,
+        "source_epoch": "epoch-s13b",
+        "last_sequence": 0,
+        "activity": "idle",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    },
+    {
+      "index": 1,
+      "kind": "event_epoch_mismatch",
+      "document": {
+        "schema": 1,
+        "kind": "event",
+        "agent_id": "agent-s13",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s13a",
+        "source_sequence": 1,
+        "bridge_observed_ms": 13003000,
+        "event": {
+          "type": "activity.changed",
+          "state": "idle"
+        }
+      },
+      "expected_rejected_identity": true,
+      "expected": {
+        "agent_id": "agent-s13",
+        "generation": 2,
+        "source_epoch": "epoch-s13b",
+        "last_sequence": 0,
+        "activity": "idle",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    }
+  ]
+}

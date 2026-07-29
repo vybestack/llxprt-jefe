@@ -17,6 +17,14 @@
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
+#[path = "../panic_capture.rs"]
+mod panic_capture;
+
+fn init_diagnostics() {
+    jefe::logging::init();
+    panic_capture::install_panic_hook();
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -95,9 +103,47 @@ fn handle_line(line: &str, run_sequence: &mut u64) -> Result<bool, String> {
             let value = std::env::var(name).unwrap_or_else(|_| "<unset>".to_string());
             print_line(&format!("ENV {name}={value}"))?;
         }
+        Some("panic-errors") => render_panic_errors()?,
         Some(_) | None => print_line(&format!("INPUT: {line}"))?,
     }
     Ok(false)
+}
+fn render_panic_errors() -> Result<(), String> {
+    const PANIC_MARKER: &str = "issue-496-ui-panic";
+    init_diagnostics();
+    let _ = panic_capture::drain_panic_reports();
+    let unwind = std::panic::catch_unwind(|| std::panic::panic_any(PANIC_MARKER.to_owned()));
+    if unwind.is_ok() {
+        return Err("panic fixture did not unwind".to_owned());
+    }
+    let mut state = jefe::state::AppState::default();
+    let reports = panic_capture::drain_panic_reports();
+    if reports.is_empty() {
+        return Err("panic fixture did not capture a report".to_owned());
+    }
+    for report in reports {
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            jefe::messages::AppMessage::Errors(report.into_errors_message()),
+        );
+    }
+    print_line(&format!(
+        "STATUS ERROR TITLE {}",
+        state.last_error_title().as_deref().unwrap_or("<none>")
+    ))?;
+    state.errors_state.selected_index = Some(0);
+    let content = jefe::selection::pane_content_lines(
+        jefe::selection::SelectablePane::ErrorDetail,
+        &state,
+        None,
+        &[],
+        100,
+        30,
+    );
+    for line in content.lines {
+        print_line(&line)?;
+    }
+    print_line("PANIC ERRORS READY")
 }
 
 fn run_command(sequence: u64, args: &[String]) -> Result<(), String> {

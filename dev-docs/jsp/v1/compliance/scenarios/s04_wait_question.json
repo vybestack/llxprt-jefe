@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "kind": "scenario",
+  "id": "S4",
+  "name": "explicit_user_question_and_resolution",
+  "description": "An explicit question opens a wait; activity continues independently; the wait is then resolved natively. Wait and activity remain orthogonal.",
+  "base_snapshot": {
+    "schema": 1,
+    "kind": "snapshot",
+    "agent_id": "agent-s4",
+    "lifecycle_generation": 1,
+    "source_epoch": "epoch-s4",
+    "source_sequence": 0,
+    "cursor": 0,
+    "bridge_observed_ms": 4000000,
+    "native_session": {
+      "repository": "repo",
+      "path": "/path",
+      "agent_kind": "llxprt",
+      "pid": 400,
+      "display_name": "s4"
+    },
+    "process_binding": "unsupported",
+    "native_activity": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": {
+        "state": "acting"
+      }
+    },
+    "current_wait": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": null
+    },
+    "current_turn": "unsupported",
+    "todos": "unsupported",
+    "last_displayed_assistant_message": "unsupported",
+    "last_created_tool_call": "unsupported",
+    "source_terminal_state": "unsupported",
+    "source_error_state": "unsupported"
+  },
+  "steps": [
+    {
+      "index": 0,
+      "kind": "event",
+      "document": {
+        "schema": 1,
+        "kind": "event",
+        "agent_id": "agent-s4",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s4",
+        "source_sequence": 1,
+        "bridge_observed_ms": 4001000,
+        "event": {
+          "type": "wait.opened",
+          "reason": "question"
+        }
+      },
+      "expected": {
+        "agent_id": "agent-s4",
+        "generation": 1,
+        "source_epoch": "epoch-s4",
+        "last_sequence": 1,
+        "activity": "acting",
+        "wait": "question",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    },
+    {
+      "index": 1,
+      "kind": "event",
+      "document": {
+        "schema": 1,
+        "kind": "event",
+        "agent_id": "agent-s4",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s4",
+        "source_sequence": 2,
+        "bridge_observed_ms": 4002000,
+        "event": {
+          "type": "wait.resolved"
+        }
+      },
+      "expected": {
+        "agent_id": "agent-s4",
+        "generation": 1,
+        "source_epoch": "epoch-s4",
+        "last_sequence": 2,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    }
+  ]
+}
