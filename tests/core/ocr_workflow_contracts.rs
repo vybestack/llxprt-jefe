@@ -400,7 +400,7 @@ fn ocr_manifest_builder_uses_dependency_free_workflow_commands() {
     );
 }
 
-/// Return the 1-based line index of the `- name: <step_name>` header line, or
+/// Return the 0-based line index of the `- name: <step_name>` header line, or
 /// `None` when the step is absent. Used to assert workflow step ordering.
 fn step_line(content: &str, step_name: &str) -> Option<usize> {
     let needle = format!("- name: {step_name}");
@@ -457,8 +457,8 @@ fn pre_run_manifest_step_captures_worktree_state() {
         "Pre-run manifest must record worktree state"
     );
     assert!(
-        step.contains("clean"),
-        "Pre-run manifest must record the worktree clean flag"
+        step.contains("staged_diff_sha256"),
+        "Pre-run manifest must record the worktree clean flag and diff hashes"
     );
 }
 

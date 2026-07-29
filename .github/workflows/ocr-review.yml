@@ -719,7 +719,13 @@ jobs:
         # recorded as they were at launch, not after the result is posted. This
         # mirrors the llxprt-code ocr-review-local pre-run manifest and makes the
         # manifest a provable pre-run snapshot rather than a post-run summary.
-        if: always()
+        #
+        # continue-on-error: the manifest is a reproducibility aid, not a
+        # functional requirement. A transient script failure must not prevent
+        # the OCR review from running. The step emits workflow-command warnings
+        # on any failure so the loss of the snapshot is visible.
+        if: ${{ always() && steps.ocr-budget.outputs.should_run == 'true' }}
+        continue-on-error: true
         shell: bash
         env:
           BASE_SHA: ${{ env.BASE_SHA }}
@@ -823,6 +829,18 @@ jobs:
           const controlArgs = ['--audience', 'agent', '--format', 'json', '--concurrency', '2', '--timeout', '30'];
           const scopeArgs = ['--from', process.env.BASE_SHA || null, '--to', process.env.HEAD_SHA || null];
 
+          // Comparison eligibility is only meaningful when the core evidence
+          // was captured. A missing trusted-base HEAD, rule hash, or scope
+          // range means the run cannot be proven comparable to another.
+          const comparisonEligible =
+            trustedHead !== null &&
+            ruleSha256 !== null &&
+            Boolean(process.env.BASE_SHA) &&
+            Boolean(process.env.HEAD_SHA);
+          if (!comparisonEligible) {
+            warning('Pre-run manifest recorded incomplete comparison-eligibility evidence (trusted-base HEAD, rule hash, or scope range missing).');
+          }
+
           const pre = {
             schema: 'ocr-review-manifest-v1',
             phase: 'pre-run',
@@ -847,14 +865,14 @@ jobs:
             preview_sha256: previewSha256,
             ocr: {
               version: readTrim('ocr-version.txt', 'unknown') || 'unknown',
-              phase: readTrim('ocr-phase.txt', 'unknown') || 'unknown',
+              // At pre-run time the review has not started, so ocr-phase.txt
+              // reflects the setup phase, not the review. The manifest-level
+              // phase: 'pre-run' above is the authoritative pre-run label.
+              phase: readTrim('ocr-phase.txt', 'pre-run') || 'pre-run',
               provider: providerConfig,
               redacted_config_sha256: sha256(JSON.stringify(providerConfig)),
             },
-            // Comparison eligibility is machine-supported: the recorded
-            // trusted-base, worktree, arg, rule, and provider evidence lets a
-            // reviewer decide comparability from the manifest alone.
-            comparison_eligible: true,
+            comparison_eligible: comparisonEligible,
             coverage_hint: 'See manifest.post.json for the final coverage classification.',
           };
           try {
@@ -1600,6 +1618,9 @@ jobs:
           ];
           const hashes = {};
           for (const name of artifactNames) hashes[name] = fileHash(name);
+          if (hashes['manifest.pre.json'] === null) {
+            warning('manifest.pre.json is missing or empty; the pre-run snapshot was not captured, so the reproducibility chain is incomplete.');
+          }
           const post = {
             schema: 'ocr-review-manifest-v1',
             completed_at: new Date().toISOString(),
