@@ -85,13 +85,16 @@ pub mod keymap;
 #[path = "keymap_tests.rs"]
 mod keymap_tests;
 
-/// CW-03 closed action/binding value types (issue #383 S0).
+/// CW-03 closed action/binding values and immutable registry composition.
 pub mod action_registry;
+#[cfg(test)]
+#[path = "action_registry_composition_tests.rs"]
+mod action_registry_composition_tests;
 #[cfg(test)]
 #[path = "action_registry_tests.rs"]
 mod action_registry_tests;
 
-/// CW-03 ordered context stack and context identifiers (issue #383 S0).
+/// CW-03 validated ordered context stacks and context identifiers.
 pub mod input_context;
 #[cfg(test)]
 #[path = "input_context_tests.rs"]

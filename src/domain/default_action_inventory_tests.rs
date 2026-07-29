@@ -156,3 +156,37 @@ fn source_audit_covers_every_current_keyboard_authority_family() {
         assert!(AUDITED_DISPATCH_SOURCES.contains(&required), "{required}");
     }
 }
+
+#[test]
+fn every_context_local_unwind_is_protected() {
+    let inventory = inventory();
+    for handler in [
+        super::action_registry::HandlerKey::ExitSplit,
+        super::action_registry::HandlerKey::ErrorsBack,
+        super::action_registry::HandlerKey::TerminalManagerBack,
+        super::action_registry::HandlerKey::HelpClose,
+        super::action_registry::HandlerKey::ConfirmCancel,
+        super::action_registry::HandlerKey::AuthCancel,
+        super::action_registry::HandlerKey::FormCancel,
+        super::action_registry::HandlerKey::ThemeCancel,
+        super::action_registry::HandlerKey::SearchCancel,
+        super::action_registry::HandlerKey::FilterCancel,
+        super::action_registry::HandlerKey::IssuesExit,
+        super::action_registry::HandlerKey::IssuesBack,
+        super::action_registry::HandlerKey::IssuesCancelInline,
+        super::action_registry::HandlerKey::IssuesChooserCancel,
+        super::action_registry::HandlerKey::PullRequestsExit,
+        super::action_registry::HandlerKey::PullRequestsBack,
+        super::action_registry::HandlerKey::PullRequestsCancelInline,
+        super::action_registry::HandlerKey::PullRequestsChooserCancel,
+        super::action_registry::HandlerKey::ActionsExit,
+    ] {
+        assert!(
+            inventory
+                .actions
+                .iter()
+                .any(|action| action.handler == handler && action.protected),
+            "local unwind {handler:?} must be protected"
+        );
+    }
+}

@@ -339,7 +339,7 @@ const SPECS: &[Spec] = &[
         H::NavigateDown,
         ["Down", "j"]
     ),
-    spec!("errors", "errors.back", H::ErrorsBack, ["Esc"]),
+    spec!(protected "errors", "errors.back", H::ErrorsBack, ["Esc"]),
     spec!("errors", "errors.up", H::ErrorsUp, ["Up"]),
     spec!("errors", "errors.down", H::ErrorsDown, ["Down"]),
     spec!("errors", "errors.page-up", H::ErrorsPageUp, ["PageUp"]),
@@ -352,7 +352,7 @@ const SPECS: &[Spec] = &[
     spec!("errors", "errors.activate", H::ErrorsActivate, ["Enter"]),
     spec!("errors", "errors.cycle-pane", H::ErrorsCyclePane, ["Tab"]),
     spec!("errors", "errors.clear", H::ErrorsClear, ["Ctrl+C"]),
-    spec!(
+    spec!(protected
         "terminal-manager",
         "terminal-manager.back",
         H::TerminalManagerBack,
@@ -394,14 +394,14 @@ const SPECS: &[Spec] = &[
         H::TerminalManagerFocusShell,
         ["Enter"]
     ),
-    spec!("help", "help.close", H::HelpClose, ["Esc", "Shift+?"]),
+    spec!(protected "help", "help.close", H::HelpClose, ["Esc", "Shift+?"]),
     spec!("help", "help.scroll-up", H::HelpScrollUp, ["Up"]),
     spec!("help", "help.scroll-down", H::HelpScrollDown, ["Down"]),
     spec!("help", "help.page-up", H::HelpPageUp, ["PageUp"]),
     spec!("help", "help.page-down", H::HelpPageDown, ["PageDown"]),
     spec!("help", "help.home", H::HelpHome, ["Home"]),
     spec!("help", "help.end", H::HelpEnd, ["End"]),
-    spec!(
+    spec!(protected
         "modal.confirm",
         "confirm.cancel",
         H::ConfirmCancel,
@@ -425,14 +425,14 @@ const SPECS: &[Spec] = &[
         H::ConfirmToggleDeleteWorkDir,
         [" ", "d", "Shift+D", "Up", "Down"]
     ),
-    spec!("modal.auth", "auth.cancel", H::AuthCancel, ["Esc"]),
+    spec!(protected "modal.auth", "auth.cancel", H::AuthCancel, ["Esc"]),
     spec!(
         "modal.auth",
         "auth.retry",
         H::AuthRetry,
         ["r", "Shift+R", "Enter"]
     ),
-    spec!("modal.form", "form.cancel", H::FormCancel, ["Esc"]),
+    spec!(protected "modal.form", "form.cancel", H::FormCancel, ["Esc"]),
     spec!("modal.form", "form.submit", H::FormSubmit, ["Enter"]),
     spec!(
         "modal.form",
@@ -481,9 +481,9 @@ const SPECS: &[Spec] = &[
         ["Tab"]
     ),
     spec!("modal.theme", "theme.apply", H::ThemeApply, ["Enter"]),
-    spec!("modal.theme", "theme.cancel", H::ThemeCancel, ["Esc"]),
+    spec!(protected "modal.theme", "theme.cancel", H::ThemeCancel, ["Esc"]),
     spec!("search", "search.apply", H::SearchApply, ["Enter"]),
-    spec!("search", "search.cancel", H::SearchCancel, ["Esc"]),
+    spec!(protected "search", "search.cancel", H::SearchCancel, ["Esc"]),
     spec!("search", "search.clear", H::SearchClear, ["Ctrl+L"]),
     spec!(
         "search",
@@ -492,7 +492,7 @@ const SPECS: &[Spec] = &[
         ["Backspace"]
     ),
     spec!("filter", "filter.apply", H::FilterApply, ["Enter"]),
-    spec!("filter", "filter.cancel", H::FilterCancel, ["Esc"]),
+    spec!(protected "filter", "filter.cancel", H::FilterCancel, ["Esc"]),
     spec!(
         "filter",
         "filter.next-field",
@@ -530,7 +530,7 @@ const SPECS: &[Spec] = &[
         H::FilterBackspace,
         ["Backspace"]
     ),
-    spec!("issues.list", "issues.exit", H::IssuesExit, ["a", "Esc"]),
+    spec!(protected "issues.list", "issues.exit", H::IssuesExit, ["a", "Esc"]),
     spec!("issues.list", "issues.open", H::IssuesOpen, ["Enter"]),
     spec!("issues.list", "issues.new", H::IssuesNew, ["n", "Shift+N"]),
     spec!(
@@ -567,7 +567,7 @@ const SPECS: &[Spec] = &[
         H::IssuesCyclePane,
         ["Left", "Right", "Tab", "BackTab"]
     ),
-    spec!("issues.detail", "issues.back", H::IssuesBack, ["Esc"]),
+    spec!(protected "issues.detail", "issues.back", H::IssuesBack, ["Esc"]),
     spec!("issues.detail", "issues.edit", H::IssuesEdit, ["e"]),
     spec!("issues.detail", "issues.comment", H::IssuesComment, ["c"]),
     spec!("issues.detail", "issues.reply", H::IssuesReply, ["r"]),
@@ -583,7 +583,7 @@ const SPECS: &[Spec] = &[
         H::IssuesSubmitInline,
         ["Ctrl+Enter"]
     ),
-    spec!(
+    spec!(protected
         "issues.inline",
         "issues.inline-cancel",
         H::IssuesCancelInline,
@@ -607,13 +607,13 @@ const SPECS: &[Spec] = &[
         H::IssuesChooserConfirm,
         ["Enter"]
     ),
-    spec!(
+    spec!(protected
         "issues.agent-chooser",
         "issues.chooser-cancel",
         H::IssuesChooserCancel,
         ["Esc"]
     ),
-    spec!("prs.list", "prs.exit", H::PullRequestsExit, ["a", "Esc"]),
+    spec!(protected "prs.list", "prs.exit", H::PullRequestsExit, ["a", "Esc"]),
     spec!("prs.list", "prs.open", H::PullRequestsOpen, ["Enter"]),
     spec!(
         "prs.list",
@@ -627,7 +627,7 @@ const SPECS: &[Spec] = &[
         H::PullRequestsFocusSearch,
         ["/"]
     ),
-    spec!("prs.detail", "prs.back", H::PullRequestsBack, ["Esc"]),
+    spec!(protected "prs.detail", "prs.back", H::PullRequestsBack, ["Esc"]),
     spec!("prs.detail", "prs.comment", H::PullRequestsComment, ["c"]),
     spec!("prs.detail", "prs.reply", H::PullRequestsReply, ["r"]),
     spec!(
@@ -661,7 +661,7 @@ const SPECS: &[Spec] = &[
         H::PullRequestsSubmitInline,
         ["Ctrl+Enter"]
     ),
-    spec!(
+    spec!(protected
         "prs.inline",
         "prs.inline-cancel",
         H::PullRequestsCancelInline,
@@ -685,13 +685,13 @@ const SPECS: &[Spec] = &[
         H::PullRequestsChooserConfirm,
         ["Enter"]
     ),
-    spec!(
+    spec!(protected
         "prs.agent-chooser",
         "prs.chooser-cancel",
         H::PullRequestsChooserCancel,
         ["Esc"]
     ),
-    spec!("actions", "actions.exit", H::ActionsExit, ["a", "Esc"]),
+    spec!(protected "actions", "actions.exit", H::ActionsExit, ["a", "Esc"]),
     spec!("actions", "actions.reload", H::ActionsReload, ["r"]),
     spec!(
         "actions",

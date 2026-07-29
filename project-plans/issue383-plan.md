@@ -361,6 +361,78 @@ listed in `AUDITED_DISPATCH_SOURCES`. The inventory intentionally excludes raw
 editor character mutation and the rapid `qqq` sequence because neither is a
 single-chord action. Runtime routing remains unchanged for S0.
 
+## S1 execution ledger — composition, contexts, conflicts, protection, and bounds
+
+S1 delivers CW03-02, CW03-04, and CW03-10 at the pure-domain boundary only.
+Publication remains owned by the future application/startup boundary; S1 returns
+an immutable snapshot only after complete validation and has no persistence,
+runtime, state, UI, CLI, or harness side effects.
+
+### S1 changed files (recorded before edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S1 scope, RED/GREEN evidence, and exact verification results | delivery evidence |
+| `src/domain/mod.rs` | Register the focused S1 composition test module and update S1 module ownership text | pure-domain module contract |
+| `src/domain/action_registry_composition_tests.rs` | RED-first composition, resolution, conflict, protection, availability, and exact-boundary fixtures | focused pure-domain tests (new) |
+| `src/domain/input_context_tests.rs` | RED-first validated standard/terminal context-stack behavior | focused pure-domain tests |
+| `src/domain/default_action_inventory_tests.rs` | RED-first local-unwind protection inventory assertion | focused pure-domain tests |
+| `src/domain/action_registry.rs` | Typed whole-list overrides, complete candidate validation, immutable snapshot, diagnostics, availability generation, and deterministic resolution | pure domain |
+| `src/domain/input_context.rs` | Validated ordered standard and terminal-capture context stacks/parent declarations | pure domain |
+| `src/domain/default_action_inventory.rs` | Mark accepted context-local unwind actions protected per D12 | pure domain |
+
+### S1 RED evidence
+
+Before any S1 production edit, `cargo test --lib domain::` failed with exit 101
+for the intended reason: unresolved S1 contracts `ContextStack`,
+`ContextStackError`, `BindingOverride`, `RegistryCandidate`,
+`ActionRegistrySnapshot`, `Resolution`, `ActionAvailability`,
+`AvailabilityGeneration`, and typed registry diagnostics. The existing S0
+production modules had no composition or resolution API. An earlier malformed
+multi-filter Cargo invocation exited 1 at argument parsing and is not counted as
+RED evidence.
+
+### S1 design boundaries
+
+- A `RegistryCandidate` owns the complete validated-inventory inputs, typed
+  whole-list overrides, declared context stacks, and one exact-correlated
+  availability generation. `ActionRegistrySnapshot` is produced atomically;
+  publication or prior-snapshot retention remains outside domain.
+- Parent/child relationships are the adjacent entries in validated ordered
+  `ContextStack` declarations. A child override is an explicit shadow. A parent
+  override that newly collides with an unchanged child is implicit and invalid.
+  Emergency/leave and protected-vs-unprotected collisions are invalid; nested
+  protected local-unwind rows may share `Esc` because child-first resolution
+  keeps the current local Back reachable while retaining its protected parent.
+- `Shift+Tab` and `BackTab` are compared as one platform-normalized chord for
+  validation and lookup without adding parser aliases or wildcard matching.
+- Availability is immutable snapshot data stamped with the existing five-field
+  `effects::Correlation`; S1 adds no effect family, queue, generation counter,
+  handler execution, or publication mechanism.
+
+
+### S1 GREEN and verification evidence
+
+- Focused GREEN: `cargo test --lib domain::action_registry_composition_tests
+  --no-fail-fast` — 10 passed; `domain::input_context_tests` — 10 passed;
+  `domain::default_action_inventory_tests` — 7 passed.
+- Complete pure-domain regression: `cargo test --lib domain:: --no-fail-fast`
+  — 404 passed, 0 failed.
+- `cargo fmt --all --check` — PASS.
+- `cargo xtask check source-size` — PASS; `action_registry.rs` is exactly 1,000
+  lines (warning threshold exceeded, hard limit respected).
+- `cargo xtask check clippy-allows` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS.
+- `cargo build --workspace --all-features --locked` — PASS.
+- `cargo test --workspace --all-features --locked -q` — PASS: library 2,869
+  passed / 1 ignored; bin 808 passed; every integration/doctest target passed.
+- `scripts/check-architecture.sh` — PASS.
+- `cargo xtask quick` — PASS on retry. The first run hit the known unmodified
+  `tests/harness_v1_fixtures.rs` frame-width capture race (`themes` was below
+  the captured viewport); the unchanged test passed on immediate full retry.
+- `git diff --check` — PASS. No `.llxprt`, dependency, workflow, state,
+  persistence, runtime, CLI, UI, or harness file changed; no commit or push.
+
 ## Verification and review contract
 
 Per slice:

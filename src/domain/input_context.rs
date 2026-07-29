@@ -79,28 +79,88 @@ impl fmt::Display for ContextId {
     }
 }
 
+/// Validated child-to-parent search order for one input state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextStack {
+    contexts: Vec<ContextId>,
+    terminal_capture: bool,
+}
+
+/// Failure to construct a complete ordered context stack.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextStackError {
+    InvalidContext(ContextIdError),
+    DuplicateContext(ContextId),
+    MissingTerminalContext,
+}
+
+impl fmt::Display for ContextStackError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "invalid context stack: {self:?}")
+    }
+}
+impl std::error::Error for ContextStackError {}
+
+impl ContextStack {
+    /// Parse and validate one child-to-parent order.
+    pub fn from_ordered<'a>(
+        values: impl IntoIterator<Item = &'a str>,
+        terminal_capture: bool,
+    ) -> Result<Self, ContextStackError> {
+        let mut contexts = Vec::new();
+        for value in values {
+            let context = ContextId::parse(value).map_err(ContextStackError::InvalidContext)?;
+            if contexts.contains(&context) {
+                return Err(ContextStackError::DuplicateContext(context));
+            }
+            contexts.push(context);
+        }
+        if terminal_capture && contexts.is_empty() {
+            return Err(ContextStackError::MissingTerminalContext);
+        }
+        Ok(Self {
+            contexts,
+            terminal_capture,
+        })
+    }
+
+    /// Iterate contexts from highest-precedence child to final parent.
+    pub fn iter(&self) -> impl Iterator<Item = &ContextId> {
+        self.contexts.iter()
+    }
+
+    /// Whether terminal capture owns ordinary input for this stack.
+    #[must_use]
+    pub const fn is_terminal_capture(&self) -> bool {
+        self.terminal_capture
+    }
+
+    /// Whether no context is active.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.contexts.is_empty()
+    }
+}
+
 /// Build the modal-to-global search order without dropping malformed levels.
 ///
 /// # Errors
 ///
-/// Returns [`ContextIdError`] for the first invalid present level. Silently
-/// omitting one would broaden resolution to a parent context.
+/// Returns [`ContextStackError`] for the first invalid or duplicate present
+/// level. Silently omitting one would broaden resolution to a parent context.
 pub fn resolve_context_stack(
     modal: Option<&str>,
     focused_editor_or_chooser: Option<&str>,
     focused_panel: Option<&str>,
     screen: Option<&str>,
     global: Option<&str>,
-) -> Result<Vec<ContextId>, ContextIdError> {
-    [
+) -> Result<ContextStack, ContextStackError> {
+    let values = [
         modal,
         focused_editor_or_chooser,
         focused_panel,
         screen,
         global,
-    ]
-    .into_iter()
-    .flatten()
-    .map(ContextId::parse)
-    .collect()
+    ];
+    ContextStack::from_ordered(values.into_iter().flatten(), false)
 }

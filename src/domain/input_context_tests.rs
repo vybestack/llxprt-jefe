@@ -1,6 +1,8 @@
 //! Unit tests for the CW-03 S0 context-identifier and ordered context stack.
 
-use super::input_context::{ContextId, ContextIdErrorReason, resolve_context_stack};
+use super::input_context::{
+    ContextId, ContextIdErrorReason, ContextStack, ContextStackError, resolve_context_stack,
+};
 
 /// Resolve a context stack, panicking with context on failure.
 fn resolved(
@@ -9,7 +11,7 @@ fn resolved(
     focused_panel: Option<&str>,
     screen: Option<&str>,
     global: Option<&str>,
-) -> Vec<ContextId> {
+) -> ContextStack {
     let result = resolve_context_stack(
         modal,
         focused_editor_or_chooser,
@@ -117,10 +119,36 @@ fn context_stack_omits_absent_levels() {
 fn context_stack_empty_when_no_levels() {
     let stack = resolved(None, None, None, None, None);
     assert!(stack.is_empty());
+    assert!(!stack.is_terminal_capture());
 }
 
 #[test]
 fn context_stack_rejects_an_invalid_level_instead_of_broadening_resolution() {
     let result = resolve_context_stack(Some("Bad"), None, None, None, Some("global"));
     assert!(result.is_err());
+}
+
+#[test]
+fn terminal_stack_is_a_distinct_validated_sixth_resolution_level() {
+    let result = ContextStack::from_ordered(["terminal", "global"], true);
+    let Ok(stack) = result else {
+        panic!("terminal stack should validate, got {result:?}");
+    };
+    assert!(stack.is_terminal_capture());
+    assert_eq!(
+        stack.iter().map(ContextId::as_str).collect::<Vec<_>>(),
+        vec!["terminal", "global"]
+    );
+}
+
+#[test]
+fn context_stack_rejects_duplicate_levels_and_terminal_without_context() {
+    let duplicate = ContextStack::from_ordered(["dashboard", "dashboard"], false);
+    assert!(matches!(
+        duplicate,
+        Err(ContextStackError::DuplicateContext(_))
+    ));
+
+    let terminal = ContextStack::from_ordered(std::iter::empty::<&str>(), true);
+    assert_eq!(terminal, Err(ContextStackError::MissingTerminalContext));
 }
