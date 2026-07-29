@@ -238,6 +238,14 @@ jobs:
           cargo build --workspace --all-features --locked 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run installer Pester harness
+        shell: powershell
+        run: |
+          Import-Module Pester -RequiredVersion 3.4.0
+          $result = Invoke-Pester -Script tests/powershell/jefe-install.Tests.ps1 -PassThru
+          if ($result.FailedCount -ne 0) {
+            throw "installer Pester harness failed: $($result.FailedCount) test(s)"
+          }
       - name: Test locked all-feature workspace
         shell: pwsh
         run: |
@@ -291,13 +299,15 @@ jobs:
           New-Item -ItemType Directory -Force $stage | Out-Null
 
           Copy-Item 'target/debug/jefe.exe' (Join-Path $stage 'jefe.exe') -Force
+          $binaryHash = (Get-FileHash -LiteralPath (Join-Path $stage 'jefe.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$binaryHash  jefe.exe" | Set-Content -LiteralPath (Join-Path $stage 'jefe.exe.sha256') -Encoding ascii
           Copy-Item 'LICENSE' (Join-Path $stage 'LICENSE') -Force
           Copy-Item 'scripts/jefe-install.ps1' (Join-Path $stage 'jefe-install.ps1') -Force
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
           Expand-Archive -Path $archive -DestinationPath $package -Force
 
           $packageFiles = @(Get-ChildItem -LiteralPath $package -File | Sort-Object Name | ForEach-Object Name)
-          if (($packageFiles -join ',') -ne 'jefe-install.ps1,jefe.exe,LICENSE') {
+          if (($packageFiles -join ',') -ne 'jefe-install.ps1,jefe.exe,jefe.exe.sha256,LICENSE') {
             throw "unexpected package contents: $($packageFiles -join ', ')"
           }
           if (Get-Command jefe -ErrorAction SilentlyContinue) {

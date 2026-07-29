@@ -63,6 +63,14 @@ fn windows_support_doc_covers_required_topics() {
             "docs/windows-support.md must cover {required:?}"
         );
     }
+    let lower = guide.to_lowercase();
+    assert!(
+        guide.contains("jefe.exe.sha256")
+            && lower.contains("seven days")
+            && lower.contains("unrelated")
+            && guide.contains("PATH"),
+        "Windows support docs must explain checksums, backup retention, and external PATH edits"
+    );
     // The guide must NOT claim a Jefe Winget package exists. Check several
     // spellings so a rephrased or differently-formatted false claim is caught.
     let jefe_winget_claims = [
@@ -143,6 +151,10 @@ fn release_workflow_packages_windows_msvc_zip() {
         "release.yml must include the install script in the zip"
     );
     assert!(
+        workflow.contains("jefe.exe.sha256"),
+        "release.yml must include the executable checksum in the zip"
+    );
+    assert!(
         workflow.contains("LICENSE"),
         "release.yml must include LICENSE in the zip"
     );
@@ -156,7 +168,7 @@ fn release_workflow_packages_windows_msvc_zip() {
 }
 
 /// AC-10: the release zip must NOT bundle psmux or third-party binaries.
-/// The packaging step only copies jefe.exe, LICENSE, and jefe-install.ps1.
+/// The packaging step only copies the Jefe package and its executable checksum.
 #[test]
 fn release_zip_excludes_third_party_binaries() {
     let workflow = read_repo_text(".github/workflows/release.yml");
@@ -174,9 +186,10 @@ fn release_zip_excludes_third_party_binaries() {
     );
     assert!(
         zip_step.contains("jefe.exe")
+            && zip_step.contains("jefe.exe.sha256")
             && zip_step.contains("LICENSE")
             && zip_step.contains("jefe-install.ps1"),
-        "release zip must contain jefe.exe, LICENSE, and jefe-install.ps1"
+        "release zip must contain jefe.exe, its checksum, LICENSE, and jefe-install.ps1"
     );
 }
 
@@ -187,6 +200,16 @@ fn ci_windows_native_runs_clean_package_lifecycle() {
     assert!(
         workflow.contains("Clean package lifecycle (install, doctor, upgrade, uninstall)"),
         "CI must have a clean package lifecycle step"
+    );
+    assert!(
+        workflow.contains("Run installer Pester harness")
+            && workflow.contains("tests/powershell/jefe-install.Tests.ps1"),
+        "native Windows CI must run the installer Pester harness"
+    );
+    assert!(
+        workflow.contains("jefe.exe.sha256")
+            && workflow.contains("jefe-install.ps1,jefe.exe,jefe.exe.sha256,LICENSE"),
+        "the clean Windows package must contain the executable checksum"
     );
     assert!(
         workflow.contains("Run real psmux startup-quit against installed binary"),
@@ -239,6 +262,12 @@ fn install_script_enforces_ownership_and_preservation() {
     assert!(
         script.contains("$OwnerMarker = '.jefe-installed'"),
         "install script must define an ownership marker"
+    );
+    assert!(
+        script.contains("$BinaryName = \"$AppName.exe\"")
+            && script.contains("Assert-StagedBinaryChecksum")
+            && script.contains("Remove-StaleJefeBackups"),
+        "installer must derive its binary name, verify staged checksums, and sweep stale backups"
     );
     assert!(
         script.contains("Read-OwnerMetadata") && script.contains("ConvertFrom-Json"),
