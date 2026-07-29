@@ -40,6 +40,7 @@ use jefe::runtime::ServerLivenessObservation;
 #[cfg(windows)]
 use jefe::runtime::observe_server_liveness;
 use jefe::state::AppEvent;
+#[cfg(any(windows, test))]
 use jefe::state::AppState;
 use jefe::state::transition::commit_pure_site;
 
