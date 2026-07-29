@@ -103,6 +103,7 @@ fn llxprt_normal_golden_plan() {
     // Argv emitted element-by-element in declaration order:
     //   Option{--profile-load, profile} -> --profile-load, my-profile
     //   Flag{yolo}                       -> --yolo
+    //   Flag{prompt_interactive}         -> --prompt-interactive
     //   Flag{continue}                   -> --continue
     assert_eq!(
         plan.argv,
@@ -110,6 +111,7 @@ fn llxprt_normal_golden_plan() {
             os("--profile-load"),
             os("my-profile"),
             os("--yolo"),
+            os("--prompt-interactive"),
             os("--continue"),
         ],
     );
@@ -849,6 +851,7 @@ fn llxprt_false_boolean_fields_omit_flags_independently() {
     let definition = shipped("LLxprt");
     let mut values = LaunchFieldValues::new();
     values.set_repository("yolo", FieldValue::Boolean(false));
+    values.set_agent("prompt_interactive", FieldValue::Boolean(false));
     values.set_agent("continue", FieldValue::Boolean(false));
 
     let plan = assert_supported(

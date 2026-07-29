@@ -112,6 +112,15 @@ pub fn prepare_fresh_send(
     }
 
     let mut plan = authorized.clone();
+
+    // Fresh sends must never resume a prior session (issue #166), and the
+    // prompt shape below adds its own interactive flag, so strip any
+    // --continue or --prompt-interactive that the emitters produced.
+    plan.argv.retain(|arg| {
+        let s = arg.as_os_str().to_str();
+        s != Some("--continue") && s != Some("--prompt-interactive")
+    });
+
     let prompt_index = match operation.prompt {
         PromptShape::InitialPositional => {
             let index = plan.argv.len();

@@ -49,11 +49,16 @@ pub fn enum_field(id: &str, choices: &[&str]) -> Field {
 
 /// Build a boolean field.
 pub fn bool_field(id: &str) -> Field {
+    bool_field_with_default(id, None)
+}
+
+/// Build a boolean field with an explicit default value.
+pub fn bool_field_with_default(id: &str, default: Option<bool>) -> Field {
     Field {
         id: id.to_string(),
         kind: FieldKind::Boolean,
         required: false,
-        default: None,
+        default: default.map(FieldValue::Boolean),
         minimum: None,
         maximum: None,
         choices: vec![],

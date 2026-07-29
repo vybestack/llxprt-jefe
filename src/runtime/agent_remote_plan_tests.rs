@@ -219,7 +219,7 @@ fn llxprt_remote_normal_produces_golden_transcript() {
     };
     assert_eq!(
         transcript.remote_command(),
-        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--continue'"
+        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--prompt-interactive' '--continue'"
     );
     let argv: Vec<String> = transcript
         .agent_argv()
@@ -232,6 +232,7 @@ fn llxprt_remote_normal_produces_golden_transcript() {
             "--profile-load".to_string(),
             "dev".to_string(),
             "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
             "--continue".to_string(),
         ]
     );

@@ -6,15 +6,15 @@
 use std::path::PathBuf;
 
 use super::super::definition::AgentDefinition;
-use super::super::fields::{Emitter, Field, FieldValue};
+use super::super::fields::Emitter;
 use super::super::normalize::Normalize;
 use super::super::type_id::{CandidateKind, ExecutableCandidate};
 use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field, capability_probe, line_version_probe, npm_candidate,
-    path_candidate, sig_string_field,
+    DefinitionParts, assemble, bool_field_with_default, capability_probe, line_version_probe,
+    npm_candidate, path_candidate, sig_string_field,
 };
 
 fn emitters() -> Vec<Emitter> {
@@ -31,16 +31,12 @@ fn emitters() -> Vec<Emitter> {
             field: "yolo".to_string(),
         },
         Emitter::Flag {
+            field: "prompt_interactive".to_string(),
+        },
+        Emitter::Flag {
             field: "continue".to_string(),
         },
     ]
-}
-
-/// Repository YOLO field defaulting to true for the LLxprt product.
-fn llxprt_yolo_field() -> Field {
-    let mut field = bool_field("yolo");
-    field.default = Some(FieldValue::Boolean(true));
-    field
 }
 
 /// Build the core.llxprt shipped definition.
@@ -83,11 +79,15 @@ pub fn build() -> AgentDefinition {
                 supported: Support::supported(),
             },
         },
-        repository_fields: vec![sig_string_field("profile"), llxprt_yolo_field()],
+        repository_fields: vec![
+            sig_string_field("profile"),
+            bool_field_with_default("yolo", Some(true)),
+        ],
         agent_fields: vec![
             sig_string_field("version_selector"),
             sig_string_field("prompt"),
-            bool_field("continue"),
+            bool_field_with_default("prompt_interactive", Some(true)),
+            bool_field_with_default("continue", Some(true)),
         ],
         emitters: emitters(),
     })
