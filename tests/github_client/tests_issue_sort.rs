@@ -6,6 +6,19 @@
 use jefe::domain::{Issue, IssueSortBy, IssueSortConfig, IssueState, SortOrder};
 use jefe::github::{compare_issues, issue_priority_rank};
 
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
+
 fn issue(number: u64, created_at: &str, updated_at: &str, priority: Option<&str>) -> Issue {
     Issue {
         number,
@@ -349,7 +362,7 @@ fn parse_issue_extracts_priority_from_issue_field_values() {
             ]
         }
     }]"#;
-    let issues = parse_issues_json(json).unwrap_or_else(|_| Vec::new());
+    let issues = parse_issues_json(json).value_or_panic("valid issue JSON");
     assert_eq!(issues.len(), 1);
     assert_eq!(issues[0].priority.as_deref(), Some("High"));
 }
@@ -372,7 +385,7 @@ fn parse_issue_returns_none_priority_when_not_set() {
         "comments": {"totalCount": 0},
         "issueFieldValues": {"nodes": []}
     }]"#;
-    let issues = parse_issues_json(json).unwrap_or_else(|_| Vec::new());
+    let issues = parse_issues_json(json).value_or_panic("valid issue JSON");
     assert_eq!(issues[0].priority, None);
 }
 
@@ -393,7 +406,7 @@ fn parse_issue_returns_none_priority_when_field_absent() {
         "milestone": null,
         "comments": {"totalCount": 0}
     }]"#;
-    let issues = parse_issues_json(json).unwrap_or_else(|_| Vec::new());
+    let issues = parse_issues_json(json).value_or_panic("valid issue JSON");
     assert_eq!(issues[0].priority, None);
 }
 
@@ -423,7 +436,7 @@ fn parse_issue_ignores_non_priority_field_values() {
             ]
         }
     }]"#;
-    let issues = parse_issues_json(json).unwrap_or_else(|_| Vec::new());
+    let issues = parse_issues_json(json).value_or_panic("valid issue JSON");
     assert_eq!(issues[0].priority, None);
 }
 
@@ -444,6 +457,6 @@ fn parse_issue_extracts_created_at() {
         "milestone": null,
         "comments": {"totalCount": 0}
     }]"#;
-    let issues = parse_issues_json(json).unwrap_or_else(|_| Vec::new());
+    let issues = parse_issues_json(json).value_or_panic("valid issue JSON");
     assert_eq!(issues[0].created_at, "2026-06-15T12:30:00Z");
 }

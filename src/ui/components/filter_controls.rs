@@ -255,10 +255,6 @@ pub fn actions_filter_props(
     }
 }
 
-/// Field indices for the Actions sort fields within the unified filter bar.
-const ACTIONS_SORT_BY_FIELD_INDEX: usize = 3;
-const ACTIONS_SORT_ORDER_FIELD_INDEX: usize = 4;
-
 /// Pure projection of the two Actions sort fields (by, order) for the
 /// filter-dialog sort row (issue #473).
 #[must_use]
@@ -266,6 +262,7 @@ pub fn actions_sort_fields(
     sort_config: crate::domain::ActionsSortConfig,
     active_index: usize,
 ) -> Vec<FilterFieldView> {
+    use crate::state::{ACTIONS_SORT_BY_FIELD_INDEX, ACTIONS_SORT_ORDER_FIELD_INDEX};
     vec![
         FilterFieldView {
             label: "by".to_string(),

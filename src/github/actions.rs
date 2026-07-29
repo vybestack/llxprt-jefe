@@ -439,12 +439,10 @@ impl GhClient {
 
 /// Configurable comparator for Actions workflow runs (issue #473).
 ///
-/// Sorts by the given `ActionsSortConfig`'s key and direction. Tie-breaking:
-/// - Number sort ties are impossible (run numbers are unique per workflow).
-/// - Created/Updated sort ties break by `run_number` ascending for a
-///   deterministic stable order (lower run number first regardless of
-///   direction), then by `id` descending as a last-resort tiebreaker (matching
-///   the pre-issue-#473 `cmp_workflow_runs_newest_first` behavior exactly).
+/// Sorts by the given `ActionsSortConfig`'s key and direction. Ties always
+/// break by `id` descending so the order is deterministic and matches the
+/// pre-issue-#473 `cmp_workflow_runs_newest_first` behavior exactly. Run
+/// numbers are unique per workflow so Number-sort ties cannot occur.
 #[must_use]
 pub fn compare_workflow_runs(
     a: &WorkflowRun,

@@ -170,4 +170,36 @@ mod sort_field_tests {
         assert!(!is_sort_field(0));
         assert!(!is_sort_field(AUTHOR_FIELD));
     }
+
+    #[test]
+    fn sort_by_field_routes_to_cycle_next() {
+        assert!(matches!(
+            space_event_for_field(SORT_BY_FIELD),
+            AppEvent::CyclePrSortByNext
+        ));
+    }
+
+    #[test]
+    fn sort_order_field_routes_to_toggle_order() {
+        assert!(matches!(
+            space_event_for_field(SORT_ORDER_FIELD),
+            AppEvent::TogglePrSortOrder
+        ));
+    }
+
+    #[test]
+    fn state_field_routes_to_state_cycle() {
+        assert!(matches!(
+            space_event_for_field(0),
+            AppEvent::PrCycleFilterState
+        ));
+    }
+
+    #[test]
+    fn draft_field_routes_to_draft_cycle() {
+        assert!(matches!(
+            space_event_for_field(DRAFT_FIELD),
+            AppEvent::PrCycleDraftFilter
+        ));
+    }
 }

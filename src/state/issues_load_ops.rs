@@ -108,15 +108,15 @@ impl AppState {
         let outcome = self.issues_state.list.accept_loaded(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty)
             && let Some(issue_number) = selected_issue_number
-            && let Some(index) = self
+            && self
                 .issues_state
                 .issues()
                 .iter()
-                .position(|issue| issue.number == issue_number)
+                .any(|issue| issue.number == issue_number)
         {
             // Re-project under the active sort first (issue #473), then
-            // re-select the same issue by number — the resort preserves it by
-            // identity but its index may have moved.
+            // re-select the same issue by number. The resort reorders items
+            // so the issue's index may have moved.
             self.resort_issues_preserving_selection();
             if let Some(resorted_index) = self
                 .issues_state
@@ -128,7 +128,7 @@ impl AppState {
                     .list
                     .set_selected_index(Some(resorted_index));
             } else {
-                self.issues_state.list.set_selected_index(Some(index));
+                self.issues_state.list.set_selected_index(None);
             }
             self.rehydrate_visible_issue_type(issue_number);
         }
@@ -808,9 +808,10 @@ impl AppState {
     /// preserving selection by issue number across the reorder (issue #473).
     ///
     /// Sort is a projection-time view transform: it never re-runs the fetch or
-    /// perturbs the `IssueListIdentity` stale-rejection guard. The
-    /// [`PaginatedList::sort_by`] helper already preserves selection by
-    /// identity rather than index.
+    /// perturbs the `IssueListIdentity` stale-rejection guard.
+    /// [`PaginatedList::sort_by`] reorders items but leaves `selected_index`
+    /// pointing at the old position, so this method manually remaps selection
+    /// by issue number after the sort.
     fn resort_issues_preserving_selection(&mut self) {
         use crate::github::compare_issues;
         let config = self.issues_state.sort_config;

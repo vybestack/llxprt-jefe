@@ -35,6 +35,12 @@ pub use issues_types::*;
 /// 7 labels, 8 sort_by, 9 sort_order.
 pub const PR_FILTER_FIELD_COUNT: usize = 10;
 
+/// Index of the sort-by cycle field in the Actions filter bar (0-based,
+/// after the 3 filter fields: workflow, status, pr — issue #473).
+pub const ACTIONS_SORT_BY_FIELD_INDEX: usize = 3;
+/// Index of the sort-order cycle field in the Actions filter bar.
+pub const ACTIONS_SORT_ORDER_FIELD_INDEX: usize = 4;
+
 /// Captured issue self-assignment follow-up for an issue-driven launch
 /// (issue #186).
 ///

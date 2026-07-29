@@ -100,14 +100,14 @@ mod tests {
         state.apply_actions_message(ActionsMessage::CycleActionsSortByNext);
         assert_eq!(state.actions_state.sort_config.by, ActionsSortBy::Number);
         assert_eq!(state.actions_state.sort_config.order, SortOrder::Desc);
-        let numbers: Vec<u32> = state
+        let run_numbers: Vec<u32> = state
             .actions_state
             .list
             .items()
             .iter()
             .map(|r| r.run_number)
             .collect();
-        assert_eq!(numbers, vec![300, 200, 100]);
+        assert_eq!(run_numbers, vec![300, 200, 100]);
     }
 
     #[test]
@@ -166,7 +166,13 @@ mod tests {
             .list
             .identity()
             .map(|i| i.scope_repo_id.clone());
-        let selected_before = state.actions_state.list.selected_index();
+        let selected_run_id_before = state
+            .actions_state
+            .list
+            .selected_index()
+            .and_then(|idx| state.actions_state.list.items().get(idx))
+            .map(|run| run.id);
+        let has_more_before = state.actions_state.list.has_more();
 
         state.apply_actions_message(ActionsMessage::CycleActionsSortByNext);
 
@@ -179,13 +185,29 @@ mod tests {
             identity_before, identity_after,
             "sort must not mutate the list identity"
         );
-        let _ = selected_before;
+        assert_eq!(
+            has_more_before,
+            state.actions_state.list.has_more(),
+            "sort must not change pagination state"
+        );
+        let selected_run_id_after = state
+            .actions_state
+            .list
+            .selected_index()
+            .and_then(|idx| state.actions_state.list.items().get(idx))
+            .map(|run| run.id);
+        assert_eq!(
+            selected_run_id_before, selected_run_id_after,
+            "sort must preserve selection by run identity"
+        );
     }
 
-    /// Verify that after a silent-refresh reload result, the list is re-sorted
-    /// by the active config (not the fetch-time default).
+    /// Verify that the configurable comparator produces the expected order
+    /// under Number/Asc when applied to a reload result. The production path
+    /// (`reload_runs`) calls `resort_actions_by_config` after `accept_loaded`;
+    /// this test isolates the comparator itself by applying it directly.
     #[test]
-    fn reload_result_applies_active_sort_config() {
+    fn comparator_applies_number_asc_after_reload() {
         let mut state = create_test_state();
 
         // Set sort to Number/Asc BEFORE any data arrives.
@@ -221,14 +243,14 @@ mod tests {
         };
         let _outcome = state.actions_state.list.accept_loaded(result);
 
-        // Apply sort (the load op calls resort_actions_by_config).
+        // Apply the comparator directly (mirrors resort_actions_by_config).
         let config = state.actions_state.sort_config;
         state
             .actions_state
             .list
             .sort_by(|a, b| crate::github::compare_workflow_runs(a, b, config));
 
-        let numbers: Vec<u32> = state
+        let run_numbers: Vec<u32> = state
             .actions_state
             .list
             .items()
@@ -236,9 +258,9 @@ mod tests {
             .map(|r| r.run_number)
             .collect();
         assert_eq!(
-            numbers,
+            run_numbers,
             vec![100, 200, 300],
-            "active Number/Asc sort must be applied after reload, not Created/Desc"
+            "active Number/Asc sort must produce ascending run numbers"
         );
     }
 }

@@ -63,7 +63,7 @@ const HELP_CONTENT_LINES: &[&str] = &[
     "Filter & Sort (Issues, PRs, Actions):",
     "  f           Open filter dialog",
     "  Tab         Move between filter fields",
-    "  <-/-> or Sp Cycle the active field value (state, sort-by, sort-order)",
+    "  arrows/Space Cycle the active field value (state, sort-by, sort-order)",
     "  Enter       Apply filter + sort",
     "  Delete      Clear the active field",
     "  Ctrl-L      Clear all filter fields",

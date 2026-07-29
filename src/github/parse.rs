@@ -361,8 +361,6 @@ fn parse_optional_string_field(value: &Value, field: &str, key: &str) -> Option<
     })
 }
 
-/// Extract the GitHub-native priority from `issueFieldValues` (issue #473 sort).
-///
 fn parse_comment_id(value: &Value) -> Result<u64, GhError> {
     if let Some(id) = value.get("databaseId").and_then(Value::as_u64) {
         return Ok(id);
