@@ -713,6 +713,157 @@ jobs:
             });
             core.setOutput('reserved', 'true');
 
+      - name: Write pre-run OCR reproducibility manifest
+        # True launch-time snapshot (issue #464): write manifest.pre.json BEFORE
+        # the OCR run so created_at, phase, and trusted-base/worktree state are
+        # recorded as they were at launch, not after the result is posted. This
+        # mirrors the llxprt-code ocr-review-local pre-run manifest and makes the
+        # manifest a provable pre-run snapshot rather than a post-run summary.
+        if: always()
+        shell: bash
+        env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ env.HEAD_SHA }}
+          BASE_REF: ${{ steps.pr-context.outputs.base_ref }}
+          OCR_LLM_URL: ${{ vars.OCR_LLM_URL }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const { execSync } = require('child_process');
+
+          const escapeWorkflowCommand = (value) => String(value)
+            .replaceAll('%', '%25')
+            .replaceAll(String.fromCharCode(13), '%0D')
+            .replaceAll(String.fromCharCode(10), '%0A');
+          const warning = (message) => {
+            process.stdout.write('::warning::' + escapeWorkflowCommand(message) + String.fromCharCode(10));
+          };
+
+          const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+          const readTrim = (name, fallback = '') => {
+            try { return fs.readFileSync(name, 'utf8').trim(); } catch (_) { return fallback; }
+          };
+          const fileHash = (name) => {
+            try { return sha256(fs.readFileSync(name)); } catch (_) { return null; }
+          };
+          // Run a git command in the trusted checkout, returning a trimmed
+          // string. Failures (e.g. empty diff) yield the fallback so a missing
+          // piece of evidence does not abort the whole manifest write.
+          const gitText = (args, fallback = '') => {
+            try {
+              return execSync(`git ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            } catch (_) {
+              return fallback;
+            }
+          };
+
+          // Trusted base: the actual checked-out HEAD (the trusted base branch
+          // tip), distinct from the merge-base used as scope.base.
+          const trustedHead = gitText('rev-parse HEAD', null);
+          const baseRef = process.env.BASE_REF || null;
+
+          // Worktree state at launch time. The trusted checkout is expected to
+          // be clean, but recording the clean flag + diff hashes makes the
+          // snapshot auditable and detects any unexpected drift before the run.
+          const porcelain = gitText('status --porcelain', '');
+          const clean = porcelain === '';
+          const diffHash = (spec) => {
+            const diff = gitText(spec, '');
+            return diff === '' ? null : sha256(diff);
+          };
+          const worktree = {
+            clean,
+            staged_diff_sha256: diffHash('diff --cached'),
+            unstaged_diff_sha256: diffHash('diff'),
+            untracked_files_sha256: (() => {
+              const untracked = gitText('ls-files --others --exclude-standard', '');
+              return untracked === '' ? null : sha256(untracked);
+            })(),
+          };
+
+          // Rule hash: fingerprint the exact OCR rule.json CI will use.
+          const rulePath = `${process.env.HOME}/.opencodereview/rule.json`;
+          const ruleSha256 = fileHash(rulePath);
+
+          // Preview hash: capture the selected-file-set fingerprint when the
+          // conditional preview step ran and wrote ocr-preview.txt.
+          const previewSha256 = fileHash('ocr-preview.txt');
+
+          // Provider config by shape only (never the raw key).
+          const urlRaw = process.env.OCR_LLM_URL || '';
+          let urlShape = null;
+          try {
+            if (urlRaw) {
+              const u = new URL(urlRaw);
+              const firstSegment = u.pathname.split('/').filter(Boolean)[0] || '';
+              urlShape = `${u.protocol}//${u.host}${firstSegment ? '/' + firstSegment : ''}`;
+            }
+          } catch (_) {
+            urlShape = 'unparseable';
+          }
+          const providerName = process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic-compatible' : 'openai-compatible';
+          const providerConfig = {
+            provider: providerName,
+            custom_providers: {
+              [providerName]: {
+                url_shape: urlShape,
+                protocol: process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic' : 'openai',
+                model: process.env.OCR_LLM_MODEL || null,
+                credential_present: Boolean(process.env.OCR_LLM_TOKEN),
+              },
+            },
+          };
+
+          // Fixed control vector and exact scope vector — the two argument
+          // sets that must match for two runs to be comparable.
+          const controlArgs = ['--audience', 'agent', '--format', 'json', '--concurrency', '2', '--timeout', '30'];
+          const scopeArgs = ['--from', process.env.BASE_SHA || null, '--to', process.env.HEAD_SHA || null];
+
+          const pre = {
+            schema: 'ocr-review-manifest-v1',
+            phase: 'pre-run',
+            created_at: new Date().toISOString(),
+            repository: process.env.GITHUB_REPOSITORY || null,
+            run_id: process.env.GITHUB_RUN_ID || null,
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT || null,
+            event_name: process.env.GITHUB_EVENT_NAME || null,
+            trusted_base: {
+              head: trustedHead,
+              branch: baseRef,
+            },
+            scope: {
+              mode: 'cumulative',
+              base: process.env.BASE_SHA || null,
+              head: process.env.HEAD_SHA || null,
+            },
+            worktree,
+            control_args: controlArgs,
+            scope_args: scopeArgs,
+            rule_sha256: ruleSha256,
+            preview_sha256: previewSha256,
+            ocr: {
+              version: readTrim('ocr-version.txt', 'unknown') || 'unknown',
+              phase: readTrim('ocr-phase.txt', 'unknown') || 'unknown',
+              provider: providerConfig,
+              redacted_config_sha256: sha256(JSON.stringify(providerConfig)),
+            },
+            // Comparison eligibility is machine-supported: the recorded
+            // trusted-base, worktree, arg, rule, and provider evidence lets a
+            // reviewer decide comparability from the manifest alone.
+            comparison_eligible: true,
+            coverage_hint: 'See manifest.post.json for the final coverage classification.',
+          };
+          try {
+            fs.writeFileSync('manifest.pre.json', JSON.stringify(pre, null, 2) + String.fromCharCode(10));
+          } catch (writeErr) {
+            warning(`Could not write manifest.pre.json: ${writeErr.message || writeErr}`);
+          }
+          NODE
+
       - name: Run OpenCodeReview
         id: ocr-review
         if: ${{ steps.ocr-budget.outputs.should_run == 'true' && (github.event_name != 'pull_request_target' || steps.ocr-reservation.outputs.reserved == 'true') }}
@@ -1348,21 +1499,17 @@ jobs:
 
 
       - name: Build OCR reproducibility manifests
-        # Re-sync rigor from llxprt-code: emit manifest.pre.json (scope, refs,
-        # OCR version, redacted provider config + its sha256, worktree state),
-        # manifest.post.json (exit code, reported statuses, coverage, artifact
-        # hashes), and sha256.txt over uploaded artifacts. Provider fields are
-        # captured by shape only (never the key) and the redaction step below
+        # Post-run manifest: emit manifest.post.json (exit code, run id,
+        # reported statuses, coverage, parse_error, artifact hashes including
+        # the pre-run snapshot) and sha256.txt over uploaded artifacts. The
+        # pre-run snapshot (manifest.pre.json) is written by the dedicated
+        # pre-run step and is NOT rewritten here. The redaction step below
         # runs after this so any accidental secret in a manifest is destroyed.
         if: ${{ always() && steps.ocr-budget.outputs.should_run == 'true' }}
         shell: bash
         env:
           BASE_SHA: ${{ env.BASE_SHA }}
           HEAD_SHA: ${{ env.HEAD_SHA }}
-          OCR_LLM_URL: ${{ vars.OCR_LLM_URL }}
-          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
-          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
-          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
         run: |
           node <<'NODE'
           const fs = require('fs');
@@ -1384,35 +1531,6 @@ jobs:
             try { return sha256(fs.readFileSync(name)); } catch (_) { return null; }
           };
 
-          // Provider config by shape only: scheme/host/path, protocol, model,
-          // and a boolean credential presence. The raw key is never written.
-          const urlRaw = process.env.OCR_LLM_URL || '';
-          let urlShape = null;
-          try {
-            if (urlRaw) {
-              const u = new URL(urlRaw);
-              // Capture only the shape, never the full pathname: a provider
-              // fingerprint needs scheme + host + the first path segment only.
-              // Truncating prevents any secret embedded deeper in the path
-              // from being written to the manifest.
-              const firstSegment = u.pathname.split('/').filter(Boolean)[0] || '';
-              urlShape = `${u.protocol}//${u.host}${firstSegment ? '/' + firstSegment : ''}`;
-            }
-          } catch (_) {
-            urlShape = 'unparseable';
-          }
-          const providerName = process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic-compatible' : 'openai-compatible';
-          const providerConfig = {
-            provider: providerName,
-            custom_providers: {
-              [providerName]: {
-                url_shape: urlShape,
-                protocol: process.env.OCR_USE_ANTHROPIC === 'true' ? 'anthropic' : 'openai',
-                model: process.env.OCR_LLM_MODEL || null,
-                credential_present: Boolean(process.env.OCR_LLM_TOKEN),
-              },
-            },
-          };
           // Best-effort reported-status extraction for the manifest. The
           // coverage classification itself is read from ocr-coverage.txt,
           // which the posting step writes as the single source of truth, so
@@ -1447,10 +1565,18 @@ jobs:
             return 'unknown';
           }
           let coverageParsed = null;
+          let parseError = null;
           try {
             const raw = readTrim('ocr-result.json', '');
-            if (raw) coverageParsed = JSON.parse(raw);
-          } catch (_) { coverageParsed = null; }
+            if (raw) {
+              coverageParsed = JSON.parse(raw);
+            } else {
+              parseError = 'ocr-result.json was empty or missing';
+            }
+          } catch (parseErr) {
+            coverageParsed = null;
+            parseError = parseErr.message || String(parseErr);
+          }
           const persistedCoverage = readTrim('ocr-coverage.txt', '').trim();
           const knownCoverage = new Set(['complete_best_effort', 'partial', 'failed', 'unknown']);
           const coverage = knownCoverage.has(persistedCoverage)
@@ -1459,50 +1585,44 @@ jobs:
           let reportedStatuses = [];
           try { reportedStatuses = extractStatuses(coverageParsed); } catch (_) {}
 
-          const pre = {
-            schema: 'ocr-review-manifest-v1',
-            created_at: new Date().toISOString(),
-            repository: process.env.GITHUB_REPOSITORY || null,
-            run_id: process.env.GITHUB_RUN_ID || null,
-            run_attempt: process.env.GITHUB_RUN_ATTEMPT || null,
-            event_name: process.env.GITHUB_EVENT_NAME || null,
-            scope: {
-              mode: 'cumulative',
-              base: process.env.BASE_SHA || null,
-              head: process.env.HEAD_SHA || null,
-            },
-            ocr: {
-              version: readTrim('ocr-version.txt', 'unknown') || 'unknown',
-              phase: readTrim('ocr-phase.txt', 'unknown') || 'unknown',
-              provider: providerConfig,
-              redacted_config_sha256: sha256(JSON.stringify(providerConfig)),
-            },
-            coverage_hint: 'See manifest.post.json for the final coverage classification.',
-          };
-          fs.writeFileSync('manifest.pre.json', `${JSON.stringify(pre, null, 2)}\n`);
+          // manifest.pre.json is now written by the dedicated pre-run step.
+          // This post step must NOT overwrite it: the pre snapshot records the
+          // launch-time state (trusted base, worktree, args, rule hash) and is
+          // immutable after the run.
 
           const artifactNames = [
             'ocr-result.json', 'ocr-stdout.raw', 'ocr-stderr.log', 'ocr-version.txt',
             'ocr-preview.txt', 'ocr-preview-stderr.log', 'ocr-exit-code.txt',
             'ocr-phase.txt', 'ocr-infrastructure-failure.txt', 'ocr-policy-failure.txt',
+            // The pre-run snapshot is itself an audited artifact whose hash
+            // belongs in the post manifest's artifact map.
+            'manifest.pre.json',
           ];
           const hashes = {};
           for (const name of artifactNames) hashes[name] = fileHash(name);
           const post = {
             schema: 'ocr-review-manifest-v1',
             completed_at: new Date().toISOString(),
+            run_id: process.env.GITHUB_RUN_ID || null,
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT || null,
             exit_code: exitCode,
             reported_statuses: reportedStatuses,
             coverage,
+            parse_error: parseError,
             artifacts: hashes,
             note: 'Coverage is best-effort pending upstream manifest support.',
           };
           fs.writeFileSync('manifest.post.json', `${JSON.stringify(post, null, 2)}\n`);
 
           // sha256.txt over every manifested artifact, including the manifests.
-          const allForHash = [...artifactNames, 'manifest.pre.json', 'manifest.post.json'];
+          // artifactNames already includes manifest.pre.json; add the post
+          // manifest so its hash is covered without duplicating the pre entry.
+          const allForHash = [...artifactNames, 'manifest.post.json'];
           const lines = [];
+          const seen = new Set();
           for (const name of allForHash) {
+            if (seen.has(name)) continue;
+            seen.add(name);
             const digest = fileHash(name);
             if (digest) lines.push(`${digest}  ${name}`);
           }

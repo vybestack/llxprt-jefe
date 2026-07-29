@@ -400,6 +400,150 @@ fn ocr_manifest_builder_uses_dependency_free_workflow_commands() {
     );
 }
 
+/// Return the 1-based line index of the `- name: <step_name>` header line, or
+/// `None` when the step is absent. Used to assert workflow step ordering.
+fn step_line(content: &str, step_name: &str) -> Option<usize> {
+    let needle = format!("- name: {step_name}");
+    content.lines().position(|l| l.trim() == needle)
+}
+
+// ---------------------------------------------------------------------------
+// Issue #464: true pre-run reproducibility manifest (structural ordering)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pre_run_manifest_step_exists_before_run_step() {
+    let content = read_workflow();
+    let pre_line = step_line(&content, "Write pre-run OCR reproducibility manifest");
+    let run_line = step_line(&content, "Run OpenCodeReview");
+    let pre = pre_line.unwrap_or_else(|| {
+        panic!("Workflow must define a 'Write pre-run OCR reproducibility manifest' step")
+    });
+    let run = run_line.unwrap_or_else(|| panic!("'Run OpenCodeReview' step not found"));
+    assert!(
+        pre < run,
+        "The pre-run manifest step must run BEFORE 'Run OpenCodeReview' so manifest.pre.json is a true launch-time snapshot (pre line {pre} must precede run line {run})"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_captures_trusted_base() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    // The trusted base is the checked-out base (HEAD after trusted checkout),
+    // distinct from the merge-base scope. Both the HEAD and the base branch
+    // name must be recorded.
+    assert!(
+        step.contains("trusted_base"),
+        "Pre-run manifest must record the trusted_base block (checked-out HEAD + branch, distinct from the reviewed merge-base)"
+    );
+    assert!(
+        step.contains("rev-parse HEAD") || step.contains("git rev-parse HEAD"),
+        "Pre-run manifest must capture the trusted checkout HEAD via git rev-parse"
+    );
+    assert!(
+        step.contains("base_ref") || step.contains("BASE_REF"),
+        "Pre-run manifest must record the trusted base branch name"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_captures_worktree_state() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    // Worktree state: clean flag + diff hashes for staged/unstaged/untracked.
+    assert!(
+        step.contains("worktree"),
+        "Pre-run manifest must record worktree state"
+    );
+    assert!(
+        step.contains("clean"),
+        "Pre-run manifest must record the worktree clean flag"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_captures_control_and_scope_args() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    assert!(
+        step.contains("control_args") || step.contains("controlArgs"),
+        "Pre-run manifest must record the fixed OCR control argument vector"
+    );
+    assert!(
+        step.contains("--audience") && step.contains("--concurrency") && step.contains("--timeout"),
+        "Pre-run manifest must record the fixed control args (--audience, --concurrency, --timeout)"
+    );
+    assert!(
+        step.contains("scope_args") || step.contains("scopeArgs"),
+        "Pre-run manifest must record the exact scope argument vector"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_captures_rule_hash() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    assert!(
+        step.contains("rule") && step.contains("sha256"),
+        "Pre-run manifest must record the sha256 of the OCR rule.json used by CI"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_records_comparison_eligibility() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    assert!(
+        step.contains("comparison_eligible") || step.contains("comparisonEligible"),
+        "Pre-run manifest must record an explicit comparison_eligible field so eligibility is machine-supported"
+    );
+}
+
+#[test]
+fn pre_run_manifest_step_is_dependency_free() {
+    let content = read_workflow();
+    let step = step_body(&content, "Write pre-run OCR reproducibility manifest");
+    assert!(
+        !step.contains("require('@actions/core')") && !step.contains("require(\"@actions/core\")"),
+        "Pre-run manifest Node must not import @actions/core (mirrors the post-step contract)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #464: post-manifest completeness and pre-snapshot preservation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn post_manifest_step_does_not_overwrite_pre_snapshot() {
+    let content = read_workflow();
+    let step = step_body(&content, "Build OCR reproducibility manifests");
+    // The post step must write manifest.post.json only. It must NOT rewrite
+    // manifest.pre.json, which is now a true pre-run snapshot written earlier.
+    assert!(
+        !step.contains("writeFileSync('manifest.pre.json'")
+            && !step.contains("writeFileSync(\"manifest.pre.json\""),
+        "Post manifest step must not overwrite the pre-run manifest.pre.json snapshot"
+    );
+}
+
+#[test]
+fn post_manifest_step_carries_run_id_and_parse_error_and_pre_artifact() {
+    let content = read_workflow();
+    let step = step_body(&content, "Build OCR reproducibility manifests");
+    // The post manifest must record run_id, parse_error, and include
+    // manifest.pre.json in its artifacts map.
+    assert!(step.contains("run_id"), "Post manifest must record run_id");
+    assert!(
+        step.contains("parse_error"),
+        "Post manifest must record a parse_error field"
+    );
+    assert!(
+        step.contains("'manifest.pre.json'") || step.contains("\"manifest.pre.json\""),
+        "Post manifest artifacts map must include the manifest.pre.json hash"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Criterion 10: preserve existing protections
 // ---------------------------------------------------------------------------
