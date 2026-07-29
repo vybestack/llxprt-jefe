@@ -202,16 +202,9 @@ jobs:
 
             if (eventName !== 'pull_request_target') {
               if (!budgetComment) {
-                const status = currentCount >= limit
-                  ? `Automatic OCR review budget: ${currentCount} of ${limit} used. Further automatic reviews will be skipped.`
-                  : `Automatic OCR review budget: ${currentCount} of ${limit} used.`;
-                const manualGuidance = currentCount >= limit
-                  ? ['', 'Comment `/ocr` or `/open-code-review` to request an authorized on-demand review.']
-                  : [];
                 const body = [
                   BUDGET_MARKER,
-                  status,
-                  ...manualGuidance,
+                  `Automatic OCR review budget: ${currentCount} of ${limit} used.`,
                   `<!-- jefe-ocr-auto-count:${currentCount} -->`,
                 ].join('\n');
                 await github.rest.issues.createComment({
