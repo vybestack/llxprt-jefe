@@ -22,9 +22,9 @@ refactor.
 - **D3 (executable adapter and HTTP/SSE contract): language-neutral normalized
   adapter transcript.** The producer profile validates a machine-readable
   producer trace. The server profile validates a language-neutral normalized
-  HTTP/SSE adapter transcript rather than performing live networking. No
-  dependency change. The adapter contracts are documented in
-  `producer-contract.md` and `server-contract.md`.
+  HTTP/SSE adapter transcript rather than performing live networking. The
+  adapter contracts are documented in `producer-contract.md` and
+  `server-contract.md`.
 
 ## Acceptance matrix
 
@@ -52,8 +52,8 @@ refactor.
 - Jefe AppState, message bus, production observer networking, status UI, or
   persistence integration.
 - Generic HTTP/SSE/subprocess/test-framework/schema-generation abstractions.
-- Dependency, workflow, architecture-gate, lint, complexity, source-size, or
-  coverage changes.
+- Workflow, architecture-gate, lint, complexity, source-size-policy, or
+  coverage-threshold changes.
 - `.llxprt` or quality-gate configuration changes.
 
 ## TDD evidence (RED / GREEN)
@@ -146,18 +146,21 @@ Passed: 2,601 library tests, 804 xtask tests, all integration targets and doctes
 ## Verification commands
 
 ```text
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo build --workspace --all-features --locked
-cargo test --workspace --all-features --locked
-cargo xtask quick
+CARGO_INCREMENTAL=0 cargo xtask ci
 ```
+
+The exact-head suite runs formatting, suppression detection, source-size,
+architecture, Clippy, complexity, coverage, locked all-feature build, and
+locked all-feature tests. Cargo incremental compilation is also disabled in
+`.cargo/config.toml`.
 
 ## Review counters
 
-- Local Open Code Review: 0 of 2 used.
+- Local Open Code Review: 2 of 2 used.
 - Pull-request Open Code Review: 0 of 2 used.
-- Independent review/remediation cycles: 1 of 2 used.
+- Independent review/remediation cycles: 2 of 2 used.
+- RustReviewer and DeepThinker participated in both independent cycles. No
+  valid finding remains deferred.
 
 ## Scope ledger
 
@@ -175,9 +178,11 @@ cargo xtask quick
 | Replay/resume/expiration | Rejected | Current-state JSP/1 (D1) |
 | Concurrent tool IDs | Rejected | Headline-tool semantics (D2) |
 | Live HTTP networking | Rejected | Normalized transcript (D3) |
-| Dependency change | Accepted as unavoidable existing-dependency feature | Enabled serde_json `raw_value` to preserve exact nested document bytes for authoritative 256 KiB ingress checks; no new crate |
+| Dependency change | Accepted as required for an independent standard validator | Enabled serde_json `raw_value` for exact nested-document byte checks and added `jsonschema` 0.33 with default features disabled for Draft 2020-12 validation |
+| Current-main source-size restoration | Accepted as mandatory gate repair | Compacted documentation in `src/state/events.rs`; no behavior or threshold change |
+| Current-main test fixture repairs | Accepted as mandatory gate repair | Updated the Actions fixture for the six-argument repository constructor and extracted a PR fixture helper to satisfy Clippy without suppression |
 | `.llxprt` changes | Rejected | Untouched |
-| Workflow / quality-gate changes | Rejected | Untouched |
+| Workflow / quality-gate changes | Rejected | No policy, threshold, suppression, workflow, or gate-configuration changes |
 
 ## Deferred findings
 
@@ -292,9 +297,38 @@ $ cargo build --workspace --all-features --locked
 Finished successfully
 
 $ cargo test --workspace --all-features --locked
-Blocked in unrelated `harness_v1_fixtures`: 19 workspace-install failures because
-system `/tmp` had only 128 MiB available (`No space left on device`). All focused
-JSP suites passed before this environmental failure.
+An intermediate run reached the workspace-install fixtures while system `/tmp`
+was full. Disk pressure was cleared before exact-head verification.
 ```
 
-Exact-head commit and CI evidence remain for the coordinator.
+### Exact-head delivery verification
+
+After rebasing onto `origin/main` at `7b12edcd`, the first exact-head run exposed
+three current-main gate defects: `src/state/events.rs` exceeded the hard
+source-size limit by two lines, an Actions test fixture still called the old
+four-argument repository constructor, and a shared PR test fixture exceeded
+Clippy's 60-line function limit. The branch repairs only those gate defects:
+documentation compaction, fixture constructor parity, and test-helper
+extraction. No behavior, policy, threshold, suppression, or quality-gate
+configuration changed.
+
+```text
+$ CARGO_INCREMENTAL=0 cargo xtask ci
+xtask ci: fmt
+xtask ci: check-clippy-allows
+xtask ci: check-source-size
+xtask ci: check-architecture
+xtask ci: lint
+xtask ci: complexity
+xtask ci: coverage
+xtask ci: build
+xtask ci: test
+exit status: 0
+```
+
+The final pre-plan-update scope relative to `origin/main` is 82 files, 18,936
+insertions, and 27 deletions (18,909 net lines). The user-approved hard-scope
+exception covers this single issue-linked PR. `origin/main` is an ancestor of
+HEAD, `.llxprt` is untouched, and the dependency diff consists of the
+`serde_json` `raw_value` feature plus `jsonschema` 0.33 with default features
+disabled and its lockfile closure.
