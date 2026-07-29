@@ -16,10 +16,13 @@
 //! per-agent death on a healthy server still follows the existing preview,
 //! `Dead`, binding-clear, and durable-save path.
 
+#[cfg(windows)]
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use tracing::{debug, warn};
+use tracing::debug;
+#[cfg(windows)]
+use tracing::warn;
 
 use crate::app_input::{
     AppStateHandle, SharedContext, durable_save_request, schedule_durable_save,
@@ -28,9 +31,13 @@ use crate::app_shell_workers::capture_dead_previews;
 
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::runtime::LivenessIdentity;
+#[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
+#[cfg(windows)]
 use jefe::runtime::ServerIdentity;
+#[cfg(windows)]
 use jefe::runtime::ServerLivenessObservation;
+#[cfg(windows)]
 use jefe::runtime::observe_server_liveness;
 use jefe::state::AppEvent;
 use jefe::state::AppState;
@@ -46,9 +53,11 @@ const LIVENESS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_se
 /// death is detected lazily on select/attach.
 pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContext) {
     // Pinned prior server identity (Windows psmux server watchdog).
+    #[cfg(windows)]
     let mut pinned_prior: Option<ServerIdentity> = None;
     // Once-per-identity `exit-empty off` guard. Blocking probe work receives
     // owned snapshots and returns the updated value to this future.
+    #[cfg(windows)]
     let mut applied_exit_empty: Option<ServerIdentity> = None;
 
     loop {
@@ -282,6 +291,7 @@ async fn reconcile_healthy_agents(
 /// is the source of truth for which agents still have a tracked session on the
 /// lost server.
 #[must_use]
+#[cfg(any(windows, test))]
 fn eligible_for_server_lost(
     state: &AppState,
     targets: &[jefe::runtime::LivenessCheck],
