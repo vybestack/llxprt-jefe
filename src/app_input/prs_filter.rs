@@ -86,8 +86,8 @@ fn space_event_for_field(field_idx: usize) -> AppEvent {
         DRAFT_FIELD => AppEvent::PrCycleDraftFilter,
         REVIEW_FIELD => AppEvent::PrCycleReviewFilter,
         CHECKS_FIELD => AppEvent::PrCycleChecksFilter,
-        SORT_BY_FIELD => AppEvent::CyclePrSortByNext,
-        SORT_ORDER_FIELD => AppEvent::TogglePrSortOrder,
+        SORT_BY_FIELD => AppEvent::PrCycleSortByNext,
+        SORT_ORDER_FIELD => AppEvent::PrToggleSortOrder,
         // STATE_FIELD and any unexpected index default to state cycling.
         _ => AppEvent::PrCycleFilterState,
     }
@@ -175,7 +175,7 @@ mod sort_field_tests {
     fn sort_by_field_routes_to_cycle_next() {
         assert!(matches!(
             space_event_for_field(SORT_BY_FIELD),
-            AppEvent::CyclePrSortByNext
+            AppEvent::PrCycleSortByNext
         ));
     }
 
@@ -183,7 +183,7 @@ mod sort_field_tests {
     fn sort_order_field_routes_to_toggle_order() {
         assert!(matches!(
             space_event_for_field(SORT_ORDER_FIELD),
-            AppEvent::TogglePrSortOrder
+            AppEvent::PrToggleSortOrder
         ));
     }
 

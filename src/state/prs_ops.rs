@@ -334,19 +334,19 @@ impl AppState {
     /// Handle sort cycling events (issue #473).
     fn apply_pr_sort_event(&mut self, event: &AppEvent) -> bool {
         match event {
-            AppEvent::CyclePrSortByNext => {
+            AppEvent::PrCycleSortByNext => {
                 self.prs_state.sort_config.by = self.prs_state.sort_config.by.cycle_next();
                 self.apply_pr_sort_change();
                 self.remember_pr_preferences();
                 true
             }
-            AppEvent::CyclePrSortByPrev => {
+            AppEvent::PrCycleSortByPrev => {
                 self.prs_state.sort_config.by = self.prs_state.sort_config.by.cycle_prev();
                 self.apply_pr_sort_change();
                 self.remember_pr_preferences();
                 true
             }
-            AppEvent::TogglePrSortOrder => {
+            AppEvent::PrToggleSortOrder => {
                 self.prs_state.sort_config.order = self.prs_state.sort_config.order.toggle();
                 self.apply_pr_sort_change();
                 self.remember_pr_preferences();

@@ -28,7 +28,7 @@ impl CreatedIssue {
             title: self.title,
             state: IssueState::Open,
             author_login: self.author_login,
-            created_at: self.created_at.clone(),
+            created_at: self.created_at,
             updated_at: self.updated_at,
             assignee_summary: String::new(),
             labels_summary: String::new(),

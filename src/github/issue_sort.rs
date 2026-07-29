@@ -44,8 +44,9 @@ pub fn issue_priority_rank(priority: &str) -> i64 {
 /// Compare two issues for the user-selected sort (issue #473).
 ///
 /// Returns a `std::cmp::Ordering` driven by the active [`IssueSortConfig`].
-/// Ties always break to ascending `number` so the order is deterministic and
-/// stable across re-projections. Missing `created_at`/`updated_at` timestamps
+/// Ties break to ascending `number` so the order is deterministic and
+/// stable across re-projections (except when sorting by `Number`, which has
+/// no further tie-break). Missing `created_at`/`updated_at` timestamps
 /// sort as empty strings (RFC 3339 naturally sorts the empty string earliest).
 /// Missing priority sorts last regardless of direction (descending still puts
 /// `Some` above `None`), so un-prioritized issues never jump ahead.

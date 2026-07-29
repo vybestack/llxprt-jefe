@@ -590,9 +590,9 @@ pub enum AppEvent {
     PrCycleDraftFilter,
     PrCycleReviewFilter,
     PrCycleChecksFilter,
-    CyclePrSortByNext,
-    CyclePrSortByPrev,
-    TogglePrSortOrder,
+    PrCycleSortByNext,
+    PrCycleSortByPrev,
+    PrToggleSortOrder,
     PrUpdateDraftFilter {
         field: String,
         value: String,

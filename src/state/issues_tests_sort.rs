@@ -113,7 +113,7 @@ fn sort_preserves_selection_by_identity() {
     // Select issue #20 (middle row: 10, 20, 30).
     state.issues_state.list.set_selected_index(Some(1));
 
-    // Change sort to Created/Asc: 10(2026-01), 20(2026-02), 30(2026-03) → #20 stays mid.
+    // Cycle sort from Updated/Desc to Priority/Desc; #20 stays mid (no priority).
     let state = state.apply(AppEvent::CycleIssueSortByNext).committed_pure();
 
     // Selection should still be on issue #20.
@@ -132,15 +132,7 @@ fn number_desc_sort_orders_highest_first() {
         make_issue(15, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
         make_issue(10, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
     ]);
-    // Set sort to Number, then cycle to Created to trigger re-sort.
-    // Actually we need to set the sort config first, then trigger a re-sort.
-    state.issues_state.sort_config = IssueSortConfig {
-        by: IssueSortBy::Number,
-        order: SortOrder::Desc,
-    };
-    // Toggle order to trigger re-sort with current config.
-    // But toggle would flip to Asc. Instead, cycle then toggle back.
-    // Better: just verify via a toggle (which re-sorts with toggled config).
+    // Set Number/Asc, then toggle to Desc to verify highest issue number first.
     state.issues_state.sort_config = IssueSortConfig {
         by: IssueSortBy::Number,
         order: SortOrder::Asc,

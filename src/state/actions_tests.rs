@@ -89,8 +89,8 @@ mod tests {
             status: WorkflowRunStatus::Completed,
             conclusion: None,
             workflow_name: "CI".to_string(),
-            created_at: format!("2026-01-0{id}T00:00:00Z"),
-            updated_at: format!("2026-01-0{id}T00:00:00Z"),
+            created_at: format!("2026-01-{id:02}T00:00:00Z"),
+            updated_at: format!("2026-01-{id:02}T00:00:00Z"),
         }
     }
 

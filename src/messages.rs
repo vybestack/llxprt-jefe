@@ -640,9 +640,9 @@ pub enum PullRequestsMessage {
     CycleDraftFilter,
     CycleReviewFilter,
     CycleChecksFilter,
-    CyclePrSortByNext,
-    CyclePrSortByPrev,
-    TogglePrSortOrder,
+    PrCycleSortByNext,
+    PrCycleSortByPrev,
+    PrToggleSortOrder,
     UpdateDraftFilter {
         field: PrFilterField,
         value: String,

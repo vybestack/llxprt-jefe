@@ -94,6 +94,8 @@ fn created_asc_sorts_oldest_first() {
 
 #[test]
 fn created_desc_breaks_ties_by_number_ascending() {
+    // All PRs share the same created_at; distinct updated_at values ensure
+    // that a wrong tiebreaker (e.g. updated_desc) would give a different result.
     let prs = vec![
         pull_request(3, "2026-07-01T00:00:00Z", "2026-07-05T00:00:00Z"),
         pull_request(1, "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z"),
@@ -138,10 +140,12 @@ fn updated_asc_sorts_oldest_first() {
 
 #[test]
 fn updated_desc_breaks_ties_by_number_ascending() {
+    // All PRs share the same updated_at; distinct created_at values ensure
+    // that a wrong tiebreaker (e.g. created_desc) would give a different result.
     let prs = vec![
-        pull_request(3, "2026-07-01T00:00:00Z", "2026-07-01T00:00:00Z"),
-        pull_request(1, "2026-07-01T00:00:00Z", "2026-07-01T00:00:00Z"),
-        pull_request(2, "2026-07-01T00:00:00Z", "2026-07-01T00:00:00Z"),
+        pull_request(3, "2026-07-05T00:00:00Z", "2026-07-01T00:00:00Z"),
+        pull_request(1, "2026-07-02T00:00:00Z", "2026-07-01T00:00:00Z"),
+        pull_request(2, "2026-07-04T00:00:00Z", "2026-07-01T00:00:00Z"),
     ];
     let config = PrSortConfig {
         by: PrSortBy::Updated,

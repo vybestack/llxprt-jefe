@@ -950,7 +950,7 @@ fn cycle_pr_sort_by_persists_to_prefs() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     // Default is Updated; cycle_next gives Number.
-    state = state.apply(AppEvent::CyclePrSortByNext).committed_pure();
+    state = state.apply(AppEvent::PrCycleSortByNext).committed_pure();
     let repo_id = RepositoryId("repo-1".to_string());
     let prefs = state.user_preferences.for_repo(&repo_id);
     assert_eq!(prefs.pr_sort_config.by, crate::domain::PrSortBy::Number);
