@@ -80,10 +80,10 @@ fn availability_variants() {
 }
 
 #[test]
-fn preflight_default_is_unavailable() {
+fn preflight_default_is_unsandboxed() {
     let preflight = Preflight::default();
-    assert!(preflight.is_unavailable(), "default preflight unavailable");
-    assert!(preflight.is_required());
+    assert!(!preflight.is_unavailable(), "default preflight is optional");
+    assert!(!preflight.is_required());
 }
 
 #[test]

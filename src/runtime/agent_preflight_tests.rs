@@ -192,7 +192,12 @@ fn preflight_not_required_clears_without_any_inspection() {
 
 #[test]
 fn required_but_unconfigured_returns_contract_unconfigured_zero_effects() {
-    let plan = base_plan_with(Preflight::default());
+    let plan = base_plan_with(Preflight {
+        engine: None,
+        image: None,
+        required_env: vec![],
+        required: true,
+    });
     let authorized = authorize(&plan);
     let inspector = fully_available_inspector();
     let outcome = prepare_execution(authorized, None, &inspector);

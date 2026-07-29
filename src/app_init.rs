@@ -647,11 +647,14 @@ fn revive_agent_session(
     // AppState (the startup restore path). If preparation cannot supply a
     // proof (e.g. remote restore, whose evidence must be state-owned, or an
     // uninstalled agent), the session is left to be marked Dead by the caller.
-    let Some(prepared) = (|| {
-        let evidence = jefe::runtime::launch_compose::observe_launch_state(signature).ok()?;
-        jefe::runtime::launch_compose::prepare_launch(signature, &evidence).ok()
-    })() else {
-        return ReviveOutcome::Died;
+    let prepared = match jefe::runtime::launch_compose::observe_launch_state(signature)
+        .and_then(|evidence| jefe::runtime::launch_compose::prepare_launch(signature, &evidence))
+    {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            warn!(agent_id = %agent.id.0, error = %error, "could not authorize restored session");
+            return ReviveOutcome::Died;
+        }
     };
     let remote = prepared.remote();
     match runtime.spawn_session(&agent.id, prepared.authorized(), remote) {

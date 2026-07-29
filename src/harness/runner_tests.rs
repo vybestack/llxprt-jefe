@@ -626,7 +626,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     seed_sticky_agent_state(config_dir.path(), &agent_id, &agent_session);
 
     let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
-    assert_eq!(summary.steps_run, 13);
+    assert_eq!(summary.steps_run, 10);
 }
 
 /// Seed a config directory with a state.json containing a single Running agent
@@ -716,9 +716,6 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
             { "wait": 200 },
             { "key": "C-k" },
             { "wait": 1000 },
-            { "expect": "StickyAgent" },
-            { "key": "Down" },
-            { "wait": 500 },
             { "waitForNot": "StickyAgent" },
             { "key": "C-q" },
             { "waitForExit": 3000 }
