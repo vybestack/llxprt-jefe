@@ -79,10 +79,12 @@ pub(super) fn recoverable_server_lost_ids(
         .iter()
         .filter(|agent| agent.status == AgentStatus::ServerLost)
         .filter(|agent| {
-            agent.runtime_binding.as_ref().is_some_and(|binding| {
-                !binding.launch_signature.remote.enabled
-                    && requested.map_or(true, |ids| ids.contains(&agent.id))
-            })
+            state
+                .repositories
+                .iter()
+                .find(|repository| repository.id == agent.repository_id)
+                .is_some_and(|repository| !repository.remote.enabled)
+                && requested.map_or(true, |ids| ids.contains(&agent.id))
         })
         .map(|agent| agent.id.clone())
         .collect()
@@ -254,6 +256,15 @@ fn recover_server_lost_runtime(
         return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
     }
 
+    let request = {
+        let state = app_state.read();
+        agent_and_signature(&state, agent_id)
+            .map(|(_, request)| request)
+            .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?
+    };
+    let evidence = availability::launch_state_evidence(app_state, &request)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(&request, &evidence)?;
+
     let ctx_arc = ctx.as_ref().ok_or_else(|| {
         RuntimeError::SpawnFailed("runtime context unavailable during recovery".to_owned())
     })?;
@@ -265,7 +276,9 @@ fn recover_server_lost_runtime(
     if !ctx_guard.runtime.mark_session_dead(agent_id) {
         warn!(agent_id = %agent_id.0, "psmux recovery: manager session record was already absent");
     }
-    ctx_guard.runtime.relaunch(agent_id)?;
+    ctx_guard
+        .runtime
+        .relaunch(agent_id, prepared.authorized(), prepared.remote())?;
     if let Err(error) = ctx_guard.runtime.attach(agent_id) {
         if !ctx_guard.runtime.mark_session_dead(agent_id) {
             warn!(agent_id = %agent_id.0, "psmux recovery: relaunched session record was absent after attach failure");

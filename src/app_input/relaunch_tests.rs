@@ -13,7 +13,7 @@ use jefe::state::{AppEvent, AppState, PaneFocus};
 
 use super::relaunch::{
     ServerLostRecoveryOutcome, apply_server_lost_recovery_outcomes, attach_relaunched_session,
-    open_server_lost_recovery, persist_relaunch_failure, spawn_relaunch_session,
+    open_server_lost_recovery, persist_relaunch_failure,
 };
 use super::tests::{sample_agent, sample_launch_signature};
 
@@ -165,7 +165,23 @@ fn selected_server_lost_agent_opens_cancel_focused_batch_confirmation() {
     first.status = AgentStatus::ServerLost;
     let mut second = bound_agent_state(&second_id).agents.remove(0);
     second.status = AgentStatus::ServerLost;
+    let repository = jefe::domain::Repository {
+        id: first.repository_id.clone(),
+        default_type_id: jefe::domain::shipped_agent_type(3),
+        default_values: jefe::domain::TypedMap::new(),
+        name: "Repository".to_owned(),
+        slug: "repository".to_owned(),
+        base_dir: std::path::PathBuf::from("/tmp"),
+        github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
+        remote: jefe::domain::RemoteRepositorySettings::default(),
+        issue_base_prompt: String::new(),
+        transient_agent_dir: std::path::PathBuf::new(),
+        transient_max_concurrent: 0,
+        agent_ids: vec![first_id.clone(), second_id.clone()],
+    };
     let mut state = AppState {
+        repositories: vec![repository],
         agents: vec![first, second],
         ..AppState::default()
     };

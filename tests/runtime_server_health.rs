@@ -199,29 +199,15 @@ fn server_lost_preserves_runtime_binding_when_transitioned() {
     let mut agent = Agent::new(
         AgentId("agent-1".into()),
         RepositoryId("repo".into()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
         "Agent 1".into(),
         PathBuf::from("/tmp"),
     );
     agent.status = AgentStatus::Running;
     agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
         session_name: "jefe-agent-1".into(),
-        launch_signature: jefe::domain::LaunchSignature {
-            work_dir: PathBuf::from("/tmp"),
-            profile: "default".into(),
-            code_puppy_model: String::new(),
-            code_puppy_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: jefe::domain::SandboxEngine::Podman,
-            sandbox_flags: jefe::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: jefe::domain::RemoteRepositorySettings::default(),
-            agent_kind: jefe::domain::AgentKind::Llxprt,
-            llxprt_version: None,
-        },
+        launch_signature: jefe::domain::LaunchSignatureV1::default(),
         attached: false,
         last_seen: None,
         pid: Some(123),
