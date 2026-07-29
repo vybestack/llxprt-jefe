@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "kind": "compliance-manifest",
+  "compliance_artifact_version": "jsp-v1-compliance-1",
+  "description": "Top-level index for the JSP/1 compliance framework (issue 477). Enumerates machine-readable schemas, the 15 reference scenarios, and the producer/server adapter traces. External implementations consume these artifacts and the Rust reference reducer/profiles validate them. Current-state JSP/1 semantics apply: no replay/history/resume/resync; gaps, reconnects, and epoch changes require a fresh snapshot-first stream.",
+  "schemas": {
+    "index": "schemas/manifest.json",
+    "documents": {
+      "snapshot": "schemas/snapshot.schema.json",
+      "event": "schemas/event.schema.json",
+      "heartbeat": "schemas/heartbeat.schema.json"
+    }
+  },
+  "scenarios": {
+    "index": "scenarios/manifest.json",
+    "count": 15
+  },
+  "traces": {
+    "producer": {
+      "contract": "producer-contract.md",
+      "trace": "traces/producer-trace.json"
+    },
+    "server": {
+      "contract": "server-contract.md",
+      "trace": "traces/server-transcript.json"
+    }
+  },
+  "profiles": ["schema", "reducer", "producer", "server", "all"]
+}

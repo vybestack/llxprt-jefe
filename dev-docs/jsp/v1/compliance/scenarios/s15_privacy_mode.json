@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "kind": "scenario",
+  "id": "S15",
+  "name": "no_content_privacy_mode",
+  "description": "No-content privacy mode: the producer supports the message and tool fields but reports availability as unknown, omitting content. Authoritative unknown stays distinct from unsupported and from known-empty. Process binding is unsupported.",
+  "base_snapshot": {
+    "schema": 1,
+    "kind": "snapshot",
+    "agent_id": "agent-s15",
+    "lifecycle_generation": 1,
+    "source_epoch": "epoch-s15",
+    "source_sequence": 0,
+    "cursor": 0,
+    "bridge_observed_ms": 15000000,
+    "native_session": {
+      "repository": "repo",
+      "path": "/path",
+      "agent_kind": "llxprt",
+      "pid": 1500,
+      "display_name": "s15-private"
+    },
+    "process_binding": "unsupported",
+    "native_activity": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": {
+        "state": "acting"
+      }
+    },
+    "current_wait": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": null
+    },
+    "current_turn": "unsupported",
+    "todos": {
+      "provenance": "authoritative",
+      "availability": "unknown"
+    },
+    "last_displayed_assistant_message": {
+      "provenance": "inferred",
+      "availability": "unknown"
+    },
+    "last_created_tool_call": {
+      "provenance": "authoritative",
+      "availability": "unknown"
+    },
+    "source_terminal_state": "unsupported",
+    "source_error_state": "unsupported"
+  },
+  "steps": [
+    {
+      "index": 0,
+      "kind": "heartbeat",
+      "document": {
+        "schema": 1,
+        "kind": "heartbeat",
+        "agent_id": "agent-s15",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s15",
+        "bridge_observed_ms": 15001000
+      },
+      "expected": {
+        "agent_id": "agent-s15",
+        "generation": 1,
+        "source_epoch": "epoch-s15",
+        "last_sequence": 0,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "unknown",
+        "last_message": "unknown",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unknown",
+        "tool_provenance": "authoritative",
+        "message_provenance": "inferred",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unknown",
+        "message_availability": "unknown",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported"
+      }
+    },
+    {
+      "kind": "malformed_capabilities",
+      "document": {
+        "schema": 1,
+        "kind": "snapshot",
+        "agent_id": "agent-s15",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s15",
+        "source_sequence": 0,
+        "cursor": 0,
+        "bridge_observed_ms": 15000000,
+        "native_session": {
+          "repository": "repo",
+          "path": "/path",
+          "agent_kind": "llxprt",
+          "pid": 1500,
+          "display_name": "s15-private"
+        },
+        "process_binding": "unsupported",
+        "native_activity": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": {
+            "state": "acting"
+          }
+        },
+        "current_wait": {
+          "provenance": "authoritative",
+          "availability": "degraded",
+          "last_value": null,
+          "as_of_ms": 1,
+          "diagnostic_code": "X"
+        },
+        "current_turn": "unsupported",
+        "todos": {
+          "provenance": "authoritative",
+          "availability": "unknown"
+        },
+        "last_displayed_assistant_message": {
+          "provenance": "inferred",
+          "availability": "unknown"
+        },
+        "last_created_tool_call": {
+          "provenance": "authoritative",
+          "availability": "unknown"
+        },
+        "source_terminal_state": "unsupported",
+        "source_error_state": "unsupported"
+      },
+      "expected": {
+        "agent_id": "agent-s15",
+        "generation": 1,
+        "source_epoch": "epoch-s15",
+        "last_sequence": 0,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "unknown",
+        "last_message": "unknown",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unknown",
+        "tool_provenance": "authoritative",
+        "message_provenance": "inferred",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unknown",
+        "message_availability": "unknown",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported"
+      },
+      "index": 1
+    }
+  ]
+}

@@ -16,6 +16,9 @@
 //! The parser performs no I/O and no logging. Diagnostics carry stable
 //! code/path/location and never echo producer payload values.
 
+/// Issue 477: executable JSP/1 compliance framework (schemas, reducer,
+/// scenarios, producer/server profiles, CLI support).
+pub mod compliance;
 pub mod contract;
 pub mod error;
 mod event;

@@ -44,6 +44,11 @@ pub fn parse_heartbeat(input: &[u8]) -> Result<HeartbeatRecord, JspError> {
     check_document_bound(input)?;
     expect_kind(input, "heartbeat")?;
     let wire: HeartbeatWire = deserialize_closed(input)?;
+    convert_heartbeat(wire)
+}
+
+/// Convert a deserialized heartbeat envelope into a typed record.
+pub(super) fn convert_heartbeat(wire: HeartbeatWire) -> Result<HeartbeatRecord, JspError> {
     Ok(HeartbeatRecord {
         identity: build_event_identity(
             &wire.agent_id,
@@ -55,7 +60,7 @@ pub fn parse_heartbeat(input: &[u8]) -> Result<HeartbeatRecord, JspError> {
 }
 
 /// Convert a deserialized event envelope into a typed record.
-fn convert_event(wire: EventWire) -> Result<EventRecord, JspError> {
+pub(super) fn convert_event(wire: EventWire) -> Result<EventRecord, JspError> {
     let identity = build_event_identity(
         &wire.agent_id,
         wire.lifecycle_generation,

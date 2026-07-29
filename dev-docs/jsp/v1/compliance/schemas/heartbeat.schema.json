@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jefe.dev/schema/jsp/1/heartbeat.schema.json",
+  "title": "JSP/1 heartbeat",
+  "description": "Closed JSP/1 heartbeat with identity bounds.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "heartbeat"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "lifecycle_generation": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "source_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "x-jsp-maxUtf8Bytes": 128
+    },
+    "bridge_observed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "agent_id",
+    "lifecycle_generation",
+    "source_epoch",
+    "bridge_observed_ms"
+  ],
+  "additionalProperties": false
+}

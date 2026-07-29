@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "kind": "scenario",
+  "id": "S12",
+  "name": "jefe_restart_fresh_stream_without_retained_events",
+  "description": "Jefe restarts without retained events and opens a fresh snapshot-first stream. Current state is recovered atomically without any resume or resynchronization protocol.",
+  "base_snapshot": {
+    "schema": 1,
+    "kind": "snapshot",
+    "agent_id": "agent-s12",
+    "lifecycle_generation": 1,
+    "source_epoch": "epoch-s12",
+    "source_sequence": 1,
+    "cursor": 1,
+    "bridge_observed_ms": 12000000,
+    "native_session": {
+      "repository": "repo",
+      "path": "/path",
+      "agent_kind": "llxprt",
+      "pid": 1200,
+      "display_name": "s12"
+    },
+    "process_binding": "unsupported",
+    "native_activity": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": {
+        "state": "thinking"
+      }
+    },
+    "current_wait": {
+      "provenance": "authoritative",
+      "availability": "known",
+      "value": null
+    },
+    "current_turn": "unsupported",
+    "todos": {
+      "provenance": "authoritative",
+      "availability": "degraded",
+      "last_value": {
+        "revision": 3,
+        "items": [
+          {
+            "text": "historical",
+            "completed": true
+          }
+        ]
+      },
+      "as_of_ms": 12000000,
+      "diagnostic_code": "OBS_STALE"
+    },
+    "last_displayed_assistant_message": "unsupported",
+    "last_created_tool_call": "unsupported",
+    "source_terminal_state": "unsupported",
+    "source_error_state": "unsupported"
+  },
+  "steps": [
+    {
+      "index": 0,
+      "kind": "transport_disconnect",
+      "permanent": true,
+      "expected": {
+        "agent_id": "agent-s12",
+        "generation": 1,
+        "source_epoch": "epoch-s12",
+        "last_sequence": 1,
+        "activity": "thinking",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": 3,
+        "todos_count": 1,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "disconnected",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "degraded",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported"
+      }
+    },
+    {
+      "index": 1,
+      "kind": "process_liveness",
+      "alive": false,
+      "expected": {
+        "agent_id": "agent-s12",
+        "generation": 1,
+        "source_epoch": "epoch-s12",
+        "last_sequence": 1,
+        "activity": "thinking",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": 3,
+        "todos_count": 1,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "disconnected",
+        "process_alive": false,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "degraded",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported"
+      }
+    },
+    {
+      "index": 2,
+      "kind": "fresh_snapshot",
+      "document": {
+        "schema": 1,
+        "kind": "snapshot",
+        "agent_id": "agent-s12",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s12",
+        "source_sequence": 5,
+        "cursor": 5,
+        "bridge_observed_ms": 12005000,
+        "native_session": {
+          "repository": "repo",
+          "path": "/path",
+          "agent_kind": "llxprt",
+          "pid": 1200,
+          "display_name": "s12"
+        },
+        "process_binding": "unsupported",
+        "native_activity": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": {
+            "state": "acting"
+          }
+        },
+        "current_wait": {
+          "provenance": "authoritative",
+          "availability": "known",
+          "value": {
+            "reason": "permission"
+          }
+        },
+        "current_turn": "unsupported",
+        "todos": {
+          "provenance": "authoritative",
+          "availability": "degraded",
+          "last_value": {
+            "revision": 3,
+            "items": [
+              {
+                "text": "historical",
+                "completed": true
+              }
+            ]
+          },
+          "as_of_ms": 12000000,
+          "diagnostic_code": "OBS_STALE"
+        },
+        "last_displayed_assistant_message": "unsupported",
+        "last_created_tool_call": "unsupported",
+        "source_terminal_state": "unsupported",
+        "source_error_state": "unsupported"
+      },
+      "expected": {
+        "agent_id": "agent-s12",
+        "generation": 1,
+        "source_epoch": "epoch-s12",
+        "last_sequence": 5,
+        "activity": "acting",
+        "wait": "permission",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": 3,
+        "todos_count": 1,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": false,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "degraded",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported"
+      }
+    }
+  ]
+}
