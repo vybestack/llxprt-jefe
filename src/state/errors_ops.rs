@@ -153,6 +153,16 @@ impl AppState {
             ErrorsMessage::CycleFocus => self.cycle_error_focus(),
             ErrorsMessage::CycleFocusReverse => self.cycle_error_focus_reverse(),
             ErrorsMessage::ScrollDetail(dir) => self.handle_error_scroll(dir),
+            ErrorsMessage::CaptureSilent {
+                title,
+                detail,
+                source,
+                timestamp,
+            } => {
+                self.errors_state
+                    .push_silent(title, detail, source, timestamp);
+                true
+            }
             ErrorsMessage::ClearAll => self.clear_all_errors(),
         }
     }

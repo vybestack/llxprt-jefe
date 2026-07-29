@@ -113,6 +113,7 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
                 crate::domain::ErrorSource::Persistence => "Persistence",
                 crate::domain::ErrorSource::Agent => "Agent",
                 crate::domain::ErrorSource::Startup => "Startup",
+                crate::domain::ErrorSource::Panic => "Panic",
                 crate::domain::ErrorSource::Other => "Other",
             };
             let meta = format!("{source_label} · {}", entry.timestamp);

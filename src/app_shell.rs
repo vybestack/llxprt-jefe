@@ -88,7 +88,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     hooks.use_future({
         let ctx = ctx.clone();
-        let app_state = app_state;
+        let mut app_state = app_state;
         let mut render_tick = render_tick;
         async move {
             const POLL_MS: u64 = 16;
@@ -115,7 +115,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     || (terminal_focused && dirty)
                     || (running_preview && elapsed_ms >= PREVIEW_THROTTLE_MS && dirty);
 
-                if should_render {
+                if crate::app_shell_panic::drain_into_errors(&mut app_state) || should_render {
                     elapsed_ms = 0;
                     let tick = render_tick.get();
                     render_tick.set(tick.wrapping_add(1));

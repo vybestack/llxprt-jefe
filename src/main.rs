@@ -9,9 +9,11 @@ mod app_shell;
 mod app_shell_attach;
 mod app_shell_key_routing;
 mod app_shell_liveness;
+mod app_shell_panic;
 mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;
+mod panic_capture;
 mod pty_encoding;
 mod terminal_init;
 
@@ -200,6 +202,10 @@ fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRu
         },
     )
 }
+fn init_diagnostics() {
+    jefe::logging::init();
+    panic_capture::install_panic_hook();
+}
 
 fn run_app(context: Arc<std::sync::Mutex<AppContext>>) {
     smol::block_on(async {
@@ -243,8 +249,8 @@ fn main() {
     let published_settings = startup.settings;
     let persistence = startup.manager;
 
-    // Initialize structured logging only after persistence has validated.
-    jefe::logging::init();
+    // Initialize diagnostics only after persistence has validated.
+    init_diagnostics();
     tracing::info!(version = jefe::VERSION, "jefe starting");
     tracing::debug!(
         log_file = ?jefe::logging::log_file_path(),

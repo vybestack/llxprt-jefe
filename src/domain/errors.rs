@@ -19,6 +19,7 @@ pub enum ErrorSource {
     Persistence,
     Agent,
     Startup,
+    Panic,
     #[default]
     Other,
 }
@@ -33,6 +34,7 @@ impl ErrorSource {
             Self::Persistence => "persistence",
             Self::Agent => "agent",
             Self::Startup => "startup",
+            Self::Panic => "panic",
             Self::Other => "other",
         }
     }
@@ -56,4 +58,7 @@ pub struct ErrorEntry {
     pub source: ErrorSource,
     /// Unix epoch seconds (UTC) of when the error was captured.
     pub timestamp: String,
+    /// Whether status projections should omit this entry.
+    #[serde(default)]
+    pub silent: bool,
 }
