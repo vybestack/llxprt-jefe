@@ -113,7 +113,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       },
       "expected_secondary": {
         "agent_id": "agent-s14b",
@@ -148,7 +150,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     }
   ]

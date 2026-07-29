@@ -80,14 +80,22 @@ use the built-in reference adapter (`--reference-adapter`) to execute the
 challenge rather than replaying a self-attested trace. The runner supplies:
 
 - A **nonce** (`--nonce N`) that the adapter's output must incorporate.
-- A **redaction marker** that must be absent from the captured output.
-- A **fake clock sequence** that drives monotonic timestamps.
-- **Launch/process-binding identity/epoch** the adapter must observe.
-- **Bounded sink capacity/deadline/operations** the adapter must demonstrate.
-- A **drop/gap challenge** the adapter must capture.
+- Closed redaction and S9 draft source objects, each with a runner-owned source
+  handle, source text, and marker. The source contains the marker; captured JSP
+  documents and the final projection must not.
+- A fake clock sequence that every captured document must consume exactly.
+- The complete launch identity triple and process binding the adapter must
+  observe.
+- Bounded sink capacity/deadline plus unique runner operation handles.
+- An exact drop interval and operation handle, followed by a captured next
+  publication at `dropped_end + 1`.
+- The expected checked adapter protocol version.
 
-The observed result must bind to the nonce and challenge parameters. A
-replayed trace from a different nonce, a fabricated queue arithmetic, an absent
-chosen marker, or an uncaptured gap cannot pass. The runner validates the
-adapter's output through the same `ReferenceReducer` and legal-semantics
-checks as a captured trace.
+Producer/server qualification never accepts `--input` or a default static
+trace. The runner writes one closed JSON challenge to the selected subprocess,
+bounds input/output/deadline, and validates its response against that exact
+challenge. A replayed trace, fabricated `adapter_version`, arbitrary absent
+marker, invented queue arithmetic, or uncaptured gap publication fails. Every
+captured producer document is parsed and reduced by `ReferenceReducer`; the
+trace must prove all 11 event variants, legal transitions, exact launch
+identity/epoch/generation, process binding, and draft exclusion.

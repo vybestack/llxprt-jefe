@@ -181,4 +181,120 @@ cargo xtask quick
 
 ## Deferred findings
 
-None.
+
+## Slice B remediation: runner-owned challenge execution
+
+Slice B replaces the replayable self-attested producer/server profiles with
+**runner-owned challenge execution**. The runner supplies a nonce, challenge
+parameters, and an adapter invocation; the adapter's observed output must bind
+to the nonce and challenge parameters. An arbitrary `adapter_version`, a
+missing chosen marker, fabricated queue arithmetic, or an uncaptured gap
+cannot pass.
+
+### New modules
+
+- `challenge.rs`: Closed serializable runner challenge and pure deterministic
+  verification. Supplies nonce/version, complete launch identity/process
+  binding, redaction and S9 draft sources/markers, exact clock schedule, unique
+  sink operation handles/deadline, captured drop interval/next publication, and
+  trusted credential/principal inventory. All failure codes are payload-free.
+- `reference_adapter.rs`: Built-in deterministic in-process adapter for
+  checked-in self-test. Generates producer traces and server transcripts bound
+  to the runner's nonce, marker, clock sequence, identity, and capacity
+  parameters on each call. A replayed trace from a different nonce cannot
+  pass because the nonce is embedded in the adapter's observed output.
+- `adapter_invoker.rs`: Bounded subprocess invocation for external adapters.
+  Writes challenge JSON to stdin, captures adapter output from stdout with
+  size/deadline bounds, and returns payload-free diagnostic codes on failure.
+
+### Modified modules
+
+- `dto.rs`: Added `challenge_nonce: u64` to `ProducerTraceWire` and
+  `ServerTranscriptWire`. Extended `ActivityValueWire` with `Unknown`,
+  `Degraded`, `Unsupported` variants so lease evidence never maps
+  unknown/degraded/unsupported to idle.
+- `profile.rs`: Added complete `validate_producer_trace_with_challenge`
+  qualification. It binds every observed operation to the runner challenge,
+  reduces all captured documents, and requires the real post-drop publication.
+- `server_profile*.rs`: Added complete challenge-bound server qualification,
+  full identity-triple authentication, distinct unknown/binding/role failures,
+  immediate trusted post-rejection digests, atomic SSE tail plus snapshot-only
+  proofs, monotonic heartbeats, and complete lease activity
+  availability/provenance.
+- `src/bin/jefe-jsp-compliance.rs`: Added `--adapter`, `--reference-adapter`,
+  and `--nonce` CLI flags for runner-owned challenge execution.
+
+### Updated contracts and fixtures
+
+- `producer-contract.md`: Documented `challenge_nonce` field and runner-owned
+  challenge execution protocol.
+- `server-contract.md`: Documented `challenge_nonce` field and runner-owned
+  challenge execution protocol.
+- `producer-trace.json`, `server-transcript.json`: Added `challenge_nonce: 0`
+  for backward compatibility with the existing fixtures.
+
+### Adversarial integration tests
+
+`tests/jsp_v1_compliance_slice_b.rs` (34 tests) reproduces nonce binding,
+fabricated adapter version/no process, arbitrary absent marker, fake
+capacity/uncaptured gap publication, draft leakage, unknown handles versus
+partial identity binding, unknown-auth response mutation, rejected-state
+mutation or missing immediate digest, missing state-changing SSE tail, missing
+snapshot-only evidence, unknown activity lease synthesis, bounded subprocess
+failures, and checked reference adapter execution.
+
+### Second review-cycle remediation (Blocker/In-scope triage)
+
+The final bounded cleanup accepted the remaining reducer lifecycle, projection
+algebra, scenario-oracle independence, and executable schema findings as
+**Blocker—Fix**. API visibility/documentation and the `profile.rs` warning were
+**In-scope—Fix**. Replay/history/resume/resync, new wire payloads, and quality
+threshold changes remain **Reject** under D1 and the explicit non-goals.
+No valid finding was deferred.
+
+The reducer now preserves runtime liveness across source-epoch-only snapshots
+and resets it for generation or agent-process identity changes; terminal native
+session/tool transitions reject atomically. All 15 fixtures retain native
+session/process-binding provenance, S3/S6 execute language-neutral terminal
+negative steps, and S9 executes the runner-owned draft challenge. Schema
+qualification recompiles mutable artifacts with Draft 2020-12 and independently
+checks UTF-8 byte annotations, u32/u64 edges, exact inventories, and symlinks.
+`profile.rs` is split at 734 lines.
+
+### Final focused and gate verification
+
+```text
+$ cargo test --lib jsp::v1::compliance --locked
+ test result: ok. 44 passed; 0 failed
+
+$ cargo test --test jsp_v1_compliance --locked
+ test result: ok. 33 passed; 0 failed
+
+$ cargo test --test jsp_v1_compliance_slice_b --locked
+ test result: ok. 34 passed; 0 failed
+
+$ cargo fmt --all --check
+Passed
+
+$ cargo clippy --workspace --all-targets --all-features -- -D warnings
+Finished successfully with no warnings
+
+$ cargo xtask check source-size
+Passed
+
+$ cargo xtask check architecture
+Passed
+
+$ cargo xtask check clippy-allows
+Passed
+
+$ cargo build --workspace --all-features --locked
+Finished successfully
+
+$ cargo test --workspace --all-features --locked
+Blocked in unrelated `harness_v1_fixtures`: 19 workspace-install failures because
+system `/tmp` had only 128 MiB available (`No space left on device`). All focused
+JSP suites passed before this environmental failure.
+```
+
+Exact-head commit and CI evidence remain for the coordinator.

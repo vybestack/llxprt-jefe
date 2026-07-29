@@ -89,7 +89,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -141,7 +143,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -193,7 +197,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "known",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       },
       "index": 2
     },
@@ -244,9 +250,66 @@
         "terminal_availability": "unsupported",
         "error_availability": "known",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       },
       "index": 3
+    },
+    {
+      "index": 4,
+      "kind": "event_after_session_ended",
+      "document": {
+        "schema": 1,
+        "kind": "event",
+        "agent_id": "agent-s6",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s6",
+        "source_sequence": 5,
+        "bridge_observed_ms": 6000005,
+        "event": {
+          "type": "activity.changed",
+          "state": "idle"
+        }
+      },
+      "expected_illegal_transition": true,
+      "expected": {
+        "agent_id": "agent-s6",
+        "generation": 1,
+        "source_epoch": "epoch-s6",
+        "last_sequence": 4,
+        "activity": "acting",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": "failed",
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": null,
+        "tool_phase": "absent",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "unsupported",
+        "message_provenance": "unsupported",
+        "turn_provenance": "authoritative",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "present",
+        "source_error_provenance": "authoritative",
+        "session_ended": true,
+        "turn_availability": "known_absent",
+        "tool_availability": "unsupported",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "known",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
     }
   ]
 }

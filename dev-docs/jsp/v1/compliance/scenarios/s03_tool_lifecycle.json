@@ -91,7 +91,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -144,7 +146,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -197,7 +201,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -250,7 +256,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -303,7 +311,65 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
+      }
+    },
+    {
+      "index": 5,
+      "kind": "tool_terminal_regression",
+      "document": {
+        "schema": 1,
+        "kind": "event",
+        "agent_id": "agent-s3",
+        "lifecycle_generation": 1,
+        "source_epoch": "epoch-s3",
+        "source_sequence": 6,
+        "bridge_observed_ms": 3006000,
+        "event": {
+          "type": "tool_call.phase_changed",
+          "label": "read_file",
+          "phase": "executing"
+        }
+      },
+      "expected_illegal_transition": true,
+      "expected": {
+        "agent_id": "agent-s3",
+        "generation": 1,
+        "source_epoch": "epoch-s3",
+        "last_sequence": 5,
+        "activity": "thinking",
+        "wait": "not_waiting",
+        "turn_active": false,
+        "turn_outcome": null,
+        "todos_revision": null,
+        "todos_count": 0,
+        "tool_label": "read_file",
+        "tool_phase": "succeeded",
+        "last_message": "absent",
+        "observation_health": "live",
+        "process_alive": null,
+        "activity_provenance": "authoritative",
+        "wait_provenance": "authoritative",
+        "todos_state": "unsupported",
+        "tool_provenance": "authoritative",
+        "message_provenance": "unsupported",
+        "turn_provenance": "unsupported",
+        "source_terminal": "absent",
+        "source_terminal_provenance": "unsupported",
+        "source_error": "absent",
+        "source_error_provenance": "unsupported",
+        "session_ended": false,
+        "turn_availability": "unsupported",
+        "tool_availability": "known",
+        "message_availability": "unsupported",
+        "terminal_availability": "unsupported",
+        "error_availability": "unsupported",
+        "native_session_availability": "known",
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     }
   ]

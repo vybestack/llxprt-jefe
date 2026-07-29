@@ -89,7 +89,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -141,7 +143,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     },
     {
@@ -194,7 +198,9 @@
         "terminal_availability": "unsupported",
         "error_availability": "unsupported",
         "native_session_availability": "known",
-        "process_binding_availability": "unsupported"
+        "process_binding_availability": "unsupported",
+        "native_session_provenance": "authoritative",
+        "process_binding_provenance": "unsupported"
       }
     }
   ]

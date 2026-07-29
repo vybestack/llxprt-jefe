@@ -91,13 +91,26 @@ The compliance runner may invoke an adapter command (`--adapter COMMAND`) or
 use the built-in reference adapter (`--reference-adapter`) to execute the
 challenge rather than replaying a self-attested transcript. The runner supplies:
 
-- A **nonce** (`--nonce N`) that the adapter's output must incorporate.
-- **Launch/process-binding identity/epoch** the adapter must observe.
-- **Bounded sink capacity/deadline/operations** the adapter must demonstrate.
+- A nonce and expected checked adapter protocol version.
+- The complete launch identity triple and process binding.
+- A closed trusted credential/principal inventory. Every entry binds one opaque
+  credential handle, principal handle, role, and complete identity triple.
+- The same bounded operation schedule, fake clock, and source challenges used
+  by the producer qualification protocol.
 
-The observed result must bind to the nonce and challenge parameters.
-Unknown/invalid auth is distinct from an authenticated trusted wrong-role
-operation; role proof bits are set only for expected principals. Each rejected
-duplicate/lower/gap/forbidden/bound operation must have an immediate trusted
-observation/digest; no pending overwrite. Lease evidence carries full activity
-availability/provenance and never maps unknown/degraded/unsupported to idle.
+Producer/server qualification never accepts `--input` or a default static
+transcript. Unknown handles are 401 `unknown_authentication`; a known principal
+with the wrong complete binding is 403 `forbidden_binding`; an authenticated
+wrong role is 403 `forbidden_role`. Security proof bits are credited only to
+principals in the runner inventory. Every rejected duplicate, lower, gap,
+forbidden, binding, or bounded operation is followed immediately by a trusted
+server-principal observation digest; a second rejection cannot overwrite a
+pending observation.
+
+Strict SSE evidence includes both (1) an atomic snapshot at an earlier accepted
+cursor followed by a real state-changing contiguous event tail to the current
+canonical state and (2) a current snapshot-only stream. Heartbeats in an SSE
+tail are optional and cannot substitute for a state-changing event. Dedicated
+heartbeat times are monotonic. Lease output carries native activity value,
+availability, and provenance exactly and never synthesizes idle from unknown,
+degraded, or unsupported activity.
