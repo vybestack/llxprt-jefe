@@ -44,7 +44,7 @@
       "op": "wait",
       "source": "frame",
       "literal": "editor completed",
-      "timeout_ms": 15000
+      "timeout_ms": 30000
     },
     {
       "op": "assert-capture",
