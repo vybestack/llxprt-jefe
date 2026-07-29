@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use super::super::definition::AgentDefinition;
-use super::super::fields::Emitter;
+use super::super::fields::{Emitter, Field, FieldValue};
 use super::super::normalize::Normalize;
 use super::super::type_id::{CandidateKind, ExecutableCandidate};
 use super::super::types::{
@@ -33,7 +33,17 @@ fn emitters() -> Vec<Emitter> {
         Emitter::Flag {
             field: "prompt_interactive".to_string(),
         },
+        Emitter::Flag {
+            field: "continue".to_string(),
+        },
     ]
+}
+
+/// Repository YOLO field defaulting to true for the LLxprt product.
+fn llxprt_yolo_field() -> Field {
+    let mut field = bool_field("yolo");
+    field.default = Some(FieldValue::Boolean(true));
+    field
 }
 
 /// Build the core.llxprt shipped definition.
@@ -76,11 +86,12 @@ pub fn build() -> AgentDefinition {
                 supported: Support::supported(),
             },
         },
-        repository_fields: vec![sig_string_field("profile"), bool_field("yolo")],
+        repository_fields: vec![sig_string_field("profile"), llxprt_yolo_field()],
         agent_fields: vec![
             sig_string_field("version_selector"),
             sig_string_field("prompt"),
             bool_field("prompt_interactive"),
+            bool_field("continue"),
         ],
         emitters: emitters(),
     })

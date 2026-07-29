@@ -118,7 +118,10 @@ pub(super) fn run_probe_process(
     mut command: Command,
     deadline: Instant,
 ) -> Result<ProbeProcessOutput, ProbeProcessError> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     configure_process_tree(&mut command);
     let mut child = command
         .spawn()
@@ -218,4 +221,73 @@ fn terminate_process_tree(child: &mut Child) {
 fn terminate_process_tree(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use super::{ProbeProcessError, run_probe_process};
+
+    const NESTED_MARKER: &str = "JEFE_PROBE_STDIN_NESTED";
+    const TEST_NAME: &str = "runtime::agent_probe_process::tests::probe_child_receives_null_stdin_under_inherited_parent_stdin";
+
+    #[test]
+    fn probe_child_receives_null_stdin_under_inherited_parent_stdin() {
+        if std::env::var_os(NESTED_MARKER).is_some() {
+            run_nested_probe_child();
+            return;
+        }
+
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("could not resolve test binary: {error}"));
+        let mut child = Command::new(exe)
+            .env(NESTED_MARKER, "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .args(["--exact", TEST_NAME, "--nocapture"])
+            .spawn()
+            .unwrap_or_else(|error| panic!("could not spawn nested test: {error}"));
+        let mut stdin = child
+            .stdin
+            .take()
+            .unwrap_or_else(|| panic!("nested test must expose piped stdin"));
+        stdin
+            .write_all(b"this line must never reach the probe child\n")
+            .unwrap_or_else(|error| panic!("could not write parent stdin: {error}"));
+        drop(stdin);
+
+        let output = child
+            .wait_with_output()
+            .unwrap_or_else(|error| panic!("could not wait for nested test: {error}"));
+        assert!(
+            output.status.success(),
+            "nested probe test failed: status {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    fn run_nested_probe_child() {
+        let script = concat!(
+            "$line = [Console]::In.ReadLine(); ",
+            "if ($null -ne $line) { exit 1 } else { exit 0 }"
+        );
+        let mut command = Command::new("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let output = run_probe_process(command, deadline).unwrap_or_else(|error| match error {
+            ProbeProcessError::Timeout => panic!("probe process timed out"),
+            ProbeProcessError::Failed(detail) => panic!("probe process failed: {detail}"),
+        });
+        assert!(
+            output.status.success(),
+            "probe child must exit 0 on null stdin, got {:?}; stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr.bytes),
+        );
+    }
 }

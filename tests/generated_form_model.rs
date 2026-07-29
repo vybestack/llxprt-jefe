@@ -376,3 +376,72 @@ fn reducer_edits_remaining_typed_kinds_and_reports_lower_bound() {
         Some(2)
     );
 }
+
+// ---------------------------------------------------------------------------
+// Issue #519: LLxprt default YOLO and independent Continue field
+// ---------------------------------------------------------------------------
+
+fn llxprt_shipped() -> AgentDefinition {
+    AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == "core.llxprt")
+        .unwrap_or_else(|| panic!("LLxprt definition must be shipped"))
+}
+
+fn llxprt_compatible() -> Availability {
+    Availability::InstalledCompatible {
+        identity: "0.10.0".to_string(),
+        capabilities: vec![
+            "prompt-interactive".to_string(),
+            "profile".to_string(),
+            "yolo".to_string(),
+            "continue".to_string(),
+        ],
+        generation: 1,
+    }
+}
+
+/// A newly generated LLxprt form must default repository `yolo` to true so the
+/// product-specific launch default is restored without touching other agents.
+#[test]
+fn llxprt_generated_form_defaults_yolo_to_true() {
+    let definition = llxprt_shipped();
+    let draft = GeneratedFormDraft::from_definition(&definition, &llxprt_compatible());
+    let Ok(draft) = draft else {
+        panic!("LLxprt definition should generate a form: {draft:?}");
+    };
+    let yolo = draft.field(&FormFieldId::repository("yolo"));
+    let Some(yolo) = yolo else {
+        panic!("LLxprt form must expose a repository yolo field");
+    };
+    assert_eq!(yolo.value(), &FieldValue::Boolean(true));
+}
+
+/// LLxprt must declare an independent agent-scope `continue` boolean field
+/// distinct from `prompt_interactive`.
+#[test]
+fn llxprt_generated_form_exposes_independent_continue_field() {
+    let definition = llxprt_shipped();
+    assert!(
+        definition
+            .agent_fields
+            .iter()
+            .any(|field| field.id == "continue" && field.kind == FieldKind::Boolean),
+        "LLxprt must declare an agent-scope continue boolean field"
+    );
+    let draft = GeneratedFormDraft::from_definition(&definition, &llxprt_compatible());
+    let Ok(draft) = draft else {
+        panic!("LLxprt definition should generate a form: {draft:?}");
+    };
+    let continue_field = draft.field(&FormFieldId::agent("continue"));
+    let Some(continue_field) = continue_field else {
+        panic!("LLxprt form must expose an agent continue field");
+    };
+    assert_eq!(continue_field.value(), &FieldValue::Boolean(false));
+    // prompt_interactive remains independent and present.
+    assert!(
+        draft
+            .field(&FormFieldId::agent("prompt_interactive"))
+            .is_some()
+    );
+}

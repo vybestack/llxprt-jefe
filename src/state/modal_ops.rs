@@ -399,7 +399,7 @@ impl AppState {
                         String::new()
                     },
                     llxprt_debug: String::new(),
-                    pass_continue: typed_bool(&a.values, "prompt_interactive").unwrap_or(true),
+                    pass_continue: typed_bool(&a.values, "continue").unwrap_or(true),
                     sandbox_enabled: false,
                     sandbox_engine: SandboxEngine::default().label().to_owned(),
                     sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),

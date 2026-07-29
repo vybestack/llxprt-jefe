@@ -7,7 +7,8 @@
 
 use jefe::agent_status_view::AgentAvailabilityObservation;
 use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, Availability, Operation};
-use jefe::domain::{Id, Repository, RepositoryId, TypedMap};
+use jefe::domain::canonical_values::typed_field;
+use jefe::domain::{Id, Repository, RepositoryId, TypedMap, TypedValue};
 use jefe::state::generated_agent_form::{
     GeneratedAgentFormFocus, GeneratedAgentFormIntent, GeneratedTarget,
 };
@@ -310,5 +311,120 @@ fn submit_without_repository_has_zero_effects() {
         submitted.agents.len(),
         before_agents,
         "no repository means zero agents created"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #519: legacy pass_continue maps to typed continue, not prompt_interactive
+// ---------------------------------------------------------------------------
+
+/// The legacy NewAgent form's `pass_continue` checkbox must populate the typed
+/// `continue` field for an LLxprt agent, leaving `prompt_interactive`
+/// independent.
+#[test]
+fn legacy_pass_continue_maps_to_typed_continue_for_llxprt() {
+    let type_id = AgentTypeId::parse("core.llxprt")
+        .unwrap_or_else(|error| panic!("valid LLxprt type id: {error}"));
+    let repository = test_repository(type_id.clone());
+    let mut state = AppState {
+        repositories: vec![repository],
+        selected_repository_index: Some(0),
+        available_agent_type_ids: vec![type_id.clone()],
+        pane_focus: PaneFocus::Agents,
+        ..AppState::default()
+    }
+    .apply(AppEvent::OpenNewAgent(RepositoryId(
+        "test-repo".to_string(),
+    )))
+    .committed_pure();
+
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("new agent modal should be open");
+    };
+    fields.name = "Continue Bridge".to_string();
+    fields.agent_type_id = "core.llxprt".to_string();
+    fields.pass_continue = false;
+
+    let submitted = state.apply(AppEvent::SubmitForm).committed_pure();
+    assert_eq!(submitted.modal, ModalState::None, "modal must close");
+    assert_eq!(submitted.agents.len(), 1, "one agent created");
+    let agent = &submitted.agents[0];
+    let continue_value = typed_field(&agent.values, "continue");
+    assert_eq!(
+        continue_value,
+        Some(&TypedValue::Bool(false)),
+        "pass_continue=false must map to typed continue=false"
+    );
+    // prompt_interactive remains absent rather than being driven by
+    // pass_continue.
+    assert!(
+        typed_field(&agent.values, "prompt_interactive").is_none(),
+        "prompt_interactive must stay independent of pass_continue"
+    );
+}
+
+/// The legacy EditAgent modal must load `pass_continue` from the typed
+/// `continue` value, not `prompt_interactive`.
+#[test]
+fn edit_modal_loads_pass_continue_from_typed_continue() {
+    let type_id = AgentTypeId::parse("core.llxprt")
+        .unwrap_or_else(|error| panic!("valid LLxprt type id: {error}"));
+    let mut repository = test_repository(type_id.clone());
+    // Seed a repository default with continue=false so the new-agent form
+    // inherits it, then verify the edit modal reflects typed continue.
+    let continue_id =
+        Id::parse("continue").unwrap_or_else(|error| panic!("valid continue id: {error}"));
+    repository
+        .default_values
+        .insert(continue_id, TypedValue::Bool(false));
+    let prompt_id = Id::parse("prompt-interactive")
+        .unwrap_or_else(|error| panic!("valid prompt-interactive id: {error}"));
+    repository
+        .default_values
+        .insert(prompt_id, TypedValue::Bool(true));
+
+    let mut state = AppState {
+        repositories: vec![repository],
+        selected_repository_index: Some(0),
+        available_agent_type_ids: vec![type_id.clone()],
+        pane_focus: PaneFocus::Agents,
+        ..AppState::default()
+    }
+    .apply(AppEvent::OpenNewAgent(RepositoryId(
+        "test-repo".to_string(),
+    )))
+    .committed_pure();
+
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("new agent modal should be open");
+    };
+    fields.name = "Edit Source".to_string();
+    fields.agent_type_id = "core.llxprt".to_string();
+    fields.pass_continue = false;
+
+    let mut submitted = state.apply(AppEvent::SubmitForm).committed_pure();
+    let agent_id = submitted.agents[0].id.clone();
+    assert_eq!(
+        typed_field(&submitted.agents[0].values, "continue"),
+        Some(&TypedValue::Bool(false)),
+        "created agent must retain typed continue=false"
+    );
+    assert_eq!(
+        typed_field(&submitted.agents[0].values, "prompt_interactive"),
+        Some(&TypedValue::Bool(true)),
+        "fixture must retain typed prompt_interactive=true"
+    );
+
+    submitted = submitted
+        .apply(AppEvent::OpenEditAgent(agent_id))
+        .committed_pure();
+    let ModalState::EditAgent { fields, .. } = &submitted.modal else {
+        panic!("edit agent modal should be open");
+    };
+    // continue=false -> pass_continue must be false; prompt_interactive=true
+    // must NOT leak into pass_continue.
+    assert!(
+        !fields.pass_continue,
+        "edit modal must load pass_continue from typed continue (false), got true"
     );
 }

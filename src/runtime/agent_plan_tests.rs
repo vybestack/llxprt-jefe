@@ -89,9 +89,8 @@ fn default_field_values_are_used_when_not_provided() {
         PlanOutcome::Supported(plan) => *plan,
         other => panic!("expected supported, got {other:?}"),
     };
-    // LLxprt's profile field has no default, so the Option emitter skips.
-    // yolo and prompt_interactive default to false, so Flags skip.
-    assert!(plan.argv.is_empty(), "no emitters fire with all defaults");
+    // LLxprt's profile has no default, while yolo defaults on.
+    assert_eq!(plan.argv, ["--yolo"]);
 }
 
 #[test]
@@ -131,7 +130,10 @@ fn flag_resolves_token_from_capability_probe() {
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    assert_eq!(argv, vec!["--prompt-interactive".to_string()]);
+    assert_eq!(
+        argv,
+        vec!["--yolo".to_string(), "--prompt-interactive".to_string()]
+    );
 }
 
 #[test]
@@ -166,8 +168,8 @@ fn empty_string_value_skips_option_emitter() {
         PlanOutcome::Supported(plan) => *plan,
         other => panic!("expected supported, got {other:?}"),
     };
-    // Whitespace-only profile string skips the Option emitter.
-    assert!(plan.argv.is_empty(), "whitespace-only value skipped");
+    // Whitespace-only profile skips its Option emitter; default yolo remains.
+    assert_eq!(plan.argv, ["--yolo"]);
 }
 
 #[test]

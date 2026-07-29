@@ -107,9 +107,9 @@ fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed(
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
-    // Repo default is CodePuppy but it's not installed → fall back to Llxprt.
+    // Repo default is CodePuppy but it is not installed, so LLxprt is selected.
     assert_eq!(fields.agent_type_id, "core.llxprt");
-    assert_eq!(fields.mode, "");
+    assert_eq!(fields.mode, "--yolo");
 }
 
 #[test]

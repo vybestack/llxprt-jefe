@@ -1,0 +1,26 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 2000,
+    "initial_wait_ms": 1500,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "waitFor": "Agent Types" },
+    { "key": "Down" },
+    { "key": "Down" },
+    { "key": "Down" },
+    { "waitFor": "> LLxprt" },
+    { "key": "Enter" },
+    { "waitFor": "New Agent" },
+    { "waitFor": "Yolo: [x]" },
+    { "waitFor": "Continue: [ ]" },
+    { "expect": "Prompt Interactive: [ ]" },
+    { "capture": "llxprt-launch-options" },
+    { "key": "Escape" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}
