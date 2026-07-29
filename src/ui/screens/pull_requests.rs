@@ -84,6 +84,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
         s.prs_state.filter_ui.draft_labels_text.clone()
     });
     let draft_filter = state.map_or_else(Default::default, |s| s.prs_state.draft_filter.clone());
+    let sort_config = state.map_or_else(Default::default, |s| s.prs_state.sort_config);
     let has_filters = state.is_some_and(|s| {
         let f = &s.prs_state.committed_filter;
         f.state.is_some()
@@ -303,6 +304,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     &draft_filter,
                                     &draft_labels_text,
                                     filter_field_index,
+                                    sort_config,
                                     true,
                                     colors.clone(),
                                 ))])

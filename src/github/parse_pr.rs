@@ -86,12 +86,12 @@ pub fn build_pr_search_args(
 
 /// GraphQL search query WITH the `$after` cursor variable (PR fields inlined).
 fn pr_search_query_with_after() -> &'static str {
-    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// GraphQL search query WITHOUT the `$after` cursor variable (first page).
 fn pr_search_query_first_page() -> &'static str {
-    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// Build the GitHub search-qualifier string (incl. `is:pr`) for the PR query.
@@ -212,6 +212,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         node.get("mergedAt").unwrap_or(&Value::Null),
     );
     let author_login = login_field(node, "author");
+    let created_at = str_field(node, "createdAt");
     let updated_at = str_field(node, "updatedAt");
     let head_ref = str_field(node, "headRefName");
     let head_sha = str_field(node, "headRefOid");
@@ -228,6 +229,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
         title,
         state,
         author_login,
+        created_at,
         updated_at,
         head_ref,
         head_sha,
@@ -618,6 +620,41 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
     items.sort_by(|a, b| {
         cmp_rfc3339_newest_first(&a.updated_at, &b.updated_at).then(a.number.cmp(&b.number))
     });
+}
+
+/// Compare two pull requests according to the active sort config (issue #473).
+///
+/// Reuses the same timestamp and tie-break rules as the Issues comparator:
+/// timestamp fields honor the sort direction; `number` is the deterministic
+/// tie-break (ascending) for timestamp sorts. When sorting by `number` itself,
+/// the direction applies to the number comparison.
+#[must_use]
+pub fn compare_pull_requests(
+    a: &PullRequest,
+    b: &PullRequest,
+    config: crate::domain::PrSortConfig,
+) -> std::cmp::Ordering {
+    use crate::domain::{PrSortBy, SortOrder};
+    let newest_first = config.order == SortOrder::Desc;
+    match config.by {
+        PrSortBy::Number => {
+            if newest_first {
+                b.number.cmp(&a.number)
+            } else {
+                a.number.cmp(&b.number)
+            }
+        }
+        PrSortBy::Created => {
+            let base = cmp_rfc3339_newest_first(&a.created_at, &b.created_at);
+            let ordered = if newest_first { base } else { base.reverse() };
+            ordered.then(a.number.cmp(&b.number))
+        }
+        PrSortBy::Updated => {
+            let base = cmp_rfc3339_newest_first(&a.updated_at, &b.updated_at);
+            let ordered = if newest_first { base } else { base.reverse() };
+            ordered.then(a.number.cmp(&b.number))
+        }
+    }
 }
 
 /// Sort PR reviews newest-first by `submitted_at` (issue #238).

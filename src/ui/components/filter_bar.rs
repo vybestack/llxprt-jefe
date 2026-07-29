@@ -46,9 +46,9 @@ pub struct FilterFieldView {
 /// fields-per-row count, and the action-hint list; the component is a pure
 /// renderer that applies the shared color logic and box structure.
 ///
-/// `row_prefix`, `continuation_prefix`, and `action_hints` use `&'static str`
-/// because both domains (Issues and PRs) supply compile-time constant strings
-/// — this avoids per-render heap allocations.
+/// `row_prefix`, `continuation_prefix`, `sort_row_prefix`, and `action_hints`
+/// use `&'static str` because both domains (Issues and PRs) supply
+/// compile-time constant strings — this avoids per-render heap allocations.
 #[derive(Props)]
 pub struct FilterBarProps {
     /// Projected field views, in render order (row-major).
@@ -65,6 +65,11 @@ pub struct FilterBarProps {
     pub action_hints: &'static [&'static str],
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Optional sort-row fields rendered on their own row below the filter
+    /// fields (issue #473). Empty when the domain has no sort control.
+    pub sort_fields: Vec<FilterFieldView>,
+    /// Prefix text for the sort row (e.g. `"Sort: "`).
+    pub sort_row_prefix: &'static str,
 }
 
 impl Default for FilterBarProps {
@@ -79,6 +84,8 @@ impl Default for FilterBarProps {
             fields_per_row: 1,
             action_hints: &[],
             colors: ThemeColors::default(),
+            sort_fields: Vec::new(),
+            sort_row_prefix: "Sort: ",
         }
     }
 }
@@ -170,7 +177,8 @@ fn action_hints_row(hints: &[&'static str], rc: ResolvedColors) -> AnyElement<'s
 }
 
 /// Build all children for the outer bordered column box: the field rows
-/// (chunked into `fields_per_row`), then the action-hints row.
+/// (chunked into `fields_per_row`), then the optional sort row, then the
+/// action-hints row.
 fn outer_children(props: &FilterBarProps, rc: ResolvedColors) -> Vec<AnyElement<'static>> {
     debug_assert!(
         props.fields_per_row > 0,
@@ -186,6 +194,12 @@ fn outer_children(props: &FilterBarProps, rc: ResolvedColors) -> Vec<AnyElement<
             props.continuation_prefix
         };
         children.push(field_row_box(prefix, row_fields, rc));
+    }
+    // Sort row (issue #473): rendered as a single row below the filter fields
+    // with its own prefix so it reads as a distinct section. Only rendered when
+    // the domain supplied sort fields.
+    if !props.sort_fields.is_empty() {
+        children.push(field_row_box(props.sort_row_prefix, &props.sort_fields, rc));
     }
     children.push(action_hints_row(props.action_hints, rc));
     children
@@ -243,6 +257,8 @@ pub fn filter_bar_element(props: FilterBarProps) -> AnyElement<'static> {
             fields_per_row: props.fields_per_row,
             action_hints: props.action_hints,
             colors: props.colors,
+            sort_fields: props.sort_fields,
+            sort_row_prefix: props.sort_row_prefix,
         )
     }
     .into_any()

@@ -1,8 +1,4 @@
 //! Domain model layer - canonical entity types and invariants.
-//!
-//! @plan PLAN-20260216-FIRSTVERSION-V1.P03
-//! @requirement REQ-TECH-001
-//! @requirement REQ-TECH-002
 
 /// Transport-neutral observation semantic values (issue #476 J1 slice).
 pub mod observation;
@@ -13,10 +9,8 @@ mod pr_diff;
 pub use pr_diff::*;
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
-
+use std::path::PathBuf;
 #[cfg(test)]
 #[path = "config_contract_tests.rs"]
 mod config_contract_tests;
@@ -35,35 +29,23 @@ pub use state_contract::{
     RepositoryRecord, RuntimeRecord, STATE_SCHEMA_V2, Selection, Sha256Digest, StateContractError,
     StateV2,
 };
-
-/// Dependency-free SHA-256 used for durable digests and write fencing.
-pub mod sha256;
-
+mod actions;
 /// Canonical typed-value and identity helpers shared by durable projection
 /// and one-way schema-1 migration.
 pub mod canonical_values;
-
 /// Closed post-commit effect contract shared by reducer and root shell.
 pub mod effects;
 #[cfg(test)]
 #[path = "effects_tests.rs"]
 mod effects_tests;
-
-// Actions domain types (workflows, runs, jobs, steps, filters) extracted to
-// keep this file under the source-file-size limit.
-mod actions;
 mod quick_resume;
+/// Dependency-free SHA-256 used for durable digests and write fencing.
+pub mod sha256;
 mod transient_agent;
 pub use actions::*;
 pub use quick_resume::QuickResume;
-
-// Error-log domain types (issue #292).
 mod errors;
 pub use errors::{ERROR_STORE_CAPACITY, ErrorEntry, ErrorSource};
-
-/// Pagination contracts shared across list state and boundary messages.
-// Sandbox engine + platform capability types extracted to keep this file
-// under the source-file-size limit.
 mod sandbox;
 pub use sandbox::*;
 
@@ -83,6 +65,10 @@ pub use paginated_list::{
 // source-file-size limit.
 mod issues;
 pub use issues::*;
+
+// PR sort configuration types (issue #473).
+mod pr_sort;
+pub use pr_sort::{PrSortBy, PrSortConfig};
 
 // Issue-draft rewrite instruction construction (issue #214).
 mod issue_rewrite;
@@ -367,6 +353,7 @@ pub struct PullRequest {
     pub title: String,
     pub state: PrState,
     pub author_login: String,
+    pub created_at: String,
     pub updated_at: String,
     pub head_ref: String,
     pub head_sha: String,
@@ -600,6 +587,12 @@ pub struct RepoPreferences {
     /// Sticky: restored when the dialog opens, remembered on submit.
     #[serde(default)]
     pub last_new_issue_project_ids: Vec<String>,
+    /// Last-active Issues sort config (issue #473). Defaults to Updated/Desc.
+    #[serde(default)]
+    pub issue_sort_config: crate::domain::IssueSortConfig,
+    /// Last-active PR sort config (issue #473). Defaults to Updated/Desc.
+    #[serde(default)]
+    pub pr_sort_config: crate::domain::PrSortConfig,
 }
 
 impl Default for RepoPreferences {
@@ -614,6 +607,8 @@ impl Default for RepoPreferences {
             last_merge_method: None,
             last_new_issue_milestone: None,
             last_new_issue_project_ids: Vec::new(),
+            issue_sort_config: crate::domain::IssueSortConfig::default_sort(),
+            pr_sort_config: crate::domain::PrSortConfig::default_sort(),
         }
     }
 }

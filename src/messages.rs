@@ -29,7 +29,6 @@ pub use names::is_new_issue_form_msg;
 mod terminal_manager;
 mod terminal_manager_conversion;
 pub use terminal_manager::TerminalManagerMessage;
-
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageDomain {
@@ -293,6 +292,9 @@ pub enum IssuesMessage {
     FilterNavigateNext,
     FilterNavigatePrev,
     CycleFilterState,
+    CycleIssueSortByNext,
+    CycleIssueSortByPrev,
+    ToggleIssueSortOrder,
     FocusSearchInput,
     BlurSearchInput,
     SetSearchQuery {
@@ -638,6 +640,9 @@ pub enum PullRequestsMessage {
     CycleDraftFilter,
     CycleReviewFilter,
     CycleChecksFilter,
+    CyclePrSortByNext,
+    CyclePrSortByPrev,
+    TogglePrSortOrder,
     UpdateDraftFilter {
         field: PrFilterField,
         value: String,
@@ -823,11 +828,7 @@ pub enum ScrollDir {
     PageUp,
     PageDown,
 }
-
 /// Filter field identifier for `UpdateDraftFilter`.
-///
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-008
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrFilterField {
     Query,
@@ -836,10 +837,8 @@ pub enum PrFilterField {
     Reviewer,
     Labels,
 }
-
 impl PrFilterField {
     /// Parse a filter field name string into the enum.
-    ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-002
     /// @pseudocode component-004 lines 45-85

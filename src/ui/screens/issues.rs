@@ -77,6 +77,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         s.issues_state.filter_ui.draft_labels_text.clone()
     });
     let draft_filter = state.map_or_else(Default::default, |s| s.issues_state.draft_filter.clone());
+    let sort_config = state.map_or_else(crate::domain::IssueSortConfig::default_sort, |s| {
+        s.issues_state.sort_config
+    });
     let has_filters = state.is_some_and(|s| {
         s.issues_state
             .committed_filter
@@ -291,6 +294,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     &draft_filter,
                                     &draft_labels_text,
                                     filter_field_index,
+                                    sort_config,
                                     true,
                                     colors.clone(),
                                 ))])

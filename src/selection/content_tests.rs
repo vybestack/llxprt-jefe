@@ -208,6 +208,7 @@ fn pr_list_lines_match_rendered_projection_with_prefix() {
         title: "A title".to_string(),
         state: PrState::Open,
         author_login: "octocat".to_string(),
+        created_at: String::new(),
         updated_at: String::new(),
         head_ref: String::new(),
         head_sha: String::new(),
@@ -237,6 +238,7 @@ fn issue_list_lines_match_rendered_projection_with_prefix() {
         title: "Bug".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
+        created_at: String::new(),
         updated_at: String::new(),
         assignee_summary: String::new(),
         labels_summary: String::new(),
@@ -248,6 +250,7 @@ fn issue_list_lines_match_rendered_projection_with_prefix() {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        priority: None,
     });
     state.issues_state.list.set_selected_index(Some(0));
     let content = pane_content_lines(SelectablePane::IssueList, &state, None, &[], 120, 40);

@@ -267,6 +267,8 @@ mod tests {
             comment_count: 0,
             body: String::new(),
             state_reason: None,
+            created_at: String::new(),
+            priority: None,
         }
     }
 

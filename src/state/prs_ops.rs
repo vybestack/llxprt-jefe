@@ -98,6 +98,7 @@ impl AppState {
         self.prs_state.committed_filter = prefs.pr_filter;
         self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
         self.prs_state.search_query = prefs.pr_search_query;
+        self.prs_state.sort_config = prefs.pr_sort_config;
         // Clamp against the current field count so a stale/corrupted persisted
         // index cannot drive the cursor out of bounds (issue #163).
         self.prs_state.filter_ui.field_index = prefs
@@ -193,6 +194,9 @@ impl AppState {
             return true;
         }
         if self.apply_pr_filter_cycle_event(event) {
+            return true;
+        }
+        if self.apply_pr_sort_event(event) {
             return true;
         }
         if self.apply_pr_filter_draft_event(event) {
@@ -325,6 +329,37 @@ impl AppState {
         self.prs_state.search_input_focused = false;
         self.reload_pr_list_for_filter_change();
         self.remember_pr_preferences();
+    }
+
+    /// Handle sort cycling events (issue #473).
+    fn apply_pr_sort_event(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::CyclePrSortByNext => {
+                self.prs_state.sort_config.by = self.prs_state.sort_config.by.cycle_next();
+                self.apply_pr_sort_change();
+                self.remember_pr_preferences();
+                true
+            }
+            AppEvent::CyclePrSortByPrev => {
+                self.prs_state.sort_config.by = self.prs_state.sort_config.by.cycle_prev();
+                self.apply_pr_sort_change();
+                self.remember_pr_preferences();
+                true
+            }
+            AppEvent::TogglePrSortOrder => {
+                self.prs_state.sort_config.order = self.prs_state.sort_config.order.toggle();
+                self.apply_pr_sort_change();
+                self.remember_pr_preferences();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Re-sort the loaded PR list with the active sort config, preserving
+    /// selection by identity (issue #473).
+    fn apply_pr_sort_change(&mut self) {
+        crate::state::prs_sort_ops::resort_prs_preserving_selection(&mut self.prs_state);
     }
 
     /// Handle draft filter field updates.

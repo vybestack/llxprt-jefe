@@ -31,6 +31,10 @@ pub struct IssuesState {
     pub committed_filter: crate::domain::IssueFilter,
     pub draft_filter: crate::domain::IssueFilter,
     pub search_query: String,
+    /// Active list sort (issue #473). Projection-time view transform; lives
+    /// on the state (not the fetch-time identity) so toggling it never re-runs
+    /// the fetch or perturbs stale-rejection.
+    pub sort_config: crate::domain::IssueSortConfig,
     pub loading: IssueLoadingState,
     pub error: Option<String>,
     pub issue_focus: IssueFocus,
@@ -173,12 +177,22 @@ pub struct IssueLoadingState {
     pub comments: bool,
 }
 
-pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
+/// Total filter-dialog fields including the sort row (issue #473).
+///
+/// Fields 0–7 are the legacy filter fields (state, author, assignee, labels,
+/// type, milestone, module, search). Fields 8 and 9 are `sort_by` and
+/// `sort_order` on the sort row below the filter fields.
+pub const ISSUE_FILTER_FIELD_COUNT: usize = 10;
+
+/// The index of the first sort field in the filter dialog (issue #473).
+pub const ISSUE_SORT_BY_FIELD_INDEX: usize = 8;
+/// The index of the sort-order field in the filter dialog (issue #473).
+pub const ISSUE_SORT_ORDER_FIELD_INDEX: usize = 9;
 
 #[derive(Debug, Clone, Default)]
 pub struct IssueFilterUiState {
     pub controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
+    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text, 8=sort_by, 9=sort_order).
     pub field_index: usize,
     /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
     pub draft_labels_text: String,

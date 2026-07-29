@@ -83,6 +83,7 @@ impl AppState {
         self.issues_state.committed_filter = prefs.issue_filter;
         self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
         self.issues_state.search_query = prefs.issue_search_query;
+        self.issues_state.sort_config = prefs.issue_sort_config;
         // Clamp against the current field count so a stale/corrupted persisted
         // index cannot drive the cursor out of bounds (issue #163).
         self.issues_state.filter_ui.field_index = prefs
@@ -550,9 +551,32 @@ impl AppState {
                     Some(IssueFilterState::All) => IssueFilterState::Open,
                 });
             }
+            AppEvent::CycleIssueSortByNext
+            | AppEvent::CycleIssueSortByPrev
+            | AppEvent::ToggleIssueSortOrder => self.apply_issue_sort_event(event),
             _ => return false,
         }
         true
+    }
+
+    /// Apply a sort-cycling event: update the config and re-project the list
+    /// (issue #473). Extracted from `apply_issue_filter_event` to keep that
+    /// function under the clippy too-many-lines limit.
+    fn apply_issue_sort_event(&mut self, event: AppEvent) {
+        match event {
+            AppEvent::CycleIssueSortByNext => {
+                self.issues_state.sort_config.by = self.issues_state.sort_config.by.cycle_next();
+            }
+            AppEvent::CycleIssueSortByPrev => {
+                self.issues_state.sort_config.by = self.issues_state.sort_config.by.cycle_prev();
+            }
+            AppEvent::ToggleIssueSortOrder => {
+                self.issues_state.sort_config.order = self.issues_state.sort_config.order.toggle();
+            }
+            _ => {}
+        }
+        self.apply_issue_sort_change();
+        self.remember_issue_preferences();
     }
 
     /// Reset the committed/draft filters to the Open default, clear the search

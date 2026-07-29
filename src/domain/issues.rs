@@ -72,6 +72,7 @@ pub struct Issue {
     pub title: String,
     pub state: IssueState,
     pub author_login: String,
+    pub created_at: String,
     pub updated_at: String,
     pub assignee_summary: String,
     pub labels_summary: String,
@@ -84,6 +85,10 @@ pub struct Issue {
     /// Optional lightweight preview body; list/search fetches may leave this empty
     /// so full body content is loaded through `IssueDetail` instead.
     pub body: String,
+    /// The GitHub-native priority value (issue #473 sort), if any. `None`
+    /// when the issue has no priority or the GraphQL field was absent.
+    /// Parsed from the `priority` GraphQL subfield.
+    pub priority: Option<String>,
     /// The GitHub-native close reason, if any (issue #204). `None` for open
     /// issues or closed issues whose reason is unknown/missing.
     pub state_reason: Option<IssueStateReason>,
@@ -126,6 +131,109 @@ pub struct IssueComment {
     pub created_at: String,
     pub edited_at: Option<String>,
     pub body: String,
+}
+
+/// Sort direction for issue/PR/Actions list sorting (issue #473).
+///
+/// `Desc` is the established default (newest/most-recently-updated first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SortOrder {
+    Asc,
+    #[default]
+    Desc,
+}
+
+impl SortOrder {
+    /// Toggle between ascending and descending.
+    #[must_use]
+    pub const fn toggle(self) -> Self {
+        match self {
+            Self::Asc => Self::Desc,
+            Self::Desc => Self::Asc,
+        }
+    }
+
+    /// User-facing label for the filter-dialog sort-order cycle field.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+/// Sort key for the Issues list (issue #473).
+///
+/// `Updated` is the default and preserves the pre-issue-#473 behavior
+/// byte-for-byte. `Priority` applies to Issues only (PRs and Actions have no
+/// priority concept).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum IssueSortBy {
+    Number,
+    Created,
+    #[default]
+    Updated,
+    Priority,
+}
+
+impl IssueSortBy {
+    /// Cycle through the sort keys in canonical order, wrapping around.
+    #[must_use]
+    pub const fn cycle_next(self) -> Self {
+        match self {
+            Self::Number => Self::Created,
+            Self::Created => Self::Updated,
+            Self::Updated => Self::Priority,
+            Self::Priority => Self::Number,
+        }
+    }
+
+    /// Cycle backward through the sort keys, wrapping around.
+    #[must_use]
+    pub const fn cycle_prev(self) -> Self {
+        match self {
+            Self::Number => Self::Priority,
+            Self::Created => Self::Number,
+            Self::Updated => Self::Created,
+            Self::Priority => Self::Updated,
+        }
+    }
+
+    /// User-facing label for the filter-dialog sort-by cycle field.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Number => "number",
+            Self::Created => "created",
+            Self::Updated => "updated",
+            Self::Priority => "priority",
+        }
+    }
+}
+
+/// Active sort configuration for the Issues list (issue #473).
+///
+/// Lives on `IssuesState` (not on the fetch-time filter identity) because sort
+/// is a projection-time view transform: changing it must not re-run the fetch
+/// or perturb the `IssueListIdentity` stale-rejection guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct IssueSortConfig {
+    #[serde(default)]
+    pub by: IssueSortBy,
+    #[serde(default)]
+    pub order: SortOrder,
+}
+
+impl IssueSortConfig {
+    /// The default sort: `Updated/Desc` — preserves pre-issue-#473 behavior.
+    #[must_use]
+    pub const fn default_sort() -> Self {
+        Self {
+            by: IssueSortBy::Updated,
+            order: SortOrder::Desc,
+        }
+    }
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

@@ -466,24 +466,24 @@ fn test_filter_controls_tab_space_text_enter_clear_esc() {
 /// @requirement REQ-PR-008
 /// @pseudocode component-003 lines 134-138
 #[test]
-fn test_filter_field_cycling_wraps_through_all_eight_fields() {
+fn test_filter_field_cycling_wraps_through_all_ten_fields() {
     let mut state = prs_state_with_filter_open(0);
-    // Forward: 0 -> 1 -> ... -> 7 -> 0 (wrap).
-    for expected in 1..=8 {
+    // Forward: 0..9 wrapping (10 fields = 8 filter + 2 sort).
+    for expected in 1..=10 {
         let event = resolve_prs_key_event(&state, &key(KeyCode::Tab));
         assert!(matches!(event, Some(AppEvent::PrFilterNavigateNext)));
         state = state.apply(AppEvent::PrFilterNavigateNext).committed_pure();
         assert_eq!(
             state.prs_state.filter_ui.field_index,
-            expected % 8,
+            expected % 10,
             "forward field_index mismatch at step {expected}"
         );
     }
-    // Reverse+wrap: from 0, Shift+Tab wraps to 7.
+    // Reverse+wrap: from 0, Shift+Tab wraps to 9.
     let event = resolve_prs_key_event(&state, &key(KeyCode::BackTab));
     assert!(matches!(event, Some(AppEvent::PrFilterNavigatePrev)));
     state = state.apply(AppEvent::PrFilterNavigatePrev).committed_pure();
-    assert_eq!(state.prs_state.filter_ui.field_index, 7);
+    assert_eq!(state.prs_state.filter_ui.field_index, 9);
 }
 
 /// Space on review-decision field (index 2) cycles draft_filter.review_decision.
@@ -903,6 +903,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
         title: format!("PR {number}"),
         state: PrState::Open,
         author_login: String::from("author"),
+        created_at: String::new(),
         updated_at: String::new(),
         head_ref: String::new(),
         head_sha: String::new(),
@@ -995,6 +996,5 @@ fn test_big_r_on_body_emits_show_notice_not_none() {
 
 #[path = "prs_f12_cross_mode_tests.rs"]
 mod f12_cross_mode;
-
 #[path = "prs_key_265_tests.rs"]
 mod issue265;

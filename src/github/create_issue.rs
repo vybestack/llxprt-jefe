@@ -14,6 +14,7 @@ pub struct CreatedIssue {
     /// Required GraphQL/REST node id from the create response.
     pub node_id: String,
     pub author_login: String,
+    pub created_at: String,
     pub updated_at: String,
 }
 
@@ -27,6 +28,7 @@ impl CreatedIssue {
             title: self.title,
             state: IssueState::Open,
             author_login: self.author_login,
+            created_at: self.created_at.clone(),
             updated_at: self.updated_at,
             assignee_summary: String::new(),
             labels_summary: String::new(),
@@ -37,6 +39,7 @@ impl CreatedIssue {
             module: String::new(),
             comment_count: 0,
             body: self.body,
+            priority: None,
             state_reason: None,
         }
     }
@@ -87,6 +90,11 @@ pub fn parse_created_issue_json(json_str: &str) -> Result<CreatedIssue, GhError>
         .unwrap_or("")
         .to_string();
 
+    let created_at = value
+        .get("created_at")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let updated_at = value
         .get("updated_at")
         .and_then(Value::as_str)
@@ -100,6 +108,7 @@ pub fn parse_created_issue_json(json_str: &str) -> Result<CreatedIssue, GhError>
         body,
         node_id,
         author_login,
+        created_at,
         updated_at,
     })
 }

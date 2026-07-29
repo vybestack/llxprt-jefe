@@ -236,6 +236,10 @@ pub struct PullRequestsState {
     pub committed_filter: crate::domain::PrFilter,
     pub draft_filter: crate::domain::PrFilter,
     pub search_query: String,
+    /// Active list sort (issue #473). Projection-time view transform; lives
+    /// on the state (not the fetch-time identity) so toggling it never re-runs
+    /// the fetch or perturbs stale-rejection.
+    pub sort_config: crate::domain::PrSortConfig,
     pub loading: PrLoadingState,
     pub error: Option<String>,
     pub pr_focus: PrFocus,
@@ -401,13 +405,23 @@ pub struct PrLoadingState {
 /// @requirement REQ-PR-008
 /// @pseudocode component-001 lines 249-251
 ///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 249-251
+///
 /// PR filter UI state.
-/// `field_index` ranges over the EIGHT filter fields:
+/// `field_index` ranges over the TEN filter+sort fields:
 /// 0 state, 1 draft, 2 review-decision, 3 checks-status,
-/// 4 author, 5 assignee, 6 reviewer, 7 labels.
+/// 4 author, 5 assignee, 6 reviewer, 7 labels,
+/// 8 sort_by, 9 sort_order (issue #473).
 #[derive(Debug, Clone, Default)]
 pub struct PrFilterUiState {
     pub controls_open: bool,
     pub field_index: usize,
     pub draft_labels_text: String,
 }
+
+/// Index of the sort-by field within the PR filter dialog (issue #473).
+pub const PR_SORT_BY_FIELD_INDEX: usize = 8;
+/// Index of the sort-order field within the PR filter dialog (issue #473).
+pub const PR_SORT_ORDER_FIELD_INDEX: usize = 9;

@@ -372,6 +372,9 @@ impl AppMessage {
                 | AppEvent::ActionsFilterNavigateNext
                 | AppEvent::ActionsFilterNavigatePrev
                 | AppEvent::ActionsCycleFilterStatus
+                | AppEvent::CycleActionsSortByNext
+                | AppEvent::CycleActionsSortByPrev
+                | AppEvent::ToggleActionsSortOrder
                 | AppEvent::ActionsFocusSearchInput
                 | AppEvent::ActionsBlurSearchInput
                 | AppEvent::ActionsSetSearchQuery { .. }
@@ -416,6 +419,9 @@ impl AppMessage {
                 | AppEvent::FilterNavigateNext
                 | AppEvent::FilterNavigatePrev
                 | AppEvent::CycleFilterState
+                | AppEvent::CycleIssueSortByNext
+                | AppEvent::CycleIssueSortByPrev
+                | AppEvent::ToggleIssueSortOrder
                 | AppEvent::FocusSearchInput
                 | AppEvent::BlurSearchInput
                 | AppEvent::SetSearchQuery { .. }

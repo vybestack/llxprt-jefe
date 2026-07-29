@@ -67,6 +67,8 @@ fn full_detail_load_preserves_issue_type_from_list_row() {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        created_at: String::new(),
+        priority: None,
     };
     state.issues_state.list.replace_items(vec![issue]);
     state.issues_state.list.set_selected_index(Some(0));
@@ -125,6 +127,8 @@ fn issue_row_with_type(issue_type: &str) -> crate::domain::Issue {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        created_at: String::new(),
+        priority: None,
     }
 }
 

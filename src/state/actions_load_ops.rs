@@ -43,6 +43,8 @@ impl AppState {
         };
         let outcome = self.actions_state.list.accept_loaded(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            // Re-project by the active sort config after load (issue #473).
+            resort_actions_by_config(&mut self.actions_state);
             self.actions_state.error = None;
             self.actions_state.run_detail = None;
             self.reset_actions_inspection();
@@ -67,10 +69,10 @@ impl AppState {
         };
         let outcome = self.actions_state.list.accept_page(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
-            // Re-sort the full list after append so older pages slot below newer
-            // runs even when API/page order is wrong (issue #208). Preserve the
+            // Re-sort the full list by the active sort config after append so
+            // older pages slot correctly (issue #208 + #473). Preserve the
             // selected run by id because indices may shift.
-            resort_actions_runs_preserving_selection(&mut self.actions_state.list);
+            resort_actions_by_config(&mut self.actions_state);
             self.actions_state.error = None;
         }
         true
@@ -158,16 +160,21 @@ fn cmp_workflow_runs_newest_first(a: &WorkflowRun, b: &WorkflowRun) -> Ordering 
         .then_with(|| b.id.cmp(&a.id))
 }
 
-/// Sort Actions runs newest-first and keep the selected run identity stable
-/// across the reorder (issue #208). Used after page appends where indices shift.
-fn resort_actions_runs_preserving_selection(
-    list: &mut crate::state::pagination::PaginatedList<WorkflowRun, ActionsListIdentity>,
-) {
-    let selected_id = list
+/// Sort Actions runs by the active sort config and keep the selected run
+/// identity stable across the reorder (issue #208 + #473). Used after load
+/// and page appends where indices shift.
+fn resort_actions_by_config(state: &mut super::types::ActionsState) {
+    let selected_id = state
+        .list
         .selected_index()
-        .and_then(|idx| list.items().get(idx).map(|run| run.id));
-    list.sort_by(cmp_workflow_runs_newest_first);
+        .and_then(|idx| state.list.items().get(idx).map(|run| run.id));
+    let config = state.sort_config;
+    state
+        .list
+        .sort_by(|a, b| crate::github::compare_workflow_runs(a, b, config));
     if let Some(id) = selected_id {
-        list.set_selected_index(list.items().iter().position(|run| run.id == id));
+        state
+            .list
+            .set_selected_index(state.list.items().iter().position(|run| run.id == id));
     }
 }

@@ -97,6 +97,12 @@ pub enum ActionsMessage {
     FilterNavigateNext,
     FilterNavigatePrev,
     CycleFilterStatus,
+    /// Cycle the Actions sort key forward (issue #473).
+    CycleActionsSortByNext,
+    /// Cycle the Actions sort key backward (issue #473).
+    CycleActionsSortByPrev,
+    /// Toggle the Actions sort order between Asc/Desc (issue #473).
+    ToggleActionsSortOrder,
     FocusSearchInput,
     BlurSearchInput,
     SetSearchQuery {
@@ -164,6 +170,9 @@ impl ActionsMessage {
             Self::FilterNavigateNext => "ActionsFilterNavigateNext",
             Self::FilterNavigatePrev => "ActionsFilterNavigatePrev",
             Self::CycleFilterStatus => "ActionsCycleFilterStatus",
+            Self::CycleActionsSortByNext => "CycleActionsSortByNext",
+            Self::CycleActionsSortByPrev => "CycleActionsSortByPrev",
+            Self::ToggleActionsSortOrder => "ToggleActionsSortOrder",
             Self::FocusSearchInput => "ActionsFocusSearchInput",
             Self::BlurSearchInput => "ActionsBlurSearchInput",
             Self::SetSearchQuery { .. } => "ActionsSetSearchQuery",

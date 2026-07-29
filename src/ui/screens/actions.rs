@@ -75,6 +75,9 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
     let error_message = state.and_then(|s| s.actions_state.error.clone());
     let filter_open = state.is_some_and(|s| s.actions_state.ui.filter_ui_open);
     let filter_field_index = state.map_or(0, |s| s.actions_state.ui.filter_field_index);
+    let sort_config = state.map_or(crate::domain::ActionsSortConfig::default_sort(), |s| {
+        s.actions_state.sort_config
+    });
     let draft_filter =
         state.map_or_else(Default::default, |s| s.actions_state.draft_filter.clone());
     let loading = state.is_some_and(|s| s.actions_state.list_loading());
@@ -189,6 +192,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                                 #(vec![filter_bar_element(actions_filter_props(
                                     &draft_filter,
                                     filter_field_index,
+                                    sort_config,
                                     true,
                                     colors.clone(),
                                 ))])

@@ -20,11 +20,9 @@ pub enum AppEvent {
     SelectRepository(usize),
     SelectAgent(usize),
     JumpToAgentByShortcut(u8),
-
     CyclePaneFocus,
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
-
     // Dashboard "search lite" for repositories and agents (issue #405).
     /// Focus the dashboard search input.
     FocusDashboardSearch,
@@ -38,7 +36,6 @@ pub enum AppEvent {
     },
     /// Clear the dashboard search query and blur the input.
     ClearDashboardSearch,
-
     /// Open the embedded shell overlay for the selected local running agent.
     OpenShellOverlay,
     /// Close/restore the embedded shell overlay (F10 toggle or natural exit detected).
@@ -53,7 +50,6 @@ pub enum AppEvent {
 
     EnterSplitMode,
     ExitSplitMode,
-
     EnterGrabMode,
     ExitGrabMode,
     GrabMoveUp,
@@ -65,14 +61,12 @@ pub enum AppEvent {
     ExitDashboardGrab,
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
-
     OpenHelp,
     OpenSearch,
     CloseModal,
     SubmitForm,
     /// Cycle confirm-dialog button focus (Left/Right/Tab in a confirm modal, issue #228).
     ConfirmCycleFocus,
-
     FormChar(char),
     FormBackspace,
     FormDelete,
@@ -272,6 +266,9 @@ pub enum AppEvent {
     FilterNavigateNext,
     FilterNavigatePrev,
     CycleFilterState,
+    CycleIssueSortByNext,
+    CycleIssueSortByPrev,
+    ToggleIssueSortOrder,
     FocusSearchInput,
     BlurSearchInput,
     SetSearchQuery {
@@ -593,6 +590,9 @@ pub enum AppEvent {
     PrCycleDraftFilter,
     PrCycleReviewFilter,
     PrCycleChecksFilter,
+    CyclePrSortByNext,
+    CyclePrSortByPrev,
+    TogglePrSortOrder,
     PrUpdateDraftFilter {
         field: String,
         value: String,
@@ -794,6 +794,9 @@ pub enum AppEvent {
     ActionsFilterNavigateNext,
     ActionsFilterNavigatePrev,
     ActionsCycleFilterStatus,
+    CycleActionsSortByNext,
+    CycleActionsSortByPrev,
+    ToggleActionsSortOrder,
     ActionsFocusSearchInput,
     ActionsBlurSearchInput,
     ActionsSetSearchQuery {

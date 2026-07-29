@@ -71,6 +71,9 @@ impl AppState {
         let outcome = self.issues_state.list.accept_loaded(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.issues_state.error = None;
+            // Re-project the freshly-loaded list under the active sort so the
+            // visible order matches the user's selection immediately (issue #473).
+            self.resort_issues_preserving_selection();
             // A reload supersedes any in-flight detail load; discard it so a
             // stale detail never lands on the freshly-replaced list.
             self.issues_state.detail_pending = None;
@@ -111,7 +114,22 @@ impl AppState {
                 .iter()
                 .position(|issue| issue.number == issue_number)
         {
-            self.issues_state.list.set_selected_index(Some(index));
+            // Re-project under the active sort first (issue #473), then
+            // re-select the same issue by number — the resort preserves it by
+            // identity but its index may have moved.
+            self.resort_issues_preserving_selection();
+            if let Some(resorted_index) = self
+                .issues_state
+                .issues()
+                .iter()
+                .position(|issue| issue.number == issue_number)
+            {
+                self.issues_state
+                    .list
+                    .set_selected_index(Some(resorted_index));
+            } else {
+                self.issues_state.list.set_selected_index(Some(index));
+            }
             self.rehydrate_visible_issue_type(issue_number);
         }
     }
@@ -151,6 +169,10 @@ impl AppState {
         let outcome = self.issues_state.list.accept_page(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.issues_state.error = None;
+            // Re-sort the full list after append so newly-loaded pages slot
+            // into the active sort order (issue #473). Selection follows by
+            // issue number because indices shift during the resort.
+            self.resort_issues_preserving_selection();
         }
     }
 
@@ -780,5 +802,40 @@ impl AppState {
             self.issues_state.detail_pending = None;
             self.issues_state.error = Some(error);
         }
+    }
+
+    /// Re-sort the loaded issues under the active [`IssueSortConfig`],
+    /// preserving selection by issue number across the reorder (issue #473).
+    ///
+    /// Sort is a projection-time view transform: it never re-runs the fetch or
+    /// perturbs the `IssueListIdentity` stale-rejection guard. The
+    /// [`PaginatedList::sort_by`] helper already preserves selection by
+    /// identity rather than index.
+    fn resort_issues_preserving_selection(&mut self) {
+        use crate::github::compare_issues;
+        let config = self.issues_state.sort_config;
+        let selected_number = self
+            .issues_state
+            .selected_issue_index()
+            .and_then(|idx| self.issues_state.issues().get(idx))
+            .map(|issue| issue.number);
+        self.issues_state
+            .list
+            .sort_by(|a, b| compare_issues(a, b, config));
+        if let Some(number) = selected_number {
+            let new_index = self
+                .issues_state
+                .issues()
+                .iter()
+                .position(|issue| issue.number == number);
+            self.issues_state.list.set_selected_index(new_index);
+        }
+    }
+
+    /// Re-sort and re-apply selection when the user changes the sort config
+    /// interactively (issue #473). Called from the filter-dialog sort-cycle
+    /// reducer arms.
+    pub(super) fn apply_issue_sort_change(&mut self) {
+        self.resort_issues_preserving_selection();
     }
 }

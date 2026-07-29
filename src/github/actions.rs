@@ -1,8 +1,9 @@
 use super::{GhClient, GhError, categorize_error};
 use crate::domain::{
-    ActionsFilter, Workflow, WorkflowRun, WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunJob,
-    WorkflowRunStatus, WorkflowRunStep,
+    ActionsFilter, ActionsSortBy, ActionsSortConfig, SortOrder, Workflow, WorkflowRun,
+    WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunJob, WorkflowRunStatus, WorkflowRunStep,
 };
+use std::cmp::Ordering;
 use std::fmt::Write;
 
 /// Percent-encode a SINGLE URL path segment (RFC 3986). Keeps unreserved
@@ -434,6 +435,37 @@ impl GhClient {
         run_gh(&args)?;
         Ok(())
     }
+}
+
+/// Configurable comparator for Actions workflow runs (issue #473).
+///
+/// Sorts by the given `ActionsSortConfig`'s key and direction. Tie-breaking:
+/// - Number sort ties are impossible (run numbers are unique per workflow).
+/// - Created/Updated sort ties break by `run_number` ascending for a
+///   deterministic stable order (lower run number first regardless of
+///   direction), then by `id` descending as a last-resort tiebreaker (matching
+///   the pre-issue-#473 `cmp_workflow_runs_newest_first` behavior exactly).
+#[must_use]
+pub fn compare_workflow_runs(
+    a: &WorkflowRun,
+    b: &WorkflowRun,
+    config: ActionsSortConfig,
+) -> Ordering {
+    let primary = match config.by {
+        ActionsSortBy::Number => match config.order {
+            SortOrder::Desc => b.run_number.cmp(&a.run_number),
+            SortOrder::Asc => a.run_number.cmp(&b.run_number),
+        },
+        ActionsSortBy::Created => match config.order {
+            SortOrder::Desc => b.created_at.cmp(&a.created_at),
+            SortOrder::Asc => a.created_at.cmp(&b.created_at),
+        },
+        ActionsSortBy::Updated => match config.order {
+            SortOrder::Desc => b.updated_at.cmp(&a.updated_at),
+            SortOrder::Asc => a.updated_at.cmp(&b.updated_at),
+        },
+    };
+    primary.then_with(|| b.id.cmp(&a.id))
 }
 
 #[cfg(test)]

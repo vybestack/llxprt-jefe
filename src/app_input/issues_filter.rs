@@ -5,12 +5,21 @@ use iocraft::prelude::*;
 use std::collections::BTreeSet;
 
 use jefe::domain::{FILTER_CHOICE_ANY, FILTER_CHOICE_NONE};
-use jefe::state::{AppEvent, AppState, ISSUE_FILTER_FIELD_COUNT};
+use jefe::state::{
+    AppEvent, AppState, ISSUE_FILTER_FIELD_COUNT, ISSUE_SORT_BY_FIELD_INDEX,
+    ISSUE_SORT_ORDER_FIELD_INDEX,
+};
 
 use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
 
+/// Whether `field_idx` is one of the sort-row fields (issue #473).
+const fn is_sort_field(field_idx: usize) -> bool {
+    field_idx == ISSUE_SORT_BY_FIELD_INDEX || field_idx == ISSUE_SORT_ORDER_FIELD_INDEX
+}
+
 /// Filter field names indexed by `filter_field_index`.
-/// 0=state (cycle-only), 1..7 are text/choice fields.
+/// 0=state (cycle-only), 1..7 are text/choice fields, 8=sort_by (cycle),
+/// 9=sort_order (cycle).
 const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
     "state",
     "author",
@@ -20,6 +29,8 @@ const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
     "milestone",
     "module",
     "query_text",
+    "sort_by",
+    "sort_order",
 ];
 
 /// Resolve a key event while filter controls are open.
@@ -35,13 +46,19 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
     if matches!(key_event.code, KeyCode::Delete) && field_idx == 0 {
         return active_field_clear_event(field_idx);
     }
-    let editor = if field_idx == 0 {
+    let editor = if field_idx == 0 || is_sort_field(field_idx) {
         FilterEditorKind::Cycle
     } else if is_choice_field(field_idx) {
         FilterEditorKind::Choice
     } else {
         FilterEditorKind::Text
     };
+    // Sort fields route their own events; everything else dispatches filter
+    // commands. Intercept before the filter-command match so sort cycle keys
+    // (left/right/space/up/down) never leak into filter navigation.
+    if is_sort_field(field_idx) {
+        return resolve_sort_key_event(field_idx, key_event);
+    }
     match resolve_filter_control_key(editor, key_event)? {
         FilterControlCommand::Apply => Some(AppEvent::ApplyFilter),
         FilterControlCommand::Cancel => Some(AppEvent::CloseFilterControls),
@@ -60,6 +77,43 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
         }
         FilterControlCommand::Append(c) => update_text_event(state, field_idx, Some(c)),
         FilterControlCommand::Backspace => update_text_event(state, field_idx, None),
+    }
+}
+
+/// Resolve a key event for a sort-row field (issue #473).
+///
+/// Sort fields use the shared `Cycle` editor kind (left/right/space/up/down to
+/// cycle, Tab/Enter/Esc route through the filter dialog lifecycle). Cycling
+/// dispatches sort-specific events that re-project the list instantly without
+/// re-fetching.
+fn resolve_sort_key_event(field_idx: usize, key_event: &KeyEvent) -> Option<AppEvent> {
+    if key_event.kind != KeyEventKind::Press {
+        return None;
+    }
+    match key_event.code {
+        KeyCode::Enter => Some(AppEvent::ApplyFilter),
+        KeyCode::Esc => Some(AppEvent::CloseFilterControls),
+        KeyCode::Tab => Some(AppEvent::FilterNavigateNext),
+        KeyCode::BackTab => Some(AppEvent::FilterNavigatePrev),
+        KeyCode::Left => Some(sort_cycle_event(field_idx, ChoiceDirection::Previous)),
+        KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Char(' ') => {
+            Some(sort_cycle_event(field_idx, ChoiceDirection::Next))
+        }
+        _ => None,
+    }
+}
+
+/// Build the sort-cycle event for the active sort field and direction.
+fn sort_cycle_event(field_idx: usize, direction: ChoiceDirection) -> AppEvent {
+    if field_idx == ISSUE_SORT_BY_FIELD_INDEX {
+        match direction {
+            ChoiceDirection::Next => AppEvent::CycleIssueSortByNext,
+            ChoiceDirection::Previous => AppEvent::CycleIssueSortByPrev,
+        }
+    } else {
+        // Order toggles between Asc/Desc — both directions toggle.
+        let _ = direction;
+        AppEvent::ToggleIssueSortOrder
     }
 }
 
@@ -314,6 +368,8 @@ mod tests {
             comment_count: 0,
             body: String::new(),
             state_reason: None,
+            created_at: String::new(),
+            priority: None,
         }
     }
 

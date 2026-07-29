@@ -10,7 +10,7 @@
 //! @plan PLAN-20260624-PR-MODE.P12
 //! @requirement REQ-PR-008
 
-use crate::domain::{ChecksFilter, PrFilter, PrFilterState, ReviewDecisionFilter};
+use crate::domain::{ChecksFilter, PrFilter, PrFilterState, PrSortConfig, ReviewDecisionFilter};
 use crate::theme::ThemeColors;
 
 use super::filter_bar::{FilterBarProps, FilterFieldView};
@@ -23,6 +23,9 @@ const ROW_PREFIX: &str = "Filter: ";
 /// Row-2+ continuation prefix: 7 spaces (matches the pre-refactor
 /// `PrFilterControls` component exactly — `"       "`).
 const CONTINUATION_PREFIX: &str = "       ";
+
+/// Sort row prefix text (issue #473).
+const SORT_ROW_PREFIX: &str = "Sort:  ";
 
 /// Number of fields per row (matches the pre-refactor two-row layout).
 const FIELDS_PER_ROW: usize = 4;
@@ -172,6 +175,24 @@ pub fn pr_filter_action_hints() -> &'static [&'static str] {
     shared_filter_action_hints()
 }
 
+/// Pure projection of the two PR sort fields (sort-by, sort-order) with
+/// display values + active highlighting (issue #473).
+#[must_use]
+pub fn pr_sort_fields(sort_config: PrSortConfig, active_index: usize) -> Vec<FilterFieldView> {
+    vec![
+        FilterFieldView {
+            label: "by".to_string(),
+            value: sort_config.by.label().to_string(),
+            active: active_index == 8,
+        },
+        FilterFieldView {
+            label: "order".to_string(),
+            value: sort_config.order.label().to_string(),
+            active: active_index == 9,
+        },
+    ]
+}
+
 /// Build the full [`FilterBarProps`] for the PR filter bar.
 ///
 /// The screen calls `filter_bar_element(pr_filter_props(...))` to render
@@ -185,6 +206,7 @@ pub fn pr_filter_props(
     filter: &PrFilter,
     draft_labels_text: &str,
     active_index: usize,
+    sort_config: PrSortConfig,
     visible: bool,
     colors: ThemeColors,
 ) -> FilterBarProps {
@@ -196,5 +218,7 @@ pub fn pr_filter_props(
         fields_per_row: FIELDS_PER_ROW,
         action_hints: pr_filter_action_hints(),
         colors,
+        sort_fields: pr_sort_fields(sort_config, active_index),
+        sort_row_prefix: SORT_ROW_PREFIX,
     }
 }

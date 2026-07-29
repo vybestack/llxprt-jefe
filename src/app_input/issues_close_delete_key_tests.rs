@@ -30,6 +30,8 @@ fn issues_state_with_issue_list() -> AppState {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        created_at: String::new(),
+        priority: None,
     }]);
     state.issues_state.list.set_selected_index(Some(0));
     state

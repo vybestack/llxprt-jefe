@@ -262,15 +262,16 @@ fn pane_at_issues_with_error_banner_shifts_workspace_down() {
 #[test]
 fn pane_at_issues_with_filter_controls_shifts_workspace_down() {
     let lay = layout(120, 40, ISSUES, false, true);
-    // Filter band occupies 5 rows starting at row 1 — not selectable (it is
-    // a separate UI element with no content provider).
+    // Filter band occupies 6 rows starting at row 1 (issue #473 added a sort
+    // row) — not selectable (it is a separate UI element with no content
+    // provider).
     assert!(pane_at(40, 2, ISSUES, false, &lay).is_none());
-    // Below the filter band (row 6+) is the issue list.
-    let Some((pane, geo)) = pane_at(40, 6, ISSUES, false, &lay) else {
-        panic!("expected issue list below filter band at (40, 6)");
+    // Below the filter band (row 7+) is the issue list.
+    let Some((pane, geo)) = pane_at(40, 7, ISSUES, false, &lay) else {
+        panic!("expected issue list below filter band at (40, 7)");
     };
     assert!(matches!(pane, SelectablePane::IssueList));
-    assert_eq!(geo.origin_row, 6);
+    assert_eq!(geo.origin_row, 7);
     let _ = geo;
 }
 
