@@ -89,8 +89,8 @@ mod tests {
             status: WorkflowRunStatus::Completed,
             conclusion: None,
             workflow_name: "CI".to_string(),
-            created_at: "time".to_string(),
-            updated_at: "time".to_string(),
+            created_at: format!("2026-01-{id:02}T00:00:00Z"),
+            updated_at: format!("2026-01-{id:02}T00:00:00Z"),
         }
     }
 
@@ -699,6 +699,7 @@ mod tests {
             title: format!("PR #{number}"),
             state: PrState::Open,
             author_login: "testuser".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
             head_ref: "feature".to_string(),
             head_sha: head_sha.to_string(),
@@ -808,17 +809,17 @@ mod tests {
     }
 
     #[test]
-    fn filter_navigate_wraps_across_three_fields() {
+    fn filter_navigate_wraps_across_all_fields() {
         let mut state = create_test_state();
         state.actions_state.ui.filter_ui_open = true;
-        state.actions_state.ui.filter_field_index = 2;
+        state.actions_state.ui.filter_field_index = 4;
 
-        // At index 2 (Pr), next wraps back to 0.
+        // At index 4 (sort-order, last field), next wraps back to 0.
         state.apply_actions_message(ActionsMessage::FilterNavigateNext);
         assert_eq!(state.actions_state.ui.filter_field_index, 0);
 
-        // From 0, prev wraps to 2.
+        // From 0, prev wraps to 4.
         state.apply_actions_message(ActionsMessage::FilterNavigatePrev);
-        assert_eq!(state.actions_state.ui.filter_field_index, 2);
+        assert_eq!(state.actions_state.ui.filter_field_index, 4);
     }
 }

@@ -83,60 +83,9 @@ fn test_list_issues_parses_json() {
 #[test]
 fn test_list_issues_sorts_by_updated_desc() {
     let mut issues = vec![
-        Issue {
-            number: 3,
-            node_id: String::new(),
-            title: "Old issue".to_string(),
-            state: IssueState::Open,
-            author_login: "alice".to_string(),
-            updated_at: "2026-03-25T10:00:00Z".to_string(),
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            assignees: Vec::new(),
-            labels: Vec::new(),
-            issue_type: String::new(),
-            milestone: String::new(),
-            module: String::new(),
-            comment_count: 0,
-            body: String::new(),
-            state_reason: None,
-        },
-        Issue {
-            number: 1,
-            node_id: String::new(),
-            title: "Newer issue".to_string(),
-            state: IssueState::Open,
-            author_login: "bob".to_string(),
-            updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            assignees: Vec::new(),
-            labels: Vec::new(),
-            issue_type: String::new(),
-            milestone: String::new(),
-            module: String::new(),
-            comment_count: 0,
-            body: String::new(),
-            state_reason: None,
-        },
-        Issue {
-            number: 2,
-            node_id: String::new(),
-            title: "Same time, lower number".to_string(),
-            state: IssueState::Open,
-            author_login: "charlie".to_string(),
-            updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            assignees: Vec::new(),
-            labels: Vec::new(),
-            issue_type: String::new(),
-            milestone: String::new(),
-            module: String::new(),
-            comment_count: 0,
-            body: String::new(),
-            state_reason: None,
-        },
+        issue_for_sort(3, "2026-03-25T10:00:00Z", "Old issue"),
+        issue_for_sort(1, "2026-03-29T10:00:00Z", "Newer issue"),
+        issue_for_sort(2, "2026-03-29T10:00:00Z", "Same time, lower number"),
     ];
 
     sort_issues(&mut issues);
@@ -144,6 +93,30 @@ fn test_list_issues_sorts_by_updated_desc() {
     assert_eq!(issues[0].number, 1);
     assert_eq!(issues[1].number, 2);
     assert_eq!(issues[2].number, 3);
+}
+
+/// Helper: build a minimal `Issue` for sort tests (issue #473).
+fn issue_for_sort(number: u64, updated_at: &str, title: &str) -> Issue {
+    Issue {
+        number,
+        node_id: String::new(),
+        title: title.to_string(),
+        state: IssueState::Open,
+        author_login: String::new(),
+        created_at: String::new(),
+        updated_at: updated_at.to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: String::new(),
+        milestone: String::new(),
+        module: String::new(),
+        comment_count: 0,
+        body: String::new(),
+        priority: None,
+        state_reason: None,
+    }
 }
 
 #[test]

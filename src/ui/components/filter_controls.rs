@@ -133,6 +133,30 @@ pub fn shared_filter_action_hints() -> &'static [&'static str] {
     ]
 }
 
+/// Row prefix for the sort section (issue #473).
+const SORT_ROW_PREFIX: &str = "Sort:   ";
+
+/// Project the two sort-row fields from the active issue sort config (issue #473).
+#[must_use]
+pub fn issue_sort_fields(
+    sort_config: crate::domain::IssueSortConfig,
+    active_index: usize,
+) -> Vec<FilterFieldView> {
+    use crate::state::{ISSUE_SORT_BY_FIELD_INDEX, ISSUE_SORT_ORDER_FIELD_INDEX};
+    vec![
+        FilterFieldView {
+            label: "by".to_string(),
+            value: sort_config.by.label().to_string(),
+            active: active_index == ISSUE_SORT_BY_FIELD_INDEX,
+        },
+        FilterFieldView {
+            label: "order".to_string(),
+            value: sort_config.order.label().to_string(),
+            active: active_index == ISSUE_SORT_ORDER_FIELD_INDEX,
+        },
+    ]
+}
+
 /// Build the full [`FilterBarProps`] for the Issues filter bar.
 ///
 /// The screen calls `filter_bar_element(issue_filter_props(...))` to render
@@ -146,6 +170,7 @@ pub fn issue_filter_props(
     filter: &IssueFilter,
     draft_labels_text: &str,
     active_index: usize,
+    sort_config: crate::domain::IssueSortConfig,
     visible: bool,
     colors: ThemeColors,
 ) -> FilterBarProps {
@@ -157,6 +182,8 @@ pub fn issue_filter_props(
         fields_per_row: FIELDS_PER_ROW,
         action_hints: issue_filter_action_hints(),
         colors,
+        sort_fields: issue_sort_fields(sort_config, active_index),
+        sort_row_prefix: SORT_ROW_PREFIX,
     }
 }
 
@@ -211,6 +238,7 @@ pub fn actions_filter_action_hints() -> &'static [&'static str] {
 pub fn actions_filter_props(
     filter: &crate::domain::ActionsFilter,
     active_index: usize,
+    sort_config: crate::domain::ActionsSortConfig,
     visible: bool,
     colors: ThemeColors,
 ) -> FilterBarProps {
@@ -222,5 +250,29 @@ pub fn actions_filter_props(
         fields_per_row: ACTIONS_FIELDS_PER_ROW,
         action_hints: actions_filter_action_hints(),
         colors,
+        sort_fields: actions_sort_fields(sort_config, active_index),
+        sort_row_prefix: SORT_ROW_PREFIX,
     }
+}
+
+/// Pure projection of the two Actions sort fields (by, order) for the
+/// filter-dialog sort row (issue #473).
+#[must_use]
+pub fn actions_sort_fields(
+    sort_config: crate::domain::ActionsSortConfig,
+    active_index: usize,
+) -> Vec<FilterFieldView> {
+    use crate::state::{ACTIONS_SORT_BY_FIELD_INDEX, ACTIONS_SORT_ORDER_FIELD_INDEX};
+    vec![
+        FilterFieldView {
+            label: "by".to_string(),
+            value: sort_config.by.label().to_string(),
+            active: active_index == ACTIONS_SORT_BY_FIELD_INDEX,
+        },
+        FilterFieldView {
+            label: "order".to_string(),
+            value: sort_config.order.label().to_string(),
+            active: active_index == ACTIONS_SORT_ORDER_FIELD_INDEX,
+        },
+    ]
 }

@@ -12,6 +12,7 @@ fn issue(number: u64, updated_at: &str) -> Issue {
         title: format!("issue {number}"),
         state: IssueState::Open,
         author_login: String::new(),
+        created_at: updated_at.to_string(),
         updated_at: updated_at.to_string(),
         assignee_summary: String::new(),
         labels_summary: String::new(),
@@ -22,6 +23,7 @@ fn issue(number: u64, updated_at: &str) -> Issue {
         module: String::new(),
         comment_count: 0,
         body: String::new(),
+        priority: None,
         state_reason: None,
     }
 }
@@ -32,6 +34,7 @@ fn pull_request(number: u64, updated_at: &str) -> PullRequest {
         title: format!("pull request {number}"),
         state: PrState::Open,
         author_login: String::new(),
+        created_at: updated_at.to_string(),
         updated_at: updated_at.to_string(),
         head_ref: String::new(),
         head_sha: String::new(),

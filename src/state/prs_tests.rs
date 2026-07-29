@@ -241,6 +241,7 @@ fn test_empty_pr_list_shows_empty_state_not_panic() {
         title: "Seeded PR #42".to_string(),
         state: PrState::Open,
         author_login: "seeduser".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
         head_sha: "sha123".to_string(),

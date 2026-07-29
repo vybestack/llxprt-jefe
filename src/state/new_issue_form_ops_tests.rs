@@ -192,8 +192,6 @@ fn submit_with_empty_title_keeps_form_open_and_surfaces_error() {
 /// milestone/project preferences.
 #[test]
 fn new_issue_created_closes_form_inserts_issue_and_remembers_preferences() {
-    use crate::domain::{Issue, IssueState};
-
     let mut state = issues_mode_state_with_repo("repo-1");
     state = state.apply(AppEvent::OpenNewIssueComposer).committed_pure();
     if let Some(form) = state.issues_state.new_issue_form.as_mut() {
@@ -209,24 +207,7 @@ fn new_issue_created_closes_form_inserts_issue_and_remembers_preferences() {
         id: 1,
         target: InlineState::None,
     });
-    let issue = Issue {
-        number: 77,
-        node_id: "I_node".to_string(),
-        title: "My new issue".to_string(),
-        state: IssueState::Open,
-        author_login: "tester".to_string(),
-        updated_at: "2026-07-25T00:00:00Z".to_string(),
-        assignee_summary: String::new(),
-        labels_summary: String::new(),
-        assignees: Vec::new(),
-        labels: Vec::new(),
-        issue_type: String::new(),
-        milestone: String::new(),
-        module: String::new(),
-        comment_count: 0,
-        body: String::new(),
-        state_reason: None,
-    };
+    let issue = new_issue_for_created_test(77, "My new issue", "tester");
     let state = state
         .apply(AppEvent::NewIssueCreated {
             scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -254,6 +235,31 @@ fn new_issue_created_closes_form_inserts_issue_and_remembers_preferences() {
         .for_repo(&RepositoryId("repo-1".to_string()));
     assert_eq!(prefs.last_new_issue_milestone, Some("v9.9".to_string()));
     assert_eq!(prefs.last_new_issue_project_ids, vec!["PVT_42".to_string()]);
+}
+
+/// Build a minimal `Issue` for the new-issue-created test (issue #473 field additions).
+fn new_issue_for_created_test(number: u64, title: &str, author: &str) -> crate::domain::Issue {
+    use crate::domain::{Issue, IssueState};
+    Issue {
+        number,
+        node_id: "I_node".to_string(),
+        title: title.to_string(),
+        state: IssueState::Open,
+        author_login: author.to_string(),
+        created_at: String::new(),
+        updated_at: "2026-07-25T00:00:00Z".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: String::new(),
+        milestone: String::new(),
+        module: String::new(),
+        comment_count: 0,
+        body: String::new(),
+        priority: None,
+        state_reason: None,
+    }
 }
 
 /// A13: After a successful submit, sticky milestone/project preferences are

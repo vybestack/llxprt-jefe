@@ -789,6 +789,7 @@ fn user_preferences_roundtrip() {
                 last_merge_method: Some(MergeMethod::Squash),
                 last_new_issue_milestone: Some("v1.2".to_string()),
                 last_new_issue_project_ids: vec!["PVT_1".to_string()],
+                ..RepoPreferences::default()
             },
         )],
     };

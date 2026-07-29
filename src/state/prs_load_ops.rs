@@ -93,6 +93,7 @@ impl AppState {
                 self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
                 self.prs_state.detail_scroll_offset = 0;
             }
+            self.resort_prs_preserving_selection();
         }
     }
 
@@ -126,6 +127,7 @@ impl AppState {
             // a separate operation; preserve the current detail until it
             // arrives.
             self.preserve_silent_refresh_selection(selected_pr_number);
+            self.resort_prs_preserving_selection();
         }
     }
 
@@ -148,6 +150,12 @@ impl AppState {
             })
             .unwrap_or(0);
         self.prs_state.list.set_selected_index(Some(new_index));
+    }
+
+    /// Re-sort the loaded PR list with the active sort config, preserving
+    /// selection by PR number (issue #473). Called after every load/append.
+    fn resort_prs_preserving_selection(&mut self) {
+        crate::state::prs_sort_ops::resort_prs_preserving_selection(&mut self.prs_state);
     }
 
     /// Apply a silent background refresh failure (issue #128). Clears the
@@ -204,6 +212,7 @@ impl AppState {
         let outcome = self.prs_state.list.accept_page(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.prs_state.error = None;
+            self.resort_prs_preserving_selection();
         }
     }
 

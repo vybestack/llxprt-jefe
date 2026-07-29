@@ -80,14 +80,22 @@ fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
 }
 
 fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    match resolve_filter_control_key(FilterEditorKind::Choice, key_event)? {
+    // Sort fields (3 = sort-by, 4 = sort-order) use Cycle editor kind;
+    // filter fields (0 = workflow, 1 = status, 2 = pr) use Choice.
+    let field_index = state.actions_state.ui.filter_field_index;
+    let editor = if field_index >= 3 {
+        FilterEditorKind::Cycle
+    } else {
+        FilterEditorKind::Choice
+    };
+    match resolve_filter_control_key(editor, key_event)? {
         FilterControlCommand::Apply => Some(AppEvent::ActionsApplyFilter),
         FilterControlCommand::Cancel => Some(AppEvent::ActionsCloseFilterControls),
         FilterControlCommand::Next => Some(AppEvent::ActionsFilterNavigateNext),
         FilterControlCommand::Previous => Some(AppEvent::ActionsFilterNavigatePrev),
         FilterControlCommand::ClearAll => Some(AppEvent::ActionsClearDraftFilter),
         FilterControlCommand::ClearCurrent => Some(AppEvent::ActionsUpdateDraftFilter {
-            field: match state.actions_state.ui.filter_field_index {
+            field: match field_index {
                 0 => ActionsFilterField::Workflow,
                 1 => ActionsFilterField::Status,
                 2 => ActionsFilterField::Pr,
@@ -95,6 +103,17 @@ fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
             },
             value: String::new(),
         }),
+        FilterControlCommand::CycleNext if field_index == 3 => {
+            Some(AppEvent::CycleActionsSortByNext)
+        }
+        FilterControlCommand::CyclePrevious if field_index == 3 => {
+            Some(AppEvent::CycleActionsSortByPrev)
+        }
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious
+            if field_index == 4 =>
+        {
+            Some(AppEvent::ToggleActionsSortOrder)
+        }
         FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
             Some(AppEvent::ActionsCycleFilterStatus)
         }

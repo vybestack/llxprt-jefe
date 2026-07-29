@@ -12,9 +12,10 @@ use super::{
 use crate::domain::{ActionsFilter, RepositoryId};
 use crate::messages::ActionsMessage;
 
-/// Number of navigable fields in the Actions filter bar (workflow, status, pr).
+/// Number of navigable fields in the Actions filter bar (workflow, status,
+/// pr, sort-by, sort-order — issue #473 added the sort fields).
 /// Mirrors the field-count assumption used by `FilterNavigateNext/Prev`.
-const ACTIONS_FILTER_FIELD_COUNT: usize = 3;
+const ACTIONS_FILTER_FIELD_COUNT: usize = 5;
 
 impl AppState {
     /// Enter actions mode, saving prior focus state.
@@ -662,8 +663,55 @@ impl AppState {
             ActionsMessage::UpdateDraftFilter { field, value } => {
                 self.update_draft_filter(*field, value.clone())
             }
+            ActionsMessage::CycleActionsSortByNext
+            | ActionsMessage::CycleActionsSortByPrev
+            | ActionsMessage::ToggleActionsSortOrder => self.apply_actions_sort_message(message),
             _ => false,
         }
+    }
+
+    /// Handle Actions sort messages (issue #473).
+    fn apply_actions_sort_message(&mut self, message: &ActionsMessage) -> bool {
+        match message {
+            ActionsMessage::CycleActionsSortByNext => {
+                self.actions_state.sort_config.by = self.actions_state.sort_config.by.cycle_next();
+                self.apply_actions_sort_change()
+            }
+            ActionsMessage::CycleActionsSortByPrev => {
+                self.actions_state.sort_config.by = self.actions_state.sort_config.by.cycle_prev();
+                self.apply_actions_sort_change()
+            }
+            ActionsMessage::ToggleActionsSortOrder => {
+                self.actions_state.sort_config.order =
+                    self.actions_state.sort_config.order.toggle();
+                self.apply_actions_sort_change()
+            }
+            _ => false,
+        }
+    }
+
+    /// Re-sort the Actions runs list by the active sort config, preserving
+    /// the selected run by identity (issue #473).
+    fn apply_actions_sort_change(&mut self) -> bool {
+        let selected_id = self
+            .actions_state
+            .list
+            .selected_index()
+            .and_then(|idx| self.actions_state.list.items().get(idx).map(|run| run.id));
+        let config = self.actions_state.sort_config;
+        self.actions_state
+            .list
+            .sort_by(|a, b| crate::github::compare_workflow_runs(a, b, config));
+        if let Some(id) = selected_id {
+            self.actions_state.list.set_selected_index(
+                self.actions_state
+                    .list
+                    .items()
+                    .iter()
+                    .position(|run| run.id == id),
+            );
+        }
+        true
     }
 
     fn handle_dispatch_message(&mut self, message: ActionsMessage) -> bool {

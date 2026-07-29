@@ -72,11 +72,13 @@ impl AppState {
         let filter = self.issues_state.committed_filter.clone();
         let search_query = self.issues_state.search_query.clone();
         let field_index = self.issues_state.filter_ui.field_index;
+        let sort_config = self.issues_state.sort_config;
         self.user_preferences
             .update_field_for_repo(repo_id, |prefs| {
                 prefs.issue_filter = filter;
                 prefs.issue_search_query = search_query;
                 prefs.issue_filter_field_index = field_index;
+                prefs.issue_sort_config = sort_config;
             });
     }
 
@@ -95,11 +97,13 @@ impl AppState {
         let filter = self.prs_state.committed_filter.clone();
         let search_query = self.prs_state.search_query.clone();
         let field_index = self.prs_state.filter_ui.field_index;
+        let sort_config = self.prs_state.sort_config;
         self.user_preferences
             .update_field_for_repo(repo_id, |prefs| {
                 prefs.pr_filter = filter;
                 prefs.pr_search_query = search_query;
                 prefs.pr_filter_field_index = field_index;
+                prefs.pr_sort_config = sort_config;
             });
     }
 

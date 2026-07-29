@@ -10,6 +10,9 @@ mod actions_load_tests;
 mod actions_ops;
 #[cfg(test)]
 mod actions_tests;
+#[cfg(test)]
+#[path = "actions_tests_sort.rs"]
+mod actions_tests_sort;
 mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
@@ -54,6 +57,7 @@ mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
 mod prs_property_ops;
+mod prs_sort_ops;
 mod prs_thread_ops;
 /// Runtime-domain reducer handlers + effect-completion application
 /// (issue #381).
@@ -848,6 +852,9 @@ mod issues_tests_self_assignment;
 #[path = "issues_tests_send_to_agent.rs"]
 mod issues_tests_send_to_agent;
 #[cfg(test)]
+#[path = "issues_tests_sort.rs"]
+mod issues_tests_sort;
+#[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;
 #[cfg(test)]
@@ -904,6 +911,9 @@ mod prs_tests_review_threads;
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
 mod prs_tests_silent_refresh;
+#[cfg(test)]
+#[path = "prs_tests_sort.rs"]
+mod prs_tests_sort;
 #[cfg(test)]
 #[path = "transient_agent_tests.rs"]
 mod transient_agent_tests;

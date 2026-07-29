@@ -25,6 +25,8 @@ fn make_test_issue(number: u64) -> Issue {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        created_at: String::new(),
+        priority: None,
     }
 }
 

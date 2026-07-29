@@ -1,11 +1,5 @@
 //! GitHub client boundary — wraps `gh` CLI subprocess calls.
 //!
-//! @plan PLAN-20260329-ISSUES-MODE.P08
-//! @requirement REQ-ISS-013
-//! @requirement REQ-ISS-NFR-002
-//! @requirement REQ-ISS-NFR-003
-//! @pseudocode component-002 lines 01-03
-//!
 //! This module is intentionally isolated from `crate::ui` and `crate::state`.
 //! It depends only on `crate::domain` types for data transfer.
 
@@ -52,27 +46,31 @@ pub use edit_properties::{
 
 mod actions;
 pub use actions::{
-    WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
-    parse_runs_json, parse_single_run_json, parse_workflows_json,
+    WorkflowRunListResponse, build_runs_api_path, compare_workflow_runs, parse_api_runs_json,
+    parse_jobs_json, parse_runs_json, parse_single_run_json, parse_workflows_json,
 };
 
+mod issue_query;
+mod issue_sort;
 mod parse;
 mod timestamp;
 use comment_pages::loaded_comments;
-use parse::{active_issue_type_filter, issue_type_requires_search_filter};
+use issue_query::{active_issue_type_filter, issue_type_requires_search_filter};
+pub use issue_query::{build_issue_search_args, build_list_issues_args};
+pub use issue_sort::{compare_issues, issue_priority_rank, sort_issues};
 pub use parse::{
-    build_issue_search_args, build_list_issues_args, categorize_error, parse_comments_json,
-    parse_created_comment_json, parse_issue_detail_json, parse_issue_search_json,
-    parse_issues_json, sort_issues,
+    categorize_error, parse_comments_json, parse_created_comment_json, parse_issue_detail_json,
+    parse_issue_search_json, parse_issues_json,
 };
 
 mod parse_pr;
 pub use parse_pr::{
     build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
-    build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
-    parse_pr_review, parse_pr_review_threads, parse_pr_review_threads_cursor, parse_pr_state,
-    parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
-    parse_thread_reply_json, rollup_nodes, sort_pr_reviews, sort_pull_requests,
+    build_pr_search_query, compare_pull_requests, parse_check_status, parse_checks_rollup,
+    parse_pr_check, parse_pr_review, parse_pr_review_threads, parse_pr_review_threads_cursor,
+    parse_pr_state, parse_pull_request_detail_json, parse_pull_requests_json,
+    parse_review_decision, parse_thread_reply_json, rollup_nodes, sort_pr_reviews,
+    sort_pull_requests,
 };
 
 fn gh_command() -> Result<Command, GhError> {

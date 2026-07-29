@@ -236,6 +236,9 @@ impl IssuesMessage {
             | AppEvent::FilterNavigateNext
             | AppEvent::FilterNavigatePrev
             | AppEvent::CycleFilterState
+            | AppEvent::CycleIssueSortByNext
+            | AppEvent::CycleIssueSortByPrev
+            | AppEvent::ToggleIssueSortOrder
             | AppEvent::FocusSearchInput
             | AppEvent::BlurSearchInput
             | AppEvent::SetSearchQuery { .. }
@@ -281,6 +284,9 @@ impl IssuesMessage {
             AppEvent::FilterNavigateNext => Self::FilterNavigateNext,
             AppEvent::FilterNavigatePrev => Self::FilterNavigatePrev,
             AppEvent::CycleFilterState => Self::CycleFilterState,
+            AppEvent::CycleIssueSortByNext => Self::CycleIssueSortByNext,
+            AppEvent::CycleIssueSortByPrev => Self::CycleIssueSortByPrev,
+            AppEvent::ToggleIssueSortOrder => Self::ToggleIssueSortOrder,
             AppEvent::FocusSearchInput => Self::FocusSearchInput,
             AppEvent::BlurSearchInput => Self::BlurSearchInput,
             AppEvent::SetSearchQuery { query } => Self::SetSearchQuery { query },
@@ -722,6 +728,9 @@ impl IssuesMessage {
             | Self::FilterNavigateNext
             | Self::FilterNavigatePrev
             | Self::CycleFilterState
+            | Self::CycleIssueSortByNext
+            | Self::CycleIssueSortByPrev
+            | Self::ToggleIssueSortOrder
             | Self::FocusSearchInput
             | Self::BlurSearchInput
             | Self::SetSearchQuery { .. }
@@ -763,6 +772,9 @@ impl IssuesMessage {
             Self::FilterNavigateNext => AppEvent::FilterNavigateNext,
             Self::FilterNavigatePrev => AppEvent::FilterNavigatePrev,
             Self::CycleFilterState => AppEvent::CycleFilterState,
+            Self::CycleIssueSortByNext => AppEvent::CycleIssueSortByNext,
+            Self::CycleIssueSortByPrev => AppEvent::CycleIssueSortByPrev,
+            Self::ToggleIssueSortOrder => AppEvent::ToggleIssueSortOrder,
             Self::FocusSearchInput => AppEvent::FocusSearchInput,
             Self::BlurSearchInput => AppEvent::BlurSearchInput,
             Self::SetSearchQuery { query } => AppEvent::SetSearchQuery { query },

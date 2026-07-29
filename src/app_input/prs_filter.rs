@@ -1,8 +1,9 @@
 //! Filter-controls key routing for PR Mode.
 //!
-//! Implements the eight-field filter model: 0 state, 1 draft, 2 review-decision,
-//! 3 checks-status, 4 author, 5 assignee, 6 reviewer, 7 labels. Cycle fields
-//! (0-3) advance on Space; text fields (4-7) accept char/backspace input.
+//! Implements the ten-field filter+sort model: 0 state, 1 draft, 2
+//! review-decision, 3 checks-status, 4 author, 5 assignee, 6 reviewer, 7
+//! labels, 8 sort_by, 9 sort_order (issue #473). Cycle fields (0-3, 8-9)
+//! advance on Space/arrow; text fields (4-7) accept char/backspace input.
 //!
 //! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-008
@@ -14,8 +15,7 @@ use jefe::state::{AppEvent, AppState};
 
 use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
 
-/// The eight filter fields indexed by `filter_ui.field_index`.
-/// State field (index 0) is the default for Space cycling.
+/// The filter fields indexed by `filter_ui.field_index`.
 const DRAFT_FIELD: usize = 1;
 const REVIEW_FIELD: usize = 2;
 const CHECKS_FIELD: usize = 3;
@@ -23,12 +23,17 @@ const AUTHOR_FIELD: usize = 4;
 const ASSIGNEE_FIELD: usize = 5;
 const REVIEWER_FIELD: usize = 6;
 const LABELS_FIELD: usize = 7;
+/// Sort-by field index (issue #473).
+const SORT_BY_FIELD: usize = 8;
+/// Sort-order field index (issue #473).
+const SORT_ORDER_FIELD: usize = 9;
 
 /// Resolve a key event while PR filter controls are open.
 ///
 /// Tab/BackTab navigate fields; Enter applies; Esc closes; Ctrl-c clears; Space
-/// cycles the active cycle field (state/draft/review/checks); text chars and
-/// Backspace edit the active text field (author/assignee/reviewer/labels).
+/// cycles the active cycle field (state/draft/review/checks or sort fields);
+/// text chars and Backspace edit the active text field
+/// (author/assignee/reviewer/labels).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-008
@@ -62,10 +67,6 @@ pub(super) fn handle_pr_filter_controls_key(
 }
 
 /// Whether the given field index is a text-input field.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-008
-/// @pseudocode component-001 lines 249-251
 fn is_text_field(field_idx: usize) -> bool {
     matches!(
         field_idx,
@@ -73,16 +74,20 @@ fn is_text_field(field_idx: usize) -> bool {
     )
 }
 
-/// Map a Space press on a cycle field to the matching cycle event.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-008
-/// @pseudocode component-001 lines 249-251
+/// Whether the given field index is a sort field (issue #473).
+#[cfg(test)]
+const fn is_sort_field(field_idx: usize) -> bool {
+    field_idx == SORT_BY_FIELD || field_idx == SORT_ORDER_FIELD
+}
+
+/// Map a Space/arrow press on a cycle field to the matching cycle event.
 fn space_event_for_field(field_idx: usize) -> AppEvent {
     match field_idx {
         DRAFT_FIELD => AppEvent::PrCycleDraftFilter,
         REVIEW_FIELD => AppEvent::PrCycleReviewFilter,
         CHECKS_FIELD => AppEvent::PrCycleChecksFilter,
+        SORT_BY_FIELD => AppEvent::PrCycleSortByNext,
+        SORT_ORDER_FIELD => AppEvent::PrToggleSortOrder,
         // STATE_FIELD and any unexpected index default to state cycling.
         _ => AppEvent::PrCycleFilterState,
     }
@@ -143,5 +148,58 @@ fn text_field_value(state: &AppState, field_idx: usize) -> (String, String) {
             state.prs_state.filter_ui.draft_labels_text.clone(),
         ),
         _ => (String::new(), String::new()),
+    }
+}
+
+#[cfg(test)]
+mod sort_field_tests {
+    use super::*;
+
+    #[test]
+    fn sort_by_field_index_is_sort_field() {
+        assert!(is_sort_field(SORT_BY_FIELD));
+    }
+
+    #[test]
+    fn sort_order_field_index_is_sort_field() {
+        assert!(is_sort_field(SORT_ORDER_FIELD));
+    }
+
+    #[test]
+    fn non_sort_fields_are_not_sort_fields() {
+        assert!(!is_sort_field(0));
+        assert!(!is_sort_field(AUTHOR_FIELD));
+    }
+
+    #[test]
+    fn sort_by_field_routes_to_cycle_next() {
+        assert!(matches!(
+            space_event_for_field(SORT_BY_FIELD),
+            AppEvent::PrCycleSortByNext
+        ));
+    }
+
+    #[test]
+    fn sort_order_field_routes_to_toggle_order() {
+        assert!(matches!(
+            space_event_for_field(SORT_ORDER_FIELD),
+            AppEvent::PrToggleSortOrder
+        ));
+    }
+
+    #[test]
+    fn state_field_routes_to_state_cycle() {
+        assert!(matches!(
+            space_event_for_field(0),
+            AppEvent::PrCycleFilterState
+        ));
+    }
+
+    #[test]
+    fn draft_field_routes_to_draft_cycle() {
+        assert!(matches!(
+            space_event_for_field(DRAFT_FIELD),
+            AppEvent::PrCycleDraftFilter
+        ));
     }
 }

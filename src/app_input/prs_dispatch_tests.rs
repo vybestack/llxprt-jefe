@@ -27,6 +27,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
         title: format!("PR #{number}"),
         state: PrState::Open,
         author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
         head_sha: "sha123".to_string(),

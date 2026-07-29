@@ -45,6 +45,7 @@ fn issue(n: u64) -> Issue {
         title: format!("Issue {n}"),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
+        created_at: "2026-06-30".to_string(),
         updated_at: "2026-06-30".to_string(),
         assignee_summary: String::new(),
         labels_summary: String::new(),
@@ -56,6 +57,7 @@ fn issue(n: u64) -> Issue {
         comment_count: 0,
         body: String::new(),
         state_reason: None,
+        priority: None,
     }
 }
 
@@ -65,6 +67,7 @@ fn pr(n: u64) -> PullRequest {
         title: format!("PR {n}"),
         state: PrState::Open,
         author_login: "octocat".to_string(),
+        created_at: "2026-01-01".to_string(),
         updated_at: "2026-01-01".to_string(),
         head_ref: "feature".to_string(),
         head_sha: String::new(),

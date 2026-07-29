@@ -84,6 +84,8 @@ fn base_props(row_prefix: &'static str, continuation_prefix: &'static str) -> Fi
         fields_per_row: 4,
         action_hints: &["Tab next  ", "Esc cancel"],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     }
 }
 
@@ -167,6 +169,8 @@ fn filter_bar_renders_continuation_prefix_on_second_row() {
         fields_per_row: 4,
         action_hints: &[],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     };
     let ansi = render_ansi(props, 80, 6);
     // Row 1 carries the row prefix and fields 0-3; row 2 carries fields 4-7.
@@ -277,6 +281,8 @@ fn filter_bar_issues_continuation_prefix_is_eight_spaces() {
         fields_per_row: 4,
         action_hints: &[],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     };
     let plain = render_plain(props, 80, 6);
     // Row 2 (the line containing f4) must start with 8 continuation-prefix
@@ -312,6 +318,8 @@ fn filter_bar_pr_continuation_prefix_is_seven_spaces() {
         fields_per_row: 4,
         action_hints: &[],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     };
     let plain = render_plain(props, 80, 6);
     // Row 2: 1 (padding) + 7 (continuation) = 8 rendered spaces before f4.
@@ -350,6 +358,8 @@ fn forwarding_test_props() -> FilterBarProps {
         fields_per_row: 1,
         action_hints: &["HINTMARKER"],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     }
 }
 
@@ -386,6 +396,8 @@ fn filter_bar_element_forwards_all_props_fields() {
         fields_per_row: 4,
         action_hints: &[],
         colors: ThemeColors::default(),
+        sort_fields: Vec::new(),
+        sort_row_prefix: "Sort: ",
     };
     let ansi = render_ansi(highlight_props, 60, 4);
     assert!(

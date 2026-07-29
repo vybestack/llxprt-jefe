@@ -29,7 +29,17 @@ pub use issues_types::*;
 // `ISSUE_FILTER_FIELD_COUNT` lives in `issues_types.rs`; the PR sibling stays
 // here so each mode filter references its own count.
 /// Number of PR filter fields for FilterNavigate wrap (issue #163).
-pub const PR_FILTER_FIELD_COUNT: usize = 8;
+///
+/// Includes the two sort fields (sort-by, sort-order) appended for issue #473:
+/// 0 state, 1 draft, 2 review, 3 checks, 4 author, 5 assignee, 6 reviewer,
+/// 7 labels, 8 sort_by, 9 sort_order.
+pub const PR_FILTER_FIELD_COUNT: usize = 10;
+
+/// Index of the sort-by cycle field in the Actions filter bar (0-based,
+/// after the 3 filter fields: workflow, status, pr — issue #473).
+pub const ACTIONS_SORT_BY_FIELD_INDEX: usize = 3;
+/// Index of the sort-order cycle field in the Actions filter bar.
+pub const ACTIONS_SORT_ORDER_FIELD_INDEX: usize = 4;
 
 /// Captured issue self-assignment follow-up for an issue-driven launch
 /// (issue #186).
@@ -772,6 +782,10 @@ pub struct ActionsState {
     pub committed_filter: crate::domain::ActionsFilter,
     pub draft_filter: crate::domain::ActionsFilter,
     pub search_query: String,
+    /// Active sort configuration for the Actions runs list (issue #473).
+    /// Lives on `ActionsState` because sort is a projection-time view
+    /// transform — changing it must not re-run the fetch.
+    pub sort_config: crate::domain::ActionsSortConfig,
     pub error: Option<String>,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,

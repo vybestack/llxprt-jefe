@@ -23,6 +23,8 @@ fn make_issues() -> Vec<Issue> {
             comment_count: 0,
             body: format!("Body for issue {number}"),
             state_reason: None,
+            created_at: String::new(),
+            priority: None,
         })
         .collect()
 }

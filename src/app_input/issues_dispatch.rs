@@ -89,7 +89,7 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     title: issue.title.clone(),
                     state: issue.state,
                     author_login: issue.author_login.clone(),
-                    created_at: String::new(),
+                    created_at: issue.created_at.clone(),
                     updated_at: issue.updated_at.clone(),
                     labels: issue.labels.clone(),
                     assignees: issue.assignees.clone(),

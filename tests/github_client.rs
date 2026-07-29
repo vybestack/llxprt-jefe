@@ -16,12 +16,18 @@ mod create_issue;
 mod issues;
 #[path = "github_client/state_reason.rs"]
 mod state_reason;
+#[path = "github_client/tests_actions_sort.rs"]
+mod tests_actions_sort;
 #[path = "github_client/tests_filters.rs"]
 mod tests_filters;
+#[path = "github_client/tests_issue_sort.rs"]
+mod tests_issue_sort;
 #[path = "github_client/tests_pr.rs"]
 mod tests_pr;
 #[path = "github_client/tests_pr_detail.rs"]
 mod tests_pr_detail;
+#[path = "github_client/tests_pr_sort.rs"]
+mod tests_pr_sort;
 #[path = "github_client/tests_pr_sort_reviews.rs"]
 mod tests_pr_sort_reviews;
 #[path = "github_client/tests_pr_threads.rs"]

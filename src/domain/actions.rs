@@ -137,3 +137,70 @@ pub struct ActionsFilter {
     /// Resolved head SHA for the PR filter (used for the GitHub API head_sha= param).
     pub head_sha: Option<String>,
 }
+
+/// Sort key for the Actions runs list (issue #473).
+///
+/// Actions runs sort by run number (`Number`), created date, or updated date.
+/// `Created` is the default and preserves the pre-issue-#473 behavior
+/// (newest run first, matching `cmp_workflow_runs_newest_first`). Actions have
+/// no priority concept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ActionsSortBy {
+    Number,
+    #[default]
+    Created,
+    Updated,
+}
+
+impl ActionsSortBy {
+    /// Cycle through the sort keys in canonical order, wrapping around.
+    #[must_use]
+    pub const fn cycle_next(self) -> Self {
+        match self {
+            Self::Number => Self::Created,
+            Self::Created => Self::Updated,
+            Self::Updated => Self::Number,
+        }
+    }
+
+    /// Cycle backward through the sort keys, wrapping around.
+    #[must_use]
+    pub const fn cycle_prev(self) -> Self {
+        match self {
+            Self::Number => Self::Updated,
+            Self::Created => Self::Number,
+            Self::Updated => Self::Created,
+        }
+    }
+
+    /// User-facing label for the filter-dialog sort-by cycle field.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Number => "number",
+            Self::Created => "created",
+            Self::Updated => "updated",
+        }
+    }
+}
+
+/// Active sort configuration for the Actions runs list (issue #473).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ActionsSortConfig {
+    #[serde(default)]
+    pub by: ActionsSortBy,
+    #[serde(default)]
+    pub order: super::SortOrder,
+}
+
+impl ActionsSortConfig {
+    /// The default sort: `Created/Desc` — preserves pre-issue-#473 behavior
+    /// (matches `cmp_workflow_runs_newest_first`).
+    #[must_use]
+    pub const fn default_sort() -> Self {
+        Self {
+            by: ActionsSortBy::Created,
+            order: super::SortOrder::Desc,
+        }
+    }
+}
