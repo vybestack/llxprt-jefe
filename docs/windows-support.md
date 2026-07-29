@@ -38,8 +38,10 @@ Download the latest portable zip from
 .\jefe-install.ps1 -Action Install
 ```
 
-The release zip contains only `jefe.exe`, `LICENSE`, and the first-party
-`jefe-install.ps1` script. It never bundles psmux or third-party binaries.
+The release zip contains only `jefe.exe`, its `jefe.exe.sha256` checksum,
+`LICENSE`, and the first-party `jefe-install.ps1` script. The installer verifies
+that checksum before launching the staged executable. It never bundles psmux or
+third-party binaries.
 
 ## Supported terminals
 
@@ -94,14 +96,26 @@ The first-party install script supports `Upgrade` and `Uninstall`:
 .\jefe-install.ps1 -Action Uninstall
 ```
 
-- **Upgrade** replaces only package-owned files (`jefe.exe`, `LICENSE`, the
-  ownership marker) and ensures the user `PATH` entry exists.
+- **Upgrade** replaces only package-owned files (`jefe.exe`,
+  `jefe.exe.sha256`, `LICENSE`, and the ownership marker) and ensures the user
+  `PATH` entry exists.
 - **Uninstall** removes only package-owned files and the Jefe user `PATH`
   entry. It uses an ownership marker (`.jefe-installed`) before any recursive
   removal and refuses to touch a directory it did not install.
 
 Both operations preserve your configuration, state, and any psmux sessions.
 Configuration and state survive uninstall unless you explicitly delete them.
+
+The installer serializes Jefe lifecycle operations for the same install path.
+Each user `PATH` change reads one snapshot and performs at most one registry
+write. Windows does not provide a compare-and-swap operation for this value, so
+unrelated software editing the user `PATH` at the same time can still race with
+the installer; avoid simultaneous external `PATH` edits.
+
+On every lifecycle action, the installer removes validly owned sibling backup
+directories that have been stale for at least seven days. Fresh backups and
+unowned or malformed directories are preserved, and cleanup failures produce a
+warning rather than hiding the requested install action.
 
 ## Firewall and antivirus
 

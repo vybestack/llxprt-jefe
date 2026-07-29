@@ -97,9 +97,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force dist/assets | Out-Null
           Copy-Item -Path "target/${{ matrix.target }}/release/jefe.exe" -Destination "dist/jefe.exe" -Force
+          $binaryHash = (Get-FileHash -LiteralPath "dist/jefe.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$binaryHash  jefe.exe" | Set-Content -LiteralPath "dist/jefe.exe.sha256" -Encoding ascii
           Copy-Item -Path "LICENSE" -Destination "dist/LICENSE" -Force
           Copy-Item -Path "scripts/jefe-install.ps1" -Destination "dist/jefe-install.ps1" -Force
-          Compress-Archive -Path "dist/jefe.exe","dist/LICENSE","dist/jefe-install.ps1" -DestinationPath "dist/assets/${{ matrix.asset_basename }}.zip" -Force
+          Compress-Archive -Path "dist/jefe.exe","dist/jefe.exe.sha256","dist/LICENSE","dist/jefe-install.ps1" -DestinationPath "dist/assets/${{ matrix.asset_basename }}.zip" -Force
 
       - name: Package Linux deb/rpm
         if: runner.os == 'Linux'
