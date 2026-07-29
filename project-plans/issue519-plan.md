@@ -85,7 +85,7 @@ Deliver one bounded regression PR for issues #519 and #518. Both regressions wer
 
 | Check | Result |
 |---|---|
-| Baseline branch | `issue519` from `origin/main` at `07cb9342` |
+| Baseline branch | `issue519`, rebased onto `origin/main` at `88005aba` |
 | Installed `llxprt --version` / `--help` | Both exit 0 in attached PowerShell/cmd context |
 | Current source `jefe doctor` | Passes and reports LLxprt detected |
 | TUI scenario RED | Failed at `Yolo: [x]` before implementation; the form showed unchecked YOLO and no Continue row |
