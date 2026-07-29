@@ -1,5 +1,6 @@
 //! Pure, iocraft-free projection of immutable agent availability observations.
 
+use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution};
 use crate::domain::agent_definition::type_id::AgentTypeId;
 use crate::domain::agent_definition::{AgentDefinition, Availability};
 
@@ -10,6 +11,9 @@ pub struct AgentAvailabilityObservation {
     display_name: String,
     enabled: bool,
     availability: Availability,
+    generation: u64,
+    candidate_resolution: Option<CandidateResolution>,
+    candidate_generation_key: Option<CandidateGenerationKey>,
     pending_generation: Option<u64>,
 }
 
@@ -17,23 +21,53 @@ impl AgentAvailabilityObservation {
     /// Build an observation from an immutable definition and one probe result.
     #[must_use]
     pub fn new(definition: &AgentDefinition, enabled: bool, availability: Availability) -> Self {
+        let generation = availability.generation().unwrap_or_default();
         Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
             enabled,
             availability,
+            generation,
+            candidate_resolution: None,
+            candidate_generation_key: None,
+            pending_generation: None,
+        }
+    }
+
+    /// Publish an unresolved definition at an explicit state-owned generation.
+    #[must_use]
+    pub fn not_found(definition: &AgentDefinition, enabled: bool, generation: u64) -> Self {
+        Self {
+            type_id: definition.id.clone(),
+            display_name: definition.display_name.clone(),
+            enabled,
+            availability: Availability::NotFound,
+            generation,
+            candidate_resolution: None,
+            candidate_generation_key: None,
             pending_generation: None,
         }
     }
 
     /// Publish a resolved definition before its process probe executes.
     #[must_use]
-    pub fn pending(definition: &AgentDefinition, enabled: bool, generation: u64) -> Self {
+    pub fn pending(
+        definition: &AgentDefinition,
+        enabled: bool,
+        generation: u64,
+        resolution: CandidateResolution,
+    ) -> Self {
+        let candidate_generation_key = resolution
+            .resolved()
+            .map(|candidate| candidate.generation_key(definition));
         Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
             enabled,
             availability: Availability::NotFound,
+            generation,
+            candidate_resolution: Some(resolution),
+            candidate_generation_key,
             pending_generation: Some(generation),
         }
     }
@@ -60,6 +94,24 @@ impl AgentAvailabilityObservation {
     #[must_use]
     pub const fn availability(&self) -> &Availability {
         &self.availability
+    }
+
+    /// Last state-owned probe generation, including NotFound observations.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Candidate resolution captured by the state-owned observation boundary.
+    #[must_use]
+    pub const fn candidate_resolution(&self) -> Option<&CandidateResolution> {
+        self.candidate_resolution.as_ref()
+    }
+
+    /// Candidate identity used to advance a generation only when evidence changes.
+    #[must_use]
+    pub const fn candidate_generation_key(&self) -> Option<&CandidateGenerationKey> {
+        self.candidate_generation_key.as_ref()
     }
 
     /// Generation currently awaiting a correlated probe completion.

@@ -9,7 +9,7 @@ use crate::domain::effects::{
     Correlation, CorrelationId, Effect, EffectError, EffectErrorKind, EffectFamily, EffectResponse,
     IssuedEffect, RetryPolicy, RuntimeEffect, RuntimeResponse, SemanticKey, TimerEffect,
 };
-use crate::domain::{AgentId, AgentLaunchRequest, Id, RemoteRepositorySettings};
+use crate::domain::{AgentId, Id};
 use crate::runtime::{RuntimeManager, StubRuntimeManager};
 use crate::services::effect_executor::{AdapterExecution, EffectAdapter};
 use crate::services::runtime_effect_adapter::RuntimeEffectAdapter;
@@ -45,21 +45,15 @@ fn issued(effect: Effect, family: EffectFamily, subject: &str) -> IssuedEffect {
 
 fn manager_with_session(agent_id: &AgentId) -> StubRuntimeManager {
     let mut manager = StubRuntimeManager::default();
-    let signature = AgentLaunchRequest {
-        type_id: crate::domain::shipped_agent_type(3),
-        values: crate::domain::TypedMap::new(),
-        work_dir: std::path::PathBuf::from("/tmp/agent"),
-        remote: RemoteRepositorySettings::default(),
-        operation: crate::domain::agent_definition::Operation::Normal,
-    };
     let plan = crate::domain::agent_definition::AgentLaunchPlan {
-        cwd: signature.work_dir.clone(),
+        cwd: std::path::PathBuf::from("/tmp/agent"),
         target: crate::domain::agent_definition::Target::Local {
-            canonical_cwd: signature.work_dir.clone(),
+            canonical_cwd: std::path::PathBuf::from("/tmp/agent"),
         },
         ..crate::domain::agent_definition::AgentLaunchPlan::default()
     };
-    if let Err(error) = manager.spawn_session(agent_id, &plan, None) {
+    let authorized = crate::runtime::test_support::authorized_launch_plan(&plan);
+    if let Err(error) = manager.spawn_session(agent_id, &authorized, None) {
         panic!("spawn must succeed: {error}");
     }
     manager

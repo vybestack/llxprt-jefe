@@ -3,7 +3,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use jefe::domain::{AgentId, AgentLaunchRequest};
+use jefe::domain::AgentId;
+use jefe::runtime::launch_compose::PreparedLaunch;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 
 /// Spawn a fresh session and attach it without erasing either runtime failure.
@@ -11,11 +12,10 @@ pub(super) fn spawn_and_attach_fresh<M: RuntimeManager>(
     runtime: &mut M,
     agent_id: &AgentId,
     _work_dir: &Path,
-    signature: &AgentLaunchRequest,
+    prepared: &PreparedLaunch,
     settle_delay: Duration,
 ) -> Result<(), RuntimeError> {
-    let (plan, remote) = jefe::runtime::launch_compose::plan_from_request(signature)?;
-    runtime.spawn_session_fresh(agent_id, &plan, remote.as_ref())?;
+    runtime.spawn_session_fresh(agent_id, prepared.authorized(), prepared.remote())?;
     if !settle_delay.is_zero() {
         std::thread::sleep(settle_delay);
     }

@@ -12,8 +12,8 @@ use iocraft::Color;
 use super::errors::RuntimeError;
 use super::manager::RuntimeManager;
 use super::session::{RuntimeSession, TerminalCellStyle, TerminalSnapshot};
-use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::domain::{AgentId, RemoteRepositorySettings};
+use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
 
 /// Stub implementation of RuntimeManager for testing.
 #[derive(Debug, Default)]
@@ -24,6 +24,10 @@ pub struct StubRuntimeManager {
     attach_failure: Option<RuntimeError>,
     /// Agent IDs whose embedded shell window is currently open (issue #222).
     open_shell_windows: HashSet<AgentId>,
+    /// Agent IDs killed via `kill`, mirroring the real manager's dead-marker
+    /// set: `relaunch` only accepts an agent that was previously running and
+    /// then killed, and a successful spawn/relaunch clears the marker.
+    dead_agents: HashSet<AgentId>,
 }
 
 impl StubRuntimeManager {
@@ -50,13 +54,15 @@ impl RuntimeManager for StubRuntimeManager {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        plan: &AgentLaunchPlan,
+        launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        let cleared = launch
+            .prepare_current(&ProcessSandboxInspector::new())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
         if let Some(error) = &self.spawn_failure {
             return Err(error.clone());
         }
-        // Check for duplicate
         if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
@@ -64,10 +70,13 @@ impl RuntimeManager for StubRuntimeManager {
         let session = RuntimeSession::new(
             agent_id.clone(),
             RuntimeSession::session_name_for(agent_id),
-            plan.clone(),
+            cleared.plan().clone(),
             remote.cloned(),
         );
         self.sessions.push(session);
+        // A successful spawn clears any prior dead marker, mirroring the real
+        // manager's `dead_plans` pop-on-spawn behavior.
+        self.dead_agents.remove(agent_id);
         Ok(())
     }
 
@@ -106,21 +115,31 @@ impl RuntimeManager for StubRuntimeManager {
                 Some(i) if i > idx => self.attached_index = Some(i - 1),
                 _ => {}
             }
+            // Record the killed agent as eligible for relaunch, mirroring the
+            // real manager's dead-marker retention.
+            self.dead_agents.insert(agent_id.clone());
             Ok(())
         } else {
             Err(RuntimeError::SessionNotFound(agent_id.0.clone()))
         }
     }
 
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
-        // Stub: verify agent existed but is dead (removed)
-        // In real impl, would respawn using stored AgentLaunchRequest
+    fn relaunch(
+        &mut self,
+        agent_id: &AgentId,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> Result<(), RuntimeError> {
         if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
-            Err(RuntimeError::AlreadyRunning(agent_id.clone()))
-        } else {
-            // Would need stored signature to relaunch
-            Err(RuntimeError::NotRunning(agent_id.clone()))
+            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
+        // Relaunch requires a prior kill (dead marker), mirroring the real
+        // manager's `dead_plans` eligibility check. An agent that was never
+        // running cannot be relaunched.
+        if !self.dead_agents.contains(agent_id) {
+            return Err(RuntimeError::NotRunning(agent_id.clone()));
+        }
+        self.spawn_session(agent_id, launch, remote)
     }
 
     fn is_alive(&self, agent_id: &AgentId) -> bool {
@@ -268,16 +287,50 @@ impl RuntimeManager for StubRuntimeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::agent_execution_guard::{
+        AuthorizationResult, ExecutionEvidence, authorize_execution,
+    };
+    use crate::runtime::agent_preflight::{
+        PreparationOutcome, ProcessSandboxInspector, prepare_execution,
+    };
 
-    fn stub_with_session(agent_id: &AgentId) -> StubRuntimeManager {
-        let mut stub = StubRuntimeManager::default();
-        let plan = crate::domain::agent_definition::AgentLaunchPlan {
+    fn fixture_plan() -> crate::domain::agent_definition::AgentLaunchPlan {
+        crate::domain::agent_definition::AgentLaunchPlan {
             cwd: std::path::PathBuf::from("/tmp/work"),
             target: crate::domain::agent_definition::Target::Local {
                 canonical_cwd: std::path::PathBuf::from("/tmp/work"),
             },
             ..crate::domain::agent_definition::AgentLaunchPlan::default()
+        }
+    }
+
+    /// Seal a fixture plan into an [`AuthorizedLaunchPlan`] through the real
+    /// authorize + preflight proof chain.
+    fn authorized(plan: &crate::domain::agent_definition::AgentLaunchPlan) -> AuthorizedLaunchPlan {
+        let evidence = ExecutionEvidence::new(
+            plan.definition_sha256,
+            plan.executable_fingerprint.clone(),
+            plan.probe_generation,
+            plan.target_generation,
+            plan.activation_generation,
+        );
+        let authorized = match authorize_execution(plan, &evidence) {
+            AuthorizationResult::Authorized(authorized) => authorized,
+            AuthorizationResult::Rejected(error) => panic!("fixture must authorize: {error}"),
         };
+        let cleared = match prepare_execution(authorized, None, &ProcessSandboxInspector::new()) {
+            PreparationOutcome::Cleared(cleared) => cleared,
+            PreparationOutcome::Unavailable(reason) => {
+                panic!("fixture must clear preflight: {reason}")
+            }
+        };
+        AuthorizedLaunchPlan::from_cleared(cleared, plan.clone(), evidence)
+            .unwrap_or_else(|error| panic!("fixture must seal: {error}"))
+    }
+
+    fn stub_with_session(agent_id: &AgentId) -> StubRuntimeManager {
+        let mut stub = StubRuntimeManager::default();
+        let plan = authorized(&fixture_plan());
         stub.spawn_session(agent_id, &plan, None)
             .unwrap_or_else(|e| panic!("spawn: {e}"));
         stub
@@ -288,13 +341,7 @@ mod tests {
         let a = AgentId("a".into());
         let b = AgentId("b".into());
         let mut stub = stub_with_session(&a);
-        let plan = crate::domain::agent_definition::AgentLaunchPlan {
-            cwd: std::path::PathBuf::from("/tmp/work"),
-            target: crate::domain::agent_definition::Target::Local {
-                canonical_cwd: std::path::PathBuf::from("/tmp/work"),
-            },
-            ..crate::domain::agent_definition::AgentLaunchPlan::default()
-        };
+        let plan = authorized(&fixture_plan());
         stub.spawn_session(&b, &plan, None)
             .unwrap_or_else(|e| panic!("spawn: {e}"));
         stub.open_shell_window(&a)

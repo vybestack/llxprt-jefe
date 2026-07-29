@@ -70,12 +70,13 @@ pub fn run_non_interactive(
     request
         .values
         .insert(prompt, TypedValue::String(instruction.to_owned()));
-    let (plan, remote) = super::launch_compose::plan_from_request(&request)?;
-    if remote.is_some() {
-        return Err(RuntimeError::RemoteExecutionFailed(
-            "non-interactive remote execution is not supported".to_owned(),
-        ));
-    }
+    let launch_state = super::launch_compose::observe_launch_state(&request)?;
+    let prepared = super::launch_compose::prepare_launch(&request, &launch_state)?;
+    let cleared = prepared
+        .authorized()
+        .prepare_current(&super::ProcessSandboxInspector::new())
+        .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+    let plan = cleared.plan();
     let mut command = command_for_path(&plan.executable, plan.executable_wrapper, &plan.argv);
     command
         .envs(plan.env.iter().cloned())

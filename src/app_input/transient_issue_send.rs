@@ -127,7 +127,9 @@ fn transient_issue_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig) {
+    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig)
+        || !super::availability::prepare_launch_or_error(app_state, &prep.launch_sig)
+    {
         fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
     }
@@ -139,14 +141,6 @@ fn transient_issue_availability_and_target(
             return None;
         }
     };
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &prep.launch_sig,
-    ) {
-        fail_transient_agent(app_state, ctx, &prep.agent_id);
-        return None;
-    }
     Some(target)
 }
 
@@ -331,7 +325,8 @@ fn launch_transient_issue_agent(
     launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
-    let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    let launched =
+        spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched_ok = launched.is_ok();
     let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched_ok);
     if launched_ok {

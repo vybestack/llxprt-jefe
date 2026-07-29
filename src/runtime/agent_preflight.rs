@@ -36,7 +36,10 @@ use std::fmt;
 use std::process::Command;
 
 use crate::domain::agent_definition::types::AgentLaunchPlan;
-use crate::runtime::agent_execution_guard::AuthorizedExecution;
+use crate::runtime::agent_execution_guard::{
+    AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
+    authorize_execution,
+};
 
 // ---------------------------------------------------------------------------
 // Inspection outcome
@@ -258,6 +261,114 @@ impl<'a> PreflightCleared<'a> {
     pub fn engine_fingerprint(&self) -> Option<&str> {
         self.engine_fingerprint.as_deref()
     }
+}
+
+/// Owned proof that a launch plan passed authorization and preflight.
+///
+/// One immutable launch plan passed full authorization and sandbox preflight.
+/// Runtime creation accepts this proof rather than a raw plan and rechecks it
+/// immediately before its first effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthorizedLaunchPlan {
+    plan: AgentLaunchPlan,
+    evidence: ExecutionEvidence,
+    engine_fingerprint: Option<String>,
+}
+
+/// Failure while sealing or immediately revalidating an authorized launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchProofError {
+    /// Current execution evidence no longer matches the immutable plan.
+    Authorization(AuthorizationRejection),
+    /// Sandbox preflight did not clear.
+    Preflight(UnavailableReason),
+    /// Post-preflight prompt assembly changed a plan dimension other than argv.
+    FinalPlanChanged,
+}
+
+impl fmt::Display for LaunchProofError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Authorization(error) => error.fmt(formatter),
+            Self::Preflight(error) => error.fmt(formatter),
+            Self::FinalPlanChanged => {
+                formatter.write_str("post-preflight launch assembly changed protected plan fields")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LaunchProofError {}
+
+impl AuthorizedLaunchPlan {
+    /// Seal a cleared plan. `final_plan` may differ only in argv assembled by
+    /// the fresh-send boundary.
+    ///
+    /// This is the public sealing entry point for the launch-proof boundary:
+    /// callers must supply a [`PreflightCleared`] (only obtainable from
+    /// [`prepare_execution`] after [`authorize_execution`] succeeded) plus
+    /// matching [`ExecutionEvidence`]. The boundary re-authorizes the plan
+    /// against the evidence, so a forged or stale combination is rejected with
+    /// [`LaunchProofError::Authorization`]. No private field is ever set
+    /// directly; this is the only way to construct an [`AuthorizedLaunchPlan`].
+    pub fn from_cleared(
+        cleared: PreflightCleared<'_>,
+        final_plan: AgentLaunchPlan,
+        evidence: ExecutionEvidence,
+    ) -> Result<Self, LaunchProofError> {
+        if !same_protected_plan(cleared.plan(), &final_plan) {
+            return Err(LaunchProofError::FinalPlanChanged);
+        }
+        match authorize_execution(&final_plan, &evidence) {
+            AuthorizationResult::Authorized(_) => Ok(Self {
+                plan: final_plan,
+                evidence,
+                engine_fingerprint: cleared.engine_fingerprint.clone(),
+            }),
+            AuthorizationResult::Rejected(error) => Err(LaunchProofError::Authorization(error)),
+        }
+    }
+
+    /// Borrow the immutable plan for non-effectful projection.
+    #[must_use]
+    pub const fn plan(&self) -> &AgentLaunchPlan {
+        &self.plan
+    }
+
+    /// Reauthorize and repeat preflight against the fingerprint captured by the
+    /// first clearance. Runtime managers call this immediately before effects.
+    pub fn prepare_current(
+        &self,
+        inspector: &dyn SandboxInspector,
+    ) -> Result<PreflightCleared<'_>, LaunchProofError> {
+        let authorized = match authorize_execution(&self.plan, &self.evidence) {
+            AuthorizationResult::Authorized(authorized) => authorized,
+            AuthorizationResult::Rejected(error) => {
+                return Err(LaunchProofError::Authorization(error));
+            }
+        };
+        match prepare_execution(authorized, self.engine_fingerprint.as_deref(), inspector) {
+            PreparationOutcome::Cleared(cleared) => Ok(cleared),
+            PreparationOutcome::Unavailable(reason) => Err(LaunchProofError::Preflight(reason)),
+        }
+    }
+}
+
+fn same_protected_plan(before: &AgentLaunchPlan, after: &AgentLaunchPlan) -> bool {
+    before.type_id == after.type_id
+        && before.operation == after.operation
+        && before.definition_sha256 == after.definition_sha256
+        && before.executable == after.executable
+        && before.executable_fingerprint == after.executable_fingerprint
+        && before.executable_wrapper == after.executable_wrapper
+        && before.env == after.env
+        && before.cwd == after.cwd
+        && before.target == after.target
+        && before.probe_generation == after.probe_generation
+        && before.target_generation == after.target_generation
+        && before.activation_generation == after.activation_generation
+        && before.preflight == after.preflight
+        && before.signature == after.signature
 }
 
 // ---------------------------------------------------------------------------

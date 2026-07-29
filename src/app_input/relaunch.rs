@@ -2,7 +2,8 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentId, AgentLaunchRequest, AgentStatus, ProcessIdentity};
+use jefe::domain::{AgentId, AgentStatus, ProcessIdentity};
+use jefe::runtime::launch_compose::PreparedLaunch;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
 use tracing::warn;
@@ -109,17 +110,19 @@ fn relaunch_runtime_session(
     ctx: &SharedContext,
     agent_id: &AgentId,
 ) -> Result<(), RuntimeError> {
+    let state_ro = app_state.read();
+    let (agent, signature) = agent_and_signature(&state_ro, agent_id)
+        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+    drop(state_ro);
+    let evidence = availability::launch_state_evidence(app_state, &signature)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(&signature, &evidence)?;
+
     let ctx_arc = ctx.as_ref().ok_or_else(|| {
         RuntimeError::SpawnFailed("runtime context unavailable during relaunch".to_owned())
     })?;
     let mut ctx_guard = ctx_arc.lock().map_err(|_| {
         RuntimeError::SpawnFailed("runtime context lock unavailable during relaunch".to_owned())
     })?;
-
-    let state_ro = app_state.read();
-    let (agent, signature) = agent_and_signature(&state_ro, agent_id)
-        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
-    drop(state_ro);
 
     // Relaunch guard (issue #332): if a validated orphan worker descendant is
     // still alive, spawning now would create a duplicate --continue worker.
@@ -131,12 +134,7 @@ fn relaunch_runtime_session(
         return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
     }
 
-    spawn_relaunch_session(
-        &mut ctx_guard.runtime,
-        agent_id,
-        &agent.work_dir,
-        &signature,
-    )?;
+    spawn_relaunch_session(&mut ctx_guard.runtime, agent_id, &agent.work_dir, &prepared)?;
     std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
     if let Err(error) = attach_relaunched_session(&mut ctx_guard.runtime, agent_id) {
         let _ = ctx_guard.runtime.mark_session_dead(agent_id);
@@ -151,12 +149,13 @@ pub(super) fn spawn_relaunch_session<R: RuntimeManager>(
     runtime: &mut R,
     agent_id: &AgentId,
     _work_dir: &Path,
-    signature: &AgentLaunchRequest,
+    prepared: &PreparedLaunch,
 ) -> Result<(), RuntimeError> {
-    let (plan, remote) = jefe::runtime::launch_compose::plan_from_request(signature)?;
-    match runtime.spawn_session_fresh(agent_id, &plan, remote.as_ref()) {
+    match runtime.spawn_session_fresh(agent_id, prepared.authorized(), prepared.remote()) {
         Ok(()) => Ok(()),
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id),
+        Err(RuntimeError::AlreadyRunning(_)) => {
+            runtime.relaunch(agent_id, prepared.authorized(), prepared.remote())
+        }
         Err(error) => Err(error),
     }
 }
@@ -372,8 +371,7 @@ fn persist_relaunch_success(
             state,
             agent_id,
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-            jefe::runtime::launch_compose::plan_from_request(&signature)
-                .map(|(plan, _)| plan.signature)
+            jefe::runtime::launch_compose::launch_signature_from_request(&signature)
                 .unwrap_or_default(),
             pid,
             process_identity,

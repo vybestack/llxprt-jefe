@@ -56,10 +56,9 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     let prompt = issues_dispatch::format_issue_prompt(&send_info.payload);
     let launch_sig = prepare_issue_launch_signature(send_info.signature, &prompt);
 
-    // Availability guard BEFORE any prep side effects: a missing agent
-    // runtime must not trigger a remote clone/checkout. Prep (clone/reset/
-    // clean) only runs when the agent kind is available.
-    if !super::availability::launch_available_or_error(app_state, &launch_sig) {
+    if !super::availability::launch_available_or_error(app_state, &launch_sig)
+        || !super::availability::prepare_launch_or_error(app_state, &launch_sig)
+    {
         return;
     }
 
@@ -70,20 +69,6 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
             return;
         }
     };
-
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
-    // git prep/cleanup/prompt side effect, probe the selected runtime on the
-    // resolved target. For local targets this reuses the session snapshot;
-    // for remote targets this is a no-install/no-setup/side-effect-free
-    // ssh -T probe for the exact binary executed as the effective run_as_user.
-    // Unavailable remote means no prep/prompt operation.
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &launch_sig,
-    ) {
-        return;
-    }
 
     let outcome = prepare_issue_target(
         &target,
@@ -536,7 +521,8 @@ pub(super) fn launch_issue_agent(
     launch_sig: AgentLaunchRequest,
     assignment: IssueAssignment,
 ) {
-    let launch_result = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    let launch_result =
+        spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched = launch_result.is_ok();
     // Resolve the worker PID for the persisted binding's PID-liveness
     // fallback, before taking the app-state write lock (lock-ordering
@@ -598,11 +584,14 @@ pub(super) fn apply_assignment_action(
 }
 
 pub(super) fn spawn_and_attach_fresh_for_issue(
+    app_state: &AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: &Path,
     launch_sig: &AgentLaunchRequest,
 ) -> Result<(), RuntimeError> {
+    let evidence = super::availability::launch_state_evidence(app_state, launch_sig)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(launch_sig, &evidence)?;
     let Some(ctx_arc) = ctx else {
         return Err(RuntimeError::SpawnFailed(
             "runtime context unavailable".to_owned(),
@@ -617,7 +606,7 @@ pub(super) fn spawn_and_attach_fresh_for_issue(
         &mut ctx_guard.runtime,
         agent_id,
         work_dir,
-        launch_sig,
+        &prepared,
         REMOTE_ATTACH_SETTLE_DELAY,
     );
     if let Err(error) = &result {
@@ -639,9 +628,10 @@ pub(super) fn persist_issue_agent_launch_success(
         let session_name = jefe::runtime::RuntimeSession::session_name_for(agent_id);
         agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
             session_name,
-            launch_signature: jefe::runtime::launch_compose::plan_from_request(&launch_sig)
-                .map(|(plan, _)| plan.signature)
-                .unwrap_or_default(),
+            launch_signature: jefe::runtime::launch_compose::launch_signature_from_request(
+                &launch_sig,
+            )
+            .unwrap_or_default(),
             attached: false,
             last_seen: None,
             process_identity,

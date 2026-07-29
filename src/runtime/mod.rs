@@ -22,6 +22,7 @@ mod agent_probe_parse;
 mod agent_probe_process;
 /// Definition-driven immutable remote launch plan generation (issue #382 S9).
 pub mod agent_remote_plan;
+mod agent_remote_probe;
 mod async_attach;
 mod attach;
 mod attach_mode_recovery;
@@ -81,8 +82,8 @@ pub use agent_fresh_send::{
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use agent_preflight::{
-    InspectOutcome, PreflightCleared, PreparationOutcome, ProcessSandboxInspector,
-    SandboxInspector, UnavailableReason, prepare_execution,
+    AuthorizedLaunchPlan, InspectOutcome, LaunchProofError, PreflightCleared, PreparationOutcome,
+    ProcessSandboxInspector, SandboxInspector, UnavailableReason, prepare_execution,
 };
 pub use agent_probe::{
     AgentProbeResult, AgentProbeTarget, run_local_agent_probe, run_local_agent_probe_with_cache,
@@ -187,6 +188,48 @@ mod session_host_tests;
 #[path = "job_object_tests.rs"]
 mod job_object_tests;
 
+/// Shared test support for sealing a fixture [`AgentLaunchPlan`] into an
+/// [`AuthorizedLaunchPlan`] through the real authorize + preflight proof chain.
+///
+/// Available only under `cfg(test)`. In-crate test modules use this to build
+/// runtime launch proofs without forging private fields or adding backdoors.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use crate::domain::agent_definition::AgentLaunchPlan;
+    use crate::runtime::agent_execution_guard::{
+        AuthorizationResult, ExecutionEvidence, authorize_execution,
+    };
+    use crate::runtime::agent_preflight::{
+        AuthorizedLaunchPlan, PreparationOutcome, ProcessSandboxInspector, prepare_execution,
+    };
+
+    /// Seal `plan` into an [`AuthorizedLaunchPlan`] using evidence derived from
+    /// the plan's own generation-bearing fields so the (default) fixture
+    /// authorizes and clears preflight trivially.
+    #[must_use]
+    pub fn authorized_launch_plan(plan: &AgentLaunchPlan) -> AuthorizedLaunchPlan {
+        let evidence = ExecutionEvidence::new(
+            plan.definition_sha256,
+            plan.executable_fingerprint.clone(),
+            plan.probe_generation,
+            plan.target_generation,
+            plan.activation_generation,
+        );
+        let authorized = match authorize_execution(plan, &evidence) {
+            AuthorizationResult::Authorized(authorized) => authorized,
+            AuthorizationResult::Rejected(error) => panic!("fixture must authorize: {error}"),
+        };
+        let cleared = match prepare_execution(authorized, None, &ProcessSandboxInspector::new()) {
+            PreparationOutcome::Cleared(cleared) => cleared,
+            PreparationOutcome::Unavailable(reason) => {
+                panic!("fixture must clear preflight: {reason}")
+            }
+        };
+        AuthorizedLaunchPlan::from_cleared(cleared, plan.clone(), evidence)
+            .unwrap_or_else(|error| panic!("fixture must seal: {error}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -194,6 +237,8 @@ mod tests {
     use super::*;
     use crate::domain::AgentId;
     use crate::domain::agent_definition::AgentLaunchPlan;
+    use crate::runtime::agent_preflight::AuthorizedLaunchPlan;
+    use crate::runtime::test_support::authorized_launch_plan;
 
     fn fixture_plan(work_dir: &str) -> AgentLaunchPlan {
         AgentLaunchPlan {
@@ -202,11 +247,18 @@ mod tests {
         }
     }
 
+    /// Seal a fixture plan into an [`AuthorizedLaunchPlan`] through the real
+    /// authorize + preflight proof chain, deriving matching evidence from the
+    /// plan's own fields.
+    fn authorized(plan: &AgentLaunchPlan) -> AuthorizedLaunchPlan {
+        authorized_launch_plan(plan)
+    }
+
     #[test]
     fn stub_spawn_and_attach() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let plan = fixture_plan("/tmp");
+        let plan = authorized(&fixture_plan("/tmp"));
 
         if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
@@ -223,7 +275,7 @@ mod tests {
     fn stub_kill_removes_session() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let plan = fixture_plan("/tmp");
+        let plan = authorized(&fixture_plan("/tmp"));
 
         if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
@@ -245,7 +297,7 @@ mod tests {
     fn stub_duplicate_spawn_fails() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("test-1".into());
-        let plan = fixture_plan("/tmp");
+        let plan = authorized(&fixture_plan("/tmp"));
         if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("first spawn should succeed: {error}");
         }
@@ -257,7 +309,7 @@ mod tests {
     fn stub_spawn_session_fresh_matches_spawn_semantics() {
         let mut mgr = StubRuntimeManager::default();
         let agent_id = AgentId("fresh-test".into());
-        let plan = fixture_plan("/tmp");
+        let plan = authorized(&fixture_plan("/tmp"));
 
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &plan, None) {
             panic!("fresh spawn should succeed: {error}");

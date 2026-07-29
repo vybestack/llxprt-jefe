@@ -20,7 +20,7 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
     // Insert well beyond the capacity.
     for i in 0..cap + 10 {
         let id = AgentId(format!("agent-{i}"));
-        let _ = cache.put(id, retained_fixture());
+        let _ = cache.put(id, RetainedLaunch);
     }
 
     // The cache must never exceed the configured bound.
@@ -36,14 +36,7 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
             .is_some()
     );
     dead_signature_retains_selector_for_relaunch();
-    failed_relaunch_retains_exact_selector_for_successful_retry();
-}
-
-fn retained_fixture() -> RetainedLaunch {
-    RetainedLaunch {
-        plan: AgentLaunchPlan::default(),
-        remote: None,
-    }
+    failed_relaunch_retains_dead_marker_for_successful_retry();
 }
 
 fn dead_signature_retains_selector_for_relaunch() {
@@ -62,20 +55,21 @@ fn dead_signature_retains_selector_for_relaunch() {
     assert!(manager.mark_session_dead(&agent_id));
     assert!(manager.dead_plans.peek(&agent_id).is_some());
 }
-fn failed_relaunch_retains_exact_selector_for_successful_retry() {
+fn failed_relaunch_retains_dead_marker_for_successful_retry() {
+    // relaunch now supplies its own authorized plan, so the retained entry is a
+    // dead-marker only. `complete_relaunch_attempt` must retain the marker on
+    // failure (allowing retry) and clear it on success.
     let agent_id = AgentId("retry-selector-agent".to_owned());
     let mut cache = LruCache::new(MAX_DEAD_SIGNATURES);
-    let _ = cache.put(agent_id.clone(), retained_fixture());
+    let _ = cache.put(agent_id.clone(), RetainedLaunch);
 
-    let first_attempt = retained_relaunch_plan(&mut cache, &agent_id)
-        .unwrap_or_else(|error| panic!("first relaunch should find plan: {error}"));
     let failure = RuntimeError::SpawnFailed("npm package disappeared".to_owned());
     assert!(complete_relaunch_attempt(&mut cache, &agent_id, Err(failure)).is_err());
+    // A failed relaunch retains the dead marker so the caller may retry.
+    assert!(cache.peek(&agent_id).is_some());
 
-    let retry = retained_relaunch_plan(&mut cache, &agent_id)
-        .unwrap_or_else(|error| panic!("retry should retain plan: {error}"));
-    assert_eq!(retry.plan, first_attempt.plan);
     assert!(complete_relaunch_attempt(&mut cache, &agent_id, Ok(())).is_ok());
+    // A successful relaunch clears the dead marker.
     assert!(cache.peek(&agent_id).is_none());
 }
 

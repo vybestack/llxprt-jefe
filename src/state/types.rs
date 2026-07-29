@@ -372,6 +372,8 @@ pub struct AppState {
     pub available_agent_type_ids: Vec<crate::domain::agent_definition::AgentTypeId>,
     /// Definition-driven runtime availability observed once during startup.
     pub agent_type_availability: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// Monotonic generation allocated by the state-owned availability boundary.
+    pub agent_probe_generation: u64,
 
     // Selection
     pub selected_repository_index: Option<usize>,

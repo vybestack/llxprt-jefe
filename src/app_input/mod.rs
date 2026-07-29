@@ -300,7 +300,7 @@ fn execute_agent_launch(
     signature: &AgentLaunchRequest,
     is_relaunch: bool,
 ) -> Result<(), RuntimeError> {
-    match spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch) {
+    match spawn_and_attach(app_state, ctx, agent_id, work_dir, signature, is_relaunch) {
         Ok(()) => {
             mark_launch_attached(app_state, ctx, agent_id, signature)?;
             Ok(())
@@ -314,12 +314,15 @@ fn execute_agent_launch(
 }
 
 fn spawn_and_attach(
+    app_state: &AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
     _work_dir: &std::path::Path,
     signature: &AgentLaunchRequest,
     is_relaunch: bool,
 ) -> Result<(), RuntimeError> {
+    let evidence = availability::launch_state_evidence(app_state, signature)?;
+    let prepared = jefe::runtime::launch_compose::prepare_launch(signature, &evidence)?;
     let Some(ctx_arc) = ctx else {
         return Err(RuntimeError::SpawnFailed(
             "runtime context unavailable".to_owned(),
@@ -331,15 +334,14 @@ fn spawn_and_attach(
         ));
     };
 
-    let (plan, remote) = jefe::runtime::launch_compose::plan_from_request(signature)?;
     let spawn_result = if is_relaunch {
         ctx_guard
             .runtime
-            .spawn_session_fresh(agent_id, &plan, remote.as_ref())
+            .spawn_session_fresh(agent_id, prepared.authorized(), prepared.remote())
     } else {
         ctx_guard
             .runtime
-            .spawn_session(agent_id, &plan, remote.as_ref())
+            .spawn_session(agent_id, prepared.authorized(), prepared.remote())
     };
     spawn_result.and_then(|()| {
         std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);

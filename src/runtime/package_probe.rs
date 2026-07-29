@@ -95,9 +95,9 @@ impl std::fmt::Display for NpmPackageAvailabilityError {
 
 impl std::error::Error for NpmPackageAvailabilityError {}
 
-/// Validate package/candidate availability through the canonical generic planner.
+/// Validate package/candidate availability after support and generation checks.
 pub fn require_launch_package_available(
     request: &AgentLaunchRequest,
 ) -> Result<(), super::RuntimeError> {
-    super::launch_compose::plan_from_request(request).map(|_| ())
+    super::launch_compose::observe_launch_state(request).map(|_| ())
 }

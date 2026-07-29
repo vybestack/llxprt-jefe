@@ -1,4 +1,11 @@
+use jefe::domain::agent_definition::AgentLaunchPlan;
 use jefe::domain::{AgentId, AgentStatus, RuntimeBinding};
+use jefe::runtime::agent_execution_guard::{
+    AuthorizationResult, ExecutionEvidence, authorize_execution,
+};
+use jefe::runtime::agent_preflight::{
+    AuthorizedLaunchPlan, PreparationOutcome, ProcessSandboxInspector, prepare_execution,
+};
 use jefe::runtime::{
     NpmPackageAvailabilityError, RuntimeError, RuntimeManager, StubRuntimeManager,
 };
@@ -9,6 +16,29 @@ use super::relaunch::{
     open_server_lost_recovery, persist_relaunch_failure, spawn_relaunch_session,
 };
 use super::tests::{sample_agent, sample_launch_signature};
+
+/// Seal a fixture plan into an [`AuthorizedLaunchPlan`] through the real
+/// authorize + preflight proof chain, using evidence derived from the plan's
+/// own generation-bearing fields.
+fn authorized_launch_plan(plan: &AgentLaunchPlan) -> AuthorizedLaunchPlan {
+    let evidence = ExecutionEvidence::new(
+        plan.definition_sha256,
+        plan.executable_fingerprint.clone(),
+        plan.probe_generation,
+        plan.target_generation,
+        plan.activation_generation,
+    );
+    let authorized = match authorize_execution(plan, &evidence) {
+        AuthorizationResult::Authorized(authorized) => authorized,
+        AuthorizationResult::Rejected(error) => panic!("fixture must authorize: {error}"),
+    };
+    let cleared = match prepare_execution(authorized, None, &ProcessSandboxInspector::new()) {
+        PreparationOutcome::Cleared(cleared) => cleared,
+        PreparationOutcome::Unavailable(reason) => panic!("fixture must clear preflight: {reason}"),
+    };
+    AuthorizedLaunchPlan::from_cleared(cleared, plan.clone(), evidence)
+        .unwrap_or_else(|error| panic!("fixture must seal: {error}"))
+}
 
 fn bound_agent_state(agent_id: &AgentId) -> AppState {
     let mut agent = sample_agent(agent_id);
@@ -62,7 +92,7 @@ fn attach_failure_is_preserved_as_distinct_relaunch_diagnostic() {
     let attach_error =
         RuntimeError::AttachFailed("session exited before the viewer became ready".to_owned());
     let mut runtime = StubRuntimeManager::with_attach_failure(attach_error.clone());
-    let plan = jefe::domain::agent_definition::AgentLaunchPlan::default();
+    let plan = authorized_launch_plan(&AgentLaunchPlan::default());
     if let Err(error) = runtime.spawn_session(&agent_id, &plan, None) {
         panic!("test session should spawn: {error}");
     }

@@ -32,6 +32,7 @@ use jefe::domain::effects::AgentAvailabilityProbe;
 pub struct StartupAgentAvailability {
     pub observations: Vec<AgentAvailabilityObservation>,
     pub probes: Vec<AgentAvailabilityProbe>,
+    pub latest_generation: u64,
 }
 
 /// Resolve every immutable shipped definition without spawning a process.
@@ -42,34 +43,49 @@ pub struct StartupAgentAvailability {
 pub fn observe_startup_agent_availability<F>(
     registry: &AgentTypeRegistry,
     repository_root: &Path,
+    starting_generation: u64,
     is_enabled: F,
-) -> StartupAgentAvailability
+) -> Result<StartupAgentAvailability, String>
 where
     F: Fn(&jefe::domain::agent_definition::AgentTypeId) -> bool,
 {
     let path = PathSnapshot::current();
-    observe_agent_availability_with_path(registry, repository_root, &path, is_enabled)
+    observe_agent_availability_with_path(
+        registry,
+        repository_root,
+        &path,
+        starting_generation,
+        is_enabled,
+    )
 }
 
 fn observe_agent_availability_with_path<F>(
     registry: &AgentTypeRegistry,
     repository_root: &Path,
     path: &PathSnapshot,
+    starting_generation: u64,
     is_enabled: F,
-) -> StartupAgentAvailability
+) -> Result<StartupAgentAvailability, String>
 where
     F: Fn(&jefe::domain::agent_definition::AgentTypeId) -> bool,
 {
     let resolver = AgentCandidateResolver::new(path, repository_root.to_path_buf());
     let mut observations = Vec::with_capacity(registry.definitions().len());
     let mut probes = Vec::with_capacity(registry.definitions().len());
-    for (index, definition) in registry.definitions().iter().enumerate() {
+    let mut latest_generation = starting_generation;
+    for definition in registry.definitions() {
+        latest_generation = latest_generation
+            .checked_add(1)
+            .ok_or_else(|| "agent availability probe generation exhausted".to_owned())?;
         let resolution = resolver.resolve(definition);
-        let generation = u64::try_from(index).map_or(u64::MAX, |value| value.saturating_add(1));
+        let generation = latest_generation;
         let enabled = is_enabled(&definition.id);
         if resolution.is_resolved() {
             observations.push(AgentAvailabilityObservation::pending(
-                definition, enabled, generation,
+                definition,
+                enabled,
+                generation,
+                resolution.clone(),
             ));
             probes.push(AgentAvailabilityProbe {
                 definition: Box::new(definition.clone()),
@@ -77,17 +93,16 @@ where
                 generation,
             });
         } else {
-            observations.push(AgentAvailabilityObservation::new(
-                definition,
-                enabled,
-                Availability::NotFound,
+            observations.push(AgentAvailabilityObservation::not_found(
+                definition, enabled, generation,
             ));
         }
     }
-    StartupAgentAvailability {
+    Ok(StartupAgentAvailability {
         observations,
         probes,
-    }
+        latest_generation,
+    })
 }
 
 use jefe::domain::agent_definition::AgentTypeId;
@@ -110,42 +125,86 @@ pub(super) fn require_local_kind_available(
     require_local_kind_available_for_target(type_id, available)
 }
 
-pub(super) fn require_launch_available(
-    request: &AgentLaunchRequest,
-    available: &[AgentTypeId],
-) -> Result<(), String> {
-    if !request.remote.enabled
-        && matches!(
-            typed_field(&request.values, "version_selector"),
-            Some(TypedValue::String(value)) if !value.trim().is_empty()
-        )
-        && jefe::domain::agent_definition::AgentDefinition::shipped()
-            .into_iter()
-            .find(|definition| definition.id == request.type_id)
-            .is_some_and(|definition| {
-                definition
-                    .candidates
-                    .iter()
-                    .any(|candidate| candidate.kind.is_package_runner())
-            })
-    {
-        return Ok(());
-    }
-    require_local_kind_available(&request.type_id, &request.remote, available)
-}
-
 pub(super) fn launch_available_or_error(
     app_state: &mut AppStateHandle,
     request: &AgentLaunchRequest,
 ) -> bool {
-    let available = jefe::agent_detection::available_agent_type_ids();
-    match require_launch_available(request, available) {
+    let result = {
+        let state = app_state.read();
+        if request.remote.enabled {
+            require_local_kind_available(&request.type_id, &request.remote, &[])
+        } else if has_package_selector(request) {
+            Ok(())
+        } else {
+            state
+                .agent_type_availability
+                .iter()
+                .find(|observation| observation.type_id() == &request.type_id)
+                .ok_or_else(|| format!("no state-owned availability for {}", request.type_id))
+                .and_then(|observation| match observation.availability() {
+                    Availability::InstalledCompatible { .. } => Ok(()),
+                    Availability::InstalledIncompatible { reason, .. }
+                    | Availability::ProbeError { reason, .. } => Err(reason.clone()),
+                    Availability::NotFound => Err(format!(
+                        "{} is not installed on the local PATH",
+                        observation.display_name()
+                    )),
+                })
+        }
+    };
+    match result {
         Ok(()) => true,
         Err(message) => {
             app_state.write().error_message = Some(message);
             false
         }
     }
+}
+
+pub(super) fn launch_state_evidence(
+    app_state: &AppStateHandle,
+    request: &AgentLaunchRequest,
+) -> Result<jefe::runtime::launch_compose::LaunchStateEvidence, jefe::runtime::RuntimeError> {
+    let state = app_state.read();
+    let observation = state
+        .agent_type_availability
+        .iter()
+        .find(|observation| observation.type_id() == &request.type_id)
+        .ok_or_else(|| {
+            jefe::runtime::RuntimeError::SpawnFailed(format!(
+                "no state-owned availability evidence for {}",
+                request.type_id
+            ))
+        })?;
+    Ok(
+        jefe::runtime::launch_compose::LaunchStateEvidence::from_observation(
+            observation,
+            state.pending_effects.screen_generation,
+            state.pending_effects.activation_generation,
+        ),
+    )
+}
+
+pub(super) fn prepare_launch_or_error(
+    app_state: &mut AppStateHandle,
+    request: &AgentLaunchRequest,
+) -> bool {
+    let prepared = launch_state_evidence(app_state, request)
+        .and_then(|evidence| jefe::runtime::launch_compose::prepare_launch(request, &evidence));
+    match prepared {
+        Ok(_) => true,
+        Err(error) => {
+            app_state.write().error_message = Some(error.to_string());
+            false
+        }
+    }
+}
+
+fn has_package_selector(request: &AgentLaunchRequest) -> bool {
+    matches!(
+        typed_field(&request.values, "version_selector"),
+        Some(TypedValue::String(value)) if !value.trim().is_empty()
+    )
 }
 
 pub(super) fn require_local_kind_available_for_target(
@@ -169,6 +228,32 @@ pub(super) fn require_local_kind_available_for_target(
 mod tests {
     use super::*;
     use jefe::domain::{AgentTypeId, RemoteRepositorySettings};
+
+    /// A pinned package-runner selector does not require a global snapshot of
+    /// that runner being installed locally (issue #382 availability contract).
+    fn require_launch_available(
+        request: &AgentLaunchRequest,
+        available: &[AgentTypeId],
+    ) -> Result<(), String> {
+        if !request.remote.enabled
+            && matches!(
+                typed_field(&request.values, "version_selector"),
+                Some(TypedValue::String(value)) if !value.trim().is_empty()
+            )
+            && jefe::domain::agent_definition::AgentDefinition::shipped()
+                .into_iter()
+                .find(|definition| definition.id == request.type_id)
+                .is_some_and(|definition| {
+                    definition
+                        .candidates
+                        .iter()
+                        .any(|candidate| candidate.kind.is_package_runner())
+                })
+        {
+            return Ok(());
+        }
+        require_local_kind_available(&request.type_id, &request.remote, available)
+    }
 
     fn request(type_id: AgentTypeId, selector: &str) -> AgentLaunchRequest {
         let mut values = jefe::domain::TypedMap::new();
@@ -238,11 +323,14 @@ mod tests {
             None,
         );
 
-        let startup = observe_agent_availability_with_path(&registry, temp.path(), &path, |_| true);
+        let startup =
+            observe_agent_availability_with_path(&registry, temp.path(), &path, 0, |_| true)
+                .unwrap_or_else(|error| panic!("startup observation must succeed: {error}"));
 
         assert_eq!(startup.observations.len(), 1);
         assert_eq!(startup.probes.len(), 1);
         assert_eq!(startup.observations[0].pending_generation(), Some(1));
+        assert!(startup.observations[0].candidate_resolution().is_some());
     }
 
     #[test]

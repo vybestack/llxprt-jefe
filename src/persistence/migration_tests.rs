@@ -115,7 +115,7 @@ fn assert_selection_and_preferences(state: &crate::domain::StateV2) {
 }
 
 fn assert_dormant_migration(state: &crate::domain::StateV2) {
-    assert_eq!(state.dormant_records.len(), 3);
+    assert_eq!(state.dormant_records.len(), 6);
     assert!(state.dormant_records.iter().any(|record| {
         record.kind == "schema1.root.future-root-field"
             && record.raw_value == json!({"opaque": true})
@@ -127,6 +127,17 @@ fn assert_dormant_migration(state: &crate::domain::StateV2) {
     assert!(state.dormant_records.iter().any(|record| {
         record.kind == "schema1.agent.future-agent-field"
             && record.stable_id.as_ref() == Some(&state.agents[0].id)
+    }));
+    let legacy_records = state
+        .dormant_records
+        .iter()
+        .filter(|record| record.kind == "schema1.agent.legacy-launch-values")
+        .collect::<Vec<_>>();
+    assert_eq!(legacy_records.len(), 3);
+    assert!(legacy_records.iter().all(|record| {
+        record.raw_value.get("pass_continue").is_some()
+            && record.stable_id.is_some()
+            && record.raw_schema == 1
     }));
 }
 
@@ -310,7 +321,7 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "d7a437d54858590d25996e00b7f2ef01322031f62c4a188df127308c085e0c8b"
+        "317635609f3f1ee811c753d07008568a43d250759865199d43b1188f84c0f277"
     );
     assert_eq!(
         agent.launch_signature.target_fingerprint.as_str(),

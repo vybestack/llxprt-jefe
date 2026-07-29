@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+#[path = "migration_legacy.rs"]
+mod legacy;
 #[path = "migration_schema1.rs"]
 mod schema1;
 #[path = "migration_settings.rs"]
@@ -447,6 +449,7 @@ fn migrate_agents(
         }
         let record =
             migrate_agent_record(&source, repository, &work_target, home_expanded, id.clone())?;
+        legacy::record_legacy_launch_values(&source, &raw_source, &id, DORMANT_REASON, dormant);
         record_unknowns("schema1.agent", Some(&id), source.unknown, dormant)?;
         agents.push(MigratedAgent {
             source_index,
@@ -541,12 +544,6 @@ fn agent_values(
     work_dir_override: Option<&str>,
 ) -> Result<TypedMap, String> {
     let work_dir = work_dir_override.map_or(source.work_dir.as_path(), Path::new);
-    let _ = (
-        &source.llxprt_debug,
-        source.sandbox_enabled,
-        &source.sandbox_engine,
-        &source.sandbox_flags,
-    );
     let mut values = json_map_to_typed(json!({
         "display_id": source.display_id,
         "shortcut_slot": source.shortcut_slot,
@@ -577,20 +574,6 @@ fn agent_values(
             &mut values,
             "version_selector",
             json!(agent_version_selector(source, definition)),
-        )?;
-    }
-    if declares_agent_field(definition, "interactive") {
-        crate::domain::canonical_values::insert_json(
-            &mut values,
-            "interactive",
-            json!(source.code_puppy_quick_resume),
-        )?;
-    }
-    if declares_agent_field(definition, "prompt_interactive") {
-        crate::domain::canonical_values::insert_json(
-            &mut values,
-            "prompt_interactive",
-            json!(source.pass_continue),
         )?;
     }
     Ok(values)

@@ -6,13 +6,13 @@
 //!
 //! Tests for attach/reattach safety, kill, relaunch, and status transitions.
 
-use crate::support::{TestOptionExt, TestResultExt};
+use crate::support::{TestOptionExt, TestResultExt, authorized_launch_plan};
 
 use std::path::PathBuf;
 
 use jefe::domain::agent_definition::{AgentLaunchPlan, Target};
 use jefe::domain::{Agent, AgentId, RepositoryId};
-use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
+use jefe::runtime::{AuthorizedLaunchPlan, RuntimeError, RuntimeManager, StubRuntimeManager};
 
 fn make_agent(id: &str, repo_id: &str) -> Agent {
     Agent::new(
@@ -25,14 +25,15 @@ fn make_agent(id: &str, repo_id: &str) -> Agent {
     )
 }
 
-fn make_signature(agent: &Agent) -> AgentLaunchPlan {
-    AgentLaunchPlan {
+fn make_signature(agent: &Agent) -> AuthorizedLaunchPlan {
+    let plan = AgentLaunchPlan {
         cwd: agent.work_dir.clone(),
         target: Target::Local {
             canonical_cwd: agent.work_dir.clone(),
         },
         ..AgentLaunchPlan::default()
-    }
+    };
+    authorized_launch_plan(&plan)
 }
 
 // =============================================================================
@@ -300,7 +301,7 @@ fn relaunch_running_session_fails() {
     mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
 
-    let result = mgr.relaunch(&agent.id);
+    let result = mgr.relaunch(&agent.id, &sig, None);
     assert!(
         matches!(result, Err(RuntimeError::AlreadyRunning(_))),
         "relaunch running should fail"
@@ -309,8 +310,9 @@ fn relaunch_running_session_fails() {
 
 #[test]
 fn relaunch_dead_session_requires_signature() {
-    // The stub doesn't store signatures after kill, so relaunch fails
-    // Real impl would preserve signatures for relaunch
+    // The stub only accepts relaunch for an agent that was previously killed
+    // (dead marker), mirroring the real manager. Relaunch supplies fresh
+    // authorized authority each time.
     let mut mgr = StubRuntimeManager::default();
     let agent = make_agent("agent-1", "repo-1");
     let sig = make_signature(&agent);
@@ -319,11 +321,13 @@ fn relaunch_dead_session_requires_signature() {
         .test_unwrap("spawn");
     mgr.kill(&agent.id).test_unwrap("kill");
 
-    let result = mgr.relaunch(&agent.id);
-    // Stub returns NotRunning because it can't find stored signature
+    // An agent that was never killed (no dead marker) cannot be relaunched.
+    let other = make_agent("agent-2", "repo-1");
+    let other_sig = make_signature(&other);
+    let result = mgr.relaunch(&other.id, &other_sig, None);
     assert!(
         matches!(result, Err(RuntimeError::NotRunning(_))),
-        "relaunch without stored signature should fail"
+        "relaunch without a prior kill should fail"
     );
 }
 

@@ -118,7 +118,9 @@ fn transient_pr_availability_and_target(
     ctx: &SharedContext,
     prep: &TransientPrPrepContext,
 ) -> Option<super::target_resolution::WorkTarget> {
-    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig) {
+    if !super::availability::launch_available_or_error(app_state, &prep.launch_sig)
+        || !super::availability::prepare_launch_or_error(app_state, &prep.launch_sig)
+    {
         super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);
         return None;
     }
@@ -130,14 +132,6 @@ fn transient_pr_availability_and_target(
             return None;
         }
     };
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &prep.launch_sig,
-    ) {
-        super::transient_issue_send::fail_transient_agent(app_state, ctx, &prep.agent_id);
-        return None;
-    }
     Some(target)
 }
 

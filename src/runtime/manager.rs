@@ -12,6 +12,7 @@ use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::AgentLaunchRequest;
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::domain::{AgentId, RemoteRepositorySettings};
+use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -45,22 +46,18 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     None => NonZeroUsize::MIN,
 };
 
-#[derive(Debug, Clone)]
-struct RetainedLaunch {
-    plan: AgentLaunchPlan,
-    remote: Option<RemoteRepositorySettings>,
-}
+/// Marker that a killed agent is eligible for relaunch.
+///
+/// Relaunch authority (the [`AuthorizedLaunchPlan`]) is supplied by the caller
+/// at relaunch time through the authorized-preparation contract, so this marker
+/// only records that the agent was previously running and is now dead. Its
+/// bounded LRU membership is what `relaunch` checks before accepting a new
+/// launch proof.
+#[derive(Debug, Clone, Copy, Default)]
+struct RetainedLaunch;
 
-fn retained_relaunch_plan(
-    dead_plans: &mut LruCache<AgentId, RetainedLaunch>,
-    agent_id: &AgentId,
-) -> Result<RetainedLaunch, RuntimeError> {
-    dead_plans
-        .get(agent_id)
-        .cloned()
-        .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))
-}
-
+/// Pop a successfully relaunched agent from the dead-marker cache; leave the
+/// marker in place on failure so the caller can retry.
 fn complete_relaunch_attempt(
     dead_plans: &mut LruCache<AgentId, RetainedLaunch>,
     agent_id: &AgentId,
@@ -115,7 +112,7 @@ pub trait RuntimeManager: Send {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        plan: &AgentLaunchPlan,
+        launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError>;
 
@@ -126,10 +123,10 @@ pub trait RuntimeManager: Send {
     fn spawn_session_fresh(
         &mut self,
         agent_id: &AgentId,
-        plan: &AgentLaunchPlan,
+        launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
-        self.spawn_session(agent_id, plan, remote)
+        self.spawn_session(agent_id, launch, remote)
     }
 
     /// Attach to an existing session.
@@ -145,10 +142,15 @@ pub trait RuntimeManager: Send {
     /// @pseudocode component-002 lines 21-26
     fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
 
-    /// Relaunch a dead session using its stored launch signature.
+    /// Relaunch a dead session using newly cleared launch authority.
     ///
     /// @pseudocode component-002 lines 27-32
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError>;
+    fn relaunch(
+        &mut self,
+        agent_id: &AgentId,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> Result<(), RuntimeError>;
 
     /// Check if a session is alive.
     ///
@@ -446,13 +448,7 @@ impl TmuxRuntimeManager {
         self.clipboard_enforced.remove(&session.session_name);
         self.prefix_enforced.remove(&session.session_name);
 
-        let _ = self.dead_plans.put(
-            agent_id.clone(),
-            RetainedLaunch {
-                plan: session.launch_plan.clone(),
-                remote: session.remote.clone(),
-            },
-        );
+        let _ = self.dead_plans.put(agent_id.clone(), RetainedLaunch);
         true
     }
 
@@ -654,9 +650,13 @@ impl RuntimeManager for TmuxRuntimeManager {
     fn spawn_session(
         &mut self,
         agent_id: &AgentId,
-        plan: &AgentLaunchPlan,
+        launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        let cleared = launch
+            .prepare_current(&ProcessSandboxInspector::new())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+        let plan = cleared.plan();
         info!(agent_id = %agent_id.0, work_dir = %plan.cwd.display(), "spawning runtime session");
         self.spawn_session_internal(agent_id, plan, remote, true)
     }
@@ -664,9 +664,13 @@ impl RuntimeManager for TmuxRuntimeManager {
     fn spawn_session_fresh(
         &mut self,
         agent_id: &AgentId,
-        plan: &AgentLaunchPlan,
+        launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        let cleared = launch
+            .prepare_current(&ProcessSandboxInspector::new())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+        let plan = cleared.plan();
         info!(
             agent_id = %agent_id.0,
             work_dir = %plan.cwd.display(),
@@ -778,14 +782,10 @@ impl RuntimeManager for TmuxRuntimeManager {
             .remove(agent_id)
             .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
 
-        // Store signature for relaunch
-        let _ = self.dead_plans.put(
-            agent_id.clone(),
-            RetainedLaunch {
-                plan: session.launch_plan.clone(),
-                remote: session.remote.clone(),
-            },
-        );
+        // Mark the killed agent as eligible for relaunch. The relaunch
+        // authority itself is supplied later through the authorized-preparation
+        // contract, so only a dead marker is retained here.
+        let _ = self.dead_plans.put(agent_id.clone(), RetainedLaunch);
 
         // Clear clipboard and prefix passthrough memoization for this session
         // so a recreated session with the same name re-enforces on next attach
@@ -844,23 +844,20 @@ impl RuntimeManager for TmuxRuntimeManager {
         Ok(())
     }
 
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+    fn relaunch(
+        &mut self,
+        agent_id: &AgentId,
+        launch: &AuthorizedLaunchPlan,
+        remote: Option<&RemoteRepositorySettings>,
+    ) -> Result<(), RuntimeError> {
         info!(agent_id = %agent_id.0, "relaunching runtime session");
-        // Check not already running
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
-
-        // Borrow a clone for the attempt. The retained entry remains available
-        // if any package probe, tmux spawn, or attach prerequisite fails.
-        let retained = retained_relaunch_plan(&mut self.dead_plans, agent_id)?;
-        let RetainedLaunch { plan, remote } = retained;
-
-        // Spawn with stored signature using force-fresh semantics so runtime
-        // warnings are surfaced consistently through the relaunch path.
-        // spawn_session_fresh → spawn_session_internal already sets
-        // session.lifecycle_generation, so no explicit bump is needed here.
-        let result = self.spawn_session_fresh(agent_id, &plan, remote.as_ref());
+        if self.dead_plans.peek(agent_id).is_none() {
+            return Err(RuntimeError::NotRunning(agent_id.clone()));
+        }
+        let result = self.spawn_session_fresh(agent_id, launch, remote);
         complete_relaunch_attempt(&mut self.dead_plans, agent_id, result)
     }
 

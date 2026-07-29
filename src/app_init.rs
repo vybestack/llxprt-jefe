@@ -306,11 +306,19 @@ fn observe_agent_types(
     );
     match jefe::agent_registry::AgentTypeRegistry::shipped() {
         Ok(registry) => {
-            let startup = crate::app_input::observe_startup_agent_availability(
+            let startup = match crate::app_input::observe_startup_agent_availability(
                 &registry,
                 &repository_root,
+                state.agent_probe_generation,
                 |type_id| agent_type_enabled(settings, type_id),
-            );
+            ) {
+                Ok(startup) => startup,
+                Err(error) => {
+                    append_warning(state, error);
+                    return Vec::new();
+                }
+            };
+            state.agent_probe_generation = startup.latest_generation;
             state.available_agent_type_ids =
                 jefe::agent_detection::compatible_agent_type_ids(&startup.observations);
             state.agent_type_availability = startup.observations;
@@ -624,23 +632,29 @@ enum ReviveOutcome {
 /// Attempt to reattach/respawn one agent's session.
 ///
 /// `spawn_session` is the registration path into the runtime manager's
-/// in-memory map; `AlreadyRunning` means the session is already tracked.
+/// in-memory map; `AlreadyRunning` means the session is already tracked. The
+/// launch authority is built through the same authorized-preparation contract
+/// (`observe_launch_state` + `prepare_launch`) used by the relaunch and
+/// fresh-send routes — no bypass helper forges a plan.
 fn revive_agent_session(
     agent: &jefe::domain::Agent,
     signature: &AgentLaunchRequest,
     runtime: &mut TmuxRuntimeManager,
     runtime_warning: Option<&String>,
 ) -> ReviveOutcome {
-    let plan = if let Some(session) = runtime.get_session(&agent.id) {
-        session.launch_plan.clone()
-    } else {
-        let Ok(plan) = jefe::runtime::launch_compose::restore_plan_from_request(signature) else {
-            return ReviveOutcome::Died;
-        };
-        plan
+    // Derive the launch proof through the authorized-preparation contract.
+    // `observe_launch_state` is the state-root entry for routes that do not own
+    // AppState (the startup restore path). If preparation cannot supply a
+    // proof (e.g. remote restore, whose evidence must be state-owned, or an
+    // uninstalled agent), the session is left to be marked Dead by the caller.
+    let Some(prepared) = (|| {
+        let evidence = jefe::runtime::launch_compose::observe_launch_state(signature).ok()?;
+        jefe::runtime::launch_compose::prepare_launch(signature, &evidence).ok()
+    })() else {
+        return ReviveOutcome::Died;
     };
-    let remote = signature.remote.enabled.then_some(&signature.remote);
-    match runtime.spawn_session(&agent.id, &plan, remote) {
+    let remote = prepared.remote();
+    match runtime.spawn_session(&agent.id, prepared.authorized(), remote) {
         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
             let _ = runtime_warning;
             ReviveOutcome::Revived

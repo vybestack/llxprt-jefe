@@ -1,21 +1,5 @@
-//! Issue #382 (CW-02) RED contract tests: complete vertical four-agent
-//! definition cutover.
-//!
-//! These tests define the seventeen accepted behavioral criteria from issue
-//! #382's test-first acceptance ledger plus a structural-validation gate for
-//! every scenario. Each behavioral test parses its scenario through the
-//! shipped schema-1 harness parser, asserts the exact captured fixture bytes
-//! that are the release provenance, and exercises the closed production
-//! contract the issue requires. The production contracts (`AgentTypeId`,
-//! `AgentDefinition`, `ExecutableCandidate`, `ProbeSpec`, `AgentLaunchPlan`)
-//! live in `jefe::domain::agent_definition`, which does not exist on
-//! `origin/main`; referencing it is the intended RED. GREEN must add the typed
-//! domain contract before any test body compiles and passes.
-//!
-//! Authority: issue #382 body (closed contracts, acceptance matrix rows
-//! CW02-01..17, deterministic algorithms and limits), the fixture-authoring
-//! gate, and the project plan. Fixture bytes are deterministic provenance of a
-//! real captured release, never a runtime version allow-list.
+//! Issue #382 definition-cutover acceptance tests for all seventeen behavioral rows.
+//! Fixture bytes are captured release provenance, never a runtime version allow-list.
 
 mod issue382;
 
@@ -41,7 +25,11 @@ use jefe::domain::agent_definition::{
     ExecutableCandidate, Operation, OperationMatrix, Preflight, ProbeErrorCode, ProbeSpec,
     RemoteTarget, Target,
 };
+use jefe::domain::effects::{
+    AgentAvailabilityProbe, EffectCompletion, EffectResponse, ProbeResponse,
+};
 use jefe::harness::v1::parse_scenario_v1;
+use jefe::messages::{AppMessage, RepositoryAgentMessage};
 use jefe::runtime::agent_remote_plan::{
     self, RemotePlanOutcome, RemoteSerializeError, plan_remote_launch, posix_single_quote,
 };
@@ -330,17 +318,17 @@ fn status_projection() {
 
 #[test]
 fn stale_availability_completion_is_a_no_op() {
-    use jefe::domain::effects::{
-        AgentAvailabilityProbe, EffectCompletion, EffectResponse, ProbeResponse,
-    };
-    use jefe::messages::{AppMessage, RepositoryAgentMessage};
-
     let definition = AgentDefinition::shipped()
         .into_iter()
         .find(|definition| definition.id.as_str() == "core.codex")
         .unwrap_or_else(|| panic!("Codex definition must be shipped"));
     let state = jefe::state::AppState {
-        agent_type_availability: vec![AgentAvailabilityObservation::pending(&definition, true, 1)],
+        agent_type_availability: vec![AgentAvailabilityObservation::pending(
+            &definition,
+            true,
+            1,
+            CandidateResolution::NotFound(Vec::new()),
+        )],
         ..jefe::state::AppState::default()
     };
     let first = state
@@ -354,8 +342,12 @@ fn stale_availability_completion_is_a_no_op() {
         .unwrap_or_else(|error| panic!("first probe request must commit: {error}"));
     let stale_correlation = first.effects[0].correlation.clone();
     let mut state = first.next_state;
-    state.agent_type_availability =
-        vec![AgentAvailabilityObservation::pending(&definition, true, 2)];
+    state.agent_type_availability = vec![AgentAvailabilityObservation::pending(
+        &definition,
+        true,
+        2,
+        CandidateResolution::NotFound(Vec::new()),
+    )];
     let second = state
         .apply_message(AppMessage::RepositoryAgent(
             RepositoryAgentMessage::ProbeAgentAvailability(vec![AgentAvailabilityProbe {
@@ -822,8 +814,8 @@ fn preflight_order() {
     // PreflightCleared (only way to preparation) or a typed UnavailableReason
     // with zero later effects.
     assert!(
-        Preflight::default().is_unavailable(),
-        "default preflight is unavailable"
+        !Preflight::default().is_required(),
+        "default preflight represents an unsandboxed launch"
     );
     issue382::preflight_order::assert_engine_missing();
     issue382::preflight_order::assert_image_missing();

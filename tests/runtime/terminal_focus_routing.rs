@@ -6,13 +6,13 @@
 //!
 //! Tests for input routing based on terminal focus state.
 
-use crate::support::TestResultExt;
+use crate::support::{TestResultExt, authorized_launch_plan};
 
 use std::path::PathBuf;
 
 use jefe::domain::agent_definition::{AgentLaunchPlan, Target};
 use jefe::domain::{Agent, AgentId, RepositoryId};
-use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
+use jefe::runtime::{AuthorizedLaunchPlan, RuntimeError, RuntimeManager, StubRuntimeManager};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
@@ -27,14 +27,15 @@ fn make_agent(id: &str, repo_id: &str) -> Agent {
     )
 }
 
-fn make_signature(agent: &Agent) -> AgentLaunchPlan {
-    AgentLaunchPlan {
+fn make_signature(agent: &Agent) -> AuthorizedLaunchPlan {
+    let plan = AgentLaunchPlan {
         cwd: agent.work_dir.clone(),
         target: Target::Local {
             canonical_cwd: agent.work_dir.clone(),
         },
         ..AgentLaunchPlan::default()
-    }
+    };
+    authorized_launch_plan(&plan)
 }
 
 // =============================================================================

@@ -342,7 +342,7 @@ impl Availability {
 // ---------------------------------------------------------------------------
 
 /// Sandbox preflight contract gating every preparation effect.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Preflight {
     /// Sandbox engine name (e.g. docker), if configured.
     #[serde(default)]
@@ -354,23 +354,8 @@ pub struct Preflight {
     #[serde(default)]
     pub required_env: Vec<String>,
     /// Whether preflight is required for this target.
-    #[serde(default = "default_required")]
+    #[serde(default)]
     pub required: bool,
-}
-
-fn default_required() -> bool {
-    true
-}
-
-impl Default for Preflight {
-    fn default() -> Self {
-        Self {
-            engine: None,
-            image: None,
-            required_env: Vec::new(),
-            required: true,
-        }
-    }
 }
 
 impl Preflight {
