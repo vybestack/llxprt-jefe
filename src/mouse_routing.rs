@@ -794,6 +794,7 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
             | ModalState::ConfirmDeleteRepository { .. }
             | ModalState::ConfirmDeleteAgent { .. }
             | ModalState::ConfirmKillAgent { .. }
+            | ModalState::ConfirmServerLostRecovery { .. }
             | ModalState::PreflightPrompt { .. }
             | ModalState::ConfirmIssueDirtyCopy { .. }
             | ModalState::ConfirmIssueOriginMismatch { .. }
@@ -816,6 +817,7 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         jefe::state::ModalState::ConfirmDeleteRepository { .. }
         | jefe::state::ModalState::ConfirmDeleteAgent { .. }
         | jefe::state::ModalState::ConfirmKillAgent { .. }
+        | jefe::state::ModalState::ConfirmServerLostRecovery { .. }
         | jefe::state::ModalState::PreflightPrompt { .. }
         | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. }
         | jefe::state::ModalState::ConfirmIssueOriginMismatch { .. }

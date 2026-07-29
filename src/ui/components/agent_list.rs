@@ -58,7 +58,7 @@ fn status_icon(status: AgentStatus) -> &'static str {
         AgentStatus::Running => "*",
         AgentStatus::Completed => "+",
         AgentStatus::Dead => "x",
-        AgentStatus::Errored => "!",
+        AgentStatus::ServerLost | AgentStatus::Errored => "!",
         AgentStatus::Waiting => "?",
         AgentStatus::Paused => "-",
         AgentStatus::Queued => "o",
@@ -72,7 +72,7 @@ fn status_icon(status: AgentStatus) -> &'static str {
 fn status_role(status: AgentStatus) -> SpanRole {
     match status {
         AgentStatus::Running | AgentStatus::Completed => SpanRole::Bright,
-        AgentStatus::Dead | AgentStatus::Errored => SpanRole::Red,
+        AgentStatus::Dead | AgentStatus::Errored | AgentStatus::ServerLost => SpanRole::Red,
         AgentStatus::Waiting => SpanRole::Yellow,
         AgentStatus::Paused => SpanRole::Blue,
         AgentStatus::Queued => SpanRole::Dim,

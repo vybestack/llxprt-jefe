@@ -318,6 +318,7 @@ impl AppState {
             ModalState::ConfirmDeleteAgent { confirm_focus, .. }
             | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
             | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
             | ModalState::PreflightPrompt { confirm_focus, .. }
             | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
             | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(*confirm_focus),
@@ -332,6 +333,7 @@ impl AppState {
             ModalState::ConfirmDeleteAgent { confirm_focus, .. }
             | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
             | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
             | ModalState::PreflightPrompt { confirm_focus, .. }
             | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
             | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {

@@ -50,6 +50,10 @@ fn sample_confirm_modals(focus: ConfirmFocus) -> Vec<ModalState> {
             id: AgentId("a1".into()),
             confirm_focus: focus,
         },
+        ModalState::ConfirmServerLostRecovery {
+            agent_ids: vec![AgentId("a1".into())],
+            confirm_focus: focus,
+        },
         ModalState::PreflightPrompt {
             agent_id: AgentId("a1".into()),
             signature: sample_signature(),

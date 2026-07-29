@@ -5,7 +5,8 @@ use jefe::runtime::{
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
 use super::relaunch::{
-    attach_relaunched_session, persist_relaunch_failure, spawn_relaunch_session,
+    ServerLostRecoveryOutcome, apply_server_lost_recovery_outcomes, attach_relaunched_session,
+    open_server_lost_recovery, persist_relaunch_failure, spawn_relaunch_session,
 };
 use super::tests::{sample_agent, sample_signature};
 
@@ -93,4 +94,69 @@ fn attach_failure_is_preserved_as_distinct_relaunch_diagnostic() {
     );
     assert_eq!(state.agents[0].status, AgentStatus::Dead);
     assert!(state.agents[0].runtime_binding.is_none());
+}
+
+#[test]
+fn batch_recovery_keeps_failures_server_lost_and_reports_partial_success() {
+    let first_id = AgentId("recover-ok".to_owned());
+    let second_id = AgentId("recover-fail".to_owned());
+    let mut first = bound_agent_state(&first_id).agents.remove(0);
+    first.status = AgentStatus::ServerLost;
+    let mut second = bound_agent_state(&second_id).agents.remove(0);
+    second.status = AgentStatus::ServerLost;
+    let mut state = AppState {
+        agents: vec![first, second],
+        warning_message: Some("Keep this warning.".to_owned()),
+        ..AppState::default()
+    };
+
+    apply_server_lost_recovery_outcomes(
+        &mut state,
+        vec![
+            ServerLostRecoveryOutcome {
+                agent_id: first_id,
+                result: Ok(()),
+                pid: Some(100),
+                process_identity: None,
+            },
+            ServerLostRecoveryOutcome {
+                agent_id: second_id,
+                result: Err(RuntimeError::SpawnFailed("psmux unavailable".to_owned())),
+                pid: None,
+                process_identity: None,
+            },
+        ],
+    );
+
+    assert_eq!(state.agents[0].status, AgentStatus::Running);
+    assert!(state.agents[0].runtime_binding.is_some());
+    assert_eq!(state.agents[1].status, AgentStatus::ServerLost);
+    assert!(state.agents[1].runtime_binding.is_some());
+    assert_eq!(
+        state.error_message.as_deref(),
+        Some("Recovered 1 psmux agent; 1 failed and remains Server Lost. Keep this warning.")
+    );
+}
+
+#[test]
+fn selected_server_lost_agent_opens_cancel_focused_batch_confirmation() {
+    let first_id = AgentId("lost-one".to_owned());
+    let second_id = AgentId("lost-two".to_owned());
+    let mut first = bound_agent_state(&first_id).agents.remove(0);
+    first.status = AgentStatus::ServerLost;
+    let mut second = bound_agent_state(&second_id).agents.remove(0);
+    second.status = AgentStatus::ServerLost;
+    let mut state = AppState {
+        agents: vec![first, second],
+        ..AppState::default()
+    };
+
+    assert!(open_server_lost_recovery(&mut state, &first_id));
+    assert!(matches!(
+        state.modal,
+        jefe::state::ModalState::ConfirmServerLostRecovery {
+            ref agent_ids,
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
+        } if agent_ids == &vec![AgentId("lost-one".to_owned()), AgentId("lost-two".to_owned())]
+    ));
 }

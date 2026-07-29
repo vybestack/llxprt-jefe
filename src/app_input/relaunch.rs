@@ -2,9 +2,9 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentId, LaunchSignature, ProcessIdentity};
+use jefe::domain::{AgentId, AgentStatus, LaunchSignature, ProcessIdentity};
 use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
-use jefe::state::{AppEvent, AppState, PaneFocus};
+use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
 use tracing::warn;
 
 use super::agent_runtime::{
@@ -16,11 +16,21 @@ use super::{
     durable_save_request, preflight_or_prompt, schedule_durable_save,
 };
 
+pub(super) struct ServerLostRecoveryOutcome {
+    pub agent_id: AgentId,
+    pub result: Result<(), RuntimeError>,
+    pub pid: Option<u32>,
+    pub process_identity: Option<ProcessIdentity>,
+}
+
 pub(super) fn dispatch_relaunch_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
 ) {
+    if open_server_lost_recovery_if_selected(app_state, &agent_id) {
+        return;
+    }
     if !relaunch_preflight_passed(app_state, ctx, &agent_id) {
         return;
     }
@@ -30,6 +40,51 @@ pub(super) fn dispatch_relaunch_agent(
         warn!(agent_id = %agent_id.0, error = %error, "could not relaunch runtime session");
     }
     persist_relaunch_result(app_state, ctx, agent_id, result);
+}
+
+fn open_server_lost_recovery_if_selected(
+    app_state: &mut AppStateHandle,
+    selected_id: &AgentId,
+) -> bool {
+    open_server_lost_recovery(&mut app_state.write(), selected_id)
+}
+
+pub(super) fn open_server_lost_recovery(state: &mut AppState, selected_id: &AgentId) -> bool {
+    let selected_is_lost = state
+        .agents
+        .iter()
+        .any(|agent| &agent.id == selected_id && agent.status == AgentStatus::ServerLost);
+    if !selected_is_lost {
+        return false;
+    }
+    let agent_ids = recoverable_server_lost_ids(state, None);
+    if agent_ids.is_empty() {
+        state.warning_message = Some("No local Server Lost agents can be recovered.".to_owned());
+    } else {
+        state.modal = ModalState::ConfirmServerLostRecovery {
+            agent_ids,
+            confirm_focus: ConfirmFocus::Cancel,
+        };
+    }
+    true
+}
+
+pub(super) fn recoverable_server_lost_ids(
+    state: &AppState,
+    requested: Option<&[AgentId]>,
+) -> Vec<AgentId> {
+    state
+        .agents
+        .iter()
+        .filter(|agent| agent.status == AgentStatus::ServerLost)
+        .filter(|agent| {
+            agent.runtime_binding.as_ref().is_some_and(|binding| {
+                !binding.launch_signature.remote.enabled
+                    && requested.map_or(true, |ids| ids.contains(&agent.id))
+            })
+        })
+        .map(|agent| agent.id.clone())
+        .collect()
 }
 
 fn relaunch_preflight_passed(
@@ -151,6 +206,142 @@ pub(super) fn relaunch_blocked_by_orphan(
         );
     }
     still_alive
+}
+
+pub(super) fn dispatch_server_lost_recovery(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    requested: Vec<AgentId>,
+) {
+    let agent_ids = {
+        let mut state = app_state.write();
+        state.modal = ModalState::None;
+        let ids = recoverable_server_lost_ids(&state, Some(&requested));
+        drop(state);
+        ids
+    };
+    if agent_ids.is_empty() {
+        app_state.write().warning_message =
+            Some("No Server Lost agents remain to recover.".to_owned());
+        return;
+    }
+
+    let mut outcomes = Vec::with_capacity(agent_ids.len());
+    for agent_id in agent_ids {
+        let result = recover_server_lost_runtime(app_state, ctx, &agent_id);
+        if let Err(error) = &result {
+            warn!(agent_id = %agent_id.0, error = %error, "psmux server-loss recovery failed");
+        }
+        let (pid, process_identity) = process_on_success(ctx, &agent_id, result.is_ok());
+        outcomes.push(ServerLostRecoveryOutcome {
+            agent_id,
+            result,
+            pid,
+            process_identity,
+        });
+    }
+    persist_server_lost_recovery(app_state, ctx, outcomes);
+}
+
+fn recover_server_lost_runtime(
+    app_state: &AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+) -> Result<(), RuntimeError> {
+    let worker_identities = app_state
+        .read()
+        .agents
+        .iter()
+        .find(|agent| &agent.id == agent_id)
+        .and_then(|agent| agent.runtime_binding.as_ref())
+        .map(|binding| binding.worker_identities.clone())
+        .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
+    if relaunch_blocked_by_orphan(agent_id, &worker_identities) {
+        return Err(RuntimeError::OrphanBlocked(agent_id.clone()));
+    }
+
+    let ctx_arc = ctx.as_ref().ok_or_else(|| {
+        RuntimeError::SpawnFailed("runtime context unavailable during recovery".to_owned())
+    })?;
+    let mut ctx_guard = ctx_arc.lock().map_err(|_| {
+        RuntimeError::SpawnFailed("runtime context lock unavailable during recovery".to_owned())
+    })?;
+    // The ServerLost state deliberately preserves the manager's live record.
+    // Move that exact signature to its retained cache before recreating it.
+    if !ctx_guard.runtime.mark_session_dead(agent_id) {
+        warn!(agent_id = %agent_id.0, "psmux recovery: manager session record was already absent");
+    }
+    ctx_guard.runtime.relaunch(agent_id)?;
+    if let Err(error) = ctx_guard.runtime.attach(agent_id) {
+        if !ctx_guard.runtime.mark_session_dead(agent_id) {
+            warn!(agent_id = %agent_id.0, "psmux recovery: relaunched session record was absent after attach failure");
+        }
+        drop(ctx_guard);
+        return Err(error);
+    }
+    drop(ctx_guard);
+    Ok(())
+}
+
+fn persist_server_lost_recovery(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    outcomes: Vec<ServerLostRecoveryOutcome>,
+) {
+    let mut state = app_state.write();
+    apply_server_lost_recovery_outcomes(&mut state, outcomes);
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    schedule_durable_save(ctx, persisted);
+}
+
+pub(super) fn apply_server_lost_recovery_outcomes(
+    state: &mut AppState,
+    outcomes: Vec<ServerLostRecoveryOutcome>,
+) {
+    let mut successes = 0usize;
+    let mut failures = 0usize;
+    for outcome in outcomes {
+        if outcome.result.is_ok() {
+            persist_relaunch_success(
+                state,
+                &outcome.agent_id,
+                AppEvent::RelaunchAgent(outcome.agent_id.clone()),
+                outcome.pid,
+                outcome.process_identity,
+            );
+            successes = successes.saturating_add(1);
+        } else {
+            if let Some(agent) = state
+                .agents
+                .iter_mut()
+                .find(|agent| agent.id == outcome.agent_id)
+                && let Some(binding) = agent.runtime_binding.as_mut()
+            {
+                binding.attached = false;
+            }
+            failures = failures.saturating_add(1);
+        }
+    }
+    let recovered_noun = if successes == 1 { "agent" } else { "agents" };
+    let failed_verb = if failures == 1 { "remains" } else { "remain" };
+    let summary = if failures == 0 {
+        format!("Recovered {successes} psmux {recovered_noun}.")
+    } else {
+        format!(
+            "Recovered {successes} psmux {recovered_noun}; {failures} failed and {failed_verb} Server Lost."
+        )
+    };
+    let message = state
+        .warning_message
+        .take()
+        .map_or_else(|| summary.clone(), |warning| format!("{summary} {warning}"));
+    if failures == 0 {
+        state.warning_message = Some(message);
+        state.error_message = None;
+    } else {
+        state.error_message = Some(message);
+    }
 }
 
 fn persist_relaunch_result(

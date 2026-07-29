@@ -15,6 +15,8 @@ use jefe::domain::{
     SandboxEngine,
 };
 use jefe::persistence::{PersistenceManager, Settings};
+#[cfg(windows)]
+use jefe::runtime::MultiplexerPlan;
 use jefe::runtime::{
     ProcessLiveness, RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, pid_alive,
     platform_engine_diagnostic, process_liveness, process_liveness_indicates_alive,
@@ -36,6 +38,31 @@ fn append_warning(state: &mut AppState, warning: String) {
         Some(existing) => format!("{existing} {warning}"),
         None => warning,
     });
+}
+fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
+    if let Some(warning) = warning {
+        append_warning(state, warning);
+    }
+}
+
+#[cfg(windows)]
+fn windows_multiplexer_startup_warning() -> Option<String> {
+    let result = MultiplexerPlan::current().and_then(|plan| plan.preflight(&[]));
+    match result {
+        Ok(version) => {
+            tracing::info!(%version, "native Windows multiplexer preflight succeeded");
+            None
+        }
+        Err(error) => {
+            warn!(error = %error, "native Windows multiplexer preflight failed");
+            Some(format!("psmux preflight warning: {error}"))
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn windows_multiplexer_startup_warning() -> Option<String> {
+    None
 }
 
 /// Run the issue #467 AC8 startup session-host cleanup.
@@ -255,6 +282,7 @@ fn process_liveness_for_binding(
 /// Reconciles any agents that were persisted as Running against actual live
 /// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
 pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
+    let multiplexer_warning = windows_multiplexer_startup_warning();
     let Some(ctx_arc) = ctx else {
         return;
     };
@@ -296,6 +324,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.user_preferences = persisted.user_preferences;
+    apply_startup_warning(&mut state, multiplexer_warning);
     // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
     // settings.toml is the source of truth; this runtime copy is read every
     // render frame by the terminal view.

@@ -46,7 +46,7 @@ pub fn keybind_hints_for(
     }
     match screen_mode {
         ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | F7 shells | F10 shell | F8 external term | v active-only (repos+agents) | / search | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
+            "^/v navigate | </> pane | t/f12 terminal focus | F7 shells | F10 shell | F8 external term | v active-only (repos+agents) | / search | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch/recover | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
         }
         ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {

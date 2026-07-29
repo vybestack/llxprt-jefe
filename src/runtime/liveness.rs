@@ -405,7 +405,9 @@ fn list_alive_pane_sessions() -> Option<HashSet<String>> {
 /// Run a tmux subprocess with a bounded timeout, killing it if it exceeds the
 /// deadline. This prevents a hung tmux server from stalling the background
 /// liveness thread indefinitely (issue #287 review).
-fn run_tmux_with_timeout(command: &mut std::process::Command) -> Result<std::process::Output, ()> {
+pub fn run_tmux_with_timeout(
+    command: &mut std::process::Command,
+) -> Result<std::process::Output, ()> {
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     let child = command.spawn().map_err(|_| ())?;

@@ -23,7 +23,7 @@ winget install --id marlocarlo.psmux --exact
 ```
 
 Jefe rejects tmux binaries resolved through WSL, Cygwin, MSYS2, Git Bash, or
-any other compatibility layer. Only native `psmux.exe` (minimum version 3.3.6)
+any other compatibility layer. Only native `psmux.exe` (minimum version 3.3.7)
 is accepted. If `psmux` is missing, too old, or resolved through a
 compatibility layer, `jefe doctor` reports the exact remediation command
 above.
@@ -79,6 +79,12 @@ Jefe stores settings and state under the platform default config directory
 against live psmux sessions: agents whose psmux session no longer exists are
 marked dead and can be relaunched. Persisted definitions survive restart;
 an in-flight process that no longer has a live psmux session cannot be restored.
+
+While Jefe is running, it also monitors the shared psmux server identity. If the
+server disappears or is replaced, affected agents are shown as **Server Lost**
+rather than individually dead. Jefe retains their runtime bindings and launch
+settings for deliberate recovery; it does not silently relaunch agents. The
+psmux panes themselves cannot survive an explicit `kill-server`.
 
 Relevant environment overrides:
 

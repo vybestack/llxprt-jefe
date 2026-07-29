@@ -226,11 +226,12 @@ fn agent_list_props_grabbed_prefix() {
 /// pre-refactor component did.
 #[test]
 fn agent_list_props_status_glyph_color_per_status() {
-    let cases: [(AgentStatus, SpanRole); 7] = [
+    let cases: [(AgentStatus, SpanRole); 8] = [
         (AgentStatus::Running, SpanRole::Bright),
         (AgentStatus::Completed, SpanRole::Bright),
         (AgentStatus::Dead, SpanRole::Red),
         (AgentStatus::Errored, SpanRole::Red),
+        (AgentStatus::ServerLost, SpanRole::Red),
         (AgentStatus::Waiting, SpanRole::Yellow),
         (AgentStatus::Paused, SpanRole::Blue),
         (AgentStatus::Queued, SpanRole::Dim),
