@@ -37,6 +37,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $OwnerMarker = '.jefe-installed'
 $AppName = 'jefe'
+$BinaryName = "$AppName.exe"
+$ChecksumName = "$BinaryName.sha256"
+$BackupRetentionDays = 7
 
 if (-not $InstallDir) {
     $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs' $AppName
@@ -89,7 +92,7 @@ function Write-OK([string]$Message) {
 }
 
 function Assert-PackageSource {
-    foreach ($name in @('jefe.exe', 'LICENSE')) {
+    foreach ($name in @($BinaryName, 'LICENSE')) {
         $path = Join-Path $SourceDir $name
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "$name not found in SourceDir: $SourceDir"
@@ -121,13 +124,20 @@ function Normalize-PathEntry([string]$Entry) {
     return $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
-function Test-UserPathEntry([string]$Entry) {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (-not $userPath) {
+function Get-JefeUserPath {
+    return [Environment]::GetEnvironmentVariable('Path', 'User')
+}
+
+function Set-JefeUserPath([string]$Value) {
+    [Environment]::SetEnvironmentVariable('Path', $Value, 'User')
+}
+
+function Test-PathValueContainsEntry([string]$UserPath, [string]$Entry) {
+    if (-not $UserPath) {
         return $false
     }
     $normalized = Normalize-PathEntry $Entry
-    foreach ($existing in @($userPath -split ';')) {
+    foreach ($existing in @($UserPath -split ';')) {
         if ((Normalize-PathEntry $existing) -eq $normalized) {
             return $true
         }
@@ -136,24 +146,24 @@ function Test-UserPathEntry([string]$Entry) {
 }
 
 function Add-JefeUserPath {
-    if (Test-UserPathEntry $InstallDir) {
+    $userPath = Get-JefeUserPath
+    if (Test-PathValueContainsEntry $userPath $InstallDir) {
         return $false
     }
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $separator = if ($userPath -and -not $userPath.EndsWith(';')) { ';' } else { '' }
     $newUserPath = "$userPath$separator$InstallDir"
     if ($newUserPath.Length -ge 32000) {
         throw "adding Jefe would make the user PATH exceed the safe Windows environment-variable limit"
     }
-    [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
+    Set-JefeUserPath $newUserPath
     Write-Step "added $InstallDir to user PATH"
     return $true
 }
 
 function Remove-JefeUserPath {
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $userPath = Get-JefeUserPath
     if (-not $userPath) {
-        return
+        return $false
     }
     $normalized = Normalize-PathEntry $InstallDir
     $entries = [Collections.Generic.List[string]]::new()
@@ -166,9 +176,10 @@ function Remove-JefeUserPath {
         $entries.Add($entry)
     }
     if ($removed) {
-        [Environment]::SetEnvironmentVariable('Path', ($entries -join ';'), 'User')
+        Set-JefeUserPath ($entries -join ';')
         Write-Step "removed $InstallDir from user PATH"
     }
+    return $removed
 }
 
 function Write-OwnerMetadata([string]$Directory, [bool]$PathAdded) {
@@ -180,15 +191,53 @@ function Write-OwnerMetadata([string]$Directory, [bool]$PathAdded) {
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Directory $OwnerMarker) -Encoding UTF8
 }
 
+function Get-Sha256([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $hasher.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Assert-StagedBinaryChecksum([string]$StageDir) {
+    $checksumPath = Join-Path $StageDir $ChecksumName
+    if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
+        return
+    }
+
+    $checksumText = (Get-Content -LiteralPath $checksumPath -Raw).Trim()
+    $match = [regex]::Match($checksumText, '^([0-9a-fA-F]{64})(?:\s+\*?(\S+))?$')
+    if (-not $match.Success) {
+        throw "invalid checksum in $ChecksumName; expected a SHA256 digest with an optional $BinaryName filename"
+    }
+    if ($match.Groups[2].Success -and ([IO.Path]::GetFileName($match.Groups[2].Value) -ne $BinaryName)) {
+        throw "invalid checksum in $ChecksumName; expected filename $BinaryName"
+    }
+
+    $expected = $match.Groups[1].Value.ToLowerInvariant()
+    $actual = Get-Sha256 (Join-Path $StageDir $BinaryName)
+    if ($actual -ne $expected) {
+        throw "$BinaryName checksum mismatch: expected $expected, got $actual"
+    }
+}
+
 function New-StagedInstall([string]$StageDir, [bool]$PathAdded) {
     New-Item -ItemType Directory -Path $StageDir | Out-Null
-    Copy-Item -LiteralPath (Join-Path $SourceDir 'jefe.exe') -Destination (Join-Path $StageDir 'jefe.exe')
+    Copy-Item -LiteralPath (Join-Path $SourceDir $BinaryName) -Destination (Join-Path $StageDir $BinaryName)
     Copy-Item -LiteralPath (Join-Path $SourceDir 'LICENSE') -Destination (Join-Path $StageDir 'LICENSE')
+    $sourceChecksum = Join-Path $SourceDir $ChecksumName
+    if (Test-Path -LiteralPath $sourceChecksum -PathType Leaf) {
+        Copy-Item -LiteralPath $sourceChecksum -Destination (Join-Path $StageDir $ChecksumName)
+    }
     Write-OwnerMetadata $StageDir $PathAdded
 
-    $version = & (Join-Path $StageDir 'jefe.exe') --version 2>&1
+    Assert-StagedBinaryChecksum $StageDir
+    $version = & (Join-Path $StageDir $BinaryName) --version 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "staged jefe.exe failed --version with exit $LASTEXITCODE`: $version"
+        throw "staged $BinaryName failed --version with exit $LASTEXITCODE`: $version"
     }
     return ($version | Out-String).Trim()
 }
@@ -212,7 +261,7 @@ function Publish-Jefe([bool]$RequireExisting) {
     $stageDir = "$InstallDir.stage-$suffix"
     $backupDir = "$InstallDir.backup-$suffix"
     $hadExisting = $null -ne $existingMetadata
-    $pathAdded = if ($hadExisting) { [bool]$existingMetadata.pathAdded } else { -not (Test-UserPathEntry $InstallDir) }
+    $pathAdded = $hadExisting -and [bool]$existingMetadata.pathAdded
     $pathChanged = $false
     $published = $false
 
@@ -224,8 +273,12 @@ function Publish-Jefe([bool]$RequireExisting) {
         Move-Item -LiteralPath $stageDir -Destination $InstallDir
         $published = $true
 
-        if ($pathAdded -and -not (Test-UserPathEntry $InstallDir)) {
+        if (-not $hadExisting -or $pathAdded) {
             $pathChanged = Add-JefeUserPath
+            if (-not $hadExisting) {
+                $pathAdded = $pathChanged
+            }
+            Write-OwnerMetadata $InstallDir $pathAdded
         }
         if ($hadExisting) {
             Remove-Item -LiteralPath $backupDir -Recurse -Force
@@ -280,9 +333,9 @@ function Uninstall-Jefe {
         throw "InstallDir exists without a valid Jefe ownership marker: $InstallDir"
     }
 
-    $restorePath = [bool]$metadata.pathAdded -and (Test-UserPathEntry $InstallDir)
-    if ($restorePath) {
-        Remove-JefeUserPath
+    $restorePath = $false
+    if ([bool]$metadata.pathAdded) {
+        $restorePath = Remove-JefeUserPath
     }
     try {
         Remove-Item -LiteralPath $InstallDir -Recurse -Force
@@ -293,6 +346,45 @@ function Uninstall-Jefe {
         throw
     }
     Write-OK "removed package-owned files; configuration, state, and psmux sessions were preserved"
+}
+
+function Remove-StaleJefeBackups {
+    $parent = Split-Path -Parent $InstallDir
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        return
+    }
+    $prefix = (Split-Path -Leaf $InstallDir) + '.backup-'
+    $cutoff = (Get-Date).ToUniversalTime().AddDays(-$BackupRetentionDays)
+    try {
+        $candidates = @(Get-ChildItem -LiteralPath $parent -Directory -Force)
+    } catch {
+        Write-Warning "could not inspect stale Jefe backups beside $InstallDir`: $_"
+        return
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not $candidate.Name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        if ($candidate.LastWriteTimeUtc -gt $cutoff) {
+            continue
+        }
+        try {
+            $metadata = Read-OwnerMetadata $candidate.FullName
+        } catch {
+            Write-Warning "preserving stale backup with invalid ownership metadata at $($candidate.FullName): $_"
+            continue
+        }
+        if ($null -eq $metadata) {
+            continue
+        }
+        try {
+            Remove-Item -LiteralPath $candidate.FullName -Recurse -Force -ErrorAction Stop
+            Write-Step "removed stale backup $($candidate.FullName)"
+        } catch {
+            Write-Warning "could not remove stale Jefe backup at $($candidate.FullName): $_"
+        }
+    }
 }
 
 function Invoke-WithInstallLock([scriptblock]$Action) {
@@ -320,6 +412,7 @@ function Invoke-WithInstallLock([scriptblock]$Action) {
             # acquired it on the abandoned exception.
             $acquired = $true
         }
+        Remove-StaleJefeBackups
         & $Action
     } finally {
         if ($acquired) {
