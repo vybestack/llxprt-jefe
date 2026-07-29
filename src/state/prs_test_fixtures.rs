@@ -13,7 +13,7 @@ use crate::domain::{
     PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{InlineState, PrFocus, PrListIdentity, ScreenMode};
+use crate::state::types::{PrFocus, PrListIdentity, ScreenMode};
 
 /// Build an empty comment list bound to the detail's repo and number (test helper).
 fn empty_comments(
@@ -99,7 +99,6 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         mergeable: None,
         merge_state_status: None,
     });
-    state.prs_state.inline_state = InlineState::None;
     state
 }
 

@@ -647,3 +647,28 @@ fn confirm_modal_lines_include_title_and_message() {
         "confirm modal must include the message with the agent name"
     );
 }
+
+#[test]
+fn panic_error_detail_remains_selectable_and_identifies_its_source() {
+    let mut state = AppState::default();
+    crate::state::transition::commit_pure_site(
+        &mut state,
+        crate::messages::AppMessage::Errors(crate::messages::ErrorsMessage::CaptureSilent {
+            title: "blocking worker panic".into(),
+            detail: "worker exploded".into(),
+            source: crate::domain::ErrorSource::Panic,
+            timestamp: "panic-ts".into(),
+        }),
+    );
+    state.errors_state.selected_index = Some(0);
+
+    let content = pane_content_lines(SelectablePane::ErrorDetail, &state, None, &[], 120, 40);
+
+    assert!(
+        content
+            .lines
+            .iter()
+            .any(|line| line.contains("Source: Panic"))
+    );
+    assert!(content.lines.iter().any(|line| line == "worker exploded"));
+}

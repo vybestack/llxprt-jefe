@@ -175,8 +175,8 @@ impl AppState {
     #[must_use]
     pub fn last_error_title(&self) -> Option<String> {
         self.errors_state
-            .last_error()
-            .map(|error| error.title.clone())
+            .last_visible_error()
+            .map(|entry| entry.title.clone())
     }
 }
 

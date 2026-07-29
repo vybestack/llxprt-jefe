@@ -242,24 +242,17 @@ fn expected_focus_screen(origin: ShellFocusOrigin) -> ScreenMode {
     }
 }
 
-fn pending_focus_matches(state: &AppStateHandle, owner: &AgentId, generation: u64) -> bool {
-    state.try_read().is_some_and(|state| {
-        matches!(
-            state.terminal_manager.pending_focus.as_ref(),
-            Some(value) if value.agent_id == *owner && value.generation == generation
-        )
-    })
+fn pending_focus_matches(state: &AppState, owner: &AgentId, generation: u64) -> bool {
+    matches!(
+        state.terminal_manager.pending_focus.as_ref(),
+        Some(value) if value.agent_id == *owner && value.generation == generation
+    )
 }
 
 fn select_pending_runtime_shell(
-    state: &AppStateHandle,
     ctx: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
     owner: &AgentId,
-    generation: u64,
 ) -> Result<SelectOutcome, jefe::runtime::RuntimeError> {
-    if !pending_focus_matches(state, owner, generation) {
-        return Ok(SelectOutcome::PendingGone);
-    }
     let inputs = {
         let guard = ctx.lock().map_err(|_| {
             jefe::runtime::RuntimeError::CapabilityProbeFailed(
@@ -296,8 +289,6 @@ fn select_pending_runtime_shell(
 
 /// Outcome of an off-lock select-existing shell operation (issue #374 S5).
 enum SelectOutcome {
-    /// Pending focus no longer matches — nothing to confirm.
-    PendingGone,
     /// Select succeeded and the owner is still attached. Carries the
     /// snapshotted session for compensation if confirmation later goes stale.
     Selected(String),
@@ -333,24 +324,24 @@ pub async fn complete_pending_shell_focus(
     let Some(ctx_arc) = ctx.as_ref() else {
         return;
     };
+    if !pending_focus_matches(&app_state.read(), &attached_agent_id, pending.generation) {
+        return;
+    }
     let ctx_clone = std::sync::Arc::clone(ctx_arc);
     let owner = attached_agent_id.clone();
-    let state_for_guard = app_state;
-    let pending_generation = pending.generation;
-    let result = smol::unblock(move || {
-        select_pending_runtime_shell(&state_for_guard, &ctx_clone, &owner, pending_generation)
-    })
-    .await;
+    let result = smol::unblock(move || select_pending_runtime_shell(&ctx_clone, &owner)).await;
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(error) => {
+            if !pending_focus_matches(&app_state.read(), &attached_agent_id, pending.generation) {
+                return;
+            }
             warn!(agent_id = %attached_agent_id.0, error = %error, "manager: focus shell failed");
             on_shell_attach_failed(&mut app_state, &attached_agent_id);
             return;
         }
     };
     let selected_session_name = match outcome {
-        SelectOutcome::PendingGone => return,
         SelectOutcome::Stale(session_name) => {
             warn!(
                 agent_id = %attached_agent_id.0,
@@ -423,4 +414,36 @@ pub fn on_shell_attach_failed(app_state: &mut AppStateHandle, failed_agent_id: &
         "Failed to focus shell for agent {}.",
         failed_agent_id.0
     ));
+}
+
+#[cfg(test)]
+mod pending_focus_tests {
+    use super::*;
+    use jefe::state::PendingShellFocus;
+
+    #[test]
+    fn pending_focus_match_is_evaluated_from_executor_snapshot() {
+        let agent_id = AgentId("agent-496".to_owned());
+        let mut state = AppState::default();
+        state.terminal_manager.pending_focus = Some(PendingShellFocus {
+            agent_id: agent_id.clone(),
+            generation: 7,
+            origin: ShellFocusOrigin::ManagerEnter,
+        });
+
+        assert!(pending_focus_matches(&state, &agent_id, 7));
+        assert!(!pending_focus_matches(
+            &state,
+            &AgentId("other-agent".to_owned()),
+            7
+        ));
+        state.terminal_manager.pending_focus = Some(PendingShellFocus {
+            agent_id: agent_id.clone(),
+            generation: 8,
+            origin: ShellFocusOrigin::ManagerEnter,
+        });
+        assert!(!pending_focus_matches(&state, &agent_id, 7));
+        state.terminal_manager.pending_focus = None;
+        assert!(!pending_focus_matches(&state, &agent_id, 7));
+    }
 }
