@@ -156,7 +156,7 @@ impl ErrorsState {
         let selected_seq = self.selected_error().map(|selected| selected.seq);
         self.next_seq = self.next_seq.saturating_add(1);
         self.errors.insert(0, entry);
-        if self.errors.len() > ERROR_STORE_CAPACITY {
+        let evicted_index = if self.errors.len() > ERROR_STORE_CAPACITY {
             let oldest = self.errors.len() - 1;
             let evict = if preserve_visible {
                 self.errors
@@ -170,7 +170,10 @@ impl ErrorsState {
                 oldest
             };
             self.errors.remove(evict);
-        }
+            Some(evict)
+        } else {
+            None
+        };
         if snap_to_newest {
             self.selected_index = Some(0);
             self.detail_scroll_offset = 0;
@@ -179,7 +182,7 @@ impl ErrorsState {
                 .errors
                 .iter()
                 .position(|entry| entry.seq == selected_seq)
-                .or_else(|| self.errors.len().checked_sub(1));
+                .or_else(|| evicted_index.map(|index| index.min(self.errors.len() - 1)));
         }
     }
 

@@ -556,6 +556,60 @@ fn silent_capacity_preserves_the_visible_banner_entry() {
 }
 
 #[test]
+fn evicting_selected_silent_error_selects_the_adjacent_older_entry() {
+    let mut state = AppState::default();
+    state.errors_state.push(
+        "oldest visible".into(),
+        "oldest detail".into(),
+        ErrorSource::Other,
+        "oldest-ts".into(),
+        false,
+    );
+    state.errors_state.push(
+        "adjacent older visible".into(),
+        "adjacent detail".into(),
+        ErrorSource::Other,
+        "adjacent-ts".into(),
+        false,
+    );
+    state.errors_state.push_silent(
+        "selected panic".into(),
+        "selected detail".into(),
+        ErrorSource::Panic,
+        "selected-ts".into(),
+    );
+    for index in 0..crate::domain::ERROR_STORE_CAPACITY - 3 {
+        state.errors_state.push(
+            format!("newer visible {index}"),
+            format!("newer detail {index}"),
+            ErrorSource::Other,
+            "newer-ts".into(),
+            false,
+        );
+    }
+    state.errors_state.selected_index = state
+        .errors_state
+        .errors
+        .iter()
+        .position(|entry| entry.title == "selected panic");
+
+    state.errors_state.push_silent(
+        "new panic".into(),
+        "new detail".into(),
+        ErrorSource::Panic,
+        "new-ts".into(),
+    );
+
+    assert_eq!(
+        state
+            .errors_state
+            .selected_error()
+            .map(|entry| entry.title.as_str()),
+        Some("adjacent older visible")
+    );
+}
+
+#[test]
 fn legacy_error_entry_deserializes_as_visible() {
     let json = r#"{
         "seq": 7,

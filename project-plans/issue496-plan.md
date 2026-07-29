@@ -172,8 +172,9 @@ architecture first.
 | TUI evidence | `dev-docs/tmux-scenarios/v1/panic-capture-errors.json`, `src/bin/jefe-harness-probe.rs`, `tests/harness_v1_fixtures.rs` | A4, A7 |
 | Typed capture route | `src/messages/errors.rs`, `src/messages/errors_conversion.rs`, `src/messages/event_conversion.rs`, `src/state/events.rs`, `src/state/errors_ops.rs` | A3, A4 |
 | Executor drain boundary | `src/app_shell_panic.rs` | A3 |
+| Exact-head CI compatibility | `src/state/actions_tests_sort.rs`, `src/state/prs_test_fixtures.rs` | A7 |
 
-Final scope is 22 files and 881 net added lines after rebasing onto current main,
+Final scope is 24 files and 968 net added lines after the PR review remediation,
 below the 25-file / 1,500-line target. The mainline liveness extraction reduced
 `src/app_shell.rs` below its former 1,000-line limit; the issue integration does
 not add a second orchestration path.
@@ -207,6 +208,9 @@ source evidence changes this ledger.
 | Complete | adjacent state/projection/worker tests | behavioral evidence for A1-A6 |
 | Complete | schema-1 scenario, probe command, and fixture registration | non-shipping real-PTY evidence for A4/A7 |
 | Complete | typed Errors message/event/reducer route | preserves unidirectional state ownership for A3/A4 |
+| Complete | `src/state/actions_tests_sort.rs` constructor fixture | minimal A7 compatibility repair for the inherited current-main compile failure seen in all failed PR CI jobs |
+| Complete | `src/state/prs_test_fixtures.rs` fixture initialization | minimal A7 repair for the inherited 61/60-line strict-Clippy failure exposed after the compile blocker was fixed; removes an assignment that redundantly restated the default |
+| Complete | selected silent-entry eviction fallback regression | PR OCR finding; A4 selection continuity now chooses the adjacent older entry |
 | Reject | all other audited `smol::unblock` closures | no app state access; no defect to fix |
 | Defer | unconditional default log file | separate logging/privacy policy |
 | Defer | generic panic recovery/task supervision | separate architecture with consistency semantics |
@@ -221,17 +225,24 @@ without explicit approval above 40 files or 2,500 net changed lines.
 - Local Rust/DeepThinker review cycles: 1 / 2, all findings triaged.
 - Local CodeRabbit review: complete, 2 / 2 findings **In-scope-Fix** and resolved.
 - OCR before PR: 1 / 2, 3 / 3 findings **In-scope-Fix** and resolved.
-- OCR after PR: 0 / 2.
-- CodeRabbit PR findings: pending PR.
+- OCR after PR: 1 / 2; one finding **In-scope-Fix**, two findings **Reject**.
+- CodeRabbit PR findings: no findings; the service reported its review-volume limit.
 
 Review dispositions: preserve selected error identity; revalidate stale
 same-owner generations; drain unconditionally on the executor; route capture
 through typed reducer messages; add real-PTY evidence; assert blocking-worker
 stdout/stderr, log, capacity, non-string payload, and exact-once behavior; retain
 the newest silent report at full capacity; use `VecDeque` for bounded queue
-eviction; and isolate fixture capture from stale reports. The proposed
-hook-reentrancy wrapper was **Reject** because hook code cannot safely recover a
-subscriber panic, and the accepted fail-fast contract avoids layered panic
+eviction; and isolate fixture capture from stale reports. The post-PR selection
+finding was fixed with a RED/GREEN regression that falls back to the adjacent
+older entry when the selected silent entry is evicted. The zero-capacity finding
+was **Reject** because `ERROR_STORE_CAPACITY` is the nonzero constant 50 and one
+entry is evicted per overflow. The visible-eviction finding was **Reject** because
+when a full visible-only store accepts the required newest panic report, evicting
+the oldest visible entry leaves `last_visible_error()` and the status projection
+unchanged; discarding the new panic would violate A3/A4. The proposed
+hook-reentrancy wrapper was also **Reject** because hook code cannot safely recover
+a subscriber panic, and the accepted fail-fast contract avoids layered panic
 recovery.
 
 ## Verification evidence
@@ -244,10 +255,14 @@ recovery.
 | `4a976a22` | `panic_capture_fixture_projects_silent_error_without_raw_terminal_output` | pass in schema-1 real PTY |
 | pre-rebase reviewed head | `cargo xtask ci` through format/policy/architecture/strict+complexity Clippy/coverage | pass; locked all-test phase exposed only the existing editor-fixture timeout |
 | pre-rebase reviewed head | locked all-feature Jefe suite with editor fixture isolated serially | pass |
-| current `origin/main` | strict Clippy/all-test gate | blocked by `actions_tests_sort.rs` using the obsolete four-argument `Repository::new`; same source exists on origin/main and is outside issue scope |
+| current `origin/main` | strict Clippy/all-test gate | blocked by `actions_tests_sort.rs` using the obsolete four-argument `Repository::new`; the same source exists on `origin/main` |
+| PR head `d11f9c97` | PR CI | format/policy/source-size/architecture passed; strict Clippy, complexity, coverage, and native Windows all failed on that inherited constructor mismatch |
+| working remediation | focused Actions sorting suite | 9 passed after supplying the established shipped type/default map fixture |
+| working remediation | local strict Clippy | constructor compile blocker cleared; exposed inherited 61/60-line `prs_state_with_detail` fixture, reduced by removing a redundant assignment of the default inline state |
+| working remediation | selected silent-entry eviction regression | RED selected the oldest entry; GREEN selects the adjacent older entry while visible-banner capacity behavior still passes |
 | `4a976a22` | DeepThinker/Rust review, local CodeRabbit, OCR 1/2 | complete and triaged |
-| `4a976a22` | ancestry | rebased: one issue commit ahead, zero behind `origin/main` |
-| pending PR head | native Windows / PR CI / PR CodeRabbit / conflict check | pending |
+| `d11f9c97` | ancestry / PR mergeability | one issue commit ahead, zero behind `origin/main`; PR conflict-free |
+| pending candidate head | full local gates / native Windows / PR CI / conflict check | pending |
 
 ## Deferred findings / follow-ups
 
