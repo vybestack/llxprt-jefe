@@ -216,3 +216,50 @@ fn contributor_guide_links_the_review_process_rubric() -> io::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn doc_reconciles_ci_connectivity_preflight_with_no_routine_tests_rule() -> io::Result<()> {
+    // Issue #464 Finding 5: the CI workflow runs a bounded `ocr llm test`
+    // connectivity preflight on every run, while the doc says "do not run
+    // routine connectivity tests." The doc must carve out an explicit CI
+    // exception so the prose no longer contradicts the workflow.
+    let rubric = repository_text("dev-docs/code-review-process.md")?;
+    let provider_section = markdown_section(&rubric, "Provider and remediation discipline");
+
+    assert!(
+        provider_section.contains("connectivity"),
+        "provider/remediation section must address connectivity preflight to reconcile with the CI workflow"
+    );
+    // The carve-out must distinguish the bounded CI preflight from ordinary
+    // interactive/local connectivity tests.
+    assert!(
+        provider_section.to_lowercase().contains("ci") || provider_section.contains("CI"),
+        "provider/remediation section must explicitly carve out the CI bounded connectivity preflight"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn doc_comparison_eligibility_records_machine_supported_evidence() -> io::Result<()> {
+    // Issue #464 Finding 3: the doc claims the manifest triple lets eligibility
+    // be checked after the fact. With the pre-run manifest now recording
+    // trusted-base, worktree, arg, rule, and provider evidence, the doc must
+    // reflect that the comparison-eligibility check is machine-supported, not
+    // merely documented.
+    let rubric = repository_text("dev-docs/code-review-process.md")?;
+    let comparison = markdown_section(&rubric, "Run comparison eligibility");
+
+    // The comparison section must reference the manifest evidence that makes
+    // eligibility machine-checkable.
+    assert!(
+        comparison.contains("worktree"),
+        "comparison-eligibility section must reference worktree state evidence recorded in the manifest"
+    );
+    assert!(
+        comparison.contains("manifest"),
+        "comparison-eligibility section must reference the reproducibility manifest"
+    );
+
+    Ok(())
+}

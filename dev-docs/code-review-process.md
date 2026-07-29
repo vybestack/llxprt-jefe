@@ -90,9 +90,17 @@ same thing unless all of the following match:
 - Provider, model, protocol, and account generation.
 - Concurrency, rules, and redacted configuration (compare via the
   `redacted_config_sha256` in `manifest.pre.json`).
-- Worktree state (the manifest records HEAD, branch, and diff hashes).
+- Worktree state (clean flag and diff hashes) and trusted-base HEAD/branch.
 
-When any of these differ, treat the runs as independent observations, not as
+The CI workflow records this evidence in `manifest.pre.json` as a true
+pre-run snapshot: the checked-out trusted base (`trusted_base.head` /
+`trusted_base.branch`), the worktree state (clean flag plus staged, unstaged,
+and untracked diff hashes), the fixed control arg vector
+(`control_args`), the scope arg vector (`scope_args`), the rule hash
+(`rule_sha256`), the preview hash (`preview_sha256`), and the redacted
+provider configuration shape. Each field is hashed into `sha256.txt` so
+tampering with any input after the run is detectable. When any of these
+differ between two runs, treat the runs as independent observations, not as
 a before/after measurement. The reproducibility manifests
 (`manifest.pre.json`, `manifest.post.json`, `sha256.txt`) exist so this
 eligibility can be checked after the fact.
@@ -100,7 +108,12 @@ eligibility can be checked after the fact.
 ## Provider and remediation discipline
 
 - Do not switch providers, edit OCR configuration, or run routine
-  connectivity tests as part of an ordinary review.
+  connectivity tests as part of an ordinary local review. The CI workflow is
+  an explicit exception: it runs a single bounded `ocr llm test` connectivity
+  preflight (with an explicit timeout) before the expensive review scope so a
+  provider outage or credential error is surfaced early rather than wasting a
+  full review run. This preflight is infrastructure, not a review action, and
+  does not switch providers or modify configuration.
 - Do not retry a review automatically or resume a range/commit review with a
   different provider lineage; a manual provider transition is a new run with
   recorded lineage.
