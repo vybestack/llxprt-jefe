@@ -181,6 +181,7 @@ locked all-feature tests. Cargo incremental compilation is also disabled in
 | Dependency change | Accepted as required for an independent standard validator | Enabled serde_json `raw_value` for exact nested-document byte checks and added `jsonschema` 0.33 with default features disabled for Draft 2020-12 validation |
 | Current-main source-size restoration | Accepted as mandatory gate repair | Compacted documentation in `src/state/events.rs`; no behavior or threshold change |
 | Current-main test fixture repairs | Accepted as mandatory gate repair | Updated the Actions fixture for the six-argument repository constructor and extracted a PR fixture helper to satisfy Clippy without suppression |
+| Current-main harness stabilization | Accepted as mandatory gate repair | Synchronized timeout teardown on an observed shim-start marker, serialized concurrent nested Cargo policy checks, and retained the settings-editor scenario's exact assertions with a loaded-suite-safe wait bound |
 | `.llxprt` changes | Rejected | Untouched |
 | Workflow / quality-gate changes | Rejected | No policy, threshold, suppression, workflow, or gate-configuration changes |
 
@@ -303,14 +304,18 @@ was full. Disk pressure was cleared before exact-head verification.
 
 ### Exact-head delivery verification
 
-After rebasing onto `origin/main` at `7b12edcd`, the first exact-head run exposed
-three current-main gate defects: `src/state/events.rs` exceeded the hard
-source-size limit by two lines, an Actions test fixture still called the old
-four-argument repository constructor, and a shared PR test fixture exceeded
-Clippy's 60-line function limit. The branch repairs only those gate defects:
-documentation compaction, fixture constructor parity, and test-helper
-extraction. No behavior, policy, threshold, suppression, or quality-gate
-configuration changed.
+After rebasing onto `origin/main` at `7b12edcd`, exact-head runs exposed
+current-main gate defects: `src/state/events.rs` exceeded the hard source-size
+limit by two lines, an Actions test fixture still called the old four-argument
+repository constructor, and a shared PR test fixture exceeded Clippy's 60-line
+function limit. Loaded coverage runs also exposed three test synchronization
+faults: timeout teardown could begin before its shim started, concurrent nested
+Cargo policy checks could race over their runnable artifact, and the
+settings-editor scenario's permitted wait was too short under instrumentation.
+The branch repairs only those gate defects through documentation compaction,
+fixture parity/helper extraction, synchronization at observable boundaries, and
+a bounded scenario wait increase. No product behavior, policy, threshold,
+suppression, or quality-gate configuration changed.
 
 ```text
 $ CARGO_INCREMENTAL=0 cargo xtask ci
@@ -326,9 +331,11 @@ xtask ci: test
 exit status: 0
 ```
 
-The final pre-plan-update scope relative to `origin/main` is 82 files, 18,936
-insertions, and 27 deletions (18,909 net lines). The user-approved hard-scope
+The final pre-plan-update scope relative to `origin/main` is 87 files, 18,984
+insertions, and 30 deletions (18,954 net lines). The user-approved hard-scope
 exception covers this single issue-linked PR. `origin/main` is an ancestor of
 HEAD, `.llxprt` is untouched, and the dependency diff consists of the
 `serde_json` `raw_value` feature plus `jsonschema` 0.33 with default features
-disabled and its lockfile closure.
+disabled and its lockfile closure. The successful exact-head run is preserved
+in `/tmp/issue477-final-exact-head-ci-candidate.log` with exit marker
+`/tmp/issue477-final-exact-head-ci-candidate.exit`.
