@@ -256,7 +256,7 @@ Describe 'Jefe installer rollback and uninstall' {
         New-TestPackage $source
         Write-TestOwnerMarker $install $true
         Set-InstallerDirectories $install $source
-        $script:FakeUserPath = "C:\keep;$install"
+        $script:FakeUserPath = "C:\keep;$($script:InstallDir)"
         Mock Get-JefeUserPath { return $script:FakeUserPath }
         Mock Set-JefeUserPath { param([string]$Value) $script:FakeUserPath = $Value }
 
@@ -275,7 +275,7 @@ Describe 'Jefe installer rollback and uninstall' {
         New-TestPackage $source
         Write-TestOwnerMarker $install $false
         Set-InstallerDirectories $install $source
-        $script:FakeUserPath = "C:\keep;$install"
+        $script:FakeUserPath = "C:\keep;$($script:InstallDir)"
         $script:PathWrites = 0
         Mock Get-JefeUserPath { return $script:FakeUserPath }
         Mock Set-JefeUserPath { param([string]$Value) $script:PathWrites++; $script:FakeUserPath = $Value }
@@ -283,7 +283,7 @@ Describe 'Jefe installer rollback and uninstall' {
         Uninstall-Jefe
 
         $script:PathWrites | Should Be 0
-        $script:FakeUserPath | Should Be "C:\keep;$install"
+        $script:FakeUserPath | Should Be "C:\keep;$($script:InstallDir)"
     }
 }
 

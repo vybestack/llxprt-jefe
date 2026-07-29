@@ -5,7 +5,7 @@
 - Base: `origin/main` at `f08fa31`
 - Issue state: open
 - Delivery shape: one bounded issue-closing pull request
-- Review counters: OCR pre-PR 0/2, OCR post-PR 1/2
+- Review counters: OCR pre-PR 0/2, OCR post-PR 2/2 (final)
 - Status: candidate implementation complete; local verification and review evidence are recorded below
 
 ## Decisions required before implementation
@@ -108,6 +108,7 @@ Expected total: 7 files and approximately 661 net added lines, below the 25-file
 | 2026-07-28 | Windows user environment variables expose get/set, not compare-and-swap | D-02 bounds atomicity to concurrent Jefe invocations and requires accurate external-editor documentation |
 | 2026-07-28 | `.github` edits are required for released checksums and exact-head Pester evidence | Approved and implemented within the bounded D-01 workflow scope |
 | 2026-07-29 | Native Windows CI proved Pester 5.9 discovery under PowerShell 7 cannot compile the executable fixture with `Add-Type -OutputType ConsoleApplication` | **In-scope—Fix:** run the harness with preinstalled Pester 3.4 under Windows PowerShell 5.1, which matches the documented installer minimum and passes all 17 tests without a dependency or fixture rewrite |
+| 2026-07-29 | The next Native Windows run exposed an 8.3/long-path mismatch in the uninstall test fixture (`RUNNER~1` versus normalized `runneradmin`) | **In-scope—Fix:** construct fake PATH values from the installer's normalized `$script:InstallDir`; production behavior is unchanged and local Pester remains 17/17 |
 
 ## Review triage
 
@@ -116,9 +117,11 @@ A focused GLM-backed pre-PR review completed after the full local gate.
 - **Blocker—Fix:** none.
 - **In-scope—Fix:** remove the stale generated `tests/powershell/red-results.xml` artifact. Resolved; only the intended `.Tests.ps1` remains.
 - **In-scope—Fix:** the first Native Windows run failed during Pester 5.9 discovery because PowerShell 7 does not support `Add-Type -OutputType ConsoleApplication`. Resolved by running the unchanged harness with hosted Pester 3.4 under Windows PowerShell 5.1, the installer's supported minimum host.
+- **In-scope—Fix:** the next Native Windows run failed because `%TEMP%` supplied an 8.3 path while `Set-InstallerDirectories` normalized it to the long path. Resolved by building uninstall fake-PATH fixtures from `$script:InstallDir`, matching the observable installer input.
 - **Reject:** PATH, metadata rollback, uninstall, seven-day cleanup, checksum ordering/format, release/CI package, and Rust contract concerns were inspected and found correct against the acceptance matrix.
 - **Reject (post-PR OCR inline 3670097408):** replace or explain the test fixture's `31990` PATH length. The test intentionally demonstrates that appending an ordinary absolute install path exceeds the fixed 32,000-character production guard; deriving the value from production text would couple behavioral evidence to implementation detail, while the current boundary remains stable and failed correctly before the guard existed.
-- OCR counters remain pre-PR 0/2 and post-PR 1/2.
+- **Reject (post-PR OCR inline 3670253156):** add `Invoke-Pester -EnableExit`. The workflow already inspects the returned `FailedCount` and throws an explicit diagnostic, as demonstrated by the failing 16/17 CI run; `-EnableExit` would terminate the host before that controlled diagnostic without improving failure detection.
+- OCR counters are final at pre-PR 0/2 and post-PR 2/2; no further OCR run is permitted.
 
 ## Verification evidence
 
