@@ -113,15 +113,10 @@ fn schema_manifest_lists_all_three_document_kinds() {
     assert!(kinds.contains(&"heartbeat"));
 }
 
-#[test]
-fn schema_oracle_rejects_permissive_or_corrupted_standard_schema() {
-    let source = default_schemas_dir(&workspace_root());
-    let temp = TempDir::new();
-    let root = temp.path();
+fn copy_schema_package(source: &std::path::Path, root: &std::path::Path) {
     std::fs::create_dir_all(root.join("cases"))
         .unwrap_or_else(|error| panic!("create schema temp: {error}"));
-    for entry in std::fs::read_dir(&source).unwrap_or_else(|error| panic!("read schemas: {error}"))
-    {
+    for entry in std::fs::read_dir(source).unwrap_or_else(|error| panic!("read schemas: {error}")) {
         let entry = entry.unwrap_or_else(|error| panic!("schema entry: {error}"));
         if entry
             .file_type()
@@ -140,6 +135,14 @@ fn schema_oracle_rejects_permissive_or_corrupted_standard_schema() {
                 .unwrap_or_else(|error| panic!("copy schema: {error}"));
         }
     }
+}
+
+#[test]
+fn schema_oracle_rejects_permissive_or_corrupted_standard_schema() {
+    let source = default_schemas_dir(&workspace_root());
+    let temp = TempDir::new();
+    let root = temp.path();
+    copy_schema_package(&source, root);
     let schema_path = root.join("snapshot.schema.json");
     let mut schema = read_json(&schema_path);
     schema["additionalProperties"] = Value::Bool(true);
@@ -154,6 +157,17 @@ fn schema_oracle_rejects_permissive_or_corrupted_standard_schema() {
             .iter()
             .any(|finding| finding.kind == "schema_semantics")
     );
+
+    schema["additionalProperties"] = Value::Bool(false);
+    schema["properties"]["agent_id"]
+        .as_object_mut()
+        .unwrap_or_else(|| panic!("agent_id schema object"))
+        .remove("maxLength");
+    std::fs::write(&schema_path, json_bytes(&schema))
+        .unwrap_or_else(|error| panic!("write unbounded string schema: {error}"));
+    let report = run_schema_oracle(root, &default_fixtures_dir(&workspace_root()))
+        .unwrap_or_else(|error| panic!("schema oracle executes: {error}"));
+    assert!(report.findings.iter().any(|f| f.kind == "schema_semantics"));
 
     schema["type"] = Value::from(7);
     std::fs::write(&schema_path, json_bytes(&schema))
@@ -661,22 +675,16 @@ fn cli_all_aggregates_all_profiles_even_when_one_is_fatal() {
 
 #[cfg(unix)]
 #[test]
-fn cli_non_utf8_path_reports_json_without_echoing_bytes() {
+fn cli_non_utf8_argument_reports_json_without_echoing_bytes() {
     use std::os::unix::ffi::OsStringExt;
 
-    // Derive a non-UTF-8 path from the system temp directory so the test
-    // does not assume a specific filesystem layout.
-    let mut prefix = std::env::temp_dir();
-    prefix.push("jefe-477-non-utf8");
-    let mut bytes = prefix.into_os_string().into_vec();
-    bytes.extend_from_slice(&[b'-', 0xff, b'.', b'j']);
-    let path = std::ffi::OsString::from_vec(bytes);
+    let adapter = std::ffi::OsString::from_vec(vec![b'c', b'a', b't', b'-', 0xff]);
     let output = std::process::Command::new(jefe_bin_path())
         .arg("producer")
-        .arg("--input")
-        .arg(path)
+        .arg("--adapter")
+        .arg(&adapter)
         .output()
-        .unwrap_or_else(|error| panic!("run non-UTF-8 CLI path: {error}"));
+        .unwrap_or_else(|error| panic!("run non-UTF-8 CLI argument: {error}"));
     assert!(!output.status.success());
     assert!(output.stderr.is_empty());
     let report: Value = serde_json::from_slice(&output.stdout)
@@ -685,8 +693,9 @@ fn cli_non_utf8_path_reports_json_without_echoing_bytes() {
     assert_eq!(report["failures"][0]["invariant"], "cli_input");
     assert_eq!(
         report["failures"][0]["detail"],
-        "producer qualification requires --adapter or --reference-adapter"
+        "adapter command is not valid UTF-8"
     );
+    assert!(!output.stdout.contains(&0xff));
 }
 /// Locate the built compliance binary.
 fn jefe_bin_path() -> PathBuf {
@@ -830,10 +839,7 @@ fn scenario_manifest_corrupted_version_fails_payload_free() {
         message.starts_with("JSP-C-"),
         "error must be a payload-free code, got: {message}"
     );
-    assert!(
-        !message.contains('/') || message.contains("JSP-C-"),
-        "error must not leak OS paths: {message}"
-    );
+    assert!(!message.contains(&root.display().to_string()));
 }
 
 /// The scenario oracle must populate typed expected/actual sequence fields

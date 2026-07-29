@@ -348,6 +348,25 @@ pub(crate) fn project_optional_availability<T>(
     }
 }
 
+pub(crate) fn project_source_terminal<T>(
+    field: &FieldState<Option<T>>,
+) -> (MessagePresence, AvailabilityProjection) {
+    if matches!(
+        field,
+        FieldState::Supported {
+            availability: Availability::Degraded { .. },
+            ..
+        }
+    ) {
+        (MessagePresence::Unknown, AvailabilityProjection::Unknown)
+    } else {
+        (
+            project_presence(field),
+            project_optional_availability(field),
+        )
+    }
+}
+
 /// Project todos without collapsing support, provenance, and availability.
 pub(crate) fn project_todos(field: &TodosField) -> (TodoProjection, Option<u64>, usize) {
     match field {

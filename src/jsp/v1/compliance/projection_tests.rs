@@ -31,6 +31,9 @@ fn observation_health_labels_are_stable() {
             .unwrap_or_else(|error| panic!("serialize {health:?}: {error}"));
         let expected = format!("\"{label}\"");
         assert_eq!(json, expected);
+        let decoded: ObservationHealth = serde_json::from_str(&json)
+            .unwrap_or_else(|error| panic!("deserialize {health:?}: {error}"));
+        assert_eq!(decoded, health);
     }
 }
 
@@ -337,6 +340,22 @@ fn project_provenance_maps_all_field_states() {
     assert_eq!(
         project_provenance(&inferred),
         ProjectionProvenance::Inferred
+    );
+}
+
+#[test]
+fn degraded_source_terminal_normalizes_to_unknown() {
+    let degraded = FieldState::Supported {
+        provenance: Provenance::Authoritative,
+        availability: Availability::Degraded {
+            last_value: Some(7_u32),
+            as_of_ms: 1,
+            diagnostic_code: crate::domain::observation::DiagnosticCode("D".to_string()),
+        },
+    };
+    assert_eq!(
+        project_source_terminal(&degraded),
+        (MessagePresence::Unknown, AvailabilityProjection::Unknown)
     );
 }
 

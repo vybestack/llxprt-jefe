@@ -150,7 +150,7 @@ pub fn run_schema_oracle(
     for (file, kind) in SCHEMA_FILES {
         let value = read_value(&schemas_dir.join(file))?;
         inspect_schema(&value, kind, file, &mut findings);
-        if compile(&value).is_err() {
+        if compile(&value).is_none() {
             findings.push(finding(
                 "schema_compile",
                 file,
@@ -163,7 +163,7 @@ pub fn run_schema_oracle(
     let cases = read_closed::<SchemaCasesWire>(&schemas_dir.join("cases.json"))?;
     let (positive_count, negative_count) =
         inspect_cases(schemas_dir, cases, &schemas, &mut findings);
-    inspect_boundary_parity(&schemas, &mut findings);
+    inspect_boundary_parity(schemas_dir, &schemas, &mut findings);
     let passed = presence.all_present() && findings.is_empty();
     Ok(SchemaReport {
         schemas_present: presence,
@@ -291,8 +291,9 @@ fn check_event_inventory(schema: &Value, file: &str, findings: &mut Vec<SchemaFi
 fn semantic_bounds(node: &Value, property: Option<&str>) -> bool {
     match node {
         Value::Object(object) => {
+            let is_string = object.get("type").and_then(Value::as_str) == Some("string");
             let string_ok = match object.get("maxLength") {
-                None => true,
+                None => !is_string && object.get("x-jsp-maxUtf8Bytes").is_none(),
                 Some(maximum) => {
                     object.get("x-jsp-maxUtf8Bytes") == Some(maximum)
                         && maximum.as_u64().is_some_and(|value| value > 0)
@@ -475,6 +476,7 @@ fn check_event_case_coverage(
 }
 
 fn inspect_boundary_parity(
+    schemas_dir: &Path,
     schemas: &HashMap<&'static str, Value>,
     findings: &mut Vec<SchemaFinding>,
 ) {
@@ -508,7 +510,7 @@ fn inspect_boundary_parity(
             "u64 maximum edge was rejected",
         ));
     }
-    inspect_u32_pid_parity(schemas, findings);
+    inspect_u32_pid_parity(schemas_dir, schemas, findings);
     let Ok(overflow) = serde_json::from_str::<Value>(
         r#"{"schema":1,"kind":"heartbeat","agent_id":"a","lifecycle_generation":18446744073709551616,"source_epoch":"e","bridge_observed_ms":1}"#,
     ) else {
@@ -528,16 +530,22 @@ fn inspect_boundary_parity(
             "u64 limit-plus-one was accepted",
         ));
     }
+    inspect_degraded_field_alignment(schemas_dir, schemas, findings);
 }
 
 fn inspect_u32_pid_parity(
+    schemas_dir: &Path,
     schemas: &HashMap<&'static str, Value>,
     findings: &mut Vec<SchemaFinding>,
 ) {
-    let mut snapshot = serde_json::from_slice::<Value>(include_bytes!(
-        "../../../../dev-docs/jsp/v1/compliance/schemas/cases/snapshot_positive.json"
-    ))
-    .unwrap_or(Value::Null);
+    let Ok(mut snapshot) = read_value(&schemas_dir.join("cases/snapshot_positive.json")) else {
+        findings.push(finding(
+            "u32_maximum",
+            "snapshot.schema.json",
+            "caller snapshot_positive case unavailable for pid probe",
+        ));
+        return;
+    };
     snapshot["native_session"]["pid"] = Value::from(u32::MAX);
     let maximum_ok = validate_instance(&schemas["snapshot"], &snapshot)
         && parser_accepts(DocumentKindWire::Snapshot, &snapshot);
@@ -553,16 +561,47 @@ fn inspect_u32_pid_parity(
     }
 }
 
+/// Verify that fields without meaningful last-known values reject `degraded`
+/// in both the standard schema and typed parser.
+fn inspect_degraded_field_alignment(
+    schemas_dir: &Path,
+    schemas: &HashMap<&'static str, Value>,
+    findings: &mut Vec<SchemaFinding>,
+) {
+    let Ok(snapshot) = read_value(&schemas_dir.join("cases/snapshot_positive.json")) else {
+        return;
+    };
+    for field in ["source_terminal_state", "current_wait"] {
+        let mut probe = snapshot.clone();
+        probe[field] = serde_json::json!({
+            "provenance": "authoritative",
+            "availability": "degraded",
+            "last_value": null,
+            "as_of_ms": 1,
+            "diagnostic_code": "x"
+        });
+        let schema_rejects = !validate_instance(&schemas["snapshot"], &probe);
+        let parser_rejects = !parser_accepts(DocumentKindWire::Snapshot, &probe);
+        if !schema_rejects || !parser_rejects {
+            findings.push(finding(
+                "degraded_field_alignment",
+                "snapshot.schema.json",
+                &format!("{field} must reject degraded in both schema and parser"),
+            ));
+        }
+    }
+}
+
 fn validate_instance(schema: &Value, instance: &Value) -> bool {
-    compile(schema).is_ok_and(|validator| validator.is_valid(instance))
+    compile(schema).is_some_and(|validator| validator.is_valid(instance))
         && custom_utf8_valid(schema, schema, instance)
 }
 
-fn compile(schema: &Value) -> Result<jsonschema::Validator, ()> {
+fn compile(schema: &Value) -> Option<jsonschema::Validator> {
     jsonschema::options()
         .with_draft(Draft::Draft202012)
         .build(schema)
-        .map_err(|_| ())
+        .ok()
 }
 
 use super::schema_utf8::custom_utf8_valid;

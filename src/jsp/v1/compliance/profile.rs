@@ -107,9 +107,6 @@ pub(super) fn validate_typed_trace(trace: ProducerTraceWire) -> ProducerReport {
     for (index, fact) in trace.facts.into_iter().enumerate() {
         check_fact(fact, index, &mut state, &mut findings);
     }
-    if trace.challenge_nonce == 0 {
-        state.proofs |= ProducerState::DRAFT;
-    }
     finalize(&state, &mut findings);
     ProducerReport {
         adapter_version,

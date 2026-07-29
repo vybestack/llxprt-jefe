@@ -3,11 +3,17 @@
 use serde_json::Value;
 
 pub(super) fn custom_utf8_valid(root: &Value, schema: &Value, instance: &Value) -> bool {
-    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-        return reference
-            .strip_prefix('#')
-            .and_then(|pointer| root.pointer(pointer))
-            .is_some_and(|resolved| custom_utf8_valid(root, resolved, instance));
+    let reference_valid = schema
+        .get("$ref")
+        .and_then(Value::as_str)
+        .map_or(true, |reference| {
+            reference
+                .strip_prefix('#')
+                .and_then(|pointer| root.pointer(pointer))
+                .is_some_and(|resolved| custom_utf8_valid(root, resolved, instance))
+        });
+    if !reference_valid {
+        return false;
     }
     if let (Some(maximum), Some(value)) = (
         schema.get("x-jsp-maxUtf8Bytes").and_then(Value::as_u64),
@@ -54,4 +60,28 @@ fn branch_matches_discriminator(branch: &Value, instance: &Value) -> bool {
             instance.get(key).is_some_and(|actual| actual == expected)
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ref_siblings_still_enforce_utf8_byte_limits() {
+        let schema = serde_json::json!({
+            "$defs": {"text": {"type": "string"}},
+            "$ref": "#/$defs/text",
+            "x-jsp-maxUtf8Bytes": 4
+        });
+        assert!(custom_utf8_valid(
+            &schema,
+            &schema,
+            &serde_json::json!("éé")
+        ));
+        assert!(!custom_utf8_valid(
+            &schema,
+            &schema,
+            &serde_json::json!("ééé")
+        ));
+    }
 }

@@ -157,10 +157,11 @@ locked all-feature tests. Cargo incremental compilation is also disabled in
 ## Review counters
 
 - Local Open Code Review: 2 of 2 used.
-- Pull-request Open Code Review: 0 of 2 used.
+- Pull-request Open Code Review: 1 of 2 used; the automatic run failed in OCR
+  infrastructure before producing review output, leaving one authorized run.
 - Independent review/remediation cycles: 2 of 2 used.
 - RustReviewer and DeepThinker participated in both independent cycles. No
-  valid finding remains deferred.
+  additional independent review is permitted by the workflow cap.
 
 ## Scope ledger
 
@@ -339,3 +340,26 @@ HEAD, `.llxprt` is untouched, and the dependency diff consists of the
 disabled and its lockfile closure. The successful true-final exact-head run is
 preserved in `/tmp/issue477-true-final-exact-head-ci.log` with exit marker
 `/tmp/issue477-true-final-exact-head-ci.exit`.
+
+### Pull-request review remediation
+
+CodeRabbit reported 18 findings on PR 516. Seventeen were accepted as
+**Blocker—Fix** or **In-scope—Fix**: complete producer/server contract docs,
+closed empty event payload variants and nested negative fixtures, meaningful
+lifecycle-epoch classification, early artifact bounds, explicit draft proof,
+serde round-trip coverage, safe reference-fixture mutation, `$ref` sibling UTF-8
+bounds, paired string bounds, reducer validation atomicity, portable adapter
+tests, and real non-UTF-8/path-leak assertions. The source-terminal degraded
+state is normalized to unknown because it has no meaningful last-known value.
+One finding was **Reject** because the over-bound server label was already
+exactly 257 UTF-8 bytes. No finding is deferred.
+
+The remediation worktree passes 48 compliance library tests, 33 primary
+integration tests, and 34 challenge integration tests. The exact-head command
+`CARGO_INCREMENTAL=0 cargo xtask ci` passed formatting, suppression policy,
+source-size, architecture, strict Clippy, complexity, coverage, locked
+all-feature build, workspace tests, and doctests with exit status 0. Its log is
+`/tmp/issue477-exact-head-ci.log` and exit marker is
+`/tmp/issue477-exact-head-ci.exit`. TUI-specific verification is not applicable:
+the remediation changes protocol/schema/profile behavior and no visual or TUI
+surface.

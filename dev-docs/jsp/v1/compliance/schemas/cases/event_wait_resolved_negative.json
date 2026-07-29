@@ -7,7 +7,7 @@
   "source_sequence": 3,
   "bridge_observed_ms": 103,
   "event": {
-    "type": "wait.resolved"
-  },
-  "unexpected": true
+    "type": "wait.resolved",
+    "unexpected": true
+  }
 }

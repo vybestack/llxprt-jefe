@@ -31,8 +31,8 @@ use super::projection::{
     ActivityProjection, AvailabilityProjection, MessagePresence, NormalizedProjection,
     ObservationHealth, ProjectionProvenance, TodoProjection, ToolPhaseProjection,
     TurnOutcomeProjection, WaitProjection, project_activity, project_availability, project_message,
-    project_optional_availability, project_presence, project_provenance, project_todos,
-    project_tool, project_turn_active, project_wait,
+    project_presence, project_provenance, project_source_terminal, project_todos, project_tool,
+    project_turn_active, project_wait,
 };
 
 /// A reducer error, coded for stable machine-readable reporting.
@@ -303,6 +303,25 @@ impl ReferenceReducer {
         self.state.project()
     }
 
+    /// Read-only probe of whether a heartbeat for `identity` would be rejected
+    /// as requiring a fresh snapshot-first stream, **without** mutating the
+    /// reducer. This lets a caller classify a request (e.g. a snapshot
+    /// publication) before it decides to apply the heartbeat, so validation
+    /// can never observe a post-mutation state.
+    ///
+    /// Returns `true` only when the heartbeat is bound to the current stream
+    /// identity but the stream is no longer live (a gap or disconnect already
+    /// invalidated it). Any other precondition (no bound stream, identity
+    /// mismatch) is not a "fresh snapshot required" condition and returns
+    /// `false`; the caller validates those via other channels.
+    #[must_use]
+    pub fn fresh_snapshot_required(&self, identity: &ObservationIdentity) -> bool {
+        let Some(bound) = self.state.identity.as_ref() else {
+            return false;
+        };
+        bound == identity && self.state.stream_phase != StreamPhase::Live
+    }
+
     /// Apply a snapshot: atomically replace the projection and bind/rebind the
     /// stream identity. A snapshot always resets observation health to live.
     ///
@@ -342,9 +361,8 @@ impl ReferenceReducer {
         self.state.tool = project_tool(&snapshot.last_created_tool_call);
         self.state.tool_availability = project_availability(&snapshot.last_created_tool_call);
         self.state.tool_provenance = project_provenance(&snapshot.last_created_tool_call);
-        self.state.source_terminal = project_presence(&snapshot.source_terminal_state);
-        self.state.terminal_availability =
-            project_optional_availability(&snapshot.source_terminal_state);
+        (self.state.source_terminal, self.state.terminal_availability) =
+            project_source_terminal(&snapshot.source_terminal_state);
         self.state.source_terminal_provenance = project_provenance(&snapshot.source_terminal_state);
         self.state.source_error = project_presence(&snapshot.source_error_state);
         self.state.error_availability = project_availability(&snapshot.source_error_state);

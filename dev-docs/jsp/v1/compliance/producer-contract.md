@@ -29,6 +29,9 @@ The trace is a single JSON document (`producer-trace.json` shape) containing:
     bytes through the authoritative parser, including its 256 KiB ingress bound.
   - `redaction_challenge` names a captured document index and a forbidden test
     marker; the exact captured bytes must not contain the marker.
+  - `draft_challenge` carries a runner-owned source handle. The captured JSP
+    documents and the final projection must not contain the draft marker
+    named by the runner challenge.
   - `bound_challenge` carries an at-limit and limit-plus-one event. The same
     parser must accept 16,384 content bytes and reject 16,385 with `JSP-E002`.
   - `nonblocking_challenge` records a blocked sink, bounded queue capacity,
@@ -40,6 +43,11 @@ The trace is a single JSON document (`producer-trace.json` shape) containing:
 Fact kinds and fields are closed. Unknown, malformed, irrelevant, or
 assertion-only fields fail before semantic evaluation; booleans claiming that
 an operation was redacted or nonblocking are not evidence.
+
+Every challenge fact above is required. A trace that omits `draft_challenge`
+fails `draft_exclusion` regardless of its `challenge_nonce` value: the nonce is
+adapter-supplied data inside the artifact, so it can never itself excuse a
+missing proof.
 
 ## Producer profile invariants
 

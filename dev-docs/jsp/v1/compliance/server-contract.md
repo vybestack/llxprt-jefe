@@ -46,11 +46,18 @@ canonical reducer state, stream ordering, and fake-clock lease behavior.
 | `/jsp/1/publish` | POST | publisher | Publish a snapshot/event/heartbeat |
 | `/jsp/1/observe` | GET (SSE) | observer | Open a snapshot-first stream |
 | `/jsp/1/heartbeat` | POST | publisher | Report source liveness |
+| `/jsp/1/control` | POST | publisher | Role-separation probe; an observer attempt must be rejected |
+| `/jsp/1/internal/lease_expired` | POST | server | Runner-owned lease expiration observation |
+| `/jsp/1/internal/observation_digest` | GET | server | Runner-owned canonical-state digest proving a rejection caused no mutation |
+
+The first four routes are the JSP/1 transport surface an external server must
+implement. The final three are runner-owned internal routes: the compliance
+runner drives them to observe canonical state, and only a trusted `server`
+principal may answer the two `internal` routes.
 
 Only a `publisher` may publish/heartbeat/register-as-publisher. Only an
 `observer` may open an observation stream. A publisher may never observe an
-unrelated session. An observer may never publish or control (there is no
-control operation).
+unrelated session. An observer may never publish or control.
 
 ## Server profile invariants (validated against the transcript)
 

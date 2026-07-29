@@ -80,8 +80,8 @@ fn convert_payload(payload: EventPayloadWire) -> Result<ObservationEvent, JspErr
     match payload {
         EventPayloadWire::ActivityChanged { state } => convert_activity(&state),
         EventPayloadWire::WaitOpened { reason } => convert_wait_opened(&reason),
-        EventPayloadWire::WaitResolved => Ok(ObservationEvent::WaitResolved),
-        EventPayloadWire::TurnStarted => Ok(ObservationEvent::TurnStarted),
+        EventPayloadWire::WaitResolved {} => Ok(ObservationEvent::WaitResolved),
+        EventPayloadWire::TurnStarted {} => Ok(ObservationEvent::TurnStarted),
         EventPayloadWire::TurnEnded { outcome } => convert_turn_ended(&outcome),
         EventPayloadWire::TodosReplaced { revision, items } => convert_todos(revision, &items),
         EventPayloadWire::ToolCallCreated { label, phase } => {
@@ -99,7 +99,7 @@ fn convert_payload(payload: EventPayloadWire) -> Result<ObservationEvent, JspErr
             committed_ms,
         } => convert_message(&content, committed_ms),
         EventPayloadWire::SourceError { summary, code } => convert_source_error(&summary, &code),
-        EventPayloadWire::SessionEnded => Ok(ObservationEvent::SessionEnded),
+        EventPayloadWire::SessionEnded {} => Ok(ObservationEvent::SessionEnded),
     }
 }
 

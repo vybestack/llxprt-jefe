@@ -15,6 +15,9 @@ pub(super) fn validate_producer_trace_with_challenge(
     input: &[u8],
     challenge: &super::challenge::RunnerChallenge,
 ) -> ProducerReport {
+    if input.len() > MAX_PROFILE_INPUT_BYTES {
+        return failed_bound();
+    }
     let mut report = validate_producer_trace(input);
     let trace: ProducerTraceWire = match serde_json::from_slice(input) {
         Ok(trace) => trace,

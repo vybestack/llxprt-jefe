@@ -304,6 +304,10 @@
       "forbidden_marker": "RAW-TRANSCRIPT-SECRET"
     },
     {
+      "fact": "draft_challenge",
+      "source_handle": "legacy-draft-source"
+    },
+    {
       "fact": "bound_challenge",
       "at_limit": {
         "schema": 1,

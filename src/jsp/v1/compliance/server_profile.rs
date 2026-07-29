@@ -16,13 +16,18 @@ use crate::domain::observation::ObservationIdentity;
 /// data through deserialization.
 const MAX_METADATA_STRING_BYTES: usize = 4096;
 
+/// Maximum size of a serialized server transcript before it is rejected as
+/// exceeding the compliance artifact bound. Shared by all public entry points
+/// so the bound is enforced uniformly before deserialization.
+const MAX_SERVER_TRANSCRIPT_BYTES: usize = 2 * 1024 * 1024;
+
 /// Validate server qualification against the complete runner-owned challenge.
 #[must_use]
 pub fn validate_server_transcript_with_challenge(
     input: &[u8],
     challenge: &super::challenge::RunnerChallenge,
 ) -> ServerReport {
-    if input.len() > 2 * 1024 * 1024 {
+    if input.len() > MAX_SERVER_TRANSCRIPT_BYTES {
         return failed_bound();
     }
     let transcript: ServerTranscriptWire = match serde_json::from_slice(input) {
@@ -107,7 +112,7 @@ pub fn validate_server_transcript_with_nonce(
     input: &[u8],
     expected_nonce: super::challenge::ChallengeNonce,
 ) -> ServerReport {
-    if input.len() > 2 * 1024 * 1024 {
+    if input.len() > MAX_SERVER_TRANSCRIPT_BYTES {
         return failed_bound();
     }
     let transcript: ServerTranscriptWire = match serde_json::from_slice(input) {
@@ -135,7 +140,7 @@ pub fn validate_server_transcript_with_nonce(
 
 #[must_use]
 pub fn validate_server_transcript(input: &[u8]) -> ServerReport {
-    if input.len() > 2 * 1024 * 1024 {
+    if input.len() > MAX_SERVER_TRANSCRIPT_BYTES {
         return failed_bound();
     }
     let transcript: ServerTranscriptWire = match serde_json::from_slice(input) {
@@ -252,6 +257,11 @@ impl ServerState {
     pub(super) const STREAM_TAIL: u32 = 1 << 17;
     pub(super) const STREAM_SNAPSHOT_ONLY: u32 = 1 << 18;
     pub(super) const ALL: u32 = (1 << 19) - 1;
+    /// Required proof mask for the non-strict (self-attested) profile: every
+    /// semantic up to and including `BOUND`. The strict-challenge-only
+    /// proofs (`UNKNOWN_AUTH` and the stream-tail/snapshot-only distinctions)
+    /// are not required here.
+    pub(super) const NON_STRICT_REQUIRED: u32 = Self::UNKNOWN_AUTH - 1;
 
     fn new(credentials: Vec<TrustedCredential>, strict_challenge: bool) -> Self {
         Self {
@@ -272,7 +282,7 @@ impl ServerState {
         let required = if self.strict_challenge {
             Self::ALL
         } else {
-            (1 << 16) - 1
+            Self::NON_STRICT_REQUIRED
         };
         if self.proved & required != required {
             finding(

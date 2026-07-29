@@ -7,7 +7,7 @@
   "source_sequence": 4,
   "bridge_observed_ms": 104,
   "event": {
-    "type": "turn.started"
-  },
-  "unexpected": true
+    "type": "turn.started",
+    "unexpected": true
+  }
 }

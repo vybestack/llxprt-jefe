@@ -507,23 +507,28 @@ fn server_activity_value_never_maps_unknown_to_idle() {
 // Draft exclusion (S9 draft-negative runner challenge)
 // ---------------------------------------------------------------------------
 
+/// The runner-owned draft marker. It matches the distinctive
+/// `JSP-DRAFT-{nonce}` shape produced by `RunnerChallenge::reference` rather
+/// than a generic English word, so the check cannot be satisfied or defeated
+/// by incidental protocol vocabulary such as the `draft_challenge` fact name.
+const DRAFT_MARKER: &str = "JSP-DRAFT-477";
+
 #[test]
 fn producer_draft_marker_absent_from_output_passes() {
-    // The producer trace must never contain draft content.
+    // The producer trace must never contain uncommitted draft content.
     let trace = read_json(&traces_dir().join("producer-trace.json"));
     let bytes = json_bytes(&trace);
-    // Verify draft marker is not present in the wire
-    let result = verify_draft_exclusion(&bytes, "draft");
+    let result = verify_draft_exclusion(&bytes, DRAFT_MARKER);
     assert_eq!(result, ChallengeVerification::Verified);
 }
 
 #[test]
 fn producer_draft_marker_present_fails() {
     let mut trace = read_json(&traces_dir().join("producer-trace.json"));
-    // Inject draft content into the trace
-    trace["description"] = Value::String("contains draft content here".to_string());
+    // Inject draft content into the trace.
+    trace["description"] = Value::String(format!("contains {DRAFT_MARKER} content here"));
     let bytes = json_bytes(&trace);
-    let result = verify_draft_exclusion(&bytes, "draft");
+    let result = verify_draft_exclusion(&bytes, DRAFT_MARKER);
     assert_eq!(
         result,
         ChallengeVerification::Failed(ChallengeFailure::DraftLeaked)
@@ -586,6 +591,12 @@ fn reference_adapter_missing_fields_returns_error() {
 // External adapter invocation
 // ---------------------------------------------------------------------------
 
+// The echo/nonzero/oversized adapter integration tests rely on `cat`/`false`,
+// which are POSIX-only. They are gated to `cfg(unix)` so the suite compiles
+// and runs cross-platform; the nonexistent-program test below is portable and
+// remains ungated to retain adapter-spawn coverage everywhere.
+
+#[cfg(unix)]
 #[test]
 fn invoke_adapter_cat_echoes_input() {
     let result = invoke_adapter(&["cat".to_string()], br#"{"test": true}"#);
@@ -600,12 +611,14 @@ fn invoke_adapter_nonexistent_program_fails() {
     assert!(result.is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn invoke_adapter_false_exits_nonzero() {
     let result = invoke_adapter(&["false".to_string()], b"{}");
     assert!(result.is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn invoke_adapter_oversized_input_fails() {
     let huge = vec![b' '; (2 * 1024 * 1024) + 1];

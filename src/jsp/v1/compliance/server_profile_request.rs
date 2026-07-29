@@ -203,6 +203,21 @@ fn dispatch(
     }
 }
 
+/// The outcome of authenticating a server request against the trusted
+/// credential table. See [`authorize`] for the authentication policy that
+/// produces each variant.
+enum Authorization {
+    /// The credential handle and principal handle matched a trusted
+    /// credential bound to the request identity, granting the credential's
+    /// role.
+    Authorized(RoleWire),
+    /// No trusted credential matched the supplied handles.
+    Unknown,
+    /// A trusted credential matched the handles but its identity binding
+    /// disagreed with the request identity (a genuinely unrelated principal).
+    BindingMismatch,
+}
+
 /// Authenticate by credential handle and principal handle, returning the
 /// granted role. A credential bound to a different **agent_id** is rejected
 /// (forbidden) because it represents a genuinely unrelated principal.
@@ -212,12 +227,6 @@ fn dispatch(
 /// [`check_stale_identity`] handles the 409 rejection. This separation is
 /// critical so a publisher with a stale identity receives a typed rejection
 /// rather than a role-mismatch forbidden.
-enum Authorization {
-    Authorized(RoleWire),
-    Unknown,
-    BindingMismatch,
-}
-
 fn authorize(
     request: &ServerRequestWire,
     identity: &ObservationIdentity,
@@ -432,15 +441,7 @@ fn check_snapshot(
         );
         return;
     }
-    let fresh = matches!(
-        state
-            .reducer
-            .apply_heartbeat(&crate::domain::observation::HeartbeatRecord {
-                identity: identity.clone(),
-                bridge_observed_ms: snapshot.bridge_observed_ms,
-            }),
-        Err(ReducerError::FreshSnapshotRequired)
-    );
+    let fresh = state.reducer.fresh_snapshot_required(&identity);
     let expected = if fresh {
         ResponseKindWire::FreshSnapshotAccepted
     } else {
@@ -686,6 +687,21 @@ fn check_heartbeat(
         );
         return;
     };
+    // Validate monotonicity before touching the reducer: a non-monotonic
+    // heartbeat must never mutate reducer health, even on a probe.
+    if state
+        .last_heartbeat_ms
+        .is_some_and(|last| heartbeat.bridge_observed_ms <= last)
+    {
+        finding_at(
+            findings,
+            "heartbeat_lease",
+            index,
+            "heartbeat",
+            "heartbeat time is not monotonic",
+        );
+        return;
+    }
     let before = state.reducer.projection();
     if heartbeat.identity != identity
         || state.registered.as_ref() != Some(&identity)
@@ -699,19 +715,6 @@ fn check_heartbeat(
             index,
             "heartbeat",
             "heartbeat binding/status/state invariant failed",
-        );
-        return;
-    }
-    if state
-        .last_heartbeat_ms
-        .is_some_and(|last| heartbeat.bridge_observed_ms <= last)
-    {
-        finding_at(
-            findings,
-            "heartbeat_lease",
-            index,
-            "heartbeat",
-            "heartbeat time is not monotonic",
         );
         return;
     }

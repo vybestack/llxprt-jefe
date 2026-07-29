@@ -1,7 +1,7 @@
 //! Built-in deterministic reference adapter (Slice B).
 //!
 //! This module is the checked-in self-test adapter: it reads a challenge JSON
-//! object from its input and produces a deterministic producer or credentials.server trace
+//! object from its input and produces a deterministic producer or server trace
 //! that satisfies the challenge parameters. It is used by integration tests and
 //! the CLI `--reference-adapter` flag to prove the challenge/response protocol
 //! end-to-end without external dependencies.
@@ -147,37 +147,20 @@ fn build_producer_trace(challenge: &ReferenceChallenge) -> Option<ProducerTraceO
     let facts = trace.get_mut("facts")?.as_array_mut()?;
     let mut clock_index = 0_usize;
     let mut active_clock = None;
-    let mut redaction_index = None;
-    for (index, fact) in facts.iter_mut().enumerate() {
-        bind_producer_fixture_fact(
-            fact,
-            index,
-            challenge,
-            &mut clock_index,
-            &mut active_clock,
-            &mut redaction_index,
-        )?;
+    for fact in facts.iter_mut() {
+        bind_producer_fixture_fact(fact, challenge, &mut clock_index, &mut active_clock)?;
     }
     if clock_index != challenge.clock_sequence.len() {
         return None;
     }
-    facts.insert(
-        redaction_index?.saturating_add(1),
-        serde_json::json!({
-            "fact": "draft_challenge",
-            "source_handle": challenge.draft_source_handle,
-        }),
-    );
     serde_json::from_value(trace).ok()
 }
 
 fn bind_producer_fixture_fact(
     fact: &mut serde_json::Value,
-    index: usize,
     challenge: &ReferenceChallenge,
     clock_index: &mut usize,
     active_clock: &mut Option<u64>,
-    redaction_index: &mut Option<usize>,
 ) -> Option<()> {
     match fact.get("fact").and_then(serde_json::Value::as_str) {
         Some("clock_set") => {
@@ -197,7 +180,10 @@ fn bind_producer_fixture_fact(
                 serde_json::Value::String(challenge.redaction_marker.clone());
             fact["source_handle"] =
                 serde_json::Value::String(challenge.redaction_source_handle.clone());
-            *redaction_index = Some(index);
+        }
+        Some("draft_challenge") => {
+            fact["source_handle"] =
+                serde_json::Value::String(challenge.draft_source_handle.clone());
         }
         Some("bound_challenge") => {
             bind_document(&mut fact["at_limit"], challenge);
@@ -241,7 +227,10 @@ fn bind_document(document: &mut serde_json::Value, challenge: &ReferenceChalleng
         document["lifecycle_generation"] = serde_json::Value::from(challenge.lifecycle_generation);
         document["source_epoch"] = serde_json::Value::String(challenge.source_epoch.clone());
     }
-    if document.get("process_binding").is_some() {
+    if document
+        .get("process_binding")
+        .is_some_and(serde_json::Value::is_object)
+    {
         document["process_binding"]["value"]["pid"] = serde_json::Value::from(challenge.pid);
         document["process_binding"]["value"]["started_at_ms"] =
             serde_json::Value::from(challenge.started_at_ms);
@@ -666,8 +655,8 @@ mod tests {
         let challenge = RunnerChallenge::reference(AdapterKind::Server, 99);
         let challenge = serde_json::to_vec(&challenge)
             .unwrap_or_else(|error| panic!("serialize challenge: {error}"));
-        let output = run(&challenge)
-            .unwrap_or_else(|| panic!("credentials.server transcript must produce output"));
+        let output =
+            run(&challenge).unwrap_or_else(|| panic!("server transcript must produce output"));
         assert!(!output.is_empty());
         let parsed: serde_json::Value =
             serde_json::from_slice(&output).unwrap_or_else(|error| panic!("valid json: {error}"));

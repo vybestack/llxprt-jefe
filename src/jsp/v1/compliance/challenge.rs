@@ -357,7 +357,10 @@ pub fn verify_launch(
     let crate::domain::observation::Availability::Known(binding) = availability else {
         return ChallengeVerification::Failed(ChallengeFailure::NoProcessBinding);
     };
-    if binding != &challenge.process_binding || observed_identity != &challenge.identity {
+    if binding != &challenge.process_binding
+        || observed_identity.agent_id != challenge.identity.agent_id
+        || observed_identity.source_epoch != challenge.identity.source_epoch
+    {
         return ChallengeVerification::Failed(ChallengeFailure::BindingMismatch);
     }
     if observed_identity.lifecycle_generation != challenge.epoch {
@@ -452,6 +455,40 @@ mod tests {
                 serde_json::from_slice(&bytes).unwrap_or_else(|error| panic!("decode: {error}"));
             assert_eq!(decoded, challenge);
         }
+    }
+
+    #[test]
+    fn launch_challenge_reports_generation_drift_as_epoch_mismatch() {
+        let challenge = RunnerChallenge::reference(AdapterKind::Producer, 9);
+        let identity = ObservationIdentity {
+            agent_id: crate::domain::observation::OpaqueId(
+                challenge.launch.identity.agent_id.clone(),
+            ),
+            lifecycle_generation: challenge.launch.identity.lifecycle_generation,
+            source_epoch: crate::domain::observation::OpaqueId(
+                challenge.launch.identity.source_epoch.clone(),
+            ),
+        };
+        let process_binding = ProcessBinding {
+            pid: challenge.launch.pid,
+            started_at_ms: challenge.launch.started_at_ms,
+        };
+        let launch = LaunchChallenge {
+            identity: identity.clone(),
+            process_binding: process_binding.clone(),
+            epoch: identity.lifecycle_generation,
+        };
+        let observed = FieldState::known(
+            crate::domain::observation::Provenance::Authoritative,
+            process_binding,
+        );
+        let mut drifted = identity;
+        drifted.lifecycle_generation = drifted.lifecycle_generation.saturating_add(1);
+
+        assert_eq!(
+            verify_launch(&observed, &drifted, &launch),
+            ChallengeVerification::Failed(ChallengeFailure::EpochMismatch)
+        );
     }
 
     #[test]

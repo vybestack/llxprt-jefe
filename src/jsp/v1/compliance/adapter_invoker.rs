@@ -185,6 +185,23 @@ pub fn run_reference_adapter(
 mod tests {
     use super::*;
 
+    /// Empty and missing programs are rejected on every platform.
+    #[test]
+    fn empty_command_spec_is_rejected_everywhere() {
+        assert_eq!(
+            invoke_adapter(&[], b"{}").err(),
+            Some(AdapterInvocationError::SpawnFailed)
+        );
+        assert_eq!(
+            invoke_adapter(&[String::new()], b"{}").err(),
+            Some(AdapterInvocationError::SpawnFailed)
+        );
+    }
+
+    // `false`, `true`, and `cat` are POSIX-only helper binaries, so the tests
+    // that depend on them are gated to Unix. The bound and spawn checks above
+    // remain ungated and keep coverage on native Windows.
+    #[cfg(unix)]
     #[test]
     fn invocation_is_bounded_and_payload_free() {
         assert_eq!(
@@ -201,6 +218,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn regular_file_capture_avoids_pipe_deadlock() {
         let output = invoke_adapter(&["cat".to_string()], b"challenge");
