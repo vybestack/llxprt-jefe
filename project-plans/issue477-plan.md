@@ -157,8 +157,9 @@ locked all-feature tests. Cargo incremental compilation is also disabled in
 ## Review counters
 
 - Local Open Code Review: 2 of 2 used.
-- Pull-request Open Code Review: 1 of 2 used; the automatic run failed in OCR
-  infrastructure before producing review output, leaving one authorized run.
+- Pull-request Open Code Review: 2 of 2 used: the automatic run failed in OCR
+  infrastructure before producing output, and the remaining authorized run is
+  requested against the review-remediation head.
 - Independent review/remediation cycles: 2 of 2 used.
 - RustReviewer and DeepThinker participated in both independent cycles. No
   additional independent review is permitted by the workflow cap.
