@@ -129,6 +129,13 @@ fn config_path_fixture_runs_the_real_provider_free_binary() {
 }
 
 #[test]
+fn panic_capture_fixture_projects_silent_error_without_raw_terminal_output() {
+    let outcome = run_fixture("panic-capture-errors.json");
+    assert_passed("panic-capture-errors", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
 fn config_provider_free_fixture_starts_no_captured_provider() {
     let outcome = run_fixture("config-provider-free.json");
     assert_passed("config-provider-free", &outcome);

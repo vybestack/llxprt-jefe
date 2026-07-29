@@ -54,6 +54,7 @@ pub fn error_detail_lines(state: &AppState) -> PaneContent {
         crate::domain::ErrorSource::Persistence => "Persistence",
         crate::domain::ErrorSource::Agent => "Agent",
         crate::domain::ErrorSource::Startup => "Startup",
+        crate::domain::ErrorSource::Panic => "Panic",
         crate::domain::ErrorSource::Other => "Other",
     };
     let mut lines = vec![

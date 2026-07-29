@@ -408,8 +408,15 @@ fn push_preserves_selection_when_active() {
     );
     assert_eq!(
         state.errors_state.selected_index,
-        Some(1),
-        "selection should be preserved when not snapping"
+        Some(2),
+        "selection should follow the same entry when not snapping"
+    );
+    assert_eq!(
+        state
+            .errors_state
+            .selected_error()
+            .map(|entry| entry.title.as_str()),
+        Some("first")
     );
     assert_eq!(
         state.errors_state.detail_scroll_offset, 3,
@@ -454,4 +461,166 @@ fn nav_while_repo_focused_does_not_move_error_selection() {
     assert_eq!(state.errors_state.selected_index, before);
     state.apply_errors_message(ErrorsMessage::Navigate(NavDir::End));
     assert_eq!(state.errors_state.selected_index, before);
+}
+
+#[test]
+fn silent_panic_is_stored_without_changing_visible_error_or_navigation() {
+    let mut state = AppState::default();
+    state.screen_mode = ScreenMode::DashboardErrors;
+    state.pane_focus = crate::state::PaneFocus::Repositories;
+    state.errors_state.active = true;
+    state.errors_state.focus = ErrorsFocus::ErrorDetail;
+    state.errors_state.push(
+        "visible failure".into(),
+        "visible detail".into(),
+        ErrorSource::Other,
+        "visible-ts".into(),
+        false,
+    );
+    state.errors_state.selected_index = Some(0);
+    state.errors_state.detail_scroll_offset = 4;
+
+    state.apply_errors_message(ErrorsMessage::CaptureSilent {
+        title: "blocking worker panic".into(),
+        detail: "panic detail".into(),
+        source: ErrorSource::Panic,
+        timestamp: "panic-ts".into(),
+    });
+
+    assert_eq!(state.errors_state.count(), 2);
+    let newest = state.errors_state.last_error();
+    assert!(
+        matches!(newest, Some(entry) if entry.source == ErrorSource::Panic && entry.silent),
+        "the panic must remain in the full error ring: {newest:?}"
+    );
+    assert_eq!(
+        state
+            .errors_state
+            .last_visible_error()
+            .map(|entry| entry.title.as_str()),
+        Some("visible failure")
+    );
+    assert_eq!(state.last_error_title().as_deref(), Some("visible failure"));
+    assert_eq!(state.screen_mode, ScreenMode::DashboardErrors);
+    assert_eq!(state.pane_focus, crate::state::PaneFocus::Repositories);
+    assert_eq!(state.errors_state.focus, ErrorsFocus::ErrorDetail);
+    assert_eq!(state.errors_state.selected_index, Some(1));
+    assert_eq!(
+        state
+            .errors_state
+            .selected_error()
+            .map(|entry| entry.title.as_str()),
+        Some("visible failure")
+    );
+    assert_eq!(state.errors_state.detail_scroll_offset, 4);
+}
+
+#[test]
+fn silent_capacity_preserves_the_visible_banner_entry() {
+    let mut state = AppState::default();
+    state.errors_state.push(
+        "visible failure".into(),
+        "visible detail".into(),
+        ErrorSource::Other,
+        "visible-ts".into(),
+        false,
+    );
+    for index in 0..crate::domain::ERROR_STORE_CAPACITY {
+        state.errors_state.push_silent(
+            format!("panic {index}"),
+            format!("detail {index}"),
+            ErrorSource::Panic,
+            "panic-ts".into(),
+        );
+    }
+
+    assert_eq!(
+        state.errors_state.count(),
+        crate::domain::ERROR_STORE_CAPACITY
+    );
+    assert_eq!(
+        state
+            .errors_state
+            .last_error()
+            .map(|entry| entry.title.as_str()),
+        Some("panic 49")
+    );
+    assert_eq!(state.last_error_title().as_deref(), Some("visible failure"));
+    assert!(
+        state
+            .errors_state
+            .errors
+            .iter()
+            .any(|entry| entry.title == "visible failure")
+    );
+}
+
+#[test]
+fn evicting_selected_silent_error_selects_the_adjacent_older_entry() {
+    let mut state = AppState::default();
+    state.errors_state.push(
+        "oldest visible".into(),
+        "oldest detail".into(),
+        ErrorSource::Other,
+        "oldest-ts".into(),
+        false,
+    );
+    state.errors_state.push(
+        "adjacent older visible".into(),
+        "adjacent detail".into(),
+        ErrorSource::Other,
+        "adjacent-ts".into(),
+        false,
+    );
+    state.errors_state.push_silent(
+        "selected panic".into(),
+        "selected detail".into(),
+        ErrorSource::Panic,
+        "selected-ts".into(),
+    );
+    for index in 0..crate::domain::ERROR_STORE_CAPACITY - 3 {
+        state.errors_state.push(
+            format!("newer visible {index}"),
+            format!("newer detail {index}"),
+            ErrorSource::Other,
+            "newer-ts".into(),
+            false,
+        );
+    }
+    state.errors_state.selected_index = state
+        .errors_state
+        .errors
+        .iter()
+        .position(|entry| entry.title == "selected panic");
+
+    state.errors_state.push_silent(
+        "new panic".into(),
+        "new detail".into(),
+        ErrorSource::Panic,
+        "new-ts".into(),
+    );
+
+    assert_eq!(
+        state
+            .errors_state
+            .selected_error()
+            .map(|entry| entry.title.as_str()),
+        Some("adjacent older visible")
+    );
+}
+
+#[test]
+fn legacy_error_entry_deserializes_as_visible() {
+    let json = r#"{
+        "seq": 7,
+        "title": "legacy failure",
+        "detail": "legacy detail",
+        "source": "Other",
+        "timestamp": "legacy-ts"
+    }"#;
+
+    let entry: crate::domain::ErrorEntry = serde_json::from_str(json)
+        .unwrap_or_else(|error| panic!("legacy error entry must deserialize: {error}"));
+
+    assert!(!entry.silent, "legacy entries must remain status-visible");
 }

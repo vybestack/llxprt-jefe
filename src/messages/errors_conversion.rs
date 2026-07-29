@@ -32,6 +32,12 @@ impl ErrorsMessage {
             AppEvent::ErrorsScrollDetailDown => Self::ScrollDetail(ScrollDir::Down),
             AppEvent::ErrorsScrollDetailPageUp => Self::ScrollDetail(ScrollDir::PageUp),
             AppEvent::ErrorsScrollDetailPageDown => Self::ScrollDetail(ScrollDir::PageDown),
+            AppEvent::CaptureSilentError(title, detail, source, timestamp) => Self::CaptureSilent {
+                title,
+                detail,
+                source,
+                timestamp,
+            },
             AppEvent::ErrorsClearAll => Self::ClearAll,
             _ => unreachable!("unhandled event for ErrorsMessage: {:?}", event),
         }
@@ -48,6 +54,12 @@ impl ErrorsMessage {
             Self::CycleFocus => AppEvent::ErrorsCycleFocus,
             Self::CycleFocusReverse => AppEvent::ErrorsCycleFocusReverse,
             Self::ScrollDetail(dir) => Self::map_scroll(dir),
+            Self::CaptureSilent {
+                title,
+                detail,
+                source,
+                timestamp,
+            } => AppEvent::CaptureSilentError(title, detail, source, timestamp),
             Self::ClearAll => AppEvent::ErrorsClearAll,
         }
     }

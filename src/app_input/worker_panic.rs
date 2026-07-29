@@ -6,10 +6,9 @@
 //! drawing on, so the report is torn across the interface and lost on the next
 //! render.
 //!
-//! [`contain`] runs a closure with the payload captured instead of printed, so
+//! [`contain`] runs a closure with the payload captured instead of delegated, so
 //! the caller can route it to the errors screen. Containment is scoped to the
-//! calling thread for the duration of that closure: panics anywhere else keep
-//! the previously installed hook and stay loud.
+//! calling thread; other panics delegate to the process hook installed earlier.
 
 use std::cell::{Cell, RefCell};
 use std::sync::Once;
@@ -23,9 +22,8 @@ thread_local! {
 
 /// Install the containment-aware panic hook exactly once per process.
 ///
-/// The hook delegates to the previously installed hook for every panic that is
-/// not inside a [`contain`] boundary, so uncontained panics keep their normal
-/// diagnostics.
+/// The hook delegates every uncontained panic to the previously installed
+/// process hook, which is Jefe's silent global capture hook during normal startup.
 fn install_hook() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
@@ -202,6 +200,56 @@ stderr:
         );
     }
 
+    const GLOBAL_HOOK_CHILD_VAR: &str = "JEFE_WORKER_GLOBAL_PANIC_HOOK_CHILD";
+
+    #[test]
+    fn containment_composes_with_global_panic_capture() {
+        if std::env::var_os(GLOBAL_HOOK_CHILD_VAR).is_some() {
+            run_global_hook_child();
+            return;
+        }
+
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("the test executable path must resolve: {error}"));
+        let output = std::process::Command::new(executable)
+            .args([
+                "--exact",
+                "app_input::worker_panic::tests::containment_composes_with_global_panic_capture",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(GLOBAL_HOOK_CHILD_VAR, "1")
+            .output()
+            .unwrap_or_else(|error| panic!("the child test process must start: {error}"));
+        assert!(
+            output.status.success(),
+            "child hook assertions failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("global-uncontained"),
+            "the global hook must not write the delegated panic to stderr"
+        );
+    }
+
+    fn run_global_hook_child() {
+        crate::panic_capture::install_panic_hook();
+        let contained = contain(|| panic!("worker-contained"));
+        assert!(contained.is_err(), "worker containment must remain active");
+        assert!(
+            crate::panic_capture::drain_panic_reports().is_empty(),
+            "contained worker panic must not reach the global queue"
+        );
+
+        let uncontained = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            panic!("global-uncontained")
+        }));
+        assert!(uncontained.is_err(), "uncontained panic must still unwind");
+        let reports = crate::panic_capture::drain_panic_reports();
+        assert_eq!(reports.len(), 1, "global capture must receive delegation");
+        assert_eq!(reports[0].message, "global-uncontained");
+    }
     /// Each worker thread records its own location, so simultaneous panics
     /// cannot be attributed to each other's source site.
     #[test]

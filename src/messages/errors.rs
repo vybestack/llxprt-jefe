@@ -4,6 +4,7 @@
 //! mutation correlation. Messages cover only mode lifecycle, list navigation,
 //! detail scrolling, and clearing the log.
 
+use crate::domain::ErrorSource;
 use crate::messages::{NavDir, ScrollDir};
 
 /// Errors mode messages.
@@ -17,6 +18,12 @@ pub enum ErrorsMessage {
     CycleFocus,
     CycleFocusReverse,
     ScrollDetail(ScrollDir),
+    CaptureSilent {
+        title: String,
+        detail: String,
+        source: ErrorSource,
+        timestamp: String,
+    },
     ClearAll,
 }
 
@@ -32,6 +39,7 @@ impl ErrorsMessage {
             Self::CycleFocus => "ErrorsCycleFocus",
             Self::CycleFocusReverse => "ErrorsCycleFocusReverse",
             Self::ScrollDetail(_) => "ErrorsScrollDetail",
+            Self::CaptureSilent { .. } => "ErrorsCaptureSilent",
             Self::ClearAll => "ErrorsClearAll",
         }
     }

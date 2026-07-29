@@ -127,15 +127,62 @@ impl ErrorsState {
             detail,
             source,
             timestamp,
+            silent: false,
         };
+        self.store(entry, snap_to_newest, false);
+    }
+
+    /// Push an entry that remains available in Errors without changing the
+    /// current selection or status-bar error projection.
+    pub fn push_silent(
+        &mut self,
+        title: String,
+        detail: String,
+        source: ErrorSource,
+        timestamp: String,
+    ) {
+        let entry = ErrorEntry {
+            seq: self.next_seq,
+            title,
+            detail,
+            source,
+            timestamp,
+            silent: true,
+        };
+        self.store(entry, false, true);
+    }
+
+    fn store(&mut self, entry: ErrorEntry, snap_to_newest: bool, preserve_visible: bool) {
+        let selected_seq = self.selected_error().map(|selected| selected.seq);
         self.next_seq = self.next_seq.saturating_add(1);
         self.errors.insert(0, entry);
-        if self.errors.len() > ERROR_STORE_CAPACITY {
-            self.errors.truncate(ERROR_STORE_CAPACITY);
-        }
+        let evicted_index = if self.errors.len() > ERROR_STORE_CAPACITY {
+            let oldest = self.errors.len() - 1;
+            let evict = if preserve_visible {
+                self.errors
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .rev()
+                    .find_map(|(index, entry)| entry.silent.then_some(index))
+                    .unwrap_or(oldest)
+            } else {
+                oldest
+            };
+            self.errors.remove(evict);
+            Some(evict)
+        } else {
+            None
+        };
         if snap_to_newest {
             self.selected_index = Some(0);
             self.detail_scroll_offset = 0;
+        } else if let Some(selected_seq) = selected_seq {
+            self.selected_index = self
+                .errors
+                .iter()
+                .position(|entry| entry.seq == selected_seq)
+                .or_else(|| evicted_index.map(|index| index.min(self.errors.len() - 1)));
         }
     }
 
@@ -143,6 +190,12 @@ impl ErrorsState {
     #[must_use]
     pub fn last_error(&self) -> Option<&ErrorEntry> {
         self.errors.first()
+    }
+
+    /// The most recent entry eligible for status-bar display, if any.
+    #[must_use]
+    pub fn last_visible_error(&self) -> Option<&ErrorEntry> {
+        self.errors.iter().find(|entry| !entry.silent)
     }
 
     /// Whether the error log is empty.

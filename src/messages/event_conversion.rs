@@ -312,6 +312,7 @@ impl AppMessage {
                 | AppEvent::ErrorsScrollDetailDown
                 | AppEvent::ErrorsScrollDetailPageUp
                 | AppEvent::ErrorsScrollDetailPageDown
+                | AppEvent::CaptureSilentError(..)
                 | AppEvent::ErrorsClearAll
         )
     }
