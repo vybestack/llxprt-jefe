@@ -134,7 +134,7 @@ fn batch_recovery_keeps_failures_server_lost_and_reports_partial_success() {
     assert!(state.agents[1].runtime_binding.is_some());
     assert_eq!(
         state.error_message.as_deref(),
-        Some("Recovered 1 psmux agent(s); 1 failed and remain Server Lost. Keep this warning.")
+        Some("Recovered 1 psmux agent; 1 failed and remains Server Lost. Keep this warning.")
     );
 }
 

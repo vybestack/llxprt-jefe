@@ -122,9 +122,10 @@ fn server_lost_confirmation(
     count: usize,
     focus: ConfirmFocus,
 ) -> (String, String, bool, bool, ConfirmFocus) {
+    let noun = if count == 1 { "agent" } else { "agents" };
     (
         String::from("Recover psmux Agents"),
-        format!("Relaunch {count} agent(s) whose psmux server was lost?"),
+        format!("Relaunch {count} {noun} whose psmux server was lost?"),
         false,
         false,
         focus,

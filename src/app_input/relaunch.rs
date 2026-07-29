@@ -268,11 +268,14 @@ fn recover_server_lost_runtime(
     })?;
     // The ServerLost state deliberately preserves the manager's live record.
     // Move that exact signature to its retained cache before recreating it.
-    let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+    if !ctx_guard.runtime.mark_session_dead(agent_id) {
+        warn!(agent_id = %agent_id.0, "psmux recovery: manager session record was already absent");
+    }
     ctx_guard.runtime.relaunch(agent_id)?;
-    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
     if let Err(error) = ctx_guard.runtime.attach(agent_id) {
-        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+        if !ctx_guard.runtime.mark_session_dead(agent_id) {
+            warn!(agent_id = %agent_id.0, "psmux recovery: relaunched session record was absent after attach failure");
+        }
         drop(ctx_guard);
         return Err(error);
     }
@@ -320,10 +323,14 @@ pub(super) fn apply_server_lost_recovery_outcomes(
             failures = failures.saturating_add(1);
         }
     }
+    let recovered_noun = if successes == 1 { "agent" } else { "agents" };
+    let failed_verb = if failures == 1 { "remains" } else { "remain" };
     let summary = if failures == 0 {
-        format!("Recovered {successes} psmux agent(s).")
+        format!("Recovered {successes} psmux {recovered_noun}.")
     } else {
-        format!("Recovered {successes} psmux agent(s); {failures} failed and remain Server Lost.")
+        format!(
+            "Recovered {successes} psmux {recovered_noun}; {failures} failed and {failed_verb} Server Lost."
+        )
     };
     let message = state
         .warning_message

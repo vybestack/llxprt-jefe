@@ -166,9 +166,10 @@ const NO_SERVER_STDERR_MARKERS: &[&str] = &[
 /// - A nonzero command with unrelated stderr fails open as `Unavailable`.
 /// - A spawn/timeout failure fails open as `Unavailable`.
 ///
-/// `prior` is `None` on the first observation after startup; a missing-server
-/// signal with no prior server is `Unavailable` (nothing to lose), while a
-/// successful probe establishes the baseline as `Healthy`.
+/// `prior` is `None` on the first observation after startup. Probing occurs
+/// only while local agents are tracked, so an explicit missing-server signal is
+/// `Gone` even without a prior baseline; a successful probe establishes that
+/// baseline as `Healthy`.
 #[must_use]
 pub fn classify_server_liveness(
     prior: Option<&ServerIdentity>,

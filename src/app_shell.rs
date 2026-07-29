@@ -147,8 +147,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Slow-poll LOCAL agent liveness (~every 2s). On Windows it first probes
     // the shared psmux server identity; a `Gone`/`Replaced` server transitions
     // affected running agents to `ServerLost` (binding preserved) instead of
-    // `Dead`. On other platforms the batched check is unchanged (issue #493
-    // Stack A). The body lives in [`crate::app_shell_liveness::run_local_liveness`].
+    // `Dead`. On other platforms the batched check is unchanged (issue #493).
+    // The body lives in [`crate::app_shell_liveness::run_local_liveness`].
     hooks.use_future({
         let ctx = ctx.clone();
         let app_state = app_state;

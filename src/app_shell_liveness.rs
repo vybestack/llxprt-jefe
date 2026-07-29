@@ -1,4 +1,4 @@
-//! Local agent liveness observer (issue #493 Stack A).
+//! Local agent liveness observer (issue #493).
 //!
 //! Extracted from `app_shell.rs` (which had grown to 997 lines). Owns the
 //! slow-poll LOCAL agent liveness loop. The non-Windows path preserves the
@@ -47,9 +47,8 @@ const LIVENESS_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_se
 pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContext) {
     // Pinned prior server identity (Windows psmux server watchdog).
     let mut pinned_prior: Option<ServerIdentity> = None;
-    // Once-per-identity `exit-empty off` guard. Stored as a plain `Option` so
-    // the future stays `Send`; the `Cell` required by `observe_server_liveness`
-    // is constructed afresh on each synchronous probe cycle.
+    // Once-per-identity `exit-empty off` guard. Blocking probe work receives
+    // owned snapshots and returns the updated value to this future.
     let mut applied_exit_empty: Option<ServerIdentity> = None;
 
     loop {
@@ -135,12 +134,15 @@ async fn handle_windows_cycle(
 ) {
     let observation = match MultiplexerPlan::current() {
         Ok(plan) => {
-            // `observe_server_liveness` requires `&Cell`; construct one
-            // synchronously from the stored value and write it back so the
-            // async future never holds a `!Sync` reference across an await.
-            let cell = Cell::new(*applied_exit_empty);
-            let observation = observe_server_liveness(&plan, pinned_prior.as_ref(), &cell);
-            *applied_exit_empty = cell.into_inner();
+            let prior = *pinned_prior;
+            let applied = *applied_exit_empty;
+            let (observation, next_applied) = smol::unblock(move || {
+                let cell = Cell::new(applied);
+                let observation = observe_server_liveness(&plan, prior.as_ref(), &cell);
+                (observation, cell.into_inner())
+            })
+            .await;
+            *applied_exit_empty = next_applied;
             observation
         }
         Err(error) => {
@@ -170,8 +172,6 @@ async fn handle_windows_cycle(
             // Probe failure fails open: no agent status change this cycle.
         }
     }
-    // ServerLost recovery and re-pin on a fresh healthy server after a
-    // replacement is intentionally not handled here (Stack B / recovery UX).
     let _ = lost_ids;
 }
 

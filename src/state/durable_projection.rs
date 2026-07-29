@@ -457,6 +457,8 @@ fn project_preferences(
 
 fn last_known_runtime(status: AgentStatus) -> LastKnownRuntime {
     match status {
+        // ServerLost is transient infrastructure loss, not a confirmed stop;
+        // preserve launch metadata so explicit recovery remains possible.
         AgentStatus::Running | AgentStatus::ServerLost => LastKnownRuntime::Running,
         AgentStatus::Dead => LastKnownRuntime::Stopped,
         _ => LastKnownRuntime::Unknown,
