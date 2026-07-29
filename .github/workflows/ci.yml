@@ -239,10 +239,10 @@ jobs:
             Tee-Object -FilePath target/windows-ci/cargo-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run installer Pester harness
-        shell: pwsh
+        shell: powershell
         run: |
-          Import-Module Pester -RequiredVersion 5.9.0
-          $result = Invoke-Pester -Path tests/powershell/jefe-install.Tests.ps1 -PassThru
+          Import-Module Pester -RequiredVersion 3.4.0
+          $result = Invoke-Pester -Script tests/powershell/jefe-install.Tests.ps1 -PassThru
           if ($result.FailedCount -ne 0) {
             throw "installer Pester harness failed: $($result.FailedCount) test(s)"
           }

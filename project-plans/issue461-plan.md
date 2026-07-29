@@ -5,7 +5,7 @@
 - Base: `origin/main` at `f08fa31`
 - Issue state: open
 - Delivery shape: one bounded issue-closing pull request
-- Review counters: OCR pre-PR 0/2, OCR post-PR 0/2
+- Review counters: OCR pre-PR 0/2, OCR post-PR 1/2
 - Status: candidate implementation complete; local verification and review evidence are recorded below
 
 ## Decisions required before implementation
@@ -15,7 +15,7 @@
 | D-01 | Workflow changes | Update `.github/workflows/release.yml` so the portable zip includes an inner `jefe.exe.sha256`, while retaining the existing checksum beside the zip. Update `.github/workflows/ci.yml` so the Windows package fixture includes that checksum and the native Windows job runs the Pester harness with the hosted runner's preinstalled Pester 5.9.0. | **APPROVED 2026-07-28 by user continuation instruction** |
 | D-02 | External PATH edits | Treat the existing per-install-path named mutex as the atomicity boundary for concurrent Jefe invocations. Each add/remove operation performs one user-PATH read, computes from that snapshot, and performs at most one user-PATH write. Document that Windows exposes no compare-and-swap for this value, so unrelated software can still race with the read/write pair and should not edit the user PATH concurrently with the installer. | **APPROVED 2026-07-28 by user continuation instruction** |
 | D-03 | Backup retention | Sweep only installer-owned sibling directories matching `<InstallDir>.backup-*` whose last-write time is at least seven days old. Run the sweep after acquiring the install mutex. Preserve fresh, unowned, or malformed directories; warn and continue when a candidate cannot be validated or removed. | **APPROVED 2026-07-28 by user continuation instruction** |
-| D-04 | PowerShell test compatibility | Add a repository Pester script using syntax supported by local Pester 3.4.0 and hosted Pester 5.9.0. Do not add, vendor, install, or pin a new module dependency. | **APPROVED 2026-07-28 by user continuation instruction** |
+| D-04 | PowerShell test compatibility | Run the repository Pester script with the Windows runner's preinstalled Pester 3.4.0 under Windows PowerShell 5.1, matching the installer's documented minimum host. Do not add, vendor, install, or pin a new module dependency. | **APPROVED 2026-07-28; corrected after exact CI evidence on 2026-07-29** |
 
 ## Acceptance matrix
 
@@ -27,7 +27,7 @@
 | AC-04 | Installer staging a portable package | Checksum absent; valid bare hash; valid conventional `<hash>  jefe.exe`; malformed hash; mismatch | Native Windows, local and release package | When `jefe.exe.sha256` exists, staged `jefe.exe` SHA256 is verified before `--version`; packages without a checksum remain accepted for compatibility | Malformed or mismatched checksum aborts before staged executable launch and names expected/actual context without publishing the stage | Package-owned stage directory only; normal failure cleanup removes it | Existing extracted packages without an inner checksum still install; new releases include the checksum | Pester deterministic fixtures proving absent/valid/malformed/mismatch behavior; release and CI package contracts |
 | AC-05 | Release maintainer packaging Windows portable assets | Windows MSVC release artifact | GitHub Actions release workflow | Zip contains `jefe.exe`, `jefe.exe.sha256`, `LICENSE`, and `jefe-install.ps1`; existing outer zip `.sha256` is still emitted | Workflow/package contract fails if the checksum is absent or contents drift | Release staging/assets only | Portable-release distribution decision and third-party exclusion remain unchanged | Rust workflow contract plus exact-head release-workflow/package inspection where available |
 | AC-06 | Installer implementation resolving its binary | Package source and stage paths | Native Windows | `$BinaryName` is derived once from `$AppName` and reused for source validation, copy, checksum, execution, and diagnostics | Missing derived binary produces the existing source error | None | Command/file name remains `jefe.exe` | Pester source-validation fixture and Rust textual contract |
-| AC-07 | Contributor validating the installer | PATH, concurrency, rollback, uninstall, checksum, and backup fixtures | Local Windows and native Windows CI | Pester suite passes deterministically without changing the real user PATH or requiring downloaded modules | Pester failure names the behavior and fixture; CI uploads existing Windows diagnostics | Temporary fixture directories and child PowerShell processes only | PowerShell 5.1+ installer remains supported; tests run on local Pester 3.4.0 and hosted Pester 5.9.0 | RED then GREEN Pester run; CI workflow contract; exact-head Windows job |
+| AC-07 | Contributor validating the installer | PATH, concurrency, rollback, uninstall, checksum, and backup fixtures | Local Windows and native Windows CI | Pester suite passes deterministically without changing the real user PATH or requiring downloaded modules | Pester failure names the behavior and fixture; CI uploads existing Windows diagnostics | Temporary fixture directories and child PowerShell processes only | PowerShell 5.1+ installer remains supported; tests run on local and hosted Pester 3.4.0 under Windows PowerShell 5.1 | RED then GREEN Pester run; CI workflow contract; exact-head Windows job |
 | AC-08 | Upgrade encountering a publish move failure; uninstall encountering removal failure | Existing owned install, backup created, move/remove failure | Native Windows | Original install is restored on publish failure; uninstall restores only a PATH entry owned by metadata; temporary stage is removed | Combined rollback failure retains and names the backup; original failure remains observable otherwise | Package-owned stage/backup/install paths and owned current-user PATH entry only | Existing ownership marker and rollback behavior are preserved | Pester deterministic rollback and uninstall fixtures plus existing Rust safety contracts |
 
 ## Explicit non-goals
@@ -107,6 +107,7 @@ Expected total: 7 files and approximately 661 net added lines, below the 25-file
 | 2026-07-28 | Hosted `windows-latest` image documents preinstalled Pester 3.4.0 and 5.9.0; local host has Pester 3.4.0 | D-04 avoids a dependency/tool installation while permitting local and CI behavior evidence |
 | 2026-07-28 | Windows user environment variables expose get/set, not compare-and-swap | D-02 bounds atomicity to concurrent Jefe invocations and requires accurate external-editor documentation |
 | 2026-07-28 | `.github` edits are required for released checksums and exact-head Pester evidence | Approved and implemented within the bounded D-01 workflow scope |
+| 2026-07-29 | Native Windows CI proved Pester 5.9 discovery under PowerShell 7 cannot compile the executable fixture with `Add-Type -OutputType ConsoleApplication` | **In-scope—Fix:** run the harness with preinstalled Pester 3.4 under Windows PowerShell 5.1, which matches the documented installer minimum and passes all 17 tests without a dependency or fixture rewrite |
 
 ## Review triage
 
@@ -114,18 +115,19 @@ A focused GLM-backed pre-PR review completed after the full local gate.
 
 - **Blocker—Fix:** none.
 - **In-scope—Fix:** remove the stale generated `tests/powershell/red-results.xml` artifact. Resolved; only the intended `.Tests.ps1` remains.
+- **In-scope—Fix:** the first Native Windows run failed during Pester 5.9 discovery because PowerShell 7 does not support `Add-Type -OutputType ConsoleApplication`. Resolved by running the unchanged harness with hosted Pester 3.4 under Windows PowerShell 5.1, the installer's supported minimum host.
 - **Reject:** PATH, metadata rollback, uninstall, seven-day cleanup, checksum ordering/format, release/CI package, and Rust contract concerns were inspected and found correct against the acceptance matrix.
-- **Defer:** no code change for the observation that CI runs Pester 5.9 while local evidence runs Pester 3.4; the harness syntax is compatible with both and both environments are covered by their respective gates.
-- OCR counters remain pre-PR 0/2 and post-PR 0/2.
+- **Reject (post-PR OCR inline 3670097408):** replace or explain the test fixture's `31990` PATH length. The test intentionally demonstrates that appending an ordinary absolute install path exceeds the fixed 32,000-character production guard; deriving the value from production text would couple behavioral evidence to implementation detail, while the current boundary remains stable and failed correctly before the guard existed.
+- OCR counters remain pre-PR 0/2 and post-PR 1/2.
 
 ## Verification evidence
 
 - Baseline: clean `main` at `f08fa31`, equal to `origin/main` at intake.
 - Branch: `issue461` created from `origin/main`; merge-base ancestry check passed.
 - Issue/comments: fetched with `gh`; one non-authoritative CodeRabbit planning comment.
-- Environment: Windows PowerShell 5.1 / local Pester 3.4.0; hosted Windows 2025 image lists Pester 5.9.0.
-- RED: local Pester 3.4 run produced 12 intended failures before production changes; workflow/package contracts produced 3 intended failures; the docs hardening contract produced 1 intended failure.
-- GREEN: local Pester 3.4 suite passes 17/17; focused Windows support Rust contracts pass 10/10.
+- Environment: Windows PowerShell 5.1 / local Pester 3.4.0; hosted Windows 2025 image lists both Pester 3.4.0 and 5.9.0.
+- RED: local Pester 3.4 run produced 12 intended failures before production changes; workflow/package contracts produced 3 intended failures; the docs hardening contract produced 1 intended failure. The first post-PR Native Windows run also failed before test discovery because PowerShell 7 rejected the executable fixture's `Add-Type -OutputType ConsoleApplication` call.
+- GREEN: local Windows PowerShell 5.1 / Pester 3.4 suite passes 17/17 after changing CI to the same supported host; focused Windows support Rust contracts pass 10/10.
 - Parser: production installer and Pester harness parse without PowerShell syntax errors.
 - `cargo xtask quick` passed after adding the existing Git test utilities to this Windows process PATH; the first attempt reproduced the repository's Windows-only missing `true`/`false` fixture issue without that PATH entry.
 - `cargo xtask ci` passed with the same existing Git test utilities on PATH, including format, policy, source-size, architecture, strict/complexity Clippy, coverage, locked build, and locked tests.
