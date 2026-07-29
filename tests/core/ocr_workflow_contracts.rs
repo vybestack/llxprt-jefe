@@ -1,6 +1,6 @@
-//! OCR review workflow contract tests (issue #310).
+//! OCR review workflow contract tests (issues #310 and #500).
 //!
-//! These tests verify the operational controls required by issue #310 are
+//! These tests verify the operational controls required by issues #310 and #500 are
 //! present in `.github/workflows/ocr-review.yml` without weakening any quality
 //! rules or adding suppressions. They read the workflow as text (the same
 //! approach used by `tmux_harness_docs_contracts`) and assert that each
@@ -435,5 +435,199 @@ fn ocr_preserves_rust_test_scope_guard() {
     assert!(
         content.contains("Will review"),
         "Workflow must preserve the 'Will review' scope verification"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #500: bound automatic post-open OCR reviews
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ocr_budget_gate_runs_before_checkout_and_gates_later_review_steps() {
+    let content = read_workflow();
+    let resolution_step = step_body(&content, "Resolve PR context");
+    assert!(
+        resolution_step.contains("dispatchInput !== String(number)")
+            && resolution_step.contains("canonical positive decimal form"),
+        "Workflow dispatch must reject noncanonical PR spellings before any budget-state access"
+    );
+    let gate_name = "Check automatic OCR review budget";
+    let gate_position = content
+        .find(&format!("- name: {gate_name}"))
+        .unwrap_or_else(|| panic!("automatic OCR budget gate not found"));
+    let checkout_position = content
+        .find("- name: Checkout trusted base")
+        .unwrap_or_else(|| panic!("trusted checkout step not found"));
+    let install_position = content
+        .find("- name: Install OpenCodeReview")
+        .unwrap_or_else(|| panic!("OCR install step not found"));
+    assert!(
+        gate_position < checkout_position && gate_position < install_position,
+        "Automatic OCR budget must be decided before checkout and OCR installation"
+    );
+
+    let code_review_start = content
+        .find("  code-review:")
+        .unwrap_or_else(|| panic!("code-review job not found"));
+    let code_review_tail = &content[code_review_start..];
+    let code_review_end = code_review_tail
+        .find("\n  notify-ocr-infrastructure-failure:")
+        .unwrap_or_else(|| panic!("code-review job end not found"));
+    let step_names = code_review_tail[..code_review_end]
+        .lines()
+        .filter_map(|line| line.strip_prefix("      - name: "))
+        .collect::<Vec<_>>();
+    let gate_index = step_names
+        .iter()
+        .position(|name| *name == gate_name)
+        .unwrap_or_else(|| panic!("budget gate not found in code-review step list"));
+    for step_name in &step_names[gate_index + 1..] {
+        let step = step_body(&content, step_name);
+        assert!(
+            step.contains("steps.ocr-budget.outputs.should_run == 'true'"),
+            "Post-budget step '{step_name}' must not run after the automatic OCR budget is exhausted"
+        );
+    }
+}
+
+#[test]
+fn ocr_budget_uses_configured_post_open_limit_with_strict_defaulting() {
+    let content = read_workflow();
+    let gate = step_body(&content, "Check automatic OCR review budget");
+    assert!(
+        gate.contains("OCR_MAX_REVIEWS_POST_OPEN: ${{ vars.OCR_MAX_REVIEWS_POST_OPEN }}")
+            && gate.contains("OCR_MAX_REVIEWS_POST_OPEN_DEFAULT: '2'"),
+        "Budget gate must use OCR_MAX_REVIEWS_POST_OPEN with an explicit default of two"
+    );
+    assert!(
+        gate.contains("/^\\d+$/")
+            && gate.contains("Number.isSafeInteger")
+            && gate.contains("core.setFailed"),
+        "Only nonnegative decimal integer limits may pass budget validation"
+    );
+    assert!(
+        gate.contains("currentCount >= limit"),
+        "The automatic review must be skipped when its completed count reaches the configured limit, including limit zero"
+    );
+}
+
+#[test]
+fn ocr_budget_counts_marker_backed_reviews_once_and_migrates_persisted_state() {
+    let content = read_workflow();
+    let gate = step_body(&content, "Check automatic OCR review budget");
+    for required in [
+        "github.rest.pulls.listReviews",
+        "github.rest.pulls.listReviewComments",
+        "<!-- jefe-ocr-inline -->",
+        "pull_request_review_id",
+        "BOT_LOGINS",
+        "isWorkflowBot(comment.user)",
+        "isWorkflowBot(review.user)",
+        "completedReviewCommits",
+        "review.commit_id",
+        "persistedMatch",
+        "budgetComments.length > 1",
+        "Number.isSafeInteger(persistedCount)",
+    ] {
+        assert!(
+            gate.contains(required),
+            "Budget gate must derive compatible completed-review state using {required:?}"
+        );
+    }
+    assert!(
+        gate.contains("github.paginate"),
+        "Historical review and comment queries must paginate"
+    );
+    let persisted_branch = gate
+        .find("if (persistedMatch)")
+        .unwrap_or_else(|| panic!("persisted-state decision branch not found"));
+    let legacy_query = gate
+        .find("github.rest.pulls.listReviewComments")
+        .unwrap_or_else(|| panic!("legacy migration query not found"));
+    assert!(
+        persisted_branch < legacy_query && gate.contains("currentCount = persistedCount"),
+        "Persisted automatic state must be authoritative without legacy API dependencies"
+    );
+}
+
+#[test]
+fn ocr_budget_manual_triggers_bypass_and_never_increment_automatic_state() {
+    let content = read_workflow();
+    let gate = step_body(&content, "Check automatic OCR review budget");
+    assert!(
+        gate.contains("if (eventName !== 'pull_request_target')")
+            && gate.contains("if (!budgetComment)")
+            && gate.contains("core.setOutput('skipped', 'false')")
+            && gate.contains("core.setOutput('should_run', 'true')"),
+        "Manual triggers must initialize any migration baseline and run regardless of the automatic limit"
+    );
+
+    let reserve = step_body(&content, "Reserve automatic OCR review");
+    assert!(
+        reserve.contains("github.event_name == 'pull_request_target'")
+            && reserve.contains("steps.ocr-budget.outputs.should_run == 'true'"),
+        "Only an admitted automatic pull_request_target run may reserve an automatic slot"
+    );
+}
+
+#[test]
+fn ocr_budget_skip_notice_is_sticky_and_points_to_manual_review_commands() {
+    let content = read_workflow();
+    let gate = step_body(&content, "Check automatic OCR review budget");
+    assert!(
+        gate.contains("<!-- jefe-ocr-budget -->")
+            && gate.contains("OCR skipped: post-open review budget")
+            && gate.contains("/ocr")
+            && gate.contains("/open-code-review"),
+        "An exhausted automatic budget must publish one actionable marked notice"
+    );
+    assert!(
+        gate.contains("github.rest.issues.updateComment")
+            && gate.contains("github.rest.issues.createComment"),
+        "The budget notice must update its existing marked comment or create it once"
+    );
+    assert!(
+        gate.contains("core.setOutput('skipped', 'true')")
+            && gate.contains("core.setOutput('should_run', 'false')")
+            && content.contains("review_skipped: ${{ steps.ocr-budget.outputs.skipped }}"),
+        "An exhausted automatic budget must explicitly mark the successful no-op and prevent later work"
+    );
+}
+
+#[test]
+fn ocr_budget_reserves_one_persistent_count_before_an_automatic_invocation() {
+    let content = read_workflow();
+    let reserve_position = content
+        .find("- name: Reserve automatic OCR review")
+        .unwrap_or_else(|| panic!("automatic OCR reservation step not found"));
+    let review_position = content
+        .find("- name: Run OpenCodeReview")
+        .unwrap_or_else(|| panic!("OCR invocation step not found"));
+    assert!(
+        reserve_position < review_position,
+        "Automatic count persistence must happen before OCR invocation"
+    );
+
+    let reserve = step_body(&content, "Reserve automatic OCR review");
+    let review = step_body(&content, "Run OpenCodeReview");
+    assert!(
+        reserve.contains("ocr-exit-code.txt")
+            && reserve.contains("core.setOutput('reserved', 'false')"),
+        "Setup and preflight failures must not consume an automatic slot"
+    );
+    assert!(
+        reserve.contains("currentCount + 1")
+            && reserve.contains("<!-- jefe-ocr-budget -->")
+            && reserve.contains("<!-- jefe-ocr-auto-count:")
+            && reserve.contains("BOT_LOGINS")
+            && reserve.contains("isWorkflowBot(comment.user)")
+            && reserve.contains("github.rest.issues.updateComment")
+            && !reserve.contains("github.rest.issues.createComment"),
+        "An admitted automatic run must reserve exactly one slot in the initialized authenticated state"
+    );
+    assert!(
+        review.contains("steps.ocr-reservation.outputs.reserved == 'true'")
+            && review.contains("github.event_name != 'pull_request_target'"),
+        "Automatic OCR must require a successful reservation while manual OCR bypasses it"
     );
 }
