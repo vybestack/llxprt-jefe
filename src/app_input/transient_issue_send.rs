@@ -39,6 +39,39 @@ fn is_transient_slot_selected(chooser: Option<&jefe::state::AgentChooserState>) 
     chooser.transient_available && chooser.selected_index == chooser.agents.len()
 }
 
+fn queue_transient_issue(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    repo: &Repository,
+    repo_id: jefe::domain::RepositoryId,
+    payload: jefe::github::SendPayload,
+    prompt: &str,
+) {
+    let work_dir = generate_transient_work_dir(repo);
+    let launch_signature = prepare_issue_launch_signature(
+        super::launch_signature_for_transient(repo, &work_dir),
+        prompt,
+    );
+    let queue_item = jefe::state::QueuedTransientSend {
+        repository_id: repo_id,
+        work_dir,
+        launch_signature,
+        payload: jefe::state::TransientPayload::Issue { payload },
+    };
+    let mut state = app_state.write();
+    let position = state.push_transient_queue_item(queue_item);
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    schedule_durable_save(ctx, persisted);
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::TransientAgentQueued {
+            queue_position: position,
+        },
+    );
+}
+
 /// Dispatch a transient issue send: close the chooser, check queue capacity,
 /// generate a temp dir, create the transient agent, clone + launch.
 pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -53,31 +86,11 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         return;
     };
     let (payload, repo, repo_id) = payload_and_repo;
+    let prompt = issues_dispatch::format_issue_prompt(&payload);
 
-    if let Some(_queue_pos) =
-        check_transient_queue_capacity(app_state, &repo_id, repo.transient_max_concurrent)
+    if check_transient_queue_capacity(app_state, &repo_id, repo.transient_max_concurrent).is_some()
     {
-        let work_dir = generate_transient_work_dir(&repo);
-        let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
-        let _clone_identity = CloneIdentity::from_repository(&repo);
-        let queue_item = jefe::state::QueuedTransientSend {
-            repository_id: repo_id,
-            work_dir,
-            launch_signature: launch_sig,
-            payload: jefe::state::TransientPayload::Issue { payload },
-        };
-        let mut state = app_state.write();
-        let pos = state.push_transient_queue_item(queue_item);
-        let persisted = durable_save_request(&mut state);
-        drop(state);
-        schedule_durable_save(ctx, persisted);
-        apply_and_persist(
-            app_state,
-            ctx,
-            AppEvent::TransientAgentQueued {
-                queue_position: pos,
-            },
-        );
+        queue_transient_issue(app_state, ctx, &repo, repo_id, payload, &prompt);
         return;
     }
 
@@ -88,7 +101,10 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         work_dir.clone(),
         &repo,
     );
-    let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
+    let launch_sig = prepare_issue_launch_signature(
+        super::launch_signature_for_transient(&repo, &work_dir),
+        &prompt,
+    );
     let clone_identity = CloneIdentity::from_repository(&repo);
     let agent_id = agent.id.clone();
 
@@ -153,14 +169,12 @@ fn handle_transient_prep_outcome(
 ) {
     match outcome {
         Ok(PrepOutcome::Ready) => {
-            let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
-            let launch_sig = prepare_issue_launch_signature(prep.launch_sig.clone(), &prompt);
             launch_transient_issue_agent(
                 app_state,
                 ctx,
                 prep.agent_id.clone(),
                 prep.work_dir.clone(),
-                launch_sig,
+                prep.launch_sig.clone(),
                 issue_assignment_from_payload(&prep.payload),
             );
         }

@@ -73,6 +73,7 @@ mod issue_git_prep;
 mod issue_prep;
 mod issue_self_assignment;
 mod issues_send;
+#[cfg(test)]
 mod remote_probe;
 mod target_resolution;
 mod tracker_resolver;

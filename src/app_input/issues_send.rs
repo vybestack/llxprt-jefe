@@ -255,7 +255,9 @@ fn prepare_confirm_send_target(
 
     // Re-check availability BEFORE prep side effects: the runtime may have
     // been removed while the confirm modal was open.
-    if !super::availability::launch_available_or_error(app_state, launch_sig) {
+    if !super::availability::launch_available_or_error(app_state, launch_sig)
+        || !super::availability::prepare_launch_or_error(app_state, launch_sig)
+    {
         return None;
     }
 
@@ -266,14 +268,6 @@ fn prepare_confirm_send_target(
             return None;
         }
     };
-
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
-    // destructive prep, re-probe the selected runtime on the resolved target.
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state, &target, launch_sig,
-    ) {
-        return None;
-    }
 
     Some(target)
 }

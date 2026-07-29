@@ -401,32 +401,6 @@ pub(super) fn require_runtime_available(
 /// 3. On `Err`, writes the error into `app_state.error_message` and returns
 ///    `false` so the caller aborts (no prep/prompt operation).
 ///
-/// For **local** targets, this delegates to the session snapshot (no PATH
-/// I/O). For **remote** targets, it executes [`execute_remote_probe`] — a
-/// no-install/no-setup/side-effect-free `ssh -T` probe for the exact binary,
-/// executed as the effective `run_as_user`.
-///
-/// The runtime launch resolver may still resolve again for race safety —
-/// this guard is a pre-side-effect gate, not a substitute for the launch
-/// resolver.
-pub(super) fn pre_side_effect_runtime_available_or_error(
-    app_state: &mut super::AppStateHandle,
-    target: &WorkTarget,
-    signature: &jefe::domain::AgentLaunchRequest,
-) -> bool {
-    let available = jefe::agent_detection::available_agent_type_ids().to_vec();
-    match require_signature_available(target, signature, &available) {
-        Ok(()) => true,
-        Err(message) => {
-            let mut state = app_state.write();
-            state.error_message = Some(message);
-            drop(state);
-            false
-        }
-    }
-}
-
-/// Shell-escape a single-quoted string (mirrors `runtime::commands`).
 fn shell_escape(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
