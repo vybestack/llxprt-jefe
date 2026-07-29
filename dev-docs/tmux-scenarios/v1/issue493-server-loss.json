@@ -18,7 +18,7 @@
       {
         "path": "config/state.json",
         "content": {
-          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [{\n    \"id\": \"repo\",\n    \"name\": \"Repo\",\n    \"slug\": \"repo\",\n    \"base_dir\": \"${workspace}/work\",\n    \"default_profile\": \"\",\n    \"remote\": null,\n    \"agent_ids\": [\"lost-agent\"]\n  }],\n  \"agents\": [{\n    \"id\": \"lost-agent\",\n    \"display_id\": \"A1\",\n    \"repository_id\": \"repo\",\n    \"name\": \"Server Lost Agent\",\n    \"description\": \"\",\n    \"work_dir\": \"${workspace}/work\",\n    \"profile\": \"\",\n    \"mode_flags\": [],\n    \"pass_continue\": true,\n    \"sandbox_enabled\": false,\n    \"sandbox_engine\": \"podman\",\n    \"sandbox_flags\": \"\",\n    \"status\": \"ServerLost\",\n    \"runtime_binding\": null\n  }],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": 0\n}\n"
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [{\n    \"id\": \"repo\",\n    \"name\": \"Repo\",\n    \"slug\": \"repo\",\n    \"base_dir\": \"${workspace}/work\",\n    \"default_profile\": \"\",\n    \"remote\": null,\n    \"agent_ids\": [\"lost-agent\"]\n  }],\n  \"agents\": [{\n    \"id\": \"lost-agent\",\n    \"display_id\": \"A1\",\n    \"repository_id\": \"repo\",\n    \"name\": \"Server Lost Agent\",\n    \"description\": \"\",\n    \"work_dir\": \"${workspace}/work\",\n    \"profile\": \"\",\n    \"mode_flags\": [],\n    \"pass_continue\": true,\n    \"sandbox_enabled\": false,\n    \"sandbox_engine\": \"podman\",\n    \"sandbox_flags\": \"\",\n    \"status\": \"ServerLost\",\n    \"runtime_binding\": {\n      \"session_name\": \"jefe-lost-agent\",\n      \"launch_signature\": {\n        \"work_dir\": \"${workspace}/work\",\n        \"profile\": \"\",\n        \"mode_flags\": [],\n        \"pass_continue\": true,\n        \"sandbox_enabled\": false,\n        \"sandbox_engine\": \"podman\",\n        \"sandbox_flags\": \"\"\n      },\n      \"attached\": false,\n      \"last_seen\": null,\n      \"pid\": null,\n      \"process_identity\": null,\n      \"lifecycle_generation\": 1\n    }\n  }],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": 0\n}\n"
         },
         "mode": 384
       }
@@ -38,10 +38,23 @@
       "literal": "Server Lost Agent",
       "timeout_ms": 15000
     },
+    { "op": "key", "key": "l", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Recover psmux Agents",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt Jefe", "Server Lost Agent", "!"],
-      "absent": ["x Server Lost Agent"]
+      "contains": ["Recover psmux Agents", "Cancel", "Confirm"],
+      "absent": []
+    },
+    { "op": "key", "key": "esc", "modifiers": [] },
+    {
+      "op": "assert-frame",
+      "contains": ["Server Lost Agent", "!"],
+      "absent": ["Recover psmux Agents", "x Server Lost Agent"]
     },
     { "op": "finish" }
   ],

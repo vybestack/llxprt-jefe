@@ -87,6 +87,7 @@ fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
+        | ModalState::ConfirmServerLostRecovery { .. }
         | ModalState::PreflightPrompt { .. }
         | ModalState::ConfirmIssueDirtyCopy { .. }
         | ModalState::ConfirmIssueOriginMismatch { .. } => Some(InputMode::Confirm),

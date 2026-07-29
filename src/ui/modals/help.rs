@@ -66,7 +66,7 @@ const HELP_CONTENT_LINES: &[&str] = &[
     "  Ctrl-d      Delete selected",
     "  Ctrl-k      Kill agent",
     "  Ctrl-r      Restart agent",
-    "  l           Relaunch dead agent",
+    "  l           Relaunch dead / recover server-lost agents",
     "  s           Split mode",
     "  Space       Grab/move/drop reorder",
     "  v           Toggle active-only (repos + agents)",

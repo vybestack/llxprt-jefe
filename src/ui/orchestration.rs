@@ -72,6 +72,10 @@ pub fn derive_confirm_modal_data(
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::KillAgent(id));
             (title, message, show, false, *confirm_focus)
         }
+        ModalState::ConfirmServerLostRecovery {
+            agent_ids,
+            confirm_focus,
+        } => server_lost_confirmation(agent_ids.len(), *confirm_focus),
         ModalState::ConfirmDeleteRepository { id, confirm_focus } => {
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::DeleteRepository(id));
             (title, message, show, false, *confirm_focus)
@@ -112,6 +116,19 @@ pub fn derive_confirm_modal_data(
         delete_work_dir,
         confirm_focus,
     })
+}
+
+fn server_lost_confirmation(
+    count: usize,
+    focus: ConfirmFocus,
+) -> (String, String, bool, bool, ConfirmFocus) {
+    (
+        String::from("Recover psmux Agents"),
+        format!("Relaunch {count} agent(s) whose psmux server was lost?"),
+        false,
+        false,
+        focus,
+    )
 }
 
 /// Which confirm variant to format, carrying only the fields needed for
@@ -346,6 +363,7 @@ pub fn build_modal_element(
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
+        | ModalState::ConfirmServerLostRecovery { .. }
         | ModalState::PreflightPrompt { .. }
         | ModalState::ConfirmIssueDirtyCopy { .. }
         | ModalState::ConfirmIssueOriginMismatch { .. } => confirm_data.map(|data| {

@@ -208,6 +208,10 @@ pub enum ModalState {
         id: AgentId,
         confirm_focus: ConfirmFocus,
     },
+    ConfirmServerLostRecovery {
+        agent_ids: Vec<AgentId>,
+        confirm_focus: ConfirmFocus,
+    },
     /// Preflight check failed — prompt the user for remediation before launch.
     ///
     /// TODO(issue #24): Expand this to support a queue of issues if preflight

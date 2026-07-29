@@ -162,6 +162,9 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         ModalState::ConfirmDeleteRepository { id, .. } => {
             confirm_delete_repository(app_state, ctx, id);
         }
+        ModalState::ConfirmServerLostRecovery { agent_ids, .. } => {
+            super::relaunch::dispatch_server_lost_recovery(app_state, ctx, agent_ids);
+        }
         ModalState::PreflightPrompt {
             agent_id,
             signature,
@@ -204,6 +207,7 @@ pub(super) fn confirm_focus_is_cancel(modal: &ModalState) -> bool {
         ModalState::ConfirmDeleteAgent { confirm_focus, .. }
         | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
         | ModalState::ConfirmKillAgent { confirm_focus, .. }
+        | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
         | ModalState::PreflightPrompt { confirm_focus, .. }
         | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
         | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {

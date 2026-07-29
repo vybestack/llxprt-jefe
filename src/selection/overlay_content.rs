@@ -759,6 +759,10 @@ mod tests {
                 id: AgentId("a".to_string()),
                 confirm_focus: ConfirmFocus::Cancel,
             },
+            ModalState::ConfirmServerLostRecovery {
+                agent_ids: vec![AgentId("a".to_string())],
+                confirm_focus: ConfirmFocus::Cancel,
+            },
             ModalState::PreflightPrompt {
                 agent_id: AgentId("a".to_string()),
                 signature: confirm_signature(),
