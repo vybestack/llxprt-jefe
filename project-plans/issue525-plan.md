@@ -29,6 +29,7 @@ Fix the confirmed Windows LLxprt identity-probe regression in issue #525. The re
 | A6 | Compatibility | Direct executables, normal wrapper paths, canonical fingerprint checks, Unix resolution, package invocation, pane launcher, and bounded local probes | Existing behavior remains green; both probe and actual launch use launch-safe wrapper paths; identity and capability each receive the authored per-process budget under an explicit combined ceiling | No public API, dependency, migration schema, candidate-order, or shell-policy changes; timeouts remain fail-closed | Focused tests and complete exact verification |
 | A7 | Issue #518 compatibility | Current-main LLxprt defaults and emitters (`--yolo`, `--continue`) | Probe repair leaves merged #518 behavior intact and real launch argv retains both flags | No definition/form remapping in this PR | Existing #518 tests plus real process argv |
 | A8 | Issue #515 lifecycle | Existing Windows psmux/session-host ownership behavior | No lifecycle behavior changes are bundled with the #519 usability repair | #515 remains independently open; no watchdog or orphan cleanup is added | Diff/scope review |
+| A9 | Immediate local relaunch | Startup has resolved the LLxprt candidate, but its asynchronous availability probe is still pending | The pre-launch guard permits only this pending resolved evidence to reach the existing authoritative launch-time probe, allowing immediate use | Final NotFound, malformed pending evidence, incompatible, and probe-error observations remain rejected; the launch-time probe still fails closed | Focused RED/GREEN availability tests plus immediate populated-state TUI proof |
 
 ## Non-goals
 
@@ -50,6 +51,8 @@ Fix the confirmed Windows LLxprt identity-probe regression in issue #525. The re
 - GREEN 1 (complete): convert only wrapper-script launch arguments to non-verbatim drive/UNC paths before shell mediation while retaining canonical fingerprints and direct-executable behavior.
 - RED 2 (complete): use a deterministic two-phase probe fixture where identity completes within its authored timeout but consumes enough of the old shared deadline that capability times out; assert the overall probe must succeed when each process individually respects the authored bound.
 - GREEN 2 (complete): provide a fresh authored deadline to each process while retaining a finite combined ceiling and existing timeout/nonzero/fingerprint failure behavior.
+- RED 3 (complete): immediate relaunch while the resolved startup observation is still pending is rejected as `not installed on the local PATH`, before launch preparation can perform its authoritative probe.
+- GREEN 3 (complete): permit only pending observations that retain resolved candidate evidence to continue into launch preparation; keep final or malformed NotFound evidence fail-closed.
 - Stop if the fix requires a new resolver abstraction, wrapper policy change, migration, dependency, or process-management subsystem.
 
 ## Expected Paths
@@ -76,6 +79,7 @@ Fix the confirmed Windows LLxprt identity-probe regression in issue #525. The re
 | Issue #518 is merged into current main | Accept as regression guard | Preserve `--yolo` and `--continue`; do not reopen its field/emitter design |
 | Issue #515 remains open | Defer / out of scope | Its owner-watch subsystem is not required to repair identity/capability probe timing and would exceed this PR's bounded slice |
 | CLI harness uses an isolated config while retaining ambient npm PATH | Accept as evidence | An isolated copy of real state lets exact-head probe the real wrapper without modifying user state; the scenario must prove usability, not merely process creation |
+| Pending startup observations encode temporary `Availability::NotFound` | Accept / in-scope | The observation retains both `pending_generation` and resolved candidate evidence, so the generic NotFound guard currently emits a false local-PATH error before authoritative launch preparation |
 
 ## Review Counters
 
@@ -97,11 +101,13 @@ Fix the confirmed Windows LLxprt identity-probe regression in issue #525. The re
 | Real LLxprt availability | Exact-head isolated Jefe reports `core.llxprt` installed with identity `0.10.0`; generated forms enable supported operations after availability completes |
 | Real agent launch | Exact-head isolated Jefe launched the copied `branch-3` agent through `cmd.exe /D /S /C C:\\Users\\acoli\\AppData\\Roaming\\npm\\llxprt.cmd --profile-load gpt56high --yolo --prompt-interactive --continue` |
 | Interactive LLxprt proof | Through Jefe's focused terminal, the real npm-installed LLxprt received `Reply with exactly ISSUE525_INTERACTIVE_OK and no other text.` and returned exactly `ISSUE525_INTERACTIVE_OK`; capture retained under ignored `target/` evidence |
-| TUI scenario GREEN | A populated-state harness run waited for availability, relaunched shortcut 5, focused the real terminal, sent the prompt, and captured the response; user state and pre-existing sessions were untouched |
+| TUI scenario GREEN | A populated-state harness run launched shortcut 5 immediately with no availability wait, focused the real terminal, sent the prompt, and captured exactly `ISSUE525_INTERACTIVE_OK`; user state and pre-existing sessions were untouched |
+| Pending availability RED / GREEN | Focused test reproduced the false `local PATH` rejection for pending resolved evidence; the guard now passes only that state onward, while final and malformed NotFound evidence remain rejected |
 | `cargo xtask quick` | Passes: 2695 library tests and all workspace/integration/doctest groups |
 | Exact local gates | Formatting, strict all-target/all-feature Clippy, locked all-feature workspace build, and locked all-feature workspace tests pass |
 | Exact-head CI / conflicts | Pending |
 
 ## Deferred Findings and Follow-ups
 
-- None yet.
+- Review confirmed the pending-resolved guard still reaches the authoritative launch probe. The Windows wrapper fixture is gated to Windows; defensive type-level encoding of the existing pending-resolution invariant is deferred as unnecessary hardening for this bounded fix.
+- The real proof pane reports the requested branch-3 psmux directory, while LLxprt's own status line reports `C:\\Windows`; classify separately rather than expanding this PR into cwd/session-host behavior.
