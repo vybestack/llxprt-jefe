@@ -435,7 +435,7 @@ fn restore_one_agent(
                         return RestoreOneOutcome::Dead;
                     };
                     runtime
-                        .runtime_binding(&agent.id, launch_signature)
+                        .runtime_binding(&agent.id, &launch_signature)
                         .map_or(RestoreOneOutcome::Dead, RestoreOneOutcome::Revived)
                 }
                 ReviveOutcome::Died => RestoreOneOutcome::Dead,

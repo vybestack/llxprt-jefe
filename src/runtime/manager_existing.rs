@@ -102,12 +102,12 @@ impl TmuxRuntimeManager {
     pub fn runtime_binding(
         &self,
         agent_id: &AgentId,
-        launch_signature: LaunchSignatureV1,
+        launch_signature: &LaunchSignatureV1,
     ) -> Option<RuntimeBinding> {
         let session = self.sessions.get(agent_id)?;
         Some(RuntimeBinding {
             session_name: session.session_name.clone(),
-            launch_signature,
+            launch_signature: launch_signature.clone(),
             attached: session.attached,
             last_seen: None,
             pid: session.pid,
