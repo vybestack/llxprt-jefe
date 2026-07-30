@@ -433,6 +433,126 @@ RED evidence.
 - `git diff --check` — PASS. No `.llxprt`, dependency, workflow, state,
   persistence, runtime, CLI, UI, or harness file changed; no commit or push.
 
+## S2 execution ledger — schema-2 keymap overrides and binding explain
+
+S2 delivers CW03-04, CW03-05, CW03-06, and CW03-10 at the lossless
+schema-2 persistence boundary and provider-free CLI boundary. Runtime input
+dispatch, UI/Keys editor, mouse routing, harness conversion, dependencies,
+workflows, quality configuration, and later slices remain unchanged.
+
+### S2 changed files (recorded before edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S2 scope, RED/GREEN evidence, CLI examples, and exact verification | delivery evidence |
+| `src/persistence/keymap_edit.rs` | Pure lossless set/unbind/reset candidate patching and complete registry composition | persistence/domain boundary (new) |
+| `src/persistence/keymap_edit_tests.rs` | RED-first lossless roundtrip, rejection, bounds, and prior-authority fixtures | focused persistence tests (new) |
+| `src/persistence/mod.rs` | Register keymap edit ownership/tests and expose the existing atomic revision-gated settings-byte write seam | persistence boundary |
+| `src/persistence/settings_publish.rs` | Publish schema-2 `keymap.<context>.<action>` whole-list strings independently of config-owner catalog | lossless settings publication |
+| `src/recovery_effective.rs` | Keep provider-free effective-settings rendering compatible with context/action string keymaps after the authoritative publication type change | provider-free recovery projection |
+| `src/persistence/settings_document_tests.rs` | RED-first context/action publication and dormant-byte retention coverage | focused settings tests |
+| `src/domain/action_registry.rs` | Retain validated effective binding/provenance data in the approved snapshot for private explain projection | pure domain snapshot |
+| `src/domain/default_action_inventory.rs` | Closed source-derived complete context-stack declarations used by composition and explain | pure inventory/domain owner |
+| `src/domain/default_action_inventory_tests.rs` | Closed context-stack declaration coverage and ordering assertions | focused pure-domain tests |
+| `src/startup.rs` | Compose one startup keymap snapshot; retain malformed bytes, report KEY-E401, and use compiled defaults per D8 | startup boundary |
+| `src/binding_explain.rs` | Provider-free read/compose/resolve service and private output projection | CLI service (new) |
+| `src/binding_explain_tests.rs` | RED-first output, invalid/unresolved, malformed-settings, and no-write service tests | focused CLI-service tests (new) |
+| `src/cli.rs` | Hand-rolled `explain binding CHORD [--context ID]` command parsing | CLI parsing |
+| `tests/cli.rs` | RED-first usage/parser and explicit-config command coverage | CLI parser integration tests |
+| `src/lib.rs` | Register the approved binding-explain service module | crate registration |
+| `src/main.rs` | Dispatch explain before startup/TUI/provider/probe/runtime initialization and render its typed outcome | process entry boundary |
+| `tests/binding_explain_cli.rs` | Real-process output/exit/config/offline/provider-free evidence | process integration tests (new) |
+
+### S2 RED evidence
+
+The smallest behavioral tests were added before S2 production behavior.
+`cargo test --lib persistence::keymap_edit_tests --no-fail-fast` exited 101
+with `E0583 file not found for module keymap_edit`, proving the intended missing
+lossless candidate-edit contract. An earlier two-filter Cargo invocation exited
+1 in Cargo argument parsing and is not counted as RED evidence. CLI RED is
+recorded separately before its production implementation.
+`cargo test --test cli explain_binding --no-fail-fast && cargo test --lib
+binding_explain_tests --no-fail-fast` exited 101 with `E0583 file not found for
+module binding_explain`, proving the intended missing provider-free service
+before parser/service production edits. A later focused alias-shadow test also
+failed with exit 101 because explain used exact `Chord::contains` while the
+registry resolves `Shift+Tab` and `BackTab` canonically; production shadow
+projection was then changed to query the same snapshot resolver.
+
+### S2 GREEN evidence
+
+- Lossless candidate behavior: `cargo test --lib
+  persistence::keymap_edit_tests --no-fail-fast` — 7 passed. Whole-list set,
+  explicit `[]` unbind, reset-to-inherit, comment/order/dormant-byte retention,
+  snapshot-retained effective provenance, complete nested conflict/protection,
+  malformed-keymap non-keymap retention, fatal malformed syntax, typed bounds
+  rejection, and stale revision/expected-hash retention are covered.
+- Explain service: `cargo test --lib binding_explain_tests --no-fail-fast` — 6
+  passed. Output includes normalized chord, the complete source-derived nested
+  search order, winner, resolution, availability/reason, shadows, and snapshot
+  provenance; malformed keymaps report `KEY-E401` while resolving compiled
+  defaults without writes, while malformed TOML remains fatal.
+- CLI parser: `cargo test --test cli explain_binding --no-fail-fast` — 2 passed;
+  valid context/config ordering and exit-64 usage failures are covered.
+- Startup D8: `cargo test --lib
+  malformed_initial_keymap_retains_bytes_and_uses_compiled_defaults
+  --no-fail-fast` — 1 passed.
+- Schema-2 publication: `cargo test --lib
+  keymap_publishes_context_action_lists_without_config_owner_catalog
+  --no-fail-fast` — 1 passed, including empty lists and dormant extension bytes.
+- Real process: `cargo test --test binding_explain_cli --no-fail-fast` — 2
+  passed with an empty `PATH`, unchanged settings bytes, no `state.json`, and
+  exit codes 0/2/64.
+
+A real resolved invocation printed `normalized chord: x`, searched
+`dashboard -> global`, dispatched `dashboard.navigate-down` through
+`NavigateDown`, and reported `settings:<selected settings.toml>` provenance.
+The settings SHA-256 was identical before/after and no state file was created.
+A malformed `Ctrl+` override printed `KEY-E401: unknown key in chord grammar` to
+stderr, exited 0 because compiled `j` still resolved, reported `provenance:
+compiled`, retained settings bytes, and created no state file.
+
+### S2 verification record
+
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  after preserving the crate-private module boundary without lint suppression.
+- `cargo build --workspace --all-features --locked` — PASS.
+- `cargo test --workspace --all-features --locked` — PASS: library 2,886
+  passed / 1 ignored; bin 808 passed; every integration target passed.
+- `cargo test --doc --workspace --all-features --locked` — PASS: 2 doctests.
+- `scripts/check-architecture.sh` and `cargo test architecture -- --nocapture`
+  — PASS.
+- `cargo xtask check source-size` and `cargo test source_size -- --nocapture`
+  — PASS; `action_registry.rs` is 995 lines and no S2 file exceeds the hard
+  limit (existing warning-only files remain).
+- `cargo xtask check clippy-allows` and `cargo test clippy_allow_policy --
+  --nocapture` — PASS.
+- `cargo xtask quick` — PASS. Bare `cargo xtask check` is not an aggregate gate
+  in this repository and correctly prints usage requiring one policy name; all
+  three supported policy checks were run explicitly.
+- `git diff --check` — PASS.
+
+No schema version, dependency, runtime input dispatch, UI/Keys editor, mouse,
+harness, workflow, quality configuration, or `.llxprt` file changed. No commit
+or push was performed.
+
+### S2 design boundaries
+
+- `SettingsDocument` original bytes remain the formatting authority. Candidate
+  edits patch only the selected assignment statement/value (or insert/remove
+  that one owned assignment), then parse, publish, parse every chord, and
+  compose the complete candidate before any write or publication.
+- Empty chord arrays are explicit unbinds; absent assignments inherit compiled
+  defaults. Rejection is one typed `KEY-E401` result and leaves the prior bytes
+  and snapshot untouched.
+- Startup and explain call the same persistence-owned composition function over
+  the source-derived compiled inventory. Explain uses snapshot resolution and
+  snapshot-retained provenance; it does not contain a binding table or a second
+  resolver.
+- No schema bump is required: schema 2 already owns `keymap`; S2 corrects that
+  subtree from config-owner semantics to the approved context/action semantics.
+
 ## Verification and review contract
 
 Per slice:

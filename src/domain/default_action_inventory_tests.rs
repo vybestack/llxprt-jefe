@@ -190,3 +190,46 @@ fn every_context_local_unwind_is_protected() {
         );
     }
 }
+
+#[test]
+fn context_stacks_are_closed_source_orders_with_nested_canonical_parents() {
+    let inventory = inventory();
+    let first_stack = |leaf: &str| {
+        inventory
+            .context_stacks
+            .iter()
+            .find(|stack| {
+                stack
+                    .iter()
+                    .next()
+                    .is_some_and(|context| context.as_str() == leaf)
+            })
+            .map(|stack| {
+                stack
+                    .iter()
+                    .map(super::input_context::ContextId::as_str)
+                    .collect::<Vec<_>>()
+            })
+    };
+
+    assert_eq!(
+        first_stack("modal.confirm"),
+        Some(vec![
+            "modal.confirm",
+            "issues.inline",
+            "issues.detail",
+            "issues.list",
+            "global",
+        ])
+    );
+    assert_eq!(
+        first_stack("dashboard.grab"),
+        Some(vec![
+            "dashboard.grab",
+            "dashboard.reorder",
+            "dashboard",
+            "global",
+        ])
+    );
+    assert_eq!(first_stack("shell-overlay"), Some(vec!["shell-overlay"]));
+}

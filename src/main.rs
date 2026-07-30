@@ -158,6 +158,22 @@ fn run_internal_agent_launch_if_requested() {
     }
 }
 
+fn dispatch_binding_explain(cli_args: &jefe::cli::CliArgs) -> bool {
+    let Some(explain) = cli_args.explain_binding.as_ref() else {
+        return false;
+    };
+    let output = jefe::binding_explain::run(
+        &explain.chord,
+        explain.context.as_deref(),
+        cli_args.config_dir.as_deref(),
+    );
+    write_recovery_output(&output);
+    if output.exit_code != 0 {
+        std::process::exit(i32::from(output.exit_code));
+    }
+    true
+}
+
 fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
     let output = match cli_args.command {
         Some(jefe::cli::ConfigCommand::Path) => {
@@ -225,7 +241,7 @@ fn main() {
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
     };
-    if dispatch_recovery_command(&cli_args) {
+    if dispatch_binding_explain(&cli_args) || dispatch_recovery_command(&cli_args) {
         return;
     }
 
@@ -246,8 +262,14 @@ fn main() {
         state_path: startup.paths.state.path.clone(),
     };
     let themes_dir = startup.paths.themes.clone();
+    let keymap_diagnostic = startup.keymap_diagnostic_message();
     let published_settings = startup.settings;
     let persistence = startup.manager;
+    if let Some(diagnostic) = keymap_diagnostic {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "{diagnostic}");
+    }
 
     // Initialize diagnostics only after persistence has validated.
     init_diagnostics();

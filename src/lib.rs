@@ -14,6 +14,10 @@ pub mod agent_candidate_path;
 pub mod agent_detection;
 pub mod agent_registry;
 pub mod agent_status_view;
+/// Provider-free binding explanation using the composed action registry.
+pub mod binding_explain;
+#[cfg(test)]
+mod binding_explain_tests;
 /// Detects whether the console font supports rounded-corner box-drawing
 /// glyphs and falls back to single-line borders when it does not (issue #497).
 pub mod border_capability;

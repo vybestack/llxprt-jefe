@@ -171,3 +171,37 @@ fn config_recovery_rejects_missing_command_and_foreign_flags_with_exit_64() {
         assert_eq!(error.exit_code(), 64, "args: {args:?}");
     }
 }
+
+#[test]
+fn explain_binding_parses_chord_context_and_config_in_owned_order() {
+    let parsed = parse(&[
+        "explain",
+        "binding",
+        "ctrl+j",
+        "--context",
+        "issues.list",
+        "--config",
+        "/tmp/explain",
+    ])
+    .value_or_panic("explain binding must parse");
+    let Some(explain) = parsed.explain_binding else {
+        panic!("explain binding arguments must be retained");
+    };
+    assert_eq!(explain.chord, "ctrl+j");
+    assert_eq!(explain.context.as_deref(), Some("issues.list"));
+    assert_eq!(parsed.config_dir, Some(PathBuf::from("/tmp/explain")));
+}
+
+#[test]
+fn explain_binding_usage_errors_exit_64() {
+    for args in [
+        vec!["explain"],
+        vec!["explain", "binding"],
+        vec!["explain", "other", "j"],
+        vec!["explain", "binding", "j", "--context"],
+        vec!["explain", "binding", "j", "extra"],
+    ] {
+        let error = parse(&args).error_or_panic("invalid explain syntax");
+        assert_eq!(error.exit_code(), 64, "args: {args:?}");
+    }
+}

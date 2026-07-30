@@ -65,7 +65,7 @@ pub struct PublishedSettings {
     pub appearance: PublishedAppearance,
     pub workbench: PublishedWorkbench,
     pub agents: BTreeMap<Id, PublishedOwner>,
-    pub keymap: BTreeMap<Id, BTreeMap<Id, Vec<String>>>,
+    pub keymap: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     pub plugins: BTreeMap<Id, PublishedOwner>,
     pub dormant: Vec<DormantSettings>,
 }
@@ -73,6 +73,21 @@ pub struct PublishedSettings {
 pub(super) fn publish(
     document: &SettingsDocument,
     catalog: &OwnerCatalog,
+) -> Result<PublishedSettings, Vec<Diagnostic>> {
+    publish_selected(document, catalog, true)
+}
+
+pub(super) fn publish_without_keymap(
+    document: &SettingsDocument,
+    catalog: &OwnerCatalog,
+) -> Result<PublishedSettings, Vec<Diagnostic>> {
+    publish_selected(document, catalog, false)
+}
+
+fn publish_selected(
+    document: &SettingsDocument,
+    catalog: &OwnerCatalog,
+    include_keymap: bool,
 ) -> Result<PublishedSettings, Vec<Diagnostic>> {
     let Some(root) = document.semantic().as_table() else {
         return Err(vec![type_diagnostic("/", "settings root must be a table")]);
@@ -90,8 +105,8 @@ pub(super) fn publish(
     if let Some(value) = root.get("agents") {
         parse_owner_root(document, catalog, value, OwnerKind::Agent, &mut published)?;
     }
-    if let Some(value) = root.get("keymap") {
-        parse_keymap(document, catalog, value, &mut published)?;
+    if include_keymap && let Some(value) = root.get("keymap") {
+        parse_keymap(value, &mut published)?;
     }
     if let Some(value) = root.get("plugins") {
         parse_owner_root(document, catalog, value, OwnerKind::Plugin, &mut published)?;
@@ -301,28 +316,20 @@ fn parse_owner_version(
 }
 
 fn parse_keymap(
-    document: &SettingsDocument,
-    catalog: &OwnerCatalog,
     value: &toml::Value,
     published: &mut PublishedSettings,
 ) -> Result<(), Vec<Diagnostic>> {
     let table = required_table(value, "/keymap")?;
-    for (owner_text, value) in table {
-        let owner_id = parse_id(owner_text, "/keymap")?;
-        let Some(owner) = catalog.get(&owner_id) else {
-            published
-                .dormant
-                .push(dormant(document, &["keymap", owner_text]));
-            continue;
-        };
-        require_owner_kind(owner, OwnerKind::Screen)?;
-        let bindings = required_table(value, &format!("/keymap/{owner_text}"))?;
+    for (context, value) in table {
+        let bindings = required_table(value, &format!("/keymap/{context}"))?;
         let mut actions = BTreeMap::new();
-        for (action_text, chords) in bindings {
-            let action_id = parse_id(action_text, "/keymap/action")?;
-            actions.insert(action_id, string_array(chords, "/keymap/chords")?);
+        for (action, chords) in bindings {
+            actions.insert(
+                action.clone(),
+                string_array(chords, &format!("/keymap/{context}/{action}"))?,
+            );
         }
-        published.keymap.insert(owner_id, actions);
+        published.keymap.insert(context.clone(), actions);
     }
     Ok(())
 }

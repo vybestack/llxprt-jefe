@@ -1,22 +1,16 @@
 //! Closed action and binding value types for configurable keymaps.
-
-use std::fmt;
-
-use unicode_width::UnicodeWidthStr;
-
 use super::effects::Correlation;
 use super::input_context::{ContextId, ContextStack};
 use super::keymap::{
     Chord, Key, MAX_CHORDS_PER_BINDING, MAX_EFFECTIVE_BINDINGS, Modifier, TerminalClass,
 };
-
+use std::fmt;
+use unicode_width::UnicodeWidthStr;
 pub const ACTION_ID_BYTE_LIMIT: usize = 128;
 pub const ACTION_LABEL_CELL_LIMIT: usize = 128;
 pub const ACTION_DESCRIPTION_BYTE_LIMIT: usize = 4_096;
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ActionId(String);
-
 impl ActionId {
     pub fn parse(value: &str) -> Result<Self, ActionIdError> {
         let valid = !value.is_empty()
@@ -37,24 +31,20 @@ impl ActionId {
             })
         }
     }
-
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionIdError {
     pub value: String,
 }
-
 impl fmt::Display for ActionIdError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "invalid action id: {:?}", self.value)
     }
 }
-
 impl std::error::Error for ActionIdError {}
 /// Closed dispatch intents. Every variant denotes one current source operation;
 /// aliases may share a variant, but unrelated behavior never does.
@@ -213,19 +203,16 @@ pub enum HandlerKey {
     ActionsActivate,
     ActionsBack,
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Provenance {
     Compiled,
     Settings { source: String },
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Availability {
     Available,
     Unavailable { reason: String },
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
     pub id: ActionId,
@@ -236,7 +223,6 @@ pub struct Action {
     pub handler: HandlerKey,
     pub protected: bool,
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionMetadata {
     pub id: ActionId,
@@ -245,7 +231,6 @@ pub struct ActionMetadata {
     pub category: String,
     pub contexts: Vec<ContextId>,
 }
-
 impl Action {
     pub fn new(
         metadata: ActionMetadata,
@@ -300,7 +285,6 @@ impl Action {
         })
     }
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionError {
     EmptyLabel,
@@ -471,6 +455,8 @@ impl RegistryCandidate {
         let resolved = build_resolved(&self.actions, &self.bindings, &availability)?;
         Ok(ActionRegistrySnapshot {
             availability,
+            bindings: self.bindings,
+            context_stacks: self.context_stacks,
             resolved,
         })
     }
@@ -480,6 +466,8 @@ impl RegistryCandidate {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionRegistrySnapshot {
     availability: AvailabilityGeneration,
+    bindings: Vec<Binding>,
+    context_stacks: Vec<ContextStack>,
     resolved: Vec<ResolvedBinding>,
 }
 
@@ -505,6 +493,18 @@ impl ActionRegistrySnapshot {
     #[must_use]
     pub const fn availability_correlation(&self) -> &Correlation {
         &self.availability.0
+    }
+
+    #[must_use]
+    pub(crate) fn effective_bindings(&self) -> &[Binding] {
+        &self.bindings
+    }
+
+    #[must_use]
+    pub(crate) fn context_stack(&self, context: &ContextId) -> Option<&ContextStack> {
+        self.context_stacks
+            .iter()
+            .find(|stack| stack.iter().next() == Some(context))
     }
 
     fn resolve_terminal(&self, chord: &Chord, stack: &ContextStack) -> Resolution {
@@ -813,15 +813,10 @@ fn validate_context_pair(
             };
             let protected_child = binding_is_protected(actions, child_binding);
             let protected_parent = binding_is_protected(actions, parent_binding);
-            if protected_child != protected_parent {
-                let protected = if protected_child {
-                    child_binding
-                } else {
-                    parent_binding
-                };
+            if !protected_child && protected_parent {
                 return Err(diagnostic(RegistryDiagnosticKind::ProtectedShadowed(
-                    protected.action.clone(),
-                    protected.context.clone(),
+                    parent_binding.action.clone(),
+                    parent_binding.context.clone(),
                     chord,
                 )));
             }

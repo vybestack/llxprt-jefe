@@ -10,7 +10,7 @@ use super::action_registry::{
     Action, ActionError, ActionId, ActionIdError, ActionMetadata, Availability, Binding,
     BindingError, HandlerKey, Provenance,
 };
-use super::input_context::{ContextId, ContextIdError};
+use super::input_context::{ContextId, ContextIdError, ContextStack, ContextStackError};
 use super::keymap::{Chord, ChordError};
 use HandlerKey as H;
 
@@ -38,6 +38,7 @@ pub const AUDITED_DISPATCH_SOURCES: &[&str] = &[
 pub struct CompiledInventory {
     pub actions: Vec<Action>,
     pub bindings: Vec<Binding>,
+    pub(crate) context_stacks: Vec<ContextStack>,
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +58,79 @@ macro_rules! spec {
         Spec { context: $context, id: $id, handler: $handler, chords: &[$($chord),+], protected: true }
     };
 }
+
+// The first declaration for a leaf is its provider-free explain order. Later
+// declarations cover source-valid alternate parents during candidate validation.
+const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
+    (&["global"], false),
+    (&["terminal", "global"], true),
+    (&["shell-overlay"], false),
+    (&["dashboard", "global"], false),
+    (
+        &["dashboard.grab", "dashboard.reorder", "dashboard", "global"],
+        false,
+    ),
+    (&["dashboard.reorder", "dashboard", "global"], false),
+    (&["split", "global"], false),
+    (&["errors", "global"], false),
+    (&["terminal-manager", "global"], false),
+    (&["help", "dashboard", "global"], false),
+    (
+        &[
+            "modal.confirm",
+            "issues.inline",
+            "issues.detail",
+            "issues.list",
+            "global",
+        ],
+        false,
+    ),
+    (&["modal.auth", "dashboard", "global"], false),
+    (&["modal.form", "actions", "global"], false),
+    (&["modal.theme", "dashboard", "global"], false),
+    (&["search", "split", "global"], false),
+    (&["filter", "prs.detail", "prs.list", "global"], false),
+    (&["issues.list", "global"], false),
+    (&["issues.detail", "issues.list", "global"], false),
+    (
+        &["issues.inline", "issues.detail", "issues.list", "global"],
+        false,
+    ),
+    (
+        &[
+            "issues.agent-chooser",
+            "issues.detail",
+            "issues.list",
+            "global",
+        ],
+        false,
+    ),
+    (&["prs.list", "global"], false),
+    (&["prs.detail", "prs.list", "global"], false),
+    (&["prs.inline", "prs.detail", "prs.list", "global"], false),
+    (
+        &["prs.agent-chooser", "prs.detail", "prs.list", "global"],
+        false,
+    ),
+    (&["actions", "global"], false),
+    (&["issues.inline", "issues.list", "global"], false),
+    (&["search", "dashboard", "global"], false),
+    (&["search", "issues.list", "global"], false),
+    (&["search", "prs.list", "global"], false),
+    (&["search", "actions", "global"], false),
+    (&["filter", "issues.list", "global"], false),
+    (&["filter", "prs.list", "global"], false),
+    (&["filter", "actions", "global"], false),
+    (&["help", "split", "global"], false),
+    (&["help", "issues.detail", "issues.list", "global"], false),
+    (&["help", "issues.list", "global"], false),
+    (&["modal.confirm", "dashboard", "global"], false),
+    (
+        &["modal.confirm", "issues.detail", "issues.list", "global"],
+        false,
+    ),
+    (&["modal.form", "dashboard", "global"], false),
+];
 
 const SPECS: &[Spec] = &[
     spec!(protected "global", "core.emergency-exit", H::EmergencyExit, ["Ctrl+Q"]),
@@ -764,7 +838,18 @@ pub fn compiled_inventory() -> Result<CompiledInventory, InventoryError> {
         actions.push(action);
         bindings.push(binding);
     }
-    Ok(CompiledInventory { actions, bindings })
+    let context_stacks = CONTEXT_STACK_SPECS
+        .iter()
+        .map(|(contexts, terminal_capture)| {
+            ContextStack::from_ordered(contexts.iter().copied(), *terminal_capture)
+                .map_err(InventoryError::ContextStack)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CompiledInventory {
+        actions,
+        bindings,
+        context_stacks,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -804,6 +889,7 @@ pub fn golden_projection(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InventoryError {
     Context(ContextIdError),
+    ContextStack(ContextStackError),
     ActionId(ActionIdError),
     Chord { text: String, source: ChordError },
     Action(ActionError),
