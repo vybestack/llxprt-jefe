@@ -41,8 +41,8 @@ fn test_repository(repo_id: &str) -> Repository {
     )
 }
 
-/// Build the single PR-list item used by the detail fixture.
-fn detail_list_item(pr_number: u64) -> PullRequest {
+/// Build a test `PullRequest` for the given number.
+fn test_pull_request(pr_number: u64) -> PullRequest {
     PullRequest {
         number: pr_number,
         title: format!("PR #{pr_number}"),
@@ -63,8 +63,8 @@ fn detail_list_item(pr_number: u64) -> PullRequest {
     }
 }
 
-/// Build the loaded PR detail (non-empty body) used by the detail fixture.
-fn loaded_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail {
+/// Build a test `PullRequestDetail` for the given number.
+fn test_pull_request_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail {
     PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: pr_number,
@@ -109,9 +109,9 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
     state
         .prs_state
         .list
-        .replace_items(vec![detail_list_item(pr_number)]);
+        .replace_items(vec![test_pull_request(pr_number)]);
     state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.pr_detail = Some(loaded_detail(repo_id, pr_number));
+    state.prs_state.pr_detail = Some(test_pull_request_detail(repo_id, pr_number));
     state
 }
 

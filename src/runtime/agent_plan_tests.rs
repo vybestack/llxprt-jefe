@@ -89,8 +89,22 @@ fn default_field_values_are_used_when_not_provided() {
         PlanOutcome::Supported(plan) => *plan,
         other => panic!("expected supported, got {other:?}"),
     };
-    // LLxprt's profile has no default, while yolo defaults on.
-    assert_eq!(plan.argv, ["--yolo"]);
+    // LLxprt's profile field has no default, so the Option emitter skips.
+    // yolo, prompt_interactive, and continue default to true, so Flags fire.
+    let argv: Vec<String> = plan
+        .argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        argv,
+        vec![
+            "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
+            "--continue".to_string()
+        ],
+        "all default flags fire with all defaults"
+    );
 }
 
 #[test]
@@ -130,7 +144,14 @@ fn flag_resolves_token_from_capability_probe() {
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    assert_eq!(argv, vec!["--yolo".to_string(), "--continue".to_string()]);
+    assert_eq!(
+        argv,
+        vec![
+            "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
+            "--continue".to_string()
+        ]
+    );
 }
 
 #[test]
@@ -165,8 +186,22 @@ fn empty_string_value_skips_option_emitter() {
         PlanOutcome::Supported(plan) => *plan,
         other => panic!("expected supported, got {other:?}"),
     };
-    // Whitespace-only profile skips its Option emitter; default yolo remains.
-    assert_eq!(plan.argv, ["--yolo"]);
+    // Whitespace-only profile string skips the Option emitter; default flags
+    // still fire (yolo, prompt_interactive, continue all default true).
+    let argv: Vec<String> = plan
+        .argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        argv,
+        vec![
+            "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
+            "--continue".to_string()
+        ],
+        "whitespace-only value skipped; default flags fire"
+    );
 }
 
 #[test]

@@ -569,18 +569,25 @@ fn agent_values(
     if let Some(value) = agent_yolo(source, definition) {
         crate::domain::canonical_values::insert_json(&mut values, "yolo", json!(value))?;
     }
-    if declares_agent_field(definition, "version_selector") {
-        crate::domain::canonical_values::insert_json(
-            &mut values,
-            "version_selector",
-            json!(agent_version_selector(source, definition)),
-        )?;
-    }
     if declares_agent_field(definition, "continue") {
         crate::domain::canonical_values::insert_json(
             &mut values,
             "continue",
             json!(source.pass_continue),
+        )?;
+    }
+    if declares_agent_field(definition, "prompt_interactive") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "prompt_interactive",
+            json!(true),
+        )?;
+    }
+    if declares_agent_field(definition, "version_selector") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "version_selector",
+            json!(agent_version_selector(source, definition)),
         )?;
     }
     Ok(values)

@@ -370,7 +370,8 @@ fn update_llxprt_agent_replaces_obsolete_prompt_interactive_value() {
         Some(&crate::domain::TypedValue::Bool(false))
     );
     assert!(
-        crate::domain::canonical_values::typed_field(&agent.values, "prompt_interactive").is_none()
+        crate::domain::canonical_values::typed_field(&agent.values, "prompt_interactive").is_some(),
+        "prompt_interactive is a declared agent field and should be present"
     );
     assert_eq!(
         crate::domain::canonical_values::typed_field(&agent.values, "future_metadata"),

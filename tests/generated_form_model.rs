@@ -437,11 +437,11 @@ fn llxprt_generated_form_exposes_only_the_continue_boolean() {
     let Some(continue_field) = continue_field else {
         panic!("LLxprt form must expose an agent continue field");
     };
-    assert_eq!(continue_field.value(), &FieldValue::Boolean(false));
-    assert!(
-        draft
-            .field(&FormFieldId::agent("prompt_interactive"))
-            .is_none(),
-        "prompt-interactive is a prompt-valued operation capability, not a Boolean field"
-    );
+    assert_eq!(continue_field.value(), &FieldValue::Boolean(true));
+    // prompt_interactive is a declared agent field with default true.
+    let prompt_interactive_field = draft.field(&FormFieldId::agent("prompt_interactive"));
+    let Some(prompt_interactive_field) = prompt_interactive_field else {
+        panic!("LLxprt form must expose a prompt_interactive field");
+    };
+    assert_eq!(prompt_interactive_field.value(), &FieldValue::Boolean(true));
 }

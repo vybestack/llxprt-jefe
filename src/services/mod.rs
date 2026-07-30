@@ -188,6 +188,18 @@ fn creation_values(
         "interactive",
         TypedValue::Bool(params.code_puppy_quick_resume.enabled()),
     )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "prompt_interactive",
+        TypedValue::Bool(true),
+    )?;
+    insert_declared_value(
+        &mut values,
+        definition,
+        "continue",
+        TypedValue::Bool(params.pass_continue),
+    )?;
     Some(values)
 }
 
