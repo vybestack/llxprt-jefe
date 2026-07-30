@@ -71,11 +71,14 @@ fn psmux_official_llxprt_launch_bypasses_cmd_and_delivers_full_prompt() {
     script_args.extend(launch_args);
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            script.runtime(),
-            jefe::agent_candidate_path::AgentWrapperKind::Direct,
+            (
+                script.runtime(),
+                jefe::agent_candidate_path::AgentWrapperKind::Direct,
+            ),
             &script_args,
             &[],
             Path::new(JEFE),
+            fixture.work_dir.path(),
         )
         .unwrap_or_else(|error| panic!("build official pane command: {error}"));
     let mut command = vec![
