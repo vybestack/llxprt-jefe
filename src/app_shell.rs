@@ -6,12 +6,10 @@ use crate::app_input::{
     apply_background_gh_delivery, dispatch_app_event, handle_mode_auth_key,
     handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
     handle_mode_theme_picker_key, handle_normal_key_event, install_gh_delivery_handler,
-    request_pr_background_refresh, synchronize_actions_geometry, try_ctrl_c_interrupt_passthrough,
-    try_suppress_synthetic_enter, update_paste_enter_suppression,
+    request_pr_background_refresh, synchronize_actions_geometry, try_suppress_synthetic_enter,
+    update_paste_enter_suppression,
 };
-use crate::app_shell_key_routing::{
-    handle_pre_mode_shortcut, route_shell_overlay_key, route_terminal_capture_key,
-};
+use crate::app_shell_key_routing::route_registry_key;
 use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
@@ -660,7 +658,6 @@ fn handle_key_event(
     let pane_focus = state_ro.pane_focus;
     let screen_mode = state_ro.screen_mode;
     let modal = state_ro.modal.clone();
-    let shell_overlay_active = state_ro.shell_overlay_active();
     let early_input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
 
@@ -681,32 +678,11 @@ fn handle_key_event(
     }
     update_paste_enter_suppression(early_input_mode, suppress_next_enter, &key_event, now);
 
-    if shell_overlay_active
-        && route_shell_overlay_key(ctx, app_state, suppress_next_enter, &key_event)
-    {
-        return;
-    }
-
-    if handle_pre_mode_shortcut(
-        ctx,
-        app_state,
-        &key_event,
-        screen_mode,
-        term_focused,
-        early_input_mode,
-    ) {
+    if route_registry_key(ctx, app_state, should_quit, suppress_next_enter, &key_event) {
         return;
     }
 
     let input_mode = resolve_input_mode(app_state, ctx, term_focused, pane_focus);
-
-    if try_ctrl_c_interrupt_passthrough(ctx, suppress_next_enter, input_mode, &key_event) {
-        return;
-    }
-
-    if route_terminal_capture_key(ctx, app_state, suppress_next_enter, input_mode, &key_event) {
-        return;
-    }
 
     if dispatch_mode_specific_key(app_state, ctx, help_scroll, &key_event, input_mode) {
         return;

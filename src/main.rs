@@ -3,6 +3,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1
 //! @requirement REQ-TECH-001
 
+mod action_context;
 mod app_init;
 mod app_input;
 mod app_shell;
@@ -29,6 +30,7 @@ use jefe::theme::FileThemeManager;
 
 /// Shared application context passed to the root component.
 struct AppContext {
+    keymap_snapshot: jefe::domain::action_registry::ActionRegistrySnapshot,
     persistence: jefe::persistence::FilePersistenceManager,
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
@@ -79,6 +81,14 @@ fn write_stdout_line(message: &str) {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let _ = writeln!(handle, "{message}");
+}
+
+fn write_optional_diagnostic(diagnostic: Option<String>) {
+    if let Some(diagnostic) = diagnostic {
+        let stderr = std::io::stderr();
+        let mut handle = stderr.lock();
+        let _ = writeln!(handle, "{diagnostic}");
+    }
 }
 
 fn write_recovery_output(output: &jefe::recovery::RecoveryOutput) {
@@ -263,13 +273,10 @@ fn main() {
     };
     let themes_dir = startup.paths.themes.clone();
     let keymap_diagnostic = startup.keymap_diagnostic_message();
+    let keymap_snapshot = startup.keymap_snapshot;
     let published_settings = startup.settings;
     let persistence = startup.manager;
-    if let Some(diagnostic) = keymap_diagnostic {
-        let stderr = std::io::stderr();
-        let mut handle = stderr.lock();
-        let _ = writeln!(handle, "{diagnostic}");
-    }
+    write_optional_diagnostic(keymap_diagnostic);
 
     // Initialize diagnostics only after persistence has validated.
     init_diagnostics();
@@ -295,6 +302,7 @@ fn main() {
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
+        keymap_snapshot,
         persistence,
         published_settings,
         theme_manager,

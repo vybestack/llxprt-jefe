@@ -114,6 +114,28 @@ fn accepted_source_decisions_do_not_invent_ticket_aliases() {
 }
 
 #[test]
+fn s3_inventory_covers_audited_split_errors_and_pre_mode_rows() {
+    use super::action_registry::HandlerKey as H;
+
+    let rows = projection_rows();
+    let has = |context: &str, chord: &str, handler: super::action_registry::HandlerKey| {
+        rows.iter().any(|row| {
+            row.context.as_str() == context
+                && row.chord.to_canonical_text() == chord
+                && row.handler == handler
+        })
+    };
+
+    assert!(has("split", "PageDown", H::NavigatePageDown));
+    assert!(has("split", "Ctrl+R", H::RestartSelectedAgent));
+    assert!(has("split", "F12", H::ToggleTerminalFocus));
+    assert!(has("actions", "F12", H::ToggleTerminalFocus));
+    assert!(has("errors", "Home", H::NavigateHome));
+    assert!(has("errors", "Left", H::ErrorsCyclePane));
+    assert!(has("errors", "j", H::ErrorsDown));
+}
+
+#[test]
 fn translated_terminal_control_chords_equal_compiled_defaults() {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 

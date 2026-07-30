@@ -582,3 +582,152 @@ Stop before any unplanned subsystem/public abstraction, further unapproved
 hard-budget expansion, wrong ancestry, incomplete verification, or behavior
 outside CW03-01..10. Stop successfully when accepted behavior and all exact-head
 gates are complete; do not continue optional hardening.
+
+## S3 execution ledger — outer shell, terminal capture, and Dashboard-family dispatch
+
+S3 delivers the runtime-dispatch portions of CW03-01, CW03-02, CW03-07, and
+CW03-08 for shell-overlay precedence, terminal capture, global/pre-mode
+shortcuts, Dashboard, Split, Errors, and Terminal Manager. Issues, Pull
+Requests, Actions mode-specific routing, modal/editor routing, projections,
+Keys UI, mouse routing, and harness conversion remain later-slice owners.
+
+### S3 changed-file ledger (recorded before edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S3 scope, RED/GREEN evidence, exact gates, and discovered inventory parity rows | delivery evidence |
+| `src/action_context.rs` | Pure source-state selector for shell, terminal, S3 full-dispatch, and pre-mode-only context stacks | application selector (new, crate-private) |
+| `src/action_context_tests.rs` | RED-first source-state/context precedence and focused-context fixtures | focused selector tests (new) |
+| `src/input.rs` | Pure runtime `KeyEvent` to canonical `Chord` translation, including existing macOS Option-symbol normalization | input translation |
+| `src/input_tests.rs` | RED-first Alt/Option canonicalization and exact modifier fixtures | focused input tests |
+| `src/main.rs` | Move the one startup-composed immutable snapshot into root `AppContext` and register the selector | startup/root ownership |
+| `src/app_shell.rs` | Replace migrated outer/pre-mode/terminal/S3 hardcoded routing with one registry-route invocation while retaining later-slice mode/editor routing | root input orchestration |
+| `src/app_shell_key_routing.rs` | Resolve one canonical chord against one source-derived stack exactly once and execute the closed typed result | root dispatch boundary |
+| `src/app_shell_key_routing_tests.rs` | RED-first Dashboard/Split/Errors/Terminal Manager/shell/terminal resolution parity | focused production-route tests (new) |
+| `src/app_input/mod.rs` | Register/re-export the S3 handler executor and remove superseded global/terminal dispatch exports | app-input boundary |
+| `src/app_input/action_handlers.rs` | Closed exhaustive `HandlerKey` executor into the smallest `AppEvent` or typed existing boundary operation | typed dispatch (new) |
+| `src/app_input/action_handlers_tests.rs` | RED-first dynamic Dashboard/Errors/terminal-scroll/Terminal Manager handler output fixtures | focused executor tests (new) |
+| `src/app_input/normal.rs` | Remove migrated Dashboard/Split/Errors/global maps; retain rapid-`qqq`, raw Dashboard search, and later-slice Issues/PR/Actions delegation | legacy-slice boundary |
+| `src/app_input/dashboard_search.rs` | Remove migrated special/grab routing while retaining raw search and later-slice mode delegation | raw editor/shared plumbing |
+| `src/app_input/list_navigation.rs` | Expose the existing pure Dashboard/Split page-capacity calculation to the typed executor without duplicating geometry | shared pure calculation |
+| `src/app_input/errors.rs` | Delete the superseded hardcoded Errors key dispatch map after registry parity | migrated duplicate authority |
+| `src/app_input/terminal_manager.rs` | Replace the key map with typed close/focus boundary functions; retain runtime orchestration | runtime boundary |
+| `src/app_input/shell_overlay.rs` | Replace F-key dispatch maps with typed hide/close/open boundary functions | runtime boundary |
+| `src/app_input/modal_handlers.rs` | Expose the existing theme-picker boundary without retaining an F9 key map | shared S3 boundary |
+| `src/app_input/split_mode_key_tests.rs` | Move Split assertions from deleted hardcoded resolver to registry/executor behavior | focused parity tests |
+| `src/app_input/prs_key_tests.rs` | Move the existing Dashboard `p` entry assertion off the deleted Dashboard resolver while preserving PR-mode dispatch ownership | focused later-slice regression test |
+| `src/app_input/prs_integration_tests.rs` | Route the existing Dashboard-to-PR integration checkpoint through the registry result instead of the deleted Dashboard resolver | focused later-slice integration test |
+| `src/app_input/pty_passthrough_tests.rs` | Construct root context with the single immutable snapshot and retain exact Ctrl-C contention behavior | PTY regression tests |
+| `src/domain/default_action_inventory.rs` | Add audited missing Split/Errors/pre-mode rows and register an internal S3 spec split without crossing the source-size hard limit | pure inventory |
+| `src/domain/default_action_inventory_s3.rs` | Hold only the newly audited S3 parity rows because the 906-line inventory owner cannot safely grow past 1,000 lines | pure inventory split (new, internal) |
+| `src/domain/default_action_inventory_tests.rs` | RED-first assertions for every audited missing S3 row | focused inventory tests |
+| `src/binding_explain_tests.rs` | Extend the existing all-context BackTab override fixture for the newly audited Split and Errors cycle-pane rows | existing S2 composition regression fixture |
+
+`src/domain/action_registry.rs` remains unchanged at 995 lines: the audit found
+that the existing closed handlers are sufficient when the executor receives the
+canonical chord and selected source context. No new public abstraction or
+handler variant is required.
+
+Ledger correction: the three shared/test rows for `list_navigation.rs`,
+`prs_key_tests.rs`, and `prs_integration_tests.rs` were discovered while
+deleting the final Dashboard/Split fallback references and are recorded here
+before final GREEN verification. They neither expand production behavior nor
+migrate PR-mode dispatch; they connect existing pure geometry and tests to the
+already-approved S3 route. Full verification then exposed the existing
+all-context BackTab explain fixture's missing explicit Split and Errors
+overrides after the new source-audited cycle-pane rows landed; that focused S2
+fixture update is recorded above before the corrective edit.
+
+### S3 RED contract
+
+The first tests cover only observable pure seams: source state selects the
+correct ordered context; existing macOS Option symbols become the canonical
+Alt-digit chord; one production-route resolution chooses the expected handler;
+and the closed executor produces the current smallest event/boundary result,
+including conditional terminal forwarding. They are wired before those modules
+or functions exist and must fail to compile for the intended missing S3
+contracts. Inventory parity RED is added separately when the first Split/Errors
+fixture exposes a source-valid row absent from the S0 inventory.
+
+### S3 slice boundaries
+
+- `AppContext` owns exactly one immutable `ActionRegistrySnapshot`, moved from
+  the startup result. Event routing borrows it under the existing root context
+  lock, derives one stack, calls `snapshot.resolve` once, drops the guard, and
+  executes that one typed result.
+- Shell and terminal raw forwarding remain boundary effects and continue using
+  the unchanged `pty_encoding::key_to_bytes` path. Unsupported canonical input
+  forwards in PTY-owned contexts and never creates a fallback action route.
+- Rapid `qqq` remains the approved state machine outside the single-chord
+  registry. Raw Dashboard search and all Issues/PR/Actions/modal/editor behavior
+  remain on their current later-slice paths; only their inherited global/pre-mode
+  shortcut seam uses the registry in S3.
+- No old dispatch map or compatibility fallback remains for a migrated S3
+  context. `core.open-keys` remains behaviorally inert until the approved S6
+  Keys UI exists; it does not create a second dispatch authority.
+
+
+### S3 RED evidence
+
+Before any S3 production module existed, `cargo test --bin jefe
+action_context_tests --no-fail-fast` exited 101 with `E0583` for missing
+`src/action_context.rs` and `src/app_input/action_handlers.rs`, plus `E0432` for
+the missing single `resolve_registry_key` route. This is the intended first RED:
+the tests were wired and compiled against absent S3 selector, executor, and
+one-resolution contracts. A preceding run caught a test-module declaration
+inserted inside an existing expression; that wiring error was repaired and is
+not counted as behavioral RED evidence.
+
+### S3 GREEN implementation and verification evidence
+
+- Runtime ownership: `StartupPersistence::keymap_snapshot` is moved into the
+  single root `AppContext`; the production key route derives one
+  `ActionContext`, canonicalizes one `KeyEvent`, invokes
+  `ActionRegistrySnapshot::resolve` exactly once, releases the state/context
+  guards, and executes the closed typed `HandlerKey` result. Only the test-only
+  helper composes a fresh compiled snapshot.
+- Duplicate authority deletion: the old shell-overlay, terminal-capture,
+  global/pre-mode, Dashboard/Split navigation/lifecycle/mode, Errors, and
+  Terminal Manager key selectors were removed. `src/app_input/errors.rs` was
+  deleted; a final source scan found no migrated selector names.
+- Focused S3 behavior: action-context 4 passed; typed action handlers 3 passed;
+  root registry routing 3 passed; Split routing 2 passed; PR Dashboard entry 1
+  passed; Option-digit canonicalization 1 passed; terminal control inventory 1
+  passed; PTY passthrough 6 passed. The Errors executor fixture proves `j`/`k`
+  scroll only in detail and remain consumed/no-op outside detail, while arrows
+  still navigate.
+- Exact PTY bytes: `ctrl_c_maps_to_etx_byte`,
+  `function_keys_use_expected_xterm_sequences`,
+  `modified_arrow_keys_use_xterm_sequences`,
+  `modified_edit_keys_use_xterm_sequences`, and
+  `modified_function_keys_use_xterm_sequences` each passed.
+- Full locked regression: `cargo test --workspace --all-features --locked -q`
+  passed: library 2,889 passed / 1 ignored, binary 809 passed, and every
+  integration/doctest target passed. The first full run exposed the existing
+  all-context BackTab explain fixture's missing explicit Split/Errors overrides;
+  the fixture was corrected and its focused test passed before the complete
+  rerun.
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  with zero warnings.
+- `cargo build --workspace --all-features --locked` — PASS.
+- `scripts/check-architecture.sh`, `cargo test architecture -- --nocapture`,
+  `cargo xtask check source-size`, `cargo test source_size -- --nocapture`,
+  `cargo xtask check clippy-allows`, and `cargo test clippy_allow_policy --
+  --nocapture` — PASS. The near-limit files remain below the 1,000-line hard
+  limit: `action_registry.rs` 995, `default_action_inventory.rs` 915,
+  `prs_key_tests.rs` 998, and `prs_integration_tests.rs` 993.
+- `cargo xtask quick` and `git diff --check` — PASS.
+- Strict TUI: `dev-docs/tmux-scenarios/errors-mode.json` passed all 9 steps
+  through the current production binary. The applicable Terminal Manager
+  script was run twice and consistently reached its unchanged New Repository
+  form but timed out at step 12 waiting for repository creation after Enter;
+  the captured final frame remained in that modal. The failure occurs in the
+  later-slice modal/form submission leg before the scenario reaches Terminal
+  Manager shell behavior; all Rust Terminal Manager registry/executor and full
+  regressions pass. No harness, modal key map, or scenario was changed because
+  those owners are explicitly outside S3.
+
+No dependency, workflow, quality configuration, public abstraction, UI
+projection, mouse route, harness conversion, `.llxprt` content, or generic
+payload was added. No commit or push was performed.

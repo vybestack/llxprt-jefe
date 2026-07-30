@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+mod action_handlers;
+#[cfg(test)]
+#[path = "action_handlers_tests.rs"]
+mod action_handlers_tests;
 mod agent_chooser_entries;
 mod dashboard_search;
 mod filter_controls;
@@ -54,8 +58,6 @@ mod prs_orchestration;
 
 mod actions;
 mod actions_orchestration;
-// Errors-mode key dispatch (issue #292).
-mod errors;
 // Terminal-manager key dispatch and runtime orchestration (issue #364 PR A).
 pub mod terminal_manager;
 // In-app device-code auth remediation dispatch (issue #244).
@@ -92,8 +94,14 @@ pub use modal_handlers::{
     handle_mode_theme_picker_key,
 };
 
-pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
+pub use list_navigation::dashboard_page_item_count;
+pub use normal::handle_normal_key_event;
+pub use normal::observe_rapid_quit;
 
+pub use action_handlers::{
+    apply_execution as apply_action_execution, execution_for as action_execution_for,
+    pre_mode_owned,
+};
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
 pub use gh_async::{BackgroundGhDelivery, GhDeliveryHandle, install_gh_delivery_handler};
@@ -136,17 +144,6 @@ use std::time::Duration;
 
 use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 
-const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
-    ('¡', 1),
-    ('™', 2),
-    ('£', 3),
-    ('¢', 4),
-    ('∞', 5),
-    ('§', 6),
-    ('¶', 7),
-    ('•', 8),
-    ('ª', 9),
-];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
@@ -515,35 +512,6 @@ pub fn dispatch_terminal_scroll(
     refresh_terminal_scroll_geometry(app_state, ctx);
     let mut state = app_state.write();
     jefe::state::transition::commit_pure_site(&mut state, (evt).into());
-}
-
-/// Try to intercept a scrollback-control key while the terminal is focused
-/// (issue #198). Returns `true` when the key was consumed as a terminal
-/// scrollback viewport event (and must NOT be forwarded to the PTY).
-///
-/// PageUp/PageDown/Home intercept from both states; End/Up/Down only intercept
-/// when scrolled back. Modifier chords are forwarded. The decision is made by
-/// the pure [`jefe::input::should_intercept_for_scrollback`] helper so it stays
-/// unit-testable.
-pub fn try_intercept_terminal_scrollback(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    let (offset_is_some, kennel_mode) = {
-        let state = app_state.read();
-        (
-            state.terminal_history_offset.is_some(),
-            state.is_kennel_mode(),
-        )
-    };
-    let Some(scroll_evt) =
-        jefe::input::should_intercept_for_scrollback(key_event, offset_is_some, kennel_mode)
-    else {
-        return false;
-    };
-    dispatch_terminal_scroll(app_state, ctx, scroll_evt);
-    true
 }
 
 /// Refresh cached terminal scrollback geometry (issue #198). Computes

@@ -59,6 +59,9 @@ macro_rules! spec {
     };
 }
 
+#[path = "default_action_inventory_s3.rs"]
+mod s3;
+
 // The first declaration for a leaf is its provider-free explain order. Later
 // declarations cover source-valid alternate parents during candidate validation.
 const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
@@ -414,8 +417,8 @@ const SPECS: &[Spec] = &[
         ["Down", "j"]
     ),
     spec!(protected "errors", "errors.back", H::ErrorsBack, ["Esc"]),
-    spec!("errors", "errors.up", H::ErrorsUp, ["Up"]),
-    spec!("errors", "errors.down", H::ErrorsDown, ["Down"]),
+    spec!("errors", "errors.up", H::ErrorsUp, ["Up", "k"]),
+    spec!("errors", "errors.down", H::ErrorsDown, ["Down", "j"]),
     spec!("errors", "errors.page-up", H::ErrorsPageUp, ["PageUp"]),
     spec!(
         "errors",
@@ -424,7 +427,12 @@ const SPECS: &[Spec] = &[
         ["PageDown"]
     ),
     spec!("errors", "errors.activate", H::ErrorsActivate, ["Enter"]),
-    spec!("errors", "errors.cycle-pane", H::ErrorsCyclePane, ["Tab"]),
+    spec!(
+        "errors",
+        "errors.cycle-pane",
+        H::ErrorsCyclePane,
+        ["Tab", "Right", "BackTab", "Left"]
+    ),
     spec!("errors", "errors.clear", H::ErrorsClear, ["Ctrl+C"]),
     spec!(protected
         "terminal-manager",
@@ -801,9 +809,10 @@ fn action_label(id: &str) -> String {
 }
 
 pub fn compiled_inventory() -> Result<CompiledInventory, InventoryError> {
-    let mut actions = Vec::with_capacity(SPECS.len());
-    let mut bindings = Vec::with_capacity(SPECS.len());
-    for spec in SPECS {
+    let spec_count = SPECS.len() + s3::SPECS.len();
+    let mut actions = Vec::with_capacity(spec_count);
+    let mut bindings = Vec::with_capacity(spec_count);
+    for spec in SPECS.iter().chain(s3::SPECS) {
         let context = ContextId::parse(spec.context).map_err(InventoryError::Context)?;
         let id = ActionId::parse(spec.id).map_err(InventoryError::ActionId)?;
         if actions.iter().any(|action: &Action| action.id == id) {

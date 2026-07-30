@@ -61,7 +61,7 @@ pub(super) fn actions_page_item_count(
 
 /// Derive the visible page capacity for the focused Dashboard or Split list.
 #[must_use]
-pub(super) fn dashboard_page_item_count(
+pub fn dashboard_page_item_count(
     state: &AppState,
     screen_mode: ScreenMode,
     terminal_cols: u16,

@@ -65,7 +65,7 @@ fn explain_uses_complete_snapshot_context_order() {
 #[test]
 fn canonical_alias_resolution_reports_lower_precedence_shadow() {
     let dir = unique_dir("shadow");
-    let source = b"settings_schema = 2\n[keymap.dashboard]\n\"dashboard.navigate-down\" = [\"BackTab\"]\n[keymap.global]\n\"core.open-keys\" = [\"BackTab\"]\n[keymap.\"modal.confirm\"]\n\"confirm.cycle-focus\" = [\"BackTab\"]\n[keymap.\"modal.form\"]\n\"form.previous-field\" = [\"BackTab\"]\n[keymap.filter]\n\"filter.previous-field\" = [\"BackTab\"]\n[keymap.\"issues.list\"]\n\"issues.cycle-pane\" = [\"BackTab\"]\n";
+    let source = b"settings_schema = 2\n[keymap.dashboard]\n\"dashboard.navigate-down\" = [\"BackTab\"]\n[keymap.split]\n\"split.cycle-pane\" = [\"BackTab\"]\n[keymap.errors]\n\"errors.cycle-pane\" = [\"BackTab\"]\n[keymap.global]\n\"core.open-keys\" = [\"BackTab\"]\n[keymap.\"modal.confirm\"]\n\"confirm.cycle-focus\" = [\"BackTab\"]\n[keymap.\"modal.form\"]\n\"form.previous-field\" = [\"BackTab\"]\n[keymap.filter]\n\"filter.previous-field\" = [\"BackTab\"]\n[keymap.\"issues.list\"]\n\"issues.cycle-pane\" = [\"BackTab\"]\n";
     std::fs::write(dir.join("settings.toml"), source)
         .unwrap_or_else(|error| panic!("seed settings: {error}"));
 

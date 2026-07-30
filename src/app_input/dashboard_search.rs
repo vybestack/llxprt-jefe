@@ -14,7 +14,7 @@ use super::{
     AppStateHandle, SharedContext,
     normal::{
         KeyHandling, handle_dashboard_actions_key, handle_dashboard_issues_key,
-        handle_dashboard_prs_key, handle_special_dashboard_mode_key, resolve_dashboard_grab_key,
+        handle_dashboard_prs_key,
     },
 };
 
@@ -23,7 +23,7 @@ use super::{
 /// Extracted from `handle_normal_key_event` so the parent stays within the
 /// clippy 60-line function budget.
 pub(super) fn resolve_dashboard_mode_entry(
-    app_state: &mut AppStateHandle,
+    app_state: &AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
@@ -41,14 +41,6 @@ pub(super) fn resolve_dashboard_mode_entry(
     if let KeyHandling::Handled(event) =
         handle_dashboard_actions_key(app_state, ctx, key_event, screen_mode)
     {
-        return KeyHandling::Handled(event);
-    }
-    if let KeyHandling::Handled(event) =
-        handle_special_dashboard_mode_key(app_state, ctx, key_event, screen_mode)
-    {
-        return KeyHandling::Handled(event);
-    }
-    if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return KeyHandling::Handled(event);
     }
     KeyHandling::Unhandled
