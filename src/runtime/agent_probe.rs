@@ -22,7 +22,7 @@ use crate::domain::agent_definition::{
 use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
 use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
 
-/// Probe target class with its total process budget.
+/// Probe target class with its bounded process timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentProbeTarget {
     /// Local executable probe.
@@ -32,7 +32,7 @@ pub enum AgentProbeTarget {
 }
 
 impl AgentProbeTarget {
-    /// Maximum total duration for all identity/capability processes.
+    /// Maximum duration for one identity or capability process.
     #[must_use]
     pub const fn total_timeout(self) -> Duration {
         match self {
@@ -77,11 +77,13 @@ impl AgentProbeResult {
     }
 }
 
-/// Execute a local definition probe with one shared deadline.
+/// Execute a local definition probe with one bounded deadline per process.
 ///
 /// NotFound is returned before command construction. A resolved candidate is
 /// fingerprint-checked before the first process and immediately after every
-/// process. The caller owns the monotonic generation counter; this adapter
+/// process. Identity and capability commands each receive the definition's
+/// authored timeout, so one successful process cannot consume the next one's
+/// budget. The caller owns the monotonic generation counter; this adapter
 /// preserves the exact requested stamp on every attempted outcome.
 #[must_use]
 pub fn run_local_agent_probe(
@@ -156,19 +158,25 @@ fn probe_resolved(
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    let timeout = AgentProbeTarget::Local
+    let process_timeout = AgentProbeTarget::Local
         .total_timeout()
         .min(Duration::from_millis(definition.probe.timeout_ms));
-    let deadline = Instant::now() + timeout;
-    let identity = match run_identity(definition, candidate, invocation, deadline) {
+    let identity_deadline = Instant::now() + process_timeout;
+    let identity = match run_identity(definition, candidate, invocation, identity_deadline) {
         Ok(identity) => identity,
         Err(failure) => return failure.into_availability(generation),
     };
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
+    let capability_deadline = Instant::now() + process_timeout;
     run_capabilities(
-        definition, candidate, invocation, identity, deadline, generation,
+        definition,
+        candidate,
+        invocation,
+        identity,
+        capability_deadline,
+        generation,
     )
 }
 
@@ -310,19 +318,28 @@ fn command_for_candidate(candidate: &ResolvedCandidate, argv: &[OsString]) -> Co
 pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString]) -> Command {
     match wrapper {
         AgentWrapperKind::Direct => command_with_args(path.as_os_str(), argv),
+        // Canonical fingerprints store verbatim `\\?\` paths on Windows, which
+        // cmd.exe and powershell.exe cannot launch (issue #525). Strip the
+        // prefix only at this command-construction boundary; Direct paths are
+        // launched as-is and fingerprints remain canonical.
         AgentWrapperKind::CommandScript => {
+            let launch_path = super::agent_executable::strip_verbatim_prefix(path);
             let program = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
             let mut command = Command::new(program);
-            command.args(["/D", "/S", "/C"]).arg(path).args(argv);
+            command
+                .args(["/D", "/S", "/C"])
+                .arg(&launch_path)
+                .args(argv);
             command
         }
         AgentWrapperKind::PowerShellScript => {
+            let launch_path = super::agent_executable::strip_verbatim_prefix(path);
             let program = std::env::var_os("JEFE_POWERSHELL_BIN")
                 .unwrap_or_else(|| OsString::from("powershell.exe"));
             let mut command = Command::new(program);
             command
                 .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
-                .arg(path)
+                .arg(&launch_path)
                 .args(argv);
             command
         }
@@ -462,5 +479,52 @@ mod tests {
         );
         assert_eq!(powershell_args[4], path.as_os_str());
         assert_eq!(powershell_args[5..], argv);
+    }
+
+    #[test]
+    fn local_probe_budget_bounds_each_sequential_process() {
+        let process_timeout = super::AgentProbeTarget::Local.total_timeout();
+        assert_eq!(process_timeout, std::time::Duration::from_secs(10));
+        assert_eq!(
+            process_timeout.saturating_mul(2),
+            std::time::Duration::from_secs(20),
+            "identity and capability each receive one bounded process timeout"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_windows_wrapper_paths_are_launch_safe() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create wrapper fixture: {error}"));
+        let wrapper = dir.path().join("probe.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\necho 0.10.0\r\n")
+            .unwrap_or_else(|error| panic!("could not write wrapper fixture: {error}"));
+        let canonical = std::fs::canonicalize(&wrapper)
+            .unwrap_or_else(|error| panic!("could not canonicalize wrapper fixture: {error}"));
+        assert_ne!(
+            canonical, wrapper,
+            "Windows canonical path must be verbatim"
+        );
+
+        let mut command = command_for_path(
+            &canonical,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("--version")],
+        );
+        let args = command.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            args[3],
+            super::super::agent_executable::strip_verbatim_prefix(&canonical),
+            "cmd.exe cannot launch a canonical verbatim wrapper path"
+        );
+        let output = command
+            .output()
+            .unwrap_or_else(|error| panic!("could not execute normalized wrapper: {error}"));
+        assert!(
+            output.status.success(),
+            "normalized wrapper failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

@@ -141,15 +141,7 @@ pub(super) fn launch_available_or_error(
                 .iter()
                 .find(|observation| observation.type_id() == &request.type_id)
                 .ok_or_else(|| format!("no state-owned availability for {}", request.type_id))
-                .and_then(|observation| match observation.availability() {
-                    Availability::InstalledCompatible { .. } => Ok(()),
-                    Availability::InstalledIncompatible { reason, .. }
-                    | Availability::ProbeError { reason, .. } => Err(reason.clone()),
-                    Availability::NotFound => Err(format!(
-                        "{} is not installed on the local PATH",
-                        observation.display_name()
-                    )),
-                })
+                .and_then(launch_availability_result)
         }
     };
     match result {
@@ -197,6 +189,26 @@ pub(super) fn prepare_launch_or_error(
             app_state.write().error_message = Some(error.to_string());
             false
         }
+    }
+}
+
+fn launch_availability_result(observation: &AgentAvailabilityObservation) -> Result<(), String> {
+    match observation.availability() {
+        Availability::InstalledCompatible { .. } => Ok(()),
+        Availability::InstalledIncompatible { reason, .. }
+        | Availability::ProbeError { reason, .. } => Err(reason.clone()),
+        Availability::NotFound
+            if observation.pending_generation().is_some()
+                && observation
+                    .candidate_resolution()
+                    .is_some_and(jefe::agent_candidate::CandidateResolution::is_resolved) =>
+        {
+            Ok(())
+        }
+        Availability::NotFound => Err(format!(
+            "{} is not installed on the local PATH",
+            observation.display_name()
+        )),
     }
 }
 
@@ -281,6 +293,64 @@ mod tests {
             host: "build.example.com".to_owned(),
             ..Default::default()
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pending_resolved_candidate_can_continue_to_authoritative_launch_probe() {
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
+        let temp = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must be created: {error}"));
+        let wrapper = temp.path().join("llxprt.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("wrapper fixture must be written: {error}"));
+        let path = PathSnapshot::for_platform(
+            jefe::runtime::AgentExecutablePlatform::current(),
+            vec![temp.path().to_path_buf()],
+            std::env::var_os("PATHEXT"),
+        );
+        let resolution =
+            AgentCandidateResolver::new(&path, temp.path().to_path_buf()).resolve(&definition);
+        assert!(resolution.is_resolved(), "wrapper fixture must resolve");
+        let observation = AgentAvailabilityObservation::pending(&definition, true, 1, resolution);
+
+        assert!(
+            launch_availability_result(&observation).is_ok(),
+            "a pending observation is checking a resolved startup candidate; launch preparation owns the authoritative probe"
+        );
+    }
+
+    #[test]
+    fn final_not_found_candidate_remains_rejected() {
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
+        let observation = AgentAvailabilityObservation::not_found(&definition, true, 1);
+
+        match launch_availability_result(&observation) {
+            Ok(()) => panic!("final NotFound must remain fail-closed"),
+            Err(error) => assert!(error.contains("local PATH")),
+        }
+    }
+
+    #[test]
+    fn malformed_pending_not_found_evidence_remains_rejected() {
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
+        let observation = AgentAvailabilityObservation::pending(
+            &definition,
+            true,
+            1,
+            jefe::agent_candidate::CandidateResolution::NotFound(Vec::new()),
+        );
+
+        assert!(launch_availability_result(&observation).is_err());
     }
 
     #[cfg(unix)]

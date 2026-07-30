@@ -23,8 +23,12 @@ pub const EMITTER_LIMIT: usize = 128;
 pub const CHOICE_LIMIT: usize = 64;
 /// Maximum probe stream bytes (stdout/stderr).
 pub const PROBE_STREAM_LIMIT: usize = 65_536;
-/// Local probe timeout (milliseconds).
-pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 5_000;
+/// Local probe timeout per child process (milliseconds).
+///
+/// A definition probe may run identity and capability commands sequentially.
+/// Each process receives this independently authored bound, so a two-process
+/// probe has an explicit finite combined ceiling of twice this value.
+pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 10_000;
 /// Remote probe timeout (milliseconds).
 pub const REMOTE_PROBE_TIMEOUT_MS: u64 = 20_000;
 /// Maximum artifact bytes.
