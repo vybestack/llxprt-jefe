@@ -355,11 +355,11 @@ fn legacy_pass_continue_maps_to_typed_continue_for_llxprt() {
         Some(&TypedValue::Bool(false)),
         "pass_continue=false must map to typed continue=false"
     );
-    // prompt_interactive remains absent rather than being driven by
-    // pass_continue.
-    assert!(
-        typed_field(&agent.values, "prompt_interactive").is_none(),
-        "prompt_interactive must stay independent of pass_continue"
+    // prompt_interactive is always true and independent of pass_continue.
+    assert_eq!(
+        typed_field(&agent.values, "prompt_interactive"),
+        Some(&TypedValue::Bool(true)),
+        "prompt_interactive must always be true and independent of pass_continue"
     );
 }
 

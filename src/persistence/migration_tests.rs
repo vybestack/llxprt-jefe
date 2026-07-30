@@ -285,11 +285,11 @@ fn assert_remote_fixed_vectors(
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "cb10a1d073096703ffe8b3bd86f662a1b1dc92250341b3f3f06818eccd56755b"
+        "d34395fd21233207aba3f6503dc78551880ea75bd7934fdde304c2548027ee80"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "b859c48f763a1b58092842a89715aa8ab78f3ace690421b71e6b0aa31ce6a047"
+        "05edfa415d993814a476ab0f17efcdc7a075052614e04370cb4124812d837570"
     );
     assert_eq!(
         crate::domain::canonical_values::typed_field(&agent.values, "continue"),

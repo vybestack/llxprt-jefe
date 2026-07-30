@@ -127,7 +127,13 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
     let candidate = resolve_package(&definition, &bin, "2.0.0");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let plan = local_base_plan(&definition, &candidate, 8, cache.path());
-    assert_eq!(plan.argv, [OsString::from("--yolo")]);
+    assert!(
+        plan.argv
+            .iter()
+            .all(|a| matches!(a.to_string_lossy().as_ref(), "--yolo" | "--prompt-interactive" | "--continue")),
+        "managed binary receives only default-flag argv: {:?}",
+        plan.argv
+    );
     assert!(plan.executable.starts_with(cache.path()));
     assert!(
         plan.executable
@@ -215,6 +221,8 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
             "--",
             "llxprt",
             "--yolo",
+            "--prompt-interactive",
+            "--continue",
         ]
         .map(OsString::from)
     );

@@ -154,9 +154,15 @@ fn normal_and_resume_emit_only_selected_continuation() {
                 Some(&FieldValue::Boolean(continuation))
             );
             let expected = if continuation {
-                vec!["--profile-load", "glm", "--yolo", "--continue"]
+                vec![
+                    "--profile-load",
+                    "glm",
+                    "--yolo",
+                    "--prompt-interactive",
+                    "--continue",
+                ]
             } else {
-                vec!["--profile-load", "glm", "--yolo"]
+                vec!["--profile-load", "glm", "--yolo", "--prompt-interactive"]
             };
             assert_eq!(
                 local_plan(&definition, &projected, operation).argv,
@@ -243,9 +249,12 @@ fn remote_normal_and_resume_emit_only_selected_continuation() {
                     .any(|argument| argument == OsStr::new("--continue")),
                 continuation
             );
-            assert!(!plan.argv.iter().any(|argument| {
-                argument == OsStr::new("-i") || argument == OsStr::new("--prompt-interactive")
-            }));
+            assert!(
+                plan.argv
+                    .iter()
+                    .any(|argument| argument == OsStr::new("--prompt-interactive")),
+                "prompt_interactive flag should be emitted for normal/resume"
+            );
         }
     }
 }
