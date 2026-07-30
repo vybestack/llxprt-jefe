@@ -3,10 +3,7 @@
 use jefe::domain::{
     Agent, AgentId, AgentLaunchRequest, LaunchSignatureV1, Repository, RuntimeBinding,
 };
-use jefe::runtime::{
-    OrphanClassification, ProcessLiveness, RuntimeSession, SessionLiveness,
-    process_liveness_indicates_alive,
-};
+use jefe::runtime::{OrphanClassification, ProcessLiveness, RuntimeSession, SessionLiveness};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SessionEvidence {
@@ -70,24 +67,12 @@ pub(super) fn binding_evidence(
             }
         };
     };
-    let current_signature =
-        jefe::runtime::launch_compose::launch_signature_from_request(signature).ok();
-    let expected_signature = match durable_signature {
-        DurableSignatureEvidence::Match => current_signature.as_ref(),
-        DurableSignatureEvidence::DefinitionDrift => persisted_signature,
-        DurableSignatureEvidence::Inconsistent => None,
-    };
     if binding.session_name != RuntimeSession::session_name_for(agent_id)
-        || expected_signature != Some(&binding.launch_signature)
+        || !binding_signature_matches(binding, signature, persisted_signature, durable_signature)
     {
         return BindingEvidence::Inconsistent;
     }
-    let process_evidence = match (binding.pid, binding.process_identity) {
-        (Some(pid), Some(identity)) if pid != identity.pid => BindingEvidence::Inconsistent,
-        (Some(_) | None, None) => BindingEvidence::Legacy,
-        (None, Some(_)) => BindingEvidence::Inconsistent,
-        (Some(_), Some(_)) => BindingEvidence::Coherent,
-    };
+    let process_evidence = binding_process_evidence(binding);
     if process_evidence == BindingEvidence::Inconsistent {
         return process_evidence;
     }
@@ -95,6 +80,33 @@ pub(super) fn binding_evidence(
         DurableSignatureEvidence::DefinitionDrift => BindingEvidence::DefinitionDrift,
         DurableSignatureEvidence::Match => process_evidence,
         DurableSignatureEvidence::Inconsistent => BindingEvidence::Inconsistent,
+    }
+}
+
+fn binding_signature_matches(
+    binding: &RuntimeBinding,
+    signature: &AgentLaunchRequest,
+    persisted_signature: Option<&LaunchSignatureV1>,
+    durable_signature: DurableSignatureEvidence,
+) -> bool {
+    match durable_signature {
+        DurableSignatureEvidence::Match => {
+            jefe::runtime::launch_compose::launch_signature_from_request(signature)
+                .is_ok_and(|current| current == binding.launch_signature)
+        }
+        DurableSignatureEvidence::DefinitionDrift => {
+            persisted_signature == Some(&binding.launch_signature)
+        }
+        DurableSignatureEvidence::Inconsistent => false,
+    }
+}
+
+fn binding_process_evidence(binding: &RuntimeBinding) -> BindingEvidence {
+    match (binding.pid, binding.process_identity) {
+        (Some(pid), Some(identity)) if pid != identity.pid => BindingEvidence::Inconsistent,
+        (Some(_) | None, None) => BindingEvidence::Legacy,
+        (None, Some(_)) => BindingEvidence::Inconsistent,
+        (Some(_), Some(_)) => BindingEvidence::Coherent,
     }
 }
 
@@ -137,10 +149,9 @@ fn classify_missing_local_process(process: ProcessLiveness) -> StartupClassifica
         ProcessLiveness::Dead => StartupClassification::Stopped,
         ProcessLiveness::ReusedPid => StartupClassification::Stale,
         ProcessLiveness::MalformedIdentity => StartupClassification::Inconsistent,
-        liveness if process_liveness_indicates_alive(liveness) => {
+        ProcessLiveness::Alive | ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure => {
             StartupClassification::Recoverable
         }
-        _ => StartupClassification::Inconsistent,
     }
 }
 

@@ -387,26 +387,29 @@ fn restored_launch_signature_matches_current_projection() {
 }
 
 #[test]
-fn running_projection_preserves_observed_launch_signature() {
-    let mut state = sample_state();
-    let running = &mut state.agents[0];
-    let prior = running
-        .runtime_binding
-        .as_ref()
-        .map(|binding| binding.launch_signature.clone())
-        .value_or_panic("running binding");
-    let observed = LaunchSignatureV1 {
-        definition_hash: LaunchSignatureV1::default().definition_hash,
-        ..prior
-    };
-    running
-        .runtime_binding
-        .as_mut()
-        .value_or_panic("running binding")
-        .launch_signature = observed.clone();
+fn active_projection_preserves_observed_launch_signature() {
+    for status in [AgentStatus::Running, AgentStatus::ServerLost] {
+        let mut state = sample_state();
+        let active = &mut state.agents[0];
+        active.status = status;
+        let prior = active
+            .runtime_binding
+            .as_ref()
+            .map(|binding| binding.launch_signature.clone())
+            .value_or_panic("active binding");
+        let observed = LaunchSignatureV1 {
+            definition_hash: LaunchSignatureV1::default().definition_hash,
+            ..prior
+        };
+        active
+            .runtime_binding
+            .as_mut()
+            .value_or_panic("active binding")
+            .launch_signature = observed.clone();
 
-    let projected = to_durable_state(&state).value_or_panic("project state");
-    assert_eq!(projected.agents[0].launch_signature, observed);
+        let projected = to_durable_state(&state).value_or_panic("project state");
+        assert_eq!(projected.agents[0].launch_signature, observed);
+    }
 }
 
 #[test]

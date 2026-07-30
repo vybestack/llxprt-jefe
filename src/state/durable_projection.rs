@@ -347,7 +347,8 @@ fn agent_record(
         .map_err(|error| ProjectionError::new(format!("invalid agent type id: {error}")))?;
     let mut values = agent.values.clone();
     merge_structural_values(&mut values, agent_values(agent)?)?;
-    let launch_signature = if agent.status == AgentStatus::Running {
+    let launch_signature = if matches!(agent.status, AgentStatus::Running | AgentStatus::ServerLost)
+    {
         agent.runtime_binding.as_ref().map_or_else(
             || current_launch_signature(agent, repository),
             |binding| Ok(binding.launch_signature.clone()),
