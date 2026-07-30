@@ -65,7 +65,7 @@ pub enum AgentFormField {
     VersionSelector,
     Yolo,
     Interactive,
-    PromptInteractive,
+    Continue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -88,7 +88,7 @@ impl AgentFormFieldVisibility {
 
     #[must_use]
     pub fn shows_llxprt_fields(&self) -> bool {
-        self.shows_profile_fields() && self.contains(AgentFormField::PromptInteractive)
+        self.shows_profile_fields() && self.contains(AgentFormField::Continue)
     }
 }
 
@@ -115,7 +115,7 @@ pub fn agent_form_visibility(type_id: Option<&AgentTypeId>) -> AgentFormFieldVis
             has_agent("version_selector").then_some(AgentFormField::VersionSelector),
             has_repository("yolo").then_some(AgentFormField::Yolo),
             has_agent("interactive").then_some(AgentFormField::Interactive),
-            has_agent("prompt_interactive").then_some(AgentFormField::PromptInteractive),
+            has_agent("continue").then_some(AgentFormField::Continue),
         ]
         .into_iter()
         .flatten()
@@ -146,7 +146,7 @@ pub fn is_field_visible(
         }
         F::CodePuppyQuickResume => visibility.contains(AgentFormField::Interactive),
         F::Mode => visibility.shows_profile_fields() && visibility.contains(AgentFormField::Yolo),
-        F::PassContinue => visibility.contains(AgentFormField::PromptInteractive),
+        F::PassContinue => visibility.contains(AgentFormField::Continue),
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentType => true,
     }
 }

@@ -332,6 +332,52 @@ fn update_agent_empty_mode_disables_declared_yolo_value() {
 }
 
 #[test]
+fn update_llxprt_agent_replaces_obsolete_prompt_interactive_value() {
+    let repository = seed_repository();
+    let mut values = crate::domain::TypedMap::new();
+    crate::domain::canonical_values::insert_json(
+        &mut values,
+        "prompt_interactive",
+        serde_json::Value::Bool(true),
+    )
+    .unwrap_or_else(|error| panic!("valid obsolete prompt fixture: {error}"));
+    crate::domain::canonical_values::insert_json(
+        &mut values,
+        "future_metadata",
+        serde_json::Value::String("preserve me".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("valid undeclared metadata fixture: {error}"));
+    let mut agent = Agent::new(
+        crate::domain::AgentId("agent-obsolete-prompt".to_owned()),
+        repository.id.clone(),
+        crate::domain::shipped_agent_type(3),
+        values,
+        "Agent".to_owned(),
+        std::path::PathBuf::from("/tmp/agent"),
+    );
+    let fields = AgentFormFields {
+        name: "Agent".to_owned(),
+        work_dir: "/tmp/agent".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
+        pass_continue: false,
+        ..AgentFormFields::default()
+    };
+
+    AppState::update_agent_from_fields(&mut agent, &repository, &fields);
+
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "continue"),
+        Some(&crate::domain::TypedValue::Bool(false))
+    );
+    assert!(
+        crate::domain::canonical_values::typed_field(&agent.values, "prompt_interactive").is_none()
+    );
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "future_metadata"),
+        Some(&crate::domain::TypedValue::String("preserve me".to_owned()))
+    );
+}
+#[test]
 fn repository_checkbox_toggle_updates_remote_fields() {
     let mut state = AppState {
         repositories: vec![seed_repository()],

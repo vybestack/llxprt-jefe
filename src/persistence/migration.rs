@@ -576,6 +576,13 @@ fn agent_values(
             json!(agent_version_selector(source, definition)),
         )?;
     }
+    if declares_agent_field(definition, "continue") {
+        crate::domain::canonical_values::insert_json(
+            &mut values,
+            "continue",
+            json!(source.pass_continue),
+        )?;
+    }
     Ok(values)
 }
 

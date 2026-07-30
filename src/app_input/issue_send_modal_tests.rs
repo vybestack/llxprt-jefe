@@ -96,15 +96,11 @@ fn state_for_issue_agent_chooser_send(
     state
 }
 
-/// The issue-driven launch path must force `pass_continue = false` on the
-/// constructed launch signature, even though the agent's configured
-/// `pass_continue` defaults to `true`. This test resolves the send info
-/// (which copies the agent's `pass_continue`) and then applies the SAME
-/// override `dispatch_agent_chooser_confirm` applies, asserting `--continue`
-/// would never reach the agent. The git prep + spawn require a runtime/git
-/// repo and are guarded out in unit tests (SharedContext is None).
+/// The issue-driven path changes the operation to FreshIssue and carries the
+/// exact bounded-delivery prompt as a typed value. Launch composition owns the
+/// later continuation omission and prompt argument shape.
 #[test]
-fn issue_send_forces_pass_continue_false_on_launch_signature() {
+fn issue_send_projects_fresh_operation_and_prompt() {
     let agent_id = AgentId(String::from("issue-agent-1"));
     // This test only exercises pure struct transforms — the work_dir is
     // never materialized on disk — so a static path suffices.
