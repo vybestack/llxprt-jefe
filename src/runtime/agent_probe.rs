@@ -22,7 +22,7 @@ use crate::domain::agent_definition::{
 use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
 use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
 
-/// Probe target class with its total process budget.
+/// Probe target class with its bounded process timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentProbeTarget {
     /// Local executable probe.
@@ -32,7 +32,7 @@ pub enum AgentProbeTarget {
 }
 
 impl AgentProbeTarget {
-    /// Maximum total duration for all identity/capability processes.
+    /// Maximum duration for one identity or capability process.
     #[must_use]
     pub const fn total_timeout(self) -> Duration {
         match self {
@@ -77,11 +77,13 @@ impl AgentProbeResult {
     }
 }
 
-/// Execute a local definition probe with one shared deadline.
+/// Execute a local definition probe with one bounded deadline per process.
 ///
 /// NotFound is returned before command construction. A resolved candidate is
 /// fingerprint-checked before the first process and immediately after every
-/// process. The caller owns the monotonic generation counter; this adapter
+/// process. Identity and capability commands each receive the definition's
+/// authored timeout, so one successful process cannot consume the next one's
+/// budget. The caller owns the monotonic generation counter; this adapter
 /// preserves the exact requested stamp on every attempted outcome.
 #[must_use]
 pub fn run_local_agent_probe(
@@ -156,19 +158,25 @@ fn probe_resolved(
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    let timeout = AgentProbeTarget::Local
+    let process_timeout = AgentProbeTarget::Local
         .total_timeout()
         .min(Duration::from_millis(definition.probe.timeout_ms));
-    let deadline = Instant::now() + timeout;
-    let identity = match run_identity(definition, candidate, invocation, deadline) {
+    let identity_deadline = Instant::now() + process_timeout;
+    let identity = match run_identity(definition, candidate, invocation, identity_deadline) {
         Ok(identity) => identity,
         Err(failure) => return failure.into_availability(generation),
     };
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
+    let capability_deadline = Instant::now() + process_timeout;
     run_capabilities(
-        definition, candidate, invocation, identity, deadline, generation,
+        definition,
+        candidate,
+        invocation,
+        identity,
+        capability_deadline,
+        generation,
     )
 }
 
@@ -474,11 +482,13 @@ mod tests {
     }
 
     #[test]
-    fn local_probe_budget_allows_sequential_identity_and_capability_startup() {
+    fn local_probe_budget_bounds_each_sequential_process() {
+        let process_timeout = super::AgentProbeTarget::Local.total_timeout();
+        assert_eq!(process_timeout, std::time::Duration::from_secs(10));
         assert_eq!(
-            super::AgentProbeTarget::Local.total_timeout(),
-            std::time::Duration::from_secs(10),
-            "local definitions run identity and capability probes under one shared deadline"
+            process_timeout.saturating_mul(2),
+            std::time::Duration::from_secs(20),
+            "identity and capability each receive one bounded process timeout"
         );
     }
 

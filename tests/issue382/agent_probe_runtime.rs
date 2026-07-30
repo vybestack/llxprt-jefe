@@ -316,6 +316,61 @@ fn timeout_and_nonzero_exit_are_probe_errors() {
     assert_probe_error(&nonzero.run(9), "status 7");
 }
 
+#[cfg(windows)]
+#[test]
+fn sequential_probe_processes_each_receive_the_authored_timeout() {
+    use jefe::agent_candidate::{AgentCandidateResolver, CandidateResolution};
+    use jefe::agent_candidate_path::PathSnapshot;
+    use jefe::domain::agent_definition::{AgentDefinition, Availability};
+    use jefe::runtime::{AgentExecutablePlatform, run_local_agent_probe};
+
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let executable = temp.path().join("codex.cmd");
+    let script = concat!(
+        "@echo off\r\n",
+        "if \"%~1\"==\"--version\" (\r\n",
+        "  ping.exe -n 3 127.0.0.1 >nul\r\n",
+        "  echo codex-cli 9.8.7\r\n",
+        "  exit /b 0\r\n",
+        ")\r\n",
+        "if \"%~1\"==\"--help\" (\r\n",
+        "  ping.exe -n 3 127.0.0.1 >nul\r\n",
+        "  echo --model resume --profile --sandbox --ask-for-approval --dangerously-bypass-approvals-and-sandbox --cd\r\n",
+        "  exit /b 0\r\n",
+        ")\r\n",
+        "exit /b 64\r\n",
+    );
+    std::fs::write(&executable, script)
+        .unwrap_or_else(|error| panic!("write {}: {error}", executable.display()));
+
+    let mut definition = AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == "core.codex")
+        .unwrap_or_else(|| panic!("Codex definition must be shipped"));
+    definition.probe.timeout_ms = 3_500;
+    let snapshot = PathSnapshot::for_platform(
+        AgentExecutablePlatform::current(),
+        vec![temp.path().to_path_buf()],
+        None,
+    );
+    let resolver = AgentCandidateResolver::new(&snapshot, temp.path().to_path_buf());
+    let resolution: CandidateResolution = resolver.resolve(&definition);
+    assert!(
+        resolution.is_resolved(),
+        "Windows command wrapper must resolve"
+    );
+
+    let result = run_local_agent_probe(&definition, &resolution, 18);
+    assert!(
+        matches!(
+            result.availability(),
+            Availability::InstalledCompatible { .. }
+        ),
+        "identity and capability each finish within 3.5s and must not share one 3.5s deadline: {:?}",
+        result.availability(),
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn signal_exit_is_a_probe_error() {
