@@ -51,19 +51,12 @@ fn local_target() -> Target {
     }
 }
 
-// ---------------------------------------------------------------------------
-// LLxprt Normal — fixture-golden argv/env/cwd plan
-// ---------------------------------------------------------------------------
-
-#[test]
-fn llxprt_normal_golden_plan() {
-    let definition = shipped("LLxprt");
-    let mut values = LaunchFieldValues::new();
-    values.set_repository("profile", FieldValue::String("my-profile".to_string()));
-    values.set_repository("yolo", FieldValue::Boolean(true));
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
-    let request = PlanRequest {
-        definition: &definition,
+fn llxprt_plan_request<'a>(
+    definition: &'a AgentDefinition,
+    values: &'a LaunchFieldValues,
+) -> PlanRequest<'a> {
+    PlanRequest {
+        definition,
         operation: Operation::Normal,
         target: local_target(),
         executable: PathBuf::from("/opt/llxprt/bin/llxprt"),
@@ -89,15 +82,30 @@ fn llxprt_normal_golden_plan() {
         ),
         probe_generation: 3,
         target_generation: 1,
-        values: &values,
+        values,
         activation_generation: 1,
         preflight: Preflight::default(),
-    };
-    let plan = assert_supported(request, "llxprt normal");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LLxprt Normal — fixture-golden argv/env/cwd plan
+// ---------------------------------------------------------------------------
+
+#[test]
+fn llxprt_normal_golden_plan() {
+    let definition = shipped("LLxprt");
+    let mut values = LaunchFieldValues::new();
+    values.set_repository("profile", FieldValue::String("my-profile".to_string()));
+    values.set_repository("yolo", FieldValue::Boolean(true));
+    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    values.set_agent("continue", FieldValue::Boolean(true));
+    let plan = assert_supported(llxprt_plan_request(&definition, &values), "llxprt normal");
     // Argv emitted element-by-element in declaration order:
     //   Option{--profile-load, profile} -> --profile-load, my-profile
     //   Flag{yolo}                       -> --yolo
     //   Flag{prompt_interactive}         -> --prompt-interactive
+    //   Flag{continue}                   -> --continue
     assert_eq!(
         plan.argv,
         vec![
@@ -105,6 +113,7 @@ fn llxprt_normal_golden_plan() {
             os("my-profile"),
             os("--yolo"),
             os("--prompt-interactive"),
+            os("--continue"),
         ],
     );
     assert_eq!(plan.executable, PathBuf::from("/opt/llxprt/bin/llxprt"));
@@ -836,4 +845,22 @@ fn assert_repeated_option_ordering(as_strings: &[String]) {
         prompt_pos < first_include_pos,
         "positional precedes the pushed repeated option in declaration order"
     );
+}
+
+#[test]
+fn llxprt_false_boolean_fields_omit_flags_independently() {
+    let definition = shipped("LLxprt");
+    let mut values = LaunchFieldValues::new();
+    values.set_repository("yolo", FieldValue::Boolean(false));
+    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    values.set_agent("continue", FieldValue::Boolean(false));
+
+    let plan = assert_supported(
+        llxprt_plan_request(&definition, &values),
+        "llxprt false flags",
+    );
+    let argv = argv_strings(&plan);
+    assert!(argv.contains(&"--prompt-interactive".to_string()));
+    assert!(!argv.contains(&"--yolo".to_string()));
+    assert!(!argv.contains(&"--continue".to_string()));
 }

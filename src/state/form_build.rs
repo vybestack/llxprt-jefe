@@ -378,7 +378,7 @@ fn merge_agent_values(
             "interactive" => Some(FieldValue::Boolean(
                 fields.code_puppy_quick_resume.enabled(),
             )),
-            "prompt_interactive" => Some(FieldValue::Boolean(fields.pass_continue)),
+            "continue" => Some(FieldValue::Boolean(fields.pass_continue)),
             _ => None,
         };
         if let Some(value) = value {
