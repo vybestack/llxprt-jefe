@@ -1214,3 +1214,64 @@ modules or complete-candidate APIs exist.
   clippy allow/expect, TODO/FIXME/HACK, dependency, workflow, quality, `.llxprt`,
   S7 click routing, S8 capture protocol, or S9 normative-doc change. No commit
   or push was performed.
+
+## S7 execution ledger — mouse action identity
+
+S7 implements CW03-09 and D11 only. A left-button down/release at the same
+screen cell activates an approved action-bearing target. The target contributes
+its stable `ActionId`; the current immutable snapshot contributes the exact
+`Resolution`, including availability and `HandlerKey`; and dispatch then enters
+the same keyboard-owned action executor. Any non-empty drag remains the existing
+selection/copy gesture. PTY reporting ownership, terminal wheel interception,
+detail scrolling, pane geometry, and all non-approved surfaces remain unchanged.
+
+### S7 changed-file ledger (recorded before implementation)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S7 scope, RED/GREEN evidence, and exact verification | delivery evidence |
+| `dev-docs/tmux-scenarios/v1/mouse-action-consistency.json` | Strict schema-1 raw-SGR scenario for approved clicks, drag/no-hit, unavailable/no-effect, and preserved app-owned mouse routing | behavioral scenario (new) |
+| `tests/harness_v1_fixtures.rs` | Execute the S7 fixture through the unchanged strict runner | integration evidence |
+| `src/keys_view.rs` | Attach row `ActionId` hit identities to the existing pure Keys layout projection | pure view |
+| `src/keys_view_tests.rs` | Prove visible/clipped row hit identity follows the rendered projection | pure-view tests |
+| `src/main.rs` | Compile the same private Keys projection source at the binary boundary without exposing a library API | composition root |
+| `src/app_shell.rs` | Own transient click-down state separately from durable/public `AppState` and thread it to mouse routing | root input orchestration |
+| `src/app_shell_key_routing.rs` | Expose one binary-private resolved-action executor reused by keyboard and mouse | root action orchestration |
+| `src/mouse_routing.rs` | Preserve PTY/selection/wheel precedence while delegating approved zero-length releases | existing mouse boundary |
+| `src/mouse_action_routing.rs` | Resolve existing pane/layout hit targets to `ActionId`, then to the current snapshot `Resolution` | private pure routing (new) |
+| `src/mouse_action_execution.rs` | Track click-vs-drag and enter the shared resolved-action executor | private side-effect boundary (new) |
+| `src/mouse_action_routing_tests.rs` | Focused approved/no-hit/unavailable/click-vs-drag/geometry routing tests | private unit tests (new) |
+| `src/mouse_routing_tests.rs` | Preserve existing PTY reporting, wheel, selection, and copy contracts | existing regression tests |
+
+The pre-existing post-merge S7 draft added a public snapshot lookup and a public
+root-state click field. Both are rejected by D13 and are removed during S7:
+action resolution uses existing snapshot resolution, and click bookkeeping is a
+binary-private hook. Confirm geometry continues through `pane_at`; Keys hit
+identity is emitted by the same pure projection consumed by the renderer. No
+parallel action/handler map, public API, geometry subsystem, capture protocol,
+S8/S9 behavior, dependency/workflow/quality/`.llxprt` change, unsafe, production
+unwrap/expect, or lint suppression is permitted.
+
+### S7 RED contract
+
+Before production changes, focused tests require the absent Keys row hit-target
+identity, exact `Resolution::Unavailable` preservation, shared keyboard/mouse
+execution entry, drag cancellation, and approved confirm-button identity. The
+strict schema-1 scenario sends raw SGR bytes through the existing `text`
+operation; no new harness operation or capture field is added. Its first run
+must fail because the merged production mouse route has no complete Keys action
+hit path.
+
+
+### S7 corrective verification update
+
+The first implementation failed the all-target Clippy and source-size gates.
+The underlying design was corrected without suppressions: mouse click geometry
+and resolved action data now travel in small private request structs, private
+module visibility is exact, redundant Option/match/closure forms were removed,
+and the mouse routing owner was compacted below the 1,000-line hard limit.
+Final evidence: six focused binary mouse-action tests pass; the Keys projection
+tests pass; full all-target/all-feature Clippy passes; locked workspace tests
+pass (library 2,917 passed / 1 ignored, binary 799 passed, all integrations and
+doctests); source-size, architecture, clippy-allow, formatting, quick, and diff
+checks pass.

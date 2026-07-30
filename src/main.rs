@@ -13,9 +13,17 @@ mod app_shell_liveness;
 mod app_shell_panic;
 mod app_shell_workers;
 mod detail_wrap_map;
+mod domain {
+    pub use jefe::domain::*;
+}
+#[path = "keys_view.rs"]
+mod keys_view;
 mod mouse_routing;
 mod panic_capture;
 mod pty_encoding;
+mod state {
+    pub use jefe::state::*;
+}
 mod terminal_init;
 
 use std::io::Write;

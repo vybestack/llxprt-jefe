@@ -41,6 +41,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut startup_sessions_restored = hooks.use_state(|| false);
     let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
     let mut suppress_next_enter = hooks.use_state(PasteEnterSuppression::new);
+    let mut mouse_click = hooks.use_state(crate::mouse_routing::MouseClickState::default);
     let last_activity = hooks.use_state(Instant::now);
 
     let ctx = props.context.clone();
@@ -293,6 +294,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 &mut app_state,
                 &mut should_quit,
                 &mut suppress_next_enter,
+                &mut mouse_click,
             );
         }
     });
@@ -481,22 +483,33 @@ fn handle_terminal_event(
     app_state: &mut HookState<AppState>,
     should_quit: &mut HookState<bool>,
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
+    mouse_click: &mut HookState<crate::mouse_routing::MouseClickState>,
 ) {
     match event {
         TerminalEvent::Resize(cols, rows) => {
+            mouse_click.write().clear();
             crate::mouse_routing::clear_selection(app_state);
             synchronize_actions_geometry(app_state, cols, rows);
             let state = app_state.read();
             crate::app_input::shell_overlay::resize_terminal(&ctx.cloned(), cols, rows, &state);
         }
         TerminalEvent::FullscreenMouse(mouse_event) => {
-            crate::mouse_routing::handle_fullscreen_mouse(ctx, app_state, mouse_event);
+            crate::mouse_routing::handle_fullscreen_mouse(
+                ctx,
+                app_state,
+                should_quit,
+                suppress_next_enter,
+                mouse_click,
+                mouse_event,
+            );
         }
         TerminalEvent::Paste(pasted_text) => {
+            mouse_click.write().clear();
             crate::mouse_routing::clear_selection(app_state);
             handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
         }
         TerminalEvent::Key(key_event) => {
+            mouse_click.write().clear();
             // Clear selection on any keypress except Esc. Esc always clears;
             // other keys also clear so the selection doesn't linger after the
             // user transitions to keyboard interaction. (If keyboard copy of

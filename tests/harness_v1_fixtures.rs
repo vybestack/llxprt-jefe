@@ -372,6 +372,13 @@ fn keys_editor_recovery_small_fixture_keeps_back_and_quit_reachable() {
     assert_passed("keys-editor-recovery-small", &outcome);
     cleanup(&outcome);
 }
+
+#[test]
+fn mouse_action_fixture_covers_drag_and_no_hit_without_capture_schema_changes() {
+    let outcome = run_fixture("mouse-action-consistency.json");
+    assert_passed("mouse-action-consistency", &outcome);
+    cleanup(&outcome);
+}
 #[test]
 fn containment_fixture_rejects_symlink_swapped_ancestor() {
     let outcome = run_fixture("harness-containment.json");

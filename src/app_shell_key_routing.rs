@@ -158,21 +158,7 @@ fn route_pty_owned(
 ) -> bool {
     match resolved.resolution {
         Resolution::Dispatch { handler, .. } => {
-            let page_items = dashboard_page_items(handles.app_state);
-            let execution = action_execution_for(
-                handler,
-                resolved.chord,
-                &handles.app_state.read(),
-                page_items,
-            );
-            apply_action_execution(
-                execution,
-                handles.app_state,
-                handles.should_quit,
-                &handles.ctx.cloned(),
-                handles.suppress_next_enter,
-                key_event,
-            )
+            execute_dispatch(handles, key_event, resolved.chord, handler)
         }
         Resolution::Unavailable { reason, .. } => {
             record_unavailable(&mut handles.app_state.write(), reason);
@@ -198,7 +184,7 @@ fn route_app_owned(
             {
                 return false;
             }
-            execute_app_handler(handles, key_event, handler, resolved)
+            execute_dispatch(handles, key_event, resolved.chord, handler)
         }
         Resolution::Unavailable { reason, .. } => {
             record_unavailable(&mut handles.app_state.write(), reason);
@@ -230,6 +216,7 @@ fn route_app_owned(
 fn record_unavailable(state: &mut AppState, reason: String) {
     state.warning_message = Some(reason);
 }
+
 fn rapid_quit_eligible(input_mode: InputMode) -> bool {
     matches!(
         input_mode,
@@ -240,15 +227,15 @@ fn rapid_quit_eligible(input_mode: InputMode) -> bool {
     )
 }
 
-fn execute_app_handler(
+fn execute_dispatch(
     routes: &mut RouteHandles<'_>,
     key_event: &KeyEvent,
+    chord: Chord,
     handler: HandlerKey,
-    resolved: ResolvedRegistryKey,
 ) -> bool {
     let execution = action_execution_for(
         handler,
-        resolved.chord,
+        chord,
         &routes.app_state.read(),
         dashboard_page_items(routes.app_state),
     );
@@ -260,6 +247,37 @@ fn execute_app_handler(
         routes.suppress_next_enter,
         key_event,
     )
+}
+
+pub struct MouseResolutionInput<'a> {
+    pub chord: Chord,
+    pub resolution: Resolution,
+    pub key_event: &'a KeyEvent,
+}
+
+pub fn execute_mouse_resolution(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    should_quit: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
+    input: MouseResolutionInput<'_>,
+) -> bool {
+    let mut routes = RouteHandles {
+        ctx,
+        app_state,
+        should_quit,
+        suppress_next_enter,
+    };
+    match input.resolution {
+        Resolution::Dispatch { handler, .. } => {
+            execute_dispatch(&mut routes, input.key_event, input.chord, handler)
+        }
+        Resolution::Unavailable { reason, .. } => {
+            record_unavailable(&mut routes.app_state.write(), reason);
+            true
+        }
+        Resolution::ForwardToPty | Resolution::Unbound => false,
+    }
 }
 
 fn dashboard_page_items(app_state: &HookState<AppState>) -> PageItemCount {

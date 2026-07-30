@@ -1,15 +1,26 @@
 //! Pure, iocraft-free projection for the Keys editor modal.
 
-use unicode_width::UnicodeWidthChar;
+use std::ops::Range;
 
-use crate::domain::action_registry::Availability;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+use crate::domain::action_registry::{ActionId, Availability};
 use crate::state::{KeysBindingEdit, KeysConfirmFocus, KeysEditorState, KeysValidation};
+
+/// Action identity attached to one rendered Keys row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeysActionTarget {
+    pub line: usize,
+    pub columns: Range<usize>,
+    pub action: ActionId,
+}
 
 /// Render-ready Keys editor projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeysView {
     pub title: String,
     pub lines: Vec<String>,
+    pub action_targets: Vec<KeysActionTarget>,
     pub footer: String,
 }
 
@@ -29,7 +40,18 @@ pub fn project_keys_view(state: &KeysEditorState, cols: u16, rows: u16) -> KeysV
         .saturating_sub(lines.len())
         .saturating_sub(confirmation_rows)
         .max(1);
-    lines.extend(visible_rows(state, row_capacity, compact));
+    let row_line_start = lines.len();
+    let visible_rows = visible_rows(state, row_capacity, compact);
+    let mut action_targets = visible_rows
+        .iter()
+        .enumerate()
+        .map(|(offset, row)| KeysActionTarget {
+            line: row_line_start.saturating_add(offset),
+            columns: 0..UnicodeWidthStr::width(row.text.as_str()),
+            action: row.action.clone(),
+        })
+        .collect::<Vec<_>>();
+    lines.extend(visible_rows.into_iter().map(|row| row.text));
     if let Some(focus) = state.confirmation {
         lines.push("Save / Discard / Cancel".to_owned());
         lines.push("Save changes before leaving?".to_owned());
@@ -38,6 +60,9 @@ pub fn project_keys_view(state: &KeysEditorState, cols: u16, rows: u16) -> KeysV
     let content_width = usize::from(cols.saturating_sub(8).max(1));
     for line in &mut lines {
         *line = truncate_to_width(line, content_width);
+    }
+    for target in &mut action_targets {
+        target.columns.end = target.columns.end.min(content_width);
     }
     let footer = if compact {
         "Esc Back | Ctrl-Q Quit".to_owned()
@@ -56,6 +81,7 @@ pub fn project_keys_view(state: &KeysEditorState, cols: u16, rows: u16) -> KeysV
     KeysView {
         title,
         lines,
+        action_targets,
         footer,
     }
 }
@@ -86,7 +112,12 @@ fn status_lines(state: &KeysEditorState) -> Vec<String> {
     lines
 }
 
-fn visible_rows(state: &KeysEditorState, capacity: usize, compact: bool) -> Vec<String> {
+struct ProjectedKeysRow {
+    text: String,
+    action: ActionId,
+}
+
+fn visible_rows(state: &KeysEditorState, capacity: usize, compact: bool) -> Vec<ProjectedKeysRow> {
     let start = state.selected.saturating_sub(capacity.saturating_sub(1));
     state
         .rows
@@ -94,7 +125,10 @@ fn visible_rows(state: &KeysEditorState, capacity: usize, compact: bool) -> Vec<
         .enumerate()
         .skip(start)
         .take(capacity)
-        .map(|(index, row)| render_row(state, index, row, compact))
+        .map(|(index, row)| ProjectedKeysRow {
+            text: render_row(state, index, row, compact),
+            action: row.action.clone(),
+        })
         .collect()
 }
 

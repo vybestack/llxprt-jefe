@@ -23,6 +23,7 @@ pub fn KeysModal(props: &KeysModalProps) -> impl Into<AnyElement<'static>> {
         || crate::keys_view::KeysView {
             title: "Keys - Keyboard Bindings".to_owned(),
             lines: Vec::new(),
+            action_targets: Vec::new(),
             footer: "Esc Back | Ctrl-Q Quit".to_owned(),
         },
         |editor| project_keys_view(editor, props.available_cols, props.available_rows),
