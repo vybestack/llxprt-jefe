@@ -3,6 +3,7 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-003
 //! Pseudocode reference: component-001 lines 01-12
+mod action_availability;
 mod actions_job_ops;
 mod actions_load_ops;
 #[cfg(test)]

@@ -7,7 +7,7 @@
 
 use crate::domain::effects::{
     AgentAvailabilityProbe, Effect, EffectCompletion, EffectFamily, EffectResponse, ProbeEffect,
-    ProbeResponse, RetryPolicy, RuntimeEffect, SemanticKey,
+    ProbeResponse, ProviderResponse, RetryPolicy, RuntimeEffect, SemanticKey,
 };
 use crate::domain::{AgentId, AgentStatus, Id};
 use crate::messages::RuntimeMessage;
@@ -151,6 +151,12 @@ impl AppState {
                                 &self.agent_type_availability,
                             );
                     }
+                }
+                Ok(EffectResponse::Provider(ProviderResponse::ActionAvailability { entries })) => {
+                    self.publish_action_availability(
+                        completion.correlation.clone(),
+                        entries.clone(),
+                    );
                 }
                 Ok(_) => {}
                 Err(error) => {

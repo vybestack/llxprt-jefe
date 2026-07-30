@@ -532,6 +532,49 @@ fn bounded_candidate(chord_count: usize) -> RegistryCandidate {
 }
 
 #[test]
+fn availability_republication_is_atomic_and_preserves_exact_correlation() {
+    let actions = vec![action("test.action", "screen", HandlerKey::OpenKeys, false)];
+    let snapshot = compose(
+        actions.clone(),
+        vec![binding("screen", "test.action", &["x"])],
+        Vec::new(),
+        vec![stack(&["screen"])],
+        None,
+    );
+    let Ok(snapshot) = snapshot else {
+        panic!("baseline snapshot must compose: {snapshot:?}");
+    };
+    let generation = AvailabilityGeneration::new(
+        correlation(99),
+        vec![ActionAvailability::new(
+            action_id("test.action"),
+            Availability::Unavailable {
+                reason: "exact reason".to_owned(),
+            },
+        )],
+    );
+    let published = snapshot.publish_availability(generation);
+    let Ok(published) = published else {
+        panic!("complete generation must publish: {published:?}");
+    };
+    assert_eq!(published.availability_correlation(), &correlation(99));
+    assert_eq!(
+        published.resolve(&chord("x"), &stack(&["screen"])),
+        Resolution::Unavailable {
+            action: action_id("test.action"),
+            reason: "exact reason".to_owned(),
+        }
+    );
+
+    let incomplete = AvailabilityGeneration::new(correlation(100), Vec::new());
+    assert!(matches!(
+        published.publish_availability(incomplete),
+        Err(ref diagnostic)
+            if matches!(diagnostic.kind(), RegistryDiagnosticKind::MissingAvailability(_))
+    ));
+}
+
+#[test]
 fn complete_candidate_owns_exact_eight_nine_and_2048_2049_limits() {
     let actions = vec![action("test.action", "screen", HandlerKey::OpenKeys, false)];
     let bindings = vec![binding("screen", "test.action", &["x"])];

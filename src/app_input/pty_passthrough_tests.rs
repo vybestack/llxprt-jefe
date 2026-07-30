@@ -24,7 +24,7 @@ fn minimal_test_ctx() -> CtxArc {
         panic!("test keymap snapshot should compose, got {startup:?}");
     };
     Arc::new(Mutex::new(AppContext {
-        keymap_snapshot: startup.keymap_snapshot,
+        keymap_snapshot: Some(startup.keymap_snapshot),
         persistence: FilePersistenceManager::default(),
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),

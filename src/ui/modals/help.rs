@@ -11,98 +11,16 @@
 
 use iocraft::prelude::*;
 
+use crate::action_projection::project_help_lines;
+use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::ScrollableText;
 
-/// The static help-content data, separated from the accessor so the function
-/// body stays within the strict line budget.
-const HELP_CONTENT_LINES: &[&str] = &[
-    "Navigation:",
-    "  Up/Down     Select item / scroll detail",
-    "  Left/Right  Switch pane",
-    "  Tab         Focus next detail section",
-    "  j/k         Detail section focus (alias)",
-    "  F12         Toggle terminal focus",
-    "",
-    "Modes:",
-    "  i           Enter Issues mode",
-    "  p           Enter Pull Requests mode",
-    "  g           Enter Actions (workflows) mode",
-    "",
-    "Issues & PR detail:",
-    "  Enter       Open detail",
-    "  c           Comment",
-    "  r           Reply",
-    "  e           Edit (issues only)",
-    "  S           Send to agent",
-    "  R           Resolve/unresolve review thread (PR)",
-    "  o           Open in browser (PR)",
-    "  m           Merge (PR)",
-    "  Tip: Tab/j/k to a review thread, then R resolve / r reply",
-    "",
-    "PR Changes (drill-down from PR detail with d):",
-    "  d           Enter Changes for the loaded PR",
-    "  Enter/Tab   Focus selected file content",
-    "  BackTab     Return focus to the changed-files list",
-    "  v           Toggle Full File / Deltas Only",
-    "  c           Comment on the selected diff row",
-    "  r / R       Reply / resolve the selected review thread",
-    "  Esc         Content -> file list -> PR detail",
-    "",
-    "Actions:",
-    "  Up/Down     Select repository, run, or focused job",
-    "  Enter       Open run detail / expand focused job",
-    "  Right/Left  Expand / collapse focused job",
-    "  Esc         Collapse job, back to runs, then exit Actions",
-    "  PgUp/PgDn   Scroll job detail",
-    "  Tab         Cycle repository, runs, and detail focus",
-    "  f /         Filter / search workflow runs",
-    "  d / r       Dispatch workflow / refresh runs",
-    "",
-    "Filter & Sort (Issues, PRs, Actions):",
-    "  f           Open filter dialog",
-    "  Tab         Move between filter fields",
-    "  arrows/Space Cycle the active field value (state, sort-by, sort-order)",
-    "  Enter       Apply filter + sort",
-    "  Delete      Clear the active field",
-    "  Ctrl-L      Clear all filter fields",
-    "  Esc         Cancel / close dialog",
-    "  Sort lives in the filter dialog (below filter fields).",
-    "",
-    "Dashboard:",
-    "  n           New agent",
-    "  N           New repository",
-    "  Ctrl-d      Delete selected",
-    "  Ctrl-k      Kill agent",
-    "  Ctrl-r      Restart agent",
-    "  l           Relaunch dead / recover server-lost agents",
-    "  s           Split mode",
-    "  Space       Grab/move/drop reorder",
-    "  v           Toggle active-only (repos + agents)",
-    "  F7          Open Terminal Manager",
-    "  F8          Open external terminal",
-    "  F10         Open/resume or close embedded shell",
-    "  F12         Hide embedded shell (keeps it running)",
-    "  \u{2325}1-\u{2325}9       Jump to agent shortcut",
-    "",
-    "Other:",
-    "  F9          Theme picker",
-    "  ?/h/F1      This help",
-    "  Ctrl-q/qqq  Quit",
-];
-
-/// The complete, ordered list of keyboard-reference lines shown in the help
-/// modal. Pure, side-effect-free, and unit-testable without a terminal. This
-/// is the single source of truth for help text.
-///
-/// Updated for issue #150: documents the unified detail-pane key model
-/// (arrows own pane/item navigation; Tab owns detail subfocus; j/k alias) and
-/// makes the PR review-thread resolution flow discoverable. Emoji-free
-/// (textual symbols only).
+/// Project the complete, ordered keyboard reference from one immutable snapshot.
 #[must_use]
-pub fn help_content_lines() -> &'static [&'static str] {
-    HELP_CONTENT_LINES
+pub fn help_content_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
+    project_help_lines(snapshot)
 }
 
 /// Props for the help modal.
@@ -116,6 +34,8 @@ pub struct HelpModalProps {
     /// never overflows the screen.
     pub available_rows: u16,
     /// Active text selection for drag-highlight (issue #178).
+    /// Immutable action/binding/availability authority for this render.
+    pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
     pub selection: Option<TextSelection>,
 }
 
@@ -173,7 +93,12 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
     // `HELP_CHROME_ROWS` implicitly).
     let viewport_height = u32::try_from(viewport_rows).unwrap_or(0);
 
-    let content = help_content_lines().join("\n");
+    let content = props
+        .action_registry_snapshot
+        .as_ref()
+        .map_or_else(String::new, |snapshot| {
+            help_content_lines(snapshot).join("\n")
+        });
 
     element! {
         Box(
@@ -233,36 +158,33 @@ mod tests {
     /// discoverable. Also confirms previously-valid bindings are present.
     #[test]
     fn test_help_content_documents_unified_model_and_review_workflow() {
-        let joined = help_content_lines().join("\n");
+        let joined = help_content_lines(&crate::action_projection::test_snapshot()).join("\n");
         // Unified navigation model.
         assert!(
-            joined.contains("Left/Right  Switch pane"),
-            "must document arrow pane navigation"
+            joined.contains("Switch pane"),
+            "must document pane navigation from resolved bindings"
         );
         assert!(
-            joined.contains("Tab         Focus next detail section"),
-            "must document Tab detail subfocus"
-        );
-        assert!(
-            joined.contains("j/k         Detail section focus (alias)"),
-            "must document j/k subfocus alias"
+            joined.contains("Focus next / previous detail section"),
+            "must document detail subfocus from resolved bindings"
         );
         // Review-thread workflow is discoverable.
         assert!(
-            joined.contains("R           Resolve/unresolve review thread (PR)"),
-            "must document R resolve"
+            joined.contains("Resolve / unresolve review thread"),
+            "must document review-thread resolution from resolved bindings"
         );
         assert!(
-            joined.contains("Tab/j/k to a review thread, then R resolve / r reply"),
+            joined.contains("Focus a review thread before resolving or replying"),
             "must document the focus-thread-first resolve flow"
         );
-        // Previously-valid bindings must remain present (no regression).
-        assert!(joined.contains("Space       Grab/move/drop reorder"));
-        assert!(joined.contains("v           Toggle active-only"));
-        assert!(joined.contains("F9          Theme picker"));
-        assert!(joined.contains("F7          Open Terminal Manager"));
-        assert!(joined.contains("F10         Open/resume or close embedded shell"));
-        assert!(joined.contains("F12         Hide embedded shell (keeps it running)"));
+        // Previously-valid actions remain discoverable while chord prefixes come
+        // from the effective snapshot and therefore follow user overrides.
+        assert!(joined.contains("Grab / move / drop reorder"));
+        assert!(joined.contains("Toggle active-only repositories and agents"));
+        assert!(joined.contains("Theme picker"));
+        assert!(joined.contains("Open Terminal Manager"));
+        assert!(joined.contains("Open / resume or close embedded shell"));
+        assert!(joined.contains("Hide embedded shell (keeps it running)"));
         assert!(!joined.contains("F11         Close embedded agent shell"));
         for action in [
             "Open run detail / expand focused job",

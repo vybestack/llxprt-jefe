@@ -29,6 +29,27 @@ fn assert_handler(state: &AppState, event: &KeyEvent, expected: HandlerKey) {
 }
 
 #[test]
+fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
+    let mut state = AppState {
+        warning_message: Some("prior".to_owned()),
+        ..AppState::default()
+    };
+    let pending_before = state.pending_effects.clone();
+    let repository_count = state.repositories.len();
+    let agent_count = state.agents.len();
+
+    super::record_unavailable(&mut state, "No pull request loaded to merge".to_owned());
+
+    assert_eq!(
+        state.warning_message.as_deref(),
+        Some("No pull request loaded to merge")
+    );
+    assert_eq!(state.pending_effects, pending_before);
+    assert_eq!(state.repositories.len(), repository_count);
+    assert_eq!(state.agents.len(), agent_count);
+}
+
+#[test]
 fn dashboard_and_split_use_registry_handlers() {
     assert_handler(
         &AppState::default(),

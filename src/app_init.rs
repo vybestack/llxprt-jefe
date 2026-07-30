@@ -348,7 +348,7 @@ pub fn init_app_state(
     let Some(ctx_arc) = ctx else {
         return Vec::new();
     };
-    let Ok(ctx_guard) = ctx_arc.lock() else {
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
         return Vec::new();
     };
 
@@ -372,6 +372,7 @@ pub fn init_app_state(
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
     let agent_probe_effects = observe_agent_types(&mut state, &ctx_guard.published_settings);
+    state.action_registry_snapshot = ctx_guard.keymap_snapshot.take();
 
     // Log platform engine diagnostic at startup.
     tracing::info!("{}", platform_engine_diagnostic());
@@ -411,6 +412,7 @@ pub fn init_app_state(
             warn!(error = %e, theme = %settings.theme, "could not activate saved theme");
         }
     }
+    crate::app_input::refresh_action_availability(app_state);
     agent_probe_effects
 }
 

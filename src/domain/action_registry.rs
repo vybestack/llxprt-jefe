@@ -1,11 +1,14 @@
 //! Closed action and binding value types for configurable keymaps.
 use super::effects::Correlation;
 use super::input_context::{ContextId, ContextStack};
-use super::keymap::{
-    Chord, Key, MAX_CHORDS_PER_BINDING, MAX_EFFECTIVE_BINDINGS, Modifier, TerminalClass,
-};
+use super::keymap::{Chord, MAX_CHORDS_PER_BINDING, MAX_EFFECTIVE_BINDINGS};
 use std::fmt;
 use unicode_width::UnicodeWidthStr;
+
+#[path = "action_registry_chord_cmp.rs"]
+mod action_registry_chord_cmp;
+use action_registry_chord_cmp::{chords_equivalent, terminal_intercepts};
+
 pub const ACTION_ID_BYTE_LIMIT: usize = 128;
 pub const ACTION_LABEL_CELL_LIMIT: usize = 128;
 pub const ACTION_DESCRIPTION_BYTE_LIMIT: usize = 4_096;
@@ -369,6 +372,16 @@ impl ActionAvailability {
     pub const fn new(action: ActionId, availability: Availability) -> Self {
         Self(action, availability)
     }
+
+    #[must_use]
+    pub(crate) const fn action(&self) -> &ActionId {
+        &self.0
+    }
+
+    #[must_use]
+    pub(crate) const fn availability(&self) -> &Availability {
+        &self.1
+    }
 }
 
 /// Complete availability data stamped with the existing exact correlation.
@@ -380,6 +393,10 @@ impl AvailabilityGeneration {
     /// Build one complete generation; composition validates coverage.
     pub const fn new(correlation: Correlation, entries: Vec<ActionAvailability>) -> Self {
         Self(correlation, entries)
+    }
+
+    pub(crate) fn entries(&self) -> &[ActionAvailability] {
+        &self.1
     }
 }
 
@@ -454,6 +471,7 @@ impl RegistryCandidate {
         validate_protected(&self.actions, &self.bindings, &availability)?;
         let resolved = build_resolved(&self.actions, &self.bindings, &availability)?;
         Ok(ActionRegistrySnapshot {
+            actions: self.actions,
             availability,
             bindings: self.bindings,
             context_stacks: self.context_stacks,
@@ -465,6 +483,7 @@ impl RegistryCandidate {
 /// Immutable, completely validated action/binding/availability authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionRegistrySnapshot {
+    actions: Vec<Action>,
     availability: AvailabilityGeneration,
     bindings: Vec<Binding>,
     context_stacks: Vec<ContextStack>,
@@ -493,6 +512,31 @@ impl ActionRegistrySnapshot {
     #[must_use]
     pub const fn availability_correlation(&self) -> &Correlation {
         &self.availability.0
+    }
+
+    #[must_use]
+    pub(crate) fn actions(&self) -> &[Action] {
+        &self.actions
+    }
+
+    pub(crate) fn availability_entries(&self) -> &[ActionAvailability] {
+        self.availability.entries()
+    }
+
+    pub(crate) fn publish_availability(
+        &self,
+        generation: AvailabilityGeneration,
+    ) -> Result<Self, RegistryDiagnostic> {
+        let availability = validate_availability(&self.actions, generation)?;
+        validate_protected(&self.actions, &self.bindings, &availability)?;
+        let resolved = build_resolved(&self.actions, &self.bindings, &availability)?;
+        Ok(Self {
+            actions: self.actions.clone(),
+            availability,
+            bindings: self.bindings.clone(),
+            context_stacks: self.context_stacks.clone(),
+            resolved,
+        })
     }
 
     #[must_use]
@@ -949,47 +993,4 @@ fn protected_action(action: &Action) -> bool {
             action.id.as_str(),
             "core.emergency-exit" | "core.leave-terminal" | "core.back"
         )
-}
-
-fn terminal_intercepts(action: &Action, chord: &Chord) -> bool {
-    matches!(
-        action.handler,
-        HandlerKey::EmergencyExit | HandlerKey::LeaveTerminal
-    ) || matches!(
-        action.handler,
-        HandlerKey::TerminalScrollPageUp
-            | HandlerKey::TerminalScrollPageDown
-            | HandlerKey::TerminalScrollTop
-            | HandlerKey::TerminalScrollTail
-            | HandlerKey::TerminalScrollUp
-            | HandlerKey::TerminalScrollDown
-    ) && chord.terminal_class() == TerminalClass::ScrollbackCandidate
-}
-
-fn chords_equivalent(first: &Chord, second: &Chord) -> bool {
-    canonical_key(first) == canonical_key(second)
-        && [
-            Modifier::Ctrl,
-            Modifier::Alt,
-            Modifier::Shift,
-            Modifier::Super,
-        ]
-        .into_iter()
-        .all(|modifier| canonical_modifier(first, modifier) == canonical_modifier(second, modifier))
-}
-
-fn canonical_key(chord: &Chord) -> Key {
-    if chord.key == Key::Tab && chord.modifiers.contains(Modifier::Shift) {
-        Key::BackTab
-    } else {
-        chord.key
-    }
-}
-
-fn canonical_modifier(chord: &Chord, modifier: Modifier) -> bool {
-    if modifier == Modifier::Shift && canonical_key(chord) == Key::BackTab {
-        false
-    } else {
-        chord.modifiers.contains(modifier)
-    }
 }

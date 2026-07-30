@@ -64,6 +64,9 @@ mod s3;
 
 #[path = "default_action_inventory_s4.rs"]
 mod s4;
+
+#[path = "default_action_inventory_display.rs"]
+pub(crate) mod display;
 // The first declaration for a leaf is its provider-free explain order. Later
 // declarations cover source-valid alternate parents during candidate validation.
 const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[

@@ -30,7 +30,7 @@ use jefe::theme::FileThemeManager;
 
 /// Shared application context passed to the root component.
 struct AppContext {
-    keymap_snapshot: jefe::domain::action_registry::ActionRegistrySnapshot,
+    keymap_snapshot: Option<jefe::domain::action_registry::ActionRegistrySnapshot>,
     persistence: jefe::persistence::FilePersistenceManager,
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
@@ -302,7 +302,7 @@ fn main() {
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
-        keymap_snapshot,
+        keymap_snapshot: Some(keymap_snapshot),
         persistence,
         published_settings,
         theme_manager,

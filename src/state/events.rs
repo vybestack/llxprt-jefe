@@ -1,7 +1,6 @@
+use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 use crate::domain::RepositoryId;
 use crate::list_viewport::PageItemCount;
-
-use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -86,6 +85,7 @@ pub enum AppEvent {
     OpenDeleteAgent(crate::domain::AgentId),
     ToggleDeleteWorkDir,
     ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
+    ProjectActionAvailability,
 
     KillAgent(crate::domain::AgentId),
     RelaunchAgent(crate::domain::AgentId),

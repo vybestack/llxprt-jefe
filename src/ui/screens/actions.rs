@@ -240,6 +240,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardActions, |s| s.screen_mode),
+                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: Some(actions_focus),
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),

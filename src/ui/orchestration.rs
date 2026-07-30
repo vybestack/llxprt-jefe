@@ -350,6 +350,7 @@ pub fn build_modal_element(
         ModalState::Help => Some(
             element! {
                 HelpModal(
+                    action_registry_snapshot: snapshot.action_registry_snapshot.clone(),
                     colors: colors.clone(),
                     scroll_offset: help_scroll_offset,
                     available_rows: available_rows,

@@ -203,6 +203,9 @@ impl AppState {
             RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
                 self.stage_agent_availability_probes(probes);
             }
+            RepositoryAgentMessage::ProjectActionAvailability => {
+                self.stage_action_availability_projection();
+            }
         }
     }
 

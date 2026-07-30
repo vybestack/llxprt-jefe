@@ -11,6 +11,7 @@ use std::num::NonZeroU8;
 
 use crate::agent_candidate::CandidateResolution;
 
+use super::action_registry::ActionAvailability;
 use super::agent_definition::{AgentDefinition, Availability};
 use super::{AgentId, Id, StateV2};
 
@@ -276,12 +277,14 @@ pub enum SshTmuxResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderEffect {
     ProbePackageAvailability { selector: String },
+    ProjectActionAvailability { entries: Vec<ActionAvailability> },
 }
 
 /// Provider completion payloads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderResponse {
     PackageAvailability { available: bool },
+    ActionAvailability { entries: Vec<ActionAvailability> },
 }
 
 /// Clipboard and URL hand-off operations.

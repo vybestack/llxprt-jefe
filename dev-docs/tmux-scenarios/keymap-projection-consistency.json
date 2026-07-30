@@ -1,0 +1,24 @@
+{
+  "config": {
+    "cols": 300,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "F1" },
+    { "waitFor": "Help - Keyboard Shortcuts" },
+    { "expect": "Unavailable: This section is read-only" },
+    { "capture": "keymap-projection-help" },
+    { "key": "Escape" },
+    { "waitForNot": "Help - Keyboard Shortcuts" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "expect": "Unavailable: No pull request selected to open" },
+    { "capture": "keymap-projection-footer" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

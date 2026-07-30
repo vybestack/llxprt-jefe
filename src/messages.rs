@@ -137,6 +137,7 @@ pub enum RepositoryAgentMessage {
     OpenDeleteAgent(AgentId),
     ToggleDeleteWorkDir,
     ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
+    ProjectActionAvailability,
 }
 #[derive(Debug, Clone)]
 pub enum RuntimeMessage {

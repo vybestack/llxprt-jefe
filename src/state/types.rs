@@ -427,6 +427,10 @@ pub struct AppState {
     /// Transient interaction state — not persisted (like split_grab_index).
     pub dashboard_grab: Option<DashboardGrabPane>,
 
+    /// One root-owned immutable action/binding/availability snapshot.
+    /// Runtime-only; composed settings remain the persistence authority.
+    pub action_registry_snapshot: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
+
     // Errors/warnings
     pub error_message: Option<String>,
     pub warning_message: Option<String>,

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+mod action_availability;
 mod action_handlers;
+pub use action_availability::refresh_action_availability;
 #[cfg(test)]
 #[path = "action_handlers_tests.rs"]
 mod action_handlers_tests;
@@ -153,6 +155,7 @@ pub fn apply_background_gh_delivery(
         #[cfg(test)]
         BackgroundGhDelivery::Probe(_) => {}
     }
+    refresh_action_availability(app_state);
 }
 
 pub use actions_orchestration::synchronize_actions_geometry;
@@ -594,6 +597,7 @@ pub fn dispatch_app_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+    refresh_action_availability(app_state);
 }
 
 /// Dispatch issues close/delete lifecycle messages (issue #182).

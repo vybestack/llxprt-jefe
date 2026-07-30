@@ -877,3 +877,216 @@ proves navigation, submit, and cancel are never classified as raw mutations.
 No dependency, workflow, quality configuration, public abstraction, UI
 projection, mouse route, harness conversion, `.llxprt` content, or generic
 payload was added. No commit or push was performed.
+
+
+## S5 execution ledger — authoritative availability and shared projections
+
+S5 implements CW03-03 only. The already-composed action/binding candidate stays
+immutable; one root-owned runtime snapshot receives a complete availability
+generation only after exact closed-effect completion. Existing capability
+checks and their current user-facing reasons are the golden. Help and the
+keybind footer become thin consumers of the planned iocraft-free projection;
+there is no current application menu, and the same private rows are reserved
+for a later menu and S6 Keys editor without building either UI in this slice.
+
+### S5 changed-file ledger (recorded before production edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record the S5 acceptance, exact path ledger, RED/GREEN evidence, verification, and blockers | delivery evidence |
+| `dev-docs/tmux-scenarios/keymap-projection-consistency.json` | Strict schema-1 Help/footer visibility contract written before production edits | behavioral scenario (new) |
+| `src/action_projection.rs` | One pure, iocraft-free, must-use projection for action rows, Help, footer, menu rows, and future Keys rows | pure view (new, internal) |
+| `src/lib.rs` | Register the private projection module | crate wiring |
+| `src/domain/action_registry.rs` | Retain immutable action metadata and publish a complete correlated availability generation atomically | pure domain |
+| `src/domain/action_registry_composition_tests.rs` | RED-first authoritative republication and exact-reason fixtures | domain tests |
+| `src/domain/effects.rs` | Add closed, typed action-availability provider request/response variants; no generic payload | pure effects contract |
+| `src/messages.rs` | Add the smallest typed availability-projection reducer intent | typed messages |
+| `src/messages/event_conversion.rs` | Preserve exhaustive typed message/event conversion for the new intent | conversion seam |
+| `src/messages/names.rs` | Preserve the existing exhaustive diagnostic name table for the typed intent | message diagnostics |
+| `src/state/events.rs` | Add the exhaustive low-level intent variant required by the existing conversion seam | typed events |
+| `src/state/types.rs` | Store the one root-owned immutable action snapshot in runtime-only state | root state |
+| `src/state/mod.rs` | Route the typed availability intent and register the private availability owner | reducer wiring |
+| `src/state/action_availability.rs` | Freeze existing capability predicates/reasons, stage one closed effect, and apply authoritative completion | deterministic reducer split (new, internal) |
+| `src/state/runtime_ops.rs` | Route exact-correlated action-availability completions after ledger acceptance | completion reducer |
+| `src/state/pr_types.rs` | Expose one crate-local canonical reason accessor for existing read-only hint kinds | reason authority |
+| `src/state/prs_ops.rs` | Consume the canonical reason accessor and shared no-agent reason | existing reducer consumer |
+| `src/state/issues_ops.rs` | Consume the shared no-agent reason | existing reducer consumer |
+| `src/main.rs` | Transfer the startup-composed snapshot into root state instead of retaining a second authority | root composition |
+| `src/app_init.rs` | Take the composed snapshot, stage initial availability after composition, and execute the existing funnel | startup composition |
+| `src/app_input/action_availability.rs` | Execute the typed availability effect synchronously through the existing serial executor; no worker/queue/discovery subsystem | effect boundary (new, internal) |
+| `src/app_input/pty_passthrough_tests.rs` | Keep the existing root-context test fixture aligned with transient startup snapshot ownership | test fixture |
+| `src/app_input/mod.rs` | Invoke the shared post-transition availability funnel at existing composition boundaries | app-input composition |
+| `src/app_input/action_handlers.rs` | Keep Help viewport math consuming the shared projected Help lines | typed dispatch consumer |
+| `src/app_shell_key_routing.rs` | Resolve from root state and surface unavailable notice before handler planning/execution | root dispatch |
+| `src/app_shell_key_routing_tests.rs` | RED-first zero-handler/effect unavailable routing and exact notice coverage | focused route tests |
+| `src/app_shell_workers.rs` | Reproject after authoritative startup probe completions change agent eligibility | existing completion boundary |
+| `src/selection/content.rs` | Use projected Help/footer content for selection text, preserving geometry | selection projection consumer |
+| `src/selection/content_tests.rs` | Keep selection-copy parity tests aligned with the required root snapshot and no-fallback contract | selection projection tests |
+| `src/ui/modals/help.rs` | Delete the static Help authority and render shared projected lines with unchanged viewport math | thin UI consumer |
+| `src/ui/orchestration.rs` | Pass the root-owned immutable snapshot to Help | UI wiring |
+| `src/ui/components/keybind_bar.rs` | Delete the static footer authority and render shared projected text | thin UI consumer |
+| `src/ui/components/pr_render_screen_tests.rs` | Update existing Help/footer parity tests to provide one snapshot | UI tests |
+| `src/ui/components/issue_lifecycle_render_tests.rs` | Update existing footer lifecycle tests to provide one snapshot | UI tests |
+| `src/ui/screens/dashboard.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/split.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/issues.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/pull_requests.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/actions.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/errors.rs` | Pass the root snapshot to the footer | UI wiring |
+| `src/ui/screens/terminal_manager.rs` | Pass the root snapshot to the footer | UI wiring |
+
+This slice deliberately exceeds the normal file target because replacing two
+cross-screen authorities requires every existing thin screen call site; D1 is
+the explicit issue-wide oversized-scope approval. The ledger remains below the
+40-file hard stop. No S6 Keys UI/save, mouse routing, harness capture/conversion,
+normative docs, dependency, workflow/quality configuration, `.llxprt` content,
+public abstraction, generic payload, provider/UI I/O projection, unsafe, or
+production panic/unwrap/expect is included.
+
+### S5 RED contract
+
+The strict scenario requires the exact current read-only reason to appear from
+Help and the PR footer while those actions remain visible. Focused pure tests
+require one snapshot row to expose byte-identical reason/status to dispatch,
+Help, footer, menu, and future Keys projections, and reducer tests require exact
+owner, screen generation, activation generation, semantic key, and correlation
+identity before publication. The first scenario/test runs are recorded before
+
+### S5 correction — genuine snapshot-derived projections
+
+The initial S5 `action_projection.rs` was found to improperly retain a giant
+static `HELP_LINES` binding map and hardcoded per-mode footer chord strings,
+making the projection a parallel display authority instead of a pure consumer
+of immutable snapshot metadata. This correction eliminates that duplicate
+authority so that Help/footer/menu/future Keys rows are genuinely generated
+from immutable snapshot action metadata, effective bindings, context,
+availability, and provenance. Static headings and layout only; no static
+chord-action authority remains.
+
+#### S5 correction changed-file ledger
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record the correction scope, evidence, and exact verification | delivery evidence |
+| `src/domain/default_action_inventory_display.rs` | Private display metadata table: section headings, help-line text/order, footer-hint text/order; no chord-action binding authority | pure domain display owner (new, internal) |
+| `src/domain/default_action_inventory.rs` | Register the private display submodule | pure domain module contract |
+| `src/domain/action_registry_chord_cmp.rs` | Internal chord canonicalization and terminal-intercept helpers extracted to keep `action_registry.rs` under the source-size hard limit | pure domain split (new, internal) |
+| `src/domain/action_registry.rs` | Import extracted chord helpers after source-size hard-limit correction | pure domain |
+| `src/action_projection.rs` | Rewrite to project all rows from snapshot metadata/bindings/availability/provenance via the canonical display table; delete static HELP_LINES map and hardcoded footer_base; add structural test rejecting hardcoded maps and displayed row completeness | pure view |
+
+#### S5 correction design boundaries
+
+- The display table (`default_action_inventory_display.rs`) carries ONLY
+  presentation metadata: section names, pre-formatted help-line text, per-line
+  display ordering, footer-hint fragments, and per-mode/per-focus grouping. It
+  carries NO chord strings and NO chord→action binding literals. Each help line
+  and footer hint carries an optional `&[&str]` of action IDs used solely for
+  availability-status lookup from the immutable snapshot.
+- `action_projection.rs` is a pure consumer of the immutable snapshot plus the
+  display table. All availability/status strings are looked up dynamically via
+  `ActionRegistrySnapshot::availability_entries()`. No static chord→action map,
+  no hardcoded `footer_base`, and no static `HELP_LINES` constant remains.
+- `project_footer` short-circuits only for the invariant terminal-focus and
+  shell-overlay cases (where the same condition governs every mode). For all
+  other modes, it joins display-table hint fragments by `" | "`, appends
+  unavailable-status annotations for actions in that mode's contexts, and
+  applies the `shell_resume_available` text substitution.
+- No public display type is exposed. All display structs are `pub` inside the
+  `pub(crate) mod display` submodule, visible only to `action_projection.rs`.
+- No S6+ scope (Keys UI/save, mouse routing, harness capture/conversion, docs,
+  dependencies, workflow/quality/lint configuration, or `.llxprt` change) is
+  included.
+
+#### S5 correction RED and structural evidence
+
+The structural test `projection_has_no_hardcoded_chord_action_map` reads the
+production portion of `action_projection.rs` (split at `#[cfg(test)]`) and
+asserts that:
+- The old `HELP_LINES` constant is absent.
+- The old `footer_base` function is absent.
+- No hardcoded chord literals (`"Ctrl+Q"`, `"F10"`, `"F12"`, `"Esc"`) appear as
+  binding authority.
+- The projection uses `HELP_DISPLAY_LINES` and canonical footer display groups.
+
+The structural tests `displayed_help_action_ids_are_complete` and
+`displayed_footer_action_ids_are_complete` compile the inventory and verify
+that every action ID referenced in the display table exists in the compiled
+inventory. The existing `availability_projection_is_byte_identical_across_five_consumers`
+and `available_projection_preserves_existing_help_and_footer_bytes` tests
+confirm byte-identical projection from the snapshot.
+
+#### S5 correction verification record
+
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  with zero warnings (resolved `redundant_pub_crate`, `map_unwrap_or`,
+  `match_same_arms`, `expect_used`, and `too_many_lines` findings without lint
+  suppression).
+- `cargo build --workspace --all-features --locked` — PASS.
+- `cargo test --workspace --all-features --locked` — PASS: library 2,902
+  passed / 1 ignored / 0 failed; binary 794 passed; every integration target
+  passed.
+- `cargo xtask check source-size` — PASS with zero ERROR lines
+  (`action_registry.rs` 996 lines, `events.rs` 1000 lines; both at or below
+  the 1,000-line hard limit after extracting chord canonicalization helpers to
+  `action_registry_chord_cmp.rs`).
+- `cargo xtask check clippy-allows` — PASS.
+- `scripts/check-architecture.sh` and `cargo xtask check architecture` — PASS.
+- `git diff --check` — PASS.
+
+No S6 Keys UI/save, mouse routing, harness capture/conversion, normative docs,
+dependency, workflow/quality configuration, `.llxprt` content, public
+abstraction, or generic payload was added. No commit or push was performed.
+
+### S5 follow-up correction — effective binding labels (2026-07-30)
+
+The prior correction still stored chord-prefixed Help and footer strings in the
+private display table. This follow-up makes effective snapshot bindings the
+single chord-label authority without relocating that table:
+
+- `default_action_inventory_display.rs` now stores section/order, action IDs,
+  semantic descriptions, and raw non-registry rows only. Normal, shell-overlay,
+  and terminal-focused action hints all use action IDs.
+- `action_projection.rs` gathers each row's effective binding chords from the
+  immutable snapshot, retains deterministic action/binding order, deduplicates,
+  and applies generic Help/footer presentation and digit-run compaction.
+- A settings fixture replaces `dashboard.toggle-terminal`'s compiled chord with
+  `z` and proves exact Help and footer fragments show `z` and omit `F12`.
+- A structural scan rejects known chord literals in every action-backed Help,
+  mode-footer, Actions-focus, shell-overlay, and terminal-focused description.
+  Raw `qqq`, Split move, contextual Help, and PR search rows remain explicitly
+  static because they do not have remappable registry actions.
+
+Verification on the corrected files:
+
+- `cargo fmt --all --check` — PASS.
+- `cargo test --lib action_projection::tests -q` — PASS: 7 passed.
+- Focused footer width/identity tests — PASS.
+- `cargo clippy --lib --all-features -- -D warnings` — PASS.
+- `cargo xtask check source-size` — PASS with the new projection at 817 lines
+  (warning only; below the 1,000-line hard limit).
+- `cargo xtask check clippy-allows` — PASS.
+- `cargo xtask check architecture` — PASS.
+- `cargo build --workspace --all-features --locked` — PASS.
+- `cargo test --lib -q` reaches 2,900 passed / 1 ignored and four stale UI
+  expectation failures that assert the removed literal groupings (`> runs`,
+  `L labels`, and the old Help pane string). Those test files are outside this
+  follow-up's explicit two-source-file edit boundary; the new projection tests
+  cover the corresponding snapshot-derived grouped output.
+
+No public type, S6+ behavior, dependency, workflow, `.llxprt`, commit, or push
+was added.
+
+### S5 final verification update
+
+The four stale UI assertions were updated to assert snapshot-derived semantic
+content and grouped effective chords rather than the removed hardcoded chord
+layout. Full locked workspace tests then passed: library 2,904 passed / 1
+ignored, binary 794 passed, and every integration/doctest target passed. Full
+all-target/all-feature Clippy, locked build, source-size, clippy-allow,
+architecture, formatting, and `git diff --check` passed. `cargo xtask quick`
+repeatedly reached the unchanged `llxprt_continue_field_fixture_sends_one_exact_issue_prompt`
+HAR-E005 startup capture race; the exact isolated fixture passed immediately,
+while complete quick retries reproduced the empty-frame startup timeout. This
+is recorded as incomplete quick evidence rather than a pass; all deterministic
+S5 tests and the full locked workspace suite are green.

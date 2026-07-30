@@ -6,6 +6,8 @@
 
 use iocraft::prelude::*;
 
+use crate::action_projection::{FooterProjectionInput, project_footer};
+use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::state::{ActionsFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -22,6 +24,8 @@ pub struct KeybindBarProps {
     /// (issue #361 PR A).
     pub shell_resume_available: bool,
     /// Active Actions pane when Actions mode is rendered.
+    /// Immutable action/binding/availability authority for this render.
+    pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
     pub actions_focus: Option<ActionsFocus>,
     /// Process-identity label (pid + commit) shown in the lower-right corner
     /// (issue #223).
@@ -30,51 +34,24 @@ pub struct KeybindBarProps {
     pub colors: ThemeColors,
 }
 
-/// Context-sensitive keybind hint text for a screen mode (display-only; pure).
-///
-/// @plan PLAN-20260624-PR-MODE.P13
-/// @requirement REQ-PR-012
-/// @pseudocode component-001 lines 1-12
+/// Context-sensitive footer projection from the immutable registry snapshot.
 #[must_use]
 pub fn keybind_hints_for(
+    snapshot: &ActionRegistrySnapshot,
     screen_mode: ScreenMode,
     terminal_focused: bool,
     actions_focus: Option<ActionsFocus>,
-) -> &'static str {
-    if terminal_focused {
-        return "F12 unfocus";
-    }
-    match screen_mode {
-        ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | F7 shells | F10 shell | F8 external term | v active-only (repos+agents) | / search | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch/recover | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
-        }
-        ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
-        ScreenMode::DashboardIssues => {
-            "^/v items | </> panes | Enter detail | n new issue | f filter | / search | Tab detail focus (j/k) | i list | r reply | S send-to-agent | e edit | c comment | C close D delete | L labels A assignees M milestone T title Y type W state | a exit | Esc back/exit"
-        }
-        // @plan PLAN-20260624-PR-MODE.P12
-        // @requirement REQ-PR-001
-        ScreenMode::DashboardPullRequests => {
-            "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | c comment | o open | m merge | L labels A assignees M milestone T title W state | a exit | Esc back/exit"
-        }
-        ScreenMode::DashboardActions => match actions_focus {
-            Some(ActionsFocus::RepoList) => {
-                "^/v repos | > runs | Tab pane | f filter | / search | d dispatch | r refresh | Esc exit"
-            }
-            Some(ActionsFocus::RunList) | None => {
-                "^/v runs | Enter detail | Tab pane | f filter | / search | d dispatch | r refresh | Esc exit"
-            }
-            Some(ActionsFocus::Detail) => {
-                "^/v jobs | Enter/Right expand | Left collapse | Esc collapse/back | PgUp/PgDn scroll | Tab pane | ? help"
-            }
+) -> String {
+    project_footer(
+        snapshot,
+        FooterProjectionInput {
+            screen_mode,
+            terminal_focused,
+            shell_overlay_active: false,
+            shell_resume_available: false,
+            actions_focus,
         },
-        ScreenMode::DashboardErrors => {
-            "^/v errors | Enter detail | Tab pane | PgUp/PgDn scroll | Ctrl-C clear | Esc exit"
-        }
-        ScreenMode::DashboardTerminals => {
-            "^/v shells | Enter focus (Running) | Ctrl-k close | Esc/F12 back to dashboard | ? help"
-        }
-    }
+    )
 }
 
 /// Keybind bar showing context-sensitive keyboard shortcuts.
@@ -82,18 +59,21 @@ pub fn keybind_hints_for(
 pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
-    let base_hints = keybind_hints_for(
-        props.screen_mode,
-        props.terminal_focused,
-        props.actions_focus,
-    );
-    let hints = if props.shell_overlay_active {
-        "F12 hide shell | F10 close shell".to_string()
-    } else if props.shell_resume_available {
-        base_hints.replacen("F10 shell", "F10 resume shell", 1)
-    } else {
-        base_hints.to_string()
-    };
+    let hints = props
+        .action_registry_snapshot
+        .as_ref()
+        .map_or_else(String::new, |snapshot| {
+            project_footer(
+                snapshot,
+                FooterProjectionInput {
+                    screen_mode: props.screen_mode,
+                    terminal_focused: props.terminal_focused,
+                    shell_overlay_active: props.shell_overlay_active,
+                    shell_resume_available: props.shell_resume_available,
+                    actions_focus: props.actions_focus,
+                },
+            )
+        });
 
     element! {
         Box(
@@ -120,11 +100,21 @@ mod tests {
 
     #[test]
     fn dashboard_hints_include_shell_shortcuts_without_changing_focused_terminal_hint() {
-        let dashboard = keybind_hints_for(ScreenMode::Dashboard, false, None);
+        let dashboard = keybind_hints_for(
+            &crate::action_projection::test_snapshot(),
+            ScreenMode::Dashboard,
+            false,
+            None,
+        );
         assert!(dashboard.contains("F10 shell"));
         assert!(dashboard.contains("F8 external term"));
         assert_eq!(
-            keybind_hints_for(ScreenMode::Dashboard, true, None),
+            keybind_hints_for(
+                &crate::action_projection::test_snapshot(),
+                ScreenMode::Dashboard,
+                true,
+                None
+            ),
             "F12 unfocus"
         );
     }
@@ -132,16 +122,19 @@ mod tests {
     #[test]
     fn actions_hints_are_focus_specific_and_fit_footer_width() {
         let repos = keybind_hints_for(
+            &crate::action_projection::test_snapshot(),
             ScreenMode::DashboardActions,
             false,
             Some(ActionsFocus::RepoList),
         );
         let list = keybind_hints_for(
+            &crate::action_projection::test_snapshot(),
             ScreenMode::DashboardActions,
             false,
             Some(ActionsFocus::RunList),
         );
         let detail = keybind_hints_for(
+            &crate::action_projection::test_snapshot(),
             ScreenMode::DashboardActions,
             false,
             Some(ActionsFocus::Detail),
@@ -156,10 +149,10 @@ mod tests {
         ] {
             assert!(list.contains(required));
         }
-        assert!(repos.contains("^/v repos"));
-        assert!(repos.contains("> runs"));
-        assert!(detail.contains("Enter/Right expand"));
-        assert!(detail.contains("Esc collapse/back"));
+        assert!(repos.contains("^/v repositories"));
+        assert!(repos.contains("runs / pane"));
+        assert!(detail.contains("expand"));
+        assert!(detail.contains("collapse / back"));
         assert!(repos.chars().count() <= 150);
         assert!(list.chars().count() <= 150);
         assert!(detail.chars().count() <= 150);
@@ -170,6 +163,7 @@ mod tests {
         let mut element = element! {
             Box(width: 80u32, height: 1u32) {
                 KeybindBar(
+                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: true,
                     shell_overlay_active: true,
@@ -197,6 +191,7 @@ mod tests {
         let mut element = element! {
             Box(width: 180u32, height: 1u32) {
                 KeybindBar(
+                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: false,
                     shell_overlay_active: false,
@@ -224,6 +219,7 @@ mod tests {
         let mut element = element! {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
+                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
                     screen_mode: ScreenMode::DashboardActions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::RunList),
@@ -250,6 +246,7 @@ mod tests {
         let mut element = element! {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
+                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
                     screen_mode: ScreenMode::DashboardActions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::Detail),
@@ -276,6 +273,7 @@ mod tests {
         let mut element = element! {
             Box(width: 360u32, height: 1u32) {
                 KeybindBar(
+                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
                     screen_mode: ScreenMode::Dashboard,
                     terminal_focused: false,
                     actions_focus: None,

@@ -250,6 +250,7 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardErrors, |s| s.screen_mode),
+                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,
                 colors: colors.clone(),

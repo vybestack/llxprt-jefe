@@ -88,7 +88,7 @@ pub fn apply_execution(
     suppress_next_enter: &mut iocraft::hooks::State<crate::pty_encoding::PasteEnterSuppression>,
     key_event: &iocraft::prelude::KeyEvent,
 ) -> bool {
-    match execution {
+    let handled = match execution {
         HandlerExecution::Event(event) => {
             dispatch_event(app_state, ctx, event);
             true
@@ -106,7 +106,11 @@ pub fn apply_execution(
         }
         HandlerExecution::Noop => true,
         HandlerExecution::LaterSlice => false,
+    };
+    if handled {
+        super::refresh_action_availability(app_state);
     }
+    handled
 }
 
 fn dispatch_event(
@@ -216,10 +220,14 @@ fn apply_terminal_manager_boundary(
 fn apply_help_scroll(boundary: BoundaryAction, app_state: &mut super::AppStateHandle) {
     let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let viewport_rows = jefe::ui::modals::help_viewport_rows(terminal_rows);
-    let max_scroll = jefe::ui::modals::help_content_lines()
-        .len()
-        .saturating_sub(viewport_rows);
     let mut state = app_state.write();
+    let content_rows = state
+        .action_registry_snapshot
+        .as_ref()
+        .map_or(0, |snapshot| {
+            jefe::ui::modals::help_content_lines(snapshot).len()
+        });
+    let max_scroll = content_rows.saturating_sub(viewport_rows);
     state.help_scroll_offset = match boundary {
         BoundaryAction::HelpScrollUp => state.help_scroll_offset.saturating_sub(1),
         BoundaryAction::HelpScrollDown => state.help_scroll_offset.saturating_add(1),

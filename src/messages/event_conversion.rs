@@ -268,6 +268,9 @@ impl AppMessage {
             AppEvent::ProbeAgentAvailability(probes) => {
                 Self::RepositoryAgent(RepositoryAgentMessage::ProbeAgentAvailability(probes))
             }
+            AppEvent::ProjectActionAvailability => {
+                Self::RepositoryAgent(RepositoryAgentMessage::ProjectActionAvailability)
+            }
             other => Self::from_issues_event(other),
         }
     }
@@ -690,6 +693,7 @@ impl From<RepositoryAgentMessage> for AppEvent {
             RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
                 Self::ProbeAgentAvailability(probes)
             }
+            RepositoryAgentMessage::ProjectActionAvailability => Self::ProjectActionAvailability,
         }
     }
 }

@@ -80,18 +80,17 @@ pub fn route_registry_key(
             return true;
         }
     };
+    let snapshot = state.action_registry_snapshot.clone();
     drop(state);
     let scope = context.scope;
-    let Some(ctx_arc) = ctx else {
+    let Some(snapshot) = snapshot else {
+        app_state.write().warning_message = Some("Action registry is unavailable.".to_owned());
         return scope != DispatchScope::PreModeOnly;
     };
-    let resolved = if let Ok(guard) = ctx_arc.lock() {
-        resolve_in_context(&guard.keymap_snapshot, context, key_event)
-    } else {
-        app_state.write().warning_message =
-            Some("Action registry context lock unavailable.".to_owned());
+    let Some(_ctx_arc) = ctx else {
         return scope != DispatchScope::PreModeOnly;
     };
+    let resolved = resolve_in_context(&snapshot, context, key_event);
     let mut handles = RouteHandles {
         ctx,
         app_state,
@@ -176,7 +175,7 @@ fn route_pty_owned(
             )
         }
         Resolution::Unavailable { reason, .. } => {
-            handles.app_state.write().warning_message = Some(reason);
+            record_unavailable(&mut handles.app_state.write(), reason);
             true
         }
         Resolution::ForwardToPty | Resolution::Unbound => {
@@ -202,7 +201,7 @@ fn route_app_owned(
             execute_app_handler(handles, key_event, handler, resolved)
         }
         Resolution::Unavailable { reason, .. } => {
-            handles.app_state.write().warning_message = Some(reason);
+            record_unavailable(&mut handles.app_state.write(), reason);
             true
         }
         Resolution::ForwardToPty => {
@@ -228,6 +227,9 @@ fn route_app_owned(
     }
 }
 
+fn record_unavailable(state: &mut AppState, reason: String) {
+    state.warning_message = Some(reason);
+}
 fn rapid_quit_eligible(input_mode: InputMode) -> bool {
     matches!(
         input_mode,

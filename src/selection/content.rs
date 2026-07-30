@@ -136,7 +136,7 @@ pub fn pane_content_lines_with_context(
         SelectablePane::TerminalView => {
             terminal_lines(context.terminal_snapshot, state, context.history_lines)
         }
-        SelectablePane::HelpModal => help_lines(),
+        SelectablePane::HelpModal => help_lines(state),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
         SelectablePane::AgentForm => agent_form_lines(state),
@@ -368,14 +368,16 @@ fn terminal_lines(
     PaneContent::new(SelectablePane::TerminalView, all_lines)
 }
 
-fn help_lines() -> PaneContent {
+fn help_lines(state: &AppState) -> PaneContent {
     // Issue #178: project the actual help content instead of an empty Vec so
     // select-to-copy works inside the help modal. Reuses the single source of
     // truth (`help_content_lines`) that the renderer windows. The title row
     // and its trailing blank are included as content lines 0-1 so the (2,2)
     // content origin maps to the title text.
     let mut lines: Vec<String> = vec![crate::ui::modals::HELP_TITLE.to_string(), String::new()];
-    lines.extend(help_content_lines().iter().copied().map(str::to_string));
+    if let Some(snapshot) = state.action_registry_snapshot.as_ref() {
+        lines.extend(help_content_lines(snapshot));
+    }
     PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
@@ -407,11 +409,17 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let actions_focus =
         (state.screen_mode == ScreenMode::DashboardActions).then_some(state.actions_state.focus);
-    let hints = crate::ui::components::keybind_bar::keybind_hints_for(
-        state.screen_mode,
-        false,
-        actions_focus,
-    );
+    let hints = state
+        .action_registry_snapshot
+        .as_ref()
+        .map_or_else(String::new, |snapshot| {
+            crate::ui::components::keybind_bar::keybind_hints_for(
+                snapshot,
+                state.screen_mode,
+                false,
+                actions_focus,
+            )
+        });
     let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);
     // The rendered bar uses SpaceBetween so the identity sits on the far
     // right. For the flat selection text, append it with a separator so the

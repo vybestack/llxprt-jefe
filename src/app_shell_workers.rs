@@ -76,6 +76,8 @@ pub async fn run_agent_availability_probes(
             &mut state,
             jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
         );
+        drop(state);
+        crate::app_input::refresh_action_availability(&mut app_state);
     }
 }
 /// Check whether the attached PTY has new data since the last render.

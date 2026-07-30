@@ -4,6 +4,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+mod action_projection;
 /// Shared finite-width Actions detail body projection.
 pub mod actions_detail_projection;
 pub mod actions_detail_view;
