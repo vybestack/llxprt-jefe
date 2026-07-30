@@ -211,37 +211,31 @@ impl MultiplexerPlan {
     /// Build a pane command from a resolved agent's explicit wrapper strategy.
     pub fn agent_pane_command_args(
         &self,
-        executable: &Path,
-        wrapper: AgentWrapperKind,
+        executable: (&Path, AgentWrapperKind),
         args: &[OsString],
         environment: &[(OsString, OsString)],
+        cwd: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
         if self.platform == LocalPlatform::Unix {
-            return self.pane_command_args(executable.as_os_str(), args, environment);
+            return self.pane_command_args(executable.0.as_os_str(), args, environment);
         }
 
         let launcher =
             std::env::current_exe().map_err(|_| MultiplexerError::CurrentExecutableUnavailable)?;
-        self.agent_pane_command_args_with_launcher(
-            executable,
-            wrapper,
-            args,
-            environment,
-            &launcher,
-        )
+        self.agent_pane_command_args_with_launcher(executable, args, environment, &launcher, cwd)
     }
 
     /// Build the Windows pane command with an explicit Jefe launcher path.
     #[doc(hidden)]
     pub fn agent_pane_command_args_with_launcher(
         &self,
-        executable: &Path,
-        wrapper: AgentWrapperKind,
+        executable: (&Path, AgentWrapperKind),
         args: &[OsString],
         environment: &[(OsString, OsString)],
         launcher: &Path,
+        cwd: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
-        let plan_path = write_launch_plan(executable, wrapper, args, environment)
+        let plan_path = write_launch_plan(executable.0, executable.1, args, environment, cwd)
             .map_err(MultiplexerError::AgentLaunchPlan)?;
         self.pane_command_args(
             launcher.as_os_str(),
@@ -263,24 +257,18 @@ impl MultiplexerPlan {
     /// command construction.
     pub fn agent_pane_command_args_with_staged_host(
         &self,
-        executable: &Path,
-        wrapper: AgentWrapperKind,
+        executable: (&Path, AgentWrapperKind),
         staged_host: &Path,
         args: &[OsString],
         environment: &[(OsString, OsString)],
+        cwd: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
         if self.platform != LocalPlatform::Windows {
             return Err(MultiplexerError::InvalidIsolation {
                 platform: self.platform,
             });
         }
-        self.agent_pane_command_args_with_launcher(
-            executable,
-            wrapper,
-            args,
-            environment,
-            staged_host,
-        )
+        self.agent_pane_command_args_with_launcher(executable, args, environment, staged_host, cwd)
     }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {
