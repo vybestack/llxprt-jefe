@@ -114,7 +114,7 @@ pub fn shell_window_inputs_for(
         session_name: session.session_name.clone(),
         lifecycle_generation: session.lifecycle_generation,
         remote_enabled: session.remote.is_some(),
-        work_dir: session.launch_plan.cwd.clone(),
+        work_dir: session.work_dir.clone(),
     })
 }
 

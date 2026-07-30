@@ -85,10 +85,17 @@ Only fields declared `launch_signature` contribute to the value digest.
 
 Schema-1 product aliases are migrated one way into typed values; unknown legacy
 records are retained as dormant raw records rather than guessed. Startup may
-register an already-live tmux session without reprobe or package effects only
+register an already-live tmux session without package or agent-executable effects
 after the persisted signature matches a freshly projected signature and live
-session/process evidence agrees. A stale definition, value, target, binding, or
-process is non-executable and never reaches runtime registration.
+session/process evidence agrees. For local sessions only, a definition-only hash
+drift may use a reattach-only registration path when the persisted binding still
+matches the prior signature and the signature version, typed values, target, and
+stable session identity remain compatible. That path performs a final local
+session check, captures the current pane process identity, and either registers
+the existing process or fails; it cannot create a session. The binding retains
+the prior launch signature as process provenance while the session remains
+running. A stale value, target, session binding, confirmed-dead process, or remote
+definition drift is non-executable and never reaches runtime registration.
 
 Fresh execution always uses a finalized immutable `AgentLaunchPlan`. Package
 selection finalizes wrapper, structural prefix, executable, and physical
