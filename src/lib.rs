@@ -34,6 +34,10 @@ pub mod doctor;
 pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
+pub(crate) mod keys_view;
+#[cfg(test)]
+#[path = "keys_view_tests.rs"]
+mod keys_view_tests;
 pub mod layout;
 /// Pure geometry, windowing, navigation, and row-width primitives for selectable lists.
 pub mod list_viewport;

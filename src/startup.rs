@@ -18,7 +18,8 @@ use crate::persistence::paths::{
     ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
     SourceValidity, decide_import, import_state_source, physical_identity, resolve,
 };
-use crate::persistence::settings_document::PublishedSettings;
+use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
+use crate::persistence::writer::ExpectedHash;
 use crate::persistence::{FilePersistenceManager, PersistencePaths};
 
 /// Fully resolved startup paths, published settings, and their persistence manager.
@@ -27,6 +28,8 @@ pub struct StartupPersistence {
     pub paths: ResolvedPaths,
     pub settings: PublishedSettings,
     pub keymap_snapshot: ActionRegistrySnapshot,
+    pub keymap_document: SettingsDocument,
+    pub keymap_expected_hash: ExpectedHash,
     keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
 }
@@ -51,7 +54,7 @@ impl StartupPersistence {
 pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
     let paths = resolve(config_dir)?;
     apply_state_import(&paths.state)?;
-    let keymap = validate_settings(&paths.settings.path)?;
+    let (keymap, keymap_document, keymap_expected_hash) = validate_settings(&paths.settings.path)?;
     validate_state(&paths.state.path)?;
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
@@ -61,6 +64,8 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         paths,
         settings: keymap.settings,
         keymap_snapshot: keymap.composed.snapshot().clone(),
+        keymap_document,
+        keymap_expected_hash,
         keymap_diagnostic: keymap.diagnostic,
         manager,
     })
@@ -118,12 +123,25 @@ fn inspect_sources(file: &ResolvedFile) -> Result<Vec<InspectedSource>, PathErro
     Ok(inspected)
 }
 
-fn validate_settings(path: &Path) -> Result<LoadedKeymap, PathError> {
+fn validate_settings(
+    path: &Path,
+) -> Result<(LoadedKeymap, SettingsDocument, ExpectedHash), PathError> {
     let bytes = read_optional(path)?;
     let catalog = builtin_owner_catalog()
         .map_err(|error| path_error(path, CfgCode::E005, 2, &format!("owner catalog: {error}")))?;
-    load_bytes(bytes.as_deref(), &catalog, &path.to_string_lossy())
-        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))
+    let keymap = load_bytes(bytes.as_deref(), &catalog, &path.to_string_lossy())
+        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))?;
+    let (source, expected) = if let Some(bytes) = bytes {
+        let document = SettingsDocument::parse(&bytes)
+            .map_err(|diagnostic| diagnostic_error(path, vec![*diagnostic], 2))?;
+        let expected = ExpectedHash::Present(document.sha256());
+        (document, expected)
+    } else {
+        let document = SettingsDocument::parse(b"settings_schema = 2\n")
+            .map_err(|diagnostic| diagnostic_error(path, vec![*diagnostic], 2))?;
+        (document, ExpectedHash::Absent)
+    };
+    Ok((keymap, source, expected))
 }
 
 fn validate_state(path: &Path) -> Result<(), PathError> {

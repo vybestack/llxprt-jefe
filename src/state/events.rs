@@ -6,7 +6,6 @@ use crate::list_viewport::PageItemCount;
 pub enum AppEvent {
     /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
-
     NavigateUp,
     NavigateDown,
     NavigatePageUp(PageItemCount),
@@ -53,13 +52,16 @@ pub enum AppEvent {
     GrabMoveUp,
     GrabMoveDown,
     SetSplitFilter(Option<RepositoryId>),
-
     // Dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop)
     EnterDashboardGrab,
     ExitDashboardGrab,
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
     OpenHelp,
+    OpenKeys {
+        recovery: Option<String>,
+    },
+    Keys(crate::messages::KeysEditorMessage),
     OpenSearch,
     CloseModal,
     SubmitForm,
@@ -75,7 +77,6 @@ pub enum AppEvent {
     FormNextField,
     FormPrevField,
     FormToggleCheckbox,
-
     OpenNewRepository,
     OpenEditRepository(RepositoryId),
     OpenDeleteRepository(RepositoryId),
@@ -86,7 +87,6 @@ pub enum AppEvent {
     ToggleDeleteWorkDir,
     ProbeAgentAvailability(Vec<crate::domain::effects::AgentAvailabilityProbe>),
     ProjectActionAvailability,
-
     KillAgent(crate::domain::AgentId),
     RelaunchAgent(crate::domain::AgentId),
     /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error

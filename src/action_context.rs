@@ -66,6 +66,7 @@ pub fn derive_action_context(
 fn modal_context(modal: &ModalState) -> Option<&'static str> {
     match modal {
         ModalState::Help => Some("help"),
+        ModalState::Keys { .. } => Some("global"),
         ModalState::Search { .. } => Some("search"),
         ModalState::ThemePicker { .. } => Some("modal.theme"),
         ModalState::NewRepository { .. }

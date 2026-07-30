@@ -19,7 +19,6 @@ use crate::domain::{Id, OwnerCatalog};
 use super::diagnostic::Diagnostic;
 use super::migration::migrate_settings;
 use super::settings_document::{PublishedSettings, SettingsDocument, apply_patches};
-use super::sha256::Sha256;
 use super::{FilePersistenceManager, PersistenceError, writer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,15 +66,56 @@ pub struct LoadedKeymap {
     pub diagnostic: Option<KeymapDiagnostic>,
 }
 
+/// One closed lossless edit applied to a complete keymap candidate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeymapEdit {
+    Set {
+        context: ContextId,
+        action: ActionId,
+        chords: Vec<Chord>,
+    },
+    Reset {
+        context: ContextId,
+        action: ActionId,
+    },
+}
+
+impl KeymapEdit {
+    #[must_use]
+    pub const fn set(context: ContextId, action: ActionId, chords: Vec<Chord>) -> Self {
+        Self::Set {
+            context,
+            action,
+            chords,
+        }
+    }
+
+    #[must_use]
+    pub const fn reset(context: ContextId, action: ActionId) -> Self {
+        Self::Reset { context, action }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct KeymapCandidate {
     bytes: Vec<u8>,
-    expected_hash: Sha256,
+    expected_hash: writer::ExpectedHash,
     published: PublishedSettings,
     composed: ComposedKeymap,
 }
 
 impl KeymapCandidate {
+    pub fn from_edits(
+        document: &SettingsDocument,
+        catalog: &OwnerCatalog,
+        edits: &[KeymapEdit],
+        expected_hash: writer::ExpectedHash,
+        source: &str,
+    ) -> Result<Self, KeymapDiagnostic> {
+        let bytes = apply_edits(document, edits)?;
+        candidate_from_bytes(bytes, expected_hash, catalog, source)
+    }
+
     pub fn set(
         document: &SettingsDocument,
         catalog: &OwnerCatalog,
@@ -227,6 +267,20 @@ fn candidate_from_patch(
     source: &str,
 ) -> Result<KeymapCandidate, KeymapDiagnostic> {
     let bytes = patch_bytes(document, context, action, value);
+    candidate_from_bytes(
+        bytes,
+        writer::ExpectedHash::Present(document.sha256()),
+        catalog,
+        source,
+    )
+}
+
+fn candidate_from_bytes(
+    bytes: Vec<u8>,
+    expected_hash: writer::ExpectedHash,
+    catalog: &OwnerCatalog,
+    source: &str,
+) -> Result<KeymapCandidate, KeymapDiagnostic> {
     let parsed = SettingsDocument::parse(&bytes)
         .map_err(|diagnostic| KeymapDiagnostic::new(diagnostic.redacted_detail.clone()))?;
     let published = match parsed.publish(catalog) {
@@ -236,12 +290,32 @@ fn candidate_from_patch(
     let composed = compose_published(&published, source)?;
     Ok(KeymapCandidate {
         bytes,
-        expected_hash: document.sha256(),
+        expected_hash,
+
         published,
         composed,
     })
 }
 
+fn apply_edits(
+    document: &SettingsDocument,
+    edits: &[KeymapEdit],
+) -> Result<Vec<u8>, KeymapDiagnostic> {
+    let mut bytes = document.original_bytes().to_vec();
+    for edit in edits {
+        let current = SettingsDocument::parse(&bytes)
+            .map_err(|diagnostic| KeymapDiagnostic::new(diagnostic.redacted_detail.clone()))?;
+        bytes = match edit {
+            KeymapEdit::Set {
+                context,
+                action,
+                chords,
+            } => patch_bytes(&current, context, action, Some(chord_array(chords))),
+            KeymapEdit::Reset { context, action } => patch_bytes(&current, context, action, None),
+        };
+    }
+    Ok(bytes)
+}
 fn patch_bytes(
     document: &SettingsDocument,
     context: &ContextId,
@@ -408,7 +482,7 @@ impl FilePersistenceManager {
             &self.paths.settings_path,
             candidate.bytes.clone(),
             revision,
-            writer::ExpectedHash::Present(candidate.expected_hash),
+            candidate.expected_hash,
             writer::BackupPolicy::None,
             freshness,
         )

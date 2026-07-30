@@ -19,7 +19,8 @@ use jefe::runtime::{
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
-    TerminalRenderData, build_modal_element, build_screen_element, derive_confirm_modal_data,
+    ModalViewport, TerminalRenderData, build_modal_element, build_screen_element,
+    derive_confirm_modal_data,
 };
 
 use crate::app_input::{durable_save_request, schedule_durable_save};
@@ -443,7 +444,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         &colors,
         confirm_data,
         snapshot.help_scroll_offset,
-        render_rows,
+        ModalViewport {
+            cols: render_cols,
+            rows: render_rows,
+        },
     );
 
     // Root element with proper dimensions.
@@ -497,6 +501,9 @@ fn handle_terminal_event(
             // other keys also clear so the selection doesn't linger after the
             // user transitions to keyboard interaction. (If keyboard copy of
             // the selection is added later, that key would be excluded here.)
+            if crate::app_input::handle_keys_editor_key(app_state, &ctx.cloned(), &key_event) {
+                return;
+            }
             if key_event.kind != iocraft::KeyEventKind::Release {
                 crate::mouse_routing::clear_selection(app_state);
             }

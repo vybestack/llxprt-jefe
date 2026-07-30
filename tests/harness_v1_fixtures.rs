@@ -353,6 +353,26 @@ fn resize_restart_fixture_produces_both_evidence_frames() {
 }
 
 #[test]
+fn keys_editor_fixture_covers_validation_dirty_save_and_reopen() {
+    let outcome = run_fixture("keys-editor.json");
+    assert_passed("keys-editor", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn keys_editor_unbind_reset_fixture_covers_schema2_intents() {
+    let outcome = run_fixture("keys-editor-unbind-reset.json");
+    assert_passed("keys-editor-unbind-reset", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn keys_editor_recovery_small_fixture_keeps_back_and_quit_reachable() {
+    let outcome = run_fixture("keys-editor-recovery-small.json");
+    assert_passed("keys-editor-recovery-small", &outcome);
+    cleanup(&outcome);
+}
+#[test]
 fn containment_fixture_rejects_symlink_swapped_ancestor() {
     let outcome = run_fixture("harness-containment.json");
     let err = outcome

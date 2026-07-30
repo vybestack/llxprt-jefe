@@ -5,8 +5,8 @@
 //! own module to keep `messages.rs` focused on the enum definitions.
 
 use super::{
-    IssuesMessage, ModalMessage, PersistenceMessage, PullRequestsMessage, RepositoryAgentMessage,
-    RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
+    IssuesMessage, KeysEditorMessage, ModalMessage, PersistenceMessage, PullRequestsMessage,
+    RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
 };
 
 macro_rules! message_names {
@@ -64,8 +64,33 @@ message_names!(UiNavigationMessage {
     Self::ResumeShellOverlay(_) => "ResumeShellOverlay",
 });
 
+message_names!(KeysEditorMessage {
+    Self::MoveUp => "KeysMoveUp",
+    Self::MoveDown => "KeysMoveDown",
+    Self::MoveHome => "KeysMoveHome",
+    Self::MoveEnd => "KeysMoveEnd",
+    Self::BeginEdit => "KeysBeginEdit",
+    Self::EditChar(_) => "KeysEditChar",
+    Self::EditBackspace => "KeysEditBackspace",
+    Self::CommitEdit => "KeysCommitEdit",
+    Self::CancelEdit => "KeysCancelEdit",
+    Self::Unbind => "KeysUnbind",
+    Self::Reset => "KeysReset",
+    Self::ValidationPassed => "KeysValidationPassed",
+    Self::ValidationFailed(_) => "KeysValidationFailed",
+    Self::RequestClose => "KeysRequestClose",
+    Self::ConfirmPrevious => "KeysConfirmPrevious",
+    Self::ConfirmNext => "KeysConfirmNext",
+    Self::ConfirmCancel => "KeysConfirmCancel",
+    Self::ConfirmDiscard => "KeysConfirmDiscard",
+    Self::SaveFailed(_) => "KeysSaveFailed",
+    Self::SaveSucceeded(_) => "KeysSaveSucceeded",
+});
+
 message_names!(ModalMessage {
     Self::OpenHelp => "OpenHelp",
+    Self::OpenKeys { .. } => "OpenKeys",
+    Self::Keys(_) => "KeysEditor",
     Self::OpenSearch => "OpenSearch",
     Self::CloseModal => "CloseModal",
     Self::SubmitForm => "SubmitForm",

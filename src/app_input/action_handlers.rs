@@ -34,6 +34,7 @@ pub enum BoundaryAction {
     FocusAgents,
     FocusTerminal,
     OpenThemePicker,
+    OpenKeys,
     TerminalManagerCloseShell,
     TerminalManagerFocusShell,
     ConfirmAccept,
@@ -176,6 +177,7 @@ fn apply_boundary(
         BoundaryAction::OpenThemePicker => {
             super::modal_handlers::open_theme_picker(app_state, ctx);
         }
+        BoundaryAction::OpenKeys => super::keys_editor::open(app_state, ctx),
         BoundaryAction::TerminalManagerCloseShell | BoundaryAction::TerminalManagerFocusShell => {
             apply_terminal_manager_boundary(boundary, app_state, ctx);
         }
@@ -262,7 +264,7 @@ macro_rules! handler_execution {
         let page_items = $page_items;
         match handler {
             H::EmergencyExit => E::Boundary(B::Quit),
-            H::OpenKeys => E::Noop,
+            H::OpenKeys => E::Boundary(B::OpenKeys),
             H::JumpAgent(slot) => E::Boundary(B::JumpAgent(slot)),
             H::TerminalScrollPageUp
             | H::TerminalScrollPageDown

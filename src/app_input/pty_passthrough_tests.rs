@@ -25,6 +25,10 @@ fn minimal_test_ctx() -> CtxArc {
     };
     Arc::new(Mutex::new(AppContext {
         keymap_snapshot: Some(startup.keymap_snapshot),
+        keymap_document: startup.keymap_document,
+        keymap_expected_hash: startup.keymap_expected_hash,
+        keymap_recovery: None,
+        keymap_revision: 0,
         persistence: FilePersistenceManager::default(),
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),

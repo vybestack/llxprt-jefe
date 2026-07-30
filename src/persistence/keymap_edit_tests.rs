@@ -327,3 +327,33 @@ fn revision_gate_retains_prior_bytes_when_candidate_becomes_stale() {
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn complete_multi_edit_candidate_validates_once_and_preserves_dormant_bytes() {
+    use super::keymap_edit::KeymapEdit;
+    use super::writer::ExpectedHash;
+
+    let source = b"# heading\nsettings_schema = 2\n[keymap.global]\n\"core.open-keys\" = [\",\"] # keep\n[extensions.future]\nvalue = 'stay'\n";
+    let document = document(source);
+    let context = context("global");
+    let action = action("core.open-keys");
+    let chord = chords(&["."])
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("one chord fixture must exist"));
+    let catalog = catalog();
+    let candidate = KeymapCandidate::from_edits(
+        &document,
+        &catalog,
+        &[KeymapEdit::set(context, action, vec![chord])],
+        ExpectedHash::Present(document.sha256()),
+        "settings",
+    )
+    .unwrap_or_else(|error| panic!("complete candidate must validate: {error}"));
+
+    let rendered = String::from_utf8_lossy(candidate.bytes());
+    assert!(rendered.contains("# heading"));
+    assert!(rendered.contains("# keep"));
+    assert!(rendered.contains("[extensions.future]\nvalue = 'stay'"));
+    assert!(rendered.contains("\"core.open-keys\" = [\".\"]"));
+}

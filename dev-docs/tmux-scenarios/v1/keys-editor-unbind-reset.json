@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "name": "keys-editor-unbind-reset",
+  "platform": "macos",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "work", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": { "utf8": "# keep\nsettings_schema = 2\n[keymap.global]\n# binding stays\n\"core.open-keys\" = [\".\"]\n[extensions.future]\nvalue = \"stay\"\n" },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": ".", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Keys - Keyboard Bindings",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "down", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> core.open-keys",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "r", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Inherit",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["core.open-keys", "Inherit", "Unsaved changes"],
+      "absent": ["KEY-E401"]
+    },
+    { "op": "key", "key": "s", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": ",", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Keys - Keyboard Bindings",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "down", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> core.open-keys",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "u", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Unbound",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["core.open-keys", "Unbound", "Unsaved changes"],
+      "absent": ["KEY-E401"]
+    },
+    { "op": "key", "key": "s", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "q", "modifiers": ["control"] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

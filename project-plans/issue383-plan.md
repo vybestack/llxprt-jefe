@@ -1090,3 +1090,127 @@ HAR-E005 startup capture race; the exact isolated fixture passed immediately,
 while complete quick retries reproduced the empty-frame startup timeout. This
 is recorded as incomplete quick evidence rather than a pass; all deterministic
 S5 tests and the full locked workspace suite are green.
+
+## S6 execution ledger — Keys editor and lossless save
+
+S6 implements the Keys-editor portions of CW03-03, CW03-04, and CW03-05 only.
+The accepted global `,` action opens one schema-2-owned modal. A deterministic
+typed reducer owns navigation, editing, validation status, dirty-exit
+confirmation, and recovery state; an iocraft-free projection owns every layout
+decision; the iocraft component only renders that projection. The app-input
+boundary validates complete candidates and uses the existing lossless keymap
+patcher plus revision-gated atomic writer. The root snapshot changes only after
+an authoritative write succeeds.
+
+### S6 changed-file ledger (recorded before edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S6 scope, RED/GREEN evidence, and exact verification | delivery evidence |
+| `dev-docs/tmux-scenarios/v1/keys-editor.json` | Strict schema-1 normal/focused/error/dirty/save/reopen contract | behavioral scenario (new) |
+| `dev-docs/tmux-scenarios/v1/keys-editor-unbind-reset.json` | Strict schema-1 Unbind/Reset/inheritance contract | behavioral scenario (new) |
+| `dev-docs/tmux-scenarios/v1/keys-editor-recovery-small.json` | Strict schema-1 malformed-keymap recovery and tiny-layout Back/Ctrl-Q contract | behavioral scenario (new) |
+| `tests/harness_v1_fixtures.rs` | Execute the three S6 fixtures through the real strict runner | integration evidence |
+| `src/keys_view.rs` | Pure snapshot-to-editor and editor-to-layout projection | pure view (new, internal) |
+| `src/keys_view_tests.rs` | Focused/error/dirty/recovery/small-terminal projection tests | pure-view tests (new) |
+| `src/state/keys_editor.rs` | Typed editor values and deterministic reducer | state reducer (new, internal) |
+| `src/state/keys_editor_tests.rs` | Navigation/edit/unbind/reset/validation/dirty-confirm reducer tests | state tests (new) |
+| `src/state/mod.rs` | Register and route the private Keys reducer | reducer wiring |
+| `src/state/types.rs` | Carry the runtime-only Keys modal state | root state |
+| `src/state/modal_ops.rs` | Route the smallest typed modal message to the Keys reducer | reducer routing |
+| `src/messages.rs` | Add typed Keys modal intents | typed messages |
+| `src/messages/keys.rs` | Private typed Keys message split required to keep the message owner below 1,000 lines | typed messages (new, internal) |
+| `src/messages/event_conversion.rs` | Preserve exhaustive bidirectional event/message conversion for Keys intents | conversion seam |
+| `src/messages/names.rs` | Preserve exhaustive message diagnostics | message diagnostics |
+| `src/state/events.rs` | Carry the existing low-level typed Keys intent facade | typed events |
+| `src/input.rs` | Classify the Keys modal as app-owned input | input classification |
+| `src/action_context.rs` | Give the modal the protected global routing stack | pure context selector |
+| `src/persistence/keymap_edit.rs` | Apply a complete list of set/unbind/reset edits before one validation/write | lossless persistence boundary |
+| `src/persistence/keymap_edit_tests.rs` | Complete multi-edit, absent-target, protected, and byte-retention coverage | persistence tests |
+| `src/persistence/mod.rs` | Narrowly re-export the existing candidate/edit persistence contracts to the binary composition boundary | persistence wiring |
+| `src/startup.rs` | Retain the validated source document/absence identity for later lossless edits | startup composition |
+| `src/main.rs` | Wire the selected settings authority and keymap revision fence into root context | composition root |
+| `src/app_init.rs` | Preserve keymap recovery information after startup state hydration | startup state wiring |
+| `src/app_input/keys_editor.rs` | Translate keys to typed intents and execute pure validation/atomic save effects | side-effect boundary (new, internal) |
+| `src/app_input/mod.rs` | Register and expose the private Keys boundary | app-input wiring |
+| `src/app_input/action_handlers.rs` | Execute `OpenKeys` through the named Keys boundary | closed action executor |
+| `src/app_input/pty_passthrough_tests.rs` | Keep the root-context fixture complete after adding settings authority state | focused fixture |
+| `src/app_shell.rs` | Route Keys input before general raw mutation/registry dispatch | root input orchestration |
+| `src/mouse_routing.rs` | Treat Keys as a blocking overlay only; no action click routing | existing overlay guard |
+| `src/ui/modals/keys.rs` | Thin iocraft renderer over `keys_view` | UI modal (new) |
+| `src/ui/modals/mod.rs` | Register/re-export the Keys modal | UI wiring |
+| `src/ui/mod.rs` | Re-export the Keys modal for orchestration | UI wiring |
+| `src/ui/orchestration.rs` | Render the Keys modal from cloned root state | UI orchestration |
+| `src/lib.rs` | Register the private pure Keys projection/tests | crate wiring |
+
+No S7 mouse hit routing beyond retaining stable action IDs in rendered button
+labels, no S8 capture conversion/protocol, no S9 normative docs, no new public
+abstraction or subsystem, no dependency/workflow/quality/`.llxprt` change, no
+unsafe, and no production panic/unwrap/expect is included. The private state,
+view, UI, and boundary splits are planned before creation to keep every file
+below 1,000 lines.
+
+### S6 RED contract
+
+The three strict schema-1 scenarios and their integration-test entries are
+written and executed before any production S6 source edit. They require the
+absent Keys title, focused row/editor, `KEY-E401` disabled-save state,
+Save/Discard/Cancel dirty guard with Escape-as-Cancel, reset inheritance,
+explicit unbind, runtime reopen from the newly published snapshot, malformed
+keymap recovery, and a resized tiny layout that still renders Back and Ctrl-Q.
+Focused reducer/view/persistence tests are also written before their production
+modules or complete-candidate APIs exist.
+
+### S6 RED/GREEN and verification evidence
+
+- Strict RED was captured before production edits: the primary schema-1 fixture
+  timed out waiting for `Keys - Keyboard Bindings` after sending the accepted
+  global comma action, proving `OpenKeys` was still inert. Focused persistence
+  RED then failed on the absent `KeymapEdit` and `KeymapCandidate::from_edits`
+  contracts; reducer and pure-view tests likewise referenced absent S6 modules.
+- The deterministic reducer now owns stable `(context, action)` rows, navigation,
+  canonical single-chord-list editing, protected read-only behavior, explicit
+  Unbind, Reset-to-inheritance, complete-candidate validation state, recovery,
+  and the Save/Discard/Cancel dirty guard. Escape in confirmation returns to the
+  dirty editor.
+- The app-input boundary intercepts only the open Keys modal before normal raw
+  mutation/registry routing, while Ctrl-Q continues through the protected global
+  action. It validates one complete lossless candidate and writes through the
+  existing revision/hash-fenced atomic writer. A stale/conflicting/failing write
+  retains the draft and prior authority; only an authoritative completion adopts
+  the exact document bytes, expected hash, published settings, revision, context
+  snapshot, and root immutable snapshot.
+- The pure projection supplies normal, focused/editing, invalid, dirty,
+  confirmation, recovery, and compact states. Unicode-cell truncation and a
+  reserved line/footer budget keep `Esc Back | Ctrl-Q Quit` inside a 44x10
+  modal without direct UI terminal I/O.
+- Focused GREEN: `cargo test --lib keys_ --no-fail-fast` — 21 passed;
+  `cargo test --lib persistence::keymap_edit_tests --no-fail-fast` — 8 passed;
+  `cargo test --bin jefe app_shell_key_routing --no-fail-fast` — 7 passed.
+- Strict schema-1 GREEN on the final formatted implementation: all three real
+  fixtures passed sequentially: normal/focused/KEY-E401/dirty/save/reopen,
+  Reset/inheritance plus explicit Unbind, and malformed recovery with compact
+  Back/Ctrl-Q reachability.
+- `cargo fmt --all` and `git diff --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  with zero warnings and no lint suppression.
+- `cargo build --workspace --all-features --locked` — PASS.
+- Full locked workspace tests initially reached the unchanged
+  `llxprt_continue_field_fixture_sends_one_exact_issue_prompt` harness timing
+  race after every preceding target passed; the exact fixture passed immediately
+  in isolation. The exact-final-head `cargo test --workspace --all-features
+  --locked -q` retry then passed every target (library 2,915 passed / 1 ignored;
+  binary 791 passed, all 25 strict harness fixtures, integrations, and doctests).
+  `cargo xtask quick` also passed the complete suite.
+- `cargo xtask check source-size`, `cargo xtask check clippy-allows`, and
+  `cargo xtask check architecture` — PASS. `messages.rs` and `state/events.rs`
+  are exactly 1,000 lines; every new S6 owner is below 500 lines.
+- Mandatory scope review: S6 changes 35 files because the accepted behavior
+  crosses typed event/message/state wiring, root input/composition, persistence,
+  pure view/UI, and three strict fixtures. Every path maps to the ledger above;
+  no unplanned owner or unrelated behavior was added, and the slice remains
+  below the approved 40-file hard stop under D1.
+- Final added-production-line scan found no `unsafe`, production unwrap/expect,
+  clippy allow/expect, TODO/FIXME/HACK, dependency, workflow, quality, `.llxprt`,
+  S7 click routing, S8 capture protocol, or S9 normative-doc change. No commit
+  or push was performed.

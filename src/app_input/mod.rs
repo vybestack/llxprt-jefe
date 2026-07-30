@@ -10,6 +10,8 @@ mod agent_chooser_entries;
 mod dashboard_search;
 mod filter_controls;
 mod issues;
+mod keys_editor;
+pub use keys_editor::handle_key as handle_keys_editor_key;
 mod issues_comments_dispatch;
 mod issues_dispatch;
 mod issues_filter;

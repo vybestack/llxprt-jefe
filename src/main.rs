@@ -31,6 +31,10 @@ use jefe::theme::FileThemeManager;
 /// Shared application context passed to the root component.
 struct AppContext {
     keymap_snapshot: Option<jefe::domain::action_registry::ActionRegistrySnapshot>,
+    keymap_document: jefe::persistence::settings_document::SettingsDocument,
+    keymap_expected_hash: jefe::persistence::writer::ExpectedHash,
+    keymap_recovery: Option<String>,
+    keymap_revision: u64,
     persistence: jefe::persistence::FilePersistenceManager,
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
@@ -260,20 +264,17 @@ fn main() {
         run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
-    let startup = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {
-        Ok(startup) => startup,
-        Err(error) => {
-            write_startup_error(&error, cli_args.config_dir.as_deref());
-            std::process::exit(i32::from(error.exit_code));
-        }
-    };
+    let startup = build_startup_or_exit(cli_args.config_dir.as_deref());
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
         state_path: startup.paths.state.path.clone(),
     };
     let themes_dir = startup.paths.themes.clone();
     let keymap_diagnostic = startup.keymap_diagnostic_message();
+    let keymap_recovery = keymap_diagnostic.clone();
     let keymap_snapshot = startup.keymap_snapshot;
+    let keymap_document = startup.keymap_document;
+    let keymap_expected_hash = startup.keymap_expected_hash;
     let published_settings = startup.settings;
     let persistence = startup.manager;
     write_optional_diagnostic(keymap_diagnostic);
@@ -303,6 +304,10 @@ fn main() {
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
+        keymap_document,
+        keymap_expected_hash,
+        keymap_recovery,
+        keymap_revision: 0,
         persistence,
         published_settings,
         theme_manager,
@@ -315,6 +320,18 @@ fn main() {
 
     let _console_guard = prepare_console_and_detect_font();
     run_app(context);
+}
+
+fn build_startup_or_exit(
+    config_dir: Option<&std::path::Path>,
+) -> jefe::startup::StartupPersistence {
+    match jefe::startup::build_persistence(config_dir) {
+        Ok(startup) => startup,
+        Err(error) => {
+            write_startup_error(&error, config_dir);
+            std::process::exit(i32::from(error.exit_code));
+        }
+    }
 }
 
 /// Set the console output code page to UTF-8 (issue #434) and then probe the

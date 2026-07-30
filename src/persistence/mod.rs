@@ -52,6 +52,7 @@ mod writer_tests;
 
 pub mod diagnostic;
 pub(crate) mod keymap_edit;
+pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;
 pub mod paths;
 pub mod settings_document;
