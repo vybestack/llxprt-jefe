@@ -113,7 +113,7 @@ fn read_bounded(pipe: &mut impl Read) -> io::Result<StreamCapture> {
     }
 }
 
-/// Run one fixed-argv probe before the shared total deadline.
+/// Run one fixed-argv probe before its process deadline.
 pub(super) fn run_probe_process(
     mut command: Command,
     deadline: Instant,

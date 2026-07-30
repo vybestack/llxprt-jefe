@@ -350,7 +350,7 @@ pub struct ProbeSpec {
     /// makes an installation `InstalledIncompatible`.
     #[serde(default)]
     pub required: Vec<String>,
-    /// Probe timeout in milliseconds (1..=5000 local, <=20000 remote).
+    /// Probe timeout in milliseconds (1..=10000 local, <=20000 remote).
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
     /// Maximum bytes to capture (1..=65536).
