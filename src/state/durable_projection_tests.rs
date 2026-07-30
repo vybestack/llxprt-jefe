@@ -9,8 +9,9 @@
 use std::path::PathBuf;
 
 use crate::domain::{
-    Agent, AgentId, AgentStatus, DormantRecord, Id, LastKnownRuntime, RemoteRepositorySettings,
-    Repository, RepositoryId, RepositoryLocation, RuntimeBinding, UserPreferences,
+    Agent, AgentId, AgentStatus, DormantRecord, Id, LastKnownRuntime, LaunchSignatureV1,
+    RemoteRepositorySettings, Repository, RepositoryId, RepositoryLocation, RuntimeBinding,
+    UserPreferences,
 };
 use crate::persistence::state_v2::StateDocument;
 use crate::state::durable_projection::{current_launch_signature, to_durable_state};
@@ -383,6 +384,29 @@ fn restored_launch_signature_matches_current_projection() {
             .value_or_panic("current launch signature projects");
         assert_eq!(agent.persisted_launch_signature.as_ref(), Some(&current));
     }
+}
+
+#[test]
+fn running_projection_preserves_observed_launch_signature() {
+    let mut state = sample_state();
+    let running = &mut state.agents[0];
+    let prior = running
+        .runtime_binding
+        .as_ref()
+        .map(|binding| binding.launch_signature.clone())
+        .value_or_panic("running binding");
+    let observed = LaunchSignatureV1 {
+        definition_hash: LaunchSignatureV1::default().definition_hash,
+        ..prior
+    };
+    running
+        .runtime_binding
+        .as_mut()
+        .value_or_panic("running binding")
+        .launch_signature = observed.clone();
+
+    let projected = to_durable_state(&state).value_or_panic("project state");
+    assert_eq!(projected.agents[0].launch_signature, observed);
 }
 
 #[test]
