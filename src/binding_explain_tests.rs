@@ -50,12 +50,14 @@ fn explain_reports_normalized_resolution_context_shadow_and_provenance() {
 fn explain_uses_complete_snapshot_context_order() {
     let dir = unique_dir("nested-order");
 
-    let output = run("Ctrl+Enter", Some("modal.confirm"), Some(&dir));
+    let output = run("Ctrl+Enter", Some("issues.inline"), Some(&dir));
 
     assert_eq!(output.exit_code, 0);
-    assert!(output.stdout.contains(
-        "searched contexts: modal.confirm -> issues.inline -> issues.detail -> issues.list -> global"
-    ));
+    assert!(
+        output
+            .stdout
+            .contains("searched contexts: issues.inline -> global")
+    );
     assert!(output.stdout.contains("winner: issues.inline-submit"));
     assert!(output.stdout.contains("context: issues.inline"));
     assert!(output.stdout.contains("provenance: compiled"));
@@ -65,12 +67,15 @@ fn explain_uses_complete_snapshot_context_order() {
 #[test]
 fn canonical_alias_resolution_reports_lower_precedence_shadow() {
     let dir = unique_dir("shadow");
-    let source = b"settings_schema = 2\n[keymap.dashboard]\n\"dashboard.navigate-down\" = [\"BackTab\"]\n[keymap.split]\n\"split.cycle-pane\" = [\"BackTab\"]\n[keymap.errors]\n\"errors.cycle-pane\" = [\"BackTab\"]\n[keymap.global]\n\"core.open-keys\" = [\"BackTab\"]\n[keymap.\"modal.confirm\"]\n\"confirm.cycle-focus\" = [\"BackTab\"]\n[keymap.\"modal.form\"]\n\"form.previous-field\" = [\"BackTab\"]\n[keymap.filter]\n\"filter.previous-field\" = [\"BackTab\"]\n[keymap.\"issues.list\"]\n\"issues.cycle-pane\" = [\"BackTab\"]\n";
+    // S4 introduces many finer-grained contexts whose compiled BackTab bindings
+    // would be implicitly shadowed by a global override. The fixture overrides
+    // each child explicitly so the composition accepts the candidate while still
+    // exercising canonical alias resolution and shadow reporting.
+    let source = b"settings_schema = 2\n[keymap.dashboard]\n\"dashboard.navigate-down\" = [\"BackTab\"]\n[keymap.split]\n\"split.cycle-pane\" = [\"BackTab\"]\n[keymap.errors]\n\"errors.cycle-pane\" = [\"BackTab\"]\n[keymap.global]\n\"core.open-keys\" = [\"BackTab\"]\n[keymap.\"modal.confirm\"]\n\"confirm.cycle-focus\" = [\"BackTab\"]\n[keymap.\"modal.form\"]\n\"form.previous-field\" = [\"BackTab\"]\n[keymap.\"issues.repo-list\"]\n\"issues.repo-cycle-pane\" = [\"BackTab\"]\n[keymap.\"issues.list\"]\n\"issues.list-cycle-pane\" = [\"BackTab\"]\n[keymap.\"issues.detail\"]\n\"issues.detail-subfocus-previous\" = [\"BackTab\"]\n[keymap.\"issues.new-form\"]\n\"issues.new-previous\" = [\"BackTab\"]\n[keymap.\"issues.filter\"]\n\"issues.filter-previous\" = [\"BackTab\"]\n[keymap.\"prs.repo-list\"]\n\"prs.repo-cycle-pane\" = [\"BackTab\"]\n[keymap.\"prs.list\"]\n\"prs.list-cycle-pane\" = [\"BackTab\"]\n[keymap.\"prs.detail\"]\n\"prs.detail-previous\" = [\"BackTab\"]\n[keymap.\"prs.changes\"]\n\"prs.changes-focus-files\" = [\"BackTab\"]\n[keymap.\"prs.filter\"]\n\"prs.filter-previous\" = [\"BackTab\"]\n[keymap.\"actions.filter\"]\n\"actions.filter-previous\" = [\"BackTab\"]\n";
     std::fs::write(dir.join("settings.toml"), source)
         .unwrap_or_else(|error| panic!("seed settings: {error}"));
 
     let output = run("Shift+Tab", Some("dashboard"), Some(&dir));
-
     assert_eq!(output.exit_code, 0);
     assert!(output.stdout.contains("winner: dashboard.navigate-down"));
     assert!(output.stdout.contains("shadows: global:core.open-keys"));

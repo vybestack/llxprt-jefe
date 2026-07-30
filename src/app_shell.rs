@@ -3,11 +3,9 @@ use tracing::{debug, trace, warn};
 
 use crate::AppContext;
 use crate::app_input::{
-    apply_background_gh_delivery, dispatch_app_event, handle_mode_auth_key,
-    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
-    handle_mode_theme_picker_key, handle_normal_key_event, install_gh_delivery_handler,
-    request_pr_background_refresh, synchronize_actions_geometry, try_suppress_synthetic_enter,
-    update_paste_enter_suppression,
+    apply_background_gh_delivery, dispatch_app_event, install_gh_delivery_handler,
+    request_pr_background_refresh, resolve_raw_key_mutation, synchronize_actions_geometry,
+    try_suppress_synthetic_enter, update_paste_enter_suppression,
 };
 use crate::app_shell_key_routing::route_registry_key;
 use crate::pty_encoding::PasteEnterSuppression;
@@ -38,7 +36,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let should_quit = hooks.use_state(|| false);
     let mut app_state = hooks.use_state(AppState::default);
     let render_tick = hooks.use_state(|| 0u64);
-    let help_scroll = hooks.use_state(|| 0u32);
     let mut initialized = hooks.use_state(|| false);
     let mut startup_sessions_restored = hooks.use_state(|| false);
     let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
@@ -283,7 +280,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         let ctx = ctx.clone();
         let mut app_state = app_state;
         let mut should_quit = should_quit;
-        let mut help_scroll = help_scroll;
         let mut last_activity = last_activity;
 
         move |event| {
@@ -295,7 +291,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 ctx.as_ref(),
                 &mut app_state,
                 &mut should_quit,
-                &mut help_scroll,
                 &mut suppress_next_enter,
             );
         }
@@ -447,7 +442,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         &modal,
         &colors,
         confirm_data,
-        usize::try_from(help_scroll.get()).unwrap_or(0),
+        snapshot.help_scroll_offset,
         render_rows,
     );
 
@@ -481,7 +476,6 @@ fn handle_terminal_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
     should_quit: &mut HookState<bool>,
-    help_scroll: &mut HookState<u32>,
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
 ) {
     match event {
@@ -506,14 +500,7 @@ fn handle_terminal_event(
             if key_event.kind != iocraft::KeyEventKind::Release {
                 crate::mouse_routing::clear_selection(app_state);
             }
-            handle_key_event(
-                ctx,
-                app_state,
-                should_quit,
-                help_scroll,
-                suppress_next_enter,
-                key_event,
-            );
+            handle_key_event(ctx, app_state, should_quit, suppress_next_enter, key_event);
         }
         _ => {}
     }
@@ -636,6 +623,22 @@ fn paste_to_issues_search(
     suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
+fn normalize_terminal_focus(app_state: &mut HookState<AppState>, ctx: Option<&CtxArc>) {
+    let needs_normalization = {
+        let state = app_state.read();
+        state.terminal_focused && state.pane_focus != PaneFocus::Terminal
+    };
+    if !needs_normalization {
+        return;
+    }
+    debug!("clearing stale terminal_focused (pane not Terminal)");
+    let mut state = app_state.write();
+    state.terminal_focused = false;
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    schedule_durable_save(&ctx.cloned(), persisted);
+}
+
 fn should_ignore_key_event(key_event: &KeyEvent) -> bool {
     key_event.kind == KeyEventKind::Release
         || (key_event.kind == KeyEventKind::Repeat && key_event.code == KeyCode::Enter)
@@ -645,20 +648,20 @@ fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
     should_quit: &mut HookState<bool>,
-    help_scroll: &mut HookState<u32>,
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: KeyEvent,
 ) {
     if should_ignore_key_event(&key_event) {
         return;
     }
+    normalize_terminal_focus(app_state, ctx);
 
     let state_ro = app_state.read();
     let term_focused = state_ro.terminal_focused;
     let pane_focus = state_ro.pane_focus;
     let screen_mode = state_ro.screen_mode;
     let modal = state_ro.modal.clone();
-    let early_input_mode = input_mode_for_state(&state_ro);
+    let input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
 
     trace!(
@@ -676,95 +679,18 @@ fn handle_key_event(
     if try_suppress_synthetic_enter(suppress_next_enter, &key_event, now) {
         return;
     }
-    update_paste_enter_suppression(early_input_mode, suppress_next_enter, &key_event, now);
+    update_paste_enter_suppression(input_mode, suppress_next_enter, &key_event, now);
 
-    if route_registry_key(ctx, app_state, should_quit, suppress_next_enter, &key_event) {
-        return;
-    }
-
-    let input_mode = resolve_input_mode(app_state, ctx, term_focused, pane_focus);
-
-    if dispatch_mode_specific_key(app_state, ctx, help_scroll, &key_event, input_mode) {
-        return;
-    }
-
-    if let Some(evt) = handle_normal_key_event(
-        app_state,
-        should_quit,
-        &ctx.cloned(),
-        &key_event,
-        screen_mode,
-    ) {
-        dispatch_app_event(app_state, &ctx.cloned(), evt);
-    }
-}
-
-fn resolve_input_mode(
-    app_state: &mut HookState<AppState>,
-    ctx: Option<&CtxArc>,
-    term_focused: bool,
-    pane_focus: PaneFocus,
-) -> InputMode {
-    if term_focused && pane_focus != PaneFocus::Terminal {
-        // Defensive guard: terminal input is only valid when terminal pane is active.
-        debug!(
-            pane_focus = ?pane_focus,
-            "clearing stale terminal_focused (pane not Terminal)"
-        );
-        let mut state = app_state.write();
-        state.terminal_focused = false;
-        let persisted = durable_save_request(&mut state);
-        drop(state);
-        schedule_durable_save(&ctx.cloned(), persisted);
-        InputMode::Normal
-    } else {
+    let raw_event = {
         let state = app_state.read();
-        input_mode_for_state(&state)
+        resolve_raw_key_mutation(&state, &key_event)
+    };
+    if let Some(event) = raw_event {
+        dispatch_app_event(app_state, &ctx.cloned(), event);
+        return;
     }
-}
 
-/// Returns true when the event was fully handled (caller should return).
-fn dispatch_mode_specific_key(
-    app_state: &mut HookState<AppState>,
-    ctx: Option<&CtxArc>,
-    help_scroll: &mut HookState<u32>,
-    key_event: &KeyEvent,
-    input_mode: InputMode,
-) -> bool {
-    match input_mode {
-        InputMode::Help => {
-            handle_mode_help_key(app_state, &ctx.cloned(), help_scroll, key_event);
-            true
-        }
-        InputMode::Confirm => handle_mode_confirm_key(app_state, &ctx.cloned(), key_event),
-        InputMode::ThemePicker => {
-            handle_mode_theme_picker_key(app_state, &ctx.cloned(), key_event);
-            true
-        }
-        InputMode::Auth => handle_mode_auth_key(app_state, &ctx.cloned(), key_event),
-        InputMode::Search => handle_mode_search_key(app_state, &ctx.cloned(), key_event),
-        InputMode::Form => handle_mode_form_key(app_state, &ctx.cloned(), key_event),
-        // @plan PLAN-20260329-ISSUES-MODE.P03
-        InputMode::TerminalCapture
-        | InputMode::Normal
-        | InputMode::DashboardSearch
-        | InputMode::IssuesNormal
-        | InputMode::IssuesInline
-        | InputMode::IssuesSearch
-        | InputMode::IssuesFilter
-        | InputMode::IssuesChooser
-        // @plan PLAN-20260624-PR-MODE.P03
-        // @requirement REQ-PR-002
-        // P03: PR input modes not yet routed (P09 handles key routing).
-        | InputMode::PrsNormal
-        | InputMode::PrsInline
-        | InputMode::PrsSearch
-        | InputMode::PrsFilter
-        | InputMode::PrsChooser
-        | InputMode::ActionsNormal
-        | InputMode::ActionsFilter
-        | InputMode::ActionsSearch => false,
-    }
+    let _ = route_registry_key(ctx, app_state, should_quit, suppress_next_enter, &key_event);
 }
 
 fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &AgentId) {

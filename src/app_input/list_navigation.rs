@@ -67,6 +67,24 @@ pub fn dashboard_page_item_count(
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
+    match screen_mode {
+        ScreenMode::DashboardIssues => issues_page_item_count(state, terminal_cols, terminal_rows),
+        ScreenMode::DashboardPullRequests => {
+            prs_page_item_count(state, terminal_cols, terminal_rows)
+        }
+        ScreenMode::DashboardActions => {
+            actions_page_item_count(state, terminal_cols, terminal_rows)
+        }
+        _ => dashboard_or_split_page_item_count(state, screen_mode, terminal_cols, terminal_rows),
+    }
+}
+
+fn dashboard_or_split_page_item_count(
+    state: &AppState,
+    screen_mode: ScreenMode,
+    terminal_cols: u16,
+    terminal_rows: u16,
+) -> PageItemCount {
     let (render_cols, render_rows) = effective_render_size(terminal_cols, terminal_rows);
     let pane_rows = match (screen_mode, state.pane_focus) {
         (ScreenMode::Dashboard, PaneFocus::Agents) => {

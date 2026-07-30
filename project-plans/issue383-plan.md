@@ -731,3 +731,149 @@ not counted as behavioral RED evidence.
 No dependency, workflow, quality configuration, public abstraction, UI
 projection, mouse route, harness conversion, `.llxprt` content, or generic
 payload was added. No commit or push was performed.
+
+## S4 execution ledger — Issues, Pull Requests, Actions, and modal dispatch
+
+S4 completes the runtime-dispatch portions of CW03-01 and CW03-02 for every
+remaining keyboard-owned context. Existing raw Unicode insertion, text/cursor
+mutation, paste, and PTY forwarding stay at their current boundaries; every
+action control resolves from the one root-owned immutable snapshot exactly
+once. Current source after the issue-520 merge is the parity authority.
+
+### S4 changed-file ledger (recorded before production edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S4 path ledger plus RED/GREEN and exact verification evidence | delivery evidence |
+| `src/action_context.rs` | Derive complete source-precedence stacks for Help, modal, search/filter, Issues, PR, Actions, inline, and chooser states | application selector |
+| `src/action_context_tests.rs` | RED-first precedence fixtures for every newly registry-owned state family | focused selector tests |
+| `src/app_shell.rs` | Make root action dispatch terminal after raw-input ownership and remove later-slice fallback routing | root input orchestration |
+| `src/app_shell_key_routing.rs` | Execute one S4 registry result and preserve raw/unsupported behavior without a second resolver | root dispatch boundary |
+| `src/app_shell_key_routing_tests.rs` | RED-first production-route parity and one-resolution fixtures | focused route tests |
+| `src/app_input/mod.rs` | Export raw-input and typed S4 boundary operations; delete superseded mode routing | app-input boundary |
+| `src/app_input/action_handlers.rs` | Extend the closed exhaustive executor to all current S4 typed outputs/boundaries | typed dispatch |
+| `src/app_input/action_handlers_s4.rs` | Cohesive private S4 typed event planning split needed to keep the executor below source-size limits; no public abstraction | typed dispatch (new, internal) |
+| `src/app_input/action_handlers_tests.rs` | RED-first Issues/PR/Actions/modal typed output parity | focused executor tests |
+| `src/app_input/actions.rs` | Retain raw Actions search editing only; remove the superseded action-control key map | raw input boundary |
+| `src/app_input/dashboard_search.rs` | Retain raw Dashboard search editing only; move apply/cancel controls to the registry | raw input boundary |
+| `src/app_input/filter_controls.rs` | Represent raw filter text editing independently from registry-owned controls | shared raw input |
+| `src/app_input/raw_key_mutations.rs` | Central explicit raw text/cursor ownership before registry resolution; excludes action controls | raw input boundary (new, internal) |
+| `src/app_input/issues.rs` | Retain Issues raw editor/search/property/form mutation only; remove action-control maps | raw input boundary |
+| `src/app_input/issues_filter.rs` | Expose typed filter command planning and retain raw field editing | typed/raw Issues boundary |
+| `src/app_input/prs.rs` | Retain PR raw editor/search/property mutation only; remove action-control maps | raw input boundary |
+| `src/app_input/prs_filter.rs` | Expose typed filter command planning and retain raw field editing | typed/raw PR boundary |
+| `src/app_input/modal_handlers.rs` | Replace Help/confirm/auth/form/theme key maps with named typed boundary operations; preserve issue-520 modal behavior | modal boundary |
+| `src/app_input/normal.rs` | Delete Issues/PR/Actions compatibility delegation and retain only rapid-quit state handling | legacy boundary deletion |
+| `src/app_input/list_navigation.rs` | Reuse source viewport geometry for the active S4 screen | shared pure calculation |
+| `src/domain/default_action_inventory.rs` | Replace provisional S0 S4 rows with an internal audited source-parity split | pure inventory |
+| `src/domain/default_action_inventory_s4.rs` | Hold all audited current S4 rows and complete context-stack declarations below source-size limits | pure inventory (new, internal) |
+| `src/domain/default_action_inventory_tests.rs` | RED-first current-row, no-ticket-alias, and full-context parity assertions | focused inventory tests |
+| `src/binding_explain_tests.rs` | Keep explain fixtures synchronized with corrected S4 context/action inventory | focused registry consumer tests |
+| `src/persistence/keymap_edit_tests.rs` | Keep lossless keymap candidate fixtures synchronized with corrected S4 inventory | focused persistence tests |
+| `src/ui/modals/help.rs` | Describe registry/executor ownership of Help scrolling after deleting the old modal key handler | UI contract documentation |
+
+No UI projection, Keys editor, mouse route, harness conversion/capture, docs,
+dependency, workflow/quality configuration, `.llxprt` file, public abstraction,
+generic payload, compatibility resolver, or fallback route is in this slice.
+The private executor and inventory splits are recorded before creation because
+the existing owners are respectively 491 and 915 lines.
+
+### S4 RED contract
+
+The first tests require full S4 context ownership and source-specific typed
+handler output while the selector still returns `PreModeOnly` and every S4
+handler still returns `LaterSlice`. The inventory tests additionally require
+audited rows that are absent from the provisional S0 table and reject the
+ticket-only Issues/Actions `j`/`k`, Actions `a`, PR inline Ctrl-C, generic
+search Ctrl-L, and generic filter Ctrl-C aliases. These tests are written and
+run before any production S4 edit. This slice is dispatch/parity rather than a
+new visible interaction, so existing strict Issues/PR/Actions/modal scenarios
+are the UI evidence instead of a new scenario.
+
+### S4 RED evidence
+
+Before production edits, `cargo test --bin jefe action_context_tests
+--no-fail-fast` exited 101 with three `E0599` errors because the tests require
+the absent `DispatchScope::FullS4` contract. Independently, `cargo test --lib
+s4_inventory_is_source_audited_without_ticket_only_aliases --no-fail-fast`
+compiled and failed at the first absent audited row (`issues.detail` + `Down` +
+`NavigateDown`). These are the intended selector and inventory REDs; the closed
+handler test is wired in the same test-first change and remains `LaterSlice`
+until the selector compiles.
+
+### S4 GREEN implementation and verification evidence
+
+**Runtime ownership**: `derive_action_context` selects `DispatchScope::FullS4`
+for Issues, Pull Requests, Actions, Dashboard search, and all modal/editor/
+chooser states. The production key route derives one `ActionContext`,
+canonicalizes one `KeyEvent`, invokes `ActionRegistrySnapshot::resolve` exactly
+once, and executes the closed typed `HandlerKey` result through
+`s4::execution_for`. Before resolution, `raw_key_mutations::resolve` explicitly
+claims only Unicode insertion/deletion, editor cursor movement, and multiline
+newline insertion. A `FullS4` `Unbound` result is then terminally consumed (with
+rapid-`qqq` observation only in eligible normal modes); it never re-enters an
+Issues/PR/Actions/modal/filter key map. The root also retains the prior
+defensive stale-terminal-focus normalization before deriving input mode.
+
+**Closed handler executor**: `action_handlers_s4.rs` dispatches every S4
+`HandlerKey` variant into the smallest existing `AppEvent` or boundary
+operation for Issues, Pull Requests, Actions, Dashboard search, and all modal
+contexts (help, confirm, auth, form, theme). The `handler_execution!` macro
+retains all S4 handlers as `LaterSlice` so that only the s4 split plans them;
+the s4 split delegates to existing `pub(super)` helpers in `issues.rs`,
+`prs.rs`, `issues_filter.rs`, and `prs_filter.rs` without duplicating logic.
+The modal boundary executor in `s4::apply_modal_boundary` routes confirm/auth/
+form/theme boundary actions to the existing `modal_handlers` functions. Help
+scrolling is likewise a typed boundary and updates the canonical clamped
+`AppState::help_scroll_offset`; the superseded Help key map and duplicate hook
+state are deleted.
+
+**Inventory audit**: `default_action_inventory_s4.rs` holds all audited S4
+action/control rows with fully-qualified context stacks. The provisional S0
+context stacks referencing bare `"filter"` were removed from the main
+inventory; S4 contexts use `"issues.filter"`, `"prs.filter"`, `"actions.filter"`
+etc. Modal/editor/chooser stacks are intentionally isolated as
+`[special-context, global]`, matching the old terminal consumption boundary and
+preventing parent screen controls from leaking through. Dashboard search and
+Dashboard/Split/Actions modal states additionally inherit only the narrow
+`dashboard.pre-mode` F12 binding, preserving the old pre-mode terminal toggle
+without exposing Dashboard F8/F9/F10 or normal screen controls. The inventory
+is source-audited with no ticket aliases or wildcards.
+
+**No-fallback evidence**: `full_s4_root_has_no_legacy_action_fallback` scans the
+root and every migrated S4 input owner for the deleted compatibility entry
+points. `full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound`
+proves cancel/submit resolve through the compiled snapshot while ordinary text
+and multiline newline remain explicitly raw-owned. `raw_key_mutations::tests`
+proves navigation, submit, and cancel are never classified as raw mutations.
+
+**Verification record**:
+
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  with zero warnings.
+- `cargo build --workspace --all-features --locked` — PASS.
+- Focused corrected-route evidence: `cargo test --bin jefe app_input::
+  --no-fail-fast` — 638 passed; `cargo test --bin jefe
+  app_shell_key_routing --no-fail-fast` — 6 passed; `cargo test --lib
+  default_action_inventory --no-fail-fast` — 10 passed. The routing suite proves
+  Dashboard, Split, and Actions overlay F12 parity, keeps F8 out of the narrow
+  pre-mode context, and keeps modal F12 unbound in Issues and Pull Requests.
+- `cargo test --bin jefe --no-fail-fast` — PASS: 793 passed / 0 failed,
+  including the two final narrow pre-mode regressions.
+- `scripts/check-architecture.sh` and `cargo xtask check architecture` — PASS.
+  `modal_handlers.rs` 716 lines, `action_handlers_s4.rs` 742 lines, and
+  `action_handlers.rs` 560 lines (all below the 1,000-line hard limit).
+- `cargo xtask check source-size` — PASS (existing warnings only, no new
+  violations).
+- `cargo xtask check clippy-allows` — PASS.
+- `cargo xtask quick` — PASS.
+- `git diff --check` — PASS.
+- Strict TUI scenarios: `errors-mode.json` passed all 9 steps. `help-modal`,
+  `actions-mode`, `confirm-dialog-focus`, and `issues-filter-open-close`
+  failed identically on the pre-S4 baseline, confirming these are pre-existing
+  harness/timing issues unrelated to S4 dispatch.
+
+No dependency, workflow, quality configuration, public abstraction, UI
+projection, mouse route, harness conversion, `.llxprt` content, or generic
+payload was added. No commit or push was performed.

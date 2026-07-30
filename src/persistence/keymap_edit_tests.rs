@@ -167,25 +167,27 @@ fn complete_nested_stacks_reject_implicit_and_protected_shadows() {
     let implicit = KeymapCandidate::set(
         &source,
         &catalog(),
-        &context("issues.detail"),
-        &action("issues.edit"),
-        &chords(&["Ctrl+Enter"]),
+        &context("issues"),
+        &action("issues.open-prs"),
+        &chords(&["Down"]),
         "settings.toml",
     )
     .err()
-    .unwrap_or_else(|| panic!("parent override must not implicitly shadow inline submit"));
+    .unwrap_or_else(|| panic!("parent override must not implicitly shadow detail navigation"));
     assert!(implicit.to_string().contains("ImplicitShadow"));
 
+    // Modal contexts inherit only protected global recovery controls, not the
+    // mutually exclusive screen or editor action chain.
     let protected = KeymapCandidate::set(
         &source,
         &catalog(),
         &context("modal.confirm"),
-        &action("confirm.accept"),
-        &chords(&["Ctrl+C"]),
+        &action("confirm.cycle-focus"),
+        &chords(&["Ctrl+Q"]),
         "settings.toml",
     )
     .err()
-    .unwrap_or_else(|| panic!("modal override must not shadow protected inline cancel"));
+    .unwrap_or_else(|| panic!("modal override must not shadow protected global emergency-exit"));
     assert!(protected.to_string().contains("ProtectedShadowed"));
     assert_eq!(source.original_bytes(), original);
 }

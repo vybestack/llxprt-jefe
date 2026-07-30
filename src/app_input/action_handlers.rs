@@ -9,6 +9,8 @@ use jefe::domain::keymap::{Chord, Key};
 use jefe::list_viewport::PageItemCount;
 use jefe::state::{AppEvent, AppState, ErrorsFocus, PaneFocus, ScreenMode};
 
+#[path = "action_handlers_s4.rs"]
+mod s4;
 #[derive(Debug)]
 pub enum HandlerExecution {
     Event(AppEvent),
@@ -34,6 +36,20 @@ pub enum BoundaryAction {
     OpenThemePicker,
     TerminalManagerCloseShell,
     TerminalManagerFocusShell,
+    ConfirmAccept,
+    AuthRetry,
+    FormSubmit,
+    FormSpace,
+    ThemeUp,
+    ThemeDown,
+    ThemeApply,
+    ThemeCancel,
+    HelpScrollUp,
+    HelpScrollDown,
+    HelpPageUp,
+    HelpPageDown,
+    HelpHome,
+    HelpEnd,
 }
 
 pub fn pre_mode_owned(
@@ -156,17 +172,64 @@ fn apply_boundary(
         BoundaryAction::OpenThemePicker => {
             super::modal_handlers::open_theme_picker(app_state, ctx);
         }
+        BoundaryAction::TerminalManagerCloseShell | BoundaryAction::TerminalManagerFocusShell => {
+            apply_terminal_manager_boundary(boundary, app_state, ctx);
+        }
+        BoundaryAction::ConfirmAccept
+        | BoundaryAction::AuthRetry
+        | BoundaryAction::FormSubmit
+        | BoundaryAction::FormSpace
+        | BoundaryAction::ThemeUp
+        | BoundaryAction::ThemeDown
+        | BoundaryAction::ThemeApply
+        | BoundaryAction::ThemeCancel => {
+            s4::apply_modal_boundary(boundary, app_state, ctx);
+        }
+        BoundaryAction::HelpScrollUp
+        | BoundaryAction::HelpScrollDown
+        | BoundaryAction::HelpPageUp
+        | BoundaryAction::HelpPageDown
+        | BoundaryAction::HelpHome
+        | BoundaryAction::HelpEnd => apply_help_scroll(boundary, app_state),
+    }
+}
+
+fn apply_terminal_manager_boundary(
+    boundary: BoundaryAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    let event = match boundary {
         BoundaryAction::TerminalManagerCloseShell => {
-            if let Some(event) = super::terminal_manager::close_selected_shell(app_state) {
-                super::dispatch_app_event(app_state, ctx, event);
-            }
+            super::terminal_manager::close_selected_shell(app_state)
         }
         BoundaryAction::TerminalManagerFocusShell => {
-            if let Some(event) = super::terminal_manager::focus_selected_shell(app_state, ctx) {
-                super::dispatch_app_event(app_state, ctx, event);
-            }
+            super::terminal_manager::focus_selected_shell(app_state, ctx)
         }
+        _ => None,
+    };
+    if let Some(event) = event {
+        super::dispatch_app_event(app_state, ctx, event);
     }
+}
+
+fn apply_help_scroll(boundary: BoundaryAction, app_state: &mut super::AppStateHandle) {
+    let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let viewport_rows = jefe::ui::modals::help_viewport_rows(terminal_rows);
+    let max_scroll = jefe::ui::modals::help_content_lines()
+        .len()
+        .saturating_sub(viewport_rows);
+    let mut state = app_state.write();
+    state.help_scroll_offset = match boundary {
+        BoundaryAction::HelpScrollUp => state.help_scroll_offset.saturating_sub(1),
+        BoundaryAction::HelpScrollDown => state.help_scroll_offset.saturating_add(1),
+        BoundaryAction::HelpPageUp => state.help_scroll_offset.saturating_sub(8),
+        BoundaryAction::HelpPageDown => state.help_scroll_offset.saturating_add(8),
+        BoundaryAction::HelpHome => 0,
+        BoundaryAction::HelpEnd => max_scroll,
+        _ => state.help_scroll_offset,
+    }
+    .min(max_scroll);
 }
 
 fn new_agent_or_repository(app_state: &mut super::AppStateHandle, ctx: &super::SharedContext) {
@@ -365,7 +428,25 @@ pub fn execution_for(
     state: &AppState,
     page_items: PageItemCount,
 ) -> HandlerExecution {
+    if let Some(execution) = s4::execution_for(handler, chord, state, page_items) {
+        return execution;
+    }
     handler_execution!(handler, chord, state, page_items)
+}
+
+#[cfg(test)]
+pub(super) fn event_for_test(
+    handler: HandlerKey,
+    chord: Chord,
+    state: &AppState,
+    page_items: PageItemCount,
+) -> Option<AppEvent> {
+    match execution_for(handler, chord, state, page_items) {
+        HandlerExecution::Event(event) => Some(event),
+        HandlerExecution::Boundary(_) | HandlerExecution::Noop | HandlerExecution::LaterSlice => {
+            None
+        }
+    }
 }
 
 fn terminal_execution(handler: HandlerKey, state: &AppState) -> HandlerExecution {

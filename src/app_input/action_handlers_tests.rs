@@ -84,3 +84,77 @@ fn terminal_tail_at_follow_tail_forwards_to_pty() {
         HandlerExecution::Boundary(BoundaryAction::ForwardToPty)
     ));
 }
+
+#[test]
+fn s4_modal_controls_have_typed_executions() {
+    let mut state = AppState::default();
+    state.modal = jefe::state::ModalState::Help;
+    assert!(matches!(
+        execution_for(
+            HandlerKey::HelpScrollDown,
+            chord("Down"),
+            &state,
+            PageItemCount::new(1),
+        ),
+        HandlerExecution::Boundary(BoundaryAction::HelpScrollDown)
+    ));
+    assert!(matches!(
+        execution_for(
+            HandlerKey::HelpClose,
+            chord("Esc"),
+            &state,
+            PageItemCount::new(1),
+        ),
+        HandlerExecution::Event(AppEvent::CloseModal)
+    ));
+}
+
+#[test]
+fn s4_workspace_handlers_produce_source_specific_events() {
+    let mut issues = AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    };
+    issues.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
+    assert!(matches!(
+        execution_for(
+            HandlerKey::NavigateDown,
+            chord("Down"),
+            &issues,
+            PageItemCount::new(5),
+        ),
+        HandlerExecution::Event(AppEvent::IssuesScrollDetailDown)
+    ));
+
+    let mut prs = AppState {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        ..AppState::default()
+    };
+    prs.prs_state.pr_focus = jefe::state::PrFocus::PrList;
+    assert!(matches!(
+        execution_for(
+            HandlerKey::PullRequestsOpenBrowser,
+            chord("o"),
+            &prs,
+            PageItemCount::new(5),
+        ),
+        HandlerExecution::Event(AppEvent::PrShowNotice(
+            jefe::state::ReadOnlyHintKind::NoSelectionToOpen
+        ))
+    ));
+
+    let mut actions = AppState {
+        screen_mode: ScreenMode::DashboardActions,
+        ..AppState::default()
+    };
+    actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
+    assert!(matches!(
+        execution_for(
+            HandlerKey::ActionsActivate,
+            chord("Right"),
+            &actions,
+            PageItemCount::new(5),
+        ),
+        HandlerExecution::Event(AppEvent::ActionsExpandJob)
+    ));
+}

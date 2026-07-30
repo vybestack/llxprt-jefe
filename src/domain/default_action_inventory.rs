@@ -62,6 +62,8 @@ macro_rules! spec {
 #[path = "default_action_inventory_s3.rs"]
 mod s3;
 
+#[path = "default_action_inventory_s4.rs"]
+mod s4;
 // The first declaration for a leaf is its provider-free explain order. Later
 // declarations cover source-valid alternate parents during candidate validation.
 const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
@@ -77,62 +79,7 @@ const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
     (&["split", "global"], false),
     (&["errors", "global"], false),
     (&["terminal-manager", "global"], false),
-    (&["help", "dashboard", "global"], false),
-    (
-        &[
-            "modal.confirm",
-            "issues.inline",
-            "issues.detail",
-            "issues.list",
-            "global",
-        ],
-        false,
-    ),
-    (&["modal.auth", "dashboard", "global"], false),
-    (&["modal.form", "actions", "global"], false),
-    (&["modal.theme", "dashboard", "global"], false),
-    (&["search", "split", "global"], false),
-    (&["filter", "prs.detail", "prs.list", "global"], false),
-    (&["issues.list", "global"], false),
-    (&["issues.detail", "issues.list", "global"], false),
-    (
-        &["issues.inline", "issues.detail", "issues.list", "global"],
-        false,
-    ),
-    (
-        &[
-            "issues.agent-chooser",
-            "issues.detail",
-            "issues.list",
-            "global",
-        ],
-        false,
-    ),
-    (&["prs.list", "global"], false),
-    (&["prs.detail", "prs.list", "global"], false),
-    (&["prs.inline", "prs.detail", "prs.list", "global"], false),
-    (
-        &["prs.agent-chooser", "prs.detail", "prs.list", "global"],
-        false,
-    ),
     (&["actions", "global"], false),
-    (&["issues.inline", "issues.list", "global"], false),
-    (&["search", "dashboard", "global"], false),
-    (&["search", "issues.list", "global"], false),
-    (&["search", "prs.list", "global"], false),
-    (&["search", "actions", "global"], false),
-    (&["filter", "issues.list", "global"], false),
-    (&["filter", "prs.list", "global"], false),
-    (&["filter", "actions", "global"], false),
-    (&["help", "split", "global"], false),
-    (&["help", "issues.detail", "issues.list", "global"], false),
-    (&["help", "issues.list", "global"], false),
-    (&["modal.confirm", "dashboard", "global"], false),
-    (
-        &["modal.confirm", "issues.detail", "issues.list", "global"],
-        false,
-    ),
-    (&["modal.form", "dashboard", "global"], false),
 ];
 
 const SPECS: &[Spec] = &[
@@ -476,327 +423,6 @@ const SPECS: &[Spec] = &[
         H::TerminalManagerFocusShell,
         ["Enter"]
     ),
-    spec!(protected "help", "help.close", H::HelpClose, ["Esc", "Shift+?"]),
-    spec!("help", "help.scroll-up", H::HelpScrollUp, ["Up"]),
-    spec!("help", "help.scroll-down", H::HelpScrollDown, ["Down"]),
-    spec!("help", "help.page-up", H::HelpPageUp, ["PageUp"]),
-    spec!("help", "help.page-down", H::HelpPageDown, ["PageDown"]),
-    spec!("help", "help.home", H::HelpHome, ["Home"]),
-    spec!("help", "help.end", H::HelpEnd, ["End"]),
-    spec!(protected
-        "modal.confirm",
-        "confirm.cancel",
-        H::ConfirmCancel,
-        ["Esc", "n", "Shift+N"]
-    ),
-    spec!(
-        "modal.confirm",
-        "confirm.cycle-focus",
-        H::ConfirmCycleFocus,
-        ["Left", "Right", "Tab", "BackTab"]
-    ),
-    spec!(
-        "modal.confirm",
-        "confirm.accept",
-        H::ConfirmAccept,
-        ["Enter"]
-    ),
-    spec!(
-        "modal.confirm",
-        "confirm.toggle-workdir",
-        H::ConfirmToggleDeleteWorkDir,
-        [" ", "d", "Shift+D", "Up", "Down"]
-    ),
-    spec!(protected "modal.auth", "auth.cancel", H::AuthCancel, ["Esc"]),
-    spec!(
-        "modal.auth",
-        "auth.retry",
-        H::AuthRetry,
-        ["r", "Shift+R", "Enter"]
-    ),
-    spec!(protected "modal.form", "form.cancel", H::FormCancel, ["Esc"]),
-    spec!("modal.form", "form.submit", H::FormSubmit, ["Enter"]),
-    spec!(
-        "modal.form",
-        "form.next-field",
-        H::FormNextField,
-        ["Tab", "Down"]
-    ),
-    spec!(
-        "modal.form",
-        "form.previous-field",
-        H::FormPreviousField,
-        ["BackTab", "Up"]
-    ),
-    spec!(
-        "modal.form",
-        "form.cursor-left",
-        H::FormCursorLeft,
-        ["Left"]
-    ),
-    spec!(
-        "modal.form",
-        "form.cursor-right",
-        H::FormCursorRight,
-        ["Right"]
-    ),
-    spec!(
-        "modal.form",
-        "form.cursor-start",
-        H::FormCursorStart,
-        ["Home"]
-    ),
-    spec!("modal.form", "form.cursor-end", H::FormCursorEnd, ["End"]),
-    spec!(
-        "modal.form",
-        "form.backspace",
-        H::FormBackspace,
-        ["Backspace"]
-    ),
-    spec!("modal.form", "form.delete", H::FormDelete, ["Delete"]),
-    spec!("modal.theme", "theme.up", H::ThemeUp, ["Up"]),
-    spec!("modal.theme", "theme.down", H::ThemeDown, ["Down"]),
-    spec!(
-        "modal.theme",
-        "theme.toggle-override",
-        H::ThemeToggleOverride,
-        ["Tab"]
-    ),
-    spec!("modal.theme", "theme.apply", H::ThemeApply, ["Enter"]),
-    spec!(protected "modal.theme", "theme.cancel", H::ThemeCancel, ["Esc"]),
-    spec!("search", "search.apply", H::SearchApply, ["Enter"]),
-    spec!(protected "search", "search.cancel", H::SearchCancel, ["Esc"]),
-    spec!("search", "search.clear", H::SearchClear, ["Ctrl+L"]),
-    spec!(
-        "search",
-        "search.backspace",
-        H::SearchBackspace,
-        ["Backspace"]
-    ),
-    spec!("filter", "filter.apply", H::FilterApply, ["Enter"]),
-    spec!(protected "filter", "filter.cancel", H::FilterCancel, ["Esc"]),
-    spec!(
-        "filter",
-        "filter.next-field",
-        H::FilterNextField,
-        ["Tab", "Down"]
-    ),
-    spec!(
-        "filter",
-        "filter.previous-field",
-        H::FilterPreviousField,
-        ["BackTab", "Up"]
-    ),
-    spec!(
-        "filter",
-        "filter.clear-current",
-        H::FilterClearCurrent,
-        ["Ctrl+C"]
-    ),
-    spec!("filter", "filter.clear-all", H::FilterClearAll, ["Ctrl+L"]),
-    spec!(
-        "filter",
-        "filter.previous-choice",
-        H::FilterPreviousChoice,
-        ["Left"]
-    ),
-    spec!(
-        "filter",
-        "filter.next-choice",
-        H::FilterNextChoice,
-        ["Right", " "]
-    ),
-    spec!(
-        "filter",
-        "filter.backspace",
-        H::FilterBackspace,
-        ["Backspace"]
-    ),
-    spec!(protected "issues.list", "issues.exit", H::IssuesExit, ["a", "Esc"]),
-    spec!("issues.list", "issues.open", H::IssuesOpen, ["Enter"]),
-    spec!("issues.list", "issues.new", H::IssuesNew, ["n", "Shift+N"]),
-    spec!(
-        "issues.list",
-        "issues.open-filter",
-        H::IssuesOpenFilter,
-        ["f"]
-    ),
-    spec!(
-        "issues.list",
-        "issues.focus-search",
-        H::IssuesFocusSearch,
-        ["/"]
-    ),
-    spec!("issues.list", "issues.up", H::NavigateUp, ["Up", "k"]),
-    spec!("issues.list", "issues.down", H::NavigateDown, ["Down", "j"]),
-    spec!(
-        "issues.list",
-        "issues.page-up",
-        H::NavigatePageUp,
-        ["PageUp"]
-    ),
-    spec!(
-        "issues.list",
-        "issues.page-down",
-        H::NavigatePageDown,
-        ["PageDown"]
-    ),
-    spec!("issues.list", "issues.home", H::NavigateHome, ["Home"]),
-    spec!("issues.list", "issues.end", H::NavigateEnd, ["End"]),
-    spec!(
-        "issues.list",
-        "issues.cycle-pane",
-        H::IssuesCyclePane,
-        ["Left", "Right", "Tab", "BackTab"]
-    ),
-    spec!(protected "issues.detail", "issues.back", H::IssuesBack, ["Esc"]),
-    spec!("issues.detail", "issues.edit", H::IssuesEdit, ["e"]),
-    spec!("issues.detail", "issues.comment", H::IssuesComment, ["c"]),
-    spec!("issues.detail", "issues.reply", H::IssuesReply, ["r"]),
-    spec!(
-        "issues.detail",
-        "issues.send-agent",
-        H::IssuesSendToAgent,
-        ["Shift+S"]
-    ),
-    spec!(
-        "issues.inline",
-        "issues.inline-submit",
-        H::IssuesSubmitInline,
-        ["Ctrl+Enter"]
-    ),
-    spec!(protected
-        "issues.inline",
-        "issues.inline-cancel",
-        H::IssuesCancelInline,
-        ["Ctrl+C", "Esc"]
-    ),
-    spec!(
-        "issues.agent-chooser",
-        "issues.chooser-previous",
-        H::IssuesChooserPrevious,
-        ["Up"]
-    ),
-    spec!(
-        "issues.agent-chooser",
-        "issues.chooser-next",
-        H::IssuesChooserNext,
-        ["Down"]
-    ),
-    spec!(
-        "issues.agent-chooser",
-        "issues.chooser-confirm",
-        H::IssuesChooserConfirm,
-        ["Enter"]
-    ),
-    spec!(protected
-        "issues.agent-chooser",
-        "issues.chooser-cancel",
-        H::IssuesChooserCancel,
-        ["Esc"]
-    ),
-    spec!(protected "prs.list", "prs.exit", H::PullRequestsExit, ["a", "Esc"]),
-    spec!("prs.list", "prs.open", H::PullRequestsOpen, ["Enter"]),
-    spec!(
-        "prs.list",
-        "prs.open-filter",
-        H::PullRequestsOpenFilter,
-        ["f"]
-    ),
-    spec!(
-        "prs.list",
-        "prs.focus-search",
-        H::PullRequestsFocusSearch,
-        ["/"]
-    ),
-    spec!(protected "prs.detail", "prs.back", H::PullRequestsBack, ["Esc"]),
-    spec!("prs.detail", "prs.comment", H::PullRequestsComment, ["c"]),
-    spec!("prs.detail", "prs.reply", H::PullRequestsReply, ["r"]),
-    spec!(
-        "prs.detail",
-        "prs.resolve-thread",
-        H::PullRequestsResolveThread,
-        ["Shift+R"]
-    ),
-    spec!("prs.detail", "prs.edit", H::PullRequestsEdit, ["e"]),
-    spec!(
-        "prs.detail",
-        "prs.send-agent",
-        H::PullRequestsSendToAgent,
-        ["Shift+S"]
-    ),
-    spec!(
-        "prs.detail",
-        "prs.open-browser",
-        H::PullRequestsOpenBrowser,
-        ["o"]
-    ),
-    spec!(
-        "prs.detail",
-        "prs.open-merge",
-        H::PullRequestsOpenMerge,
-        ["m"]
-    ),
-    spec!(
-        "prs.inline",
-        "prs.inline-submit",
-        H::PullRequestsSubmitInline,
-        ["Ctrl+Enter"]
-    ),
-    spec!(protected
-        "prs.inline",
-        "prs.inline-cancel",
-        H::PullRequestsCancelInline,
-        ["Ctrl+C", "Esc"]
-    ),
-    spec!(
-        "prs.agent-chooser",
-        "prs.chooser-previous",
-        H::PullRequestsChooserPrevious,
-        ["Up"]
-    ),
-    spec!(
-        "prs.agent-chooser",
-        "prs.chooser-next",
-        H::PullRequestsChooserNext,
-        ["Down"]
-    ),
-    spec!(
-        "prs.agent-chooser",
-        "prs.chooser-confirm",
-        H::PullRequestsChooserConfirm,
-        ["Enter"]
-    ),
-    spec!(protected
-        "prs.agent-chooser",
-        "prs.chooser-cancel",
-        H::PullRequestsChooserCancel,
-        ["Esc"]
-    ),
-    spec!(protected "actions", "actions.exit", H::ActionsExit, ["a", "Esc"]),
-    spec!("actions", "actions.reload", H::ActionsReload, ["r"]),
-    spec!(
-        "actions",
-        "actions.open-filter",
-        H::ActionsOpenFilter,
-        ["f"]
-    ),
-    spec!(
-        "actions",
-        "actions.focus-search",
-        H::ActionsFocusSearch,
-        ["/"]
-    ),
-    spec!("actions", "actions.up", H::ActionsUp, ["Up", "k"]),
-    spec!("actions", "actions.down", H::ActionsDown, ["Down", "j"]),
-    spec!("actions", "actions.page-up", H::ActionsPageUp, ["PageUp"]),
-    spec!(
-        "actions",
-        "actions.page-down",
-        H::ActionsPageDown,
-        ["PageDown"]
-    ),
-    spec!("actions", "actions.activate", H::ActionsActivate, ["Enter"]),
 ];
 
 fn action_label(id: &str) -> String {
@@ -809,10 +435,11 @@ fn action_label(id: &str) -> String {
 }
 
 pub fn compiled_inventory() -> Result<CompiledInventory, InventoryError> {
-    let spec_count = SPECS.len() + s3::SPECS.len();
+    let specs = SPECS.iter().chain(s3::SPECS).chain(s4::SPECS);
+    let spec_count = specs.clone().count();
     let mut actions = Vec::with_capacity(spec_count);
     let mut bindings = Vec::with_capacity(spec_count);
-    for spec in SPECS.iter().chain(s3::SPECS) {
+    for spec in specs {
         let context = ContextId::parse(spec.context).map_err(InventoryError::Context)?;
         let id = ActionId::parse(spec.id).map_err(InventoryError::ActionId)?;
         if actions.iter().any(|action: &Action| action.id == id) {
@@ -849,6 +476,7 @@ pub fn compiled_inventory() -> Result<CompiledInventory, InventoryError> {
     }
     let context_stacks = CONTEXT_STACK_SPECS
         .iter()
+        .chain(s4::CONTEXT_STACK_SPECS)
         .map(|(contexts, terminal_capture)| {
             ContextStack::from_ordered(contexts.iter().copied(), *terminal_capture)
                 .map_err(InventoryError::ContextStack)

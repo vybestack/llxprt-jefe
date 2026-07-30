@@ -4,13 +4,14 @@
 use iocraft::prelude::*;
 use std::collections::BTreeSet;
 
+use jefe::domain::action_registry::HandlerKey;
 use jefe::domain::{FILTER_CHOICE_ANY, FILTER_CHOICE_NONE};
 use jefe::state::{
     AppEvent, AppState, ISSUE_FILTER_FIELD_COUNT, ISSUE_SORT_BY_FIELD_INDEX,
     ISSUE_SORT_ORDER_FIELD_INDEX,
 };
 
-use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
+use super::filter_controls::{FilterTextMutation, resolve_filter_text_mutation};
 
 /// Whether `field_idx` is one of the sort-row fields (issue #473).
 const fn is_sort_field(field_idx: usize) -> bool {
@@ -33,72 +34,53 @@ const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
     "sort_order",
 ];
 
-/// Resolve a key event while filter controls are open.
+/// Resolve raw text editing while Issues filter controls are open.
 /// @requirement REQ-ISS-008
-pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+pub(super) fn resolve_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     let field_idx = state.issues_state.filter_ui.field_index;
-
-    if matches!(key_event.code, KeyCode::Char('c'))
-        && key_event.modifiers.contains(KeyModifiers::CONTROL)
-    {
-        return Some(AppEvent::ExitIssuesMode);
-    }
-    if matches!(key_event.code, KeyCode::Delete) && field_idx == 0 {
-        return active_field_clear_event(field_idx);
-    }
-    let editor = if field_idx == 0 || is_sort_field(field_idx) {
-        FilterEditorKind::Cycle
-    } else if is_choice_field(field_idx) {
-        FilterEditorKind::Choice
-    } else {
-        FilterEditorKind::Text
-    };
-    // Sort fields route their own events; everything else dispatches filter
-    // commands. Intercept before the filter-command match so sort cycle keys
-    // (left/right/space/up/down) never leak into filter navigation.
-    if is_sort_field(field_idx) {
-        return resolve_sort_key_event(field_idx, key_event);
-    }
-    match resolve_filter_control_key(editor, key_event)? {
-        FilterControlCommand::Apply => Some(AppEvent::ApplyFilter),
-        FilterControlCommand::Cancel => Some(AppEvent::CloseFilterControls),
-        FilterControlCommand::Next => Some(AppEvent::FilterNavigateNext),
-        FilterControlCommand::Previous => Some(AppEvent::FilterNavigatePrev),
-        FilterControlCommand::ClearAll => Some(AppEvent::ClearDraftFilter),
-        FilterControlCommand::ClearCurrent => active_field_clear_event(field_idx),
-        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious if field_idx == 0 => {
-            Some(AppEvent::CycleFilterState)
+    let accepts_text = field_idx != 0 && !is_sort_field(field_idx);
+    match resolve_filter_text_mutation(accepts_text, key_event)? {
+        FilterTextMutation::Append(character) => {
+            update_text_event(state, field_idx, Some(character))
         }
-        FilterControlCommand::CycleNext => {
-            choice_cycle_event(state, field_idx, ChoiceDirection::Next)
-        }
-        FilterControlCommand::CyclePrevious => {
-            choice_cycle_event(state, field_idx, ChoiceDirection::Previous)
-        }
-        FilterControlCommand::Append(c) => update_text_event(state, field_idx, Some(c)),
-        FilterControlCommand::Backspace => update_text_event(state, field_idx, None),
+        FilterTextMutation::Backspace => update_text_event(state, field_idx, None),
     }
 }
 
-/// Resolve a key event for a sort-row field (issue #473).
+#[cfg(test)]
+fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    super::resolve_test_registry_event(state, key_event, 120, 40)
+}
+
+/// Translate a registry `HandlerKey` filter control into the matching
+/// `AppEvent` for Issues filter controls.
 ///
-/// Sort fields use the shared `Cycle` editor kind (left/right/space/up/down to
-/// cycle, Tab/Enter/Esc route through the filter dialog lifecycle). Cycling
-/// dispatches sort-specific events that re-project the list instantly without
-/// re-fetching.
-fn resolve_sort_key_event(field_idx: usize, key_event: &KeyEvent) -> Option<AppEvent> {
-    if key_event.kind != KeyEventKind::Press {
-        return None;
-    }
-    match key_event.code {
-        KeyCode::Enter => Some(AppEvent::ApplyFilter),
-        KeyCode::Esc => Some(AppEvent::CloseFilterControls),
-        KeyCode::Tab => Some(AppEvent::FilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::FilterNavigatePrev),
-        KeyCode::Left => Some(sort_cycle_event(field_idx, ChoiceDirection::Previous)),
-        KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Char(' ') => {
+/// This mirrors the `KeyEvent`-based `resolve_filter_key_event` lifecycle but
+/// receives the already-resolved typed handler, so the action registry owns
+/// exactly one resolution per event.
+pub(super) fn control_event(state: &AppState, handler: HandlerKey) -> Option<AppEvent> {
+    let field_idx = state.issues_state.filter_ui.field_index;
+    match handler {
+        HandlerKey::FilterApply => Some(AppEvent::ApplyFilter),
+        HandlerKey::FilterCancel => Some(AppEvent::CloseFilterControls),
+        HandlerKey::FilterNextField => Some(AppEvent::FilterNavigateNext),
+        HandlerKey::FilterPreviousField => Some(AppEvent::FilterNavigatePrev),
+        HandlerKey::FilterClearAll => Some(AppEvent::ClearDraftFilter),
+        HandlerKey::FilterClearCurrent => active_field_clear_event(field_idx),
+        HandlerKey::IssuesExit => Some(AppEvent::ExitIssuesMode),
+        HandlerKey::FilterPreviousChoice if is_sort_field(field_idx) => {
+            Some(sort_cycle_event(field_idx, ChoiceDirection::Previous))
+        }
+        HandlerKey::FilterNextChoice if is_sort_field(field_idx) => {
             Some(sort_cycle_event(field_idx, ChoiceDirection::Next))
         }
+        HandlerKey::FilterPreviousChoice | HandlerKey::FilterNextChoice if field_idx == 0 => {
+            Some(AppEvent::CycleFilterState)
+        }
+        HandlerKey::FilterPreviousChoice => {
+            choice_cycle_event(state, field_idx, ChoiceDirection::Previous)
+        }
+        HandlerKey::FilterNextChoice => choice_cycle_event(state, field_idx, ChoiceDirection::Next),
         _ => None,
     }
 }
@@ -126,10 +108,6 @@ fn sort_cycle_event(field_idx: usize, direction: ChoiceDirection) -> AppEvent {
 enum ChoiceDirection {
     Next,
     Previous,
-}
-
-fn is_choice_field(field_idx: usize) -> bool {
-    matches!(field_idx, 1..=6)
 }
 
 fn active_field_clear_event(field_idx: usize) -> Option<AppEvent> {

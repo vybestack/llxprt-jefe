@@ -148,7 +148,7 @@ fn route_untranslatable(
         forward_key_to_pty(ctx, suppress_next_enter, key_event);
         true
     } else {
-        scope == DispatchScope::FullS3
+        matches!(scope, DispatchScope::FullS3 | DispatchScope::FullS4)
     }
 }
 
@@ -209,16 +209,33 @@ fn route_app_owned(
             forward_key_to_pty(handles.ctx, handles.suppress_next_enter, key_event);
             true
         }
-        Resolution::Unbound if resolved.scope == DispatchScope::FullS3 => {
-            let _ = crate::app_input::observe_rapid_quit(
-                handles.app_state,
-                handles.should_quit,
-                key_event,
-            );
+        Resolution::Unbound
+            if matches!(
+                resolved.scope,
+                DispatchScope::FullS3 | DispatchScope::FullS4
+            ) =>
+        {
+            if rapid_quit_eligible(input_mode) {
+                let _ = crate::app_input::observe_rapid_quit(
+                    handles.app_state,
+                    handles.should_quit,
+                    key_event,
+                );
+            }
             true
         }
         Resolution::Unbound => false,
     }
+}
+
+fn rapid_quit_eligible(input_mode: InputMode) -> bool {
+    matches!(
+        input_mode,
+        InputMode::Normal
+            | InputMode::IssuesNormal
+            | InputMode::PrsNormal
+            | InputMode::ActionsNormal
+    )
 }
 
 fn execute_app_handler(

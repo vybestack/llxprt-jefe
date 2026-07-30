@@ -136,6 +136,47 @@ fn s3_inventory_covers_audited_split_errors_and_pre_mode_rows() {
 }
 
 #[test]
+fn s4_inventory_is_source_audited_without_ticket_only_aliases() {
+    use super::action_registry::HandlerKey as H;
+
+    let rows = projection_rows();
+    let has = |context: &str, chord: &str, handler: super::action_registry::HandlerKey| {
+        rows.iter().any(|row| {
+            row.context.as_str() == context
+                && row.chord.to_canonical_text() == chord
+                && row.handler == handler
+        })
+    };
+    let any = |context: &str, chord: &str| {
+        rows.iter()
+            .any(|row| row.context.as_str() == context && row.chord.to_canonical_text() == chord)
+    };
+
+    for (context, chord, handler) in [
+        ("issues.detail", "Down", H::NavigateDown),
+        ("issues.inline", "Alt+Enter", H::IssuesSubmitInline),
+        ("issues.property", "Enter", H::IssuesChooserConfirm),
+        ("prs.changes", "v", H::PullRequestsEdit),
+        ("prs.merge-chooser", "Enter", H::PullRequestsChooserConfirm),
+        ("actions.detail", "Right", H::ActionsActivate),
+        ("dashboard.search", "Esc", H::SearchCancel),
+    ] {
+        assert!(has(context, chord, handler));
+    }
+    for (context, chord) in [
+        ("issues.list", "j"),
+        ("issues.list", "k"),
+        ("actions", "a"),
+        ("actions.run-list", "j"),
+        ("actions.run-list", "k"),
+        ("prs.inline", "Ctrl+C"),
+        ("search", "Ctrl+L"),
+        ("filter", "Ctrl+C"),
+    ] {
+        assert!(!any(context, chord));
+    }
+}
+#[test]
 fn translated_terminal_control_chords_equal_compiled_defaults() {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
@@ -236,13 +277,7 @@ fn context_stacks_are_closed_source_orders_with_nested_canonical_parents() {
 
     assert_eq!(
         first_stack("modal.confirm"),
-        Some(vec![
-            "modal.confirm",
-            "issues.inline",
-            "issues.detail",
-            "issues.list",
-            "global",
-        ])
+        Some(vec!["modal.confirm", "global"])
     );
     assert_eq!(
         first_stack("dashboard.grab"),

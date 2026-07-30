@@ -2,7 +2,7 @@
 
 use jefe::domain::AgentId;
 use jefe::input::InputMode;
-use jefe::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
+use jefe::state::{AppState, ConfirmFocus, DashboardGrabPane, ModalState, PaneFocus, ScreenMode};
 
 use super::{DispatchScope, derive_action_context};
 
@@ -77,22 +77,123 @@ fn dashboard_grab_uses_focused_child_before_dashboard() {
 }
 
 #[test]
-fn actions_mode_is_pre_mode_only_in_s3() {
+fn actions_mode_is_full_s4_after_s4_migration() {
     let state = AppState {
         screen_mode: ScreenMode::DashboardActions,
         ..AppState::default()
     };
     let result = derive_action_context(&state, InputMode::ActionsNormal);
     let Ok(context) = result else {
-        panic!("actions pre-mode context should derive, got {result:?}");
+        panic!("actions S4 context should derive, got {result:?}");
     };
-    assert_eq!(context.scope, DispatchScope::PreModeOnly);
+    assert_eq!(context.scope, DispatchScope::FullS4);
     assert_eq!(
         context
             .stack
             .iter()
             .map(jefe::domain::input_context::ContextId::as_str)
             .collect::<Vec<_>>(),
-        vec!["actions", "global"]
+        vec!["actions.run-list", "actions", "global"]
+    );
+}
+
+#[test]
+fn issues_special_state_precedes_focused_panel_and_screen() {
+    let mut state = AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    };
+    state.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
+    state.issues_state.property_editor = Some(jefe::state::IssuePropertyEditorState {
+        kind: jefe::state::IssuePropertyKind::Title,
+        options: Vec::new(),
+        selected_index: 0,
+        title_text: String::new(),
+        title_cursor: 0,
+        error: None,
+        baseline: Vec::new(),
+        loading_failed: false,
+        options_loading: false,
+        load_request_id: 0,
+    });
+
+    assert_eq!(
+        context_names(&state),
+        (
+            DispatchScope::FullS4,
+            vec!["issues.property".to_owned(), "global".to_owned()]
+        )
+    );
+}
+#[test]
+fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
+    let mut search = AppState::default();
+    search.dashboard_search.input_focused = true;
+    assert_eq!(
+        context_names(&search),
+        (
+            DispatchScope::FullS4,
+            vec![
+                "dashboard.search".to_owned(),
+                "dashboard.pre-mode".to_owned(),
+                "global".to_owned(),
+            ]
+        )
+    );
+
+    let modal = AppState {
+        modal: ModalState::ConfirmDeleteRepository {
+            id: jefe::domain::RepositoryId("repo".to_owned()),
+            confirm_focus: ConfirmFocus::Confirm,
+        },
+        ..AppState::default()
+    };
+    assert_eq!(
+        context_names(&modal),
+        (
+            DispatchScope::FullS4,
+            vec![
+                "modal.confirm".to_owned(),
+                "dashboard.pre-mode".to_owned(),
+                "global".to_owned(),
+            ]
+        )
+    );
+}
+
+#[test]
+fn pr_changes_and_actions_focus_are_full_s4_contexts() {
+    let mut prs = AppState {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        ..AppState::default()
+    };
+    prs.prs_state.pr_focus = jefe::state::PrFocus::PrChanges;
+    assert_eq!(
+        context_names(&prs),
+        (
+            DispatchScope::FullS4,
+            vec![
+                "prs.changes".to_owned(),
+                "prs".to_owned(),
+                "global".to_owned(),
+            ]
+        )
+    );
+
+    let mut actions = AppState {
+        screen_mode: ScreenMode::DashboardActions,
+        ..AppState::default()
+    };
+    actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
+    assert_eq!(
+        context_names(&actions),
+        (
+            DispatchScope::FullS4,
+            vec![
+                "actions.detail".to_owned(),
+                "actions".to_owned(),
+                "global".to_owned(),
+            ]
+        )
     );
 }

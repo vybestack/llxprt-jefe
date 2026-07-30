@@ -3,7 +3,7 @@
 //! Renders a scrollable, comprehensive keyboard reference. The content lives
 //! in the pure `help_content_lines()` projection (single source of truth); the
 //! modal windows it through the shared `ScrollableText` viewport using the
-//! `scroll_offset` prop. Scroll keys are handled by `handle_mode_help_key`
+//! `scroll_offset` prop. Scroll actions are applied by the typed action executor
 //! (app_input); this component only renders the projection.
 //!
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
