@@ -148,18 +148,17 @@ fn handle_initial_prep_outcome(
     }
 }
 
-/// Build the launch signature for an issue-driven launch from the agent's
-/// base signature. Issue-driven launches are always fresh instructions, so
-/// `pass_continue` is forced to `false` regardless of the agent's configured
-/// value, and the issue prompt instruction is appended with the correct
-/// per-kind arg shape.
+/// Build the launch request for an issue-driven launch from the agent's base
+/// request. Issue-driven launches always select the fresh operation and carry
+/// the exact issue prompt as a typed value. Operation-aware launch composition
+/// then omits continuation before fresh-send emits the prompt argument.
 ///
-/// Delegates to [`prepare_fresh_prompt_signature`] so the issue and PR send
-/// paths share the same kind-specific arg construction. CodePuppy and LLxprt
-/// share identical prep; only the launch signature/runtime args differ.
+/// Delegates to [`prepare_fresh_prompt_signature`] so Issue and Pull Request
+/// send paths share the same prompt construction while the definition owns the
+/// final argument shape.
 ///
-/// Extracted as a pure function so the `pass_continue = false` override is
-/// unit-testable without a runtime/git context.
+/// Extracted as a pure function so operation and prompt projection are
+/// unit-testable without a runtime or Git context.
 pub(super) fn prepare_issue_launch_signature(
     sig: AgentLaunchRequest,
     prompt_content: &str,

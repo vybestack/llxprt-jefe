@@ -97,7 +97,7 @@ fn default_field_values_are_used_when_not_provided() {
 fn flag_resolves_token_from_capability_probe() {
     let definition = llxprt();
     let mut values = LaunchFieldValues::new();
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    values.set_agent("continue", FieldValue::Boolean(true));
     let request = PlanRequest {
         definition: &definition,
         operation: Operation::Normal,
@@ -130,10 +130,7 @@ fn flag_resolves_token_from_capability_probe() {
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    assert_eq!(
-        argv,
-        vec!["--yolo".to_string(), "--prompt-interactive".to_string()]
-    );
+    assert_eq!(argv, vec!["--yolo".to_string(), "--continue".to_string()]);
 }
 
 #[test]

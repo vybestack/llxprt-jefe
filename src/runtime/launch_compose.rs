@@ -125,11 +125,7 @@ pub fn prepare_launch(
     validate_support_before_effects(&definition, configuration)?;
     let selector = version_selector(&configuration.values)?;
     let target = launch_target(configuration)?;
-    let values = launch_values(
-        &definition,
-        &configuration.values,
-        configuration.operation.is_fresh(),
-    )?;
+    let values = launch_values(&definition, &configuration.values, configuration.operation)?;
     let candidate = if configuration.remote.enabled {
         remote_candidate(
             &definition,
@@ -564,16 +560,16 @@ fn resolved_candidate(
 fn launch_values(
     definition: &AgentDefinition,
     values: &TypedMap,
-    omit_prompt: bool,
+    operation: crate::domain::agent_definition::Operation,
 ) -> Result<LaunchFieldValues, RuntimeError> {
     let mut launch = LaunchFieldValues::new();
     for field in &definition.repository_fields {
-        if let Some(value) = launch_field(values, field, omit_prompt)? {
+        if let Some(value) = launch_field(values, field, operation)? {
             launch.set_repository(field.id.clone(), value);
         }
     }
     for field in &definition.agent_fields {
-        if let Some(value) = launch_field(values, field, omit_prompt)? {
+        if let Some(value) = launch_field(values, field, operation)? {
             launch.set_agent(field.id.clone(), value);
         }
     }
@@ -583,9 +579,9 @@ fn launch_values(
 fn launch_field(
     values: &TypedMap,
     field: &crate::domain::agent_definition::Field,
-    omit_prompt: bool,
+    operation: crate::domain::agent_definition::Operation,
 ) -> Result<Option<FieldValue>, RuntimeError> {
-    if omit_prompt && field.id == "prompt" {
+    if operation.is_fresh() && matches!(field.id.as_str(), "prompt" | "continue") {
         return Ok(None);
     }
     typed_field(values, &field.id)
@@ -623,3 +619,7 @@ fn to_field_value(kind: FieldKind, value: &TypedValue) -> Result<FieldValue, Run
     };
     Ok(converted)
 }
+
+#[cfg(test)]
+#[path = "launch_compose_tests.rs"]
+mod tests;

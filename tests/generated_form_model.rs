@@ -417,10 +417,10 @@ fn llxprt_generated_form_defaults_yolo_to_true() {
     assert_eq!(yolo.value(), &FieldValue::Boolean(true));
 }
 
-/// LLxprt must declare an independent agent-scope `continue` boolean field
-/// distinct from `prompt_interactive`.
+/// LLxprt must declare an agent-scope `continue` boolean without exposing the
+/// prompt-valued interactive option as a Boolean form field.
 #[test]
-fn llxprt_generated_form_exposes_independent_continue_field() {
+fn llxprt_generated_form_exposes_only_the_continue_boolean() {
     let definition = llxprt_shipped();
     assert!(
         definition
@@ -438,10 +438,10 @@ fn llxprt_generated_form_exposes_independent_continue_field() {
         panic!("LLxprt form must expose an agent continue field");
     };
     assert_eq!(continue_field.value(), &FieldValue::Boolean(false));
-    // prompt_interactive remains independent and present.
     assert!(
         draft
             .field(&FormFieldId::agent("prompt_interactive"))
-            .is_some()
+            .is_none(),
+        "prompt-interactive is a prompt-valued operation capability, not a Boolean field"
     );
 }

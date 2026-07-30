@@ -31,9 +31,6 @@ fn emitters() -> Vec<Emitter> {
             field: "yolo".to_string(),
         },
         Emitter::Flag {
-            field: "prompt_interactive".to_string(),
-        },
-        Emitter::Flag {
             field: "continue".to_string(),
         },
     ]
@@ -90,7 +87,6 @@ pub fn build() -> AgentDefinition {
         agent_fields: vec![
             sig_string_field("version_selector"),
             sig_string_field("prompt"),
-            bool_field("prompt_interactive"),
             bool_field("continue"),
         ],
         emitters: emitters(),

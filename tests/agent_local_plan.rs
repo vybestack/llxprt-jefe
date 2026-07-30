@@ -98,13 +98,11 @@ fn llxprt_normal_golden_plan() {
     let mut values = LaunchFieldValues::new();
     values.set_repository("profile", FieldValue::String("my-profile".to_string()));
     values.set_repository("yolo", FieldValue::Boolean(true));
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
     values.set_agent("continue", FieldValue::Boolean(true));
     let plan = assert_supported(llxprt_plan_request(&definition, &values), "llxprt normal");
     // Argv emitted element-by-element in declaration order:
     //   Option{--profile-load, profile} -> --profile-load, my-profile
     //   Flag{yolo}                       -> --yolo
-    //   Flag{prompt_interactive}         -> --prompt-interactive
     //   Flag{continue}                   -> --continue
     assert_eq!(
         plan.argv,
@@ -112,7 +110,6 @@ fn llxprt_normal_golden_plan() {
             os("--profile-load"),
             os("my-profile"),
             os("--yolo"),
-            os("--prompt-interactive"),
             os("--continue"),
         ],
     );
@@ -852,7 +849,6 @@ fn llxprt_false_boolean_fields_omit_flags_independently() {
     let definition = shipped("LLxprt");
     let mut values = LaunchFieldValues::new();
     values.set_repository("yolo", FieldValue::Boolean(false));
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
     values.set_agent("continue", FieldValue::Boolean(false));
 
     let plan = assert_supported(
@@ -860,7 +856,7 @@ fn llxprt_false_boolean_fields_omit_flags_independently() {
         "llxprt false flags",
     );
     let argv = argv_strings(&plan);
-    assert!(argv.contains(&"--prompt-interactive".to_string()));
+    assert!(!argv.contains(&"--prompt-interactive".to_string()));
     assert!(!argv.contains(&"--yolo".to_string()));
     assert!(!argv.contains(&"--continue".to_string()));
 }

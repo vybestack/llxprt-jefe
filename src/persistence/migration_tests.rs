@@ -95,6 +95,14 @@ fn assert_agent_migration(state: &crate::domain::StateV2) {
         None,
         "PID and process evidence must not enter typed product values"
     );
+    assert_eq!(
+        state.agents[0].values.get(&id("continue")),
+        Some(&TypedValue::Bool(true))
+    );
+    assert_eq!(
+        state.agents[2].values.get(&id("continue")),
+        Some(&TypedValue::Bool(true))
+    );
 }
 
 fn assert_selection_and_preferences(state: &crate::domain::StateV2) {
@@ -263,6 +271,36 @@ fn colliding_agent_legacy_identities_receive_source_order_ordinals() {
     assert_eq!(first.state().agents[1].id, second.state().agents[1].id);
 }
 
+fn assert_remote_fixed_vectors(
+    repository: &crate::domain::RepositoryRecord,
+    agent: &crate::domain::AgentRecord,
+) {
+    assert_eq!(
+        repository.id.as_str(),
+        "repo.90c36b6f6cad7eb526f60ebdc4fbaac14ecf08aabfc9656626f09ff4bf8b5d30"
+    );
+    assert_eq!(
+        agent.id.as_str(),
+        "agent.dd89951a73af6fea961078bbe54ee58ded798508e64f2e5a4980d724b8239d70"
+    );
+    assert_eq!(
+        agent.launch_signature.definition_hash.as_str(),
+        "cb10a1d073096703ffe8b3bd86f662a1b1dc92250341b3f3f06818eccd56755b"
+    );
+    assert_eq!(
+        agent.launch_signature.typed_value_hash.as_str(),
+        "b859c48f763a1b58092842a89715aa8ab78f3ace690421b71e6b0aa31ce6a047"
+    );
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "continue"),
+        Some(&TypedValue::Bool(true))
+    );
+    assert_eq!(
+        agent.launch_signature.target_fingerprint.as_str(),
+        "bce3a6722845694a877fcfffdee9528be975ed9deef7c00bc3047a11e289844b"
+    );
+}
+
 #[test]
 fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     let source = serde_json::to_vec(&json!({
@@ -307,26 +345,7 @@ fn remote_schema1_ids_and_hashes_match_fixed_vectors() {
     let repository = &migrated.state().repositories[0];
     let agent = &migrated.state().agents[0];
 
-    assert_eq!(
-        repository.id.as_str(),
-        "repo.90c36b6f6cad7eb526f60ebdc4fbaac14ecf08aabfc9656626f09ff4bf8b5d30"
-    );
-    assert_eq!(
-        agent.id.as_str(),
-        "agent.dd89951a73af6fea961078bbe54ee58ded798508e64f2e5a4980d724b8239d70"
-    );
-    assert_eq!(
-        agent.launch_signature.definition_hash.as_str(),
-        "7572f5e82ecab05268886416c27e70b6c76b37a51ca5d7053a9c2d865de4d8a8"
-    );
-    assert_eq!(
-        agent.launch_signature.typed_value_hash.as_str(),
-        "14e6bc5b61c3f4bc64e1f6c436e37ab779d98e9e5eed98141ad90339c637307c"
-    );
-    assert_eq!(
-        agent.launch_signature.target_fingerprint.as_str(),
-        "bce3a6722845694a877fcfffdee9528be975ed9deef7c00bc3047a11e289844b"
-    );
+    assert_remote_fixed_vectors(repository, agent);
 }
 
 #[test]

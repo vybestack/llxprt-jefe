@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "name": "llxprt-continue-field",
+  "platform": "macos",
+  "terminal": { "cols": 140, "rows": 40 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "repo", "mode": 493 },
+      { "path": "repo/.git", "mode": 448 },
+      { "path": "repo/.git/refs", "mode": 448 },
+      { "path": "repo/.git/refs/heads", "mode": 448 },
+      { "path": "repo/.git/refs/remotes", "mode": 448 },
+      { "path": "repo/.git/refs/remotes/origin", "mode": 448 },
+      { "path": "repo/.git/objects", "mode": 448 },
+      { "path": "repo/.git/objects/info", "mode": 448 },
+      { "path": "repo/.git/objects/pack", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "bin/llxprt",
+        "content": {
+          "utf8": "#!/bin/sh\ncase \"${1:-}\" in\n  --version) printf '0.10.0\\n' ;;\n  --help) printf '%s\\n' '--prompt-interactive --profile-load --sandbox --sandbox-engine --yolo --approval-mode --continue' ;;\n  *) exec llxprt-agent \"$@\" ;;\nesac\n"
+        },
+        "mode": 493
+      },
+      {
+        "path": "repo/.git/HEAD",
+        "content": { "utf8": "ref: refs/heads/main\n" },
+        "mode": 384
+      },
+      {
+        "path": "repo/.git/config",
+        "content": {
+          "utf8": "[core]\n\trepositoryformatversion = 0\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/owner/repo-230.git\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "repo/.git/refs/remotes/origin/HEAD",
+        "content": { "utf8": "ref: refs/remotes/origin/main\n" },
+        "mode": 384
+      },
+      {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n" },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [{\n    \"id\": \"repo-520\",\n    \"name\": \"Issue 520\",\n    \"slug\": \"issue-520\",\n    \"base_dir\": \".\",\n    \"default_profile\": \"glm\",\n    \"default_code_puppy_model\": \"\",\n    \"github_repo\": \"owner/repo-230\",\n    \"github_issue_pr_repo\": \"\",\n    \"remote\": {\"enabled\": false, \"login_user\": \"\", \"host\": \"\", \"port\": null},\n    \"issue_base_prompt\": \"\",\n    \"default_agent_kind\": \"llxprt\",\n    \"agent_ids\": [\"agent-520\"]\n  }],\n  \"agents\": [{\n    \"id\": \"agent-520\",\n    \"display_id\": \"agent-520\",\n    \"repository_id\": \"repo-520\",\n    \"shortcut_slot\": null,\n    \"name\": \"branch-520\",\n    \"description\": \"\",\n    \"work_dir\": \".\",\n    \"profile\": \"glm\",\n    \"code_puppy_model\": \"\",\n    \"code_puppy_yolo\": null,\n    \"code_puppy_quick_resume\": false,\n    \"mode_flags\": [\"--yolo\"],\n    \"llxprt_debug\": \"\",\n    \"pass_continue\": true,\n    \"sandbox_enabled\": false,\n    \"sandbox_engine\": \"podman\",\n    \"sandbox_flags\": \"\",\n    \"agent_kind\": \"llxprt\",\n    \"status\": \"Queued\",\n    \"runtime_binding\": null\n  }],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+    ]
+  },
+  "steps": [
+    {
+      "op": "capture",
+      "name": "llxprt-agent",
+      "path": "bin/llxprt-agent",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "launch",
+      "argv": ["jefe", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "repo"
+    },
+    { "op": "wait", "source": "frame", "literal": "LLxprt Jefe", "timeout_ms": 15000 },
+    { "op": "key", "key": "i", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Issues", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "#230", "timeout_ms": 15000 },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Issue #230 detail body", "timeout_ms": 15000 },
+    { "op": "key", "key": "S", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Send to Agent", "timeout_ms": 15000 },
+    { "op": "wait", "source": "frame", "literal": "branch-520", "timeout_ms": 15000 },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Issues", "timeout_ms": 30000 },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

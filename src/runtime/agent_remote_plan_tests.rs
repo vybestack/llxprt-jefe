@@ -210,7 +210,7 @@ fn llxprt_remote_normal_produces_golden_transcript() {
     let definition = llxprt();
     let mut values = LaunchFieldValues::new();
     values.set_repository("profile", FieldValue::String("dev".to_string()));
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    values.set_agent("continue", FieldValue::Boolean(true));
     let settings = remote_settings();
     let request = make_request(&definition, &values, &settings, Operation::Normal);
     let transcript = match plan_remote_launch(&request) {
@@ -219,7 +219,7 @@ fn llxprt_remote_normal_produces_golden_transcript() {
     };
     assert_eq!(
         transcript.remote_command(),
-        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--prompt-interactive'"
+        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--continue'"
     );
     let argv: Vec<String> = transcript
         .agent_argv()
@@ -232,7 +232,7 @@ fn llxprt_remote_normal_produces_golden_transcript() {
             "--profile-load".to_string(),
             "dev".to_string(),
             "--yolo".to_string(),
-            "--prompt-interactive".to_string(),
+            "--continue".to_string(),
         ]
     );
 }

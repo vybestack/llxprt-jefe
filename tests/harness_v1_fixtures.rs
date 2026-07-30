@@ -54,6 +54,14 @@ fn run_fixture(name: &str) -> RunOutcome {
     if name == "pr-delta-review.json" {
         installs.push(("gh".to_string(), repo_path("scripts/issue376-gh-shim.sh")));
     }
+    if name == "llxprt-continue-field.json" {
+        installs.push(("gh".to_string(), repo_path("scripts/issue520-gh-shim.sh")));
+        installs.push(("git".to_string(), repo_path("scripts/issue520-git-shim.sh")));
+        installs.push((
+            "tmux".to_string(),
+            repo_path("scripts/issue520-tmux-shim.sh"),
+        ));
+    }
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
         installs,
@@ -132,6 +140,50 @@ fn config_path_fixture_runs_the_real_provider_free_binary() {
 fn panic_capture_fixture_projects_silent_error_without_raw_terminal_output() {
     let outcome = run_fixture("panic-capture-errors.json");
     assert_passed("panic-capture-errors", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn llxprt_continue_field_fixture_sends_one_exact_issue_prompt() {
+    let outcome = run_fixture("llxprt-continue-field.json");
+    assert_passed("llxprt-continue-field", &outcome);
+    let capture = outcome
+        .report
+        .captures
+        .iter()
+        .find(|capture| capture.name == "llxprt-agent")
+        .unwrap_or_else(|| panic!("LLxprt launch capture must be reported"));
+    let invocation = capture
+        .invocations
+        .first()
+        .unwrap_or_else(|| panic!("Issues Send must launch LLxprt once"));
+    assert_eq!(capture.invocations.len(), 1);
+    assert_eq!(
+        invocation.argv[..5],
+        ["llxprt-agent", "--profile-load", "glm", "--yolo", "-i"]
+    );
+    assert_eq!(
+        invocation
+            .argv
+            .iter()
+            .filter(|argument| matches!(argument.as_str(), "-i" | "--prompt-interactive"))
+            .count(),
+        1
+    );
+    assert!(
+        !invocation
+            .argv
+            .iter()
+            .any(|argument| argument == "--continue")
+    );
+    let prompt = invocation
+        .argv
+        .get(5)
+        .unwrap_or_else(|| panic!("fresh issue prompt must follow -i"));
+    assert!(prompt.starts_with("Read and work on the following GitHub issue.\n\n"));
+    assert!(prompt.contains("# GitHub Issue #230: Agent chooser identity and worktree status\n"));
+    assert!(prompt.contains("**Repository:** owner/repo-230"));
+    assert!(prompt.contains("## Body\n\nIssue #230 detail body"));
     cleanup(&outcome);
 }
 

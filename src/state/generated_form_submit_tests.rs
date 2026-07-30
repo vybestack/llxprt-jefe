@@ -21,10 +21,10 @@ fn llxprt_definition() -> AgentDefinition {
         .unwrap_or_else(|| panic!("LLxprt definition must be shipped"))
 }
 
-fn compatible_with_prompt_interactive() -> Availability {
+fn compatible_llxprt() -> Availability {
     Availability::InstalledCompatible {
         identity: "0.10.0".to_string(),
-        capabilities: vec!["prompt-interactive".to_string()],
+        capabilities: vec!["prompt-interactive".to_string(), "continue".to_string()],
         generation: 1,
     }
 }
@@ -42,7 +42,7 @@ fn test_repository() -> Repository {
 
 fn build_form_for_llxprt() -> GeneratedAgentForm {
     let definition = llxprt_definition();
-    let availability = compatible_with_prompt_interactive();
+    let availability = compatible_llxprt();
     GeneratedAgentForm::from_definition(&definition, &availability)
         .unwrap_or_else(|error| panic!("LLxprt definition must produce a form: {error}"))
 }
@@ -69,7 +69,7 @@ fn form_result_with_values(values: Vec<FieldValue>) -> GeneratedAgentFormResult 
                 value: values[3].clone(),
             },
             FormFieldValue {
-                id: crate::state::generated_form::FormFieldId::agent("prompt_interactive"),
+                id: crate::state::generated_form::FormFieldId::agent("continue"),
                 value: values[4].clone(),
             },
         ],
@@ -113,9 +113,9 @@ fn values_from_form_result_normalizes_underscores_to_hyphens() {
         Some(&TypedValue::String("do the thing".to_string()))
     );
 
-    let prompt_interactive = Id::parse("prompt-interactive")
-        .unwrap_or_else(|error| panic!("prompt-interactive is a valid Id: {error}"));
-    assert_eq!(map.get(&prompt_interactive), Some(&TypedValue::Bool(true)));
+    let continuation =
+        Id::parse("continue").unwrap_or_else(|error| panic!("continue is a valid Id: {error}"));
+    assert_eq!(map.get(&continuation), Some(&TypedValue::Bool(true)));
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn agent_type_id_is_preserved_in_modal_state() {
     // Verifies the type_id field on ModalState::GeneratedAgent — the selected
     // definition/type ID is the sole authority for the canonical path.
     let type_id = llxprt_definition().id;
-    let availability = compatible_with_prompt_interactive();
+    let availability = compatible_llxprt();
     let observation = AgentAvailabilityObservation::new(&llxprt_definition(), true, availability);
     let mut state = crate::state::AppState {
         agent_type_availability: vec![observation],

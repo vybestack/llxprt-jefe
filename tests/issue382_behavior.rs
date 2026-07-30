@@ -477,7 +477,7 @@ fn assert_llxprt_golden(llxprt: &AgentDefinition) {
     use jefe::runtime::agent_plan::LaunchFieldValues;
     let mut values = LaunchFieldValues::new();
     values.set_repository("profile", FieldValue::String("dev".to_string()));
-    values.set_agent("prompt_interactive", FieldValue::Boolean(true));
+    values.set_agent("continue", FieldValue::Boolean(true));
     let plan = assert_golden_local_plan(llxprt, Operation::Normal, "/opt/bin/llxprt", &values);
     assert_eq!(plan.type_id, llxprt.id);
     assert_eq!(plan.definition_sha256, llxprt.sha256());
@@ -487,7 +487,7 @@ fn assert_llxprt_golden(llxprt: &AgentDefinition) {
     assert!(plan.signature_excludes_secrets());
     let argv = argv_of(&plan);
     assert!(argv.contains(&"--profile-load".to_string()));
-    assert!(argv.contains(&"--prompt-interactive".to_string()));
+    assert!(argv.contains(&"--continue".to_string()));
     assert!(argv.contains(&"dev".to_string()));
     assert!(plan.env.is_empty(), "no ambient env vars in plan");
 }
@@ -728,7 +728,7 @@ fn assert_llxprt_remote_golden() {
         jefe::domain::agent_definition::FieldValue::String("dev".to_string()),
     );
     values.set_agent(
-        "prompt_interactive",
+        "continue",
         jefe::domain::agent_definition::FieldValue::Boolean(true),
     );
     let request = remote_request(
@@ -744,7 +744,7 @@ fn assert_llxprt_remote_golden() {
     };
     assert_eq!(
         transcript.remote_command(),
-        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--prompt-interactive'"
+        "cd '/srv/project' && exec '/opt/bin/llxprt' '--profile-load' 'dev' '--yolo' '--continue'"
     );
     let agent_argv: Vec<String> = transcript
         .agent_argv()
@@ -757,7 +757,7 @@ fn assert_llxprt_remote_golden() {
             "--profile-load".to_string(),
             "dev".to_string(),
             "--yolo".to_string(),
-            "--prompt-interactive".to_string(),
+            "--continue".to_string(),
         ]
     );
     assert_golden_ssh_arguments(&transcript);
