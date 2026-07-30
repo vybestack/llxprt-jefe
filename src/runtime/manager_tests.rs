@@ -1,6 +1,7 @@
 //! Tests for the runtime manager, kept in a sibling file so `manager.rs`
 //! stays under the source-file size hard limit.
 
+use super::existing::ExistingLocalSessionObservation;
 use super::*;
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::runtime::stub_manager::StubRuntimeManager;
@@ -74,7 +75,39 @@ fn failed_relaunch_retains_dead_marker_for_successful_retry() {
 }
 
 #[test]
+fn observed_existing_session_returns_complete_authoritative_binding() {
+    let agent_id = AgentId("existing-agent".to_owned());
+    let mut manager = TmuxRuntimeManager::new(24, 80);
+    let signature = crate::domain::LaunchSignatureV1::default();
+    let identity = crate::domain::ProcessIdentity::new(42, 900);
+    let worker = crate::domain::ProcessIdentity::new(43, 901);
 
+    let binding = manager.register_observed_local_session(
+        &agent_id,
+        Path::new("/tmp/existing"),
+        signature.clone(),
+        RuntimeSession::session_name_for(&agent_id),
+        ExistingLocalSessionObservation {
+            pid: 42,
+            process_identity: identity,
+            worker_identities: vec![worker],
+        },
+    );
+
+    assert_eq!(binding.launch_signature, signature);
+    assert_eq!(binding.pid, Some(42));
+    assert_eq!(binding.process_identity, Some(identity));
+    assert_eq!(binding.worker_identities, vec![worker]);
+    assert!(binding.lifecycle_generation > 0);
+    let target = manager
+        .liveness_targets()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("registered session must have a liveness target"));
+    assert_eq!(target.lifecycle_generation, binding.lifecycle_generation);
+}
+
+#[test]
 fn clipboard_passthrough_tracking_memoizes_per_session() {
     let mut mgr = TmuxRuntimeManager::new(40, 120);
 

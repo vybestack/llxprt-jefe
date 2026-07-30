@@ -17,8 +17,13 @@ A launch resolves and probes a candidate, finalizes package wrappers and the
 physical executable fingerprint, and produces one immutable `AgentLaunchPlan`.
 Authorization and typed preflight validate that evidence before tmux, SSH, or a
 local process receives the plan. Persistence stores generic values and a
-canonical `LaunchSignatureV1`; startup reattaches only when the persisted
-signature and live session evidence still match.
+canonical `LaunchSignatureV1`; startup reattaches when the persisted signature
+and live session evidence match. For local sessions, it also tolerates
+definition-hash-only drift when values, target, prior binding, and stable session
+identity remain compatible. That exception uses a reattach-only runtime operation
+which cannot spawn or probe the agent executable; the running binding retains its
+prior launch signature as process provenance. Remote definition drift remains
+inconsistent.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐

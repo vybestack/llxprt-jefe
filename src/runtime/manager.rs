@@ -9,9 +9,8 @@ use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
-use crate::domain::AgentLaunchRequest;
 use crate::domain::agent_definition::AgentLaunchPlan;
-use crate::domain::{AgentId, RemoteRepositorySettings};
+use crate::domain::{AgentId, AgentLaunchRequest, RemoteRepositorySettings};
 use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +30,8 @@ pub struct AttachInputs {
     pub rows: u16,
     pub cols: u16,
 }
+#[path = "manager_existing.rs"]
+mod existing;
 #[path = "history_cache.rs"]
 pub mod history_cache;
 use history_cache::HistoryCache;

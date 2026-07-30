@@ -10,6 +10,7 @@
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use jefe::harness::v1::error::HarCode;
 use jefe::harness::v1::redact::Redactor;
@@ -40,7 +41,15 @@ fn load_fixture(name: &str) -> String {
     }
 }
 
+fn fixture_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn run_fixture(name: &str) -> RunOutcome {
+    let _fixture_guard = fixture_lock();
     let json = load_fixture(name);
     let scenario = parse_scenario_v1(json.as_bytes())
         .unwrap_or_else(|err| panic!("{name} should parse: {err}"));

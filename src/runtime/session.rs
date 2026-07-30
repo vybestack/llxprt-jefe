@@ -4,6 +4,8 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
+use std::path::PathBuf;
+
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::domain::{AgentId, ProcessIdentity, RemoteRepositorySettings};
 
@@ -17,8 +19,8 @@ pub struct RuntimeSession {
     pub agent_id: AgentId,
     /// The tmux session name (e.g., "jefe-{agent_id}").
     pub session_name: String,
-    /// Finalized immutable process plan used for spawn and exact relaunch.
-    pub launch_plan: AgentLaunchPlan,
+    /// Effective working directory used by auxiliary runtime windows.
+    pub work_dir: PathBuf,
     /// Authorized SSH transport settings; absent for local plans.
     pub remote: Option<RemoteRepositorySettings>,
     /// Whether a viewer is currently attached to this session.
@@ -53,8 +55,25 @@ impl RuntimeSession {
         Self {
             agent_id,
             session_name,
-            launch_plan,
+            work_dir: launch_plan.cwd,
             remote,
+            attached: false,
+            pid: None,
+            process_identity: None,
+            lifecycle_generation: 0,
+            worker_identities: Vec::new(),
+        }
+    }
+
+    /// Register metadata for an already-running local session without holding
+    /// executable launch authority.
+    #[must_use]
+    pub fn existing_local(agent_id: AgentId, session_name: String, work_dir: PathBuf) -> Self {
+        Self {
+            agent_id,
+            session_name,
+            work_dir,
+            remote: None,
             attached: false,
             pid: None,
             process_identity: None,
