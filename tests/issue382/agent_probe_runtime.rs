@@ -252,7 +252,7 @@ fn assert_compatible(result: &AgentProbeResult, generation: u64, expected: &[Str
 fn target_timeout_contract_is_typed() {
     assert_eq!(
         AgentProbeTarget::Local.total_timeout(),
-        Duration::from_secs(5)
+        Duration::from_secs(10)
     );
     assert_eq!(
         AgentProbeTarget::Remote.total_timeout(),

@@ -310,19 +310,28 @@ fn command_for_candidate(candidate: &ResolvedCandidate, argv: &[OsString]) -> Co
 pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString]) -> Command {
     match wrapper {
         AgentWrapperKind::Direct => command_with_args(path.as_os_str(), argv),
+        // Canonical fingerprints store verbatim `\\?\` paths on Windows, which
+        // cmd.exe and powershell.exe cannot launch (issue #525). Strip the
+        // prefix only at this command-construction boundary; Direct paths are
+        // launched as-is and fingerprints remain canonical.
         AgentWrapperKind::CommandScript => {
+            let launch_path = super::agent_executable::strip_verbatim_prefix(path);
             let program = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
             let mut command = Command::new(program);
-            command.args(["/D", "/S", "/C"]).arg(path).args(argv);
+            command
+                .args(["/D", "/S", "/C"])
+                .arg(&launch_path)
+                .args(argv);
             command
         }
         AgentWrapperKind::PowerShellScript => {
+            let launch_path = super::agent_executable::strip_verbatim_prefix(path);
             let program = std::env::var_os("JEFE_POWERSHELL_BIN")
                 .unwrap_or_else(|| OsString::from("powershell.exe"));
             let mut command = Command::new(program);
             command
                 .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
-                .arg(path)
+                .arg(&launch_path)
                 .args(argv);
             command
         }
@@ -462,5 +471,50 @@ mod tests {
         );
         assert_eq!(powershell_args[4], path.as_os_str());
         assert_eq!(powershell_args[5..], argv);
+    }
+
+    #[test]
+    fn local_probe_budget_allows_sequential_identity_and_capability_startup() {
+        assert_eq!(
+            super::AgentProbeTarget::Local.total_timeout(),
+            std::time::Duration::from_secs(10),
+            "local definitions run identity and capability probes under one shared deadline"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_windows_wrapper_paths_are_launch_safe() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create wrapper fixture: {error}"));
+        let wrapper = dir.path().join("probe.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\necho 0.10.0\r\n")
+            .unwrap_or_else(|error| panic!("could not write wrapper fixture: {error}"));
+        let canonical = std::fs::canonicalize(&wrapper)
+            .unwrap_or_else(|error| panic!("could not canonicalize wrapper fixture: {error}"));
+        assert_ne!(
+            canonical, wrapper,
+            "Windows canonical path must be verbatim"
+        );
+
+        let mut command = command_for_path(
+            &canonical,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("--version")],
+        );
+        let args = command.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            args[3],
+            super::super::agent_executable::strip_verbatim_prefix(&canonical),
+            "cmd.exe cannot launch a canonical verbatim wrapper path"
+        );
+        let output = command
+            .output()
+            .unwrap_or_else(|error| panic!("could not execute normalized wrapper: {error}"));
+        assert!(
+            output.status.success(),
+            "normalized wrapper failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

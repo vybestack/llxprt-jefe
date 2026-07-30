@@ -24,7 +24,9 @@ pub const CHOICE_LIMIT: usize = 64;
 /// Maximum probe stream bytes (stdout/stderr).
 pub const PROBE_STREAM_LIMIT: usize = 65_536;
 /// Local probe timeout (milliseconds).
-pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 5_000;
+///
+/// One definition probe may run identity and capability commands sequentially.
+pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 10_000;
 /// Remote probe timeout (milliseconds).
 pub const REMOTE_PROBE_TIMEOUT_MS: u64 = 20_000;
 /// Maximum artifact bytes.

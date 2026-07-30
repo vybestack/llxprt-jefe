@@ -177,26 +177,65 @@ fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
             command
         }
         AgentWrapperKindPayload::CommandScript => {
+            // Canonical fingerprints store verbatim `\\?\` paths on Windows,
+            // which cmd.exe cannot launch (issue #525). Strip the prefix only
+            // at this command-construction boundary; Direct paths and the
+            // structured script-launch plan are unaffected.
+            let launch_path = super::agent_executable::strip_verbatim_prefix(&payload.path);
             let mut command = Command::new(
                 std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe")),
             );
             command
                 .args(["/D", "/S", "/C"])
-                .arg(&payload.path)
+                .arg(&launch_path)
                 .args(&payload.args);
             command
         }
         AgentWrapperKindPayload::PowerShellScript => {
+            let launch_path = super::agent_executable::strip_verbatim_prefix(&payload.path);
             let mut command = Command::new(
                 std::env::var_os("JEFE_POWERSHELL_BIN")
                     .unwrap_or_else(|| OsString::from("powershell.exe")),
             );
             command
                 .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
-                .arg(&payload.path)
+                .arg(&launch_path)
                 .args(&payload.args);
             command
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::ffi::OsString;
+
+    use super::{AgentLaunchPayload, AgentWrapperKindPayload, command_for_payload};
+
+    #[test]
+    fn canonical_command_script_payload_uses_launch_safe_path() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let wrapper = dir.path().join("agent.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("could not write launcher fixture: {error}"));
+        let canonical = std::fs::canonicalize(&wrapper)
+            .unwrap_or_else(|error| panic!("could not canonicalize launcher fixture: {error}"));
+        let payload = AgentLaunchPayload {
+            path: canonical.clone(),
+            wrapper: AgentWrapperKindPayload::CommandScript,
+            script_launch: None,
+            args: vec![OsString::from("--version")],
+            environment: Vec::new(),
+        };
+
+        let command = command_for_payload(&payload);
+        let args = command.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            args[3],
+            super::super::agent_executable::strip_verbatim_prefix(&canonical),
+            "the private pane launcher must not pass a verbatim wrapper path to cmd.exe"
+        );
     }
 }
 

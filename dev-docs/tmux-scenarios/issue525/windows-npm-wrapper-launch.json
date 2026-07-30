@@ -1,0 +1,28 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 3000,
+    "wait_timeout_ms": 20000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "waitFor": "Agent Types" },
+    { "key": "Down" },
+    { "key": "Down" },
+    { "key": "Down" },
+    { "waitFor": "> LLxprt" },
+    { "key": "Enter" },
+    { "waitFor": "New Agent" },
+    { "key": "Tab" },
+    { "type": "issue525-real-launch" },
+    { "key": "Enter" },
+    { "waitFor": "Agent issue525-real-launch created" },
+    { "waitFor": "F12 unfocus" },
+    { "capture": "issue525-real-launch" },
+    { "key": "F12" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}
