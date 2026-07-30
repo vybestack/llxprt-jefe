@@ -18,27 +18,31 @@ impl FreshPromptKind {
     }
 }
 
-/// Runtime-neutral delivery contract appended to every fresh Send Issue
-/// instruction. Issue-specific content remains in the prompt file; this text
-/// defines how an agent must carry that issue through review and CI.
+/// Runtime-neutral, repo-neutral delivery contract appended to every fresh
+/// Send Issue instruction. Issue-specific content remains in the prompt file;
+/// this text defines how an agent must carry that issue through review and CI.
+///
+/// It is deliberately self-contained: it references no project-specific file
+/// (the canonical process lives in jefe's own `dev-docs/workflow/`, which does
+/// not exist in target repositories) and uses scope adherence rather than
+/// hard-coded file/line counts as the scope guardrail.
 pub(super) const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
-    "Follow the canonical bounded issue-delivery policy in ",
-    "dev-docs/workflow/ISSUE-DELIVERY.md. Before implementation, shape a decision-complete ",
-    "acceptance matrix and record explicit non-goals, bounded vertical slices, expected paths, and a ",
-    "scope ledger. Agents must stop for approval before adding an unplanned subsystem or public ",
-    "abstraction, ",
-    "making a workflow, agent-memory, quality-tool, or dependency change, moving an unrelated ",
-    "refactor or test move into scope, implementing behavior outside the acceptance matrix, or ",
-    "exceeding the hard scope budget. Target no more than 25 files or 1,500 net changed lines, perform ",
-    "a mandatory scope review above either threshold, and stop without approval above 40 files or ",
-    "2,500 net changed lines. Classify every review finding as Blocker-Fix, In-scope-Fix, Reject, or ",
-    "Defer; reviewer suggestions do not authorize scope expansion. Limit Open Code Review to two ",
-    "local and two PR OCR reviews per issue/PR effort. Declare exact-head completion only when every ",
-    "accepted behavior has behavioral evidence, local verification and CI pass on the candidate head, ",
-    "reviews are complete and triaged, all Blocker-Fix and In-scope-Fix findings are resolved, correct ",
-    "ancestry is confirmed, the PR is conflict-free, and the scope ",
-    "ledger is clean. Stop successfully when accepted behavior and all required gates are complete. ",
-    "Do not continue optional hardening or cleanup, and do not weaken architecture, TDD, lint, ",
+    "Before implementing, shape the issue into clear acceptance criteria: the ",
+    "behavior to deliver, the relevant inputs and boundary cases, and the tests ",
+    "that will prove it. Implement only the accepted behavior and keep every change ",
+    "strictly within the issue's scope; do not expand scope to add adjacent cleanup ",
+    "or speculative hardening, and stop for approval before adding an unplanned ",
+    "subsystem or public abstraction, making a workflow, agent-memory, quality-tool, ",
+    "or dependency change, moving an unrelated refactor or test into scope, or ",
+    "implementing behavior outside the issue's scope. Classify every review finding ",
+    "as Blocker-Fix, In-scope-Fix, Reject, or Defer; reviewer suggestions do not ",
+    "authorize scope expansion. Limit Open Code Review to two local and two PR OCR ",
+    "reviews per issue/PR effort. Declare completion only when every accepted behavior ",
+    "has behavioral evidence, local verification and CI pass on the candidate head, ",
+    "reviews are complete and triaged, all Blocker-Fix and In-scope-Fix findings are ",
+    "resolved, and the PR is conflict-free with correct ancestry. Stop successfully ",
+    "when accepted behavior is complete and all required gates pass. Do not continue ",
+    "optional hardening or cleanup, and do not weaken architecture, TDD, lint, ",
     "complexity, source-size, safety, coverage, cross-platform, or CI requirements."
 );
 
@@ -59,7 +63,7 @@ pub(super) fn fresh_prompt_instruction(
 ///
 /// Cross-platform safe bound that stays well under the smallest OS
 /// command-line length limit (Windows CreateProcess: ~32 KB). The
-/// `ISSUE_DELIVERY_WORKFLOW` appendix adds ~1.5 KB for issues.
+/// `ISSUE_DELIVERY_WORKFLOW` appendix adds ~1.3 KB for issues.
 ///
 /// Note: the binding constraint on Unix is **tmux's pane-command limit**
 /// (~16,340 bytes on tmux 3.x), not the OS `ARG_MAX`. Prompt content that
@@ -73,7 +77,7 @@ pub(super) const MAX_PROMPT_CONTENT_BYTES: usize = 24_000;
 /// being inlined verbatim.
 ///
 /// Sized so that the compacted prompt — including metadata, base prompt, the
-/// `ISSUE_DELIVERY_WORKFLOW` appendix (~1.5 KB for issues), and the
+/// `ISSUE_DELIVERY_WORKFLOW` appendix (~1.3 KB for issues), and the
 /// instruction framing — stays comfortably under tmux's pane-command limit
 /// ([`TMUX_PANE_COMMAND_LIMIT_BYTES`]).
 ///
@@ -227,18 +231,27 @@ mod tests {
     }
 
     #[test]
-    fn issue_delivery_workflow_references_policy_and_shapes_accepted_scope() {
+    fn issue_delivery_workflow_is_repo_neutral_and_scope_focused() {
+        // Scope-first: the agent must shape acceptance criteria and stay in scope.
         for required in [
-            "dev-docs/workflow/ISSUE-DELIVERY.md",
-            "decision-complete acceptance matrix",
-            "explicit non-goals",
-            "bounded vertical slices",
-            "expected paths",
-            "scope ledger",
+            "acceptance criteria",
+            "Implement only the accepted behavior",
+            "within the issue's scope",
         ] {
             assert!(
                 ISSUE_DELIVERY_WORKFLOW.contains(required),
                 "issue delivery workflow must require {required}"
+            );
+        }
+        // Repo-neutral: no jefe-only doc path and no hard-coded file/line budgets.
+        for forbidden in [
+            "dev-docs/workflow/ISSUE-DELIVERY.md",
+            "net changed lines",
+            "hard scope budget",
+        ] {
+            assert!(
+                !ISSUE_DELIVERY_WORKFLOW.contains(forbidden),
+                "issue delivery workflow must not include jefe-only artifact: {forbidden}"
             );
         }
         assert!(!ISSUE_DELIVERY_WORKFLOW.contains("CodeRabbit"));
@@ -251,10 +264,8 @@ mod tests {
             "unplanned subsystem",
             "public abstraction",
             "workflow, agent-memory, quality-tool, or dependency change",
-            "unrelated refactor or test move",
-            "behavior outside the acceptance matrix",
-            "25 files or 1,500 net changed lines",
-            "40 files or 2,500 net changed lines",
+            "unrelated refactor or test",
+            "outside the issue's scope",
         ] {
             assert!(
                 ISSUE_DELIVERY_WORKFLOW.contains(required),
@@ -281,17 +292,16 @@ mod tests {
     }
 
     #[test]
-    fn issue_delivery_workflow_defines_exact_head_success() {
+    fn issue_delivery_workflow_defines_completion_readiness() {
         for required in [
-            "exact-head",
             "behavioral evidence",
             "local verification",
             "CI",
+            "candidate head",
             "reviews are complete and triaged",
             "Blocker-Fix and In-scope-Fix findings are resolved",
             "correct ancestry",
             "conflict-free",
-            "scope ledger is clean",
             "Stop successfully",
             "Do not continue optional hardening",
         ] {
