@@ -106,7 +106,8 @@ serialization. This is exactly what the issue demands and what V4 verifies.
 | `xtask` coverage floors | A7 | issue deliverable 3 |
 | new contract test file | A1–A4, A8, A9 | proving tests |
 
-Budget target: <= 25 files / 1500 net lines. Running estimate: ~12 files.
+No file or line budget applies to this issue (stated explicitly in the issue
+text). Scope is governed by the acceptance matrix and non-goals above.
 
 ## Items that CANNOT be completed by code in this PR
 
@@ -124,4 +125,49 @@ Budget target: <= 25 files / 1500 net lines. Running estimate: ~12 files.
 
 ## Verification evidence
 
-(filled during execution)
+All commands run on native Windows (win32, 16 CPU) with `JEFE_REQUIRE_PSMUX=1`.
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | exit 0 |
+| `cargo xtask check source-size` | exit 0 |
+| `cargo xtask check architecture` | exit 0 |
+| `cargo xtask check clippy-allows` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 |
+| complexity clippy gate | exit 0 |
+| `cargo test --workspace --all-features --locked` | **62 targets, 0 failures** |
+| psmux suite at default parallelism | 23 tests green; 6 consecutive `psmux_smoke` trials green; 1 trial green under a concurrent full rebuild |
+| `js-yaml` parse of `ci.yml` | valid; `windows_native` has no `needs`, so nothing can skip it |
+
+### A6 RED proof (root cause, measured not assumed)
+
+With a timestamp-only namespace generator, on this Windows host:
+
+```
+namespace generator produced 7635 duplicates across 16000 concurrent calls
+```
+
+Duplicate namespace means a shared psmux server. This is the defect
+`RUST_TEST_THREADS: 1` was masking. With pid + process-wide atomic counter the
+same test yields zero duplicates.
+
+### Defect surfaced by ungating (predicted by the issue)
+
+`src/app_input/prs_diff_dispatch_tests.rs` fabricated an `ExitStatus` by
+running `true` / `false`, which do not exist on Windows. Three tests failed
+on Windows only. They had never run in CI because `windows_native` was
+failing on portable checks before reaching `cargo test`. Fixed here; this is
+exactly the class of defect the issue says is being hidden.
+
+## Status by verification criterion
+
+| ID | Status |
+|---|---|
+| V1 | Implemented — portable checks removed from `windows_native`; contract test enforces it. Needs a CI run on a deliberately-malformatted PR for final evidence. |
+| V2 | Implemented — same mechanism; `windows_clippy` is independent. |
+| V3 | `RUST_TEST_THREADS` and `--test-threads=1` removed and contract-enforced. Local: full suite green at default parallelism. The 10-consecutive-run evidence is post-merge. |
+| V4 | **Done** — `tests/psmux_parallel_isolation.rs` proves distinct namespaces and mutual invisibility under real concurrency. |
+| V5 | **Not started** — needs decision (see below). |
+| V6 | Gate job `windows_native_complete` delivered. Enabling it in branch protection is an admin action. |
+| V7 | Both red-main causes fixed, plus one further Windows-only defect. Consecutive-run evidence is post-merge. |
+| V8 | Nightly schedule + `flake_baseline` artifact job delivered; evidence requires a scheduled run to fire. |
