@@ -336,9 +336,8 @@ fn run_probe_with_loader_retry(
             std::thread::sleep(LOADER_TRANSIENT_BACKOFF);
         }
     }
-    Err(last_error.unwrap_or_else(|| {
-        ProbeFailure::Failed("loader transient retries exhausted".to_string())
-    }))
+    Err(last_error
+        .unwrap_or_else(|| ProbeFailure::Failed("loader transient retries exhausted".to_string())))
 }
 
 fn validate_process_output(
