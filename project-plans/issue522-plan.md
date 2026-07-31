@@ -132,9 +132,37 @@ source.error remains diagnostic because JSP/1 has no event that clears it.
 
 ## Review counters
 
-- Independent review/remediation cycles: 0 of 2.
-- Local OCR: 0 of 2.
+- Independent review/remediation cycles: 0 of 2. Subagent reviewers were
+  unavailable for this run: every configured profile returned a provider error
+  (usage limit reached, missing API key, or load-balancer exhaustion). This work
+  has had no independent Rust reviewer.
+- Local OCR: 1 of 2.
 - PR OCR: 0 of 2.
+
+## Review dispositions
+
+Addressed:
+
+- Scenario socket collision. Each scenario now uses its own socket path. The
+  path stays short deliberately: it backs the tmux server socket and the
+  platform `sun_path` limit is 104 bytes, so a workspace-relative path exceeds
+  it and the agent dies before observation starts. This was verified by
+  observing `Status: Dead` with the longer path.
+- Racy `drain_messages` assertions replaced with bounded polling, because the
+  worker publishes after writing the HTTP response.
+- Weak `assert_ne!` turn-elapsed assertion replaced with the exact rendered
+  value.
+- `TempDir` guard retained so the JSP runtime directory is reclaimed.
+
+Dismissed with reason:
+
+- "Remove the duplicated `prepare_current` call." The first preflight runs
+  against the unmodified plan so an unspawnable agent fails before any
+  credential material is written, which is acceptance J1. The second preflight
+  is required because JSP instrumentation changes the plan. Documented instead.
+- "Fold the token validation into the route handler's own `mutate` call." The
+  registry is only touched by the single worker thread, so the described TOCTOU
+  window does not exist, and the split keeps authorization ahead of routing.
 
 ## Verification evidence
 
