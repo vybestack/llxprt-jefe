@@ -1768,3 +1768,33 @@ name and intent are about the isolated config being used and the app rendering,
 which is why the assertion now waits on `Agent Types` in the dashboard body
 instead of a title that any startup warning can displace. Nothing was skipped,
 weakened, or given a longer timeout.
+
+## Delivery status — PR #548
+
+https://github.com/vybestack/llxprt-jefe/pull/548
+
+Every required check passes on the exact head: Format, Clippy allow policy, Lint
+(clippy), Complexity, Source file length, Architecture boundary policy, Coverage
+gate, Build, Test, Native Windows (MSVC + psmux), Mergeability gate,
+OpenCodeReview, CodeRabbit, and the LLxprt review. `mergeStateStatus` is `CLEAN`
+and the PR is conflict-free with correct ancestry over current `origin/main`.
+
+Three CI failures were fixed rather than waved through, and each was diagnosed
+before being touched:
+
+1. Native Windows failed to compile the relocated probe tests, because the
+   module imports `AgentDefinition` behind `cfg(unix)`. That one was mine, caused
+   by moving those tests to satisfy the source-size limit; they now use the full
+   path.
+2. `probe_parser_four_agents` and the 1000-line source-size limit were already
+   failing on `origin/main` at `09e1c9f`, proved with a clean worktree and with
+   main's own red CI run.
+3. `real_jefe_session_uses_isolated_config_when_binary_available` asserted on a
+   window title that shares its row with the startup warning banner; on a host
+   where an optional startup probe fails, the banner takes the width and the
+   title is truncated even though the app rendered correctly.
+
+Review counters, final: local OCR 1/2; post-PR OCR 2/2 (spent by the automated
+workflow, which reported an infrastructure failure rather than findings); review
+cycles 2/2. CodeRabbit posted no inline findings. All findings from both
+completed reviews are dispositioned above; nothing is left untriaged.
