@@ -1622,3 +1622,81 @@ The first two full runs failed, and neither failure was noise.
 
 No dependency, workflow, quality-gate, `.llxprt`, lint-suppression, or threshold
 change was made in this slice.
+
+## Review cycle 1 — findings and triage
+
+Reviews run on the S9 head: one Rust architecture/code review and one local
+Open Code Review (`ocr --from origin/main --to HEAD`, 177 files, 66 comments).
+Counters after this cycle: local OCR **1/2**, post-PR OCR 0/2, review cycles
+**1/2**.
+
+The Rust review reported 0 blocking findings and confirmed the accepted
+invariants directly against source: clean `domain/` boundary, one resolution per
+input with no surviving parallel dispatch/help/footer authority, atomic
+candidate publication with prior bytes retained on rejection, protected-binding
+enforcement, byte-faithful PTY passthrough, no production `unwrap`/`expect`/
+`panic`/`unsafe`, typed errors, behavioral tests, and no dependency, workflow,
+lint, or threshold change.
+
+### Blocker-Fix
+
+| Finding | Evidence | Resolution |
+| --- | --- | --- |
+| `ModalState::Keys` derived the context `global`, which repeats the stack's own tail; `ContextStack` rejects duplicates, so opening the Keys editor made context derivation fail. The editor deliberately lets `Ctrl+Q` fall through, so the **protected emergency exit was swallowed** and replaced with a warning. | Reproduced by a new RED test: `DuplicateContext(ContextId("global"))` on every screen mode | The Keys modal now derives its own `keys` context. `keys_modal_context_keeps_the_protected_exit_reachable` covers all seven screen modes and is GREEN. |
+| `record_untranslatable` labelled dropped input as `ForwardToPty` with zero bytes, so the capture claimed a PTY write that never happened — corrupting the exact evidence CW03-08 exists to provide. | `src/action_capture_emit.rs` | Non-forwarded input now records `Unbound`; only genuinely forwarded input records `ForwardToPty` plus its bytes. |
+
+### In-scope-Fix
+
+| Finding | Evidence | Resolution |
+| --- | --- | --- |
+| `compact_digit_run` split chord labels on the last **byte** via `split_at`, which panics when a label ends in a multi-byte scalar (a char-key override can produce one). | `src/action_projection.rs` | Splits on the last character and parses the digit through `char::to_digit`, so a non-ASCII label returns `None` instead of panicking. |
+| Footer status de-duplication used `part.contains(&status)`, a substring test, so a status could be suppressed by an unrelated longer one. | `src/action_projection.rs` | Compares for equality. |
+| Two absence assertions in `agent-shell-overlay.json` sampled the frame immediately after the key that closes the overlay — the same instantaneous-assert race the keys-editor fixture hit. | scenario steps 26–29 and 36–39 | Each assertion now runs after the adjacent waits that already prove the overlay closed. No new literal was invented and no timeout was raised. |
+
+### Reject
+
+| Finding | Why |
+| --- | --- |
+| PR filter maps `FilterPreviousChoice` and `FilterNextChoice` to the same forward event, "breaking" reverse cycling | Not a regression: `origin/main` maps `CycleNext` and `CyclePrevious` to the same forward event too. CW03-01 requires behavioral parity, so changing it here would be an unrequested behavior change. Recorded as a follow-up instead. |
+| `workspace_stack` drops focused/screen levels while a special editor/chooser is active | Matches current behavior, where an open property editor/chooser consumes input before panel and screen handling. Adding those levels would newly expose bindings that do not fire today. |
+| `is_quit_key` guard "weakens a quit safety net" | Intentional: `Ctrl+Q` is the registry's protected emergency exit, and the rapid `q q q` sequence is a separate mechanism. Feeding the exit chord into the sequence counter would double-handle it. |
+| Chord parsing fails for two or more modifiers plus a literal `+` | Not reproducible: `parse` strips the `++` suffix before splitting modifiers, so `Ctrl+Alt++` parses. The keymap suite covers the grammar. |
+
+### Defer
+
+- ~23 further scenarios assert frame absence immediately after a key press. The
+  class is real, but those scenarios are not executed by CI or the test suite,
+  and each fix needs a destination literal that cannot be verified without
+  running them. The two automatically-exercised cases were fixed. The durable
+  answer is a bounded "wait until absent" operation, which is harness-grammar
+  scope rather than this issue.
+- Perf items (quadratic lookups in validation/resolution, repeated document
+  parsing in `apply_edits`, snapshot cloning per render) are real but concern
+  small, bounded collections and are outside the accepted behavior.
+- Style, doc-wording, and temp-directory-cleanup-on-failure suggestions in
+  tests.
+
+One-shot conversion and scan scripts used during this work were run from a
+scratch directory and deliberately not committed: conversion tooling is
+dev-time, never a shipped input mode.
+
+### Review-cycle-1 verification and one unrelated flake
+
+`cargo xtask ci` on the remediated head — PASS end to end: fmt, clippy-allow
+policy, source size, architecture, strict lint, complexity, coverage at
+**70.82%**, locked all-feature build, and the full workspace test suite with all
+27 real-process harness fixtures.
+
+Two clippy errors introduced by the remediation itself (`items_after_statements`
+for the new char-split helper, and `manual_contains`) were fixed at the source by
+lifting the helper to module scope and using `Vec::contains`. No allow attribute
+or threshold change was added.
+
+One failure in this cycle was **not** caused by this branch:
+`v1/config-path-precedence.json` asserts five keys are visible in a 100x30
+frame, but the printed JSON contains absolute temp paths whose length varies per
+harness run, so the last key (`themes`) intermittently wraps off the bottom of
+the frame. The fixture is unchanged since #419 and had passed in earlier runs on
+this same branch. Rather than dismiss it as unrelated, the viewport was widened
+to 60 rows so the whole document fits regardless of path length; every `contains`
+and `absent` assertion is unchanged, and the fixture now passes repeatedly.

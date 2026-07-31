@@ -49,7 +49,9 @@
     {
       "op": "key",
       "key": "n",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -177,13 +179,6 @@
       "modifiers": []
     },
     {
-      "op": "assert-frame",
-      "contains": [],
-      "absent": [
-        "Agent Shell"
-      ]
-    },
-    {
       "op": "wait",
       "source": "frame",
       "literal": "Shell Agent",
@@ -194,6 +189,13 @@
       "source": "frame",
       "literal": "F10 resume shell",
       "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Agent Shell"
+      ]
     },
     {
       "op": "key",
@@ -234,13 +236,6 @@
       "modifiers": []
     },
     {
-      "op": "assert-frame",
-      "contains": [],
-      "absent": [
-        "Agent Shell"
-      ]
-    },
-    {
       "op": "wait",
       "source": "frame",
       "literal": "Shell Agent",
@@ -251,6 +246,13 @@
       "source": "frame",
       "literal": "t/f12 terminal focus",
       "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Agent Shell"
+      ]
     },
     {
       "op": "key",
@@ -299,7 +301,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

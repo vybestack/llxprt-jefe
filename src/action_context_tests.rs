@@ -197,3 +197,89 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
         )
     );
 }
+
+/// Compose the shipped inventory into a snapshot, as the app does at startup.
+fn compiled_snapshot() -> jefe::domain::action_registry::ActionRegistrySnapshot {
+    use jefe::domain::Id;
+    use jefe::domain::action_registry::{
+        ActionAvailability, Availability, AvailabilityGeneration, RegistryCandidate,
+    };
+    use jefe::domain::effects::{Correlation, CorrelationId, EffectFamily, SemanticKey};
+    use jefe::domain::input_context::ContextStack;
+
+    let inventory = jefe::domain::default_action_inventory::compiled_inventory()
+        .unwrap_or_else(|error| panic!("compiled inventory: {error}"));
+    let entries = inventory
+        .actions
+        .iter()
+        .map(|action| ActionAvailability::new(action.id.clone(), Availability::Available))
+        .collect();
+    let owner = Id::parse("core.keymap").unwrap_or_else(|error| panic!("owner: {error}"));
+    let correlation_id = CorrelationId::new(1);
+    let generation = AvailabilityGeneration::new(
+        Correlation {
+            correlation_id,
+            owner,
+            screen_generation: 0,
+            activation_generation: 0,
+            semantic_key: SemanticKey::new(EffectFamily::Provider, "action-availability"),
+        },
+        entries,
+    );
+    let stacks = inventory
+        .bindings
+        .iter()
+        .filter_map(|binding| ContextStack::from_ordered([binding.context.as_str()], false).ok())
+        .collect();
+    RegistryCandidate::new(
+        inventory.actions,
+        inventory.bindings,
+        Vec::new(),
+        stacks,
+        generation,
+    )
+    .compose()
+    .unwrap_or_else(|error| panic!("compiled snapshot: {error}"))
+}
+
+/// The Keys editor consumes its own input, but it deliberately lets `Ctrl+Q`
+/// fall through so the protected emergency exit stays reachable. That only
+/// works if the modal derives a valid context: a stack that repeats `global`
+/// is rejected as a duplicate, which would swallow the exit instead.
+#[test]
+fn keys_modal_context_keeps_the_protected_exit_reachable() {
+    let snapshot = compiled_snapshot();
+
+    for screen_mode in [
+        ScreenMode::Dashboard,
+        ScreenMode::Split,
+        ScreenMode::DashboardActions,
+        ScreenMode::DashboardIssues,
+        ScreenMode::DashboardPullRequests,
+        ScreenMode::DashboardErrors,
+        ScreenMode::DashboardTerminals,
+    ] {
+        let mut state = AppState {
+            screen_mode,
+            ..AppState::default()
+        };
+        state.action_registry_snapshot = Some(snapshot.clone());
+        state.modal = ModalState::Keys {
+            editor: Box::new(jefe::state::KeysEditorState::from_snapshot(&snapshot, None)),
+        };
+
+        let result = derive_action_context(&state, jefe::input::input_mode_for_state(&state));
+        let Ok(context) = result else {
+            panic!("keys modal on {screen_mode:?} should derive a context, got {result:?}");
+        };
+        let names: Vec<String> = context
+            .stack
+            .iter()
+            .map(|value| value.as_str().to_owned())
+            .collect();
+        assert!(
+            names.iter().any(|name| name == "global"),
+            "keys modal on {screen_mode:?} must keep global reachable, got {names:?}"
+        );
+    }
+}

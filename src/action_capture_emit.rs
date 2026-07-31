@@ -74,15 +74,22 @@ pub fn record_untranslatable(key_event: &KeyEvent, forwarded: bool) {
     if !sink::is_active() {
         return;
     }
-    let pty_bytes = if forwarded {
-        crate::pty_encoding::key_to_bytes(key_event, false).unwrap_or_default()
+    // `ForwardToPty` is only truthful when bytes actually reached the child.
+    // Labelling a dropped key as forwarded would make the capture claim a PTY
+    // write that never happened, which is exactly the confusion this evidence
+    // exists to rule out.
+    let (pty_bytes, resolution) = if forwarded {
+        (
+            crate::pty_encoding::key_to_bytes(key_event, false).unwrap_or_default(),
+            ResolutionClass::ForwardToPty,
+        )
     } else {
-        Vec::new()
+        (Vec::new(), ResolutionClass::Unbound)
     };
     let record = ActionCaptureRecord::Key(KeyCapture {
         original: original_of(key_event),
         canonical_chord: String::new(),
-        resolution: ResolutionClass::ForwardToPty,
+        resolution,
         action: None,
         handler: None,
         pty_bytes,

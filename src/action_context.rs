@@ -66,7 +66,11 @@ pub fn derive_action_context(
 fn modal_context(modal: &ModalState) -> Option<&'static str> {
     match modal {
         ModalState::Help => Some("help"),
-        ModalState::Keys { .. } => Some("global"),
+        // The Keys editor owns its own input, but it must still derive a
+        // distinct context: naming `global` here repeats the stack's own tail
+        // and `ContextStack` rejects duplicates, which would swallow the
+        // protected emergency exit the editor deliberately lets through.
+        ModalState::Keys { .. } => Some("keys"),
         ModalState::Search { .. } => Some("search"),
         ModalState::ThemePicker { .. } => Some("modal.theme"),
         ModalState::NewRepository { .. }

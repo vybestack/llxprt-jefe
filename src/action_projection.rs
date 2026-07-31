@@ -154,16 +154,23 @@ fn format_chord(chord: Chord, surface: ChordSurface) -> String {
     }
 }
 
+/// Split a label on its last character, not its last byte: a chord label may
+/// end in a multi-byte scalar, where byte slicing would panic on the boundary.
+fn split_last_char(label: &str) -> Option<(&str, char)> {
+    let last = label.chars().next_back()?;
+    let boundary = label.len().checked_sub(last.len_utf8())?;
+    Some((label.get(..boundary)?, last))
+}
+
 fn compact_digit_run(labels: &[String]) -> Option<String> {
     if labels.len() < 3 {
         return None;
     }
-    let first = labels.first()?;
-    let prefix = first.get(..first.len().checked_sub(1)?)?;
+    let (prefix, _) = split_last_char(labels.first()?)?;
     let mut digits = Vec::with_capacity(labels.len());
     for label in labels {
-        let (candidate_prefix, digit) = label.split_at(label.len().checked_sub(1)?);
-        let value = digit.parse::<u8>().ok()?;
+        let (candidate_prefix, digit) = split_last_char(label)?;
+        let value = u8::try_from(digit.to_digit(10)?).ok()?;
         if candidate_prefix != prefix {
             return None;
         }
@@ -409,7 +416,7 @@ fn append_unlisted_unavailable_statuses(
                 .any(|context| mode_contexts.contains(&context.as_str()))
     }) {
         let status = row.status();
-        if !parts.iter().any(|part| part.contains(&status)) {
+        if !parts.contains(&status) {
             parts.push(status);
         }
     }
