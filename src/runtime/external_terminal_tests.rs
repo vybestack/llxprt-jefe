@@ -145,6 +145,15 @@ fn macos_maps_wezterm_to_wezterm_app() {
 }
 
 #[test]
+fn macos_maps_wezterm_bundle_id_to_wezterm_app() {
+    // __CFBundleIdentifier fallback when TERM_PROGRAM is unset (#549 review).
+    assert_eq!(
+        super::macos_app_for_emulator("com.github.wez.wezterm"),
+        Some("WezTerm")
+    );
+}
+
+#[test]
 fn macos_unknown_emulator_maps_to_none() {
     assert_eq!(super::macos_app_for_emulator("MysteryTerm"), None);
     assert_eq!(super::macos_app_for_emulator(""), None);
@@ -194,8 +203,14 @@ fn linux_maps_wezterm_emulator_to_wezterm_plan() {
         panic!("WezTerm must resolve to a plan");
     };
     assert_eq!(plan.program, "wezterm");
-    assert!(plan.args.iter().any(|arg| arg == "--cwd"));
-    assert!(plan.args.iter().any(|arg| arg == "start"));
+    assert_eq!(
+        plan.args,
+        vec![
+            "start".to_owned(),
+            "--cwd".to_owned(),
+            dir.to_string_lossy().to_string()
+        ]
+    );
     assert_eq!(plan.work_dir, dir);
 }
 

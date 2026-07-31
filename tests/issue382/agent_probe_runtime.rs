@@ -217,18 +217,13 @@ fn assert_one_fixture(definitions: &[AgentDefinition], fixture: &Path, generatio
         result.executable_fingerprint(),
         Some(install.resolved().fingerprint())
     );
-    // A trusted capability probe (issue #534) takes its capabilities from the
-    // shipped declaration, so it must not spend a second `--help` invocation.
-    let trusted = install
-        .definition
-        .probe
-        .capabilities
-        .as_ref()
-        .is_some_and(|probe| probe.trusted);
-    let expected_invocations: &[&str] = if trusted {
-        &["--version"]
-    } else {
-        &["--version", "--help"]
+    // Trusted capability probes skip the `--help` subprocess (#534) and run only
+    // the `--version` identity probe; a missing capability probe also skips
+    // `--help`; an untrusted probe still verifies `--help`.
+    let expected_invocations: &[&str] = match install.definition.probe.capabilities.as_ref() {
+        None => &["--version"],
+        Some(probe) if probe.trusted => &["--version"],
+        Some(_) => &["--version", "--help"],
     };
     assert_eq!(install.invocations(), expected_invocations);
 }

@@ -195,7 +195,7 @@ fn macos_app_for_emulator(detected: &str) -> Option<&'static str> {
     match detected {
         "iTerm.app" | "com.googlecode.iterm2" => Some("iTerm"),
         "Apple_Terminal" | "com.apple.Terminal" => Some("Terminal"),
-        "WezTerm" => Some("WezTerm"),
+        "WezTerm" | "com.github.wez.wezterm" => Some("WezTerm"),
         _ => None,
     }
 }
