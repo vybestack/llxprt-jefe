@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Flake baseline: main has had CI only since #439, so there is no history to
+  # attribute intermittent failures against. A nightly run builds that record.
+  schedule:
+    - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
       run_tui_smoke:
@@ -145,6 +149,31 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features --locked
 
+  windows_clippy:
+    name: Windows Clippy (cfg(windows) lint gap)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CLIPPY_CONF_DIR: .github/clippy
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          target: x86_64-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-targets: false
+          shared-key: windows-msvc-clippy
+      # Ubuntu clippy cannot see cfg(windows) code, so this is genuine Windows
+      # signal. It reports independently and never gates the native suite.
+      - name: Run strict Clippy on Windows
+        shell: pwsh
+        run: |
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+
   windows_native:
     name: Native Windows (MSVC + psmux)
     runs-on: windows-latest
@@ -152,10 +181,8 @@ jobs:
     permissions:
       contents: read
     env:
-      CLIPPY_CONF_DIR: .github/clippy
       JEFE_REQUIRE_PSMUX: "1"
       RUST_BACKTRACE: full
-      RUST_TEST_THREADS: "1"
       PSMUX_VERSION: "3.3.7"
       PSMUX_SHA256: 60ff7b236f64184921cef3c1ff2611aa5a36fcc7ed8e2a58e968b8ded57f6028
     steps:
@@ -211,27 +238,12 @@ jobs:
             $versionText = ($version | Out-String).Trim()
             throw "expected qualified psmux $env:PSMUX_VERSION, got: $versionText"
           }
-      - name: Check formatting
-        shell: pwsh
-        run: |
-          cargo fmt --all --check 2>&1 |
-            Tee-Object -FilePath target/windows-ci/cargo-fmt.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Portable policy checks (clippy-allow, source-size, architecture)
-        shell: pwsh
-        run: |
-          cargo xtask check clippy-allows
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo xtask check source-size
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo xtask check architecture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run strict Clippy
-        shell: pwsh
-        run: |
-          cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 |
-            Tee-Object -FilePath target/windows-ci/cargo-clippy.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Formatting, clippy-allow, source-size and architecture are platform
+      # independent and already enforced by dedicated Ubuntu jobs above. They
+      # used to run here, ahead of every native step, where a single failure
+      # skipped the entire Windows suite: 7 of 15 windows_native failures over
+      # 80 runs produced zero Windows signal for exactly this reason. Windows
+      # clippy still runs, but as the independent windows_clippy job.
       - name: Build locked all-feature workspace
         shell: pwsh
         run: |
@@ -246,10 +258,13 @@ jobs:
           if ($result.FailedCount -ne 0) {
             throw "installer Pester harness failed: $($result.FailedCount) test(s)"
           }
+      # Runs at default parallelism. psmux tests isolate themselves with
+      # per-test namespaces and per-test server lifetimes, so the races that
+      # multi-agent users actually hit stay visible to CI.
       - name: Test locked all-feature workspace
         shell: pwsh
         run: |
-          cargo test --workspace --all-features --locked -- --test-threads=1 2>&1 |
+          cargo test --workspace --all-features --locked 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-test.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run deterministic startup and quit TUI scenario
@@ -439,6 +454,78 @@ jobs:
             target/psmux-smoke
             target/tmux-harness
           if-no-files-found: warn
+
+  windows_native_complete:
+    name: Native Windows completion gate
+    runs-on: ubuntu-latest
+    needs: [windows_native]
+    # Must evaluate even when windows_native fails, is cancelled, or is
+    # skipped. Without always() this gate would itself be skipped and would
+    # prove nothing.
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      # A windows_native result of "skipped" is not a pass. Branch protection
+      # should require THIS check, so that a PR cannot merge on Windows
+      # validation that never ran.
+      - name: Reject skipped or unsuccessful native Windows validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          result='${{ needs.windows_native.result }}'
+          echo "windows_native result: ${result}"
+          case "${result}" in
+            success)
+              echo "Native Windows validation executed and passed."
+              ;;
+            skipped)
+              echo "::error::windows_native was skipped. A green-because-skipped result is not Windows signal."
+              exit 1
+              ;;
+            *)
+              echo "::error::windows_native reported '${result}'. Native Windows validation did not pass."
+              exit 1
+              ;;
+          esac
+
+  flake_baseline:
+    name: Main flake baseline record
+    runs-on: ubuntu-latest
+    needs: [test, windows_clippy, windows_native, windows_native_complete]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+    steps:
+      # Attribution, not argument: every scheduled run leaves a retrievable
+      # record of which gate was red, so intermittent failures can be counted.
+      - name: Record scheduled run outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p flake-baseline
+          cat > "flake-baseline/run-${{ github.run_id }}.json" <<'RECORD'
+          {
+            "run_id": "${{ github.run_id }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "commit": "${{ github.sha }}",
+            "started": "${{ github.event.repository.updated_at }}",
+            "results": {
+              "test": "${{ needs.test.result }}",
+              "windows_clippy": "${{ needs.windows_clippy.result }}",
+              "windows_native": "${{ needs.windows_native.result }}",
+              "windows_native_complete": "${{ needs.windows_native_complete.result }}"
+            }
+          }
+          RECORD
+          cat "flake-baseline/run-${{ github.run_id }}.json"
+      - name: Upload flake baseline record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flake-baseline-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+          path: flake-baseline
+          retention-days: 90
+          if-no-files-found: error
 
   tui_smoke:
     name: Optional TUI smoke (tmux)
