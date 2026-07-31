@@ -1700,3 +1700,25 @@ the frame. The fixture is unchanged since #419 and had passed in earlier runs on
 this same branch. Rather than dismiss it as unrelated, the viewport was widened
 to 60 rows so the whole document fits regardless of path length; every `contains`
 and `absent` assertion is unchanged, and the fixture now passes repeatedly.
+
+### Main integration: converting the issue #530 Windows scenario
+
+Merging current `origin/main` brought in
+`dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json`, authored
+from a base predating this branch and therefore still in the old format. The
+corpus gate correctly failed on it.
+
+Before touching it, its relevance was checked against a current Windows
+`state.json` supplied by the maintainer. `Alt+5` resolves by `shortcut-slot`,
+not list position, and slot 5 is `branch-3` at
+`C:\Users\acoli\projects\jefe\branch-3` — so the scenario's `Alt+5` -> wait
+`branch-3` sequence still matches the live setup exactly. It is current
+evidence, not a stale artifact, so deleting it was rejected.
+
+It was converted to strict schema 1 following the precedent S8 already
+established for its sibling native-Windows scenario
+(`issue525/windows-npm-wrapper-launch.json`): same contained `config/` +
+`work/` workspace, same launch, and the identical step sequence with canonical
+keys (`Alt+5`, `l`, `Ctrl+C`, `F12`, `Ctrl+Q`). The old screen-`capture` step
+was dropped, matching how every other converted scenario handled it, because
+schema-1 `capture` denotes subprocess capture rather than a screen artifact.
