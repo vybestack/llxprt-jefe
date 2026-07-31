@@ -48,7 +48,10 @@ struct AppContext {
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
-    jsp_host: jefe::jsp_host::JspHostRuntime,
+    /// `None` when the local JSP host could not start. Observation is
+    /// optional telemetry, so Jefe still runs; agents simply launch
+    /// uninstrumented and report telemetry as unsupported.
+    jsp_host: Option<jefe::jsp_host::JspHostRuntime>,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
     gh_client: jefe::github::GhClient,
     /// Root-owned delivery slot for background GitHub request results.
@@ -142,7 +145,10 @@ fn write_startup_error(
 fn write_jsp_startup_error(error: &jefe::jsp_host::JspHostError) {
     let stderr = std::io::stderr();
     let mut handle = stderr.lock();
-    let _ = writeln!(handle, "error: could not start local JSP host: {error}");
+    let _ = writeln!(
+        handle,
+        "warning: local JSP host unavailable, agent telemetry disabled: {error}"
+    );
 }
 
 /// Run the read-only `jefe doctor` diagnostics, write the redacted report to
@@ -320,14 +326,16 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         |parent| parent.join("jsp"),
     );
     let jsp_host = match jefe::jsp_host::JspHostRuntime::start(jsp_runtime_dir) {
-        Ok(host) => host,
+        Ok(host) => Some(host),
         Err(error) => {
             write_jsp_startup_error(&error);
-            std::process::exit(1);
+            None
         }
     };
     let mut runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
-    runtime.install_jsp_launches(jsp_host.coordinator());
+    if let Some(host) = &jsp_host {
+        runtime.install_jsp_launches(host.coordinator());
+    }
 
     let persist_handle =
         jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));

@@ -161,6 +161,11 @@ Addressed:
   `activity.changed`, and the native proof still renders `Status: Ready` with it
   removed. The unit test that encoded the wrong behavior was rewritten.
 
+- Startup fail-closed on the JSP host. Jefe exited when the local host could
+  not bind. Observation is optional telemetry, so a host that cannot start must
+  degrade to unsupported telemetry rather than prevent Jefe from running. The
+  host is now optional; agents launch uninstrumented when it is absent.
+
 Dismissed with reason:
 
 - "Remove the duplicated `prepare_current` call." The first preflight runs

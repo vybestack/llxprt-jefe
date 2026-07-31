@@ -41,7 +41,7 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),
         runtime: TmuxRuntimeManager::new(24, 80),
-        jsp_host,
+        jsp_host: Some(jsp_host),
         gh_client: GhClient::new(),
         gh_deliveries: super::GhDeliveryHandle::default(),
         persist_handle: PersistHandle::new(Arc::new(|_, _, _| {

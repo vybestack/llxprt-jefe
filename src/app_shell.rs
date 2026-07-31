@@ -35,7 +35,10 @@ fn drain_jsp_messages(
         return false;
     };
     let messages = match ctx_arc.try_lock() {
-        Ok(context) => context.jsp_host.drain_messages(),
+        Ok(context) => context
+            .jsp_host
+            .as_ref()
+            .map_or_else(Vec::new, jefe::jsp_host::JspHostRuntime::drain_messages),
         Err(_) => return false,
     };
     if messages.is_empty() {
