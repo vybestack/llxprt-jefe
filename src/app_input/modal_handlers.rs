@@ -13,9 +13,10 @@ use jefe::state::{
 use jefe::theme::ThemeManager;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, close_modal_and_persist,
-    durable_save_request, execute_agent_launch, launch_signature_for_agent, preflight_or_prompt,
-    repository_focus_toggles_checkbox, schedule_durable_save,
+    AppStateHandle, SharedContext, apply_and_persist, auth_remediation, close_modal_and_persist,
+    durable_save_request, execute_agent_launch, launch_signature_for_agent,
+    launch_signature_for_new_agent, preflight_or_prompt, repository_focus_toggles_checkbox,
+    schedule_durable_save,
 };
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {

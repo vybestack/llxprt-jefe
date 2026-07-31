@@ -8,6 +8,28 @@ use jefe::messages::RuntimeMessage;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
+/// Collects delivered runtime messages until `expected` have arrived or the
+/// deadline passes.
+///
+/// The worker publishes to the delivery queue *after* it writes the HTTP
+/// response, so observing `200 OK` does not mean the message is queued yet.
+/// Draining immediately is a race; this polls instead of sleeping a fixed
+/// amount so the test is neither flaky nor artificially slow.
+fn drain_at_least(
+    runtime: &jefe::jsp_host::JspHostRuntime,
+    expected: usize,
+) -> Vec<RuntimeMessage> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut collected = Vec::new();
+    while collected.len() < expected && std::time::Instant::now() < deadline {
+        collected.extend(runtime.drain_messages());
+        if collected.len() < expected {
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    collected
+}
+
 fn reservation() -> PublisherReservation {
     PublisherReservation {
         agent_id: AgentId("agent-alex".to_string()),
@@ -444,11 +466,12 @@ fn production_host_generates_unique_credentials_delivers_and_revokes() {
     );
     assert!(response.starts_with("HTTP/1.1 200"));
     assert!(matches!(
-        runtime.drain_messages().as_slice(),
+        drain_at_least(&runtime, 1).as_slice(),
         [RuntimeMessage::ObservationUpdated(delivered_agent, 7, _)] if delivered_agent == &agent_id
     ));
     publish_repeated_snapshots(&runtime, &credential, &registration_id);
-    assert_eq!(runtime.drain_messages().len(), 1);
+    // Repeated snapshots coalesce into exactly one delivered update.
+    assert_eq!(drain_at_least(&runtime, 1).len(), 1);
 
     coordinator
         .revoke(&agent_id)

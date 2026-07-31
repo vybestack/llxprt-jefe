@@ -150,5 +150,9 @@ fn turn_elapsed_advances_from_local_monotonic_anchor() {
         .iter()
         .find(|line| line.starts_with("Turn elapsed:"))
         .unwrap_or_else(|| panic!("active turn must render elapsed time"));
-    assert_ne!(elapsed, "Turn elapsed: 1s");
+    // The fixture anchors the turn at 12000 ms and the injected clock adds
+    // 2500 ms, so the rendered value is deterministic. Asserting the exact
+    // string keeps a regression in either the anchor or the local elapsed
+    // arithmetic from passing.
+    assert_eq!(elapsed, "Turn elapsed: 14s");
 }

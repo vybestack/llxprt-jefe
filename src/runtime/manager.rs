@@ -711,6 +711,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
+        // Preflight the unmodified plan first so an unspawnable agent fails
+        // before any credential material is written. The augmented plan is
+        // preflighted again below because JSP instrumentation changes it.
         launch
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;

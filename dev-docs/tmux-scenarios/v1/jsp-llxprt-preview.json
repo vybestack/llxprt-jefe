@@ -58,7 +58,7 @@
       "env": [
         {
           "name": "JEFE_SOCKET_PATH",
-          "value": "/tmp/jefe-issue522.sock"
+          "value": "/tmp/jefe-jsp-preview.sock"
         },
         {
           "name": "JEFE_LOG_FILE",
