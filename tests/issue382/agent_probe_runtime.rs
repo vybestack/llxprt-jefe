@@ -589,7 +589,7 @@ fn stream_selection_is_deterministic() {
 
 #[test]
 fn shipped_llxprt_definition_marks_capability_probe_trusted() {
-    let definition = AgentDefinition::shipped()
+    let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
         .into_iter()
         .find(|definition| definition.id.as_str() == "core.llxprt")
         .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
@@ -607,7 +607,7 @@ fn shipped_llxprt_definition_marks_capability_probe_trusted() {
 #[test]
 fn shipped_non_llxprt_definitions_remain_untrusted() {
     for name in ["core.claude-code", "core.code-puppy", "core.codex"] {
-        let definition = AgentDefinition::shipped()
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
             .into_iter()
             .find(|definition| definition.id.as_str() == name)
             .unwrap_or_else(|| panic!("{name} definition must be shipped"));
