@@ -14,6 +14,25 @@ use super::error::HarnessError;
 ///
 /// `HAR-E001` for unknown key names or unsupported modifier combinations.
 pub fn encode(field: &str, key: &str, modifiers: &[Modifier]) -> Result<Vec<u8>, HarnessError> {
+    // Converted scenarios may use legacy tmux spellings. Translation is a pure
+    // rename onto this same closed table, so the emitted bytes are unchanged.
+    if let Some((canonical, extra)) = super::keys_legacy::translate(key) {
+        let mut combined = modifiers.to_vec();
+        for modifier in extra {
+            if !combined.contains(&modifier) {
+                combined.push(modifier);
+            }
+        }
+        return encode_canonical(field, &canonical, &combined);
+    }
+    encode_canonical(field, key, modifiers)
+}
+
+fn encode_canonical(
+    field: &str,
+    key: &str,
+    modifiers: &[Modifier],
+) -> Result<Vec<u8>, HarnessError> {
     let alt = modifiers.contains(&Modifier::Alt);
     let control = modifiers.contains(&Modifier::Control);
     let shift = modifiers.contains(&Modifier::Shift);
@@ -68,6 +87,9 @@ fn encode_named(key: &str) -> Option<Vec<u8>> {
     let bytes: &[u8] = match key {
         "enter" => b"\r",
         "tab" => b"\t",
+        // Back-tab is its own key (crossterm `KeyCode::BackTab`), not a
+        // shifted `tab`: terminals send CSI Z for it.
+        "backtab" => b"\x1b[Z",
         "escape" => b"\x1b",
         "backspace" => b"\x7f",
         "space" => b" ",

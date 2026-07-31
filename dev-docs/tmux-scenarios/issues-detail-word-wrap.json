@@ -1,24 +1,110 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "issues-detail-word-wrap",
+  "platform": "macos",
+  "terminal": {
     "cols": 80,
-    "rows": 40,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "Issues" },
-    { "waitFor": "Contextual allocation fixture" },
-    { "key": "Enter" },
-    { "waitFor": "wrapped-context-head" },
-    { "key": "c" },
-    { "waitFor": "New Comment" },
-    { "expect": "wrapped-context-tail" },
-    { "capture": "issues-contextual-wrapped-document" },
-    { "key": "Escape" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Contextual allocation fixture",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "wrapped-context-head",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Comment",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "wrapped-context-tail"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

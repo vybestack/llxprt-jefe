@@ -61,6 +61,13 @@ pub(super) fn try_up_click(
     else {
         return false;
     };
+    crate::action_capture_emit::record_mouse(
+        mouse_event.column,
+        mouse_event.row,
+        route.hit,
+        route.action.as_str(),
+        &route.resolution,
+    );
     let key_event = key_event_for(route.chord);
     crate::app_shell_key_routing::execute_mouse_resolution(
         ctx,

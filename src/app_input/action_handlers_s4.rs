@@ -304,7 +304,6 @@ fn prs_execution(
         HandlerKey::PullRequestsBack => pr_back(state, chord),
         HandlerKey::PullRequestsOpen => pr_open(state, chord),
         HandlerKey::PullRequestsOpenFilter => Some(AppEvent::PrOpenFilterControls),
-        HandlerKey::PullRequestsFocusSearch => Some(AppEvent::PrFocusSearchInput),
         HandlerKey::PullRequestsComment => Some(super::super::prs::comment_event_for_subfocus(
             state.prs_state.detail_subfocus,
         )),

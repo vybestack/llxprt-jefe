@@ -1,36 +1,143 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "f12-cross-view-defocus",
+  "platform": "macos",
+  "terminal": {
     "cols": 140,
-    "rows": 36,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "Issues" },
-    { "waitFor": "Issue" },
-    { "capture": "issues-list-before-f12" },
-    { "key": "F12" },
-    { "waitFor": "Issue" },
-    { "capture": "issues-list-after-f12-noop" },
-    { "key": "Enter" },
-    { "waitFor": "Issue" },
-    { "capture": "issues-detail-before-f12" },
-    { "key": "F12" },
-    { "wait": 200 },
-    { "expect": "Issue" },
-    { "capture": "issues-list-after-f12-from-detail" },
-    { "key": "p" },
-    { "waitFor": "Pull" },
-    { "capture": "prs-from-issues-p" },
-    { "key": "i" },
-    { "waitFor": "Issue" },
-    { "capture": "issues-from-prs-i" },
-    { "key": "a" },
-    { "waitFor": "No terminal attached" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issue",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issue",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issue",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Issue"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Pull",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issue",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No terminal attached",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "C-q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

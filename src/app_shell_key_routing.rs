@@ -109,6 +109,11 @@ fn route_resolved(
     let resolved = match resolved {
         Ok(resolved) => resolved,
         Err(RegistryKeyError::Chord { scope, .. }) => {
+            let forwarded = matches!(
+                scope,
+                DispatchScope::ShellOverlay | DispatchScope::TerminalCapture
+            );
+            crate::action_capture_emit::record_untranslatable(key_event, forwarded);
             return route_untranslatable(
                 scope,
                 handles.ctx,
@@ -117,6 +122,7 @@ fn route_resolved(
             );
         }
     };
+    crate::action_capture_emit::record_key(key_event, &resolved.chord, &resolved.resolution);
     if matches!(
         resolved.scope,
         DispatchScope::ShellOverlay | DispatchScope::TerminalCapture

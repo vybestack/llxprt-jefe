@@ -107,6 +107,13 @@ pub mod default_action_inventory;
 #[path = "default_action_inventory_tests.rs"]
 mod default_action_inventory_tests;
 
+/// CW-03 generated inventory completeness golden and bidirectional
+/// source-dispatch projection (issue #383 S8).
+pub mod inventory_completeness;
+#[cfg(test)]
+#[path = "inventory_completeness_tests.rs"]
+mod inventory_completeness_tests;
+
 // Normalized LLxprt npm package selector.
 mod llxprt_version;
 pub use llxprt_version::{

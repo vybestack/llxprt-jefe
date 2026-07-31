@@ -7,6 +7,11 @@
 //! format; there is no legacy adapter or compatibility shim, by explicit
 //! project decision (see issue #380 and the CW-00b migration issue #397).
 
+pub mod action_capture;
+pub mod action_capture_sink;
+#[cfg(test)]
+#[path = "action_capture_tests.rs"]
+mod action_capture_tests;
 pub mod capture;
 pub mod contract;
 pub mod env;
@@ -15,6 +20,10 @@ pub mod fields;
 pub mod interp;
 pub mod json;
 pub mod keys;
+pub mod keys_legacy;
+#[cfg(test)]
+#[path = "keys_legacy_tests.rs"]
+mod keys_legacy_tests;
 pub mod limits;
 pub mod parse;
 pub mod parse_step;
@@ -25,6 +34,7 @@ pub mod report;
 #[cfg(unix)]
 pub mod runner;
 pub mod semantic;
+pub mod tmux_runner;
 pub mod validate;
 #[cfg(unix)]
 pub mod workspace;

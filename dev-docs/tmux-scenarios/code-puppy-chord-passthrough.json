@@ -1,36 +1,123 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "code-puppy-chord-passthrough",
+  "platform": "macos",
+  "terminal": {
     "cols": 130,
-    "rows": 40,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-
-    { "expect": "F12 to unfocus" },
-
-    { "key": "t" },
-    { "waitFor": "F12 to unfocus" },
-
-    { "keys": ["C-x", "C-b"] },
-    { "wait": 500 },
-
-    { "keys": ["C-x", "C-x"] },
-    { "wait": 500 },
-
-    { "key": "C-c" },
-    { "wait": 500 },
-
-    { "capture": "code-puppy-after-chords" },
-
-    { "key": "F12" },
-    { "waitFor": "F12/t to focus" },
-
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "F12 to unfocus"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 to unfocus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "C-x",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-b",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-x",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-x",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-c",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12/t to focus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

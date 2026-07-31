@@ -1,70 +1,676 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "latest-version-fields",
+  "platform": "macos",
+  "terminal": {
     "cols": 120,
-    "rows": 40,
-    "history_limit": 2000,
-    "initial_wait_ms": 1500,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "keys": ["l","a","t","e","s","t","-","v","e","r","s","i","o","n","-","t","e","s","t"] },
-    { "key": "Tab" },
-    { "keys": ["/","t","m","p","/","j","e","f","e","-","l","a","t","e","s","t","-","v","e","r","s","i","o","n"] },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "waitFor": "Default Agent    [LLxprt]" },
-    { "key": "Space" },
-    { "waitFor": "Default Agent    [code_puppy]" },
-    { "key": "Tab" },
-    { "waitFor": "Default YOLO     [x]" },
-    { "key": "Tab" },
-    { "waitFor": "Default Version  [▏]" },
-    { "keys": ["l","a","t","e","s","t"] },
-    { "waitFor": "Default Version  [latest▏]" },
-    { "key": "Enter" },
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "n" },
-    { "waitFor": "New Agent" },
-    { "waitFor": "Agent Runtime    [code_puppy]" },
-    { "waitFor": "Version          [latest]" },
-    { "key": "Tab" },
-    { "keys": ["l","a","t","e","s","t"] },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "waitFor": "Version          [latest▏]" },
-    { "key": "Right" },
-    { "keys": [" ","n","i","g","h","t","l","y"] },
-    { "waitFor": "Version          [latest nightly▏]" },
-    { "keys": ["BTab"] },
-    { "keys": ["BTab"] },
-    { "waitFor": "Agent Runtime    [code_puppy]" },
-    { "key": "Space" },
-    { "waitFor": "Agent Runtime    [LLxprt]" },
-    { "waitForNot": "Version          [latest nightly" },
-    { "key": "Tab" },
-    { "waitFor": "Mode" },
-    { "key": "Tab" },
-    { "waitFor": "Version          [▏]" },
-    { "keys": ["l","a","t","e","s","t"] },
-    { "waitFor": "Version          [latest▏]" },
-    { "keys": ["BTab"] },
-    { "keys": ["BTab"] },
-    { "key": "Space" },
-    { "waitFor": "Agent Runtime    [code_puppy]" },
-    { "key": "Tab" },
-    { "waitFor": "Model" },
-    { "key": "Tab" },
-    { "waitFor": "Version          [latest nightly▏]" },
-    { "key": "Escape" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "N",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "-",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "v",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "r",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "o",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "-",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "/",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "m",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "/",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "-",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "-",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "v",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "r",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "o",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Agent    [LLxprt]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Agent    [code_puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default YOLO     [x]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Version  [\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Version  [latest\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [code_puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [latest]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [latest\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Right",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": " ",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "g",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "h",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "y",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [latest nightly\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "BTab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "BTab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [code_puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [LLxprt]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Version          [latest nightly"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Mode",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "t",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [latest\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "BTab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "BTab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [code_puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Model",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Version          [latest nightly\u258f]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

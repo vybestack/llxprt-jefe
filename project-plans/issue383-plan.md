@@ -1275,3 +1275,237 @@ tests pass; full all-target/all-feature Clippy passes; locked workspace tests
 pass (library 2,917 passed / 1 ignored, binary 799 passed, all integrations and
 doctests); source-size, architecture, clippy-allow, formatting, quick, and diff
 checks pass.
+
+## S8 execution ledger — strict schema-1 capture and no-shim conversion
+
+S8 completes the harness-evidence obligations of D9 and D10 across CW03-01,
+CW03-07, CW03-08, and CW03-09. It adds a private, harness-only capture artifact
+that records, for one input, the **original platform event**, the **canonical
+chord**, and the **resolution** as three separately observable values, plus the
+**exact PTY bytes** written for forwarded input as its own field, plus mouse
+**frame/cell/hit/action-ID** tuples. It converts the remaining legacy scenarios
+to schema-1, deletes the superseded legacy parser/adapter so exactly one parser
+remains, and adds a generated inventory completeness golden with a bidirectional
+source-dispatch test.
+
+### S8 acceptance scope
+
+- CW03-01 (evidence): a generated inventory completeness golden asserts that
+  every compiled `(context, chord, action, handler)` row is reachable through
+  the production dispatch route, and — bidirectionally — that every production
+  `HandlerKey` reachable from source dispatch is present in the generated
+  inventory. No orphan row and no orphan handler.
+- CW03-07/CW03-08 (evidence): the private capture records the exact original
+  event (code + modifier bits), the canonical chord text, the resolution class,
+  and, separately, the exact bytes forwarded to the PTY. The PTY-byte field is
+  never derived from the chord field; it is the literal `pty_encoding` output.
+- CW03-09 (evidence): a mouse capture record carries frame generation, cell
+  (col,row), hit-surface identity, and the resolved `ActionId`.
+- D10 no-shim: all remaining legacy-format scenarios are converted to schema-1;
+  the legacy `parse_scenario`/`Step`/`ScenarioConfig`/`expand_macros` parser and
+  its `MacroDef` adapter are deleted; exactly one scenario parser remains.
+
+### Legacy key-spelling translation (runner-side only)
+
+Converted scenarios keep legacy tmux key spellings where they are the natural
+scenario vocabulary. The **runner** translates those spellings to the existing
+closed schema-1 key table; **no driver byte changes**. The translation is a pure
+name-to-name mapping evaluated before `keys::encode`, so every encoded byte
+sequence remains exactly what `harness::v1::keys::encode` already produces:
+
+| Legacy spelling | Canonical schema-1 key | Modifiers |
+| --- | --- | --- |
+| `Esc` | `escape` | — |
+| `BSpace` | `backspace` | — |
+| `BTab` | `tab` | `shift` |
+| `Space` | `space` | — |
+| `C-<letter>` | `<letter>` | `control` |
+| `M-<key>` | `<key>` | `alt` |
+| `PageUp`/`PageDown`/`Home`/`End`/`Up`/`Down`/`Left`/`Right`/`Enter`/`Tab`/`Delete`/`Insert`/`F1`..`F12` | lowercased canonical name | — |
+
+`BTab` maps to `shift`+`tab`. The existing encoder yields `\t` for that pair,
+which is byte-identical to what the legacy tmux driver produced for `BTab` on
+the PTY, so no driver byte changes. Uppercase single letters (`N`, `S`, `D`, …)
+translate to the lowercase letter plus `shift`, which the existing encoder
+already renders as the uppercase byte.
+
+### S8 changed-file ledger (recorded before implementation)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `project-plans/issue383-plan.md` | Record S8 scope, RED/GREEN evidence, and exact verification | delivery evidence |
+| `src/harness/v1/keys_legacy.rs` | Pure legacy-spelling to canonical-key translation used by parsing/runner; no byte change | harness pure translation (new) |
+| `src/harness/v1/keys.rs` | Route unknown spellings through the legacy translator before failing | harness key encoder |
+| `src/harness/v1/action_capture.rs` | Private strict-harness record model: original event, canonical chord, resolution, exact PTY bytes, mouse frame/cell/hit/action | harness private capture (new) |
+| `src/harness/v1/action_capture_tests.rs` | RED-first record separation, PTY-byte independence, and mouse tuple tests | harness capture tests (new) |
+| `src/harness/v1/mod.rs` | Register the private capture and legacy translation modules | harness module contract |
+| `src/harness/v1/runner.rs` | Activate the capture artifact only for the contained schema-1 runner | harness runner boundary |
+| `src/harness/v1/env.rs` | Publish the harness-only capture path into the contained environment | harness environment |
+| `src/harness/mod.rs` | Delete the superseded legacy parser/adapter exports; keep drivers used by native Windows CI | harness module contract |
+| `src/harness/parser.rs` | **Delete** — superseded legacy parser | deletion |
+| `src/harness/scenario.rs` | **Delete** — superseded legacy document model | deletion |
+| `src/harness/step.rs` | **Delete** — superseded legacy step model | deletion |
+| `src/harness/config.rs` | **Delete** — superseded legacy config model | deletion |
+| `src/harness/macro_def.rs` | **Delete** — superseded legacy macro adapter | deletion |
+| `src/harness/expand.rs` | **Delete** — superseded legacy macro expansion | deletion |
+| `src/harness/error.rs` | **Delete** — superseded legacy scenario error | deletion |
+| `src/harness/runner.rs` | **Delete** — superseded legacy runner | deletion |
+| `src/harness/capture.rs` | **Delete** — superseded legacy capture model | deletion |
+| `src/harness/matchers.rs` | **Delete** — superseded legacy matchers | deletion |
+| `src/harness/tests.rs`, `runner_tests.rs`, `matchers_tests.rs` | **Delete** — tests of deleted legacy parser | deletion |
+| `src/harness/tmux_driver.rs`, `psmux_driver.rs`, `psmux_process.rs`, `signal_cleanup.rs` | Retain the driver seam required by native Windows CI; sever the deleted-parser dependency | harness driver boundary |
+| `src/bin/jefe-tmux-harness.rs` | Run schema-1 scenarios through the retained multiplexer driver instead of the deleted parser | harness CLI |
+| `dev-docs/tmux-scenarios/*.json` (53 files) | Convert every remaining legacy scenario to schema-1 | behavioral scenarios |
+| `tests/core/tmux_harness_docs_contracts.rs` | Assert one parser and schema-1 shipped scenarios | docs/scenario contract tests |
+| `tests/ui/dashboard_reorder_tui.rs` | Consume schema-1 instead of the deleted legacy parser | integration test |
+| `src/domain/inventory_completeness.rs` | Generated inventory completeness golden projection | pure domain (new) |
+| `src/domain/inventory_completeness_tests.rs` | RED-first bidirectional source-dispatch completeness tests | pure domain tests (new) |
+| `src/domain/mod.rs` | Register the completeness module | pure domain module contract |
+| `dev-docs/testing/tmux-harness.md` | Describe the single remaining parser and the converted corpus | documentation |
+
+Deletion of ~10 legacy harness source files plus 3 legacy test files and the
+conversion of 53 scenarios is the D10 no-shim obligation covered by the D1
+oversized-scope approval.
+
+### S8 non-goals
+
+- No S9 normative-doc convergence or final authority deletion beyond the
+  harness parser/adapter named by D10.
+- No public runtime API, no new public abstraction, no new dependency, no
+  workflow change, no `.llxprt` change, no lint suppression or threshold change.
+- No driver byte changes: legacy spellings translate to existing canonical keys
+  and reuse the existing encoder unchanged.
+- No new harness step operation is added for capture; capture activation is an
+  environment-scoped artifact owned by the contained runner.
+
+### S8 RED contract
+
+Written and proven failing before production behavior:
+
+1. `action_capture` record tests require the absent private module and assert
+   that `original_event`, `canonical_chord`, `resolution`, and `pty_bytes` are
+   four separately observable fields, and that a forwarded key records exact
+   bytes that are not reconstructed from the chord text.
+2. A mouse capture test requires frame/cell/hit/action-ID as four fields.
+3. `keys_legacy` translation tests require the absent translator and assert the
+   legacy spellings encode to byte-identical sequences.
+4. `inventory_completeness` tests require the absent module and assert both
+   directions: no inventory row without a production dispatch path, and no
+   production `HandlerKey` outside the generated inventory.
+5. A one-parser scan test requires that no legacy parser symbol remains.
+
+### S8 GREEN implementation and verification evidence
+
+**RED first.** Before any S8 production module existed, the three focused test
+modules were wired and `cargo test --lib domain::inventory_completeness_tests
+--no-fail-fast` exited 101 with exactly three `error[E0583]: file not found for
+module` errors for `inventory_completeness`, `action_capture`, and
+`keys_legacy`. That is the intended first RED: the tests compile against absent
+capture, translation, and completeness contracts.
+
+**Private contained capture (D9).** `harness/v1/action_capture.rs` owns the
+record model and `harness/v1/action_capture_sink.rs` owns the contained writer.
+The sink is inert unless the schema-1 runner sets `JEFE_HARNESS_ACTION_CAPTURE`,
+which it now does in `runner.rs::launch`, pointing at
+`action-capture.jsonl` inside the contained workspace so the artifact is torn
+down with it. `src/action_capture_emit.rs` is binary-private and observes only;
+a write failure is deliberately swallowed so an unwritable artifact can never
+change what the application does with a keystroke. No public runtime API and no
+alternate input path was added.
+
+**Four values captured independently.** `KeyCapture` carries the original
+platform event (`code` plus raw modifier bits), the canonical chord, the
+resolution class, and the resolved action/handler. `pty_bytes` is taken from
+`pty_encoding::key_to_bytes` — the same encoder the forwarder uses — and is
+never derived from the chord's display text. The real-process fixture
+`action-capture-evidence.json` proves the fields vary independently: original
+`Down` -> chord `Down` -> `Dispatch` with empty `pty_bytes`, and original
+`Char('q')` with non-zero modifier bits -> chord `Ctrl+Q` ->
+`Dispatch`/`core.emergency-exit`. The test asserts the two resolve to different
+actions and that the original event text is never equal to the chord text.
+
+The capture itself exposed a real terminal behavior while this fixture was being
+stabilized: a lone `escape` byte immediately followed by another key is
+re-parsed by the terminal as an Alt-prefixed chord, so the app legitimately
+observed `Ctrl+Alt+Q`/`Unbound` rather than `Ctrl+Q`. That is correct
+application behavior under a real PTY, not a routing defect, so the fixture was
+narrowed to unambiguous keys instead of weakening the assertion. The fixture was
+also reduced to globally-bound keys so it does not depend on modal timing under
+full-suite load; it now passes repeatedly in isolation and in the full run.
+
+**Mouse frame/cell/hit/action.** `MouseActionRoute` now carries the stable hit
+identity (`confirm.button`, `keys.row`) and the contributed `ActionId`;
+`mouse_action_execution.rs` records frame, column, row, hit, action, and
+resolution at the single existing activation point. Routing behavior is
+unchanged — all six focused mouse tests still pass.
+
+**Legacy spellings translated without changing bytes.** `keys::encode` first
+consults `keys_legacy::translate`, then delegates to the unchanged
+`encode_canonical`. Translation is name-to-name only. A correction was made
+during the slice: `BTab` is its own terminal key emitting `\x1b[Z` (CSI Z), not
+`tab` plus Shift; the earlier mapping would have changed the emitted bytes.
+`translation_preserves_exact_encoder_bytes` pins Esc/BSpace/BTab/Space/Enter/
+PageUp/F12/C-q/C-c/M-3/N to their exact sequences.
+
+**No-shim conversion (D10).** All 53 legacy scenarios were converted to strict
+schema 1; `find dev-docs/tmux-scenarios -name '*.json'` now reports zero
+old-format files. Twelve superseded harness files were deleted (`parser.rs`,
+`scenario.rs`, `step.rs`, `config.rs`, `expand.rs`, `macro_def.rs`,
+`matchers.rs`, `matchers_tests.rs`, `runner.rs`, `runner_tests.rs`, `tests.rs`,
+`runner_agent_fixture.rs`). `grep -rn "pub fn parse_scenario" src/` returns
+exactly one result: `harness::v1::parse_scenario_v1`. Retained drivers no longer
+depend on the deleted matcher module; `tmux_driver_tests.rs` owns the two-line
+literal predicate it actually needed.
+
+**Windows CI compatibility preserved without touching workflows.** The pinned
+`jefe-tmux-harness` binary keeps its name and CLI flags but now parses schema-1
+through the one parser and executes through the new `harness/v1/tmux_runner.rs`
+backend. Both CI-pinned scenarios were run for real against a live tmux session:
+`startup-quit.json` -> `ok: 7 steps`; `windows-renderer-viewport.json` ->
+`ok: 12 steps`. No workflow file was modified.
+
+**Generated inventory completeness golden and bidirectional dispatch test.**
+`domain/inventory_completeness.rs` projects a deterministic golden and gates
+both directions: no generated row may name a handler outside the closed
+dispatch surface, and no closed dispatch handler may be absent from every
+generated row. `ALL_HANDLERS` and `handler_name` are derived from one
+`handler_surface!` declaration, so they cannot drift and a new `HandlerKey`
+variant fails to compile until it is declared.
+
+**Defects the new gates found (fixed, not suppressed).**
+
+1. The bidirectional test failed on first run with nine orphan handlers:
+   `FormCursorLeft/Right/Start/End`, `FormBackspace`, `FormDelete`,
+   `FilterBackspace`, `SearchClear`, and `PullRequestsFocusSearch`. Investigation
+   confirmed all nine are branch-local (they do not exist on `origin/main`),
+   that form/search text and cursor editing has been owned by
+   `app_input/raw_key_mutations.rs` since S4, and that `PrFocusSearchInput` never
+   had a runtime producer. Per D2 they were deleted rather than given invented
+   binding rows.
+2. The corpus-wide schema-1 gate found that
+   `dev-docs/tmux-scenarios/v1/issue493-server-loss.json` — shipped in #512 and
+   never validated by any test — contained the invalid key `"esc"`. Corrected to
+   `"escape"`. `harness-limits.json` is an intentional rejection fixture and is
+   named explicitly as such so the gate still requires it to fail validation.
+
+**Verification record.**
+
+- `cargo fmt --all --check` — PASS.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — PASS
+  with zero warnings. The first run failed on `too_many_lines` and
+  `too_long_first_doc_paragraph`; both were resolved by removing the duplicated
+  handler table (the file went from ~600 to 316 lines) and shortening doc
+  paragraphs. No lint allow, suppression, or threshold change was added.
+- `cargo build --workspace --all-features --locked` — PASS, zero warnings.
+- `cargo test --workspace --all-features --locked` — PASS: 62 test targets, 0
+  failures. Library 2,860 passed / 1 ignored; binary 799 passed; integration 401
+  passed; all 27 strict schema-1 harness fixtures passed.
+- `cargo xtask check source-size`, `cargo xtask check clippy-allows`,
+  `cargo xtask check architecture`, `scripts/check-architecture.sh`, and
+  `git diff --check` — PASS.
+
+**Scope.** 86 files changed, +12,607 / −6,390. This is inside the D1 oversized
+one-PR approval and is dominated by the mandated 53-scenario conversion and the
+4,195 lines of deleted superseded parser code. No dependency, workflow, quality
+configuration, `.llxprt` file, public runtime API, S9 documentation convergence,
+or lint suppression was touched. No commit or push was performed.

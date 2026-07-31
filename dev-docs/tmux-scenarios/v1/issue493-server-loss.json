@@ -50,7 +50,7 @@
       "contains": ["Recover psmux Agents", "Cancel", "Confirm"],
       "absent": []
     },
-    { "op": "key", "key": "esc", "modifiers": [] },
+    { "op": "key", "key": "escape", "modifiers": [] },
     {
       "op": "assert-frame",
       "contains": ["Server Lost Agent", "!"],

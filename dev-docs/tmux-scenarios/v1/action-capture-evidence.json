@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "pr-detail-esc-refocus",
+  "name": "action-capture-evidence",
   "platform": "macos",
   "terminal": {
     "cols": 120,
@@ -25,6 +25,13 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"name\": \"Capture Repo\",\n      \"slug\": \"capture-repo\",\n      \"base_dir\": \"/tmp\",\n      \"default_profile\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"login_user\": \"\",\n        \"host\": \"\",\n        \"port\": 22,\n        \"run_as_user\": \"\"\n      },\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null\n}\n"
+        },
+        "mode": 384
       }
     ],
     "env": []
@@ -43,62 +50,20 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Jefe",
+      "literal": "Capture Repo",
       "timeout_ms": 15000
     },
     {
       "op": "key",
-      "key": "p",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Pull Requests",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "Tab",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Tab",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "Escape",
-      "modifiers": []
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
-        "Pull Requests"
-      ],
-      "absent": []
-    },
-    {
-      "op": "key",
-      "key": "Escape",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "Escape",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "No terminal attached",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

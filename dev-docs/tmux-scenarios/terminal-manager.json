@@ -1,263 +1,489 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "terminal-manager",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "wait_timeout_ms": 12000,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
     {
-      "waitFor": "LLxprt Jefe"
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
     },
     {
-      "key": "F7"
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "key",
+      "key": "F7",
+      "modifiers": []
     },
     {
-      "waitFor": "No shells"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "key": "Escape"
+      "op": "wait",
+      "source": "frame",
+      "literal": "No shells",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F7 shells"
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
     },
     {
-      "key": "N"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "New Repository"
+      "op": "key",
+      "key": "N",
+      "modifiers": []
     },
     {
-      "type": "Alpha Repository"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 12000
     },
     {
-      "key": "Tab"
+      "op": "text",
+      "text": "Alpha Repository"
     },
     {
-      "type": "fixture-repo-alpha"
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "text",
+      "text": "fixture-repo-alpha"
     },
     {
-      "waitFor": "1 repos | 0/0 running"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "key": "n"
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "New Agent"
+      "op": "key",
+      "key": "n",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 12000
     },
     {
-      "type": "Alpha Agent"
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "text",
+      "text": "Alpha Agent"
     },
     {
-      "waitFor": "issue364-agent-ready"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-agent-ready",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F7 shells"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "key": "F10"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Agent Shell"
+      "op": "key",
+      "key": "F10",
+      "modifiers": []
     },
     {
-      "line": "printf 'issue364-shell-alpha\\n'"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "issue364-shell-alpha"
+      "op": "text",
+      "text": "printf 'issue364-shell-alpha\\n'\n"
     },
     {
-      "key": "F12"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-shell-alpha",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F10 resume shell"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "key": "F10"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F10 resume shell",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Agent Shell"
+      "op": "key",
+      "key": "F10",
+      "modifiers": []
     },
     {
-      "waitFor": "issue364-shell-alpha"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 12000
     },
     {
-      "key": "F12"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-shell-alpha",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F7 shells"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "key": "N"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "New Repository"
+      "op": "key",
+      "key": "N",
+      "modifiers": []
     },
     {
-      "type": "Beta Repository"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 12000
     },
     {
-      "key": "Tab"
+      "op": "text",
+      "text": "Beta Repository"
     },
     {
-      "type": "fixture-repo-beta"
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "text",
+      "text": "fixture-repo-beta"
     },
     {
-      "waitFor": "Beta Repository"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "key": "n"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Beta Repository",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "New Agent"
+      "op": "key",
+      "key": "n",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 12000
     },
     {
-      "type": "Beta Agent"
+      "op": "key",
+      "key": "Tab",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "text",
+      "text": "Beta Agent"
     },
     {
-      "waitFor": "issue364-agent-ready"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-agent-ready",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F7 shells"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "key": "F10"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Agent Shell"
+      "op": "key",
+      "key": "F10",
+      "modifiers": []
     },
     {
-      "line": "printf 'issue364-shell-beta\\n'"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "issue364-shell-beta"
+      "op": "text",
+      "text": "printf 'issue364-shell-beta\\n'\n"
     },
     {
-      "key": "F12"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-shell-beta",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F7 shells"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "wait": 1000
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "key": "F7"
+      "op": "key",
+      "key": "F7",
+      "modifiers": []
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Alpha Agent"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Alpha Agent",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Beta Agent"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Beta Agent",
+      "timeout_ms": 12000
     },
     {
-      "key": "Home"
+      "op": "key",
+      "key": "Home",
+      "modifiers": []
     },
     {
-      "waitFor": "Agent: Alpha Agent"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent: Alpha Agent",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "issue364-shell-alpha"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-shell-alpha",
+      "timeout_ms": 12000
     },
     {
-      "key": "Down"
+      "op": "key",
+      "key": "Down",
+      "modifiers": []
     },
     {
-      "waitFor": "Agent: Beta Agent"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent: Beta Agent",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "issue364-shell-beta"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-shell-beta",
+      "timeout_ms": 12000
     },
     {
-      "key": "C-k"
+      "op": "key",
+      "key": "C-k",
+      "modifiers": []
     },
     {
-      "waitFor": "Agent: Alpha Agent"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent: Alpha Agent",
+      "timeout_ms": 12000
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F12 list | F10 close shell"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 list | F10 close shell",
+      "timeout_ms": 12000
     },
     {
-      "line": "printf 'issue364-manager-live\\n'"
+      "op": "text",
+      "text": "printf 'issue364-manager-live\\n'\n"
     },
     {
-      "waitFor": "issue364-manager-live"
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-manager-live",
+      "timeout_ms": 12000
     },
     {
-      "key": "F12"
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "Ctrl-k close"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Ctrl-k close",
+      "timeout_ms": 12000
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "F12 list | F10 close shell"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 list | F10 close shell",
+      "timeout_ms": 12000
     },
     {
-      "line": "exit"
+      "op": "text",
+      "text": "exit\n"
     },
     {
-      "waitFor": "Terminal Manager"
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
     },
     {
-      "waitFor": "No shells"
+      "op": "wait",
+      "source": "frame",
+      "literal": "No shells",
+      "timeout_ms": 12000
     },
     {
-      "key": "Escape"
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
     },
     {
-      "waitFor": "F7 shells"
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
     },
     {
-      "key": "C-q"
+      "op": "key",
+      "key": "C-q",
+      "modifiers": []
     },
     {
-      "waitForExit": 10000
+      "op": "finish"
     }
-  ]
+  ],
+  "secrets": []
 }

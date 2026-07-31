@@ -1,46 +1,262 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "actions-mode",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 24,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 24
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "g" },
-    { "waitFor": "Inspectable Actions fixture" },
-    { "expect": "Oldest Actions fixture run" },
-    { "expect": "> [X] Inspectable Actions fixture" },
-    { "expect": "Enter detail" },
-    { "key": "End" },
-    { "waitFor": "Interleaved Actions fixture run" },
-    { "key": "Up" },
-    { "waitFor": "> [X] Interleaved Actions fixture run" },
-    { "key": "Home" },
-    { "waitFor": "> [X] Inspectable Actions fixture" },
-    { "key": "Enter" },
-    { "waitFor": "Jobs:" },
-    { "expect": "> ▸ ✓ build-linux-with-a-long-job-name" },
-    { "waitForNot": "Checkout fixture source" },
-    { "key": "Right" },
-    { "waitFor": "Checkout fixture source" },
-    { "expect": "✓ [1] Checkout fixture source" },
-    { "key": "Escape" },
-    { "waitForNot": "Checkout fixture source" },
-    { "expect": "> ▸ ✓ build-linux-with-a-long-job-name" },
-    { "key": "Down" },
-    { "expect": "> ▸ ✗ test-suite-with-a-long-job-name" },
-    { "key": "Enter" },
-    { "waitFor": "Run failing fixture tests" },
-    { "expect": "✗ [1] Run failing fixture tests" },
-    { "key": "Escape" },
-    { "waitForNot": "Run failing fixture tests" },
-    { "key": "Escape" },
-    { "expect": "Inspectable Actions fixture" },
-    { "key": "Escape" },
-    { "waitForNot": "Workflow Runs" },
-    { "keys": ["q", "q", "q"] },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "g",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Inspectable Actions fixture",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Oldest Actions fixture run"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "> [X] Inspectable Actions fixture"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Enter detail"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "End",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Interleaved Actions fixture run",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Up",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> [X] Interleaved Actions fixture run",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Home",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> [X] Inspectable Actions fixture",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Jobs:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "> \u25b8 \u2713 build-linux-with-a-long-job-name"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Checkout fixture source"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "Right",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Checkout fixture source",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "\u2713 [1] Checkout fixture source"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Checkout fixture source"
+      ]
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "> \u25b8 \u2713 build-linux-with-a-long-job-name"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Down",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "> \u25b8 \u2717 test-suite-with-a-long-job-name"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Run failing fixture tests",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "\u2717 [1] Run failing fixture tests"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Run failing fixture tests"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Inspectable Actions fixture"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Workflow Runs"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

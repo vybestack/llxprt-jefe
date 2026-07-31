@@ -12,6 +12,11 @@ use jefe::state::{AppState, KeysEditorState, ModalState};
 pub(super) struct MouseActionRoute {
     pub chord: Chord,
     pub resolution: Resolution,
+    /// Stable identity of the surface that produced the action, recorded by
+    /// the strict-harness capture so a hit is provably not a no-op.
+    pub hit: &'static str,
+    /// The `ActionId` the hit surface contributed.
+    pub action: ActionId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,9 +38,11 @@ pub(super) fn resolve_action_click(
     }
     let (up_col, up_row) = click.up;
     let (cols, rows) = click.terminal;
-    let action = confirm_action_at(state, up_col, up_row, cols, rows)
-        .or_else(|| keys_action_at(state, up_col, up_row, cols, rows))?;
-    resolve_action(snapshot, &action)
+    if let Some(action) = confirm_action_at(state, up_col, up_row, cols, rows) {
+        return resolve_action(snapshot, &action, "confirm.button");
+    }
+    let action = keys_action_at(state, up_col, up_row, cols, rows)?;
+    resolve_action(snapshot, &action, "keys.row")
 }
 
 fn confirm_action_at(
@@ -87,6 +94,7 @@ fn keys_action_at(state: &AppState, col: u16, row: u16, cols: u16, rows: u16) ->
 fn resolve_action(
     snapshot: &ActionRegistrySnapshot,
     target: &ActionId,
+    hit: &'static str,
 ) -> Option<MouseActionRoute> {
     let editor = KeysEditorState::from_snapshot(snapshot, None);
     let row = editor.rows.iter().find(|row| &row.action == target)?;
@@ -96,6 +104,8 @@ fn resolve_action(
         resolution_targets(&resolution, target).then_some(MouseActionRoute {
             chord: *chord,
             resolution,
+            hit,
+            action: target.clone(),
         })
     })
 }

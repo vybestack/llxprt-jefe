@@ -3,6 +3,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1
 //! @requirement REQ-TECH-001
 
+mod action_capture_emit;
 mod action_context;
 mod app_init;
 mod app_input;

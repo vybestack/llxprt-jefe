@@ -1,26 +1,121 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "llxprt-launch-options",
+  "platform": "macos",
+  "terminal": {
     "cols": 120,
-    "rows": 40,
-    "history_limit": 2000,
-    "initial_wait_ms": 1500,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "waitFor": "Agent Types" },
-    { "key": "Down" },
-    { "key": "Down" },
-    { "key": "Down" },
-    { "waitFor": "> LLxprt" },
-    { "key": "Enter" },
-    { "waitFor": "New Agent" },
-    { "waitFor": "Yolo: [x]" },
-    { "waitFor": "Continue: [ ]" },
-    { "expect": "Prompt Interactive: [ ]" },
-    { "capture": "llxprt-launch-options" },
-    { "key": "Escape" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "Down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "Enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Yolo: [x]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Continue: [ ]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Prompt Interactive: [ ]"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "Escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

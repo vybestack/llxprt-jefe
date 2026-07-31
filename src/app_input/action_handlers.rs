@@ -357,12 +357,6 @@ macro_rules! handler_execution {
             | H::FormSubmit
             | H::FormNextField
             | H::FormPreviousField
-            | H::FormCursorLeft
-            | H::FormCursorRight
-            | H::FormCursorStart
-            | H::FormCursorEnd
-            | H::FormBackspace
-            | H::FormDelete
             | H::ThemeUp
             | H::ThemeDown
             | H::ThemeToggleOverride
@@ -370,7 +364,6 @@ macro_rules! handler_execution {
             | H::ThemeCancel
             | H::SearchApply
             | H::SearchCancel
-            | H::SearchClear
             | H::SearchBackspace
             | H::FilterApply
             | H::FilterCancel
@@ -380,7 +373,6 @@ macro_rules! handler_execution {
             | H::FilterClearAll
             | H::FilterPreviousChoice
             | H::FilterNextChoice
-            | H::FilterBackspace
             | H::IssuesExit
             | H::IssuesBack
             | H::IssuesOpen
@@ -402,7 +394,6 @@ macro_rules! handler_execution {
             | H::PullRequestsBack
             | H::PullRequestsOpen
             | H::PullRequestsOpenFilter
-            | H::PullRequestsFocusSearch
             | H::PullRequestsComment
             | H::PullRequestsReply
             | H::PullRequestsResolveThread

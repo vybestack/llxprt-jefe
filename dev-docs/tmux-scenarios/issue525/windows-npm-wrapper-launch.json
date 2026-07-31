@@ -1,24 +1,101 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "windows-npm-wrapper-launch",
+  "platform": "linux",
+  "terminal": {
     "cols": 140,
-    "rows": 45,
-    "history_limit": 5000,
-    "initial_wait_ms": 0,
-    "wait_timeout_ms": 180000,
-    "assert_mode": "strict"
+    "rows": 45
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "M-5" },
-    { "waitFor": "branch-3" },
-    { "key": "l" },
-    { "waitFor": "F12 unfocus" },
-    { "line": "Reply with exactly ISSUE525_INTERACTIVE_OK and no other text." },
-    { "waitFor": "ISSUE525_INTERACTIVE_OK" },
-    { "capture": "issue525-immediate-real-response" },
-    { "key": "C-c" },
-    { "key": "F12" },
-    { "key": "C-q" },
-    { "waitForExit": 5000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "key",
+      "key": "M-5",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "branch-3",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 unfocus",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "text",
+      "text": "Reply with exactly ISSUE525_INTERACTIVE_OK and no other text.\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "ISSUE525_INTERACTIVE_OK",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "key",
+      "key": "C-c",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "F12",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "C-q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }
