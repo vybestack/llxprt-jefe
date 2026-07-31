@@ -1722,3 +1722,30 @@ established for its sibling native-Windows scenario
 keys (`Alt+5`, `l`, `Ctrl+C`, `F12`, `Ctrl+Q`). The old screen-`capture` step
 was dropped, matching how every other converted scenario handled it, because
 schema-1 `capture` denotes subprocess capture rather than a screen artifact.
+
+### Two defects inherited from main, fixed rather than dismissed
+
+Merging `origin/main` at `09e1c9f` brought in two failures that this branch did
+not cause. Both were proved pre-existing with a clean worktree of unmodified
+`origin/main`, and both were fixed here because the PR cannot be green
+otherwise.
+
+1. `tests/issue382_behavior.rs` was 1,028 lines on main, over the 1,000-line
+   source-size hard limit. Issue #534's two new definition tests were moved into
+   the existing `tests/issue382/agent_probe_runtime.rs` probe submodule, where
+   they sit beside the other probe coverage. The parent target returns to 993
+   lines; no test was dropped and no threshold was touched.
+2. `probe_parser_four_agents` failed on unmodified `origin/main`: #534 made the
+   LLxprt capability probe trusted, so it no longer spends a second `--help`
+   invocation, but the shared fixture assertion still demanded
+   `["--version", "--help"]` for all four agents. The assertion now derives the
+   expected invocations from the probe's `trusted` flag, so trusted definitions
+   are asserted to probe once and untrusted ones twice — which is the behavior
+   #534 intended.
+
+### Final exact-head verification
+
+`cargo xtask ci` — PASS across all nine stages on the merged head: fmt,
+clippy-allow policy, source size, architecture, strict lint, complexity,
+coverage at **70.82%**, locked all-feature build, and the full workspace test
+suite including every real-process schema-1 harness fixture and both doctests.
