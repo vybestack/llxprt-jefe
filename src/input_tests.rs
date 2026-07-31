@@ -21,6 +21,27 @@ fn at(base: Instant, millis: u64) -> Instant {
     base + Duration::from_millis(millis)
 }
 
+#[test]
+fn macos_option_digit_symbol_translates_to_canonical_alt_digit() {
+    let translated = canonical_chord(&key(KeyCode::Char('™')));
+    let Ok(chord) = translated else {
+        panic!("macOS Option-2 symbol should translate, got {translated:?}");
+    };
+    assert_eq!(chord.to_canonical_text(), "Alt+2");
+}
+
+#[test]
+fn canonical_chord_preserves_exact_non_option_modifiers() {
+    let translated = canonical_chord(&key_mods(
+        KeyCode::Char('Q'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
+    let Ok(chord) = translated else {
+        panic!("exact modified chord should translate, got {translated:?}");
+    };
+    assert_eq!(chord.to_canonical_text(), "Ctrl+Shift+Q");
+}
+
 // ── is_quit_key ────────────────────────────────────────────────────────
 
 #[test]

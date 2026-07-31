@@ -161,6 +161,10 @@ pub enum ModalState {
     #[default]
     None,
     Help,
+    /// Schema-2 action-binding editor.
+    Keys {
+        editor: Box<super::KeysEditorState>,
+    },
     Search {
         query: String,
     },
@@ -426,6 +430,10 @@ pub struct AppState {
     /// Active dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop).
     /// Transient interaction state — not persisted (like split_grab_index).
     pub dashboard_grab: Option<DashboardGrabPane>,
+
+    /// One root-owned immutable action/binding/availability snapshot.
+    /// Runtime-only; composed settings remain the persistence authority.
+    pub action_registry_snapshot: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
 
     // Errors/warnings
     pub error_message: Option<String>,

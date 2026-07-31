@@ -12,7 +12,7 @@ use crate::ui::screens::{
     ThemePickerScreen,
 };
 use crate::ui::{
-    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, NewAgentForm,
+    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, KeysModal, NewAgentForm,
     NewRepositoryForm, SplitScreen, WorkflowDispatchForm,
 };
 
@@ -23,6 +23,13 @@ pub struct ConfirmModalData {
     pub show_delete_work_dir: bool,
     pub delete_work_dir: bool,
     pub confirm_focus: ConfirmFocus,
+}
+
+/// Viewport available to a blocking modal.
+#[derive(Clone, Copy)]
+pub struct ModalViewport {
+    pub cols: u16,
+    pub rows: u16,
 }
 
 /// Terminal render data threaded from the app shell into the dashboard.
@@ -344,20 +351,16 @@ pub fn build_modal_element(
     colors: &ThemeColors,
     confirm_data: Option<ConfirmModalData>,
     help_scroll_offset: usize,
-    available_rows: u16,
+    viewport: ModalViewport,
 ) -> Option<AnyElement<'static>> {
     match modal {
-        ModalState::Help => Some(
-            element! {
-                HelpModal(
-                    colors: colors.clone(),
-                    scroll_offset: help_scroll_offset,
-                    available_rows: available_rows,
-                    selection: snapshot.selection,
-                )
-            }
-            .into_any(),
-        ),
+        ModalState::Keys { editor } => Some(keys_modal(editor, colors, viewport)),
+        ModalState::Help => Some(help_modal(
+            snapshot,
+            colors,
+            help_scroll_offset,
+            viewport.rows,
+        )),
         ModalState::ThemePicker { .. } => Some(
             element! {
                 ThemePickerScreen(
@@ -374,7 +377,7 @@ pub fn build_modal_element(
             Some(form_modal!(NewAgentForm, snapshot, colors))
         }
         ModalState::GeneratedAgent { .. } => {
-            Some(generated_agent_modal(snapshot, colors, available_rows))
+            Some(generated_agent_modal(snapshot, colors, viewport.rows))
         }
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
@@ -404,6 +407,40 @@ pub fn build_modal_element(
         ModalState::Auth { state } => Some(auth_modal_element(state, colors, snapshot)),
         _ => None,
     }
+}
+
+fn keys_modal(
+    editor: &crate::state::KeysEditorState,
+    colors: &ThemeColors,
+    viewport: ModalViewport,
+) -> AnyElement<'static> {
+    element! {
+        KeysModal(
+            editor: Some(editor.clone()),
+            colors: colors.clone(),
+            available_cols: viewport.cols,
+            available_rows: viewport.rows,
+        )
+    }
+    .into_any()
+}
+
+fn help_modal(
+    snapshot: &AppState,
+    colors: &ThemeColors,
+    scroll_offset: usize,
+    available_rows: u16,
+) -> AnyElement<'static> {
+    element! {
+        HelpModal(
+            action_registry_snapshot: snapshot.action_registry_snapshot.clone(),
+            colors: colors.clone(),
+            scroll_offset: scroll_offset,
+            available_rows: available_rows,
+            selection: snapshot.selection,
+        )
+    }
+    .into_any()
 }
 
 /// Build the render-only auth remediation modal element (issue #244).

@@ -12,6 +12,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+use jefe::harness::v1::action_capture::{
+    ActionCaptureRecord, CAPTURE_ARTIFACT, KeyCapture, ResolutionClass, decode_records,
+};
 use jefe::harness::v1::error::HarCode;
 use jefe::harness::v1::redact::Redactor;
 use jefe::harness::v1::runner::{RunOutcome, RunnerConfig};
@@ -353,6 +356,33 @@ fn resize_restart_fixture_produces_both_evidence_frames() {
 }
 
 #[test]
+fn keys_editor_fixture_covers_validation_dirty_save_and_reopen() {
+    let outcome = run_fixture("keys-editor.json");
+    assert_passed("keys-editor", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn keys_editor_unbind_reset_fixture_covers_schema2_intents() {
+    let outcome = run_fixture("keys-editor-unbind-reset.json");
+    assert_passed("keys-editor-unbind-reset", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn keys_editor_recovery_small_fixture_keeps_back_and_quit_reachable() {
+    let outcome = run_fixture("keys-editor-recovery-small.json");
+    assert_passed("keys-editor-recovery-small", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn mouse_action_fixture_covers_drag_and_no_hit_without_capture_schema_changes() {
+    let outcome = run_fixture("mouse-action-consistency.json");
+    assert_passed("mouse-action-consistency", &outcome);
+    cleanup(&outcome);
+}
+#[test]
 fn containment_fixture_rejects_symlink_swapped_ancestor() {
     let outcome = run_fixture("harness-containment.json");
     let err = outcome
@@ -427,4 +457,77 @@ fn limits_fixture_fails_validation_before_any_launch() {
         .unwrap_or_else(|| panic!("cols over limit must fail validation"));
     assert_eq!(err.code(), HarCode::E002);
     assert_eq!(err.exit_code(), 2);
+}
+
+/// Issue #383 S8 / CW03-01, CW03-07, CW03-08: the contained strict harness
+/// observes the original platform event, the canonical chord, and the
+/// resolution independently, and carries exact PTY bytes separately.
+#[test]
+fn action_capture_records_original_event_chord_and_resolution_separately() {
+    let outcome = run_fixture("action-capture-evidence.json");
+    assert_passed("action-capture-evidence.json", &outcome);
+
+    let artifact = Path::new(&outcome.report.workspace).join(CAPTURE_ARTIFACT);
+    let body = std::fs::read_to_string(&artifact)
+        .unwrap_or_else(|err| panic!("read {}: {err}", artifact.display()));
+    let records = decode_records(&body).unwrap_or_else(|err| panic!("decode captures: {err}"));
+    assert!(
+        records.len() >= 2,
+        "every routed key must be captured, got {}",
+        records.len()
+    );
+
+    let keys: Vec<&KeyCapture> = records
+        .iter()
+        .filter_map(|record| match record {
+            ActionCaptureRecord::Key(key) => Some(key),
+            ActionCaptureRecord::Mouse(_) => None,
+        })
+        .collect();
+
+    // Down is a named key: the original event is `Down`, distinct from its
+    // canonical chord text, and it dispatches an app-owned navigation action
+    // that writes no PTY bytes.
+    let down = keys
+        .iter()
+        .find(|key| key.original.code == "Down")
+        .unwrap_or_else(|| panic!("Down must be captured; saw {keys:#?}"));
+    assert_eq!(down.canonical_chord, "Down");
+    assert_eq!(down.original.modifiers, 0);
+    assert_eq!(down.resolution, ResolutionClass::Dispatch);
+    assert!(
+        down.pty_bytes.is_empty(),
+        "an app-owned dispatch writes no PTY bytes"
+    );
+    let down_action = down
+        .action
+        .as_deref()
+        .unwrap_or_else(|| panic!("a dispatch must name an action"));
+
+    // Ctrl-Q keeps its modifier bits in the original event while the chord
+    // renders canonically, and it resolves to a different action than Down.
+    // This is the core evidence: original event, canonical chord, and
+    // resolution are three independently recorded values.
+    let quit = keys
+        .iter()
+        .find(|key| key.canonical_chord == "Ctrl+Q")
+        .unwrap_or_else(|| panic!("Ctrl+Q must be captured; saw {keys:#?}"));
+    assert_eq!(quit.original.code, "Char('q')");
+    assert_ne!(
+        quit.original.modifiers, 0,
+        "the Control bit must survive on the original event"
+    );
+    assert_ne!(
+        quit.original.code, quit.canonical_chord,
+        "the original event is not the canonical chord"
+    );
+    assert_eq!(quit.resolution, ResolutionClass::Dispatch);
+    assert_eq!(quit.action.as_deref(), Some("core.emergency-exit"));
+    assert_ne!(
+        quit.action.as_deref(),
+        Some(down_action),
+        "different chords must resolve to different actions"
+    );
+
+    cleanup(&outcome);
 }

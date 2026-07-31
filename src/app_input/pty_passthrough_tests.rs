@@ -18,7 +18,17 @@ use super::pty_passthrough::{
 };
 
 fn minimal_test_ctx() -> CtxArc {
+    let dir = std::env::temp_dir().join(format!("jefe_pty_ctx_{}", std::process::id()));
+    let startup = jefe::startup::build_persistence(Some(&dir));
+    let Ok(startup) = startup else {
+        panic!("test keymap snapshot should compose, got {startup:?}");
+    };
     Arc::new(Mutex::new(AppContext {
+        keymap_snapshot: Some(startup.keymap_snapshot),
+        keymap_document: startup.keymap_document,
+        keymap_expected_hash: startup.keymap_expected_hash,
+        keymap_recovery: None,
+        keymap_revision: 0,
         persistence: FilePersistenceManager::default(),
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),

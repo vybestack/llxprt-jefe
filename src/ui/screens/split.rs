@@ -135,6 +135,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
             // Keybind bar
             KeybindBar(
                 screen_mode: ScreenMode::Split,
+                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),

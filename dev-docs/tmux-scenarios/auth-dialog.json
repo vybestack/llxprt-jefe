@@ -1,34 +1,82 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "auth-dialog",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 150,
-    "out_dir": "target/tmux-harness/auth-dialog",
-    "keep_session": false,
-    "assert_mode": "soft"
+    "rows": 32
   },
-  "macros": {
-    "enter_issues_mode": {
-      "params": [],
-      "steps": [
-        { "key": "i" }
-      ]
-    },
-    "quit": {
-      "params": [],
-      "steps": [
-        { "key": "q" },
-        { "waitForExit": 3000 }
-      ]
-    }
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "macro": "enter_issues_mode", "args": {} },
-    { "waitFor": "Authenticate with GitHub" },
-    { "expect": "Authenticate with GitHub" },
-    { "key": "Escape" },
-    { "macro": "quit", "args": {} }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Authenticate with GitHub",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Authenticate with GitHub"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

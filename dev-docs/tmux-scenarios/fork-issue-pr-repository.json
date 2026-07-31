@@ -1,22 +1,99 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "fork-issue-pr-repository",
+  "platform": "macos",
+  "terminal": {
     "cols": 110,
-    "rows": 36,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "expect": "Issues / PRs Repo" },
-    { "expect": "blank uses GitHub Repo" },
-    { "capture": "fork-issue-pr-repository" },
-    { "key": "escape" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Issues / PRs Repo"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "blank uses GitHub Repo"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

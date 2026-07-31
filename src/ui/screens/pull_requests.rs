@@ -470,6 +470,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                     Box(height: 1u32, width: 100pct) {
                         KeybindBar(
                             screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
+                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                             terminal_focused: state.is_some_and(|s| s.terminal_focused),
                             actions_focus: None,
                             identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),

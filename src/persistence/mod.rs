@@ -25,6 +25,10 @@ mod contract_tests;
 mod paths_tests;
 
 #[cfg(test)]
+#[path = "keymap_edit_tests.rs"]
+mod keymap_edit_tests;
+
+#[cfg(test)]
 #[path = "settings_document_tests.rs"]
 mod settings_document_tests;
 
@@ -47,6 +51,8 @@ mod migration_tests;
 mod writer_tests;
 
 pub mod diagnostic;
+pub(crate) mod keymap_edit;
+pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;
 pub mod paths;
 pub mod settings_document;

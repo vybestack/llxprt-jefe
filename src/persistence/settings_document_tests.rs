@@ -328,6 +328,40 @@ config = { retries = 3, credential = { secret_ref = "github.token" } }
     assert_eq!(diagnostics[0].code, CfgCode::E005);
 }
 
+#[test]
+fn keymap_publishes_context_action_lists_without_config_owner_catalog() {
+    let source = br#"settings_schema = 2
+[keymap."issues.inline"]
+"issues.submit-inline" = ["Ctrl+Enter"]
+"issues.cancel-inline" = []
+[extensions.future]
+opaque = "retained"
+"#;
+    let Ok(document) = SettingsDocument::parse(source) else {
+        panic!("keymap fixture must parse");
+    };
+    let Ok(published) = document.publish(&crate::domain::OwnerCatalog::default()) else {
+        panic!("context/action keymap must publish without owner descriptors");
+    };
+
+    let inline = published
+        .keymap
+        .get("issues.inline")
+        .unwrap_or_else(|| panic!("known context must publish"));
+    assert_eq!(
+        inline.get("issues.submit-inline"),
+        Some(&vec!["Ctrl+Enter".to_owned()])
+    );
+    assert_eq!(inline.get("issues.cancel-inline"), Some(&Vec::new()));
+    assert!(
+        published
+            .dormant
+            .iter()
+            .any(|entry| entry.path == ["extensions"])
+    );
+    assert_eq!(document.original_bytes(), source);
+}
+
 /// The agent field allow-list is exactly `enabled` and `repository_defaults`.
 /// `parse_owner_version` returns early for non-plugin owners, so an agent
 /// carrying a `version` key is unowned input and must be refused rather than

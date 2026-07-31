@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::domain::keymap::{Chord, ChordError, Key, Modifier, ModifierSet};
 use crate::state::{
     AppEvent, AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode,
 };
@@ -58,6 +59,46 @@ pub enum InputMode {
     ActionsSearch,
 }
 
+const MAC_OPTION_DIGITS: &[(char, char)] = &[
+    ('¡', '1'),
+    ('™', '2'),
+    ('£', '3'),
+    ('¢', '4'),
+    ('∞', '5'),
+    ('§', '6'),
+    ('¶', '7'),
+    ('•', '8'),
+    ('ª', '9'),
+];
+
+/// Translate one runtime event to the canonical registry chord.
+///
+/// macOS terminals may report Option-digit as the resulting Unicode symbol
+/// without the Alt modifier. That existing platform encoding is normalized to
+/// the same `Alt+digit` chord as Linux terminals.
+pub fn canonical_chord(key_event: &KeyEvent) -> Result<Chord, ChordError> {
+    if let KeyCode::Char(character) = key_event.code
+        && !key_event.modifiers.intersects(
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT | KeyModifiers::SUPER | KeyModifiers::META,
+        )
+        && let Some((_, digit)) = MAC_OPTION_DIGITS
+            .iter()
+            .find(|(symbol, _)| *symbol == character)
+    {
+        return Ok(Chord::new(
+            ModifierSet::from_modifier(Modifier::Alt),
+            Key::Char(*digit),
+        ));
+    }
+    let event = crossterm::event::KeyEvent {
+        code: key_event.code,
+        modifiers: key_event.modifiers,
+        kind: key_event.kind,
+        state: crossterm::event::KeyEventState::NONE,
+    };
+    Chord::from_crossterm(&event)
+}
+
 /// Search-mode key routing result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKeyRoute {
@@ -76,7 +117,7 @@ pub enum SearchKeyRoute {
 /// detection).
 fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
     match modal {
-        ModalState::Help => Some(InputMode::Help),
+        ModalState::Help | ModalState::Keys { .. } => Some(InputMode::Help),
         ModalState::Search { .. } => Some(InputMode::Search),
         ModalState::ThemePicker { .. } => Some(InputMode::ThemePicker),
         ModalState::NewRepository { .. }
@@ -382,7 +423,6 @@ pub fn observe_quit_sequence(
         }
         return QuitOutcome::Continue;
     }
-    // Any other key breaks the rapid-`q` run.
     *seq = QuitSequenceState::default();
     QuitOutcome::Reset
 }

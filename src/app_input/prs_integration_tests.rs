@@ -1,9 +1,9 @@
 //! PR-Mode end-to-end integration tests — app_input layer checkpoints.
 //!
 //! Drives the REAL key→event→dispatch→reducer chain for the app_input-owned
-//! checkpoints of Phase P15. These tests exercise the genuine key-resolution
-//! handlers (`prs::resolve_prs_key_event`, `normal::resolve_mode_key`) and
-//! dispatch helpers (`prs_dispatch`, `prs_list_dispatch`), then simulate async
+//! checkpoints of Phase P15. These tests exercise the genuine registry and PR
+//! key-resolution handlers plus dispatch helpers (`prs_dispatch`,
+//! `prs_list_dispatch`), then simulate async
 //! I/O completion by applying the loaded-data events the dispatch layer would
 //! deliver — exactly as the existing exemplars in `app_input_tests.rs` do.
 //!
@@ -35,8 +35,7 @@ use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
 use super::prs_integration_test_fixtures::make_test_pr_detail;
 use super::prs_orchestration::pr_send_info_from_state;
 use super::{
-    AppStateHandle, SharedContext, normal, prs, prs_comments_dispatch, prs_dispatch,
-    prs_list_dispatch,
+    AppStateHandle, SharedContext, prs, prs_comments_dispatch, prs_dispatch, prs_list_dispatch,
 };
 use jefe::state::transition::TransitionExt;
 
@@ -126,9 +125,9 @@ impl ApplyInPlace for AppState {
 /// `loading.list = true` (the dispatch arm then spawns the list fetch), and
 /// delivering `PrListLoaded` (simulating async completion) renders rows.
 ///
-/// Drives the REAL entry-routing key handler (`normal::resolve_mode_key`) for
-/// the `p` key, applies `EnterPrsMode` through the REAL reducer, then delivers
-/// a `PrListLoaded` event for the selected scope and asserts the rows appear.
+/// Resolves the `p` key through the compiled action registry, applies
+/// `EnterPrsMode` through the real reducer, then delivers a `PrListLoaded`
+/// event for the selected scope and asserts the rows appear.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
@@ -137,17 +136,20 @@ impl ApplyInPlace for AppState {
 /// @pseudocode component-003 lines 01-09
 #[test]
 fn it_enter_prs_mode_from_dashboard_loads_list() {
-    use super::normal::KeyHandling;
-
     let dashboard = dashboard_prs_state();
     assert_eq!(dashboard.screen_mode, ScreenMode::Dashboard);
 
-    // Drive the REAL entry-routing key handler: `p` → EnterPrsMode.
-    let handling = normal::resolve_mode_key(&key(KeyCode::Char('p')), ScreenMode::Dashboard);
-    assert!(
-        matches!(handling, KeyHandling::Handled(Some(AppEvent::EnterPrsMode))),
-        "Dashboard 'p' must emit Handled(Some(EnterPrsMode))"
+    let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(
+        &dashboard,
+        &key(KeyCode::Char('p')),
     );
+    assert!(matches!(
+        resolved.resolution,
+        jefe::domain::action_registry::Resolution::Dispatch {
+            handler: jefe::domain::action_registry::HandlerKey::EnterPullRequests,
+            ..
+        }
+    ));
 
     // Apply the reducer: loading.list=true, active=true, pr_focus=PrList.
     let mut state = dashboard.apply(AppEvent::EnterPrsMode).committed_pure();

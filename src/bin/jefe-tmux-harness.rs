@@ -9,7 +9,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use jefe::harness::{TmuxPaneSize, TmuxStartRequest, parse_scenario, run_tmux_scenario};
+use jefe::harness::v1::parse_scenario_v1;
+use jefe::harness::v1::tmux_runner::{TmuxRunRequest, run_tmux_v1};
 
 fn main() -> ExitCode {
     match CliArgs::parse(env::args().skip(1)) {
@@ -26,7 +27,7 @@ fn main() -> ExitCode {
 }
 
 fn run(args: CliArgs) -> ExitCode {
-    let json = match fs::read_to_string(&args.scenario) {
+    let bytes = match fs::read(&args.scenario) {
         Ok(value) => value,
         Err(err) => {
             write_stderr(&format!(
@@ -36,23 +37,28 @@ fn run(args: CliArgs) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let scenario = match parse_scenario(&json) {
+    let scenario = match parse_scenario_v1(&bytes) {
         Ok(value) => value,
         Err(err) => {
             write_stderr(&format!("failed to parse scenario: {err}\n"));
             return ExitCode::from(1);
         }
     };
-    let request = start_request(&scenario, &args);
-    match request.and_then(|req| run_tmux_scenario(&scenario, &req, args.out_dir.as_deref())) {
+    let request = TmuxRunRequest {
+        session: args.session.clone(),
+        jefe_binary: args.jefe_bin.clone(),
+        config_dir: args.config_dir.clone(),
+        working_dir: args.working_dir.clone(),
+        artifact_dir: args.out_dir.clone(),
+        keep_session: args.keep_session,
+    };
+    match run_tmux_v1(&scenario, &request) {
         Ok(summary) => {
             write_stdout(&format!("ok: {} steps\n", summary.steps_run));
-            if args.keep_session || scenario.config.keep_session {
+            if args.keep_session {
                 write_stdout(&format!("retained session: {}\n", args.session));
-                if let Some(details) = summary.multiplexer_details {
-                    write_stdout(&details);
-                }
-                if let Some(directory) = summary.artifact_dir {
+                write_stdout(&summary.multiplexer_details);
+                if let Some(directory) = &args.out_dir {
                     write_stdout(&format!(
                         "multiplexer details file: {}\n",
                         directory.join("multiplexer.txt").display()
@@ -66,26 +72,6 @@ fn run(args: CliArgs) -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-fn start_request(
-    scenario: &jefe::harness::Scenario,
-    args: &CliArgs,
-) -> Result<TmuxStartRequest, jefe::harness::RunnerError> {
-    let dims = TmuxPaneSize::new(
-        scenario.config.cols,
-        scenario.config.rows,
-        scenario.config.history_limit,
-    );
-    let request = TmuxStartRequest::jefe(
-        args.session.clone(),
-        args.jefe_bin.clone(),
-        args.config_dir.clone(),
-        args.working_dir.clone(),
-        dims,
-    )
-    .map_err(|err| jefe::harness::RunnerError::Driver(err.to_string()))?;
-    Ok(request.with_keep_session(args.keep_session))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,12 +209,12 @@ fn required_path(value: Option<String>, flag: &str) -> Result<PathBuf, ParseErro
 
 fn usage() -> String {
     "\
-jefe-tmux-harness - run jefe TUI scenarios in tmux
+jefe-tmux-harness - run strict schema-1 jefe TUI scenarios in tmux
 
 Usage: jefe-tmux-harness --scenario <FILE> --jefe-bin <PATH> --config <DIR> [OPTIONS]
 
 Options:
-  --scenario <FILE>       Scenario JSON file to run
+  --scenario <FILE>       Schema-1 scenario JSON file to run
   --jefe-bin <PATH>       Path to the jefe binary under test
   --config <DIR>          Isolated jefe config directory for the run
   --working-dir <DIR>     Working directory for the tmux session

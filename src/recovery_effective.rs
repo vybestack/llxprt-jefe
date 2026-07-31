@@ -165,10 +165,10 @@ fn insert_keymap(root: &mut toml::map::Map<String, toml::Value>, settings: &Publ
                         .iter()
                         .map(|chord| toml::Value::String(chord.clone()))
                         .collect();
-                    (action_id.to_string(), toml::Value::Array(chords))
+                    (action_id.clone(), toml::Value::Array(chords))
                 })
                 .collect();
-            (owner_id.to_string(), toml::Value::Table(actions))
+            (owner_id.clone(), toml::Value::Table(actions))
         })
         .collect();
     root.insert("keymap".to_owned(), toml::Value::Table(owners));

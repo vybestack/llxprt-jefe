@@ -10,7 +10,6 @@
 
 use std::time::Duration;
 
-use iocraft::prelude::*;
 use tracing::{debug, warn};
 
 use jefe::domain::AgentId;
@@ -26,43 +25,24 @@ use super::{
 /// Manager preview observer interval.
 const MANAGER_PREVIEW_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Entry point: handle a key in DashboardTerminals screen mode.
-///
-/// Returns `Some(AppEvent)` for the reducer to apply, or `None` if the key is
-/// unhandled. Runtime side effects (close, focus request) happen here BEFORE
-/// the event is dispatched so the reducer stays deterministic.
-pub fn handle_terminal_manager_mode_key(
+pub(super) fn close_selected_shell(app_state: &mut AppStateHandle) -> Option<AppEvent> {
+    let snapshot = manager_key_snapshot(&app_state.read());
+    if try_close_selected_shell(app_state, &snapshot) {
+        snapshot
+            .selected_row
+            .as_ref()
+            .map(|row| AppEvent::ShellClosed(row.agent_id.clone()))
+    } else {
+        None
+    }
+}
+
+pub(super) fn focus_selected_shell(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    key_event: &KeyEvent,
 ) -> Option<AppEvent> {
-    let snapshot = {
-        let state = app_state.read();
-        manager_key_snapshot(&state)
-    };
-    match key_event.code {
-        // Esc / F12 return to Dashboard.
-        KeyCode::Esc | KeyCode::F(12) => Some(AppEvent::ExitTerminalManagerMode),
-        // Navigation.
-        KeyCode::Up => Some(AppEvent::TerminalManagerNavigateUp),
-        KeyCode::Down => Some(AppEvent::TerminalManagerNavigateDown),
-        KeyCode::Home => Some(AppEvent::TerminalManagerNavigateHome),
-        KeyCode::End => Some(AppEvent::TerminalManagerNavigateEnd),
-        // Ctrl-k: close selected shell (works for non-Running owner).
-        KeyCode::Char('k' | 'K') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            if try_close_selected_shell(app_state, &snapshot) {
-                snapshot
-                    .selected_row
-                    .as_ref()
-                    .map(|row| AppEvent::ShellClosed(row.agent_id.clone()))
-            } else {
-                None
-            }
-        }
-        // Enter: focus selected Running owner only.
-        KeyCode::Enter => try_focus_selected_shell(app_state, ctx, &snapshot),
-        _ => None,
-    }
+    let snapshot = manager_key_snapshot(&app_state.read());
+    try_focus_selected_shell(app_state, ctx, &snapshot)
 }
 
 #[derive(Clone)]

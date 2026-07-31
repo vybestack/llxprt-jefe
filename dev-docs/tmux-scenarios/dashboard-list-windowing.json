@@ -1,21 +1,89 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "dashboard-list-windowing",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 25,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "wait_timeout_ms": 30000,
-    "assert_mode": "strict"
+    "rows": 25
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "Repository 24" },
-    { "expect": "Agent 24" },
-    { "expect": "Repository 7" },
-    { "capture": "dashboard-windowed-lists" },
-    { "key": "Tab" },
-    { "key": "Up" },
-    { "waitFor": "Agent 23" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repository 24",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agent 24"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Repository 7"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "up",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent 23",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use jefe::harness::{expand_macros, parse_scenario};
+use jefe::harness::v1::parse_scenario_v1;
 
 /// @plan PLAN-20260629-TMUX-HARNESS.P05
 /// @requirement REQ-TMUX-HARNESS-005
@@ -87,14 +87,64 @@ fn native_windows_ci_gates_psmux_and_startup_scenario() {
 
 /// @requirement REQ-TMUX-HARNESS-005
 /// @pseudocode component-002 lines 1-6
+/// Issue #383 S8 (no-shim amendment D10): every shipped scenario — including
+/// the nested per-issue directories — is strict schema-1. There is exactly one
+/// scenario parser, so a legacy document now fails to parse rather than
+/// silently taking a second code path.
 #[test]
-fn shipped_tmux_scenarios_parse_and_expand() {
-    for path in shipped_scenario_paths() {
+fn every_shipped_tmux_scenario_is_strict_schema_1() {
+    // `harness-limits.json` deliberately declares an over-limit terminal so
+    // `limits_fixture_fails_validation_before_any_launch` can prove the bound
+    // is enforced before launch. It is schema-1 and must still be rejected.
+    const REJECTION_FIXTURES: &[&str] = &["harness-limits.json"];
+
+    let paths = shipped_scenario_paths();
+    assert!(
+        paths.len() >= 70,
+        "expected the full converted corpus, found {}",
+        paths.len()
+    );
+    for path in paths {
         let json = read_repo_text(&path);
-        let scenario = parse_scenario(&json)
-            .unwrap_or_else(|err| panic!("{} should parse: {err}", path.display()));
-        expand_macros(&scenario)
-            .unwrap_or_else(|err| panic!("{} should expand: {err}", path.display()));
+        assert!(
+            json.contains("\"schema\": 1"),
+            "{} must be strict schema-1 after the no-shim conversion",
+            path.display()
+        );
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let parsed = parse_scenario_v1(json.as_bytes());
+        if REJECTION_FIXTURES.contains(&name) {
+            assert!(
+                parsed.is_err(),
+                "{} is a rejection fixture and must fail validation",
+                path.display()
+            );
+        } else {
+            parsed
+                .unwrap_or_else(|err| panic!("{} should parse as schema-1: {err}", path.display()));
+        }
+    }
+}
+
+/// The superseded parser, adapter, and scenario model are deleted, so no
+/// compatibility path can be reintroduced by accident.
+#[test]
+fn the_superseded_scenario_parser_is_absent() {
+    for removed in [
+        "src/harness/parser.rs",
+        "src/harness/scenario.rs",
+        "src/harness/step.rs",
+        "src/harness/expand.rs",
+        "src/harness/macro_def.rs",
+        "src/harness/config.rs",
+    ] {
+        assert!(
+            !repo_path(removed).exists(),
+            "{removed} must be deleted by the no-shim conversion"
+        );
     }
 }
 
@@ -107,15 +157,20 @@ fn shipped_scenario_paths() -> Vec<PathBuf> {
 }
 
 fn read_json_paths(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()))
-        .map(|entry| {
-            entry
-                .unwrap_or_else(|err| panic!("failed to read scenario entry: {err}"))
-                .path()
-        })
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect()
+    let mut found = Vec::new();
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()));
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|err| panic!("failed to read scenario entry: {err}"))
+            .path();
+        if path.is_dir() {
+            found.extend(read_json_paths(&path));
+        } else if path.extension().is_some_and(|ext| ext == "json") {
+            found.push(path);
+        }
+    }
+    found
 }
 
 fn read_repo_text(relative_path: impl AsRef<Path>) -> String {

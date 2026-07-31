@@ -1,36 +1,152 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "issue265-linux-keys",
+  "platform": "macos",
+  "terminal": {
     "cols": 120,
-    "rows": 40,
-    "history_limit": 2000,
-    "initial_wait_ms": 1500,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "#265" },
-    { "capture": "issues-list" },
-    { "key": "Enter" },
-    { "waitFor": "Linux keyboard behavior" },
-    { "capture": "issue-detail" },
-    { "key": "S" },
-    { "waitFor": "No agents available" },
-    { "capture": "send-no-agents" },
-    { "key": "Escape" },
-    { "waitFor": "#265" },
-    { "waitForNot": "No agents available" },
-    { "key": "n" },
-    { "waitFor": "Alt+Enter submit" },
-    { "capture": "new-issue-composer" },
-    { "key": "M-Enter" },
-    { "waitFor": "cannot be empty" },
-    { "capture": "empty-submit-notice" },
-    { "key": "Escape" },
-    { "key": "a" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#265",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Linux keyboard behavior",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No agents available",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#265",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "No agents available"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Alt+Enter submit",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": ["alt"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "cannot be empty",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

@@ -1,39 +1,250 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "issues-filter-clear-delete",
+  "platform": "macos",
+  "terminal": {
     "cols": 160,
-    "rows": 36,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "Issues" },
-    { "key": "f" },
-    { "waitFor": "Filter:" },
-    { "waitFor": "Delete field" },
-    { "waitFor": "Ctrl-L clear all" },
-    { "waitFor": "type:" },
-    { "waitFor": "milestone:" },
-    { "waitFor": "module:" },
-    { "waitForNot": "Ctrl-c clear" },
-    { "key": "Tab" },
-    { "keys": ["a", "l", "i", "c", "e"] },
-    { "waitFor": "author:[alice]" },
-    { "key": "Delete" },
-    { "waitFor": "author:[any]" },
-    { "keys": ["a", "l", "i", "c", "e"] },
-    { "waitFor": "author:[alice]" },
-    { "key": "Tab" },
-    { "keys": ["b", "o", "b"] },
-    { "waitFor": "assignee:[bob]" },
-    { "key": "C-l" },
-    { "waitFor": "author:[any]" },
-    { "waitFor": "assignee:[any]" },
-    { "waitFor": "Filter:" },
-    { "key": "Escape" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Filter:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Delete field",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Ctrl-L clear all",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "type:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "milestone:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "module:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Ctrl-c clear"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "author:[alice]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "delete",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "author:[any]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "author:[alice]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "b",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "o",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "b",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "assignee:[bob]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "l",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "author:[any]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "assignee:[any]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Filter:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

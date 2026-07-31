@@ -7,7 +7,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::*;
-use crate::harness::{MatchPattern, screen_contains, scrollback_contains};
+/// Local literal frame/scrollback predicates.
+///
+/// The shared matcher module was deleted with the superseded scenario parser
+/// (issue #383 S8); these driver tests only ever needed literal containment,
+/// so they own that two-line predicate directly instead of keeping a general
+/// matcher library alive for one caller.
+fn lines_contain(lines: &[String], literal: &str) -> bool {
+    lines.iter().any(|line| line.contains(literal))
+}
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -226,11 +234,15 @@ fn real_jefe_session_uses_isolated_config_when_binary_available() {
         session,
     };
 
-    let capture = wait_for_screen_literal(&driver, &guard.session, "LLxprt Jefe")
-        .value_or_panic("jefe screen should render stable title");
-    let outcome = screen_contains(&capture, MatchPattern::literal("LLxprt Jefe"));
+    // Assert on the dashboard body rather than the title. The title shares its
+    // row with the startup warning banner, so on a host where an optional
+    // startup probe fails the banner takes the width and the title is truncated
+    // — which says nothing about whether the isolated config was used.
+    let capture = wait_for_screen_literal(&driver, &guard.session, "Agent Types")
+        .value_or_panic("jefe screen should render its dashboard");
+    let outcome = lines_contain(&capture.lines, "Agent Types");
 
-    assert!(outcome.matched, "jefe capture was {capture:?}");
+    assert!(outcome, "jefe capture was {capture:?}");
 }
 
 /// A guarded real tmux session can start, render output, and be captured.
@@ -254,9 +266,9 @@ fn tmux_session_captures_visible_screen_when_available() {
 
     let capture = wait_for_screen_literal(&driver, &guard.session, "harness-ready")
         .value_or_panic("screen should contain readiness marker");
-    let outcome = screen_contains(&capture, MatchPattern::literal("harness-ready"));
+    let outcome = lines_contain(&capture.lines, "harness-ready");
 
-    assert!(outcome.matched, "capture was {capture:?}");
+    assert!(outcome, "capture was {capture:?}");
 }
 
 /// Pane liveness can be read after the process exits because remain-on-exit is set.
@@ -317,12 +329,12 @@ fn history_size_is_readable_and_monotonic_when_tmux_available() {
     let (after, sample) =
         wait_for_literal_scrollback(&driver, &guard.session, "unique-payload-marker")
             .value_or_panic("literal line should appear in scrollback");
-    let literal = scrollback_contains(&sample, MatchPattern::literal("unique-payload-marker"));
+    let literal = lines_contain(&sample.lines, "unique-payload-marker");
 
     assert!(after >= before, "before={before} after={after}");
     assert!(sample.history_size >= after);
     assert!(
-        literal.matched,
+        literal,
         "send_line must send literal text followed by newline"
     );
 }
@@ -389,8 +401,8 @@ fn wait_for_literal_scrollback(
     loop {
         let after = driver.history_size(session)?;
         let sample = driver.capture_scrollback(session, 20)?;
-        let outcome = scrollback_contains(&sample, MatchPattern::literal(literal));
-        if outcome.matched || Instant::now() >= deadline {
+        let outcome = lines_contain(&sample.lines, literal);
+        if outcome || Instant::now() >= deadline {
             return Ok((after, sample));
         }
         sleep_briefly();
@@ -405,8 +417,8 @@ fn wait_for_screen_literal(
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let capture = driver.capture_screen(session)?;
-        let outcome = screen_contains(&capture, MatchPattern::literal(literal));
-        if outcome.matched || Instant::now() >= deadline {
+        let outcome = lines_contain(&capture.lines, literal);
+        if outcome || Instant::now() >= deadline {
             return Ok(capture);
         }
         sleep_briefly();
@@ -537,7 +549,7 @@ fn harness_session_runs_on_dedicated_socket() {
     let capture = wait_for_screen_literal(&driver, &guard.session, "socket-ready")
         .value_or_panic("harness session should render on the isolated server");
     assert!(
-        screen_contains(&capture, MatchPattern::literal("socket-ready")).matched,
+        lines_contain(&capture.lines, "socket-ready"),
         "capture was {capture:?}"
     );
 

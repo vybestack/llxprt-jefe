@@ -6,7 +6,6 @@
 //! event flow while the shell is active so they work even while
 //! `TerminalCapture` mode owns input.
 
-use iocraft::prelude::{KeyCode, KeyEvent};
 use tracing::warn;
 
 use jefe::domain::AgentStatus;
@@ -172,79 +171,17 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
     }
 }
 
-fn is_shell_overlay_close_shortcut(key_event: &KeyEvent) -> bool {
-    key_event.code == KeyCode::F(10)
-}
-
-/// Returns `true` if the key event is the shell-overlay close shortcut (F10)
-/// and the overlay is active. This is called early in the key flow — before
-/// `TerminalCapture` forwarding — so F10 can close the shell even while the
-/// terminal owns keyboard input.
-pub fn try_close_shell_overlay(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    if !is_shell_overlay_close_shortcut(key_event) {
-        return false;
+pub(super) fn close_shell_overlay(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let agent_id = app_state.read().shell_overlay_agent_id().cloned();
+    if let Some(agent_id) = agent_id {
+        close_overlay_and_restore(app_state, ctx, &agent_id);
     }
-    let agent_id = {
-        let state = app_state.read();
-        state.shell_overlay_agent_id().cloned()
-    };
-    let Some(agent_id) = agent_id else {
-        return false;
-    };
-    close_overlay_and_restore(app_state, ctx, &agent_id);
-    true
 }
 
-/// Intercept F12 to hide the visible shell overlay (issue #361 PR A).
-///
-/// Hiding selects agent window 0 (so the multiplexer current window is the
-/// agent pane, not `jefe-shell`), leaves the `jefe-shell` process alive, and
-/// restores the previous dashboard focus/layout. The inventory entry is kept
-/// so F10 can resume the exact shell later.
-///
-/// Called from the overlay-first key route so F12 never reaches the PTY or
-/// the Windows psmux prefix. On a select-window-0 failure the overlay stays
-/// visible and a warning is shown.
-pub fn try_hide_shell_overlay(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    if key_event.code != KeyCode::F(12) {
-        return false;
-    }
-    let agent_id = {
-        let state = app_state.read();
-        state.shell_overlay_agent_id().cloned()
-    };
-    let Some(agent_id) = agent_id else {
-        return false;
-    };
-    hide_overlay_and_restore(app_state, ctx, &agent_id);
-    true
-}
-
-/// Handle the F10 / F8 shortcuts from the dashboard. Returns `true` if the key
-/// was consumed.
-pub fn handle_shell_shortcut_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    match key_event.code {
-        KeyCode::F(10) => {
-            open_embedded_shell(app_state, ctx);
-            true
-        }
-        KeyCode::F(8) => {
-            open_external_terminal(app_state, ctx);
-            true
-        }
-        _ => false,
+pub(super) fn hide_shell_overlay(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let agent_id = app_state.read().shell_overlay_agent_id().cloned();
+    if let Some(agent_id) = agent_id {
+        hide_overlay_and_restore(app_state, ctx, &agent_id);
     }
 }
 
@@ -254,7 +191,7 @@ pub fn handle_shell_shortcut_key(
 /// runtime inventory), F10 resumes it instead of creating a duplicate. The
 /// runtime `open_shell_window` is create-or-select so it never duplicates,
 /// and the inventory records the owner after success.
-fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+pub(super) fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let resumable = {
         let state = app_state.read();
         state
@@ -320,7 +257,7 @@ fn open_embedded_shell(app_state: &mut AppStateHandle, ctx: &SharedContext) {
 }
 
 /// Open an external terminal for the selected local agent.
-fn open_external_terminal(app_state: &mut AppStateHandle, _ctx: &SharedContext) {
+pub(super) fn open_external_terminal(app_state: &mut AppStateHandle, _ctx: &SharedContext) {
     let snapshot = read_local_agent(app_state, false);
     let Some((_, work_dir)) = snapshot else {
         warn_no_selection(app_state, "open an external terminal");
@@ -555,22 +492,4 @@ fn warn_no_selection(app_state: &mut AppStateHandle, action: &str) {
 
 fn set_warning(app_state: &mut AppStateHandle, message: &str) {
     app_state.write().warning_message = Some(message.to_owned());
-}
-
-#[cfg(test)]
-mod tests {
-    use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
-
-    use super::is_shell_overlay_close_shortcut;
-
-    #[test]
-    fn f10_is_the_only_shell_overlay_close_shortcut() {
-        let f10 = KeyEvent::new(KeyEventKind::Press, KeyCode::F(10));
-        let f11 = KeyEvent::new(KeyEventKind::Press, KeyCode::F(11));
-        let character = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
-
-        assert!(is_shell_overlay_close_shortcut(&f10));
-        assert!(!is_shell_overlay_close_shortcut(&f11));
-        assert!(!is_shell_overlay_close_shortcut(&character));
-    }
 }

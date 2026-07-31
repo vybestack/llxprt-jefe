@@ -41,9 +41,10 @@ pattern, documented in full in [Architecture Standards](./architecture.md).
 
 Two canonical examples live in the UI layer:
 
-- **`src/ui/components/keybind_bar.rs`** — `keybind_hints_for(screen_mode,
-  terminal_focused) -> &'static str` is a pure `#[must_use]` function. The
-  iocraft `KeybindBar` component just renders its return value.
+- **`src/action_projection.rs`** — the footer, Help, menu, and Keys-editor text
+  are pure `#[must_use]` projections of the immutable action/binding snapshot
+  for the current context. `ui::components::keybind_bar` and `ui::modals::help`
+  render those projections and own no shortcut text.
 - **`src/text_box_view.rs`** — `build_text_box_view(text, byte_cursor,
   viewport_rows, content_width) -> TextBoxView` is a pure, iocraft-free
   projection. The `ui::components::text_box` component consumes it.
@@ -120,38 +121,36 @@ messages.
 ## Keybind Footer Convention
 
 The bottom `KeybindBar` (`src/ui/components/keybind_bar.rs`) shows
-context-sensitive keyboard hints via the pure
-`keybind_hints_for(screen_mode, terminal_focused)` function.
+context-sensitive hints projected from the immutable action/binding snapshot for
+the current context. There is no hand-maintained hint string.
 
-- Each `ScreenMode` has its own hint string. The hint text is the single source
-  of truth for what shortcuts are available in that mode.
-- When the terminal is focused (`terminal_focused == true`), the bar shows only
-  `F12 unfocus` regardless of screen mode, because all other keys are forwarded
-  to the PTY.
+- The hints are derived from the actions actually bound and available in the
+  current context, so a rebound or unbound action changes the footer with no
+  separate edit.
+- An unavailable action is still shown, with the same reason string the
+  dispatch notice, Help, menus, and the Keys editor use.
+- When the terminal is focused, the bar shows only the protected leave-terminal
+  binding, because every other key is forwarded to the PTY.
 - The bar renders inverted: theme foreground as background, theme background as
   text.
 
-Current hint strings (authoritative source: `keybind_hints_for`):
-
-- **Dashboard**: navigate, pane switch, terminal focus, active-only toggle,
-  option-key agent shortcuts, new agent/repo, delete, kill, restart, relaunch,
-  reorder, split, help, quit.
-- **Split**: select, grab, move, back, help, quit.
-- **DashboardIssues**: navigate, open detail, new issue, filter, search, cycle
-  focus, reply, send-to-agent, edit, comment, exit issues, back.
-- **DashboardPullRequests**: navigate, open detail, filter, search, cycle focus,
-  reply, send-to-agent, edit, comment, open in browser, merge, exit, back.
-
-When you add or change a shortcut, update both the key dispatch (in the root
-event handler) and the matching hint string in `keybind_hints_for`.
+Adding or changing a shortcut means changing the registry inventory. Do not add
+a parallel hint table; the generated inventory-completeness gate fails when a
+dispatch row and its projected rows disagree.
 
 ---
 
 ## Help Modal Convention
 
-`?`, `h`, or `F1` opens the help modal (`src/ui/modals/help.rs`) — a scrollable
-keyboard reference. The modal lists the available shortcuts for the current
-context. `Esc` or `?`/`h`/`F1` again closes it.
+The help modal (`src/ui/modals/help.rs`) is a scrollable keyboard reference
+projected from the same snapshot as the footer, so the two can never drift. It
+lists the actions available in the current context with their effective chords
+and, for unavailable actions, the shared reason text. The modal owns only the
+viewport and scroll math.
+
+The Keys editor (`,` -> `core.open-keys`) edits the same bindings the modal
+displays; unbind writes an explicit empty list and reset removes the override so
+the compiled default is inherited again.
 
 ---
 
@@ -213,10 +212,22 @@ how the active theme slug is persisted. Invariants:
 
 ### Terminal Focus Semantics
 
-Terminal focus (capture mode) is toggled by `F12` or `t`. It is unconditional —
-it works in all screen modes — and it is reversible: pressing `F12`/`t` again
-unfocuses. When focused, the keybind bar shows only `F12 unfocus`, and all keys
-(except the unfocus toggle) are forwarded to the PTY as raw bytes.
+Terminal focus (capture mode) is reversible and explicit. While capture is
+active the registry intercepts only:
+
+- the protected emergency exit (`core.emergency-exit`, `Ctrl+Q`);
+- the protected leave-capture action (`core.leave-terminal`, `F12`);
+- the scrollback controls (`PageUp`, `PageDown`, `Home`, `End`, `Up`, `Down`)
+  under the existing scrollback routing conditions.
+
+Everything else resolves to `ForwardToPty` and is written to the child process
+byte-for-byte by the existing encoder. Forwarded input is deliberately not an
+action, so no rebinding can change what a child process receives, and the
+harness asserts those bytes separately from the resolution.
+
+Protected bindings cannot be unbound or shadowed by an override, and their
+reachability is validated for macOS and Linux, so a bad keymap can never trap a
+user inside terminal capture.
 
 Keyboard behavior must remain explicit and predictable. Focus state is part of
 `AppState` and transitions through the reducer; it is never implicit.

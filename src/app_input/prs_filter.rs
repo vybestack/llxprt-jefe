@@ -11,9 +11,10 @@
 
 use iocraft::prelude::*;
 
+use jefe::domain::action_registry::HandlerKey;
 use jefe::state::{AppEvent, AppState};
 
-use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
+use super::filter_controls::{FilterTextMutation, resolve_filter_text_mutation};
 
 /// The filter fields indexed by `filter_ui.field_index`.
 const DRAFT_FIELD: usize = 1;
@@ -28,41 +29,35 @@ const SORT_BY_FIELD: usize = 8;
 /// Sort-order field index (issue #473).
 const SORT_ORDER_FIELD: usize = 9;
 
-/// Resolve a key event while PR filter controls are open.
-///
-/// Tab/BackTab navigate fields; Enter applies; Esc closes; Ctrl-c clears; Space
-/// cycles the active cycle field (state/draft/review/checks or sort fields);
-/// text chars and Backspace edit the active text field
-/// (author/assignee/reviewer/labels).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
+/// Resolve raw text editing while PR filter controls are open.
 /// @requirement REQ-PR-008
-/// @pseudocode component-003 lines 134-146
-pub(super) fn handle_pr_filter_controls_key(
-    state: &AppState,
-    key_event: &KeyEvent,
-) -> Option<AppEvent> {
+pub(super) fn resolve_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     let field_idx = state.prs_state.filter_ui.field_index;
-    let editor = if is_text_field(field_idx) {
-        FilterEditorKind::Text
-    } else {
-        FilterEditorKind::Cycle
-    };
-    match resolve_filter_control_key(editor, key_event)? {
-        FilterControlCommand::Apply => Some(AppEvent::PrApplyFilter),
-        FilterControlCommand::Cancel => Some(AppEvent::PrCloseFilterControls),
-        FilterControlCommand::Next => Some(AppEvent::PrFilterNavigateNext),
-        FilterControlCommand::Previous => Some(AppEvent::PrFilterNavigatePrev),
-        FilterControlCommand::ClearAll => Some(AppEvent::PrClearFilter),
-        FilterControlCommand::ClearCurrent if is_text_field(field_idx) => {
+    match resolve_filter_text_mutation(is_text_field(field_idx), key_event)? {
+        FilterTextMutation::Append(character) => Some(text_char_event(state, field_idx, character)),
+        FilterTextMutation::Backspace => Some(text_backspace_event(state, field_idx)),
+    }
+}
+
+/// Translate a resolved registry filter control into the matching PR event.
+///
+/// The typed handler is already authoritative here, so this planner does not
+/// inspect the originating key event or perform a second resolution.
+pub(super) fn control_event(state: &AppState, handler: HandlerKey) -> Option<AppEvent> {
+    let field_idx = state.prs_state.filter_ui.field_index;
+    match handler {
+        HandlerKey::FilterApply => Some(AppEvent::PrApplyFilter),
+        HandlerKey::FilterCancel => Some(AppEvent::PrCloseFilterControls),
+        HandlerKey::FilterNextField => Some(AppEvent::PrFilterNavigateNext),
+        HandlerKey::FilterPreviousField => Some(AppEvent::PrFilterNavigatePrev),
+        HandlerKey::FilterClearAll => Some(AppEvent::PrClearFilter),
+        HandlerKey::FilterClearCurrent if is_text_field(field_idx) => {
             Some(text_clear_event(state, field_idx))
         }
-        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
+        HandlerKey::FilterPreviousChoice | HandlerKey::FilterNextChoice => {
             Some(space_event_for_field(field_idx))
         }
-        FilterControlCommand::Append(c) => Some(text_char_event(state, field_idx, c)),
-        FilterControlCommand::Backspace => Some(text_backspace_event(state, field_idx)),
-        FilterControlCommand::ClearCurrent => None,
+        _ => None,
     }
 }
 
