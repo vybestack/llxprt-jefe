@@ -66,32 +66,32 @@
     },
     {
       "op": "key",
-      "key": "C-x",
-      "modifiers": []
+      "key": "x",
+      "modifiers": ["control"]
     },
     {
       "op": "key",
-      "key": "C-b",
-      "modifiers": []
+      "key": "b",
+      "modifiers": ["control"]
     },
     {
       "op": "key",
-      "key": "C-x",
-      "modifiers": []
+      "key": "x",
+      "modifiers": ["control"]
     },
     {
       "op": "key",
-      "key": "C-x",
-      "modifiers": []
+      "key": "x",
+      "modifiers": ["control"]
     },
     {
       "op": "key",
-      "key": "C-c",
-      "modifiers": []
+      "key": "c",
+      "modifiers": ["control"]
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {

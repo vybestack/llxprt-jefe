@@ -119,9 +119,8 @@ fn guarded_dashboard_reorder_tui_scenario() {
     let config_dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e:?}"));
     seed_reorder_state(config_dir.path());
 
-    // One parser: this scenario is strict schema-1, exactly like every shipped
-    // fixture (issue #383 S8). Legacy tmux key spellings are still accepted and
-    // are translated by the runner without changing the bytes sent.
+    // One parser and one key vocabulary: this scenario is strict schema-1 with
+    // canonical key names, exactly like every shipped fixture (issue #383).
     let scenario = parse_scenario_v1(
         br#"{
             "schema": 1,
@@ -132,12 +131,12 @@ fn guarded_dashboard_reorder_tui_scenario() {
             "steps": [
                 { "op": "launch", "argv": ["jefe"], "env": [], "cwd": "work" },
                 { "op": "wait", "source": "frame", "literal": "alpha", "timeout_ms": 15000 },
-                { "op": "key", "key": "Space", "modifiers": [] },
+                { "op": "key", "key": "space", "modifiers": [] },
                 { "op": "wait", "source": "frame", "literal": "\u2195", "timeout_ms": 15000 },
-                { "op": "key", "key": "Down", "modifiers": [] },
-                { "op": "key", "key": "Space", "modifiers": [] },
+                { "op": "key", "key": "down", "modifiers": [] },
+                { "op": "key", "key": "space", "modifiers": [] },
                 { "op": "assert-frame", "contains": ["bravo"], "absent": [] },
-                { "op": "key", "key": "C-q", "modifiers": [] },
+                { "op": "key", "key": "q", "modifiers": ["control"] },
                 { "op": "finish" }
             ],
             "secrets": []

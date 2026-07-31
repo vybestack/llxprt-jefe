@@ -80,7 +80,7 @@
     },
     {
       "op": "key",
-      "key": "End",
+      "key": "end",
       "modifiers": []
     },
     {
@@ -91,7 +91,7 @@
     },
     {
       "op": "key",
-      "key": "Up",
+      "key": "up",
       "modifiers": []
     },
     {
@@ -102,7 +102,7 @@
     },
     {
       "op": "key",
-      "key": "Home",
+      "key": "home",
       "modifiers": []
     },
     {
@@ -113,7 +113,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -138,7 +138,7 @@
     },
     {
       "op": "key",
-      "key": "Right",
+      "key": "right",
       "modifiers": []
     },
     {
@@ -156,7 +156,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
@@ -175,7 +175,7 @@
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
@@ -187,7 +187,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -205,7 +205,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
@@ -217,7 +217,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
@@ -229,7 +229,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {

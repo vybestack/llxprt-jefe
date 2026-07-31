@@ -48,8 +48,8 @@
     },
     {
       "op": "key",
-      "key": "N",
-      "modifiers": []
+      "key": "n",
+      "modifiers": ["shift"]
     },
     {
       "op": "wait",
@@ -156,7 +156,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -296,12 +296,12 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -312,7 +312,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -323,32 +323,32 @@
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "BSpace",
+      "key": "backspace",
       "modifiers": []
     },
     {
@@ -359,7 +359,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -375,7 +375,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -386,17 +386,17 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -407,7 +407,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -418,7 +418,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {

@@ -62,12 +62,12 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Up",
+      "key": "up",
       "modifiers": []
     },
     {
@@ -78,8 +78,8 @@
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

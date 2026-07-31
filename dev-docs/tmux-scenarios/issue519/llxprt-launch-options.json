@@ -54,17 +54,17 @@
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
@@ -75,7 +75,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -105,13 +105,13 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

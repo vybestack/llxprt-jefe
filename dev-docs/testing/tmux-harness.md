@@ -75,13 +75,40 @@ to.
 | `restart` | `{ "op": "restart" }` | Relaunch using the original launch step. |
 | `finish` | `{ "op": "finish" }` | End the scenario and tear down. |
 
-Legacy tmux key spellings (`Esc`, `BTab`, `C-q`, `M-3`, `N`) remain accepted and
-are translated to the canonical table by the runner. Translation is name-to-name
-only: the bytes written to the terminal are produced by the same encoder and are
-unchanged.
+`key` names come from one closed canonical table (`enter`, `escape`, `backspace`,
+`backtab`, `space`, `pageup`, `f1`..`f12`, arrow/navigation names, or a single
+Unicode scalar) plus at most three modifiers. Historical tmux spellings such as
+`Esc`, `BSpace`, `BTab`, `C-q`, `M-3`, and bare `N` are **not** accepted: the
+whole corpus was converted to canonical `key` + `modifiers` form and the
+translator was deleted, so there is no second spelling vocabulary to drift.
+Conversion was one-shot dev-time work, never a shipped input mode.
 
 All frame matching is literal. If future scenarios need regular expressions, add
 a typed matcher extension rather than smuggling dynamic behavior through JSON.
+
+### Action capture fields
+
+The schema-1 runner activates a contained, harness-only capture artifact inside
+the scenario workspace. It is written by the application under test and torn
+down with the workspace; it is not a public runtime API, adds no scenario step,
+and never changes what a keystroke does (a failed write is deliberately inert).
+
+Each key record carries four independently observable values:
+
+| Field | Meaning |
+| --- | --- |
+| `original_event` | the exact platform event: key code plus raw modifier bits |
+| `canonical_chord` | the canonical `Chord` text the registry resolved against |
+| `resolution` | `dispatch`, `unavailable`, `forward`, or `unbound`, plus the resolved action and handler when dispatched |
+| `pty_bytes` | the literal bytes written to the PTY, taken from the encoder rather than derived from the chord text |
+
+Keeping `pty_bytes` independent is the point: it is what proves registry
+migration cannot silently turn forwarded terminal input into an action, and it
+is asserted separately from the resolution.
+
+Mouse records carry the frame generation, the cell `(col, row)`, the resolved
+layout hit identity, and the emitted action ID, so a clickable surface and a
+keyboard chord are provably the same action.
 
 ## Running locally
 

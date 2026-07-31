@@ -105,7 +105,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "╰────────────────────────────────",
+      "literal": "actions.run-down",
       "timeout_ms": 15000
     },
     { "op": "key", "key": "down", "modifiers": [] },

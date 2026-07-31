@@ -66,7 +66,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {

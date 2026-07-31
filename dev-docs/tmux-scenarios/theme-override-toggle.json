@@ -48,7 +48,7 @@
     },
     {
       "op": "key",
-      "key": "F9",
+      "key": "f9",
       "modifiers": []
     },
     {
@@ -73,7 +73,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -85,7 +85,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {

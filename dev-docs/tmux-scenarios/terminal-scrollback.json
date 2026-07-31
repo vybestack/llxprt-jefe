@@ -48,7 +48,7 @@
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {
@@ -57,7 +57,7 @@
     },
     {
       "op": "key",
-      "key": "PageUp",
+      "key": "pageup",
       "modifiers": []
     },
     {
@@ -75,7 +75,7 @@
     },
     {
       "op": "key",
-      "key": "End",
+      "key": "end",
       "modifiers": []
     },
     {

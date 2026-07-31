@@ -75,8 +75,8 @@
     },
     {
       "op": "key",
-      "key": "M-1",
-      "modifiers": []
+      "key": "1",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -86,8 +86,8 @@
     },
     {
       "op": "key",
-      "key": "M-2",
-      "modifiers": []
+      "key": "2",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -97,8 +97,8 @@
     },
     {
       "op": "key",
-      "key": "M-3",
-      "modifiers": []
+      "key": "3",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -108,8 +108,8 @@
     },
     {
       "op": "key",
-      "key": "M-4",
-      "modifiers": []
+      "key": "4",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -119,8 +119,8 @@
     },
     {
       "op": "key",
-      "key": "C-k",
-      "modifiers": []
+      "key": "k",
+      "modifiers": ["control"]
     },
     {
       "op": "wait",
@@ -130,12 +130,12 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -175,8 +175,8 @@
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

@@ -59,7 +59,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -70,8 +70,8 @@
     },
     {
       "op": "key",
-      "key": "S",
-      "modifiers": []
+      "key": "s",
+      "modifiers": ["shift"]
     },
     {
       "op": "wait",
@@ -81,7 +81,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
@@ -110,8 +110,8 @@
     },
     {
       "op": "key",
-      "key": "M-Enter",
-      "modifiers": []
+      "key": "enter",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -121,7 +121,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {

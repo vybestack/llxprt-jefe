@@ -59,13 +59,13 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "S",
-      "modifiers": []
+      "key": "s",
+      "modifiers": ["shift"]
     },
     {
       "op": "wait",
@@ -75,7 +75,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -93,7 +93,7 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {

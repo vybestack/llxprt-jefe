@@ -48,8 +48,8 @@
     },
     {
       "op": "key",
-      "key": "M-5",
-      "modifiers": []
+      "key": "5",
+      "modifiers": ["alt"]
     },
     {
       "op": "wait",
@@ -80,18 +80,18 @@
     },
     {
       "op": "key",
-      "key": "C-c",
+      "key": "c",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "key",
+      "key": "f12",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "F12",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

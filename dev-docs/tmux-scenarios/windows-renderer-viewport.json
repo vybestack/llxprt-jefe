@@ -62,8 +62,8 @@
     },
     {
       "op": "key",
-      "key": "N",
-      "modifiers": []
+      "key": "n",
+      "modifiers": ["shift"]
     },
     {
       "op": "wait",

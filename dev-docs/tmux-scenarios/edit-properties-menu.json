@@ -66,27 +66,27 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "L",
+      "key": "l",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "key",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "space",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Space",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "Esc",
+      "key": "escape",
       "modifiers": []
     },
     {

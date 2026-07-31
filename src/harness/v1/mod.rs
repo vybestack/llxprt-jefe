@@ -20,10 +20,6 @@ pub mod fields;
 pub mod interp;
 pub mod json;
 pub mod keys;
-pub mod keys_legacy;
-#[cfg(test)]
-#[path = "keys_legacy_tests.rs"]
-mod keys_legacy_tests;
 pub mod limits;
 pub mod parse;
 pub mod parse_step;

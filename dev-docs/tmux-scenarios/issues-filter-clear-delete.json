@@ -107,7 +107,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -143,7 +143,7 @@
     },
     {
       "op": "key",
-      "key": "Delete",
+      "key": "delete",
       "modifiers": []
     },
     {
@@ -185,7 +185,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -211,8 +211,8 @@
     },
     {
       "op": "key",
-      "key": "C-l",
-      "modifiers": []
+      "key": "l",
+      "modifiers": ["control"]
     },
     {
       "op": "wait",
@@ -234,13 +234,13 @@
     },
     {
       "op": "key",
-      "key": "Escape",
+      "key": "escape",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

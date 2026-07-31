@@ -1509,3 +1509,116 @@ one-PR approval and is dominated by the mandated 53-scenario conversion and the
 4,195 lines of deleted superseded parser code. No dependency, workflow, quality
 configuration, `.llxprt` file, public runtime API, S9 documentation convergence,
 or lint suppression was touched. No commit or push was performed.
+
+## S9 execution ledger — normative documentation and final authority deletion
+
+S9 closes the issue's documentation mandate and completes the D10 no-shim
+obligation that S8 left partially satisfied.
+
+### S9 changed-file ledger (recorded before edit)
+
+| Path | Purpose | Layer |
+| --- | --- | --- |
+| `dev-docs/tmux-scenarios/**/*.json` (48 files) | One-shot conversion of 991 key steps to canonical `key` + `modifiers` | behavioral scenarios |
+| `src/harness/v1/keys.rs` | Remove the spelling-translation hook; `encode` is the single canonical encoder again | harness key encoder |
+| `src/harness/v1/mod.rs` | Deregister the deleted translation module | harness module contract |
+| `src/harness/v1/keys_legacy.rs` | **Delete** — shipped legacy input mode | deletion |
+| `src/harness/v1/keys_legacy_tests.rs` | **Delete** — tests of the deleted shim | deletion |
+| `dev-docs/standards/architecture.md` | Action-registry dependency direction and one-resolution invariant | documentation |
+| `dev-docs/standards/display-and-ui.md` | Shared resolved-action projections replace static keybind authority; exact protected terminal behavior | documentation |
+| `dev-docs/standards/testing-and-quality.md` | Inventory completeness guard, platform translation captures, mouse/PTY parity | documentation |
+| `dev-docs/testing/tmux-harness.md` | Canonical-only key grammar and the four capture fields | documentation |
+| `docs/technical-overview.md` | Action composition, availability, dispatch, and explain flow | documentation |
+| `project-plans/issue383-plan.md` | S9 evidence | delivery evidence |
+
+### S9 correction — the legacy key-spelling translator was itself a shim
+
+S8 converted the scenario corpus to schema 1 but kept historical tmux key
+spellings (`Esc`, `BSpace`, `BTab`, `C-q`, `M-3`, bare `N`) and translated them
+in the runner. Re-reading the binding amendment, that is exactly what it
+forbids: conversion is "one-shot dev-time, never a shipped runtime input mode."
+Keeping the translator would also have left a module named `keys_legacy` for the
+epic shim-token scan to find, and a second spelling vocabulary for scenarios to
+drift into.
+
+The translator was therefore deleted and the corpus converted properly: 991 key
+steps across 48 files now carry canonical `key` plus explicit `modifiers`. The
+mapping is byte-preserving by construction — `C-q` becomes `q`+`control` (0x11),
+`M-3` becomes `3`+`alt` (`0x1b 3`), `BTab` becomes `backtab` (`CSI Z`), `BSpace`
+becomes `backspace` (0x7f), uppercase `N` becomes `n`+`shift` (`N`) — so no
+scenario's PTY bytes changed. `grep` for any historical spelling in a `key`
+field now returns zero, and the encoder has one code path again.
+
+Pre-existing schema-1 scenarios that already used a bare uppercase scalar (for
+example `"key": "S"`) were left untouched: a single Unicode scalar is canonical
+in the closed table and encodes identically.
+
+### S9 verification record
+
+- `cargo build --workspace --all-features` — PASS after the deletion.
+- `cargo test --lib harness::v1::keys` — 3 passed; the encoder's named-key,
+  modifier, and `HAR-E001` contracts are unchanged.
+- `cargo test --test harness_v1_fixtures` — 27 passed, i.e. every converted
+  scenario parses and encodes through the one remaining parser.
+- `cargo test --test integration tmux_harness_docs` — 5 passed, including
+  `the_superseded_scenario_parser_is_absent` and
+  `every_shipped_tmux_scenario_is_strict_schema_1`.
+- Corpus checks: all scenario JSON parses; zero historical key spellings remain.
+- Exact-head `cargo xtask ci` evidence is recorded below.
+
+### S9 documentation convergence
+
+- `architecture.md` gains a normative **Action Registry** section stating the
+  one-resolution invariant (exactly one of Dispatch/Unavailable/ForwardToPty/
+  Unbound), the prohibition on any second dispatch/help/footer table, atomic
+  candidate publication with `KEY-E401`, protected-binding guarantees, and the
+  registry's dependency direction. The old "global-shortcut seam" bullet, which
+  described the pre-registry early-return shortcuts, is replaced by the
+  resolution seam, and the DAG table gains the two pure projection modules.
+- `display-and-ui.md` replaces the hand-maintained per-mode hint-string list
+  with the snapshot projection contract, documents that unavailable actions stay
+  visible with one shared reason, and states exactly what terminal capture
+  intercepts versus forwards byte-for-byte.
+- `testing-and-quality.md` documents the bidirectional inventory completeness
+  gate (and that deleting a row is not how you fix it), platform translation
+  capture, and separate mouse/PTY parity assertions.
+- `tmux-harness.md` now documents a canonical-only key grammar and the four
+  independently observable capture fields.
+- `technical-overview.md` documents composition, availability, dispatch, and the
+  offline explain flow with its exit codes.
+
+### S9 defect found by the full suite: a non-discriminating scenario wait
+
+The first two full runs failed, and neither failure was noise.
+
+1. `tests/ui/dashboard_reorder_tui.rs` embedded its scenario inline in Rust and
+   still used `Space`, `Down`, and `C-q`. Deleting the translator correctly made
+   it `HAR-E001: unknown key 'Space'`. Converted to canonical keys; the stale
+   comment claiming spellings are "translated by the runner" was removed.
+
+2. `keys-editor.json` step 27 waited for the modal's bottom border
+   (`╰────…`) after cancelling the dirty-close prompt. That literal is present in
+   the prompt frame too, so under coverage-instrumented full-suite load the wait
+   could be satisfied while the prompt was still open; the following `down` then
+   landed on the prompt (which does not handle it) and the run stalled until
+   timeout. It passed in isolation, which is exactly how this class of race
+   hides.
+
+   Fixed by waiting on `actions.run-down`, a row the prompt overlay pushes out
+   of the frame and which therefore only appears once the prompt has closed.
+   This is a real synchronization fix, not a timeout increase: no `timeout_ms`
+   was raised and no retry was added.
+
+### S9 exact-head verification
+
+`cargo xtask ci` — PASS end to end on the candidate head:
+
+- `fmt`, `check-clippy-allows`, `check-source-size`, `check-architecture` — PASS.
+- strict `lint` and the `complexity` pass — PASS, zero warnings.
+- `coverage` — PASS at **70.83%** line coverage (floor 30%).
+- `build` (locked, all features) — PASS.
+- `test` (workspace, all features, locked) — PASS, zero failures, including all
+  27 real-process schema-1 harness fixtures and both doctests.
+
+No dependency, workflow, quality-gate, `.llxprt`, lint-suppression, or threshold
+change was made in this slice.

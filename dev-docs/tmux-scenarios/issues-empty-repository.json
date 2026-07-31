@@ -59,12 +59,12 @@
     },
     {
       "op": "key",
-      "key": "BTab",
+      "key": "backtab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
@@ -82,8 +82,8 @@
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

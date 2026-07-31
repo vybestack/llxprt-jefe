@@ -48,22 +48,22 @@
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {

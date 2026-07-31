@@ -100,14 +100,13 @@ raw terminal input
    resize).
 2. **`AppEvent`** (`src/state/types.rs`) is the exhaustive low-level input enum.
    Each character input is `Char(char)`, not a generic blob.
-3. **Global-shortcut seam.** A small number of inputs are handled at the
-   app-shell/global-shortcut layer *before* the typed-message dispatch:
-   - `F12`/`t` terminal-focus toggle (`handle_f12_toggle` in `src/app_input/`).
-   - Option/Alt-digit agent jump shortcuts (`handle_global_shortcut_key` /
-     `jump_to_shortcut_agent`).
-   These apply directly to `AppState` and return early. They are kept narrow
-   and intentionally few; **all other keyboard input** flows through the typed
-   message pipeline below.
+3. **Action-registry resolution seam.** Raw platform events are translated to a
+   canonical `Chord`, the current state is projected to an ordered context
+   stack, and one immutable snapshot answers what the input means. There is no
+   parallel shortcut table: dispatch, Help, the keybind footer, menus, the Keys
+   editor, mouse activation, and `jefe explain binding` all read the same
+   snapshot. Resolved handler keys then produce the smallest typed message, so
+   input still enters the pipeline below rather than bypassing it.
 4. **`AppMessage`** (`src/messages.rs`) is the typed domain message bus, split
    into domain channels (`UiNavigationMessage`, `ModalMessage`,
    `RepositoryAgentMessage`, `RuntimeMessage`, `PersistenceMessage`,
@@ -140,6 +139,55 @@ message enums can grow with the domain (issues, pull requests) without the
 dispatches on typed domains rather than a flat input enum.
 
 ---
+
+## The Action Registry
+
+Every key and every clickable action resolves through **one immutable
+action/binding snapshot**. This is a boundary rule, not a convenience.
+
+### One-resolution invariant
+
+For a given input and application state there is exactly one resolution:
+`Dispatch`, `Unavailable`, `ForwardToPty`, or `Unbound`. Consequences:
+
+- No second dispatch table, shortcut map, help string table, or footer string
+  table may exist. If a surface needs to know what a key does, it asks the
+  snapshot.
+- An `Unavailable` resolution runs no handler and produces no effect, and the
+  reason string it exposes is byte-identical in dispatch notices, Help, the
+  footer, menus, and the Keys editor.
+- Availability is computed once per composed snapshot. A completion whose
+  correlation no longer matches the current snapshot is ignored rather than
+  applied late.
+- A candidate registry is published atomically. A grammar error, a duplicate
+  chord in one context, an implicit shadow, a protected-binding violation, or a
+  resource-bound breach (`KEY-E401`) rejects the **whole** candidate and retains
+  the previous snapshot and the previous settings bytes.
+- Protected actions (emergency exit, leave terminal, Back) cannot be unbound or
+  shadowed, and their reachability is validated for macOS and Linux.
+
+### Dependency direction
+
+```text
+platform event ──> input translation ──> domain::Chord
+AppState ─────────> action_context ────> ordered ContextStack
+(Chord, ContextStack) ──> domain::ActionRegistrySnapshot::resolve  (pure)
+        └──> HandlerKey ──> app_input handlers ──> smallest typed message
+settings (schema 2) ──> candidate composition/validation ──> snapshot
+snapshot + context ──> action_projection ──> Help / footer / menu / Keys
+layout hit target ──> ActionId ──> the same availability + handler path
+```
+
+The registry values and the resolver live in `domain/` and depend on nothing
+project-internal: no state, persistence, UI, runtime, or harness imports. State
+depends on the registry, never the reverse. `HandlerKey` is a closed enum, never
+a closure, service handle, or generic payload, which is what keeps the snapshot
+a pure value that persistence and the offline `jefe explain binding` CLI can
+compose without a running TUI.
+
+Raw text insertion in an editor and raw PTY forwarding in terminal capture are
+deliberately *not* actions. They stay raw so remapping can never change what a
+child process receives.
 
 ## The Pure-Views Pattern
 
@@ -222,9 +270,10 @@ render — viewport windowing, caret placement, line wrapping, truncation,
 filtering/sorting of a list for display, hint-string construction. The same
 discipline already exists in:
 
-- **`src/ui/components/keybind_bar.rs`** — `keybind_hints_for(screen_mode,
-  terminal_focused)` is a pure `#[must_use]` function returning a `&'static str`
-  hint for each screen mode. The iocraft `KeybindBar` component just renders it.
+- **`src/action_projection.rs`** — the Help, keybind-footer, menu, and Keys-editor
+  text are pure `#[must_use]` projections of the immutable action/binding
+  snapshot for the current context. `keybind_bar.rs` and `modals/help.rs` are
+  thin renderers of those projections and hold no shortcut text of their own.
   See [Display and UI](./display-and-ui.md).
 
 ### Discipline
@@ -256,7 +305,9 @@ main.rs ──> theme/
 main.rs ──> ui/ ──> theme/ (for ResolvedColors)
 ui/     ──> text_box_view/ (pure projection)
 state/  ──> messages/ ──> domain/
-persistence/ ──> domain/
+action_context/ ──> domain/ (state snapshot to ordered context stack)
+action_projection/ ──> domain/ (snapshot to Help/footer/menu/Keys text)
+persistence/ ──> domain/ (keymap override composition)
 jsp/    ──> domain/ (transport-neutral observation values)
 ```
 
@@ -269,6 +320,8 @@ jsp/    ──> domain/ (transport-neutral observation values)
 | `runtime/`          | Nothing project-internal (uses iocraft types for `Color`).|
 | `state/`            | `domain/`, `messages/`.                                   |
 | `text_box_view/`    | Nothing project-internal (pure projection).               |
+| `action_projection/`| `domain/` only (pure projection of the snapshot).         |
+| `action_context/`   | `domain/`, `state/` types (pure context derivation).      |
 | `jsp/`              | `domain/observation` only (external wire boundary).       |
 | `ui/`               | `domain/`, `theme/`, `text_box_view/`, other pure views.  |
 | `main.rs`           | Wires everything together.                                |
@@ -276,6 +329,8 @@ jsp/    ──> domain/ (transport-neutral observation values)
 Invariants:
 
 - `domain/` depends on nothing project-internal.
+- The action registry resolves exactly one result per input, and no surface may
+  keep a private copy of a binding, hint, or help string.
 - UI components must never call `PtyManager` methods. PTY interaction flows
   through the root component's event handler.
 - `AppState` references PTY slots by index only; it never owns `PtyManager`.

@@ -48,8 +48,8 @@
     },
     {
       "op": "key",
-      "key": "N",
-      "modifiers": []
+      "key": "n",
+      "modifiers": ["shift"]
     },
     {
       "op": "wait",
@@ -63,7 +63,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -94,7 +94,7 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -103,7 +103,7 @@
     },
     {
       "op": "key",
-      "key": "Enter",
+      "key": "enter",
       "modifiers": []
     },
     {
@@ -114,7 +114,7 @@
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {
@@ -125,7 +125,7 @@
     },
     {
       "op": "key",
-      "key": "F10",
+      "key": "f10",
       "modifiers": []
     },
     {
@@ -156,7 +156,7 @@
     },
     {
       "op": "key",
-      "key": "F11",
+      "key": "f11",
       "modifiers": []
     },
     {
@@ -173,7 +173,7 @@
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {
@@ -197,17 +197,17 @@
     },
     {
       "op": "key",
-      "key": "Down",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Up",
+      "key": "up",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "F10",
+      "key": "f10",
       "modifiers": []
     },
     {
@@ -230,7 +230,7 @@
     },
     {
       "op": "key",
-      "key": "F10",
+      "key": "f10",
       "modifiers": []
     },
     {
@@ -254,7 +254,7 @@
     },
     {
       "op": "key",
-      "key": "F10",
+      "key": "f10",
       "modifiers": []
     },
     {
@@ -298,8 +298,8 @@
     },
     {
       "op": "key",
-      "key": "C-q",
-      "modifiers": []
+      "key": "q",
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

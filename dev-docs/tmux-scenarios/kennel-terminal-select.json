@@ -48,12 +48,12 @@
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "Tab",
+      "key": "tab",
       "modifiers": []
     },
     {
@@ -69,7 +69,7 @@
     },
     {
       "op": "key",
-      "key": "F12",
+      "key": "f12",
       "modifiers": []
     },
     {
