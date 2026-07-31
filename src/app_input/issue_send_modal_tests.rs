@@ -127,11 +127,11 @@ fn issue_send_projects_fresh_operation_and_prompt() {
             other => panic!("expected typed prompt, got {other:?}"),
         };
     assert!(instruction.contains(issue_prompt));
-    assert!(instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"));
-    assert!(instruction.contains("decision-complete acceptance matrix"));
+    assert!(!instruction.contains("dev-docs/workflow/ISSUE-DELIVERY.md"));
+    assert!(instruction.contains("acceptance criteria"));
     assert!(instruction.contains("stop for approval"));
     assert!(instruction.contains("Blocker-Fix"));
-    assert!(instruction.contains("scope ledger is clean"));
+    assert!(!instruction.contains("net changed lines"));
 }
 
 #[test]
