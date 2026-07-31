@@ -217,7 +217,27 @@ fn assert_one_fixture(definitions: &[AgentDefinition], fixture: &Path, generatio
         result.executable_fingerprint(),
         Some(install.resolved().fingerprint())
     );
-    assert_eq!(install.invocations(), ["--version", "--help"]);
+    // Issue #534: a trusted capability probe reads its tokens from the shipped
+    // definition, so the runtime must not spend a second subprocess on --help.
+    // Derive the expectation from the definition rather than hard-coding it, so
+    // flipping a definition's trust flag is caught here instead of silently
+    // changing how many processes a probe spawns.
+    let trusted = install
+        .definition
+        .probe
+        .capabilities
+        .as_ref()
+        .is_some_and(|capabilities| capabilities.trusted);
+    let expected_invocations: &[&str] = if trusted {
+        &["--version"]
+    } else {
+        &["--version", "--help"]
+    };
+    assert_eq!(
+        install.invocations(),
+        expected_invocations,
+        "trusted={trusted} probe must spawn exactly the subprocesses it needs"
+    );
 }
 
 #[cfg(unix)]
