@@ -578,6 +578,46 @@ mod tests {
     }
 
     #[test]
+    fn turn_ended_matches_idle_no_turn_snapshot_state() {
+        let identity = id("a", 1, "e");
+        let mut events = ReferenceReducer::new();
+        let mut acting = minimal_snapshot(identity.clone(), 0);
+        acting.native_activity = FieldState::known(
+            Provenance::Authoritative,
+            NativeActivityValue {
+                state: NativeActivityState::Acting,
+            },
+        );
+        acting.current_turn = FieldState::known(
+            Provenance::Authoritative,
+            Some(crate::domain::observation::CurrentTurn { elapsed_ms: 10 }),
+        );
+        events.apply_snapshot(&acting);
+        apply_ok(
+            &mut events,
+            &EventRecord {
+                identity: identity.clone(),
+                source_sequence: 1,
+                bridge_observed_ms: 1,
+                event: ObservationEvent::TurnEnded {
+                    outcome: crate::domain::observation::TurnOutcome::Completed,
+                },
+            },
+        );
+
+        let mut equivalent = minimal_snapshot(identity, 0);
+        equivalent.cursor = 1;
+        equivalent.current_turn = FieldState::known(Provenance::Authoritative, None);
+        let mut snapshot = ReferenceReducer::new();
+        snapshot.apply_snapshot(&equivalent);
+        assert_eq!(
+            events.observation().activity,
+            snapshot.observation().activity
+        );
+        assert_eq!(events.observation().turn, snapshot.observation().turn);
+    }
+
+    #[test]
     fn terminal_lifecycle_rejections_are_atomic() {
         let identity = id("a", 1, "e");
         let mut tool = ReferenceReducer::new();
@@ -638,5 +678,53 @@ mod tests {
             Err(ReducerError::IllegalTransition { .. })
         ));
         assert_eq!(tool.projection(), ended_projection);
+    }
+
+    #[test]
+    fn production_reducer_preserves_preview_payloads() {
+        let identity = id("a", 1, "e");
+        let mut snapshot = minimal_snapshot(identity, 0);
+        snapshot.todos = FieldState::known(
+            Provenance::Authoritative,
+            TodoList {
+                revision: 1,
+                items: vec![crate::domain::observation::TodoItem {
+                    text: crate::domain::observation::BoundedText(
+                        "Implement issue 522".to_string(),
+                    ),
+                    completed: false,
+                }],
+            },
+        );
+        snapshot.last_displayed_assistant_message = FieldState::known(
+            Provenance::Authoritative,
+            crate::domain::observation::DisplayedAssistantMessage {
+                content: crate::domain::observation::BoundedText(
+                    "JSP preview is wired".to_string(),
+                ),
+                committed_ms: 9,
+            },
+        );
+
+        let mut reducer = ReferenceReducer::new();
+        reducer.apply_snapshot(&snapshot);
+        let observation = reducer.observation();
+
+        let FieldState::Supported {
+            availability: crate::domain::observation::Availability::Known(todos),
+            ..
+        } = &observation.todos
+        else {
+            panic!("todos must remain payload-preserving");
+        };
+        assert_eq!(todos.items[0].text.as_str(), "Implement issue 522");
+        let FieldState::Supported {
+            availability: crate::domain::observation::Availability::Known(message),
+            ..
+        } = &observation.last_message
+        else {
+            panic!("message must remain payload-preserving");
+        };
+        assert_eq!(message.content.as_str(), "JSP preview is wired");
     }
 }

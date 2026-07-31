@@ -612,7 +612,7 @@ fn submit_form_and_snapshot_launch(
             state
                 .repository_by_id(&agent.repository_id)
                 .map(|repository| {
-                    let signature = launch_signature_for_agent(&agent, repository);
+                    let signature = launch_signature_for_new_agent(&agent, repository);
                     (agent.id.clone(), agent.work_dir.clone(), signature)
                 })
         })

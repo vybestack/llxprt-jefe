@@ -8,7 +8,7 @@ use jefe::state::{
     RepositoryFormFields, RepositoryFormFocus,
 };
 
-use super::launch_signature_for_agent;
+use super::launch_signature_for_new_agent;
 use super::new_agent_submit::{
     apply_form_submit_after_package_probe, execute_new_agent_package_probe,
     new_agent_package_probe_plan,
@@ -124,10 +124,14 @@ fn successful_package_probe_uses_prospective_signature_and_submit_proceeds() {
     let observed = observed
         .as_ref()
         .unwrap_or_else(|| panic!("probe must observe a launch request"));
-    let actual = launch_signature_for_agent(agent, repository);
+    let actual = launch_signature_for_new_agent(agent, repository);
     assert_eq!(observed.type_id, actual.type_id);
     assert_eq!(observed.work_dir, actual.work_dir);
     assert_eq!(observed.remote, actual.remote);
+    assert_eq!(
+        actual.operation,
+        jefe::domain::agent_definition::Operation::Normal
+    );
     assert_eq!(observed.operation, actual.operation);
     for (key, value) in &observed.values {
         assert_eq!(actual.values.get(key), Some(value));

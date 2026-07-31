@@ -230,6 +230,7 @@ async fn apply_dead_identities(
     let mut state = app_state.write();
     let binding_matches = compute_binding_matches(&state, &dead_identities);
     let mut changed = false;
+    let mut revoked = Vec::new();
     for (identity, matches) in dead_identities.iter().zip(binding_matches) {
         if !matches {
             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
@@ -252,11 +253,19 @@ async fn apply_dead_identities(
         if let Some(lines) = preview {
             state.store_dead_preview(identity.agent_id.clone(), lines);
         }
+        revoked.push(identity.agent_id.clone());
         changed = true;
     }
     if changed {
         let persisted = durable_save_request(&mut state);
         drop(state);
+        if let Some(ctx_arc) = ctx
+            && let Ok(mut context) = ctx_arc.lock()
+        {
+            for agent_id in revoked {
+                let _ = context.runtime.mark_session_dead(&agent_id);
+            }
+        }
         schedule_durable_save(ctx, persisted);
     }
 }

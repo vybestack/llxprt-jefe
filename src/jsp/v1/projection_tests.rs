@@ -318,9 +318,17 @@ fn project_presence_covers_branches() {
 fn project_turn_active_only_when_known() {
     let unsupported: CurrentTurnField = FieldState::Unsupported;
     assert!(!project_turn_active(&unsupported));
-    let unknown = FieldState::<CurrentTurn>::unknown(Provenance::Authoritative);
+    let unknown = FieldState::<Option<CurrentTurn>>::unknown(Provenance::Authoritative);
     assert!(!project_turn_active(&unknown), "Unknown turn is not active");
-    let known = FieldState::known(Provenance::Authoritative, CurrentTurn { elapsed_ms: 3 });
+    let absent = FieldState::known(Provenance::Authoritative, None);
+    assert!(
+        !project_turn_active(&absent),
+        "Known-null turn is not active"
+    );
+    let known = FieldState::known(
+        Provenance::Authoritative,
+        Some(CurrentTurn { elapsed_ms: 3 }),
+    );
     assert!(project_turn_active(&known));
 }
 

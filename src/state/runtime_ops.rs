@@ -25,6 +25,34 @@ impl AppState {
             RuntimeMessage::AgentStatusChanged(agent_id, status) => {
                 self.apply_agent_status_changed(agent_id, status);
             }
+            RuntimeMessage::ObservationUpdated(agent_id, generation, observation) => {
+                let identity_matches = observation.identity.as_ref().is_some_and(|identity| {
+                    identity.agent_id.as_str() == agent_id.0
+                        && identity.lifecycle_generation == generation
+                });
+                let current = self
+                    .observation_generations
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
+                if identity_matches && generation >= current {
+                    self.observation_generations
+                        .insert(agent_id.clone(), generation);
+                    self.observations.insert(agent_id, *observation);
+                }
+            }
+            RuntimeMessage::ObservationCleared(agent_id, generation) => {
+                let current = self
+                    .observation_generations
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
+                if generation >= current {
+                    self.observation_generations
+                        .insert(agent_id.clone(), generation);
+                    self.observations.remove(&agent_id);
+                }
+            }
             RuntimeMessage::RelaunchAgent(agent_id) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
                     && agent.runtime_binding.is_some()
@@ -63,6 +91,7 @@ impl AppState {
         // natural death keeps shell close-only.
         self.remove_shell_window(&agent_id);
         self.clear_dead_preview(&agent_id);
+        self.observations.remove(&agent_id);
         // The actual session teardown is a bounded post-commit effect
         // (issue #381 CW01-10): staged here, executed by the root shell.
         if agent_exists {

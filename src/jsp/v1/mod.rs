@@ -25,6 +25,8 @@ mod event;
 mod event_wire;
 mod limits;
 mod parse;
+pub mod projection;
+pub mod reducer;
 mod validate;
 mod wire;
 

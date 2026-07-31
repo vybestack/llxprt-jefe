@@ -875,6 +875,7 @@ dependencies = [
  "comrak",
  "crossterm",
  "dirs",
+ "getrandom 0.4.1",
  "iocraft",
  "jefe",
  "jsonschema",

@@ -26,8 +26,9 @@ pub type NativeActivityField = FieldState<NativeActivityValue>;
 /// Convenience alias for the current-wait field state. `Known(None)` means
 /// explicitly not waiting (no unresolved wait object).
 pub type CurrentWaitField = FieldState<Option<Wait>>;
-/// Convenience alias for the current-turn field state.
-pub type CurrentTurnField = FieldState<CurrentTurn>;
+/// Convenience alias for the current-turn field state. `Known(None)` means
+/// explicitly no active turn.
+pub type CurrentTurnField = FieldState<Option<CurrentTurn>>;
 /// Convenience alias for the todos field state.
 pub type TodosField = FieldState<TodoList>;
 /// Convenience alias for the last-displayed-assistant-message field state.
@@ -462,6 +463,79 @@ pub struct ToolCallValue {
 pub struct SourceErrorValue {
     pub summary: DiagnosticSummary,
     pub code: BoundedText,
+}
+
+// ---------------------------------------------------------------------------
+// Runtime observation projection
+// ---------------------------------------------------------------------------
+
+/// Observer-owned transport health, independent from process liveness and
+/// producer-owned native activity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationHealth {
+    Unsupported,
+    #[default]
+    Connecting,
+    Live,
+    Stale,
+    Disconnected,
+    ProtocolError,
+}
+
+impl ObservationHealth {
+    /// Stable display/diagnostic label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unsupported => "unsupported",
+            Self::Connecting => "connecting",
+            Self::Live => "live",
+            Self::Stale => "stale",
+            Self::Disconnected => "disconnected",
+            Self::ProtocolError => "protocol_error",
+        }
+    }
+}
+
+/// Payload-preserving current-state observation used by Jefe at runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentObservation {
+    pub identity: Option<ObservationIdentity>,
+    pub last_sequence: u64,
+    pub health: ObservationHealth,
+    pub activity: NativeActivityField,
+    pub wait: CurrentWaitField,
+    pub turn: CurrentTurnField,
+    /// Local monotonic instant paired with the active turn's `elapsed_ms`
+    /// anchor. This runtime-only value is never received from the producer.
+    pub turn_observed_at: Option<std::time::Instant>,
+    pub todos: TodosField,
+    pub last_message: LastMessageField,
+    pub tool: LastToolField,
+    pub terminal: SourceTerminalField,
+    pub error: SourceErrorField,
+    pub session_ended: bool,
+}
+
+impl Default for AgentObservation {
+    fn default() -> Self {
+        Self {
+            identity: None,
+            last_sequence: 0,
+            health: ObservationHealth::Connecting,
+            activity: FieldState::Unsupported,
+            wait: FieldState::Unsupported,
+            turn: FieldState::Unsupported,
+            turn_observed_at: None,
+            todos: FieldState::Unsupported,
+            last_message: FieldState::Unsupported,
+            tool: FieldState::Unsupported,
+            terminal: FieldState::Unsupported,
+            error: FieldState::Unsupported,
+            session_ended: false,
+        }
+    }
 }
 
 #[cfg(test)]

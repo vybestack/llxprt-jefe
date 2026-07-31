@@ -197,6 +197,12 @@ impl AppMessage {
             AppEvent::AgentStatusChanged(id, status) => {
                 Self::Runtime(RuntimeMessage::AgentStatusChanged(id, status))
             }
+            AppEvent::ObservationUpdated(id, generation, observation) => Self::Runtime(
+                RuntimeMessage::ObservationUpdated(id, generation, observation),
+            ),
+            AppEvent::ObservationCleared(id, generation) => {
+                Self::Runtime(RuntimeMessage::ObservationCleared(id, generation))
+            }
             AppEvent::PersistenceLoadSuccess => Self::Persistence(PersistenceMessage::LoadSuccess),
             AppEvent::PersistenceLoadFailed(error) => {
                 Self::Persistence(PersistenceMessage::LoadFailed(error))
@@ -711,6 +717,12 @@ impl From<RuntimeMessage> for AppEvent {
             RuntimeMessage::RelaunchAgent(id) => Self::RelaunchAgent(id),
             RuntimeMessage::RestartAgent(id) => Self::RestartAgent(id),
             RuntimeMessage::AgentStatusChanged(id, status) => Self::AgentStatusChanged(id, status),
+            RuntimeMessage::ObservationUpdated(id, generation, observation) => {
+                Self::ObservationUpdated(id, generation, observation)
+            }
+            RuntimeMessage::ObservationCleared(id, generation) => {
+                Self::ObservationCleared(id, generation)
+            }
         }
     }
 }

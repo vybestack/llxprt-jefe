@@ -1,6 +1,7 @@
 //! Domain-scoped internal message bus.
 //! Reducers and dispatch code route through typed domain messages; new behavior
 //! goes into the smallest domain enum rather than app-shell branching.
+use crate::domain::observation::AgentObservation;
 use crate::domain::{
     AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, MergeMethod, PrFilter,
     PullRequest, PullRequestDetail, RepositoryId,
@@ -150,6 +151,8 @@ pub enum RuntimeMessage {
     RelaunchAgent(AgentId),
     RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
+    ObservationUpdated(AgentId, u64, Box<AgentObservation>),
+    ObservationCleared(AgentId, u64),
 }
 #[derive(Debug, Clone)]
 pub enum PersistenceMessage {

@@ -23,6 +23,10 @@ fn minimal_test_ctx() -> CtxArc {
     let Ok(startup) = startup else {
         panic!("test keymap snapshot should compose, got {startup:?}");
     };
+    let runtime_dir = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("temporary JSP directory should be created: {error}"));
+    let jsp_host = jefe::jsp_host::JspHostRuntime::start(runtime_dir.path().to_owned())
+        .unwrap_or_else(|error| panic!("test JSP host should start: {error}"));
     Arc::new(Mutex::new(AppContext {
         keymap_snapshot: Some(startup.keymap_snapshot),
         keymap_document: startup.keymap_document,
@@ -33,6 +37,7 @@ fn minimal_test_ctx() -> CtxArc {
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),
         runtime: TmuxRuntimeManager::new(24, 80),
+        jsp_host,
         gh_client: GhClient::new(),
         gh_deliveries: super::GhDeliveryHandle::default(),
         persist_handle: PersistHandle::new(Arc::new(|_, _, _| {

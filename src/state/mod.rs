@@ -68,6 +68,9 @@ mod prs_ops;
 mod prs_property_ops;
 mod prs_sort_ops;
 mod prs_thread_ops;
+#[cfg(test)]
+#[path = "runtime_observation_tests.rs"]
+mod runtime_observation_tests;
 /// Runtime-domain reducer handlers + effect-completion application
 /// (issue #381).
 mod runtime_ops;

@@ -233,7 +233,11 @@ fn prospective_agent(params: &CreateAgentParams<'_>) -> Option<Agent> {
 /// repository default, matching the runtime launch signature.
 #[must_use]
 pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<AgentLaunchRequest> {
-    prospective_agent(params).map(|agent| AgentLaunchRequest::for_agent(&agent, params.repository))
+    prospective_agent(params).map(|agent| {
+        let mut request = AgentLaunchRequest::for_agent(&agent, params.repository);
+        request.operation = crate::domain::agent_definition::Operation::Normal;
+        request
+    })
 }
 
 /// Canonical app-side agent creation path.
