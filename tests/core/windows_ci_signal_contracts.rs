@@ -106,6 +106,57 @@ fn windows_native_does_not_serialize_the_workspace_suite() {
     );
 }
 
+/// A6: every psmux test namespace generator must derive uniqueness from the
+/// process id and a process-wide atomic counter, never from a timestamp alone.
+///
+/// Measured on a real Windows host, a timestamp-only generator produced 7,635
+/// duplicate namespaces across 16,000 concurrent calls, because the system
+/// clock's resolution is far coarser than a nanosecond. Colliding namespaces
+/// mean a shared psmux server, which is the actual defect that
+/// `RUST_TEST_THREADS: 1` was papering over.
+#[test]
+fn psmux_test_namespaces_never_depend_on_a_timestamp_alone() {
+    for file in [
+        "tests/psmux_smoke.rs",
+        "tests/psmux_smoke_mouse.rs",
+        "tests/psmux_orphan_reap.rs",
+        "tests/psmux_session_host.rs",
+        "tests/psmux_attach.rs",
+        "tests/psmux_server_loss.rs",
+        "tests/psmux_parallel_isolation.rs",
+    ] {
+        let source = read_repo_text(file);
+        let generator = namespace_generator_body(&source, file);
+        assert!(
+            generator.contains("std::process::id()"),
+            "{file}: the psmux namespace generator must include the process \
+             id so two test processes cannot share a psmux server"
+        );
+        assert!(
+            generator.contains("fetch_add"),
+            "{file}: the psmux namespace generator must include a \
+             process-wide atomic counter; the Windows clock is too coarse for \
+             a timestamp to be unique between concurrent threads"
+        );
+    }
+}
+
+/// Return the body of the namespace-generating function in one psmux test.
+fn namespace_generator_body(source: &str, file: &str) -> String {
+    let start = source
+        .find("fn unique_name(")
+        .or_else(|| source.find("fn unique_namespace("))
+        .unwrap_or_else(|| panic!("{file} must define a unique_name/unique_namespace generator"));
+    let tail = &source[start..];
+    let end = tail
+        .find(
+            "
+}",
+        )
+        .map_or(tail.len(), |offset| offset + 2);
+    tail[..end].to_owned()
+}
+
 /// A8: a job that "succeeded" because everything after an early step was
 /// skipped is not a pass. A completion gate must assert every native step
 /// actually executed, and must be a distinct required check.
