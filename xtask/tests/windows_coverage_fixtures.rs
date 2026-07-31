@@ -34,7 +34,9 @@ fn parses_line_totals_per_source_file() {
         .unwrap_or_else(|| panic!("attach.rs must be parsed"));
     assert_eq!(attach.lines_found, 200);
     assert_eq!(attach.lines_hit, 150);
-    assert!((attach.percent() - 75.0).abs() < f64::EPSILON);
+    assert_eq!(attach.basis_points(), 7_500);
+    assert!(attach.meets_floor(75));
+    assert!(!attach.meets_floor(76));
 }
 
 #[test]
@@ -78,11 +80,11 @@ fn module_below_its_floor_is_reported_as_a_violation() {
     match &violations[0] {
         FloorViolation::Below {
             path,
-            actual_percent,
+            actual_basis_points,
             floor_percent,
         } => {
             assert_eq!(path, "src/runtime/job_object.rs");
-            assert!((actual_percent - 59.0).abs() < f64::EPSILON);
+            assert_eq!(*actual_basis_points, 5_900);
             assert_eq!(*floor_percent, 60);
         }
         other @ FloorViolation::Missing { .. } => {

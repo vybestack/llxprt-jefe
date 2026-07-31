@@ -92,32 +92,36 @@ pub struct FileCoverage {
 }
 
 impl FileCoverage {
-    /// Line coverage as a percentage. A file with no instrumented lines is
-    /// treated as fully covered, matching llvm-cov's own convention.
+    /// Line coverage in basis points (hundredths of a percent). A file with no
+    /// instrumented lines is treated as fully covered, matching llvm-cov's own
+    /// convention.
     #[must_use]
-    pub fn percent(&self) -> f64 {
+    pub const fn basis_points(&self) -> u64 {
         if self.lines_found == 0 {
-            return 100.0;
+            return 10_000;
         }
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "line counts are far below f64's exact-integer range"
-        )]
-        {
-            (self.lines_hit as f64 / self.lines_found as f64) * 100.0
-        }
+        self.lines_hit * 10_000 / self.lines_found
+    }
+
+    /// True when this module's line coverage is at or above `floor_percent`.
+    ///
+    /// Compared with integer arithmetic so the verdict is exact; a float
+    /// percentage would make results at the boundary depend on rounding.
+    #[must_use]
+    pub const fn meets_floor(&self, floor_percent: u64) -> bool {
+        self.lines_hit * 100 >= floor_percent * self.lines_found
     }
 }
 
 /// Why one module failed its floor.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FloorViolation {
     /// The module was covered but fell below its floor.
     Below {
         /// Module path.
         path: String,
-        /// Measured line coverage.
-        actual_percent: f64,
+        /// Measured line coverage, in hundredths of a percent.
+        actual_basis_points: u64,
         /// Configured floor.
         floor_percent: u32,
     },
@@ -133,11 +137,13 @@ impl std::fmt::Display for FloorViolation {
         match self {
             Self::Below {
                 path,
-                actual_percent,
+                actual_basis_points,
                 floor_percent,
             } => write!(
                 formatter,
-                "{path}: line coverage {actual_percent:.2}% is below its floor of {floor_percent}%"
+                "{path}: line coverage {}.{:02}% is below its floor of {floor_percent}%",
+                actual_basis_points / 100,
+                actual_basis_points % 100
             ),
             Self::Missing { path } => write!(
                 formatter,
@@ -206,11 +212,10 @@ pub fn evaluate_floors(coverage: &[FileCoverage], floors: &[ModuleFloor]) -> Vec
             });
             continue;
         };
-        let actual = measured.percent();
-        if actual < f64::from(floor.floor_percent) {
+        if !measured.meets_floor(u64::from(floor.floor_percent)) {
             violations.push(FloorViolation::Below {
                 path: floor.path.to_owned(),
-                actual_percent: actual,
+                actual_basis_points: measured.basis_points(),
                 floor_percent: floor.floor_percent,
             });
         }
@@ -259,11 +264,13 @@ pub fn render_report(coverage: &[FileCoverage], floors: &[ModuleFloor]) -> Strin
             .find(|file| path_matches(&file.path, floor.path));
         match measured {
             Some(file) => {
+                let basis_points = file.basis_points();
+                let measured_percent = format!("{}.{:02}%", basis_points / 100, basis_points % 100);
                 let _ = writeln!(
                     report,
-                    "  {:<40} {:>6.2}%  (floor {}%, {}/{} lines)",
+                    "  {:<40} {:>7}  (floor {}%, {}/{} lines)",
                     floor.path,
-                    file.percent(),
+                    measured_percent,
                     floor.floor_percent,
                     file.lines_hit,
                     file.lines_found
