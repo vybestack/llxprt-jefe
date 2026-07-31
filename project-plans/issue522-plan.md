@@ -166,8 +166,22 @@ Addressed:
   degrade to unsupported telemetry rather than prevent Jefe from running. The
   host is now optional; agents launch uninstrumented when it is absent.
 
+- Preview status labels. Completed and Errored were both rendered as "Dead",
+  conflating a successful exit with a failure, and Waiting/Paused collapsed
+  into "Running" when no observation existed. The labels now match the ones the
+  rest of the application already renders.
+- Teardown revoked launches with `?`, so one failure stranded credentials for
+  every remaining agent. Revocation now attempts all launches and reports the
+  first error.
+- The bootstrap environment variable was appended unconditionally, so a plan
+  reused across a relaunch could carry two entries. It is now replaced in
+  place.
+
 Dismissed with reason:
 
+- "`turn_observed_at` is never populated." It is: `src/jsp_host/mod.rs` sets it
+  from the publisher's turn anchor when an observation is delivered. The
+  reducer is not the only writer.
 - "Remove the duplicated `prepare_current` call." The first preflight runs
   against the unmodified plan so an unspawnable agent fails before any
   credential material is written, which is acceptance J1. The second preflight

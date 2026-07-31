@@ -177,18 +177,24 @@ fn append_last_message(lines: &mut Vec<String>, observation: Option<&AgentObserv
 #[must_use]
 pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation>) -> String {
     match status {
-        AgentStatus::Dead | AgentStatus::Completed | AgentStatus::Errored => {
-            return "Dead".to_string();
-        }
+        // A confirmed exit is terminal, but the label must not conflate a
+        // successful completion with a failure. These match the status labels
+        // the rest of the application already renders.
+        AgentStatus::Dead => return "Dead".to_string(),
+        AgentStatus::Completed => return "Completed".to_string(),
+        AgentStatus::Errored => return "Errored".to_string(),
         AgentStatus::ServerLost => return "Disconnected".to_string(),
         AgentStatus::Queued | AgentStatus::Running | AgentStatus::Waiting | AgentStatus::Paused => {
         }
     }
     let Some(observation) = observation else {
-        return if status == AgentStatus::Queued {
-            "Starting".to_string()
-        } else {
-            "Running — telemetry unsupported".to_string()
+        // Without observation the process status is all we know, so report it
+        // rather than flattening distinct states into "Running".
+        return match status {
+            AgentStatus::Queued => "Starting".to_string(),
+            AgentStatus::Waiting => "Waiting".to_string(),
+            AgentStatus::Paused => "Paused".to_string(),
+            _ => "Running — telemetry unsupported".to_string(),
         };
     };
     match observation.health {

@@ -651,15 +651,31 @@ impl JspLaunchCoordinator {
             .map_err(|_| JspHostError::Poisoned)?
             .drain()
             .collect::<Vec<_>>();
+        // Revocation is teardown: every launch must be attempted even if an
+        // earlier one fails, or a single failure would strand credentials for
+        // every remaining agent. The first error is reported after the loop.
+        let mut first_error = None;
         for (agent_id, launch) in launches {
-            self.registry.revoke(&agent_id, launch.generation)?;
-            self.delivery.publish(RuntimeMessage::ObservationCleared(
-                agent_id,
-                launch.generation,
-            ))?;
-            self.cleanup_or_retain(launch.bootstrap)?;
+            let generation = launch.generation;
+            let mut record = |result: Result<(), JspHostError>| {
+                if let Err(error) = result
+                    && first_error.is_none()
+                {
+                    first_error = Some(error);
+                }
+            };
+            record(self.registry.revoke(&agent_id, generation));
+            record(
+                self.delivery
+                    .publish(RuntimeMessage::ObservationCleared(agent_id, generation)),
+            );
+            record(self.cleanup_or_retain(launch.bootstrap));
         }
-        self.retry_pending_cleanup()
+        let retry = self.retry_pending_cleanup();
+        match first_error {
+            Some(error) => Err(error),
+            None => retry,
+        }
     }
 }
 
@@ -863,10 +879,16 @@ pub(crate) fn authorize_launch_environment_path(
     if !launch_supports_jsp(plan) {
         return false;
     }
-    plan.env.push((
-        std::ffi::OsString::from(BOOTSTRAP_ENV),
-        bootstrap_path.as_os_str().to_os_string(),
-    ));
+    // Replace any existing entry rather than appending a second one. A plan
+    // reused across a relaunch would otherwise carry two bootstrap variables
+    // and the child's resolution order would decide which one wins.
+    let key = std::ffi::OsString::from(BOOTSTRAP_ENV);
+    let value = bootstrap_path.as_os_str().to_os_string();
+    if let Some(existing) = plan.env.iter_mut().find(|(name, _)| name == &key) {
+        existing.1 = value;
+    } else {
+        plan.env.push((key, value));
+    }
     true
 }
 
