@@ -314,6 +314,7 @@ fn capability_probe_to_json(probe: &CapabilityProbe) -> BoundedJson {
             "tokens".to_string(),
             BoundedJson::Array(probe.tokens.iter().map(capability_token_to_json).collect()),
         ),
+        ("trusted".to_string(), BoundedJson::Bool(probe.trusted)),
     ];
     members.sort_by(|a, b| a.0.cmp(&b.0));
     BoundedJson::Object(members)
