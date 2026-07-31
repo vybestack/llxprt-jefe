@@ -399,11 +399,11 @@ fn local_launch_command(
         .collect();
     let pane_command = super::session_host::resolve_local_pane_command(
         &multiplexer,
-        &plan.executable,
-        plan.executable_wrapper,
+        (&plan.executable, plan.executable_wrapper),
         &pane_args,
         &environment,
         session_host_root.map(|root| (root, session_name)),
+        &plan.cwd,
     )?;
     for argument in pane_command {
         command.arg(argument);

@@ -359,14 +359,17 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            fixture.agent_executable.path(),
-            fixture.agent_executable.wrapper_kind(),
+            (
+                fixture.agent_executable.path(),
+                fixture.agent_executable.wrapper_kind(),
+            ),
             &fixture.launch_args,
             &[(
                 OsString::from("JEFE_FIXTURE_VALUE"),
                 OsString::from("environment & (Ω) %value%"),
             )],
             Path::new(JEFE),
+            fixture.work_dir.path(),
         )
         .unwrap_or_else(|error| panic!("build production pane command: {error}"));
     let mut command = vec![

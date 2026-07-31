@@ -1,0 +1,23 @@
+{
+  "config": {
+    "cols": 140,
+    "rows": 45,
+    "history_limit": 5000,
+    "initial_wait_ms": 0,
+    "wait_timeout_ms": 180000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "M-5" },
+    { "waitFor": "branch-3" },
+    { "key": "l" },
+    { "waitFor": "F12 unfocus" },
+    { "waitFor": "branch-3" },
+    { "capture": "issue530-real-agent-working-directory" },
+    { "key": "C-c" },
+    { "key": "F12" },
+    { "key": "C-q" },
+    { "waitForExit": 5000 }
+  ]
+}

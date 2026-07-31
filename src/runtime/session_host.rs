@@ -168,11 +168,11 @@ pub fn session_host_stage_request<'a>(
 /// unchanged (AC9).
 pub fn resolve_local_pane_command(
     multiplexer: &MultiplexerPlan,
-    executable: &Path,
-    wrapper: AgentWrapperKind,
+    executable: (&Path, AgentWrapperKind),
     pane_args: &[std::ffi::OsString],
     environment: &[(std::ffi::OsString, std::ffi::OsString)],
     session_host: Option<(&Path, &str)>,
+    cwd: &Path,
 ) -> Result<Vec<std::ffi::OsString>, RuntimeError> {
     match session_host.and_then(|(root, name)| session_host_stage_request(Some(root), Some(name))) {
         Some((root, name)) => {
@@ -186,15 +186,15 @@ pub fn resolve_local_pane_command(
             multiplexer
                 .agent_pane_command_args_with_staged_host(
                     executable,
-                    wrapper,
                     &staged,
                     pane_args,
                     environment,
+                    cwd,
                 )
                 .map_err(RuntimeError::Multiplexer)
         }
         None => multiplexer
-            .agent_pane_command_args(executable, wrapper, pane_args, environment)
+            .agent_pane_command_args(executable, pane_args, environment, cwd)
             .map_err(RuntimeError::Multiplexer),
     }
 }
