@@ -531,6 +531,7 @@ fn valid_probe() -> ProbeSpec {
                 id: "interactive".to_string(),
                 token: "--interactive".to_string(),
             }],
+            trusted: false,
         }),
         required: vec!["interactive".to_string()],
         timeout_ms: super::super::limits::LOCAL_PROBE_TIMEOUT_MS,

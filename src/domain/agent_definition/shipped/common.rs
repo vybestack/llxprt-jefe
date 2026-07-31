@@ -184,10 +184,24 @@ pub fn line_version_probe(
 
 /// Build a capability probe from authored (id, token) pairs.
 pub fn capability_probe(normalize: Normalize, tokens: &[(&str, &str)]) -> CapabilityProbe {
+    trusted_capability_probe(normalize, tokens, false)
+}
+
+/// Build a trusted capability probe from authored (id, token) pairs.
+///
+/// A trusted probe skips the runtime `--help` verification and reports every
+/// authored token as present. Used for agents whose every release supports all
+/// authored arguments, where the `--help` gate adds launch fragility.
+pub fn trusted_capability_probe(
+    normalize: Normalize,
+    tokens: &[(&str, &str)],
+    trusted: bool,
+) -> CapabilityProbe {
     CapabilityProbe {
         argv: vec!["--help".to_string()],
         stream: ProbeStream::Stdout,
         normalize,
+        trusted,
         tokens: tokens
             .iter()
             .map(|(id, token)| CapabilityToken {

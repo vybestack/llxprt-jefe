@@ -365,7 +365,7 @@ fn read_capability_probe(
         .1
         .as_object()
         .ok_or_else(|| unknown("capability_probe must be an object"))?;
-    let allowed: HashSet<&str> = ["argv", "stream", "normalize", "tokens"]
+    let allowed: HashSet<&str> = ["argv", "stream", "normalize", "tokens", "trusted"]
         .into_iter()
         .collect();
     reject_unknown_fields(cap_obj, &allowed)?;
@@ -373,11 +373,13 @@ fn read_capability_probe(
     let stream = read_optional_probe_stream(cap_obj)?;
     let normalize = read_normalize(cap_obj)?;
     let tokens = read_capability_tokens(cap_obj)?;
+    let trusted = read_trusted(cap_obj)?;
     Ok(Some(CapabilityProbe {
         argv,
         stream,
         normalize,
         tokens,
+        trusted,
     }))
 }
 
@@ -415,6 +417,19 @@ fn read_normalize(
         },
         other => Err(unknown(format!(
             "normalize must be a string, found {}",
+            bounded_kind(other)
+        ))),
+    }
+}
+
+fn read_trusted(object: &[(String, BoundedJson)]) -> Result<bool, DefinitionError> {
+    let Some(raw) = object.iter().find(|(k, _)| k == "trusted") else {
+        return Ok(false);
+    };
+    match &raw.1 {
+        BoundedJson::Bool(value) => Ok(*value),
+        other => Err(unknown(format!(
+            "trusted must be a boolean, found {}",
             bounded_kind(other)
         ))),
     }

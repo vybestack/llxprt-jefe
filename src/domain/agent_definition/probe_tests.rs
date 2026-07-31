@@ -110,6 +110,42 @@ fn capability_evaluation_sorts_and_reports_required_tokens() {
 }
 
 #[test]
+fn trusted_flag_defaults_to_false() {
+    let probe = CapabilityProbe::default();
+    assert!(!probe.trusted, "capability probe must default to untrusted");
+}
+
+#[test]
+fn authored_capability_ids_returns_sorted_token_ids() {
+    let probe = capability_probe(&[
+        ("yolo", "--yolo"),
+        ("continue", "--continue"),
+        ("prompt-interactive", "--prompt-interactive"),
+    ]);
+    assert_eq!(
+        probe.authored_capability_ids(),
+        vec![
+            "continue".to_string(),
+            "prompt-interactive".to_string(),
+            "yolo".to_string(),
+        ],
+        "authored ids must be sorted to match evaluate_capabilities present output"
+    );
+}
+
+#[test]
+fn trusted_probe_with_no_tokens_reports_empty_capabilities() {
+    let probe = CapabilityProbe {
+        argv: vec!["--help".to_string()],
+        stream: ProbeStream::Stdout,
+        normalize: Normalize::None,
+        tokens: Vec::new(),
+        trusted: true,
+    };
+    assert!(probe.authored_capability_ids().is_empty());
+}
+
+#[test]
 fn capability_evaluation_strips_ansi() {
     let mut probe = capability_probe(&[("interactive", "--interactive")]);
     probe.normalize = Normalize::StripAnsi;
@@ -279,6 +315,7 @@ fn capability_probe(tokens: &[(&str, &str)]) -> CapabilityProbe {
         argv: vec!["--help".to_string()],
         stream: ProbeStream::Stdout,
         normalize: Normalize::None,
+        trusted: false,
         tokens: tokens
             .iter()
             .map(|(id, token)| CapabilityToken {

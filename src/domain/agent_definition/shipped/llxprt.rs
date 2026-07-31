@@ -13,8 +13,8 @@ use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field_with_default, capability_probe, line_version_probe,
-    npm_candidate, path_candidate, sig_string_field,
+    DefinitionParts, assemble, bool_field_with_default, line_version_probe, npm_candidate,
+    path_candidate, sig_string_field, trusted_capability_probe,
 };
 
 fn emitters() -> Vec<Emitter> {
@@ -95,7 +95,7 @@ pub fn build() -> AgentDefinition {
 fn llxprt_probe() -> super::super::probe::ProbeSpec {
     line_version_probe(
         Normalize::None,
-        capability_probe(
+        trusted_capability_probe(
             Normalize::None,
             &[
                 ("prompt-interactive", "--prompt-interactive"),
@@ -106,6 +106,7 @@ fn llxprt_probe() -> super::super::probe::ProbeSpec {
                 ("approval", "--approval-mode"),
                 ("continue", "--continue"),
             ],
+            true,
         ),
         &["prompt-interactive"],
     )
