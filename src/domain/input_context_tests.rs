@@ -1,8 +1,25 @@
 //! Unit tests for the CW-03 S0 context-identifier and ordered context stack.
 
-use super::input_context::{
-    ContextId, ContextIdErrorReason, ContextStack, ContextStackError, resolve_context_stack,
-};
+use super::input_context::{ContextId, ContextIdErrorReason, ContextStack, ContextStackError};
+
+/// Build the modal-to-global search order the production selector builds, so
+/// these tests exercise the same entry point rather than a test-only helper.
+fn ordered(
+    modal: Option<&str>,
+    focused_editor_or_chooser: Option<&str>,
+    focused_panel: Option<&str>,
+    screen: Option<&str>,
+    global: Option<&str>,
+) -> Result<ContextStack, ContextStackError> {
+    let values = [
+        modal,
+        focused_editor_or_chooser,
+        focused_panel,
+        screen,
+        global,
+    ];
+    ContextStack::from_ordered(values.into_iter().flatten(), false)
+}
 
 /// Resolve a context stack, panicking with context on failure.
 fn resolved(
@@ -12,7 +29,7 @@ fn resolved(
     screen: Option<&str>,
     global: Option<&str>,
 ) -> ContextStack {
-    let result = resolve_context_stack(
+    let result = ordered(
         modal,
         focused_editor_or_chooser,
         focused_panel,
@@ -124,7 +141,7 @@ fn context_stack_empty_when_no_levels() {
 
 #[test]
 fn context_stack_rejects_an_invalid_level_instead_of_broadening_resolution() {
-    let result = resolve_context_stack(Some("Bad"), None, None, None, Some("global"));
+    let result = ordered(Some("Bad"), None, None, None, Some("global"));
     assert!(result.is_err());
 }
 

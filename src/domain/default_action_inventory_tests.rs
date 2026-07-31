@@ -254,6 +254,19 @@ fn every_context_local_unwind_is_protected() {
     }
 }
 
+/// The composition gate reads only `Action::protected`, so the two globally
+/// protected controls must carry the flag rather than rely on their IDs.
+#[test]
+fn emergency_exit_and_leave_terminal_carry_the_protected_flag() {
+    let inventory = inventory();
+    for id in ["core.emergency-exit", "core.leave-terminal"] {
+        let Some(action) = inventory.actions.iter().find(|a| a.id.as_str() == id) else {
+            panic!("compiled inventory must define {id}");
+        };
+        assert!(action.protected, "{id} must be protected");
+    }
+}
+
 #[test]
 fn context_stacks_are_closed_source_orders_with_nested_canonical_parents() {
     let inventory = inventory();

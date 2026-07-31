@@ -331,8 +331,14 @@ impl Binding {
                 limit: MAX_CHORDS_PER_BINDING,
             });
         }
+        // Duplicate detection is canonical, matching composition: `Shift+Tab`
+        // and `BackTab` are the same chord, so a binding cannot claim both here
+        // and then be rejected later by the composition gate.
         for (index, chord) in self.chords.iter().enumerate() {
-            if self.chords[..index].contains(chord) {
+            if self.chords[..index]
+                .iter()
+                .any(|seen| chords_equivalent(seen, chord))
+            {
                 return Err(BindingError::DuplicateChord(*chord));
             }
         }
@@ -978,10 +984,9 @@ fn binding_is_protected(actions: &[Action], binding: &Binding) -> bool {
     find_action(actions, &binding.action).is_some_and(protected_action)
 }
 
+/// The `protected` flag is the single authority. Re-listing action IDs here
+/// would let an inventory row that forgot the flag look protected anyway, which
+/// hides the real defect; the inventory tests assert the flag instead.
 fn protected_action(action: &Action) -> bool {
     action.protected
-        || matches!(
-            action.id.as_str(),
-            "core.emergency-exit" | "core.leave-terminal" | "core.back"
-        )
 }

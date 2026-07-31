@@ -141,26 +141,3 @@ impl ContextStack {
         self.contexts.is_empty()
     }
 }
-
-/// Build the modal-to-global search order without dropping malformed levels.
-///
-/// # Errors
-///
-/// Returns [`ContextStackError`] for the first invalid or duplicate present
-/// level. Silently omitting one would broaden resolution to a parent context.
-pub fn resolve_context_stack(
-    modal: Option<&str>,
-    focused_editor_or_chooser: Option<&str>,
-    focused_panel: Option<&str>,
-    screen: Option<&str>,
-    global: Option<&str>,
-) -> Result<ContextStack, ContextStackError> {
-    let values = [
-        modal,
-        focused_editor_or_chooser,
-        focused_panel,
-        screen,
-        global,
-    ];
-    ContextStack::from_ordered(values.into_iter().flatten(), false)
-}
