@@ -167,7 +167,27 @@ exactly the class of defect the issue says is being hidden.
 | V2 | Implemented — same mechanism; `windows_clippy` is independent. |
 | V3 | `RUST_TEST_THREADS` and `--test-threads=1` removed and contract-enforced. Local: full suite green at default parallelism. The 10-consecutive-run evidence is post-merge. |
 | V4 | **Done** — `tests/psmux_parallel_isolation.rs` proves distinct namespaces and mutual invisibility under real concurrency. |
-| V5 | **Not started** — needs decision (see below). |
+| V5 | **Done** — `cargo xtask coverage-windows` enforces per-module floors for the six Windows-only modules; `windows_coverage` CI job runs it with no `needs`. Contract test proven RED (renaming the subcommand in `ci.yml`) then GREEN. Measured locally on native Windows: all six modules pass their floors. |
 | V6 | Gate job `windows_native_complete` delivered. Enabling it in branch protection is an admin action. |
 | V7 | Both red-main causes fixed, plus one further Windows-only defect. Consecutive-run evidence is post-merge. |
 | V8 | Nightly schedule + `flake_baseline` artifact job delivered; evidence requires a scheduled run to fire. |
+
+## Windows-only coverage baseline (Slice 4 evidence)
+
+Measured on native Windows via `cargo xtask coverage-windows`. Floors are
+ratcheted from measured values, so the gate starts honest and can only tighten.
+
+| Module | Measured | Floor | Lines |
+|---|---|---|---|
+| `src/runtime/agent_launcher.rs` | 80.14% | 75% | 230/287 |
+| `src/runtime/job_object.rs` | 71.15% | 65% | 37/52 |
+| `src/runtime/session_host.rs` | 70.95% | 65% | 210/296 |
+| `src/app_shell_liveness.rs` | 41.92% | 38% | 140/334 |
+| `src/runtime/attach.rs` | 38.10% | 34% | 192/504 |
+| `src/runtime/server_health_io.rs` | **0.00%** | 0% | 0/82 |
+
+`server_health_io.rs` is the psmux server-identity probe � the code behind the
+spurious ServerLost cascade tracked in #541 and #547 � and it has **zero**
+coverage. The Ubuntu gate could never observe it, so nothing flagged this. Its
+floor is set at 0 to record the truth rather than to excuse it; raising it
+belongs to #541, not to this issue.
