@@ -1749,3 +1749,22 @@ otherwise.
 clippy-allow policy, source size, architecture, strict lint, complexity,
 coverage at **70.82%**, locked all-feature build, and the full workspace test
 suite including every real-process schema-1 harness fixture and both doctests.
+
+### CI-only failure: a title assertion competing with the startup warning banner
+
+`real_jefe_session_uses_isolated_config_when_binary_available` passed locally and
+on `origin/main`'s runner but failed twice on this PR's runner. The captured
+frame showed the app had started and rendered its dashboard normally; only the
+title was truncated, because the top row carries both the title and the startup
+warning banner, and on that runner an optional startup probe failed
+(`could not reconcile shell windows: capability probe failed: tmux list-`). The
+banner took the width and left `LLxprt` without `Jefe`. `wait_for_screen_literal`
+returns the last capture after its 10-second deadline, so the assertion then ran
+against a frame whose title had never appeared.
+
+Neither the status bar nor the startup reconcile path is touched by this branch,
+so the banner's presence is a property of the host, not of this change. The test
+name and intent are about the isolated config being used and the app rendering,
+which is why the assertion now waits on `Agent Types` in the dashboard body
+instead of a title that any startup warning can displace. Nothing was skipped,
+weakened, or given a longer timeout.

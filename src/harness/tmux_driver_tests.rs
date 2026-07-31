@@ -234,9 +234,13 @@ fn real_jefe_session_uses_isolated_config_when_binary_available() {
         session,
     };
 
-    let capture = wait_for_screen_literal(&driver, &guard.session, "LLxprt Jefe")
-        .value_or_panic("jefe screen should render stable title");
-    let outcome = lines_contain(&capture.lines, "LLxprt Jefe");
+    // Assert on the dashboard body rather than the title. The title shares its
+    // row with the startup warning banner, so on a host where an optional
+    // startup probe fails the banner takes the width and the title is truncated
+    // — which says nothing about whether the isolated config was used.
+    let capture = wait_for_screen_literal(&driver, &guard.session, "Agent Types")
+        .value_or_panic("jefe screen should render its dashboard");
+    let outcome = lines_contain(&capture.lines, "Agent Types");
 
     assert!(outcome, "jefe capture was {capture:?}");
 }
