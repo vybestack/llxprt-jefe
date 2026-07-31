@@ -137,7 +137,11 @@ source.error remains diagnostic because JSP/1 has no event that clears it.
   (usage limit reached, missing API key, or load-balancer exhaustion). This work
   has had no independent Rust reviewer.
 - Local OCR: 1 of 2.
-- PR OCR: 0 of 2.
+- PR OCR: 1 of 2. The PR-side reviewer raised 27 inline findings; the valid ones
+  are listed under review dispositions and the rest are recorded there with the
+  reason they were not adopted.
+- CodeRabbit: not run on this pull request; the automation reported the review
+  as excluded by label configuration.
 
 ## Review dispositions
 
