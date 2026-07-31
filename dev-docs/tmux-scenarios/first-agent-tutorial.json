@@ -1,699 +1,3648 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "first-agent-tutorial",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 4000,
-    "wait_timeout_ms": 15000,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
     {
-      "waitFor": "LLxprt Jefe"
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
     },
     {
-      "expect": "No terminal attached"
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
     },
     {
-      "capture": "first-agent-dashboard"
+      "op": "assert-frame",
+      "contains": [
+        "No terminal attached"
+      ],
+      "absent": []
     },
     {
-      "key": "N"
+      "op": "key",
+      "key": "n",
+      "modifiers": ["shift"]
     },
     {
-      "waitFor": "New Repository"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 15000
     },
     {
-      "type": "LLxprt Jefe"
+      "op": "text",
+      "text": "LLxprt Jefe"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "~/projects/llxprt-jefe"
+      "op": "text",
+      "text": "~/projects/llxprt-jefe"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "tutorial"
+      "op": "text",
+      "text": "tutorial"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "~/projects/llxprt-jefe/transient"
+      "op": "text",
+      "text": "~/projects/llxprt-jefe/transient"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "2"
+      "op": "text",
+      "text": "2"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "vybestack/llxprt-jefe"
+      "op": "text",
+      "text": "vybestack/llxprt-jefe"
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "type": "vybestack/llxprt-jefe"
+      "op": "text",
+      "text": "vybestack/llxprt-jefe"
     },
     {
-      "expect": "~/projects/llxprt-jefe"
+      "op": "assert-frame",
+      "contains": [
+        "~/projects/llxprt-jefe"
+      ],
+      "absent": []
     },
     {
-      "expect": "vybestack/llxprt-jefe"
+      "op": "assert-frame",
+      "contains": [
+        "vybestack/llxprt-jefe"
+      ],
+      "absent": []
     },
     {
-      "capture": "first-agent-new-repository"
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 15000
     },
     {
-      "waitFor": "1 repos | 0/0 running"
+      "op": "key",
+      "key": "n",
+      "modifiers": []
     },
     {
-      "key": "n"
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
     },
     {
-      "waitFor": "New Agent"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "text",
+      "text": "Tutorial LLxprt"
     },
     {
-      "type": "Tutorial LLxprt"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "text",
+      "text": "Implement issue 352"
     },
     {
-      "type": "Implement issue 352"
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "macro": "clear_generated_work_dir",
-      "args": {}
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "~/projects/llxprt-jefe/tutorial-llxprt"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Agent Runtime    [LLxprt]"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Profile          [tutorial]"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Implement issue 352"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-new-agent"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "tutorial-shim: ready"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "F12 unfocus"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-terminal-ready"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "hello from the tutorial"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "tutorial-shim: response: hello from the"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "tutorial"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-terminal-response"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "t/f12 terminal focus"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-result"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "n"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "New Agent"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "Tutorial Puppy"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "Review issue 352"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "macro": "clear_generated_work_dir",
-      "args": {}
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "~/projects/llxprt-jefe/tutorial-puppy"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Space"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "type": "gpt-5.6-sol"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Tab"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Space"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Agent Runtime    [code_puppy]"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Model            [gpt-5.6-sol]"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-code-puppy"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "puppy-shim: ready"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "t/f12 terminal focus"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "C-k"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Status: Dead"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Up"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Name: Tutorial LLxprt"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "C-k"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Status: Dead"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "i"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Issues"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "#352"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Turn the getting-started guide into a filled-in visual happy path"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-issues"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Turn the getting-started guide into a filled-in visual happy path"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "S"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Send to Agent"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Tutorial LLxprt [LLxprt] profile: tutorial"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Tutorial Puppy [Code Puppy] model: gpt-5.6-sol"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Escape"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Escape"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Name: Tutorial LLxprt"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "tutorial-shim: received issue 352"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-issue-send"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "F12"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "t/f12 terminal focus"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "p"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Pull Requests"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "#353"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Complete the filled-in getting-started walkthrough"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "decision: APPROVED"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "✓merge"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-pull-request"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "m"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Merge Pull Request #353"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Squash and merge"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "capture": "first-agent-pr-merge"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Down"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "Press Enter to confirm merge"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "Enter"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitFor": "MERGED"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "expect": "Complete the filled-in getting-started walkthrough"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "key": "C-q"
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
     },
     {
-      "waitForExit": 3000
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "~/projects/llxprt-jefe/tutorial-llxprt"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agent Runtime    [LLxprt]"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Profile          [tutorial]"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Implement issue 352"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "tutorial-shim: ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "F12 unfocus"
+      ],
+      "absent": []
+    },
+    {
+      "op": "text",
+      "text": "hello from the tutorial"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "tutorial-shim: response: hello from the",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "tutorial"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Tutorial Puppy"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Review issue 352"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "~/projects/llxprt-jefe/tutorial-puppy"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "gpt-5.6-sol"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agent Runtime    [code_puppy]"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Model            [gpt-5.6-sol]"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "puppy-shim: ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "k",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Status: Dead",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "up",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name: Tutorial LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "k",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Status: Dead",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#352",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Turn the getting-started guide into a filled-in visual happy path"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Turn the getting-started guide into a filled-in visual happy path",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Tutorial LLxprt [LLxprt] profile: tutorial"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Tutorial Puppy [Code Puppy] model: gpt-5.6-sol"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name: Tutorial LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "tutorial-shim: received issue 352",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Pull Requests",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#353",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Complete the filled-in getting-started walkthrough",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "decision: APPROVED"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "\u2713merge"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "m",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Merge Pull Request #353",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Squash and merge"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Press Enter to confirm merge",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "MERGED",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Complete the filled-in getting-started walkthrough"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
     }
   ],
-  "macros": {
-    "clear_generated_work_dir": {
-      "params": [],
-      "steps": [
-        {
-          "keys": [
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace",
-            "BSpace"
-          ]
-        }
-      ]
-    }
-  }
+  "secrets": []
 }

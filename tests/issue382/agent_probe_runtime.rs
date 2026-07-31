@@ -217,7 +217,20 @@ fn assert_one_fixture(definitions: &[AgentDefinition], fixture: &Path, generatio
         result.executable_fingerprint(),
         Some(install.resolved().fingerprint())
     );
-    assert_eq!(install.invocations(), ["--version", "--help"]);
+    // A trusted capability probe (issue #534) takes its capabilities from the
+    // shipped declaration, so it must not spend a second `--help` invocation.
+    let trusted = install
+        .definition
+        .probe
+        .capabilities
+        .as_ref()
+        .is_some_and(|probe| probe.trusted);
+    let expected_invocations: &[&str] = if trusted {
+        &["--version"]
+    } else {
+        &["--version", "--help"]
+    };
+    assert_eq!(install.invocations(), expected_invocations);
 }
 
 #[cfg(unix)]
@@ -568,4 +581,41 @@ fn stream_selection_is_deterministic() {
         b"",
     );
     assert_compatible(&install.run(44), 44, &expected_from_help(&install));
+}
+
+// ---- Issue #534: trusted capability probe ----
+// Kept beside the other probe tests so the parent target stays within the
+// 1000-line source-size limit.
+
+#[test]
+fn shipped_llxprt_definition_marks_capability_probe_trusted() {
+    let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id.as_str() == "core.llxprt")
+        .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
+    let probe = definition
+        .probe
+        .capabilities
+        .as_ref()
+        .unwrap_or_else(|| panic!("LLxprt must have a capability probe"));
+    assert!(
+        probe.trusted,
+        "LLxprt shipped definition must mark its capability probe trusted (issue #534)"
+    );
+}
+
+#[test]
+fn shipped_non_llxprt_definitions_remain_untrusted() {
+    for name in ["core.claude-code", "core.code-puppy", "core.codex"] {
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == name)
+            .unwrap_or_else(|| panic!("{name} definition must be shipped"));
+        if let Some(probe) = &definition.probe.capabilities {
+            assert!(
+                !probe.trusted,
+                "{name} must remain untrusted (only LLxprt is trusted)"
+            );
+        }
+    }
 }

@@ -509,7 +509,7 @@ impl AppState {
         let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
         if entries.is_empty() && !transient_available {
             self.prs_state.agent_chooser = None;
-            self.prs_state.draft_notice = Some("No agents available".to_string());
+            self.prs_state.draft_notice = Some(super::NO_AGENTS_AVAILABLE.to_owned());
             return;
         }
         self.prs_state.draft_notice = None;
@@ -544,27 +544,7 @@ impl AppState {
     /// @requirement REQ-PR-013
     /// @pseudocode component-001 lines 344-348
     pub(super) fn apply_pr_show_notice(&mut self, kind: ReadOnlyHintKind) {
-        let text = match kind {
-            ReadOnlyHintKind::ReadOnlyReplyOnComment => {
-                "Select a comment to reply (read-only context)".to_string()
-            }
-            ReadOnlyHintKind::ReadOnlyNoComment => "No comments to reply to".to_string(),
-            ReadOnlyHintKind::ReadOnlyNotEditable => "This section is read-only".to_string(),
-            ReadOnlyHintKind::NoSelectionToOpen => "No pull request selected to open".to_string(),
-            ReadOnlyHintKind::NoPrToMerge => "No pull request loaded to merge".to_string(),
-            ReadOnlyHintKind::PrNotMergeable => {
-                "Pull request is not mergeable (closed/merged)".to_string()
-            }
-            ReadOnlyHintKind::ReadOnlyResolveOnThread => {
-                "Select a review thread to resolve (read-only context)".to_string()
-            }
-            ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
-            ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
-            ReadOnlyHintKind::NoDuplicateTarget => {
-                "Select an issue to mark as duplicate".to_string()
-            }
-        };
-        self.prs_state.draft_notice = Some(text);
+        self.prs_state.draft_notice = Some(kind.reason().to_owned());
     }
 
     /// Apply open-in-browser reducer half (pure: sets notice, no I/O).
@@ -577,7 +557,7 @@ impl AppState {
             AppEvent::PrOpenInBrowser => {
                 if self.prs_state.selected_pr_index().is_none() {
                     self.prs_state.draft_notice =
-                        Some("No pull request selected to open".to_string());
+                        Some(ReadOnlyHintKind::NoSelectionToOpen.reason().to_owned());
                 } else {
                     self.prs_state.draft_notice =
                         Some("Opening pull request in browser...".to_string());

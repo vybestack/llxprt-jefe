@@ -3,6 +3,7 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-003
 //! Pseudocode reference: component-001 lines 01-12
+mod action_availability;
 mod actions_job_ops;
 mod actions_load_ops;
 #[cfg(test)]
@@ -90,6 +91,13 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
+mod keys_editor;
+pub use keys_editor::{
+    KeysBindingEdit, KeysBindingRow, KeysConfirmFocus, KeysEditorState, KeysValidation,
+};
+#[cfg(test)]
+#[path = "keys_editor_tests.rs"]
+mod keys_editor_tests;
 /// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]

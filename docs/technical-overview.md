@@ -431,10 +431,39 @@ On every render cycle, the root component checks all agents with `status == Runn
 Events in Jefe are synchronous and single-threaded from the application logic perspective:
 
 1. `TerminalEvent` arrives from iocraft's event loop (keyboard, mouse, resize).
-2. The root component's event handler translates it into an `AppEvent` (or handles it directly for PTY forwarding / theme switching).
-3. `AppState::handle_event(event)` mutates state.
-4. If PTY side effects are needed (kill, relaunch, add session), the event handler in `main.rs` performs them after the state mutation.
-5. The next render cycle picks up the new state.
+2. The event is translated into a canonical `Chord`, the current state is projected into an ordered context stack, and the immutable action/binding snapshot resolves exactly one result.
+3. A `Dispatch` result runs its closed `HandlerKey`, which produces the smallest typed message (or, at an explicit boundary, a runtime operation). `Unavailable` runs nothing, `ForwardToPty` writes raw bytes to the child, and `Unbound` does nothing.
+4. `AppState` applies the typed message.
+5. If PTY side effects are needed (kill, relaunch, add session), they happen at the boundary after the state transition.
+6. The next render cycle picks up the new state.
+
+### Action composition, availability, dispatch, and explain
+
+**Composition.** Compiled default actions and bindings are merged with
+`keymap.<context>.<action>` overrides from schema-2 settings, where an empty
+list is an explicit unbind and an absent entry inherits. The merged candidate is
+validated as a whole: chord grammar, duplicate chords in one context, implicit
+shadows, protected-binding violations, and resource bounds. Any failure rejects
+the entire candidate with a `KEY-E401` diagnostic and keeps both the previous
+snapshot and the previous settings bytes, so a bad edit cannot half-apply.
+
+**Availability.** Availability is computed once per composed snapshot and
+carries a correlation so a late completion that no longer matches is ignored. An
+unavailable action still resolves, still appears in Help, footer, menus, and the
+Keys editor, and exposes one byte-identical reason string everywhere — but runs
+no handler and produces no effect.
+
+**Dispatch.** Keyboard and mouse share the path. A clickable surface carries the
+action ID assigned to its hit target and goes through the same availability check
+and the same handler as the keyboard chord, so the two cannot diverge. Raw editor
+text insertion and terminal passthrough are deliberately not actions.
+
+**Explain.** `jefe explain binding CHORD [--context ID]` composes the same
+snapshot offline. It prints the normalized chord, the contexts searched in
+order, the winning resolution, availability and reason, shadowed bindings, and
+provenance. It starts no TUI, contacts no provider, probes nothing, and writes
+nothing; exit is `0` when resolved, `2` when invalid or unresolved, and `64` for
+a usage error, so a broken keymap remains diagnosable when the app is unusable.
 
 There is no event queue, no async event bus, no pub/sub. Events are processed inline in the terminal event callback. This is appropriate because all event handling is fast (microseconds) — the only potentially slow operations (tmux commands) are called directly, not deferred.
 

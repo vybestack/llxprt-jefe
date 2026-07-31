@@ -202,7 +202,14 @@ impl RunState<'_> {
         cwd: &super::contract::RelPath,
     ) -> Result<(), HarnessError> {
         let root = self.workspace.root().to_string_lossy().into_owned();
-        let environment = env::build(&root, &self.scenario.workspace.env, launch_env)?;
+        let mut environment = env::build(&root, &self.scenario.workspace.env, launch_env)?;
+        // D9: activate the private capture protocol for the contained app only.
+        // The path stays inside the workspace, so the artifact is torn down with
+        // it and no ambient process is affected.
+        environment.insert(
+            super::action_capture::CAPTURE_PATH_ENV.to_string(),
+            format!("{root}/{}", super::action_capture::CAPTURE_ARTIFACT),
+        );
         let cwd_abs = self.workspace.resolve(cwd)?;
         if !cwd_abs.is_dir() {
             return Err(HarnessError::process(format!(

@@ -2,20 +2,18 @@
 //!
 //! Extracted from mod.rs to keep file sizes manageable.
 
-use iocraft::prelude::*;
 use tracing::warn;
 
 use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine};
 use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
-    AgentFormFocus, AppEvent, AppState, AuthDialogPhase, ConfirmFocus, ModalState, PaneFocus,
-    RepositoryFormFocus, ScreenMode,
+    AgentFormFocus, AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
 };
 use jefe::theme::ThemeManager;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, auth_remediation, close_modal_and_persist,
+    AppStateHandle, SharedContext, apply_and_persist, close_modal_and_persist,
     durable_save_request, execute_agent_launch, launch_signature_for_agent, preflight_or_prompt,
     repository_focus_toggles_checkbox, schedule_durable_save,
 };
@@ -79,69 +77,7 @@ fn persist_current_state(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     schedule_durable_save(ctx, persisted);
 }
 
-pub fn handle_mode_confirm_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    match key_event.code {
-        KeyCode::Esc | KeyCode::Char('n' | 'N') => close_modal_and_persist(app_state, ctx),
-        KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
-            apply_and_persist(app_state, ctx, AppEvent::ConfirmCycleFocus);
-        }
-        KeyCode::Enter => handle_confirm_enter(app_state, ctx),
-        KeyCode::Char(' ' | 'd' | 'D') | KeyCode::Up | KeyCode::Down => {
-            apply_and_persist(app_state, ctx, AppEvent::ToggleDeleteWorkDir);
-        }
-        _ => {}
-    }
-    true
-}
-
-/// Handle keys while the in-app device-code auth dialog is open (issue #244).
-///
-/// - Esc: cancel the flow (dismiss; sets an actionable error_message).
-/// - `r` / Enter when `Failed`: retry the device-code flow.
-/// - All other keys are ignored — the dialog is not text-editable; the code +
-///   URL are displayed for the user to act on in a browser.
-///
-/// # Orphaned `gh` on cancel
-/// Esc closes the modal but does NOT kill the background `gh auth login`
-/// subprocess (its `Child` handle is not retained across the dispatch seam).
-/// This is accepted for v1: `gh`'s device-code flow has a server-side expiry
-/// (~15 min), and with stdin null + `GH_BROWSER=/bin/true` it exits on its own
-/// once the code expires or the user authorizes elsewhere. The leak is bounded
-/// and inert (issue #244).
-///
-/// Returns `true` so the caller short-circuits (the auth modal consumes the
-/// key), mirroring the form/search handlers.
-pub fn handle_mode_auth_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    let in_failed_phase = {
-        let state = app_state.read();
-        matches!(
-            &state.modal,
-            ModalState::Auth {
-                state: dialog
-            } if matches!(dialog.phase, AuthDialogPhase::Failed { .. })
-        )
-    };
-
-    match key_event.code {
-        KeyCode::Esc => apply_and_persist(app_state, ctx, AppEvent::AuthCancelled),
-        KeyCode::Char('r' | 'R') | KeyCode::Enter if in_failed_phase => {
-            apply_and_persist(app_state, ctx, AppEvent::AuthRetry);
-            auth_remediation::spawn_device_auth_flow(app_state, ctx);
-        }
-        _ => {}
-    }
-    true
-}
-
-fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+pub(super) fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let modal_snapshot = {
         let state = app_state.read();
         state.modal.clone()
@@ -297,46 +233,7 @@ fn reap_orphan_before_delete(app_state: &AppStateHandle, agent_id: &AgentId) {
     jefe::runtime::reap_orphan_session(&identities, &session_name);
 }
 
-pub fn handle_mode_form_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    let app_event = match key_event.code {
-        KeyCode::Esc => Some(AppEvent::CloseModal),
-        KeyCode::Enter => {
-            handle_form_submit(app_state, ctx);
-            return true;
-        }
-        KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
-        KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
-        KeyCode::Left => Some(AppEvent::FormMoveCursorLeft),
-        KeyCode::Right => Some(AppEvent::FormMoveCursorRight),
-        KeyCode::Home => Some(AppEvent::FormMoveCursorStart),
-        KeyCode::End => Some(AppEvent::FormMoveCursorEnd),
-        KeyCode::Backspace => Some(AppEvent::FormBackspace),
-        KeyCode::Delete => Some(AppEvent::FormDelete),
-        KeyCode::Char(' ') => handle_form_space(app_state, ctx),
-        KeyCode::Char(c) => Some(AppEvent::FormChar(c)),
-        _ => None,
-    };
-
-    if let Some(evt) = app_event {
-        apply_and_persist(app_state, ctx, evt);
-    }
-
-    true
-}
-
-pub(super) fn handle_theme_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-    screen_mode: ScreenMode,
-) -> super::normal::KeyHandling {
-    if key_event.code != KeyCode::F(9) || screen_mode != ScreenMode::Dashboard {
-        return super::normal::KeyHandling::Unhandled;
-    }
+pub(super) fn open_theme_picker(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let event = if let Some(ctx_arc) = ctx
         && let Ok(ctx_guard) = ctx_arc.lock()
     {
@@ -345,50 +242,9 @@ pub(super) fn handle_theme_key(
             active_slug: ctx_guard.theme_manager.active_theme().slug.clone(),
         }
     } else {
-        return super::normal::KeyHandling::Unhandled;
+        return;
     };
     apply_and_persist(app_state, ctx, event);
-    super::normal::KeyHandling::Handled(None)
-}
-
-/// Handle keys while the theme picker modal is open.
-///
-/// - Up/Down: move the selection cursor (via reducer) and **live-preview** the
-///   newly-selected theme by applying it to the `ThemeManager` in memory (no
-///   persistence). The render loop reads the manager each frame, so colors
-///   update instantly as the user navigates.
-/// - Enter: persist the previewed theme to `settings.toml` and close the
-///   picker. Falls back to Green Screen if the slug is invalid.
-/// - Esc: revert the manager back to the theme that was active when the
-///   picker opened (`active_slug`), then close without persisting.
-pub fn handle_mode_theme_picker_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) {
-    match key_event.code {
-        KeyCode::Up => {
-            apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateUp);
-            preview_theme_selection(app_state, ctx);
-        }
-        KeyCode::Down => {
-            apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
-            preview_theme_selection(app_state, ctx);
-        }
-        KeyCode::Tab => {
-            // Pure modal-flag toggle (issue #179). The runtime mirror is only
-            // committed on Enter via the reducer, so no preview/restore needed.
-            apply_and_persist(app_state, ctx, AppEvent::ThemePickerToggleOverride);
-        }
-        KeyCode::Enter => {
-            apply_theme_picker_selection(app_state, ctx);
-        }
-        KeyCode::Esc => {
-            revert_theme_to_active(app_state, ctx);
-            apply_and_persist(app_state, ctx, AppEvent::CloseThemePicker);
-        }
-        _ => {}
-    }
 }
 
 /// Apply the currently-selected theme to the `ThemeManager` **in memory only**
@@ -397,7 +253,7 @@ pub fn handle_mode_theme_picker_key(
 /// Called after each Up/Down navigation moves `selected_index`. The render
 /// loop reads `theme_manager.active_theme()` each frame, so the new colors
 /// take effect on the next render. Persistence only happens on Enter.
-fn preview_theme_selection(app_state: &AppStateHandle, ctx: &SharedContext) {
+pub(super) fn preview_theme_selection(app_state: &AppStateHandle, ctx: &SharedContext) {
     let selected_slug = {
         let state = app_state.read();
         match &state.modal {
@@ -424,7 +280,7 @@ fn preview_theme_selection(app_state: &AppStateHandle, ctx: &SharedContext) {
 /// Restore the `ThemeManager` to the theme that was active when the picker
 /// opened (`active_slug`), discarding any live-preview changes. Called on Esc
 /// so cancelling reverts the visible colors to what the user had before.
-fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
+pub(super) fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
     let active_slug = {
         let state = app_state.read();
         match &state.modal {
@@ -446,7 +302,7 @@ fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
 }
 
 /// Apply the selected theme from the picker, persist to settings.toml, then close.
-fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+pub(super) fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Read both the selected slug and the in-dialog override toggle in a single
     // short read lock (issue #179).
     let (selected_slug, override_theme) = {
@@ -509,7 +365,7 @@ fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedCont
     // Close the picker regardless of persistence outcome.
     apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
 }
-fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+pub(super) fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Check if this is a WorkflowDispatch modal submit — route it through
     // the Actions orchestration so the dispatch actually happens.
     let dispatch_info = extract_workflow_dispatch_info(app_state);
@@ -792,7 +648,10 @@ pub(super) fn focus_terminal_state(state: &mut AppState) {
     state.terminal_focused = true;
 }
 
-fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Option<AppEvent> {
+pub(super) fn handle_form_space(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) -> Option<AppEvent> {
     match focused_form_field(app_state) {
         FocusedFormField::Repository(focus) if repository_focus_toggles_checkbox(focus) => {
             Some(AppEvent::FormToggleCheckbox)

@@ -7,12 +7,12 @@ geometry, alternate-screen rendering, scrollback, process exit, and failure
 artifacts.
 
 Unix uses upstream tmux. Native Windows uses psmux and Windows ConPTY while
-sharing the same typed scenario schema, matchers, runner, and artifact model.
+sharing the same strict schema-1 scenario grammar, runner, and artifact model.
 
 The harness is intentionally split by side-effect boundary:
 
-1. **Scenario model and macro expansion** parse JSON into typed Rust structs.
-2. **Screen and scrollback matchers** evaluate captured text without I/O.
+1. **Scenario model** parses strict schema-1 JSON into typed Rust structs.
+2. **Frame evaluation** checks captured text without I/O.
 3. **Multiplexer driver** owns upstream tmux or native psmux process calls.
 4. **Runner/orchestrator** composes the pure layers with the driver seam,
    bounded polling, and artifact capture.
@@ -25,75 +25,90 @@ separate `jefe-tmux-harness` tool starts a real `jefe` binary with an isolated
 
 ## Scenario JSON schema
 
-A scenario is a JSON object with `config`, optional `macros`, and `steps`.
+Every scenario is **strict schema 1** — the same closed grammar the Unix PTY
+runner consumes. There is exactly one parser (`harness::v1::parse_scenario_v1`)
+and one key encoder; the pre-schema format and its parser were deleted in the
+no-shim conversion (issue #383 S8), so there is no legacy adapter to fall back
+to.
 
 ```json
 {
-  "config": {
-    "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "out_dir": "target/tmux-harness/example",
-    "keep_session": false,
-    "assert_mode": "strict"
-  },
-  "macros": {
-    "quit": {
-      "params": [],
-      "steps": [
-        { "key": "q" },
-        { "waitForExit": 3000 }
-      ]
-    }
+  "schema": 1,
+  "name": "startup-quit",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 32 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [{ "path": "work", "mode": 448 }],
+    "files": [],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "macro": "quit", "args": {} }
-  ]
+    { "op": "launch", "argv": ["jefe"], "env": [], "cwd": "work" },
+    { "op": "wait", "source": "frame", "literal": "LLxprt Jefe", "timeout_ms": 15000 },
+    { "op": "assert-frame", "contains": ["Agent Types"], "absent": [] },
+    { "op": "key", "key": "q", "modifiers": ["control"] },
+    { "op": "finish" }
+  ],
+  "secrets": []
 }
 ```
 
-### Config fields
+- `terminal.cols` (1..=500) and `terminal.rows` (1..=200) pin geometry.
+- `workspace` declares the contained fixture tree; every path is relative and
+  the workspace is removed after the run.
+- `steps` must begin with `launch` before any input or wait step.
 
-- `cols` and `rows`: tmux pane geometry. Use fixed values for deterministic
-  rendering.
-- `history_limit`: retained scrollback lines.
-- `initial_wait_ms`: optional startup pause before the first step.
-- `wait_timeout_ms`: optional timeout for `waitFor` and `waitForNot`; zero or
-  omission uses the platform default.
-- `out_dir`: optional default artifact directory. The CLI `--out-dir` overrides
-  it.
-- `keep_session`: keep tmux alive after completion for manual debugging.
-- `assert_mode`: `strict` aborts on first assertion failure; `soft` records
-  assertion failures and continues.
+### Step operations
 
-## Step catalog
-
-Each step object has one primitive key.
-
-| Step | Example | Behavior |
+| Op | Example | Meaning |
 | --- | --- | --- |
-| `wait` | `{ "wait": 100 }` | Sleep for milliseconds. Prefer `waitFor` where possible. |
-| `line` | `{ "line": "hello" }` | Type literal text and press Enter. |
-| `type` | `{ "type": "hello" }` | Type literal text without pressing Enter; use this for form fields. |
-| `key` | `{ "key": "?" }` | Send one tmux key token. |
-| `keys` | `{ "keys": ["Tab", "Enter"] }` | Send a sequence of key tokens. |
-| `waitFor` | `{ "waitFor": "Help" }` | Poll the screen until a literal appears. |
-| `waitForNot` | `{ "waitForNot": "Loading" }` | Poll the screen until a literal disappears. |
-| `expect` | `{ "expect": "new-agent" }` | Assert the current screen contains a literal. |
-| `expectRightEdge` | `{ "expectRightEdge": "╮" }` | Assert a full-width line ends with a literal at the viewport's right edge. |
-| `expectCount` | `{ "expectCount": "│", "count": 4 }` | Assert an exact literal count on screen. |
-| `capture` | `{ "capture": "after-help" }` | Write `<label>.screen.txt` to the artifact dir. |
-| `historySample` | `{ "historySample": "before" }` | Save scrollback and history size under a label. |
-| `expectHistoryDelta` | `{ "expectHistoryDelta": "before" }` | Assert scrollback/history changed since the sample. |
-| `copyMode` | `{ "copyMode": true }` | Enter or exit tmux copy mode. |
-| `waitForExit` | `{ "waitForExit": 3000 }` | Poll `pane_dead` until the app exits. |
-| `macro` | `{ "macro": "quit", "args": {} }` | Expand a named macro before execution. |
+| `launch` | `{ "op": "launch", "argv": ["jefe"], "env": [], "cwd": "work" }` | Start the app under test. Required first. |
+| `key` | `{ "op": "key", "key": "q", "modifiers": ["control"] }` | Send one key from the closed table. |
+| `text` | `{ "op": "text", "text": "hello" }` | Write literal bytes (including raw escape sequences). |
+| `wait` | `{ "op": "wait", "source": "frame", "literal": "Help", "timeout_ms": 15000 }` | Poll until a literal appears. |
+| `assert-frame` | `{ "op": "assert-frame", "contains": ["x"], "absent": ["PANIC"] }` | Assert the current frame. |
+| `resize` | `{ "op": "resize", "size": { "cols": 80, "rows": 24 } }` | Resize and await acknowledgement. |
+| `write` / `mkdir` / `remove` | `{ "op": "mkdir", "dir": { "path": "sub", "mode": 448 } }` | Mutate the contained workspace. |
+| `capture` / `assert-capture` | see `dev-docs/tmux-scenarios/v1/harness-capture.json` | Record and assert a subprocess invocation. |
+| `assert-file` | `{ "op": "assert-file", "file": { "path": "out.txt" } }` | Assert workspace file state. |
+| `restart` | `{ "op": "restart" }` | Relaunch using the original launch step. |
+| `finish` | `{ "op": "finish" }` | End the scenario and tear down. |
 
-All screen matching is literal. If future scenarios need regular expressions,
-add that as a typed matcher extension rather than smuggling dynamic behavior
-through JSON.
+`key` names come from one closed canonical table (`enter`, `escape`, `backspace`,
+`backtab`, `space`, `pageup`, `f1`..`f12`, arrow/navigation names, or a single
+Unicode scalar) plus at most three modifiers. Historical tmux spellings such as
+`Esc`, `BSpace`, `BTab`, `C-q`, `M-3`, and bare `N` are **not** accepted: the
+whole corpus was converted to canonical `key` + `modifiers` form and the
+translator was deleted, so there is no second spelling vocabulary to drift.
+Conversion was one-shot dev-time work, never a shipped input mode.
+
+All frame matching is literal. If future scenarios need regular expressions, add
+a typed matcher extension rather than smuggling dynamic behavior through JSON.
+
+### Action capture fields
+
+The schema-1 runner activates a contained, harness-only capture artifact inside
+the scenario workspace. It is written by the application under test and torn
+down with the workspace; it is not a public runtime API, adds no scenario step,
+and never changes what a keystroke does (a failed write is deliberately inert).
+
+Each key record carries four independently observable values:
+
+| Field | Meaning |
+| --- | --- |
+| `original_event` | the exact platform event: key code plus raw modifier bits |
+| `canonical_chord` | the canonical `Chord` text the registry resolved against |
+| `resolution` | `dispatch`, `unavailable`, `forward`, or `unbound`, plus the resolved action and handler when dispatched |
+| `pty_bytes` | the literal bytes written to the PTY, taken from the encoder rather than derived from the chord text |
+
+Keeping `pty_bytes` independent is the point: it is what proves registry
+migration cannot silently turn forwarded terminal input into an action, and it
+is asserted separately from the resolution.
+
+Mouse records carry the frame generation, the cell `(col, row)`, the resolved
+layout hit identity, and the emitted action ID, so a clickable surface and a
+keyboard chord are provably the same action.
 
 ## Running locally
 
@@ -153,17 +168,16 @@ When an artifact directory is supplied, the runner may write:
 - `error.txt`: structured failure context including step index, step kind, and
   reason.
 - `multiplexer.txt`: multiplexer executable/version and isolated namespace.
-- `<label>.screen.txt`: named captures from `capture` steps.
-- `<label>.history.txt`: named scrollback samples from `historySample` steps.
+- `<label>.screen.txt`: named frame captures.
 
 Artifact labels are sanitized before writing, so scenario names cannot escape the
 artifact directory.
 
 ## Deterministic scenario guidance
 
-- Pin `cols`, `rows`, and `history_limit`.
+- Pin `terminal.cols` and `terminal.rows`.
 - Always pass an isolated `--config` directory.
-- Prefer `waitFor`/`waitForNot`/`waitForExit` over fixed sleeps.
+- Prefer `wait` steps over fixed sleeps.
 - Avoid spinner frames, elapsed-time text, network-backed GitHub lists, or local
   machine state unless the scenario explicitly sets up that state.
 - Capture useful checkpoints before quitting so alternate-buffer teardown does

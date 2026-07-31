@@ -24,6 +24,15 @@ pub enum ConfigCommand {
     MigrateState,
 }
 
+/// Arguments owned by `jefe explain binding`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExplainBindingArgs {
+    /// Chord text to normalize and resolve.
+    pub chord: String,
+    /// Optional highest-precedence context.
+    pub context: Option<String>,
+}
+
 /// Parsed command-line arguments.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CliArgs {
@@ -35,6 +44,8 @@ pub struct CliArgs {
     pub config_dir: Option<PathBuf>,
     /// Provider-free recovery command, when selected.
     pub command: Option<ConfigCommand>,
+    /// Provider-free binding explanation, when selected.
+    pub explain_binding: Option<ExplainBindingArgs>,
     /// `doctor` subcommand was requested (issue #264).
     pub doctor: bool,
 }
@@ -87,6 +98,8 @@ Usage: jefe [OPTIONS] [COMMAND]
 Commands:
   doctor              Run read-only local readiness diagnostics and exit
   config <COMMAND>    Run provider-free configuration recovery
+  explain binding CHORD [--context ID]
+                      Explain one resolved binding without starting the TUI
 
 Options:
   -c, --config <DIR>  Use <DIR> for settings.toml, state.json, and themes/,
@@ -119,6 +132,7 @@ where
             "--help" | "-h" => result.help = true,
             "--config" | "-c" => set_config_value(&mut result, &arg, iter.next())?,
             "config" => parse_config_command(&mut result, &mut iter)?,
+            "explain" => parse_explain_command(&mut result, &mut iter)?,
             other => parse_config_equals(&mut result, other)?,
         }
     }
@@ -214,4 +228,36 @@ fn config_command(name: &str, flags: RecoveryFlags) -> Result<ConfigCommand, Cli
         "migrate-state" => Ok(ConfigCommand::MigrateState),
         other => Err(CliError::UnknownArgument(other.to_owned())),
     }
+}
+
+fn parse_explain_command(
+    result: &mut CliArgs,
+    iter: &mut impl Iterator<Item = String>,
+) -> Result<(), CliError> {
+    let subject = iter
+        .next()
+        .ok_or_else(|| CliError::MissingOperand("explain".to_owned()))?;
+    if subject != "binding" {
+        return Err(CliError::UnknownArgument(subject));
+    }
+    let chord = iter
+        .next()
+        .filter(|value| !value.starts_with('-'))
+        .ok_or_else(|| CliError::MissingOperand("explain binding".to_owned()))?;
+    let mut context = None;
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--context" => context = Some(required_flag_value("--context", iter.next())?),
+            "--config" | "-c" => set_config_value(result, &argument, iter.next())?,
+            other => parse_config_equals(result, other)?,
+        }
+    }
+    result.explain_binding = Some(ExplainBindingArgs { chord, context });
+    Ok(())
+}
+
+fn required_flag_value(flag: &str, value: Option<String>) -> Result<String, CliError> {
+    value
+        .filter(|value| !value.is_empty() && !value.starts_with('-'))
+        .ok_or_else(|| CliError::MissingValue(flag.to_owned()))
 }

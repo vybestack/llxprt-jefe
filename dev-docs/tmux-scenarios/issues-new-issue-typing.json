@@ -1,38 +1,152 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "issues-new-issue-typing",
+  "platform": "macos",
+  "terminal": {
     "cols": 120,
-    "rows": 40,
-    "history_limit": 4000,
-    "initial_wait_ms": 200,
-    "wait_timeout_ms": 15000,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "No issues found" },
-    { "key": "n" },
-    { "waitFor": "New Issue" },
-    { "capture": "form-open" },
-    { "type": "HelloTitle" },
-    { "waitFor": "HelloTitle" },
-    { "expect": "HelloTitle" },
-    { "capture": "title-typed" },
-    { "key": "Tab" },
-    { "type": "Body line one" },
-    { "key": "Enter" },
-    { "type": "Body line two" },
-    { "waitFor": "Body line two" },
-    { "expect": "Body line one" },
-    { "expect": "Body line two" },
-    { "capture": "body-typed" },
-    { "key": "Backspace" },
-    { "wait": 200 },
-    { "capture": "after-backspace" },
-    { "key": "Escape" },
-    { "waitFor": "No issue selected" },
-    { "capture": "after-cancel" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No issues found",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Issue",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "text",
+      "text": "HelloTitle"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "HelloTitle",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "HelloTitle"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Body line one"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Body line two"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Body line two",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Body line one"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Body line two"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No issue selected",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

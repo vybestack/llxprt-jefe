@@ -35,7 +35,7 @@ const HANDLED_SIGNALS: &[i32] = &[
 /// (issue #375).
 ///
 /// Construct this guard before starting a tmux session in
-/// [`run_tmux_scenario`](super::runner::run_tmux_scenario). The guard
+/// the schema-1 tmux runner. The guard
 /// spawns a background thread that listens for Unix termination signals
 /// (SIGINT, SIGTERM, SIGHUP, SIGQUIT). When a signal arrives, the thread
 /// calls [`TmuxDriver::kill_harness_server`] — targeting **only** the

@@ -4,6 +4,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+mod action_projection;
 /// Shared finite-width Actions detail body projection.
 pub mod actions_detail_projection;
 pub mod actions_detail_view;
@@ -14,6 +15,10 @@ pub mod agent_candidate_path;
 pub mod agent_detection;
 pub mod agent_registry;
 pub mod agent_status_view;
+/// Provider-free binding explanation using the composed action registry.
+pub mod binding_explain;
+#[cfg(test)]
+mod binding_explain_tests;
 /// Detects whether the console font supports rounded-corner box-drawing
 /// glyphs and falls back to single-line borders when it does not (issue #497).
 pub mod border_capability;
@@ -29,6 +34,10 @@ pub mod doctor;
 pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
+pub(crate) mod keys_view;
+#[cfg(test)]
+#[path = "keys_view_tests.rs"]
+mod keys_view_tests;
 pub mod layout;
 /// Pure geometry, windowing, navigation, and row-width primitives for selectable lists.
 pub mod list_viewport;

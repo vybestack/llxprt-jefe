@@ -10,13 +10,16 @@
 use std::path::Path;
 
 use crate::config_owners::builtin_owner_catalog;
+use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
-use crate::persistence::migration::{migrate_settings, migrate_state};
+use crate::persistence::keymap_edit::{KeymapDiagnostic, LoadedKeymap, load_bytes};
+use crate::persistence::migration::migrate_state;
 use crate::persistence::paths::{
     ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
     SourceValidity, decide_import, import_state_source, physical_identity, resolve,
 };
-use crate::persistence::settings_document::PublishedSettings;
+use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
+use crate::persistence::writer::ExpectedHash;
 use crate::persistence::{FilePersistenceManager, PersistencePaths};
 
 /// Fully resolved startup paths, published settings, and their persistence manager.
@@ -24,14 +27,34 @@ use crate::persistence::{FilePersistenceManager, PersistencePaths};
 pub struct StartupPersistence {
     pub paths: ResolvedPaths,
     pub settings: PublishedSettings,
+    pub keymap_snapshot: ActionRegistrySnapshot,
+    pub keymap_document: SettingsDocument,
+    pub keymap_expected_hash: ExpectedHash,
+    keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
+}
+
+impl StartupPersistence {
+    /// Stable diagnostic code when startup replaced a malformed keymap with defaults.
+    #[must_use]
+    pub fn keymap_diagnostic_code(&self) -> Option<&'static str> {
+        self.keymap_diagnostic
+            .as_ref()
+            .map(|_| KeymapDiagnostic::code())
+    }
+
+    /// Render the typed keymap diagnostic retained during compiled-default fallback.
+    #[must_use]
+    pub fn keymap_diagnostic_message(&self) -> Option<String> {
+        self.keymap_diagnostic.as_ref().map(ToString::to_string)
+    }
 }
 
 /// Resolve and validate persistence before runtime or provider composition.
 pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
     let paths = resolve(config_dir)?;
     apply_state_import(&paths.state)?;
-    let settings = validate_settings(&paths.settings.path)?;
+    let (keymap, keymap_document, keymap_expected_hash) = validate_settings(&paths.settings.path)?;
     validate_state(&paths.state.path)?;
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
@@ -39,7 +62,11 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     });
     Ok(StartupPersistence {
         paths,
-        settings,
+        settings: keymap.settings,
+        keymap_snapshot: keymap.composed.snapshot().clone(),
+        keymap_document,
+        keymap_expected_hash,
+        keymap_diagnostic: keymap.diagnostic,
         manager,
     })
 }
@@ -96,15 +123,25 @@ fn inspect_sources(file: &ResolvedFile) -> Result<Vec<InspectedSource>, PathErro
     Ok(inspected)
 }
 
-fn validate_settings(path: &Path) -> Result<PublishedSettings, PathError> {
-    let Some(bytes) = read_optional(path)? else {
-        return Ok(PublishedSettings::default());
-    };
+fn validate_settings(
+    path: &Path,
+) -> Result<(LoadedKeymap, SettingsDocument, ExpectedHash), PathError> {
+    let bytes = read_optional(path)?;
     let catalog = builtin_owner_catalog()
         .map_err(|error| path_error(path, CfgCode::E005, 2, &format!("owner catalog: {error}")))?;
-    migrate_settings(&bytes, &catalog)
-        .map(|migration| migration.published().clone())
-        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))
+    let keymap = load_bytes(bytes.as_deref(), &catalog, &path.to_string_lossy())
+        .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))?;
+    let (source, expected) = if let Some(bytes) = bytes {
+        let document = SettingsDocument::parse(&bytes)
+            .map_err(|diagnostic| diagnostic_error(path, vec![*diagnostic], 2))?;
+        let expected = ExpectedHash::Present(document.sha256());
+        (document, expected)
+    } else {
+        let document = SettingsDocument::parse(b"settings_schema = 2\n")
+            .map_err(|diagnostic| diagnostic_error(path, vec![*diagnostic], 2))?;
+        (document, ExpectedHash::Absent)
+    };
+    Ok((keymap, source, expected))
 }
 
 fn validate_state(path: &Path) -> Result<(), PathError> {
@@ -314,5 +351,82 @@ mod tests {
             "normal startup must not rewrite schema-1 bytes"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn malformed_initial_keymap_retains_bytes_and_uses_compiled_defaults() {
+        use crate::domain::{
+            action_registry::Resolution, input_context::ContextStack, keymap::Chord,
+        };
+        let dir = unique_dir("malformed-keymap");
+        let source = br#"settings_schema = 2
+[appearance]
+theme = "green-screen"
+override_agent_theme = true
+[workbench]
+initial_screen = "core.dashboard"
+enabled_screens = ["core.dashboard"]
+screen_order = ["core.dashboard"]
+[agents."core.llxprt"]
+enabled = false
+[keymap.dashboard]
+"dashboard.navigate-down" = 7
+"#;
+        std::fs::write(dir.join("settings.toml"), source).value_or_panic("seed keymap");
+        let startup = build_persistence(Some(&dir)).value_or_panic("keymap fallback must start");
+        assert_eq!(startup.keymap_diagnostic_code(), Some("KEY-E401"));
+        assert!(
+            startup
+                .keymap_diagnostic_message()
+                .is_some_and(|message| message.starts_with("KEY-E401:"))
+        );
+        assert_eq!(
+            startup.settings.appearance.theme.as_deref(),
+            Some("green-screen")
+        );
+        assert_eq!(startup.settings.appearance.override_agent_theme, Some(true));
+        let initial_screen = startup.settings.workbench.initial_screen.as_ref();
+        assert_eq!(
+            initial_screen.map(crate::domain::Id::as_str),
+            Some("core.dashboard")
+        );
+        let owner = crate::domain::Id::parse("core.llxprt").value_or_panic("agent owner id");
+        assert_eq!(
+            startup
+                .settings
+                .agents
+                .get(&owner)
+                .and_then(|entry| entry.enabled),
+            Some(false)
+        );
+        assert!(startup.settings.keymap.is_empty());
+        let chord = Chord::parse("j").value_or_panic("default chord");
+        let stack = ContextStack::from_ordered(["dashboard", "global"], false)
+            .value_or_panic("dashboard stack");
+        assert!(matches!(
+            startup.keymap_snapshot.resolve(&chord, &stack),
+            Resolution::Dispatch { .. }
+        ));
+        assert_eq!(
+            std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
+            source
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn malformed_settings_syntax_still_blocks_startup() {
+        let dir = unique_dir("malformed-settings-syntax");
+        let source = b"settings_schema = 2\n[keymap.dashboard\n";
+        std::fs::write(dir.join("settings.toml"), source).value_or_panic("seed settings");
+
+        let error = build_persistence(Some(&dir)).error_or_panic("syntax must block startup");
+
+        assert_eq!(error.exit_code, 2);
+        assert_eq!(
+            std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
+            source
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

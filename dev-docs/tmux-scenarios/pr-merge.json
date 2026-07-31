@@ -1,20 +1,87 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "pr-merge",
+  "platform": "macos",
+  "terminal": {
     "cols": 200,
-    "rows": 36,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "p" },
-    { "waitFor": "Pull Requests" },
-    { "expect": "m merge" },
-    { "capture": "pr-merge-keybind-bar" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Pull Requests",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "m merge"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

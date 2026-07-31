@@ -1,9 +1,17 @@
 use std::sync::Arc;
 
+mod action_availability;
+mod action_handlers;
+pub use action_availability::refresh_action_availability;
+#[cfg(test)]
+#[path = "action_handlers_tests.rs"]
+mod action_handlers_tests;
 mod agent_chooser_entries;
 mod dashboard_search;
 mod filter_controls;
 mod issues;
+mod keys_editor;
+pub use keys_editor::handle_key as handle_keys_editor_key;
 mod issues_comments_dispatch;
 mod issues_dispatch;
 mod issues_filter;
@@ -51,11 +59,10 @@ mod prs_mutation;
 mod prs_property_edit;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
+mod raw_key_mutations;
 
 mod actions;
 mod actions_orchestration;
-// Errors-mode key dispatch (issue #292).
-mod errors;
 // Terminal-manager key dispatch and runtime orchestration (issue #364 PR A).
 pub mod terminal_manager;
 // In-app device-code auth remediation dispatch (issue #244).
@@ -87,12 +94,50 @@ use agent_runtime::{
     worker_process_for,
 };
 
-pub use modal_handlers::{
-    handle_f12_toggle, handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key,
-    handle_mode_theme_picker_key,
+pub use modal_handlers::handle_f12_toggle;
+
+pub use list_navigation::dashboard_page_item_count;
+pub use normal::observe_rapid_quit;
+pub use raw_key_mutations::resolve as resolve_raw_key_mutation;
+
+pub use action_handlers::{
+    apply_execution as apply_action_execution, execution_for as action_execution_for,
+    pre_mode_owned,
 };
 
-pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
+#[cfg(test)]
+pub fn resolve_test_registry_event(
+    state: &AppState,
+    key_event: &KeyEvent,
+    terminal_cols: u16,
+    terminal_rows: u16,
+) -> Option<AppEvent> {
+    if let Some(event) = raw_key_mutations::resolve(state, key_event) {
+        return Some(event);
+    }
+    let normalized;
+    let key_event = if let iocraft::prelude::KeyCode::Char(character) = key_event.code
+        && character.is_ascii_uppercase()
+        && key_event.modifiers.is_empty()
+    {
+        normalized = {
+            let mut event = key_event.clone();
+            event.modifiers = iocraft::prelude::KeyModifiers::SHIFT;
+            event
+        };
+        &normalized
+    } else {
+        key_event
+    };
+    let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(state, key_event);
+    let jefe::domain::action_registry::Resolution::Dispatch { handler, .. } = resolved.resolution
+    else {
+        return None;
+    };
+    let page_items =
+        dashboard_page_item_count(state, state.screen_mode, terminal_cols, terminal_rows);
+    action_handlers::event_for_test(handler, resolved.chord, state, page_items)
+}
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
@@ -112,6 +157,7 @@ pub fn apply_background_gh_delivery(
         #[cfg(test)]
         BackgroundGhDelivery::Probe(_) => {}
     }
+    refresh_action_availability(app_state);
 }
 
 pub use actions_orchestration::synchronize_actions_geometry;
@@ -129,25 +175,14 @@ pub use pty_passthrough::{
 };
 
 use iocraft::hooks::State as HookState;
-use iocraft::prelude::*;
+#[cfg(test)]
+use iocraft::prelude::KeyEvent;
 use tracing::{debug, warn};
 
 use std::time::Duration;
 
 use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 
-const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
-    ('¡', 1),
-    ('™', 2),
-    ('£', 3),
-    ('¢', 4),
-    ('∞', 5),
-    ('§', 6),
-    ('¶', 7),
-    ('•', 8),
-    ('ª', 9),
-];
-use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
@@ -225,7 +260,6 @@ fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
 pub type SharedContext = Option<Arc<std::sync::Mutex<super::AppContext>>>;
 pub type AppStateHandle = HookState<AppState>;
 pub type QuitHandle = HookState<bool>;
-pub type HelpScrollHandle = HookState<u32>;
 
 fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
     let ctx_arc = ctx.as_ref()?;
@@ -414,90 +448,6 @@ fn mark_launch_attached(
     Ok(())
 }
 
-pub fn handle_mode_help_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    help_scroll: &mut HelpScrollHandle,
-    key_event: &KeyEvent,
-) {
-    match key_event.code {
-        KeyCode::Esc | KeyCode::Char('?') => {
-            close_modal_and_persist(app_state, ctx);
-        }
-        KeyCode::Up => {
-            let offset = help_scroll.get();
-            if offset > 0 {
-                help_scroll.set(offset - 1);
-            }
-        }
-        KeyCode::Down => {
-            // `saturating_add` is required: `End` sets the sentinel `u32::MAX`
-            // (clamped by the renderer); plain `+ 1` would overflow-panic then.
-            help_scroll.set(help_scroll.get().saturating_add(1));
-        }
-        KeyCode::PageUp => {
-            let offset = help_scroll.get();
-            help_scroll.set(offset.saturating_sub(8));
-        }
-        KeyCode::PageDown => {
-            help_scroll.set(help_scroll.get().saturating_add(8));
-        }
-        KeyCode::Home => {
-            help_scroll.set(0);
-        }
-        KeyCode::End => {
-            help_scroll.set(u32::MAX);
-        }
-        _ => {}
-    }
-    // Mirror the help scroll offset to AppState so the selection content
-    // projection can map screen coordinates to the correct help content
-    // line (issue #178). The hook state may hold a sentinel (u32::MAX for
-    // the End key) that the renderer clamps via ScrollableText; clamp here
-    // using the same viewport math so the selection layer reads the actual
-    // visible offset, not the raw sentinel.
-    let (_, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let viewport_rows = jefe::ui::modals::help_viewport_rows(term_rows);
-    let max_scroll = jefe::ui::modals::help_content_lines()
-        .len()
-        .saturating_sub(viewport_rows);
-    let clamped = help_scroll
-        .get()
-        .min(u32::try_from(max_scroll).unwrap_or(u32::MAX));
-    app_state.write().help_scroll_offset = usize::try_from(clamped).unwrap_or(0);
-}
-
-pub fn handle_mode_search_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    match route_search_key(key_event) {
-        SearchKeyRoute::CloseAndConsume => {
-            close_modal_and_persist(app_state, ctx);
-            true
-        }
-        SearchKeyRoute::Backspace => {
-            apply_and_persist(app_state, ctx, AppEvent::FormBackspace);
-            true
-        }
-        SearchKeyRoute::EditQueryChar(c) => {
-            apply_and_persist(app_state, ctx, AppEvent::FormChar(c));
-            true
-        }
-        SearchKeyRoute::CloseAndReroute => {
-            debug!(
-                code = ?key_event.code,
-                modifiers = ?key_event.modifiers,
-                "closing search mode on non-search key"
-            );
-            close_modal_and_persist(app_state, ctx);
-            false
-        }
-        SearchKeyRoute::Ignore => true,
-    }
-}
-
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     dispatch_app_message(app_state, ctx, evt.into());
 }
@@ -515,35 +465,6 @@ pub fn dispatch_terminal_scroll(
     refresh_terminal_scroll_geometry(app_state, ctx);
     let mut state = app_state.write();
     jefe::state::transition::commit_pure_site(&mut state, (evt).into());
-}
-
-/// Try to intercept a scrollback-control key while the terminal is focused
-/// (issue #198). Returns `true` when the key was consumed as a terminal
-/// scrollback viewport event (and must NOT be forwarded to the PTY).
-///
-/// PageUp/PageDown/Home intercept from both states; End/Up/Down only intercept
-/// when scrolled back. Modifier chords are forwarded. The decision is made by
-/// the pure [`jefe::input::should_intercept_for_scrollback`] helper so it stays
-/// unit-testable.
-pub fn try_intercept_terminal_scrollback(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    let (offset_is_some, kennel_mode) = {
-        let state = app_state.read();
-        (
-            state.terminal_history_offset.is_some(),
-            state.is_kennel_mode(),
-        )
-    };
-    let Some(scroll_evt) =
-        jefe::input::should_intercept_for_scrollback(key_event, offset_is_some, kennel_mode)
-    else {
-        return false;
-    };
-    dispatch_terminal_scroll(app_state, ctx, scroll_evt);
-    true
 }
 
 /// Refresh cached terminal scrollback geometry (issue #198). Computes
@@ -678,6 +599,7 @@ pub fn dispatch_app_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+    refresh_action_availability(app_state);
 }
 
 /// Dispatch issues close/delete lifecycle messages (issue #182).

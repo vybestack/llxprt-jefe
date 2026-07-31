@@ -297,8 +297,11 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
 }
 #[test]
 fn keybind_bar_lines_match_rendered_hints() {
-    let mut state = AppState::default();
-    state.screen_mode = crate::state::ScreenMode::Dashboard;
+    let state = AppState {
+        screen_mode: crate::state::ScreenMode::Dashboard,
+        action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
+        ..AppState::default()
+    };
     let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
     assert_eq!(content.lines.len(), 1);
     assert!(content.lines[0].contains("navigate"));
@@ -407,14 +410,11 @@ fn pr_detail_lines_start_with_header_rows() {
 
 #[test]
 fn help_modal_lines_match_help_content_projection() {
-    let content = pane_content_lines(
-        SelectablePane::HelpModal,
-        &AppState::default(),
-        None,
-        &[],
-        120,
-        40,
-    );
+    let state = AppState {
+        action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
+        ..AppState::default()
+    };
+    let content = pane_content_lines(SelectablePane::HelpModal, &state, None, &[], 120, 40);
     // help_lines() must project the actual help content (issue #178: it
     // was returning an empty Vec).
     assert!(

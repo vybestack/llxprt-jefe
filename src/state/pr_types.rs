@@ -222,6 +222,28 @@ pub enum ReadOnlyHintKind {
     NoDuplicateTarget,
 }
 
+impl ReadOnlyHintKind {
+    #[must_use]
+    pub(crate) const fn reason(self) -> &'static str {
+        match self {
+            Self::ReadOnlyReplyOnComment => "Select a comment to reply (read-only context)",
+            Self::ReadOnlyNoComment => "No comments to reply to",
+            Self::ReadOnlyNotEditable => "This section is read-only",
+            Self::NoSelectionToOpen => "No pull request selected to open",
+            Self::NoPrToMerge => "No pull request loaded to merge",
+            Self::PrNotMergeable => "Pull request is not mergeable (closed/merged)",
+            Self::ReadOnlyResolveOnThread => {
+                "Select a review thread to resolve (read-only context)"
+            }
+            Self::IssueAlreadyClosed => "Issue is already closed",
+            Self::NoIssueFocused => "No issue selected",
+            Self::NoDuplicateTarget => "Select an issue to mark as duplicate",
+        }
+    }
+}
+
+pub const NO_AGENTS_AVAILABLE: &str = "No agents available";
+
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-001
 /// @pseudocode component-001 lines 62-65

@@ -7,9 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use jefe::harness::{
-    Scenario, TmuxDriver, TmuxPaneSize, TmuxStartRequest, parse_scenario, run_tmux_scenario,
-};
+use jefe::harness::TmuxDriver;
+use jefe::harness::v1::parse_scenario_v1;
+use jefe::harness::v1::tmux_runner::{TmuxRunRequest, run_tmux_v1};
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::persistence::{FilePersistenceManager, PersistencePaths, State};
@@ -119,22 +119,27 @@ fn guarded_dashboard_reorder_tui_scenario() {
     let config_dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e:?}"));
     seed_reorder_state(config_dir.path());
 
-    let scenario: Scenario = parse_scenario(
-        r#"{
-            "config": { "cols": 80, "rows": 24 },
+    // One parser and one key vocabulary: this scenario is strict schema-1 with
+    // canonical key names, exactly like every shipped fixture (issue #383).
+    let scenario = parse_scenario_v1(
+        br#"{
+            "schema": 1,
+            "name": "dashboard-reorder",
+            "platform": "macos",
+            "terminal": { "cols": 80, "rows": 24 },
+            "workspace": { "mode": 448, "dirs": [{ "path": "work", "mode": 448 }], "files": [], "env": [] },
             "steps": [
-                { "waitFor": "alpha" },
-                { "key": "Space" },
-                { "wait": 200 },
-                { "waitFor": "\u2195" },
-                { "key": "Down" },
-                { "wait": 200 },
-                { "key": "Space" },
-                { "wait": 300 },
-                { "expect": "bravo" },
-                { "key": "C-q" },
-                { "waitForExit": 3000 }
-            ]
+                { "op": "launch", "argv": ["jefe"], "env": [], "cwd": "work" },
+                { "op": "wait", "source": "frame", "literal": "alpha", "timeout_ms": 15000 },
+                { "op": "key", "key": "space", "modifiers": [] },
+                { "op": "wait", "source": "frame", "literal": "\u2195", "timeout_ms": 15000 },
+                { "op": "key", "key": "down", "modifiers": [] },
+                { "op": "key", "key": "space", "modifiers": [] },
+                { "op": "assert-frame", "contains": ["bravo"], "absent": [] },
+                { "op": "key", "key": "q", "modifiers": ["control"] },
+                { "op": "finish" }
+            ],
+            "secrets": []
         }"#,
     )
     .unwrap_or_else(|e| panic!("parse scenario: {e:?}"));
@@ -144,16 +149,16 @@ fn guarded_dashboard_reorder_tui_scenario() {
         name: session_name.clone(),
     };
 
-    let request = TmuxStartRequest::jefe(
-        session_name,
+    let request = TmuxRunRequest {
+        session: session_name,
         jefe_binary,
-        config_dir.path(),
-        std::env::current_dir().unwrap_or_else(|e| panic!("cwd: {e:?}")),
-        TmuxPaneSize::new(100, 30, 2_000),
-    )
-    .unwrap_or_else(|e| panic!("jefe request: {e:?}"));
+        config_dir: config_dir.path().to_path_buf(),
+        working_dir: std::env::current_dir().unwrap_or_else(|e| panic!("cwd: {e:?}")),
+        artifact_dir: None,
+        keep_session: false,
+    };
 
-    let summary = run_tmux_scenario(&scenario, &request, None)
-        .unwrap_or_else(|e| panic!("run scenario: {e:?}"));
-    assert_eq!(summary.steps_run, 11);
+    let summary =
+        run_tmux_v1(&scenario, &request).unwrap_or_else(|e| panic!("run scenario: {e:?}"));
+    assert_eq!(summary.steps_run, 9);
 }

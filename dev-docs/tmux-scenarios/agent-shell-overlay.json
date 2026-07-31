@@ -1,69 +1,313 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "agent-shell-overlay",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "wait_timeout_ms": 10000,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "N" },
-    { "waitFor": "New Repository" },
-    { "type": "Shell Repository" },
-    { "key": "Tab" },
-    { "type": "fixture-repo" },
-    { "key": "Enter" },
-    { "waitFor": "1 repos | 0/0 running" },
-
-    { "key": "n" },
-    { "waitFor": "New Agent" },
-    { "key": "Tab" },
-    { "type": "Shell Agent" },
-    { "key": "Enter" },
-    { "waitFor": "issue222-agent-ready" },
-    { "key": "F12" },
-    { "waitFor": "t/f12 terminal focus" },
-
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "waitFor": "F12 hide shell" },
-    { "line": "printf 'issue222-shell-ready\\n'" },
-    { "waitFor": "issue222-shell-ready" },
-    { "capture": "agent-shell-overlay" },
-
-    { "line": "stty -echo -icanon min 5 time 0; bytes=$(dd bs=5 count=1 2>/dev/null | od -An -tx1 | tr -d ' '); stty sane; printf 'issue355-f11-forwarded-%s\\n' \"$bytes\"" },
-    { "key": "F11" },
-    { "waitFor": "issue355-f11-forwarded-1b5b32337e" },
-
-    { "waitFor": "F12 hide shell" },
-    { "key": "F12" },
-    { "waitForNot": "Agent Shell" },
-    { "waitFor": "Shell Agent" },
-    { "waitFor": "F10 resume shell" },
-    { "key": "Down" },
-    { "key": "Up" },
-
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "waitFor": "issue222-shell-ready" },
-    { "waitFor": "F10 close shell" },
-
-    { "key": "F10" },
-    { "waitForNot": "Agent Shell" },
-    { "waitFor": "Shell Agent" },
-    { "waitFor": "t/f12 terminal focus" },
-
-    { "key": "F10" },
-    { "waitFor": "Agent Shell" },
-    { "line": "printf 'issue361-new-shell-ready\n'" },
-    { "waitFor": "issue361-new-shell-ready" },
-    { "line": "exit" },
-    { "waitFor": "Shell Agent" },
-    { "waitForNot": "Agent Shell" },
-    { "waitFor": "t/f12 terminal focus" },
-
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "text",
+      "text": "Shell Repository"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "fixture-repo"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Shell Agent"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue222-agent-ready",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "f10",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 hide shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "text",
+      "text": "printf 'issue222-shell-ready\\n'\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue222-shell-ready",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "text",
+      "text": "stty -echo -icanon min 5 time 0; bytes=$(dd bs=5 count=1 2>/dev/null | od -An -tx1 | tr -d ' '); stty sane; printf 'issue355-f11-forwarded-%s\\n' \"$bytes\"\n"
+    },
+    {
+      "op": "key",
+      "key": "f11",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue355-f11-forwarded-1b5b32337e",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 hide shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Shell Agent",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F10 resume shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Agent Shell"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "up",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f10",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue222-shell-ready",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F10 close shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "f10",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Shell Agent",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Agent Shell"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "f10",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Shell",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "text",
+      "text": "printf 'issue361-new-shell-ready\n'\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue361-new-shell-ready",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "text",
+      "text": "exit\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Shell Agent",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Agent Shell"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "t/f12 terminal focus",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

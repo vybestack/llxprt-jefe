@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "config-path-precedence",
   "platform": "macos",
-  "terminal": { "cols": 100, "rows": 30 },
+  "terminal": { "cols": 100, "rows": 60 },
   "workspace": {
     "mode": 448,
     "dirs": [{ "path": "isolated", "mode": 448 }, { "path": "work", "mode": 448 }],

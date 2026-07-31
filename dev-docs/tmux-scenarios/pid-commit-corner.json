@@ -1,19 +1,83 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "pid-commit-corner",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "expect": "No terminal attached" },
-    { "expect": "pid:" },
-    { "capture": "pid-commit-corner" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "No terminal attached"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "pid:"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

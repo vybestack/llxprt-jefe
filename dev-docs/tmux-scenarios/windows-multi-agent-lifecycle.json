@@ -1,39 +1,186 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "windows-multi-agent-lifecycle",
+  "platform": "linux",
+  "terminal": {
     "cols": 130,
-    "rows": 40,
-    "history_limit": 4000,
-    "initial_wait_ms": 200,
-    "wait_timeout_ms": 15000,
-    "assert_mode": "strict"
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "waitFor": "LLxprt Ω One" },
-    { "expect": "Puppy Ω Two" },
-    { "expect": "LLxprt Three" },
-    { "expect": "Puppy Four" },
-    { "capture": "four-running-agents" },
-    { "key": "M-1" },
-    { "waitFor": "LLXPRT_ONE_READY" },
-    { "key": "M-2" },
-    { "waitFor": "PUPPY_TWO_READY" },
-    { "key": "M-3" },
-    { "waitFor": "LLXPRT_THREE_READY" },
-    { "key": "M-4" },
-    { "waitFor": "PUPPY_FOUR_READY" },
-    { "capture": "agent-switching" },
-    { "key": "C-k" },
-    { "waitFor": "Kill agent" },
-    { "key": "Tab" },
-    { "key": "Enter" },
-    { "waitForNot": "Kill agent" },
-    { "waitForNot": "Puppy Four" },
-    { "expect": "LLxprt Ω One" },
-    { "expect": "Puppy Ω Two" },
-    { "expect": "LLxprt Three" },
-    { "capture": "selected-agent-killed" },
-    { "key": "C-q" },
-    { "waitForExit": 5000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt \u03a9 One",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Puppy \u03a9 Two"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "LLxprt Three"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Puppy Four"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "1",
+      "modifiers": ["alt"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLXPRT_ONE_READY",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "2",
+      "modifiers": ["alt"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PUPPY_TWO_READY",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "3",
+      "modifiers": ["alt"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLXPRT_THREE_READY",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "4",
+      "modifiers": ["alt"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PUPPY_FOUR_READY",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "k",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Kill agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Kill agent"
+      ]
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Puppy Four"
+      ]
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "LLxprt \u03a9 One"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Puppy \u03a9 Two"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "LLxprt Three"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

@@ -638,7 +638,7 @@ impl AppState {
         let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
         if entries.is_empty() && !transient_available {
             self.issues_state.agent_chooser = None;
-            self.issues_state.draft_notice = Some("No agents available".to_string());
+            self.issues_state.draft_notice = Some(super::NO_AGENTS_AVAILABLE.to_owned());
         } else {
             self.issues_state.draft_notice = None;
             self.issues_state.agent_chooser = Some(AgentChooserState {

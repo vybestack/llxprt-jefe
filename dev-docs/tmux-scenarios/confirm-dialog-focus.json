@@ -1,37 +1,164 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "confirm-dialog-focus",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "Right" },
-    { "key": "D" },
-    { "waitFor": "Delete Agent" },
-    { "expect": "( Cancel )" },
-    { "capture": "confirm-default-cancel" },
-    { "key": "Right" },
-    { "expect": "( Confirm )" },
-    { "capture": "confirm-focus-confirm" },
-    { "key": "Left" },
-    { "expect": "( Cancel )" },
-    { "capture": "confirm-focus-back-to-cancel" },
-    { "key": "Enter" },
-    { "waitForNot": "Delete Agent" },
-    { "capture": "confirm-enter-cancel-dismisses" },
-    { "key": "Right" },
-    { "key": "D" },
-    { "waitFor": "Delete Agent" },
-    { "key": "Right" },
-    { "expect": "( Confirm )" },
-    { "key": "Enter" },
-    { "waitFor": "LLxprt Jefe" },
-    { "waitForNot": "Delete Agent" },
-    { "capture": "confirm-enter-confirm-deletes" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "right",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "d",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Delete Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Cancel )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "right",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Confirm )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "left",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Cancel )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Delete Agent"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "right",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "d",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Delete Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "right",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Confirm )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Delete Agent"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

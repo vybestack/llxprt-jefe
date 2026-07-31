@@ -60,6 +60,33 @@ positional shipped-definition authority in production code.
 [`tmux-harness.md`](../testing/tmux-harness.md) for the grammar, `HAR-E001` -
 `HAR-E007` diagnostics, exit codes, limits, containment, and redaction rules.
 
+### Action-registry acceptance
+
+**Inventory completeness is a gate, not a convention.** A generated golden
+enumerates every compiled `(context, chord, action, handler)` row, and the
+contract test fails in *both* directions: an inventory row whose handler is not
+reachable from production dispatch, and a production handler that appears in no
+inventory row. Adding a `HandlerKey` variant without an inventory row does not
+compile. Do not "fix" this gate by deleting a row — either the dispatch or the
+binding is genuinely missing, and one of them is the defect.
+
+**Platform translation is captured, not assumed.** Scenario evidence records the
+original platform event and the canonical chord as separate values, so a
+platform-specific normalization (for example Option arriving as Alt) is visible
+rather than inferred. Protected recovery is proven on both macOS and Linux.
+
+**Mouse and PTY parity are asserted separately from resolution.** Forwarded
+terminal input is asserted as exact PTY bytes taken from the encoder, never
+reconstructed from the chord text, which is what makes "registry migration did
+not turn forwarded input into an action" a testable claim. Mouse evidence
+records frame, cell, resolved hit identity, and emitted action ID so a click and
+a keyboard chord are provably the same action through the same availability and
+handler path.
+
+Availability assertions compare the reason string across dispatch, Help, footer,
+menu, and the Keys editor for byte equality; a stale completion must change
+nothing.
+
 ### Per-target test registration budget (issue #307)
 
 Clippy's `large_stack_arrays` lint builds a stack array of every test function
@@ -131,7 +158,8 @@ as production code (`unwrap_used`/`expect_used` are `warn` + `-D warnings`).
 | `theme/`      | Embedded theme loading, color parsing, hex edge cases, `ResolvedColors` fallbacks, `ThemeManager` set/cycle, external dir loading (empty, nonexistent). |
 | `runtime/`    | PTY session lifecycle, key-event-to-bytes encoding, mouse-event-to-bytes encoding, color resolution for named, indexed, spec colors, snapshot construction. |
 | `persistence/`| Atomic writes, schema/version validation, safe fallback on malformed/missing files, round-trip. |
-| Pure views    | `build_text_box_view`, `keybind_hints_for`, etc. — viewport windowing, caret placement, multibyte safety, zero-width edge cases (see [Architecture Standards](./architecture.md)). |
+| Pure views    | `build_text_box_view`, the action projections, etc. — viewport windowing, caret placement, multibyte safety, zero-width edge cases (see [Architecture Standards](./architecture.md)). |
+| Action registry | Chord grammar and bounds, context resolution order, conflict/protection rejection, availability projection equality, override round-trip, offline explain output and exit codes. |
 
 ### Integration Tests
 

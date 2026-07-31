@@ -1,44 +1,210 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "issue-dirty-copy-confirm",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "i" },
-    { "waitFor": "Issues" },
-    { "key": "Enter" },
-    { "waitFor": "Send to Agent" },
-    { "key": "Enter" },
-    { "waitFor": "Working Copy Not Ready" },
-    { "expect": "Delete the working copy and re-clone" },
-    { "expect": "( Cancel )" },
-    { "capture": "dirty-copy-default-cancel" },
-    { "key": "Enter" },
-    { "waitForNot": "Working Copy Not Ready" },
-    { "capture": "dirty-copy-enter-cancel-dismisses" },
-    { "key": "Enter" },
-    { "waitFor": "Send to Agent" },
-    { "key": "Enter" },
-    { "waitFor": "Working Copy Not Ready" },
-    { "expect": "( Cancel )" },
-    { "key": "Escape" },
-    { "waitForNot": "Working Copy Not Ready" },
-    { "key": "Enter" },
-    { "waitFor": "Send to Agent" },
-    { "key": "Enter" },
-    { "waitFor": "Working Copy Not Ready" },
-    { "key": "Right" },
-    { "expect": "( Confirm )" },
-    { "capture": "dirty-copy-focus-confirm" },
-    { "key": "Enter" },
-    { "waitForNot": "Working Copy Not Ready" },
-    { "capture": "dirty-copy-confirm-activated" },
-    { "key": "Escape" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Working Copy Not Ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Delete the working copy and re-clone"
+      ],
+      "absent": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Cancel )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Working Copy Not Ready"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Working Copy Not Ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Cancel )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Working Copy Not Ready"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Working Copy Not Ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "right",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "( Confirm )"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "Working Copy Not Ready"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

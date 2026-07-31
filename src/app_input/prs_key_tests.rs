@@ -105,19 +105,20 @@ fn prs_state_with_filter_open(field_index: usize) -> AppState {
 /// @pseudocode component-003 lines 01-09
 #[test]
 fn test_p_from_dashboard_emits_enter_prs_mode() {
-    // Entry routing lives in normal.rs resolve_mode_key (Dashboard-only 'p' arm).
-    // Exercise the real router so the assertion is grounded in production logic.
-    use super::super::normal::{KeyHandling, resolve_mode_key};
-    let lower = resolve_mode_key(&key(KeyCode::Char('p')), ScreenMode::Dashboard);
-    let upper = resolve_mode_key(&key(KeyCode::Char('P')), ScreenMode::Dashboard);
-    assert!(
-        matches!(lower, KeyHandling::Handled(Some(AppEvent::EnterPrsMode))),
-        "Dashboard 'p' must emit EnterPrsMode"
-    );
-    assert!(
-        matches!(upper, KeyHandling::Handled(Some(AppEvent::EnterPrsMode))),
-        "Dashboard 'P' must emit EnterPrsMode"
-    );
+    let state = AppState::default();
+    for event in [
+        key(KeyCode::Char('p')),
+        key_with_mods(KeyCode::Char('P'), KeyModifiers::SHIFT),
+    ] {
+        let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(&state, &event);
+        assert!(matches!(
+            resolved.resolution,
+            jefe::domain::action_registry::Resolution::Dispatch {
+                handler: jefe::domain::action_registry::HandlerKey::EnterPullRequests,
+                ..
+            }
+        ));
+    }
 }
 
 /// `p` is ignored when NOT in Dashboard (REQ-PR-001 no re-entry from elsewhere).
@@ -149,15 +150,14 @@ fn test_p_in_prs_mode_refocuses_pr_list() {
     assert!(matches!(event, Some(AppEvent::RefocusPrList)));
 }
 
-/// `p` in PR mode yields RefocusPrList — proving the dashboard-prs intercept
-/// consumes 'p' before resolve_mode_key can re-enter (ordering proof).
+/// `p` remains owned by PR mode after the registry's pre-mode-only fallthrough.
 ///
 /// @plan PLAN-20260624-PR-MODE.P10
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
 /// @pseudocode component-003 lines 05-09,18
 #[test]
-fn test_handle_dashboard_prs_key_runs_before_resolve_mode_key() {
+fn test_pr_mode_owns_p_after_registry_fallthrough() {
     let state = prs_base_state();
     // Capital P must also refocus (not re-enter).
     let lower = resolve_prs_key_event(&state, &key(KeyCode::Char('p')));

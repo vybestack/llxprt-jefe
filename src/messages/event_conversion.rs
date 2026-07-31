@@ -56,6 +56,8 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::HideShellOverlay
             | AppEvent::ResumeShellOverlay(_) => Self::from_split_grab_or_scroll_event(event),
             AppEvent::OpenHelp
+            | AppEvent::OpenKeys { .. }
+            | AppEvent::Keys(_)
             | AppEvent::OpenSearch
             | AppEvent::CloseModal
             | AppEvent::SubmitForm
@@ -126,6 +128,8 @@ impl AppMessage {
     fn from_modal_event(event: AppEvent) -> Self {
         match event {
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
+            AppEvent::OpenKeys { recovery } => Self::Modal(ModalMessage::OpenKeys { recovery }),
+            AppEvent::Keys(message) => Self::Modal(ModalMessage::Keys(message)),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
             AppEvent::SubmitForm => Self::Modal(ModalMessage::SubmitForm),
@@ -267,6 +271,9 @@ impl AppMessage {
             }
             AppEvent::ProbeAgentAvailability(probes) => {
                 Self::RepositoryAgent(RepositoryAgentMessage::ProbeAgentAvailability(probes))
+            }
+            AppEvent::ProjectActionAvailability => {
+                Self::RepositoryAgent(RepositoryAgentMessage::ProjectActionAvailability)
             }
             other => Self::from_issues_event(other),
         }
@@ -658,6 +665,8 @@ impl From<ModalMessage> for AppEvent {
     fn from(message: ModalMessage) -> Self {
         match message {
             ModalMessage::OpenHelp => Self::OpenHelp,
+            ModalMessage::OpenKeys { recovery } => Self::OpenKeys { recovery },
+            ModalMessage::Keys(message) => Self::Keys(message),
             ModalMessage::OpenSearch => Self::OpenSearch,
             ModalMessage::CloseModal => Self::CloseModal,
             ModalMessage::SubmitForm => Self::SubmitForm,
@@ -690,6 +699,7 @@ impl From<RepositoryAgentMessage> for AppEvent {
             RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
                 Self::ProbeAgentAvailability(probes)
             }
+            RepositoryAgentMessage::ProjectActionAvailability => Self::ProjectActionAvailability,
         }
     }
 }

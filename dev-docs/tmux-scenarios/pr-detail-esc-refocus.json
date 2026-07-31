@@ -1,27 +1,108 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "pr-detail-esc-refocus",
+  "platform": "macos",
+  "terminal": {
     "cols": 120,
-    "rows": 36,
-    "history_limit": 4000,
-    "initial_wait_ms": 100,
-    "assert_mode": "strict"
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "p" },
-    { "waitFor": "Pull Requests" },
-    { "key": "Tab" },
-    { "key": "Tab" },
-    { "capture": "pr-detail-focused" },
-    { "key": "Escape" },
-    { "wait": 200 },
-    { "expect": "Pull Requests" },
-    { "capture": "after-esc-still-in-pr-mode" },
-    { "key": "Escape" },
-    { "key": "Escape" },
-    { "waitFor": "No terminal attached" },
-    { "capture": "after-esc-esc-back-to-dashboard" },
-    { "key": "C-q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Pull Requests",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Pull Requests"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No terminal attached",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

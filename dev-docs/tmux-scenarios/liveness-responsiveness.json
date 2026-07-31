@@ -1,25 +1,89 @@
 {
-  "config": {
+  "schema": 1,
+  "name": "liveness-responsiveness",
+  "platform": "macos",
+  "terminal": {
     "cols": 100,
-    "rows": 32,
-    "history_limit": 2000,
-    "initial_wait_ms": 100,
-    "assert_mode": "soft"
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
   },
   "steps": [
-    { "waitFor": "LLxprt Jefe" },
-    { "key": "Down" },
-    { "wait": 200 },
-    { "key": "Down" },
-    { "wait": 200 },
-    { "key": "F12" },
-    { "wait": 200 },
-    { "key": "F12" },
-    { "wait": 200 },
-    { "capture": "after-navigation" },
-    { "key": "q" },
-    { "key": "q" },
-    { "key": "q" },
-    { "waitForExit": 3000 }
-  ]
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
 }

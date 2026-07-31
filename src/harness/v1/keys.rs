@@ -68,6 +68,9 @@ fn encode_named(key: &str) -> Option<Vec<u8>> {
     let bytes: &[u8] = match key {
         "enter" => b"\r",
         "tab" => b"\t",
+        // Back-tab is its own key (crossterm `KeyCode::BackTab`), not a
+        // shifted `tab`: terminals send CSI Z for it.
+        "backtab" => b"\x1b[Z",
         "escape" => b"\x1b",
         "backspace" => b"\x7f",
         "space" => b" ",
