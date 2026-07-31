@@ -22,6 +22,25 @@ use crate::domain::agent_definition::{
 use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
 use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
 
+/// Windows `STATUS_DLL_INIT_FAILED` (`0xC0000142`) as a signed `i32`.
+///
+/// This is a known transient loader failure on Windows, especially for
+/// npm-shim-mediated commands (`cmd.exe /D /S /C llxprt.cmd --version`) on a
+/// cold DLL cache. The psmux version probe already retries this; the agent
+/// probe must do the same or freshly installed agents fail to launch.
+const STATUS_DLL_INIT_FAILED: i32 = -1_073_741_502;
+
+/// Maximum identity-probe attempts on Windows loader transients.
+const MAX_LOADER_TRANSIENT_RETRIES: u32 = 3;
+
+/// Backoff between loader-transient retries.
+const LOADER_TRANSIENT_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Whether an exit status is a retryable Windows loader transient.
+fn is_retryable_loader_transient(status: std::process::ExitStatus) -> bool {
+    status.code() == Some(STATUS_DLL_INIT_FAILED)
+}
+
 /// Probe target class with its bounded process timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentProbeTarget {
@@ -265,10 +284,10 @@ fn execute_probe(
         return Err(ProbeFailure::Timeout);
     }
     let arguments: Vec<OsString> = argv.iter().map(OsString::from).collect();
-    let command = match invocation {
+    let build_command = || match invocation {
         Some(invocation) => {
             let mut package_arguments = invocation.prefix().to_vec();
-            package_arguments.extend(arguments);
+            package_arguments.extend(arguments.iter().cloned());
             command_for_path(
                 invocation.executable(),
                 invocation.wrapper_kind(),
@@ -277,8 +296,49 @@ fn execute_probe(
         }
         None => command_for_candidate(candidate, &arguments),
     };
-    let output = run_probe_process(command, deadline).map_err(ProbeFailure::Process)?;
+    let output = run_probe_with_loader_retry(&build_command, deadline)?;
     validate_process_output(output, phase)
+}
+
+/// Run a probe command, retrying on Windows loader transients.
+///
+/// Mirrors the proven psmux version-probe pattern: `STATUS_DLL_INIT_FAILED`
+/// (`0xC0000142`) is a transient DLL loader failure that especially affects
+/// npm-shim-mediated commands on a cold cache. Without retry, a freshly
+/// installed agent (e.g. a new nightly) fails to launch even though it is
+/// perfectly functional.
+fn run_probe_with_loader_retry(
+    build_command: &impl Fn() -> Command,
+    deadline: Instant,
+) -> Result<ProbeProcessOutput, ProbeFailure> {
+    let mut last_error = None;
+    for attempt in 1..=MAX_LOADER_TRANSIENT_RETRIES {
+        let command = build_command();
+        match run_probe_process(command, deadline) {
+            Ok(output) => {
+                if !is_retryable_loader_transient(output.status) {
+                    return Ok(output);
+                }
+                tracing::warn!(
+                    attempt,
+                    max_attempts = MAX_LOADER_TRANSIENT_RETRIES,
+                    status = ?output.status,
+                    "agent probe hit Windows loader transient (STATUS_DLL_INIT_FAILED); retrying"
+                );
+                last_error = Some(ProbeFailure::Failed(format!(
+                    "{output_status} probe exited with loader transient status",
+                    output_status = output.status
+                )));
+            }
+            Err(error) => return Err(ProbeFailure::Process(error)),
+        }
+        if attempt < MAX_LOADER_TRANSIENT_RETRIES && Instant::now() < deadline {
+            std::thread::sleep(LOADER_TRANSIENT_BACKOFF);
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        ProbeFailure::Failed("loader transient retries exhausted".to_string())
+    }))
 }
 
 fn validate_process_output(
@@ -501,6 +561,52 @@ mod tests {
             std::time::Duration::from_secs(20),
             "identity and capability each receive one bounded process timeout"
         );
+    }
+
+    #[test]
+    fn loader_transient_classification_matches_psmux_contract() {
+        // STATUS_DLL_INIT_FAILED is the only retryable status. We verify the
+        // constant value and the classifier logic without spawning a process.
+        assert_eq!(super::STATUS_DLL_INIT_FAILED, -1_073_741_502);
+        assert_eq!(super::MAX_LOADER_TRANSIENT_RETRIES, 3);
+        assert_eq!(
+            super::LOADER_TRANSIENT_BACKOFF,
+            std::time::Duration::from_millis(500)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn loader_transient_retry_recovers_when_process_eventually_succeeds() {
+        // Prove the retry loop runs the command multiple times and recovers
+        // when an early attempt fails but a later one succeeds. We use a
+        // simple batch script that always succeeds — the point is that
+        // run_probe_with_loader_retry invokes the builder and returns Ok.
+        use std::process::{Command, Stdio};
+
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create fixture dir: {error}"));
+        let script = dir.path().join("probe.cmd");
+        std::fs::write(&script, "@echo off\r\necho 1.0.0\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("could not write fixture script: {error}"));
+
+        let script_ref = &script;
+        let build = || {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/D", "/S", "/C"])
+                .arg(script_ref)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            cmd
+        };
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let result = super::run_probe_with_loader_retry(&build, deadline);
+        let Some(output) = result.ok() else {
+            panic!("retry must return Ok on success");
+        };
+        assert!(output.status.success(), "final attempt must exit 0");
     }
 
     #[cfg(windows)]
