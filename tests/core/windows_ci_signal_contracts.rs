@@ -189,6 +189,31 @@ fn windows_native_completion_gate_rejects_skipped_native_steps() {
     );
 }
 
+/// A7: Windows-only paths had no coverage enforcement at all, because the
+/// coverage gate runs Ubuntu-only and those modules are compiled out there.
+#[test]
+fn ci_enforces_windows_only_module_coverage_floors() {
+    let workflow = read_repo_text(CI_WORKFLOW);
+    assert!(
+        workflow.contains("  windows_coverage:"),
+        "a Windows coverage job must exist; the Ubuntu coverage gate cannot \
+         observe modules that are compiled out on Ubuntu"
+    );
+    let job = job_body(&workflow, "windows_coverage");
+    assert!(
+        job.contains("windows-latest"),
+        "the coverage floors must be measured on a Windows runner"
+    );
+    assert!(
+        job.contains("cargo xtask coverage-windows"),
+        "the Windows coverage job must run the per-module floor gate"
+    );
+    assert!(
+        !job.contains("continue-on-error"),
+        "the Windows coverage gate must be able to fail the build"
+    );
+}
+
 /// A9: intermittent failures must be attributable rather than argued about,
 /// which requires a scheduled run on main producing a retrievable record.
 #[test]

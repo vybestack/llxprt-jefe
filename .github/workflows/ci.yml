@@ -174,6 +174,39 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  windows_coverage:
+    name: Windows coverage floors
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          target: x86_64-pc-windows-msvc
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-targets: false
+          shared-key: windows-msvc-coverage
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      # The workspace coverage gate runs on Ubuntu, where every Windows-only
+      # module is compiled out. This enforces a floor per Windows-only module
+      # so a regression names the module instead of moving an average that
+      # Windows-only code cannot move.
+      - name: Enforce Windows-only module coverage floors
+        shell: pwsh
+        run: cargo xtask coverage-windows
+      - name: Upload Windows coverage tracefile
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-coverage-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+          path: target/windows-coverage.lcov
+          if-no-files-found: warn
+
   windows_native:
     name: Native Windows (MSVC + psmux)
     runs-on: windows-latest
@@ -492,7 +525,14 @@ jobs:
   flake_baseline:
     name: Main flake baseline record
     runs-on: ubuntu-latest
-    needs: [test, windows_clippy, windows_native, windows_native_complete]
+    needs:
+      [
+        test,
+        windows_clippy,
+        windows_coverage,
+        windows_native,
+        windows_native_complete,
+      ]
     if: ${{ always() && github.event_name == 'schedule' }}
     permissions:
       contents: read
@@ -513,6 +553,7 @@ jobs:
             "results": {
               "test": "${{ needs.test.result }}",
               "windows_clippy": "${{ needs.windows_clippy.result }}",
+              "windows_coverage": "${{ needs.windows_coverage.result }}",
               "windows_native": "${{ needs.windows_native.result }}",
               "windows_native_complete": "${{ needs.windows_native_complete.result }}"
             }
