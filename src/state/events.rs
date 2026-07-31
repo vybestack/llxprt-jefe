@@ -93,14 +93,7 @@ pub enum AppEvent {
     /// if any step fails rather than silently dropping the agent (issue #117).
     RestartAgent(crate::domain::AgentId),
     AgentStatusChanged(crate::domain::AgentId, crate::domain::AgentStatus),
-    /// Runtime-only payload-preserving JSP observation update.
-    ObservationUpdated(
-        crate::domain::AgentId,
-        u64,
-        Box<crate::domain::observation::AgentObservation>,
-    ),
-    /// Clear one agent's runtime-only JSP observation.
-    ObservationCleared(crate::domain::AgentId, u64),
+    Observation(super::observation_events::ObservationEvent),
 
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),

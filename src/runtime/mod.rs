@@ -41,11 +41,13 @@ mod identity;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
+mod jsp_launch;
 pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod llxprt_install;
 mod manager;
+mod manager_liveness;
 mod manager_passthrough;
 mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).

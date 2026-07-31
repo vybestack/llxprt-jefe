@@ -10,9 +10,10 @@ use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::agent_definition::AgentLaunchPlan;
-use crate::domain::{AgentId, AgentLaunchRequest, RemoteRepositorySettings};
-use crate::jsp_host::{JspLaunchCoordinator, PreparedJspLaunch};
+use crate::domain::{AgentId, RemoteRepositorySettings};
+use crate::jsp_host::JspLaunchCoordinator;
 use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
+use crate::runtime::jsp_launch;
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -383,99 +384,8 @@ impl TmuxRuntimeManager {
         self.lifecycle_counter.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    fn prepare_jsp_launch(
-        &self,
-        agent_id: &AgentId,
-        launch: &AuthorizedLaunchPlan,
-        remote: Option<&RemoteRepositorySettings>,
-        allow_reattach: bool,
-        generation: u64,
-    ) -> Result<(AuthorizedLaunchPlan, Option<PreparedJspLaunch>), RuntimeError> {
-        tracing::debug!(
-            agent_id = %agent_id.0,
-            generation,
-            type_id = %launch.plan().type_id,
-            remote = remote.is_some(),
-            allow_reattach,
-            jsp_installed = self.jsp_launches.is_some(),
-            "preparing JSP launch instrumentation"
-        );
-        if allow_reattach
-            && Self::session_alive_for_remote(agent_id, remote) == liveness::SessionLiveness::Alive
-        {
-            return Ok((launch.clone(), None));
-        }
-        let Some(coordinator) = &self.jsp_launches else {
-            return Ok((launch.clone(), None));
-        };
-        let prepared = coordinator
-            .prepare_launch(agent_id, generation, launch.plan())
-            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
-        let Some(prepared) = prepared else {
-            tracing::debug!(agent_id = %agent_id.0, "launch does not support JSP instrumentation");
-            return Ok((launch.clone(), None));
-        };
-        tracing::debug!(agent_id = %agent_id.0, generation, "prepared JSP bootstrap");
-        let instrumented = launch
-            .with_jsp_bootstrap(prepared.bootstrap_path(), &ProcessSandboxInspector::new())
-            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
-        Ok((instrumented, Some(prepared)))
-    }
-
-    /// Collect liveness check metadata for all tracked sessions.
-    ///
-    /// The caller can drop the runtime lock before performing the actual
-    /// (potentially blocking) liveness checks, preventing SSH round-trips
-    /// from stalling the input/render loop.
-    #[must_use]
-    pub fn liveness_targets(&self) -> Vec<LivenessCheck> {
-        self.sessions
-            .iter()
-            .map(|(agent_id, session)| LivenessCheck {
-                agent_id: agent_id.clone(),
-                session_name: session.session_name.clone(),
-                remote: session.remote.clone(),
-                binding_session_name: Some(session.session_name.clone()),
-                lifecycle_generation: session.lifecycle_generation,
-            })
-            .collect()
-    }
-
-    /// Check whether a session exists using explicit launch-signature context.
-    #[must_use]
-    pub fn session_exists_for_signature(
-        &self,
-        agent_id: &AgentId,
-        signature: &AgentLaunchRequest,
-    ) -> bool {
-        self.session_liveness_for_signature(agent_id, signature) == liveness::SessionLiveness::Alive
-    }
-
-    /// Probe a persisted session without collapsing infrastructure failures into absence.
-    #[must_use]
-    pub fn session_liveness_for_signature(
-        &self,
-        agent_id: &AgentId,
-        signature: &AgentLaunchRequest,
-    ) -> liveness::SessionLiveness {
-        let session_name = RuntimeSession::session_name_for(agent_id);
-        if signature.remote.enabled {
-            match commands::remote_session_exists(&signature.remote, &session_name) {
-                Ok(true) => liveness::SessionLiveness::Alive,
-                Ok(false) => liveness::SessionLiveness::Missing,
-                Err(_) => liveness::SessionLiveness::Unavailable,
-            }
-        } else {
-            liveness::session_liveness(&session_name)
-        }
-    }
-
     pub fn mark_session_dead(&mut self, agent_id: &AgentId) -> bool {
-        if let Some(coordinator) = &self.jsp_launches
-            && let Err(error) = coordinator.revoke(agent_id)
-        {
-            debug!(agent_id = %agent_id.0, error = %error, "JSP lifecycle cleanup failed");
-        }
+        jsp_launch::revoke(self.jsp_launches.as_ref(), agent_id);
         let Some(session) = self.sessions.remove(agent_id) else {
             return false;
         };
@@ -564,22 +474,6 @@ impl TmuxRuntimeManager {
     }
 
     /// Probe whether a session is alive using the optional remote transport.
-    fn session_alive_for_remote(
-        agent_id: &AgentId,
-        remote: Option<&RemoteRepositorySettings>,
-    ) -> liveness::SessionLiveness {
-        let session_name = RuntimeSession::session_name_for(agent_id);
-        if let Some(remote) = remote {
-            match commands::remote_session_exists(remote, &session_name) {
-                Ok(true) => liveness::SessionLiveness::Alive,
-                Ok(false) => liveness::SessionLiveness::Missing,
-                Err(_) => liveness::SessionLiveness::Unavailable,
-            }
-        } else {
-            liveness::session_liveness(&session_name)
-        }
-    }
-
     fn create_or_reattach_after_probe(
         agent_id: &AgentId,
         plan: &AgentLaunchPlan,
@@ -718,8 +612,16 @@ impl RuntimeManager for TmuxRuntimeManager {
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
         let generation = self.next_lifecycle_generation();
-        let (launch, jsp_launch) =
-            self.prepare_jsp_launch(agent_id, launch, remote, true, generation)?;
+        let reattaching =
+            Self::session_alive_for_remote(agent_id, remote) == liveness::SessionLiveness::Alive;
+        let (launch, jsp_launch) = jsp_launch::prepare(
+            self.jsp_launches.as_ref(),
+            agent_id,
+            launch,
+            remote,
+            reattaching,
+            generation,
+        )?;
         let cleared = launch
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
@@ -745,8 +647,14 @@ impl RuntimeManager for TmuxRuntimeManager {
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
         let generation = self.next_lifecycle_generation();
-        let (launch, jsp_launch) =
-            self.prepare_jsp_launch(agent_id, launch, remote, false, generation)?;
+        let (launch, jsp_launch) = jsp_launch::prepare(
+            self.jsp_launches.as_ref(),
+            agent_id,
+            launch,
+            remote,
+            false,
+            generation,
+        )?;
         let cleared = launch
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
@@ -861,11 +769,7 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
         info!(agent_id = %agent_id.0, "killing runtime session");
-        if let Some(coordinator) = &self.jsp_launches
-            && let Err(error) = coordinator.revoke(agent_id)
-        {
-            debug!(agent_id = %agent_id.0, error = %error, "JSP lifecycle cleanup failed");
-        }
+        jsp_launch::revoke(self.jsp_launches.as_ref(), agent_id);
         let session = self
             .sessions
             .remove(agent_id)
