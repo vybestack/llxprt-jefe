@@ -231,6 +231,19 @@ tool turns, and commit a reply before the assertion can hold. An under-sized
 wait surfaces as `Status: Stale` with `(no tasks)` — an observation-health
 timeout, not a protocol failure.
 
+Two operational notes for anyone reproducing this:
+
+- The scenarios drive the New Agent form by a fixed number of `tab` steps, so
+  adding or removing a form field invalidates them. The symptom is a timeout
+  waiting for `> [Create enabled]` while the cursor rests on the last field.
+- Immediately after a dependency install or a full TypeScript rebuild, the
+  first native run can exceed the 30000 ms ceiling because the runtime
+  re-transpiles the whole workspace on that first start. This presents as
+  `Status: Stale` and clears once the cache is warm. It is a harness ceiling,
+  not a producer defect: the producer's registration was confirmed
+  independently against a raw listener on both the interactive and
+  non-interactive paths.
+
 
 ### Scope review
 - Every changed path maps to the accepted Jefe host, lifecycle, reducer/state, Preview, protocol, test, plan, or harness behavior.
