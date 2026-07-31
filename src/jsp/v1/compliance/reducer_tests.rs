@@ -578,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn turn_ended_matches_idle_no_turn_snapshot_state() {
+    fn turn_ended_clears_turn_without_synthesizing_activity() {
         let identity = id("a", 1, "e");
         let mut events = ReferenceReducer::new();
         let mut acting = minimal_snapshot(identity.clone(), 0);
@@ -605,9 +605,19 @@ mod tests {
             },
         );
 
+        // Ending a turn clears the turn and nothing else. Activity is
+        // authoritative from the producer, so it must still read Acting until
+        // the producer itself reports otherwise; inferring idle here would
+        // report a state the source never claimed.
         let mut equivalent = minimal_snapshot(identity, 0);
         equivalent.cursor = 1;
         equivalent.current_turn = FieldState::known(Provenance::Authoritative, None);
+        equivalent.native_activity = FieldState::known(
+            Provenance::Authoritative,
+            NativeActivityValue {
+                state: NativeActivityState::Acting,
+            },
+        );
         let mut snapshot = ReferenceReducer::new();
         snapshot.apply_snapshot(&equivalent);
         assert_eq!(
@@ -615,6 +625,15 @@ mod tests {
             snapshot.observation().activity
         );
         assert_eq!(events.observation().turn, snapshot.observation().turn);
+        assert_eq!(
+            events.observation().activity,
+            FieldState::known(
+                Provenance::Authoritative,
+                NativeActivityValue {
+                    state: NativeActivityState::Acting,
+                },
+            )
+        );
     }
 
     #[test]

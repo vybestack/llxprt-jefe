@@ -643,8 +643,11 @@ impl ReferenceReducer {
             crate::domain::observation::TurnOutcome::Failed => TurnOutcomeProjection::Failed,
             crate::domain::observation::TurnOutcome::Cancelled => TurnOutcomeProjection::Cancelled,
         });
+        // Activity is authoritative from the producer and must not be inferred
+        // from the turn ending. A producer that goes idle sends its own
+        // `activity.changed`; synthesizing one here would report activity the
+        // source never claimed.
         self.state.observation.turn = FieldState::known(Provenance::Authoritative, None);
-        self.apply_activity_changed(NativeActivityState::Idle);
     }
 
     /// Apply a full todo replacement with the strictly-increasing revision

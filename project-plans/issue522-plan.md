@@ -154,6 +154,13 @@ Addressed:
   value.
 - `TempDir` guard retained so the JSP runtime directory is reclaimed.
 
+- Reducer activity synthesis. `apply_turn_ended` inferred an idle activity when
+  a turn ended. That contradicts current-state semantics, where activity is
+  authoritative from the producer, and compliance scenario S6 fails against it.
+  The synthesis was also unnecessary: the native producer emits its own
+  `activity.changed`, and the native proof still renders `Status: Ready` with it
+  removed. The unit test that encoded the wrong behavior was rewritten.
+
 Dismissed with reason:
 
 - "Remove the duplicated `prepare_current` call." The first preflight runs
