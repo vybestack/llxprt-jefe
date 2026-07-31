@@ -378,6 +378,57 @@ fn signal_exit_is_a_probe_error() {
     signaled.marker("identity.signal");
     assert_probe_error(&signaled.run(10), "signal");
 }
+
+#[cfg(unix)]
+#[test]
+fn trusted_probe_runs_only_version_and_reports_authored_capabilities() {
+    // A trusted capability probe must skip the `--help` subprocess entirely
+    // and report every authored token as present (issue #534).
+    let mut definition = shipped("core.llxprt");
+    let probe = definition
+        .probe
+        .capabilities
+        .as_mut()
+        .value_or_panic("LLxprt must have a capability probe");
+    assert!(
+        probe.trusted,
+        "LLxprt shipped definition must mark its capability probe trusted"
+    );
+    // Give the fake installation a help file that would FAIL capability
+    // verification (empty help) — a trusted probe must not read it.
+    let install = FakeInstallation::with_streams(definition, b"0.10.0\n", b"", b"", b"");
+    let result = install.run(5);
+    match result.availability() {
+        Availability::InstalledCompatible {
+            identity,
+            capabilities,
+            generation,
+        } => {
+            assert!(!identity.is_empty(), "identity must be recognized");
+            assert_eq!(*generation, 5);
+            // Capabilities must be exactly the authored token ids, sorted.
+            let probe = install
+                .definition
+                .probe
+                .capabilities
+                .as_ref()
+                .value_or_panic("capability probe");
+            assert_eq!(
+                *capabilities,
+                probe.authored_capability_ids(),
+                "trusted probe must report authored token ids as present"
+            );
+        }
+        other => panic!("trusted probe must be compatible, got {other:?}"),
+    }
+    // The single most important assertion: only `--version` was invoked.
+    assert_eq!(
+        install.invocations(),
+        ["--version"],
+        "trusted probe must never spawn --help"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn truncation_invalid_utf8_and_overlong_line_are_probe_errors() {

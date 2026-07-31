@@ -285,7 +285,7 @@ fn assert_remote_fixed_vectors(
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "ab45c0e7fbc04d3f287a73725089c0ba67c1d6a970c657d2c1fc04e731ac97ee"
+        "d09d5816c4c8a086d77b3697a1ab2813abbc7ca3088f213020ac3edf44e8aa54"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),

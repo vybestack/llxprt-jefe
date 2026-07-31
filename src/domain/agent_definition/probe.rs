@@ -243,6 +243,14 @@ impl CapabilityToken {
 ///
 /// The probe does not discover mappings; every token here is authored by the
 /// definition and must occur in the fixture help output (provenance gate).
+///
+/// When `trusted` is `true`, the runtime probe skips the `--help` subprocess
+/// and reports every authored token as present. This is used for agents whose
+/// every shipped release is known to support all authored arguments (e.g.
+/// LLxprt), where the `--help` gate adds launch fragility (especially on
+/// Windows) without rejecting any genuinely incompatible installation. The
+/// authored tokens remain the authority for argv composition regardless of
+/// this flag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilityProbe {
     /// Probe argv (1..=8 elements).
@@ -256,6 +264,9 @@ pub struct CapabilityProbe {
     /// Authored capability tokens (0..=32).
     #[serde(default)]
     pub tokens: Vec<CapabilityToken>,
+    /// When true, trust the authored tokens without running `--help`.
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 impl CapabilityProbe {
@@ -289,6 +300,17 @@ impl CapabilityProbe {
             .find(|t| t.id == id)
             .map(|t| t.token.as_str())
     }
+
+    /// Return the sorted authored capability ids, matching the `present` list
+    /// that `evaluate_capabilities` would produce if every token were found.
+    ///
+    /// Used by trusted probes to report capabilities without running `--help`.
+    #[must_use]
+    pub fn authored_capability_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.tokens.iter().map(|t| t.id.clone()).collect();
+        ids.sort();
+        ids
+    }
 }
 
 impl Default for CapabilityProbe {
@@ -298,6 +320,7 @@ impl Default for CapabilityProbe {
             stream: ProbeStream::Stdout,
             normalize: super::normalize::Normalize::None,
             tokens: Vec::new(),
+            trusted: false,
         }
     }
 }

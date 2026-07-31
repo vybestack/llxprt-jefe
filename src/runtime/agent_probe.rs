@@ -208,6 +208,17 @@ fn run_capabilities(
     let Some(probe) = &definition.probe.capabilities else {
         return compatible(identity, Vec::new(), generation);
     };
+    // A trusted capability probe skips the `--help` subprocess entirely and
+    // reports every authored token as present (issue #534). This eliminates
+    // the dominant source of Windows launch failures for agents whose every
+    // release supports all authored arguments.
+    if probe.trusted {
+        let capabilities = probe.authored_capability_ids();
+        if fingerprint_changed(candidate) {
+            return stale_error(generation);
+        }
+        return compatible(identity, capabilities, generation);
+    }
     let evaluation =
         match execute_capability_probe(definition, candidate, invocation, probe, deadline) {
             Ok(evaluation) => evaluation,

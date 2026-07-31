@@ -261,6 +261,15 @@ fn probe_capabilities(
             generation,
         });
     };
+    // A trusted capability probe skips the remote `--help` subprocess and
+    // reports every authored token as present (issue #534).
+    if probe.trusted {
+        return Ok(Availability::InstalledCompatible {
+            identity,
+            capabilities: probe.authored_capability_ids(),
+            generation,
+        });
+    }
     let bytes = run_probe_command(settings, candidate, &probe.argv, probe.stream)?;
     let evaluation = parse_capabilities(
         &bytes,
