@@ -2,7 +2,7 @@
   "schema": 1,
   "name": "config-provider-free",
   "platform": "macos",
-  "terminal": { "cols": 100, "rows": 60 },
+  "terminal": { "cols": 100, "rows": 30 },
   "workspace": {
     "mode": 448,
     "dirs": [{ "path": "isolated", "mode": 448 }, { "path": "work", "mode": 448 }],
@@ -32,7 +32,7 @@
     {
       "op": "wait",
       "source": "stdout",
-      "literal": "settings.toml",
+      "literal": "themes",
       "timeout_ms": 15000
     },
     {
