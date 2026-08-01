@@ -26,6 +26,7 @@ impl TmuxRuntimeManager {
                 remote: session.remote.clone(),
                 binding_session_name: Some(session.session_name.clone()),
                 lifecycle_generation: session.lifecycle_generation,
+                worker_identities: session.worker_identities.clone(),
             })
             .collect()
     }

@@ -245,6 +245,7 @@ fn issue_list_lines_match_rendered_projection_with_prefix() {
         body: String::new(),
         state_reason: None,
         priority: None,
+        linked_pr_numbers: Vec::new(),
     });
     state.issues_state.list.set_selected_index(Some(0));
     let content = pane_content_lines(SelectablePane::IssueList, &state, None, &[], 120, 40);

@@ -155,8 +155,13 @@ fn leader_termination_and_reap_remove_only_target_session() -> Result<(), Regres
     launch_fixture(&mut namespace, bystander, &work_dir, &marker_path);
 
     let marker = wait_for_marker(&marker_path).map_err(|e| fail("orphan marker written", e))?;
-    let orphan_identity = jefe::runtime::capture_process_identity(marker.pid)
-        .map_err(|e| fail("orphan child alive for identity capture", e))?;
+    // The marker process is the worker spawned *below* the pane leader, so it is
+    // a worker-role anchor — the pane leader killed below is a different process
+    // entirely (issue #543).
+    let orphan_identity = jefe::domain::WorkerProcessIdentity::from_identity(
+        jefe::runtime::capture_process_identity(marker.pid)
+            .map_err(|e| fail("orphan child alive for identity capture", e))?,
+    );
 
     assert!(process_alive(marker.pid), "orphan child alive before reap");
     assert!(namespace.session_exists(session));
@@ -179,8 +184,10 @@ fn leader_termination_and_reap_remove_only_target_session() -> Result<(), Regres
     Ok(())
 }
 
-fn reap_surviving_orphan(identity: jefe::domain::ProcessIdentity) -> Result<(), RegressionFailure> {
-    if !process_alive(identity.pid) {
+fn reap_surviving_orphan(
+    identity: jefe::domain::WorkerProcessIdentity,
+) -> Result<(), RegressionFailure> {
+    if !process_alive(identity.pid()) {
         return Ok(());
     }
     let observed = vec![jefe::runtime::ObservedDescendant::alive(identity)];
@@ -191,7 +198,7 @@ fn reap_surviving_orphan(identity: jefe::domain::ProcessIdentity) -> Result<(), 
     );
     match jefe::runtime::reap_orphan_tree(&[identity]) {
         Ok(_) => Ok(()),
-        Err(_) if !process_alive(identity.pid) => Ok(()),
+        Err(_) if !process_alive(identity.pid()) => Ok(()),
         Err(error) => Err(fail("reap of a surviving validated orphan failed", error)),
     }
 }

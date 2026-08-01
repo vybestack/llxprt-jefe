@@ -397,13 +397,20 @@ fn local_launch_command(
         .iter()
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect();
+    // Issue #543: the host records the worker it spawns here. Stale reports from
+    // a previous launch of the same session must not be mistaken for this one.
+    let worker_report = super::worker_report::report_path_for_session(session_name);
+    super::worker_report::remove_report(&worker_report);
     let pane_command = super::session_host::resolve_local_pane_command(
         &multiplexer,
-        (&plan.executable, plan.executable_wrapper),
-        &pane_args,
-        &environment,
+        &super::multiplexer::AgentPaneLaunch {
+            executable: (&plan.executable, plan.executable_wrapper),
+            args: &pane_args,
+            environment: &environment,
+            cwd: &plan.cwd,
+            worker_report: Some(worker_report.as_path()),
+        },
         session_host_root.map(|root| (root, session_name)),
-        &plan.cwd,
     )?;
     for argument in pane_command {
         command.arg(argument);

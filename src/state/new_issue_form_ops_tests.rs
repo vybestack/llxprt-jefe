@@ -264,6 +264,7 @@ fn new_issue_for_created_test(number: u64, title: &str, author: &str) -> crate::
         comment_count: 0,
         body: String::new(),
         priority: None,
+        linked_pr_numbers: Vec::new(),
         state_reason: None,
     }
 }

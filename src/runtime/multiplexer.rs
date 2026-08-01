@@ -130,6 +130,27 @@ impl std::fmt::Display for MultiplexerVersion {
     }
 }
 
+/// Everything a pane needs in order to launch one agent.
+///
+/// These values are always supplied together and are individually ambiguous
+/// (several are paths), so they travel as one value rather than as a long
+/// positional parameter list.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentPaneLaunch<'a> {
+    /// The agent executable and the wrapper strategy required to run it.
+    pub executable: (&'a Path, AgentWrapperKind),
+    /// Arguments passed to the agent itself.
+    pub args: &'a [OsString],
+    /// Environment overrides applied to the agent.
+    pub environment: &'a [(OsString, OsString)],
+    /// Working directory the agent must start in (issue #530).
+    pub cwd: &'a Path,
+    /// Where the session host records the identity of the worker it spawns, so
+    /// jefe can tell the agent apart from the pane leader (issue #543). `None`
+    /// where the pane leader is itself the agent.
+    pub worker_report: Option<&'a Path>,
+}
+
 /// Pure, fully resolved local multiplexer command policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiplexerPlan {
@@ -209,34 +230,43 @@ impl MultiplexerPlan {
     }
 
     /// Build a pane command from a resolved agent's explicit wrapper strategy.
+    ///
+    /// Grouped so the agent's identity, its arguments and where its worker
+    /// identity is reported travel together rather than as parallel positional
+    /// parameters that are easy to transpose.
     pub fn agent_pane_command_args(
         &self,
-        executable: (&Path, AgentWrapperKind),
-        args: &[OsString],
-        environment: &[(OsString, OsString)],
-        cwd: &Path,
+        launch: &AgentPaneLaunch<'_>,
     ) -> Result<Vec<OsString>, MultiplexerError> {
         if self.platform == LocalPlatform::Unix {
-            return self.pane_command_args(executable.0.as_os_str(), args, environment);
+            return self.pane_command_args(
+                launch.executable.0.as_os_str(),
+                launch.args,
+                launch.environment,
+            );
         }
 
         let launcher =
             std::env::current_exe().map_err(|_| MultiplexerError::CurrentExecutableUnavailable)?;
-        self.agent_pane_command_args_with_launcher(executable, args, environment, &launcher, cwd)
+        self.agent_pane_command_args_with_launcher(launch, &launcher)
     }
 
     /// Build the Windows pane command with an explicit Jefe launcher path.
     #[doc(hidden)]
     pub fn agent_pane_command_args_with_launcher(
         &self,
-        executable: (&Path, AgentWrapperKind),
-        args: &[OsString],
-        environment: &[(OsString, OsString)],
+        launch: &AgentPaneLaunch<'_>,
         launcher: &Path,
-        cwd: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
-        let plan_path = write_launch_plan(executable.0, executable.1, args, environment, cwd)
-            .map_err(MultiplexerError::AgentLaunchPlan)?;
+        let plan_path = write_launch_plan(
+            launch.executable.0,
+            launch.executable.1,
+            launch.args,
+            launch.environment,
+            launch.cwd,
+            launch.worker_report,
+        )
+        .map_err(MultiplexerError::AgentLaunchPlan)?;
         self.pane_command_args(
             launcher.as_os_str(),
             &[
@@ -257,18 +287,15 @@ impl MultiplexerPlan {
     /// command construction.
     pub fn agent_pane_command_args_with_staged_host(
         &self,
-        executable: (&Path, AgentWrapperKind),
+        launch: &AgentPaneLaunch<'_>,
         staged_host: &Path,
-        args: &[OsString],
-        environment: &[(OsString, OsString)],
-        cwd: &Path,
     ) -> Result<Vec<OsString>, MultiplexerError> {
         if self.platform != LocalPlatform::Windows {
             return Err(MultiplexerError::InvalidIsolation {
                 platform: self.platform,
             });
         }
-        self.agent_pane_command_args_with_launcher(executable, args, environment, staged_host, cwd)
+        self.agent_pane_command_args_with_launcher(launch, staged_host)
     }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {

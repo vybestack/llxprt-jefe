@@ -246,11 +246,13 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Projected<Age
             launch_signature: record.launch_signature.clone(),
             attached: false,
             last_seen: None,
-            pid: None,
-            process_identity: None,
-            // The durable document records no process anchors (issue #332);
-            // startup reconciliation re-observes them, so restore leaves these
-            // empty exactly as it does for `pid` and `process_identity`.
+            // Each role is restored from its own recorded slot, so neither can
+            // be inferred from the other (issue #543). Reconciliation still
+            // re-observes liveness; these are anchors, not proof of life.
+            pane_identity: record.runtime.pane_identity,
+            worker_identity: record.runtime.worker_identity,
+            // The durable document records no descendant anchors (issue #332);
+            // startup reconciliation re-observes them.
             worker_identities: Vec::new(),
             lifecycle_generation: record.runtime.invocation_generation,
         });

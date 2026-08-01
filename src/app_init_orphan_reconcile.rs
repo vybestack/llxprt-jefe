@@ -4,7 +4,7 @@
 //! limit. Computes orphan evidence for startup classification and performs the
 //! best-effort reap of a dead-launcher orphan tree before Dead-marking.
 
-use jefe::domain::{Agent, ProcessIdentity};
+use jefe::domain::{Agent, WorkerProcessIdentity};
 
 use crate::app_init::SessionEvidence;
 
@@ -12,14 +12,14 @@ use crate::app_init::SessionEvidence;
 pub(super) fn orphan_evidence(
     session: SessionEvidence,
     remote: bool,
-    worker_identities: Option<&Vec<ProcessIdentity>>,
+    worker_identities: Option<&Vec<WorkerProcessIdentity>>,
 ) -> jefe::runtime::OrphanClassification {
     use jefe::runtime::{OrphanClassification as Oc, PaneLiveness};
 
     if remote {
         return Oc::NoOrphan;
     }
-    let identities: &[ProcessIdentity] = worker_identities.map_or(&[], Vec::as_slice);
+    let identities: &[WorkerProcessIdentity] = worker_identities.map_or(&[], Vec::as_slice);
     if identities.is_empty() {
         return Oc::NoOrphan;
     }

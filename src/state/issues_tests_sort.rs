@@ -29,6 +29,7 @@ fn make_issue(number: u64, created_at: &str, updated_at: &str) -> Issue {
         comment_count: 0,
         body: String::new(),
         priority: None,
+        linked_pr_numbers: Vec::new(),
         state_reason: None,
     }
 }

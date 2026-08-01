@@ -4,14 +4,16 @@ use super::orphan::{
     ObservedDescendant, OrphanClassification, PaneLiveness, ReapOutcome, classify_orphan_state,
     reap_orphan_tree,
 };
-use crate::domain::ProcessIdentity;
+use crate::domain::WorkerProcessIdentity;
 use crate::runtime::process::ProcessLiveness;
 
 const ANCHOR_PID: u32 = 1234;
 const ANCHOR_START: u64 = 10_000;
 
-fn anchor(pid: u32, started_at: u64) -> ProcessIdentity {
-    ProcessIdentity::new(pid, started_at)
+/// Orphan anchors are always worker-role: the reaper only ever terminates
+/// processes below the pane leader, never the pane leader itself (issue #543).
+fn anchor(pid: u32, started_at: u64) -> WorkerProcessIdentity {
+    WorkerProcessIdentity::new(pid, started_at)
 }
 
 #[test]

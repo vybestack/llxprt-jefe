@@ -32,6 +32,7 @@ fn issues_state_with_issue_list() -> AppState {
         state_reason: None,
         created_at: String::new(),
         priority: None,
+        linked_pr_numbers: Vec::new(),
     }]);
     state.issues_state.list.set_selected_index(Some(0));
     state

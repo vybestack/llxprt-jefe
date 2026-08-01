@@ -23,7 +23,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::sha256::Sha256;
 
-use super::agent_executable::AgentWrapperKind;
 use super::errors::RuntimeError;
 use super::multiplexer::MultiplexerPlan;
 
@@ -168,11 +167,8 @@ pub fn session_host_stage_request<'a>(
 /// unchanged (AC9).
 pub fn resolve_local_pane_command(
     multiplexer: &MultiplexerPlan,
-    executable: (&Path, AgentWrapperKind),
-    pane_args: &[std::ffi::OsString],
-    environment: &[(std::ffi::OsString, std::ffi::OsString)],
+    launch: &super::multiplexer::AgentPaneLaunch<'_>,
     session_host: Option<(&Path, &str)>,
-    cwd: &Path,
 ) -> Result<Vec<std::ffi::OsString>, RuntimeError> {
     match session_host.and_then(|(root, name)| session_host_stage_request(Some(root), Some(name))) {
         Some((root, name)) => {
@@ -184,17 +180,11 @@ pub fn resolve_local_pane_command(
             let staged = stage_session_host(root, name, &source)
                 .map_err(RuntimeError::SessionHostStaging)?;
             multiplexer
-                .agent_pane_command_args_with_staged_host(
-                    executable,
-                    &staged,
-                    pane_args,
-                    environment,
-                    cwd,
-                )
+                .agent_pane_command_args_with_staged_host(launch, &staged)
                 .map_err(RuntimeError::Multiplexer)
         }
         None => multiplexer
-            .agent_pane_command_args(executable, pane_args, environment, cwd)
+            .agent_pane_command_args(launch)
             .map_err(RuntimeError::Multiplexer),
     }
 }

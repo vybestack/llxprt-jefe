@@ -1,7 +1,8 @@
 //! Startup evidence reconciliation for persisted runtime bindings.
 
 use jefe::domain::{
-    Agent, AgentId, AgentLaunchRequest, LaunchSignatureV1, Repository, RuntimeBinding,
+    Agent, AgentId, AgentLaunchRequest, LaunchSignatureV1, PaneWorkerTopology, Repository,
+    RuntimeBinding,
 };
 use jefe::runtime::{OrphanClassification, ProcessLiveness, RuntimeSession, SessionLiveness};
 
@@ -102,12 +103,26 @@ fn binding_signature_matches(
 }
 
 fn binding_process_evidence(binding: &RuntimeBinding) -> BindingEvidence {
-    match (binding.pid, binding.process_identity) {
-        (Some(pid), Some(identity)) if pid != identity.pid => BindingEvidence::Inconsistent,
-        (Some(_) | None, None) => BindingEvidence::Legacy,
-        (None, Some(_)) => BindingEvidence::Inconsistent,
-        (Some(_), Some(_)) => BindingEvidence::Coherent,
+    let Some(worker) = binding.worker_identity else {
+        return BindingEvidence::Legacy;
+    };
+    // A worker identity that claims the pane leader's PID on a platform where
+    // the worker runs *below* the pane is precisely the conflation this issue
+    // forbids. Treat it as inconsistent evidence rather than trusting it
+    // (issue #543).
+    if !PaneWorkerTopology::current().pane_determines_worker()
+        && binding
+            .pane_identity
+            .is_some_and(|pane| pane.pid() == worker.pid())
+    {
+        return BindingEvidence::Inconsistent;
     }
+    // Without a creation token the anchor cannot reject PID reuse; that is the
+    // legacy shape a restored document produces.
+    if worker.started_at().is_none() {
+        return BindingEvidence::Legacy;
+    }
+    BindingEvidence::Coherent
 }
 
 #[must_use]

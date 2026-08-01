@@ -89,9 +89,8 @@ mod transient_issue_send;
 mod transient_pr_send;
 mod transient_queue_ops;
 use agent_runtime::{
-    clear_agent_runtime_attachment, mark_agent_runtime_attached,
+    bound_identities_for, clear_agent_runtime_attachment, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
-    worker_process_for,
 };
 
 pub use modal_handlers::handle_f12_toggle;
@@ -436,9 +435,9 @@ fn mark_launch_attached(
     agent_id: &AgentId,
     signature: &AgentLaunchRequest,
 ) -> Result<(), RuntimeError> {
-    // Query the runtime for the worker PID before taking the app-state write
-    // lock, so the persisted binding carries the PID-liveness fallback.
-    let (pid, process_identity) = worker_process_for(ctx, agent_id);
+    // Query the runtime for the process anchors before taking the app-state
+    // write lock, so the persisted binding carries the PID-liveness fallback.
+    let identities = bound_identities_for(ctx, agent_id);
 
     let mut state = app_state.write();
     set_agent_runtime_binding(
@@ -446,8 +445,7 @@ fn mark_launch_attached(
         agent_id,
         jefe::runtime::RuntimeSession::session_name_for(agent_id),
         launch_signature_for_request(signature)?,
-        pid,
-        process_identity,
+        identities,
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);

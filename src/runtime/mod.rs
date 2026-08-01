@@ -46,6 +46,8 @@ pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod manager;
+/// Pane/worker/server identity accessors, split out of `manager.rs` (issue #543).
+mod manager_identity;
 mod manager_liveness;
 mod manager_passthrough;
 mod multiplexer;
@@ -68,6 +70,8 @@ pub(crate) mod session_host;
 mod shell_window;
 mod socket;
 mod stub_manager;
+/// Session-host report of the agent worker's identity (issue #543).
+pub mod worker_report;
 
 pub use crate::agent_candidate_path::{AgentExecutablePlatform, AgentWrapperKind};
 pub use agent_executable::{
@@ -103,18 +107,18 @@ pub use external_terminal::{
 };
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
-    LivenessIdentity, SessionLiveness, alive_session_set, batch_liveness_check,
+    LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
     batch_liveness_check_with_identity, check_remote_session_alive, check_session_alive,
-    parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
-    reconcile_dead_agents_with_identity, session_liveness,
+    classify_worker_disposition, parse_alive_sessions, parse_pane_alive, pid_alive,
+    reconcile_dead_agents, reconcile_dead_agents_with_identity, session_liveness,
 };
 pub use manager::{
     AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,
     drop_viewer_in_background_pub,
 };
 pub use multiplexer::{
-    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
-    MultiplexerVersion, ProbeObservation, classify_probe,
+    AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation,
+    MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
 };
 pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 /// Descendant-process observation and validated orphan-tree reaping (issue #332).

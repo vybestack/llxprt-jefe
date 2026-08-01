@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 use crate::domain::{
     Agent, AgentId, AgentStatus, DormantRecord, Id, LastKnownRuntime, LaunchSignatureV1,
-    RemoteRepositorySettings, Repository, RepositoryId, RepositoryLocation, RuntimeBinding,
-    UserPreferences,
+    PaneProcessIdentity, RemoteRepositorySettings, Repository, RepositoryId, RepositoryLocation,
+    RuntimeBinding, UserPreferences,
 };
 use crate::persistence::state_v2::StateDocument;
 use crate::state::durable_projection::{current_launch_signature, to_durable_state};
@@ -88,8 +88,8 @@ fn running_binding(agent_ref: &Agent, repository: &Repository, session: &str) ->
             .value_or_panic("durable signature"),
         attached: true,
         last_seen: Some(42),
-        pid: Some(4242),
-        process_identity: None,
+        pane_identity: Some(PaneProcessIdentity::from_pid(4242)),
+        worker_identity: None,
         worker_identities: Vec::new(),
         lifecycle_generation: 7,
     }
@@ -357,7 +357,17 @@ fn inverse_synthesizes_status_and_binding_from_last_known() {
         .value_or_panic("running agent restores a binding");
     assert_eq!(binding.session_name, "jefe-runner");
     assert_eq!(binding.lifecycle_generation, 7);
-    assert_eq!(binding.pid, None);
+    // Each role round-trips through its own slot. The pane leader was recorded
+    // and comes back; the worker was never known and must stay unknown rather
+    // than being filled in from the pane leader beside it (issue #543).
+    assert_eq!(
+        binding.pane_identity,
+        Some(PaneProcessIdentity::from_pid(4242))
+    );
+    assert_eq!(
+        binding.worker_identity, None,
+        "an unknown worker must not be inferred from the pane leader"
+    );
     let expected = current_launch_signature(&restored.agents[0], &restored.repositories[0])
         .value_or_panic("durable signature");
     assert_eq!(binding.launch_signature, expected);

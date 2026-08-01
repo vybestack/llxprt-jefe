@@ -111,13 +111,14 @@ pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
 /// Query the PID of the (first) pane in a local tmux session.
 ///
 /// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
-/// socket. Because `llxprt` runs as the pane's direct command (not a shell
-/// wrapper), the returned PID **is** the worker process itself. Local sessions
-/// only.
+/// socket. The returned PID is the **pane leader**, which is the agent itself
+/// only where the agent runs as the pane's direct command. On Windows the pane
+/// leader is `pwsh` running the session host, and the agent is a descendant, so
+/// callers must route this through `PaneWorkerTopology` rather than treating it
+/// as a worker PID (issue #543). Local sessions only.
 ///
 /// Returns `None` if tmux is unavailable, the session does not exist, or the
-/// output cannot be parsed. This is the PID-fallback input used to detect
-/// workers that are still alive after their tmux session is gone.
+/// output cannot be parsed.
 #[must_use]
 pub fn pane_pid(session_name: &str) -> Option<u32> {
     let output = tmux_command()

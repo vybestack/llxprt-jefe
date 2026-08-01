@@ -5,20 +5,24 @@
 //! transitions into a health verdict so reconciliation logic stays
 //! deterministic and testable.
 
-use crate::domain::ProcessIdentity;
+use crate::domain::ServerProcessIdentity;
 use crate::runtime::MultiplexerVersion;
 /// Composite identity of one runtime server instance: the operating-system
 /// process plus the multiplexer version hosting it. Two identities are the
 /// same server only when both components agree.
+///
+/// The process component is a [`ServerProcessIdentity`], so the multiplexer
+/// server can never be compared against, or substituted for, a pane leader or
+/// an agent worker (issue #543).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerIdentity {
-    pub process: ProcessIdentity,
+    pub process: ServerProcessIdentity,
     pub multiplexer: MultiplexerVersion,
 }
 
 impl ServerIdentity {
     #[must_use]
-    pub const fn new(process: ProcessIdentity, multiplexer: MultiplexerVersion) -> Self {
+    pub const fn new(process: ServerProcessIdentity, multiplexer: MultiplexerVersion) -> Self {
         Self {
             process,
             multiplexer,
@@ -65,8 +69,8 @@ pub fn classify_server_health(
         (Some(previous), Some(current)) => {
             // A changed PID or a changed creation token both indicate a
             // distinct process instance now occupying the server role.
-            if previous.process.pid == current.process.pid
-                && previous.process.started_at == current.process.started_at
+            if previous.process.pid() == current.process.pid()
+                && previous.process.started_at() == current.process.started_at()
             {
                 ServerHealth::Healthy
             } else {
@@ -221,8 +225,9 @@ fn stderr_indicates_no_server(stderr: &str) -> bool {
 /// PID supplies the process identity; `started_at` defaults to `1` because
 /// the multiplexer `display-message` format string does not expose a creation
 /// token, and the probe distinguishes server replacement via a PID change
-/// rather than a creation-token change (the per-agent [`ProcessIdentity`]
-/// service remains the authoritative reuse-safe check).
+/// rather than a creation-token change (the per-agent
+/// [`crate::domain::ProcessIdentity`] service remains the authoritative
+/// reuse-safe check).
 ///
 /// Returns `None` for any malformed input so the caller fails open.
 #[must_use]
@@ -231,5 +236,8 @@ pub fn parse_server_identity_output(output: &str) -> Option<ServerIdentity> {
     let (pid_raw, version_raw) = trimmed.split_once('|')?;
     let pid: u32 = pid_raw.trim().parse().ok()?;
     let version = MultiplexerVersion::parse(version_raw.trim()).ok()?;
-    Some(ServerIdentity::new(ProcessIdentity::new(pid, 1), version))
+    Some(ServerIdentity::new(
+        ServerProcessIdentity::new(pid, 1),
+        version,
+    ))
 }

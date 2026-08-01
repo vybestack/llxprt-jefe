@@ -94,7 +94,28 @@ fn build_meta_line(issue: &Issue) -> String {
     if !issue.labels_summary.is_empty() {
         meta_parts.push(format!("[{}]", issue.labels_summary));
     }
+    if let Some(linked) = format_linked_prs(&issue.linked_pr_numbers) {
+        meta_parts.push(linked);
+    }
     format!("     {}", meta_parts.join("  "))
+}
+
+/// Format the linked-PR marker for the issue-list meta line (issue #187).
+///
+/// Returns `Some("linked:#1,#2")` when the vec is non-empty, `None` otherwise.
+/// Emoji-free per the display-and-ui policy; the marker is plain text. The vec
+/// is already de-duplicated at parse time, so it is joined verbatim.
+#[must_use]
+fn format_linked_prs(linked_pr_numbers: &[u64]) -> Option<String> {
+    if linked_pr_numbers.is_empty() {
+        return None;
+    }
+    let numbers = linked_pr_numbers
+        .iter()
+        .map(|n| format!("#{n}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    Some(format!("linked:{numbers}"))
 }
 
 /// Pure projection of the visible issue rows. The component renders this same
@@ -269,6 +290,7 @@ mod tests {
             state_reason: None,
             created_at: String::new(),
             priority: None,
+            linked_pr_numbers: Vec::new(),
         }
     }
 
@@ -377,6 +399,55 @@ mod tests {
         assert!(
             rows[0].meta_line.contains("OPEN"),
             "open issue should show OPEN: {}",
+            rows[0].meta_line
+        );
+    }
+
+    fn issue_with_linked_prs(number: u64, linked: &[u64]) -> Issue {
+        let mut base = issue(number);
+        base.linked_pr_numbers = linked.to_vec();
+        base
+    }
+
+    #[test]
+    fn meta_line_shows_linked_marker_for_single_linked_pr() {
+        let rows = issue_list_visible_rows(
+            &[issue_with_linked_prs(1, &[123])],
+            Some(0),
+            8,
+            IssueListLayout::Full,
+            Some(40),
+        );
+        assert!(
+            rows[0].meta_line.contains("linked:#123"),
+            "issue with a linked PR should show linked:#123: {}",
+            rows[0].meta_line
+        );
+    }
+
+    #[test]
+    fn meta_line_shows_no_linked_marker_when_empty() {
+        let rows =
+            issue_list_visible_rows(&[issue(1)], Some(0), 8, IssueListLayout::Full, Some(40));
+        assert!(
+            !rows[0].meta_line.contains("linked:"),
+            "issue with no linked PRs must not show a linked marker: {}",
+            rows[0].meta_line
+        );
+    }
+
+    #[test]
+    fn meta_line_shows_multiple_linked_prs() {
+        let rows = issue_list_visible_rows(
+            &[issue_with_linked_prs(1, &[5, 9])],
+            Some(0),
+            8,
+            IssueListLayout::Full,
+            Some(40),
+        );
+        assert!(
+            rows[0].meta_line.contains("linked:#5,#9"),
+            "multiple linked PRs should render as linked:#5,#9: {}",
             rows[0].meta_line
         );
     }

@@ -517,19 +517,15 @@ pub(super) fn launch_issue_agent(
     let launch_result =
         spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched = launch_result.is_ok();
-    // Resolve the worker PID for the persisted binding's PID-liveness
+    // Resolve the process anchors for the persisted binding's PID-liveness
     // fallback, before taking the app-state write lock (lock-ordering
     // constraint). Skipped on the failure path (no binding persisted).
-    let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
+    let identities = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     match launch_result {
-        Ok(()) => persist_issue_agent_launch_success(
-            &mut state,
-            &agent_id,
-            launch_sig,
-            pid,
-            process_identity,
-        ),
+        Ok(()) => {
+            persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, identities);
+        }
         Err(error) => {
             jefe::state::transition::commit_pure_site(
                 &mut state,
@@ -613,8 +609,7 @@ pub(super) fn persist_issue_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     launch_sig: AgentLaunchRequest,
-    pid: Option<u32>,
-    process_identity: Option<jefe::domain::ProcessIdentity>,
+    identities: super::agent_runtime::BoundIdentities,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -627,10 +622,10 @@ pub(super) fn persist_issue_agent_launch_success(
             .unwrap_or_default(),
             attached: false,
             last_seen: None,
-            process_identity,
-            pid,
+            pane_identity: identities.pane,
+            worker_identity: identities.worker,
             lifecycle_generation: 0,
-            worker_identities: Vec::new(),
+            worker_identities: identities.worker_identities,
         });
     }
     clear_agent_runtime_attachment(state);
