@@ -273,7 +273,15 @@ pub fn classify_contract_probe(item: &ContractItem, outcome: &ProbeOutcome) -> C
         // A verb declared to produce no output is judged by whether it
         // succeeded. Requiring stdout from `kill-session` or `new-window`
         // condemns every correct implementation for behaving as declared.
-        ResponseShape::NoOutput => classify_silent(item, exit_code, outcome),
+        //
+        // Pane content is the same case for a different reason: what
+        // `capture-pane` prints belongs to the pane, not to the multiplexer. A
+        // freshly created pane has produced nothing yet, so demanding output
+        // tests how fast a shell draws its prompt rather than whether the verb
+        // works.
+        ResponseShape::NoOutput | ResponseShape::RawPaneContent => {
+            classify_silent(item, exit_code, outcome)
+        }
         _ => classify_output(item, exit_code, outcome),
     }
 }

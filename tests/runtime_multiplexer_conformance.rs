@@ -325,3 +325,24 @@ fn a_silent_verb_that_fails_is_still_violated() {
         ConformanceVerdict::Violated { .. }
     ));
 }
+
+/// `capture-pane` prints whatever the pane holds. A pane created moments ago
+/// holds nothing, so failing the verb for empty output measures how quickly a
+/// shell paints its prompt rather than whether the multiplexer can capture
+/// (#540).
+#[test]
+fn capturing_an_empty_pane_is_not_a_violation() {
+    let item = contract_item(ContractItemKind::Verb, "capture-pane")
+        .unwrap_or_else(|| panic!("capture-pane declared"));
+    let outcome = ProbeOutcome {
+        exit_code: Some(0),
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+
+    assert_eq!(
+        classify_contract_probe(item, &outcome),
+        ConformanceVerdict::Satisfied,
+        "an empty pane is a valid capture, not a missing capability"
+    );
+}
