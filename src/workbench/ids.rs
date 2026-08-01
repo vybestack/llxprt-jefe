@@ -198,62 +198,98 @@ plain_id! {
     PanelTypeId
 }
 
-/// Stable identity of one screen descriptor.
+/// Stable identity of one screen.
 ///
-/// Unlike the other identifiers this one must sit in a reserved namespace so
-/// screen identity is partitioned between built-in application screens
-/// (`core.`), GitHub-backed screens (`github.`), and workspace-local screens
-/// (`local.`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ScreenId(&'static str);
+/// This is the runtime screen vocabulary and the sole authority for "which
+/// screen is active". What a screen *contains* — its panels, focus order, and
+/// layout — lives in its descriptor, never here.
+///
+/// Identity is the namespaced stable string returned by [`Self::as_str`], not
+/// the variant's position. Persistence writes and reads that string, and
+/// [`Self::from_stable`] resolves by string, so reordering this enum cannot
+/// change which screen a restored session opens on.
+///
+/// It is an enum rather than an open set of constants because every screen must
+/// be rendered, routed, and labelled: an exhaustive `match` makes adding a
+/// screen a compile error at each of those places instead of a silent fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum ScreenId {
+    /// Repositories, agents over the embedded terminal, and the preview pane.
+    #[default]
+    Dashboard,
+    /// The split repository view.
+    Repositories,
+    /// The GitHub issues screen.
+    Issues,
+    /// The GitHub pull-requests screen.
+    PullRequests,
+    /// The GitHub workflow-runs screen.
+    Actions,
+    /// The errors screen.
+    Errors,
+    /// The Terminal Manager screen.
+    Terminals,
+}
 
 impl ScreenId {
-    /// Declare a compiled-in screen identity.
-    ///
-    /// Validated by [`Self::check`] during descriptor validation and in tests.
+    /// Every screen, in registry order.
+    pub const ALL: [Self; 7] = [
+        Self::Dashboard,
+        Self::Repositories,
+        Self::Issues,
+        Self::PullRequests,
+        Self::Actions,
+        Self::Errors,
+        Self::Terminals,
+    ];
+
+    /// The stable identity string, which is what persistence and descriptors
+    /// agree on.
     #[must_use]
-    pub const fn from_static(value: &'static str) -> Self {
-        Self(value)
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dashboard => "core.dashboard",
+            Self::Repositories => "core.repositories",
+            Self::Issues => "github.issues",
+            Self::PullRequests => "github.pull-requests",
+            Self::Actions => "github.actions",
+            Self::Errors => "core.errors",
+            Self::Terminals => "core.terminals",
+        }
     }
 
-    /// Parse and validate a compiled-in namespaced screen identifier.
+    /// Resolve a screen from its stable identity string.
     ///
-    /// # Errors
-    ///
-    /// Returns the specific [`IdError`] describing the violated rule.
-    pub fn parse(value: &'static str) -> Result<Self, IdError> {
-        let id = Self(value);
-        id.check()?;
-        Ok(id)
+    /// Matching is by string, never by position, so an external value can only
+    /// name a screen that exists.
+    #[must_use]
+    pub fn from_stable(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|id| id.as_str() == value)
     }
 
-    /// Check that this identifier satisfies the grammar and namespacing.
+    /// Check that this screen's stable identity satisfies the grammar and sits
+    /// in a reserved namespace.
     ///
     /// # Errors
     ///
     /// Returns the specific [`IdError`] describing the violated rule.
     pub fn check(self) -> Result<(), IdError> {
-        check_plain_grammar(self.0)?;
+        let value = self.as_str();
+        check_plain_grammar(value)?;
         if SCREEN_NAMESPACES
             .iter()
-            .any(|namespace| self.0.starts_with(namespace))
+            .any(|namespace| value.starts_with(namespace))
         {
             Ok(())
         } else {
             Err(IdError::UnknownNamespace)
         }
     }
-
-    /// Borrow the identifier bytes.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        self.0
-    }
 }
 
 impl fmt::Display for ScreenId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.0)
+        formatter.write_str(self.as_str())
     }
 }
 

@@ -3,67 +3,70 @@
 
 use super::ids::{
     ID_BYTE_LIMIT, IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SCREENS,
-    MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, ScreenId,
-    ScreenInstanceId,
+    MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, SCREEN_NAMESPACES,
+    ScreenId, ScreenInstanceId,
 };
 
 #[test]
-fn screen_id_accepts_each_reserved_namespace() {
-    for value in ["core.dashboard", "github.issues", "local.scratch"] {
-        let parsed = ScreenId::parse(value);
-        assert!(parsed.is_ok(), "expected {value} to parse");
-        assert_eq!(
-            parsed.map(|id| id.as_str().to_owned()),
-            Ok(value.to_owned())
+fn every_screen_identity_sits_in_a_reserved_namespace() {
+    for id in ScreenId::ALL {
+        assert_eq!(id.check(), Ok(()), "screen {id} must satisfy the grammar");
+        assert!(
+            SCREEN_NAMESPACES
+                .iter()
+                .any(|namespace| id.as_str().starts_with(namespace)),
+            "screen {id} must be namespaced"
         );
     }
 }
 
 #[test]
-fn screen_id_rejects_unreserved_namespace() {
+fn screen_identities_are_distinct() {
+    for (index, id) in ScreenId::ALL.into_iter().enumerate() {
+        assert!(
+            !ScreenId::ALL[..index]
+                .iter()
+                .any(|prior| prior.as_str() == id.as_str()),
+            "screen identity {id} is declared twice"
+        );
+    }
+}
+
+#[test]
+fn a_screen_resolves_from_its_stable_identity_string() {
+    for id in ScreenId::ALL {
+        assert_eq!(ScreenId::from_stable(id.as_str()), Some(id));
+    }
+}
+
+#[test]
+fn an_unknown_stable_identity_resolves_to_nothing() {
+    for value in ["", "dashboard", "core.nonesuch", "plugin.dashboard", "0"] {
+        assert_eq!(
+            ScreenId::from_stable(value),
+            None,
+            "{value} must not resolve to a screen"
+        );
+    }
+}
+
+#[test]
+fn screen_resolution_does_not_depend_on_declaration_position() {
+    // Resolving by string means reordering the enum cannot change which screen
+    // a restored session opens on.
     assert_eq!(
-        ScreenId::parse("plugin.dashboard"),
-        Err(IdError::UnknownNamespace)
+        ScreenId::from_stable("core.repositories"),
+        Some(ScreenId::Repositories)
+    );
+    assert_eq!(
+        ScreenId::from_stable("github.issues"),
+        Some(ScreenId::Issues)
     );
 }
 
 #[test]
-fn screen_id_rejects_missing_namespace() {
-    assert_eq!(ScreenId::parse("dashboard"), Err(IdError::UnknownNamespace));
-}
-
-#[test]
-fn screen_id_rejects_empty_segment_after_namespace() {
-    assert_eq!(ScreenId::parse("core."), Err(IdError::TrailingSeparator));
-}
-
-#[test]
-fn screen_id_rejects_uppercase() {
-    assert_eq!(ScreenId::parse("core.Dashboard"), Err(IdError::InvalidByte));
-}
-
-#[test]
-fn screen_id_rejects_empty() {
-    assert_eq!(ScreenId::parse(""), Err(IdError::Empty));
-}
-
-/// 129 bytes: `core.` plus 124 letters is exactly the limit, so one more
-/// letter is the first rejected length.
-const OVER_LIMIT_SCREEN_ID: &str = "core.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-/// 128 bytes: `core.` plus 123 letters.
-const AT_LIMIT_SCREEN_ID: &str = "core.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-#[test]
-fn screen_id_rejects_value_over_the_byte_limit() {
-    assert_eq!(OVER_LIMIT_SCREEN_ID.len(), ID_BYTE_LIMIT + 1);
-    assert_eq!(ScreenId::parse(OVER_LIMIT_SCREEN_ID), Err(IdError::TooLong));
-}
-
-#[test]
-fn screen_id_accepts_value_exactly_at_the_byte_limit() {
-    assert_eq!(AT_LIMIT_SCREEN_ID.len(), ID_BYTE_LIMIT);
-    assert!(ScreenId::parse(AT_LIMIT_SCREEN_ID).is_ok());
+fn the_default_screen_is_the_dashboard() {
+    assert_eq!(ScreenId::default(), ScreenId::Dashboard);
 }
 
 #[test]
@@ -79,6 +82,11 @@ fn panel_id_accepts_plain_hyphenated_names() {
 #[test]
 fn panel_id_rejects_uppercase_and_spaces() {
     assert_eq!(PanelId::parse("Issue List"), Err(IdError::InvalidByte));
+}
+
+#[test]
+fn panel_id_rejects_empty() {
+    assert_eq!(PanelId::parse(""), Err(IdError::Empty));
 }
 
 #[test]
@@ -99,12 +107,41 @@ fn panel_id_rejects_doubled_separator() {
     );
 }
 
+/// 129 bytes: one over the limit.
+const OVER_LIMIT_PANEL_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// 128 bytes: exactly the limit.
+const AT_LIMIT_PANEL_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+#[test]
+fn panel_id_rejects_value_over_the_byte_limit() {
+    assert_eq!(OVER_LIMIT_PANEL_ID.len(), ID_BYTE_LIMIT + 1);
+    assert_eq!(PanelId::parse(OVER_LIMIT_PANEL_ID), Err(IdError::TooLong));
+}
+
+#[test]
+fn panel_id_accepts_value_exactly_at_the_byte_limit() {
+    assert_eq!(AT_LIMIT_PANEL_ID.len(), ID_BYTE_LIMIT);
+    assert!(PanelId::parse(AT_LIMIT_PANEL_ID).is_ok());
+}
+
 #[test]
 fn route_and_panel_type_ids_share_the_plain_grammar() {
     assert!(RouteId::parse("dashboard").is_ok());
     assert!(PanelTypeId::parse("repository-list").is_ok());
     assert_eq!(RouteId::parse(""), Err(IdError::Empty));
     assert_eq!(PanelTypeId::parse("PTY"), Err(IdError::InvalidByte));
+}
+
+#[test]
+fn a_declared_identifier_is_checked_even_though_it_skipped_parsing() {
+    // `from_static` cannot validate in a const context, so `check` is what
+    // catches a malformed compiled-in literal.
+    assert_eq!(
+        PanelId::from_static("Bad Panel").check(),
+        Err(IdError::InvalidByte)
+    );
+    assert_eq!(PanelId::from_static("issue-list").check(), Ok(()));
 }
 
 #[test]

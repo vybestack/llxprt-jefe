@@ -50,8 +50,7 @@ fn child(id: &'static str, collapsible: bool, collapse_priority: Option<i32>) ->
 /// A two-panel screen: `list` required+focusable, `detail` collapsible.
 fn valid_descriptor() -> ScreenDescriptor {
     ScreenDescriptor {
-        id: ScreenId::parse("local.fixture")
-            .unwrap_or_else(|_| unreachable!("fixture screen id is valid")),
+        id: ScreenId::Dashboard,
         title: "Fixture".to_owned(),
         route: RouteId::parse("fixture")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),
@@ -260,8 +259,7 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
         };
     }
     ScreenDescriptor {
-        id: ScreenId::parse("local.nested")
-            .unwrap_or_else(|_| unreachable!("fixture screen id is valid")),
+        id: ScreenId::Dashboard,
         title: "Nested".to_owned(),
         route: RouteId::parse("nested")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),

@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::descriptor::{LayoutChild, LayoutNode, ScreenDescriptor};
 use super::ids::{MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
-use super::screens::{ALL_SCREENS, DASHBOARD, PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
+use super::screens::{PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
 use super::validate::validate_descriptor;
 
 const PARITY_GOLDEN: &str = include_str!("shipped-screen-definition-parity.json");
@@ -149,7 +149,7 @@ fn panel_identities_are_unique_within_each_screen() {
 fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
     // The constants are declared with `from_static`, which cannot validate in a
     // const context, so this is where a malformed literal is caught.
-    for id in ALL_SCREENS {
+    for id in ScreenId::ALL {
         assert_eq!(id.check(), Ok(()), "screen constant {id} is malformed");
     }
 }
@@ -158,7 +158,7 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 fn the_declared_screen_constants_match_the_registry_exactly() {
     let registry = registry();
     let registered: Vec<ScreenId> = registry.screens().iter().map(|screen| screen.id).collect();
-    assert_eq!(registered, ALL_SCREENS.to_vec());
+    assert_eq!(registered, ScreenId::ALL.to_vec());
 }
 
 #[test]
@@ -166,7 +166,10 @@ fn an_unregistered_value_does_not_resolve_to_a_screen_identity() {
     let registry = registry();
     assert_eq!(registry.resolve("core.nonesuch"), None);
     assert_eq!(registry.resolve(""), None);
-    assert_eq!(registry.resolve("core.dashboard"), Some(DASHBOARD));
+    assert_eq!(
+        registry.resolve("core.dashboard"),
+        Some(ScreenId::Dashboard)
+    );
 }
 
 #[test]
@@ -182,9 +185,7 @@ fn the_first_screen_is_the_compiled_initial_screen() {
 fn lookup_by_stable_identity_finds_each_screen() {
     let registry = registry();
     for screen in registry.screens() {
-        let looked_up = ScreenId::parse(screen.id.as_str())
-            .ok()
-            .and_then(|id| registry.get(id));
+        let looked_up = ScreenId::from_stable(screen.id.as_str()).and_then(|id| registry.get(id));
         assert_eq!(looked_up.map(|found| &found.id), Some(&screen.id));
     }
 }
