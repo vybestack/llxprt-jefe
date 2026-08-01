@@ -128,8 +128,8 @@ pub use multiplexer_conformance::{
 };
 pub use multiplexer_conformance_io::{qualify_multiplexer, qualify_multiplexer_for_startup};
 pub use multiplexer_contract::{
-    ContractCapability, ContractItem, ContractItemKind, ResponseShape, contract_item,
-    contract_items,
+    BudgetSource, ContractCapability, ContractItem, ContractItemKind, PaneCommandBudget,
+    ResponseShape, contract_item, contract_items, pane_command_budget,
 };
 pub use multiplexer_contract::{
     Divergence, declared_divergences, divergence, exit_empty_remediation, page_up_root_unbind,

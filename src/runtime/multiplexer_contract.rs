@@ -32,7 +32,7 @@ pub enum ContractCapability {
 pub enum ContractItemKind {
     /// A command word such as `has-session`.
     Verb,
-    /// A `#{…}` format variable.
+    /// A `#{â€¦}` format variable.
     Format,
     /// A server option set through `set-option -s`.
     ServerOption,
@@ -393,4 +393,80 @@ pub const fn exit_empty_remediation() -> [&'static str; 4] {
 #[must_use]
 pub const fn page_up_root_unbind() -> [&'static str; 4] {
     PAGE_UP_ROOT_UNBIND_COMMAND
+}
+
+/// What actually imposes the pane-command ceiling.
+///
+/// Naming this matters: jefe carried a limit attributed to the multiplexer
+/// which measurement showed the multiplexer does not impose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetSource {
+    /// The multiplexer refuses the command itself, as tmux 3.x does.
+    MultiplexerPaneCommand,
+    /// The Windows `CreateProcess` command-line ceiling, reached through the
+    /// PowerShell launch chain.
+    WindowsCreateProcess,
+    /// A POSIX shell/`ARG_MAX` ceiling.
+    PosixShell,
+}
+
+/// A pane-command budget with the observation that produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneCommandBudget {
+    /// Usable bytes for the whole pane command.
+    pub bytes: usize,
+    /// What imposes the ceiling.
+    pub source: BudgetSource,
+    /// What it was measured against.
+    pub measured_on: &'static str,
+    /// The observation, so a reader can re-derive rather than trust it.
+    pub evidence: &'static str,
+}
+
+#[cfg(windows)]
+/// Measured evidence behind the Windows budget.
+///
+/// psmux exits 0 and creates the session whether or not the command survives,
+/// so the boundary was found by having the command write its own payload and
+/// comparing the bytes that arrived.
+const WINDOWS_EVIDENCE: &str = "psmux fork 1a8b6d5 on Windows: via PowerShell (jefe's launch \
+                                chain) 32,649 bytes delivered, 32,658 dropped; via cmd.exe \
+                                8,164 delivered, 8,172 dropped. psmux reports success in both \
+                                failing cases -- exit 0, session created, command never runs. \
+                                The boundary tracks the shell, so the multiplexer imposes no \
+                                pane-command limit of its own.";
+
+#[cfg(not(windows))]
+const POSIX_EVIDENCE: &str = "tmux 3.7b on macOS refuses a pane command at ~16,340 bytes, and \
+                              reports the refusal. Retained for the tmux path only; the cmd.exe \
+                              ceiling measured on Windows (8,164 delivered / 8,172 dropped) is \
+                              narrower still, which is why the source is recorded alongside the \
+                              number.";
+
+/// The measured pane-command budget for this platform.
+///
+/// Windows is sized to the PowerShell chain jefe actually launches through,
+/// held below the largest command observed to arrive intact.
+#[must_use]
+pub const fn pane_command_budget() -> PaneCommandBudget {
+    #[cfg(windows)]
+    {
+        PaneCommandBudget {
+            // Under the 32,649 observed to arrive, with margin for the
+            // environment block CreateProcess counts against the same ceiling.
+            bytes: 30_000,
+            source: BudgetSource::WindowsCreateProcess,
+            measured_on: "psmux fork 1a8b6d5, Windows PowerShell launch chain",
+            evidence: WINDOWS_EVIDENCE,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        PaneCommandBudget {
+            bytes: 16_000,
+            source: BudgetSource::MultiplexerPaneCommand,
+            measured_on: "tmux 3.7b, macOS",
+            evidence: POSIX_EVIDENCE,
+        }
+    }
 }

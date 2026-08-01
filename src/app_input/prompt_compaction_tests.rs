@@ -10,11 +10,10 @@
 
 use super::fresh_prompt::{
     FreshPromptKind, ISSUE_DELIVERY_WORKFLOW, MAX_PROMPT_CONTENT_BYTES,
-    PROMPT_COMPACTION_THRESHOLD_BYTES, TMUX_PANE_COMMAND_LIMIT_BYTES, compact_prompt_content,
-    fresh_prompt_instruction,
+    PROMPT_COMPACTION_THRESHOLD_BYTES, compact_prompt_content, fresh_prompt_instruction,
 };
 
-// ── Threshold consistency ────────────────────────────────────────────────
+// â”€â”€ Threshold consistency â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// The compaction threshold must be strictly less than the max-content budget
 /// so a prompt that is exactly at the threshold is NOT also truncated (which
@@ -24,7 +23,7 @@ const _: () = assert!(
     "compaction threshold must be strictly below max content bytes to prevent double-processing"
 );
 
-// ── Large prompt produces compact reference ──────────────────────────────
+// â”€â”€ Large prompt produces compact reference â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// A large prompt (content exceeds the threshold) must be compacted by
 /// `fresh_prompt_instruction`: the instruction must NOT contain the full body,
@@ -56,7 +55,7 @@ fn large_issue_prompt_produces_gh_fetch_reference() {
     );
 }
 
-// ── Small prompt is inlined unchanged ───────────────────────────────────
+// â”€â”€ Small prompt is inlined unchanged â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// A small prompt (under the threshold) must pass through `compact_prompt_content`
 /// unchanged.
@@ -89,7 +88,7 @@ fn large_pr_prompt_produces_gh_fetch_reference() {
     );
 }
 
-// ── Threshold-boundary prompt ────────────────────────────────────────────
+// â”€â”€ Threshold-boundary prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// A prompt exactly at the threshold must be inlined (boundary inclusive).
 #[test]
@@ -119,10 +118,10 @@ fn prompt_one_byte_over_threshold_is_compacted() {
     );
 }
 
-// ── Compaction preserves the issue delivery workflow ─────────────────────
+// â”€â”€ Compaction preserves the issue delivery workflow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// The ISSUE_DELIVERY_WORKFLOW appendix must still be appended for compacted
-/// issue prompts — compaction only replaces the body, not the workflow rules.
+/// issue prompts â€” compaction only replaces the body, not the workflow rules.
 #[test]
 fn compacted_issue_prompt_still_includes_delivery_workflow() {
     // Build a compacted prompt body, then pass it through fresh_prompt_instruction
@@ -140,7 +139,7 @@ fn compacted_issue_prompt_still_includes_delivery_workflow() {
     );
 }
 
-// ── Compacted prompt stays under tmux pane limit ────────────────────────
+// â”€â”€ Compacted prompt stays under tmux pane limit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// The compacted instruction (with workflow) must stay well under the tmux
 /// pane-command limit (~16,340 bytes). This is the core invariant that
@@ -154,14 +153,15 @@ fn compacted_prompt_with_workflow_stays_under_tmux_pane_limit() {
     let instruction = fresh_prompt_instruction(FreshPromptKind::Issue, &compacted_body);
 
     assert!(
-        instruction.len() < TMUX_PANE_COMMAND_LIMIT_BYTES,
-        "compacted issue instruction must stay under the tmux pane-command limit \
-         ({TMUX_PANE_COMMAND_LIMIT_BYTES} bytes), got {} bytes",
+        instruction.len() < jefe::runtime::pane_command_budget().bytes,
+        "compacted issue instruction must stay under the measured pane-command \
+         budget ({} bytes), got {} bytes",
+        jefe::runtime::pane_command_budget().bytes,
         instruction.len()
     );
 }
 
-// ── format_issue_prompt compacts large body ─────────────────────────────
+// â”€â”€ format_issue_prompt compacts large body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// The issue prompt formatter must compact the body when it is large,
 /// replacing it with a preview + `gh issue view` reference, while keeping
@@ -249,7 +249,7 @@ fn format_issue_prompt_inlines_small_body() {
     );
 }
 
-// ── format_pr_prompt compacts large body ─────────────────────────────────
+// â”€â”€ format_pr_prompt compacts large body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// The PR prompt formatter must compact the body when it is large, using
 /// `gh pr view` for the fetch reference.
@@ -355,5 +355,42 @@ fn format_pr_prompt_compacts_large_focused_comment() {
     assert!(
         prompt.contains("gh pr view 7 --repo owner/repo --comments"),
         "compacted PR comment must reference gh pr view:\n{prompt}"
+    );
+}
+
+// -- Budget derivation (issue #540 V4) ------------------------------------
+
+/// The prompt ceiling is derived from the measured pane-command budget, so a
+/// re-measurement moves it rather than silently invalidating it. The reserve
+/// covers the framing that shares the same command line.
+#[test]
+fn the_prompt_ceiling_is_derived_from_the_measured_budget() {
+    let budget = jefe::runtime::pane_command_budget().bytes;
+
+    assert!(
+        MAX_PROMPT_CONTENT_BYTES < budget,
+        "prompt ceiling {MAX_PROMPT_CONTENT_BYTES} must stay under the budget {budget}",
+    );
+    assert!(
+        budget - MAX_PROMPT_CONTENT_BYTES >= 4_000,
+        "the framing around the prompt needs headroom; budget {budget} leaves only {}",
+        budget - MAX_PROMPT_CONTENT_BYTES,
+    );
+}
+
+/// Compaction happens well before truncation, and both sit inside the budget.
+/// Sizing compaction against tmux was how a macOS measurement came to govern a
+/// Windows launch.
+#[test]
+fn compaction_engages_well_inside_the_budget() {
+    let budget = jefe::runtime::pane_command_budget().bytes;
+
+    // That compaction precedes truncation is already proven at compile time by
+    // the `const _` assertion above; what needs asserting here is the relation
+    // to the measured budget.
+    assert!(
+        PROMPT_COMPACTION_THRESHOLD_BYTES * 2 < budget,
+        "compaction must leave room for the framing it does not control: \
+         threshold {PROMPT_COMPACTION_THRESHOLD_BYTES}, budget {budget}",
     );
 }
