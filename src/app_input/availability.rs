@@ -125,9 +125,29 @@ pub(super) fn require_local_kind_available(
     require_local_kind_available_for_target(type_id, available)
 }
 
+enum DirectAvailabilityGate {
+    Cached,
+    RefreshCurrent,
+}
+
 pub(super) fn launch_available_or_error(
     app_state: &mut AppStateHandle,
     request: &AgentLaunchRequest,
+) -> bool {
+    launch_availability_or_error(app_state, request, DirectAvailabilityGate::Cached)
+}
+
+pub(super) fn launch_refresh_available_or_error(
+    app_state: &mut AppStateHandle,
+    request: &AgentLaunchRequest,
+) -> bool {
+    launch_availability_or_error(app_state, request, DirectAvailabilityGate::RefreshCurrent)
+}
+
+fn launch_availability_or_error(
+    app_state: &mut AppStateHandle,
+    request: &AgentLaunchRequest,
+    direct_gate: DirectAvailabilityGate,
 ) -> bool {
     let result = {
         let state = app_state.read();
@@ -136,12 +156,14 @@ pub(super) fn launch_available_or_error(
         } else if has_package_selector(request) {
             Ok(())
         } else {
-            state
-                .agent_type_availability
-                .iter()
-                .find(|observation| observation.type_id() == &request.type_id)
-                .ok_or_else(|| format!("no state-owned availability for {}", request.type_id))
-                .and_then(launch_availability_result)
+            direct_availability_result(
+                state
+                    .agent_type_availability
+                    .iter()
+                    .find(|observation| observation.type_id() == &request.type_id),
+                &request.type_id,
+                direct_gate,
+            )
         }
     };
     match result {
@@ -217,6 +239,19 @@ fn launch_availability_result(observation: &AgentAvailabilityObservation) -> Res
     }
 }
 
+fn direct_availability_result(
+    observation: Option<&AgentAvailabilityObservation>,
+    type_id: &AgentTypeId,
+    gate: DirectAvailabilityGate,
+) -> Result<(), String> {
+    let observation =
+        observation.ok_or_else(|| format!("no state-owned availability for {type_id}"))?;
+    match gate {
+        DirectAvailabilityGate::Cached => launch_availability_result(observation),
+        DirectAvailabilityGate::RefreshCurrent => Ok(()),
+    }
+}
+
 fn has_package_selector(request: &AgentLaunchRequest) -> bool {
     matches!(
         typed_field(&request.values, "version_selector"),
@@ -289,6 +324,48 @@ mod tests {
             remote: RemoteRepositorySettings::default(),
             operation: jefe::domain::agent_definition::Operation::Normal,
         }
+    }
+
+    #[test]
+    fn refresh_current_bypasses_stale_cached_failure_but_requires_observation() {
+        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
+        let observation = AgentAvailabilityObservation::new(
+            &definition,
+            true,
+            Availability::ProbeError {
+                code: jefe::domain::agent_definition::ProbeErrorCode::Agte202,
+                reason: "stale startup probe failure".to_owned(),
+                generation: 7,
+            },
+        );
+
+        assert!(
+            direct_availability_result(
+                Some(&observation),
+                &definition.id,
+                DirectAvailabilityGate::Cached,
+            )
+            .is_err()
+        );
+        assert!(
+            direct_availability_result(
+                Some(&observation),
+                &definition.id,
+                DirectAvailabilityGate::RefreshCurrent,
+            )
+            .is_ok()
+        );
+        assert!(
+            direct_availability_result(
+                None,
+                &definition.id,
+                DirectAvailabilityGate::RefreshCurrent,
+            )
+            .is_err()
+        );
     }
 
     fn valid_remote() -> RemoteRepositorySettings {

@@ -93,7 +93,19 @@ fn attach_failure_is_preserved_as_distinct_relaunch_diagnostic() {
     let attach_error =
         RuntimeError::AttachFailed("session exited before the viewer became ready".to_owned());
     let mut runtime = StubRuntimeManager::with_attach_failure(attach_error.clone());
-    let plan = authorized_launch_plan(&AgentLaunchPlan::default());
+    let fixture_plan = AgentLaunchPlan {
+        target: jefe::domain::agent_definition::Target::Remote(
+            jefe::domain::agent_definition::RemoteTarget {
+                user: "fixture".to_owned(),
+                host: "example.invalid".to_owned(),
+                port: None,
+                run_as_user: String::new(),
+                canonical_cwd: std::path::PathBuf::from("/tmp/work"),
+            },
+        ),
+        ..AgentLaunchPlan::default()
+    };
+    let plan = authorized_launch_plan(&fixture_plan);
     if let Err(error) = runtime.spawn_session(&agent_id, &plan, None) {
         panic!("test session should spawn: {error}");
     }

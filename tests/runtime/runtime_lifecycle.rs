@@ -10,7 +10,7 @@ use crate::support::{TestOptionExt, TestResultExt, authorized_launch_plan};
 
 use std::path::PathBuf;
 
-use jefe::domain::agent_definition::{AgentLaunchPlan, Target};
+use jefe::domain::agent_definition::{AgentLaunchPlan, RemoteTarget, Target};
 use jefe::domain::{Agent, AgentId, RepositoryId};
 use jefe::runtime::{AuthorizedLaunchPlan, RuntimeError, RuntimeManager, StubRuntimeManager};
 
@@ -28,9 +28,13 @@ fn make_agent(id: &str, repo_id: &str) -> Agent {
 fn make_signature(agent: &Agent) -> AuthorizedLaunchPlan {
     let plan = AgentLaunchPlan {
         cwd: agent.work_dir.clone(),
-        target: Target::Local {
+        target: Target::Remote(RemoteTarget {
+            user: "fixture".to_owned(),
+            host: "example.invalid".to_owned(),
+            port: None,
+            run_as_user: String::new(),
             canonical_cwd: agent.work_dir.clone(),
-        },
+        }),
         ..AgentLaunchPlan::default()
     };
     authorized_launch_plan(&plan)

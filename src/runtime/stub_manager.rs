@@ -296,10 +296,16 @@ mod tests {
 
     fn fixture_plan() -> crate::domain::agent_definition::AgentLaunchPlan {
         crate::domain::agent_definition::AgentLaunchPlan {
+            target: crate::domain::agent_definition::Target::Remote(
+                crate::domain::agent_definition::RemoteTarget {
+                    user: "fixture".to_owned(),
+                    host: "example.invalid".to_owned(),
+                    port: None,
+                    run_as_user: String::new(),
+                    canonical_cwd: std::path::PathBuf::from("/tmp/work"),
+                },
+            ),
             cwd: std::path::PathBuf::from("/tmp/work"),
-            target: crate::domain::agent_definition::Target::Local {
-                canonical_cwd: std::path::PathBuf::from("/tmp/work"),
-            },
             ..crate::domain::agent_definition::AgentLaunchPlan::default()
         }
     }

@@ -100,7 +100,7 @@ fn relaunch_preflight_passed(
     let Some((_, signature)) = agent_sig else {
         return true;
     };
-    if !availability::launch_available_or_error(app_state, &signature) {
+    if !availability::launch_refresh_available_or_error(app_state, &signature) {
         return false;
     }
     preflight_or_prompt(app_state, ctx, agent_id, &signature, None)

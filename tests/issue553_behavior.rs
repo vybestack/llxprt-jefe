@@ -339,16 +339,24 @@ fn validate_launch_accepts_without_executing_a_probe() {
     );
 }
 
-/// A7 contrast: the authoritative preparation boundary does probe the same
-/// fixture, which is what makes the assertion above meaningful.
+/// A7 contrast: launch-state observation remains process-free; the
+/// authoritative preparation boundary performs the single probe.
 #[test]
 fn launch_preparation_still_probes_the_same_candidate() {
     let agent = RecordingAgent::new();
     let request = agent.request();
 
     let evidence = jefe::runtime::launch_compose::observe_launch_state(&request);
+    assert!(evidence.is_ok(), "fixture must be observable: {evidence:?}");
+    assert!(
+        agent.invocations().is_empty(),
+        "observation must not execute the agent: {:?}",
+        agent.invocations()
+    );
 
-    assert!(evidence.is_ok(), "fixture must be probeable: {evidence:?}");
+    let prepared = evidence
+        .and_then(|evidence| jefe::runtime::launch_compose::prepare_launch(&request, &evidence));
+    assert!(prepared.is_ok(), "fixture must prepare: {prepared:?}");
     assert_eq!(
         agent.invocations(),
         vec!["--version".to_owned()],

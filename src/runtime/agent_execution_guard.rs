@@ -166,6 +166,15 @@ pub struct AuthorizationRejection {
 }
 
 impl AuthorizationRejection {
+    /// Construct the fail-closed executable-fingerprint mismatch diagnostic.
+    #[must_use]
+    pub(crate) const fn executable_fingerprint() -> Self {
+        Self {
+            code: ProbeErrorCode::Agte203,
+            dimension: StaleDimension::ExecutableFingerprint,
+        }
+    }
+
     /// The closed stale-generation code (`AGT-E203`).
     #[must_use]
     pub const fn code(&self) -> ProbeErrorCode {
