@@ -504,6 +504,18 @@ impl TmuxRuntimeManager {
         }
     }
 
+    /// Return `Err(AlreadyRunning)` if a session is already mapped for `agent_id`.
+    ///
+    /// This owns the single duplicate-session predicate so the early fail-fast
+    /// checks in both public spawn entry points and the internal last line of
+    /// defense cannot drift apart.
+    fn ensure_not_running(&self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        if self.sessions.contains_key(agent_id) {
+            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
+        }
+        Ok(())
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -512,10 +524,10 @@ impl TmuxRuntimeManager {
         allow_reattach: bool,
         lifecycle_generation: u64,
     ) -> Result<bool, RuntimeError> {
-        // Check for duplicate runtime mapping in this process.
-        if self.sessions.contains_key(agent_id) {
-            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
-        }
+        // Last line of defense: reject a duplicate mapping just before the
+        // session is inserted. The public entry points check earlier to fail
+        // fast before expensive preflight and credential material is created.
+        self.ensure_not_running(agent_id)?;
 
         // Fresh spawn (not reattach): invalidate stale cache (fix #8).
         if !allow_reattach {
@@ -602,9 +614,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
-        if self.sessions.contains_key(agent_id) {
-            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
-        }
+        self.ensure_not_running(agent_id)?;
         // Preflight the unmodified plan first so an unspawnable agent fails
         // before any credential material is written. The augmented plan is
         // preflighted again below because JSP instrumentation changes it.
@@ -640,9 +650,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
-        if self.sessions.contains_key(agent_id) {
-            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
-        }
+        self.ensure_not_running(agent_id)?;
         launch
             .prepare_current(&ProcessSandboxInspector::new())
             .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
@@ -844,9 +852,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
         info!(agent_id = %agent_id.0, "relaunching runtime session");
-        if self.sessions.contains_key(agent_id) {
-            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
-        }
+        self.ensure_not_running(agent_id)?;
         if self.dead_plans.peek(agent_id).is_none() {
             return Err(RuntimeError::NotRunning(agent_id.clone()));
         }
