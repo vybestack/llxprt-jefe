@@ -72,6 +72,17 @@ fn filter_and_search_messages_are_fresh_issue_list_reloads() {
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplyFilter));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ClearFilter));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplySearch));
+    // A sort-config change must reset the cursor and refetch so the fetch
+    // orderBy matches the new display direction (issue #573).
+    assert!(is_fresh_issue_list_reload(
+        &IssuesMessage::CycleIssueSortByNext
+    ));
+    assert!(is_fresh_issue_list_reload(
+        &IssuesMessage::CycleIssueSortByPrev
+    ));
+    assert!(is_fresh_issue_list_reload(
+        &IssuesMessage::ToggleIssueSortOrder
+    ));
     assert!(!is_fresh_issue_list_reload(
         &IssuesMessage::NavigatePageDown(jefe::list_viewport::PageItemCount::new(3))
     ));
