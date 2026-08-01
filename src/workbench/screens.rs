@@ -72,16 +72,23 @@ const AGENT_WEIGHT: u16 = 1;
 /// Weight of the dashboard terminal pane; the terminal takes three quarters.
 const TERMINAL_WEIGHT: u16 = 3;
 
-/// Fewest rows the agent panel keeps while visible: chrome plus one row.
-const AGENT_MIN_ROWS: u16 = 4;
-/// Fewest rows the terminal panel keeps while visible: chrome plus two rows.
-const TERMINAL_MIN_ROWS: u16 = 5;
-/// Fewest rows a list panel keeps while visible: chrome plus one row.
-const LIST_MIN_ROWS: u16 = 4;
-/// Fewest rows a detail panel keeps while visible: chrome plus one row.
-const DETAIL_MIN_ROWS: u16 = 3;
-/// Fewest columns a flexible panel keeps while visible.
-const FLEX_MIN_COLUMNS: u16 = 4;
+// A minimum is charged *before* weights are applied, so declaring one changes
+// the proportion a pane actually receives. The shipped screens reserve nothing
+// for their flexible panes — they are pure proportions that shrink until the
+// resolver hides a degenerate pane — so these are zero, and the pane sizes match
+// what the screens render today. Declaring a comfortable-looking minimum here
+// would silently skew every split away from its declared weight.
+
+/// The agent pane reserves nothing; it is a pure quarter share.
+const AGENT_MIN_ROWS: u16 = 0;
+/// The terminal pane reserves nothing; it is a pure three-quarter share.
+const TERMINAL_MIN_ROWS: u16 = 0;
+/// The workspace list reserves nothing; it is a pure three-tenths share.
+const LIST_MIN_ROWS: u16 = 0;
+/// The workspace detail reserves nothing; it is a pure seven-tenths share.
+const DETAIL_MIN_ROWS: u16 = 0;
+/// A flexible column reserves nothing; it takes what the fixed columns leave.
+const FLEX_MIN_COLUMNS: u16 = 0;
 
 // ── Shipped chrome ─────────────────────────────────────────────────────────
 

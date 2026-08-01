@@ -192,8 +192,9 @@ fn distribute(
         .ok_or(LayoutError::Overflow)?;
     let mut remaining = content.saturating_sub(assigned);
 
-    remaining = grow_by_weight(children, &mut granted, &mut pool, remaining)?;
-    distribute_remainder(children, &mut granted, &pool, remaining);
+    let mut fractions = vec![0_u32; children.len()];
+    remaining = grow_by_weight(children, &mut granted, &mut pool, &mut fractions, remaining)?;
+    distribute_remainder(children, &mut granted, &pool, &fractions, remaining);
 
     granted
         .into_iter()
@@ -212,8 +213,13 @@ fn grow_by_weight(
     children: &[AxisChild],
     granted: &mut [Option<u32>],
     pool: &mut Vec<usize>,
+    fractions: &mut [u32],
     mut remaining: u32,
 ) -> Result<u32, LayoutError> {
+    // The unmet claim is recorded from the first pass only. Later passes
+    // redistribute what a pinned child gave back, and their much smaller
+    // `remaining` would overwrite the original claim with a meaningless one.
+    let mut claims_recorded = false;
     while remaining > 0 && !pool.is_empty() {
         let sum_weight = pool
             .iter()
@@ -228,10 +234,16 @@ fn grow_by_weight(
         let mut pinned_any = false;
         let mut consumed = 0_u32;
         for index in pool.clone() {
-            let share = remaining
+            let scaled = remaining
                 .checked_mul(weight_of(children.get(index)))
-                .ok_or(LayoutError::Overflow)?
-                / sum_weight;
+                .ok_or(LayoutError::Overflow)?;
+            let share = scaled / sum_weight;
+            // How much of a cell this child was owed but did not receive. The
+            // leftover cells go to the children with the largest unmet claim,
+            // which is what keeps a proportional split from drifting.
+            if !claims_recorded && let Some(slot) = fractions.get_mut(index) {
+                *slot = scaled % sum_weight;
+            }
             if share == 0 {
                 continue;
             }
@@ -255,6 +267,7 @@ fn grow_by_weight(
             }
         }
 
+        claims_recorded = true;
         remaining = remaining.saturating_sub(consumed);
         if consumed == 0 && !pinned_any {
             break;
@@ -263,16 +276,30 @@ fn grow_by_weight(
     Ok(remaining)
 }
 
-/// Hand out leftover cells one at a time in declaration order.
+/// Hand out leftover cells one at a time, largest unmet claim first.
+///
+/// Handing them out in plain declaration order biases every split toward its
+/// first child: a three-to-seven split of 37 cells would give the small pane the
+/// spare cell even though the large pane was owed three quarters of one. Ordering
+/// by the unmet fraction keeps the result on the declared proportion, and ties
+/// fall back to declaration order so the outcome is still deterministic.
 fn distribute_remainder(
     children: &[AxisChild],
     granted: &mut [Option<u32>],
     pool: &[usize],
+    fractions: &[u32],
     mut remaining: u32,
 ) {
+    let mut order: Vec<usize> = pool.to_vec();
+    order.sort_by(|left, right| {
+        let left_fraction = fractions.get(*left).copied().unwrap_or(0);
+        let right_fraction = fractions.get(*right).copied().unwrap_or(0);
+        right_fraction.cmp(&left_fraction).then(left.cmp(right))
+    });
+
     while remaining > 0 {
         let mut placed = false;
-        for index in pool {
+        for index in &order {
             if remaining == 0 {
                 break;
             }

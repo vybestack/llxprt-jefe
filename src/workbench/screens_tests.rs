@@ -317,18 +317,31 @@ fn string_list<'value>(value: &'value Value, key: &str) -> Option<Vec<&'value st
 }
 
 #[test]
-fn every_layout_child_declares_a_usable_minimum() {
+fn every_layout_child_declares_a_coherent_size_range() {
     for screen in registry().screens() {
         assert_children(&screen.layout, &mut |child| {
-            assert!(
-                child.min >= 1,
-                "screen {} declares a child with a zero minimum",
-                screen.id
-            );
             if let Some(max) = child.max {
                 assert!(
                     max >= child.min,
                     "screen {} declares max below min",
+                    screen.id
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn no_flexible_child_reserves_a_minimum_it_does_not_need() {
+    // A minimum is charged before weights apply, so declaring one skews the
+    // proportion a pane actually receives. The shipped screens are pure
+    // proportions, so only fixed-width children carry a minimum.
+    for screen in registry().screens() {
+        assert_children(&screen.layout, &mut |child| {
+            if matches!(child.size, super::descriptor::Size::Weight(_)) {
+                assert_eq!(
+                    child.min, 0,
+                    "screen {} reserves a minimum on a weighted child, which skews its share",
                     screen.id
                 );
             }

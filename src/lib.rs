@@ -65,6 +65,9 @@ pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod screen_layout;
 #[cfg(test)]
+#[path = "screen_layout_parity_tests.rs"]
+mod screen_layout_parity_tests;
+#[cfg(test)]
 #[path = "screen_layout_tests.rs"]
 mod screen_layout_tests;
 pub mod selection;

@@ -70,14 +70,35 @@ fn an_odd_remainder_goes_to_the_first_child_in_declaration_order() {
 }
 
 #[test]
-fn weights_share_in_proportion_with_the_remainder_going_first() {
+fn weights_share_in_proportion_with_the_remainder_going_to_the_largest_claim() {
     // 31 cells, one separator, 30 content cells at weights 1:2. Minima are
     // satisfied first (1 each), leaving 28 to share: floor(28/3) = 9 and
-    // floor(56/3) = 18, so 10 and 19, and the single leftover cell goes to the
-    // first child in declaration order.
+    // floor(56/3) = 18, so 10 and 19 with one cell left over. The second child
+    // was owed two thirds of a cell against the first child's one third, so it
+    // takes the leftover and the split stays on its declared 1:2 proportion.
     assert_eq!(
         granted(&[weighted(1, 1, None), weighted(2, 1, None)], 31),
-        vec![Some(11), Some(19)]
+        vec![Some(10), Some(20)]
+    );
+}
+
+#[test]
+fn an_equal_claim_breaks_the_tie_in_declaration_order() {
+    // Equal weights leave both children owed exactly half a cell, so the
+    // outcome must still be deterministic rather than arbitrary.
+    assert_eq!(
+        granted(&[weighted(1, 1, None), weighted(1, 1, None)], 22),
+        vec![Some(11), Some(10)]
+    );
+}
+
+#[test]
+fn the_remainder_does_not_drift_a_three_to_seven_split() {
+    // The shipped workspace proportion. Handing the leftover to the first child
+    // would give the small pane 12 of 38 rows instead of 11.
+    assert_eq!(
+        granted_with_gap(&[weighted(3, 0, None), weighted(7, 0, None)], 38, 0),
+        vec![Some(11), Some(27)]
     );
 }
 
