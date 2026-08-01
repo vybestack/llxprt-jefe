@@ -15,6 +15,9 @@ const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 /// response, so observing `200 OK` does not mean the message is queued yet.
 /// Draining immediately is a race; this polls instead of sleeping a fixed
 /// amount so the test is neither flaky nor artificially slow.
+///
+/// A poisoned lock surfaces immediately as a panic with the real error rather
+/// than spinning until the deadline as an opaque timeout.
 fn drain_at_least(
     runtime: &jefe::jsp_host::JspHostRuntime,
     expected: usize,
@@ -22,7 +25,10 @@ fn drain_at_least(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut collected = Vec::new();
     while collected.len() < expected && std::time::Instant::now() < deadline {
-        collected.extend(runtime.drain_messages());
+        let drained = runtime
+            .drain_messages()
+            .unwrap_or_else(|error| panic!("JSP delivery drain failed: {error}"));
+        collected.extend(drained);
         if collected.len() < expected {
             thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -211,7 +217,7 @@ fn event_with_sequence(sequence: u64) -> Vec<u8> {
 }
 
 #[test]
-fn routes_require_one_registration_and_reject_duplicate_registration() {
+fn routes_require_one_registration_and_idempotent_re_registration() {
     let registry = PublisherRegistry::default();
     registry
         .reserve(reservation())
@@ -233,10 +239,141 @@ fn routes_require_one_registration_and_reject_duplicate_registration() {
             .0
             .starts_with("HTTP/1.1 200")
     );
-    let (duplicate_response, duplicate_message) =
+    // An identical re-registration (same identity triple, same epoch) is an
+    // idempotent replay: it returns 200 but delivers no message so the
+    // canonical state is not double-applied.
+    let (replay_response, replay_message) =
         serve_request(&registry, "/jsp/1/register", snapshot);
-    assert!(duplicate_response.starts_with("HTTP/1.1 409"));
-    assert!(duplicate_message.is_none());
+    assert!(replay_response.starts_with("HTTP/1.1 200"));
+    assert!(replay_message.is_none());
+}
+
+fn snapshot_with_epoch(epoch: &str) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "schema": 1,
+        "kind": "snapshot",
+        "agent_id": "agent-alex",
+        "lifecycle_generation": 7,
+        "source_epoch": epoch,
+        "source_sequence": 42,
+        "cursor": 41,
+        "bridge_observed_ms": 1000,
+        "native_session": {
+            "repository": "vybestack/llxprt-jefe",
+            "path": "/Users/dev/src/jefe",
+            "agent_kind": "llxprt",
+            "pid": 12345,
+            "display_name": "main-worker"
+        },
+        "process_binding": known_field(serde_json::json!({"pid": 12345, "started_at_ms": 1000})),
+        "native_activity": known_field(serde_json::json!({"state": "idle"})),
+        "current_wait": known_field(serde_json::Value::Null),
+        "current_turn": known_field(serde_json::json!({"elapsed_ms": 12000})),
+        "todos": known_field(serde_json::json!({
+            "revision": 3,
+            "items": [{"text": "Write parser", "completed": false}]
+        })),
+        "last_displayed_assistant_message": known_field(serde_json::json!({
+            "content": "Done.",
+            "committed_ms": 1000
+        })),
+        "last_created_tool_call": known_field(serde_json::json!({"label": "Read", "phase": "succeeded"})),
+        "source_terminal_state": known_field(serde_json::Value::Null),
+        "source_error_state": "unsupported"
+    }))
+    .unwrap_or_else(|error| panic!("serialize snapshot: {error}"))
+}
+
+fn known_field(value: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "provenance": "authoritative",
+        "availability": "known",
+        "value": value
+    })
+}
+
+/// A different source_epoch for the same agent/generation is a genuine conflict
+/// and must return 409 even though the publisher is already registered.
+#[test]
+fn re_registration_with_different_epoch_is_409() {
+    let registry = PublisherRegistry::default();
+    registry
+        .reserve(reservation())
+        .unwrap_or_else(|error| panic!("reserve credential: {error}"));
+    let snapshot = include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json");
+    assert!(
+        serve_request(&registry, "/jsp/1/register", snapshot)
+            .0
+            .starts_with("HTTP/1.1 200")
+    );
+    let different_epoch = snapshot_with_epoch("epoch-999");
+    let (conflict_response, conflict_message) =
+        serve_request(&registry, "/jsp/1/register", &different_epoch);
+    assert!(conflict_response.starts_with("HTTP/1.1 409"));
+    assert!(conflict_message.is_none());
+}
+
+/// After an idempotent re-registration, publish/heartbeat rules still hold: the
+/// stream identity is the original epoch, so events bound to that epoch are
+/// accepted and events with a different epoch are rejected.
+#[test]
+fn idempotent_re_registration_preserves_sequence_rules() {
+    let registry = PublisherRegistry::default();
+    registry
+        .reserve(reservation())
+        .unwrap_or_else(|error| panic!("reserve credential: {error}"));
+    let snapshot = include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json");
+    assert!(
+        serve_request(&registry, "/jsp/1/register", snapshot)
+            .0
+            .starts_with("HTTP/1.1 200")
+    );
+    // Idempotent replay: same snapshot, same epoch -> 200, no message.
+    let (replay_response, replay_message) =
+        serve_request(&registry, "/jsp/1/register", snapshot);
+    assert!(replay_response.starts_with("HTTP/1.1 200"));
+    assert!(replay_message.is_none());
+
+    // After the replay the stream is still live at cursor 41, so event 42
+    // applies and event 43 (gap) is rejected.
+    let (ok_response, ok_message) =
+        serve_request(&registry, "/jsp/1/publish", &event_with_sequence(42));
+    assert!(ok_response.starts_with("HTTP/1.1 200"));
+    assert!(ok_message.is_some());
+    let (gap_response, _gap_message) =
+        serve_request(&registry, "/jsp/1/publish", &event_with_sequence(44));
+    assert!(gap_response.starts_with("HTTP/1.1 400"));
+}
+
+/// Full real-socket idempotent replay: the producer registers, the 200 is
+/// acknowledged, and an identical re-registration returns 200 again without
+/// delivering a duplicate observation message. The publisher registry uses
+/// internal `Arc<Mutex<...>>` sharing, so `serve_request` clones — which share
+/// the same underlying state — preserve registration across separate host
+/// binds on the real loopback socket.
+#[test]
+fn real_socket_idempotent_re_registration_does_not_double_apply() {
+    let registry = PublisherRegistry::default();
+    registry
+        .reserve(reservation())
+        .unwrap_or_else(|error| panic!("reserve credential: {error}"));
+    let snapshot = include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json");
+
+    // First registration through the real loopback socket: 200 + message.
+    let (first_response, first_message) = serve_request(&registry, "/jsp/1/register", snapshot);
+    assert!(first_response.starts_with("HTTP/1.1 200"));
+    assert!(
+        first_message.is_some(),
+        "first registration must emit an observation message"
+    );
+
+    // Identical re-registration through a second real socket: 200, no message.
+    let (replay_response, replay_message) = serve_request(&registry, "/jsp/1/register", snapshot);
+    assert!(replay_response.starts_with("HTTP/1.1 200"));
+    assert!(
+        replay_message.is_none(),
+        "idempotent replay must not double-apply or deliver a duplicate message"
+    );
 }
 
 #[test]
@@ -432,6 +569,10 @@ fn publish_repeated_snapshots(
             include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json"),
         );
         assert!(response.starts_with("HTTP/1.1 200"));
+        // Yield briefly so the single-threaded host worker can accept the next
+        // connection. Under parallel test contention the accept backlog can
+        // overflow without this, producing a spurious broken-pipe failure.
+        thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 

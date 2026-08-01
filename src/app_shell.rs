@@ -35,10 +35,18 @@ fn drain_jsp_messages(
         return false;
     };
     let messages = match ctx_arc.try_lock() {
-        Ok(context) => context
+        Ok(context) => match context
             .jsp_host
             .as_ref()
-            .map_or_else(Vec::new, jefe::jsp_host::JspHostRuntime::drain_messages),
+            .map(|host| host.drain_messages())
+        {
+            Some(Ok(messages)) => messages,
+            Some(Err(error)) => {
+                warn!(error = %error, "JSP observation delivery poisoned; draining aborted");
+                return false;
+            }
+            None => Vec::new(),
+        },
         Err(_) => return false,
     };
     if messages.is_empty() {
