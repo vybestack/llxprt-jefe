@@ -18,6 +18,7 @@ use serde_json::Value;
 
 use super::comment_pages::exhausted_comments;
 use super::parse::parse_page_info;
+use super::pr_check_rollup::{effective_check_nodes, parse_check_status, parse_checks_rollup};
 use super::timestamp::cmp_rfc3339_newest_first;
 use super::{GhError, PrListResponse};
 
@@ -86,12 +87,12 @@ pub fn build_pr_search_args(
 
 /// GraphQL search query WITH the `$after` cursor variable (PR fields inlined).
 fn pr_search_query_with_after() -> &'static str {
-    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { name } } } } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// GraphQL search query WITHOUT the `$after` cursor variable (first page).
 fn pr_search_query_first_page() -> &'static str {
-    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { name } } } } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// Build the GitHub search-qualifier string (incl. `is:pr`) for the PR query.
@@ -357,7 +358,13 @@ pub fn parse_pull_request_detail_json(
         .and_then(Value::as_array)
         .map(|arr| arr.iter().map(parse_pr_review).collect())
         .unwrap_or_default();
-    let checks = rollup.iter().map(parse_pr_check).collect();
+    // Build the check list from the SAME deduped effective nodes the aggregate
+    // uses, so superseded attempts are omitted from the rows and the list can
+    // never disagree with its aggregate glyph (issue #514).
+    let checks = effective_check_nodes(&rollup)
+        .into_iter()
+        .map(parse_pr_check)
+        .collect();
 
     Ok(PullRequestDetail {
         repo_owner_name: owner_name.to_string(),
@@ -524,66 +531,6 @@ pub fn parse_review_decision(value: &Value) -> Option<PrReviewState> {
         "CHANGES_REQUESTED" => Some(PrReviewState::ChangesRequested),
         "REVIEW_REQUIRED" => Some(PrReviewState::ReviewRequired),
         _ => None,
-    }
-}
-
-/// Map a raw status/conclusion/state token to a [`PrCheckStatus`] (union of
-/// CheckRun-conclusion, CheckRun-status, and StatusContext-state tokens).
-///
-/// @plan PLAN-20260624-PR-MODE.P08
-/// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 205-215
-#[must_use]
-pub fn parse_check_status(raw_status: &str) -> PrCheckStatus {
-    match raw_status {
-        "SUCCESS" => PrCheckStatus::Success,
-        "FAILURE" | "ERROR" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" | "CANCELLED" => {
-            PrCheckStatus::Failure
-        }
-        "PENDING" | "EXPECTED" | "QUEUED" | "IN_PROGRESS" | "WAITING" | "REQUESTED"
-        | "COMPLETED" | "" => PrCheckStatus::Pending,
-        _ => PrCheckStatus::Neutral,
-    }
-}
-
-/// Aggregate the per-node check statuses into a single rollup status.
-///
-/// Precedence: empty→None; any Failure→Failure; any Pending→Pending; all
-/// Success→Success; else Neutral.
-///
-/// @plan PLAN-20260624-PR-MODE.P08
-/// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 216-222
-#[must_use]
-pub fn parse_checks_rollup(nodes: &[Value]) -> PrCheckStatus {
-    if nodes.is_empty() {
-        return PrCheckStatus::None;
-    }
-    let mut has_failure = false;
-    let mut has_pending = false;
-    let mut all_success = true;
-    for node in nodes {
-        let status = node
-            .get("conclusion")
-            .or_else(|| node.get("state"))
-            .or_else(|| node.get("status"))
-            .and_then(Value::as_str)
-            .map_or(PrCheckStatus::Pending, parse_check_status);
-        match status {
-            PrCheckStatus::Failure => has_failure = true,
-            PrCheckStatus::Pending => has_pending = true,
-            PrCheckStatus::Success => {}
-            _ => all_success = false,
-        }
-    }
-    if has_failure {
-        PrCheckStatus::Failure
-    } else if has_pending {
-        PrCheckStatus::Pending
-    } else if all_success {
-        PrCheckStatus::Success
-    } else {
-        PrCheckStatus::Neutral
     }
 }
 
