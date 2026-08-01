@@ -25,9 +25,12 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Result<Request, JspHostErr
         if read == 0 || bytes.len().saturating_add(read) > MAX_REQUEST_BYTES {
             return Err(JspHostError::InvalidRequest);
         }
+        // Resume the scan just before the previous tail so a long request is
+        // not rescanned from the start on every read.
+        let scan_from = bytes.len().saturating_sub(3);
         bytes.extend_from_slice(&buffer[..read]);
-        if let Some(end) = find_header_end(&bytes) {
-            break end;
+        if let Some(end) = find_header_end(&bytes[scan_from..]) {
+            break scan_from + end;
         }
     };
     let header =

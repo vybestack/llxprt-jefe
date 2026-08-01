@@ -556,8 +556,15 @@ impl JspLaunchCoordinator {
             }
         };
         let bootstrap_path = bootstrap.path().to_path_buf();
+        // From here the credential is reserved and its bootstrap file exists,
+        // so every failure path must undo both. Returning early would leave a
+        // live credential on disk that nothing tracks and nothing revokes.
         let previous = {
-            let mut active = self.active.lock().map_err(|_| JspHostError::Poisoned)?;
+            let Ok(mut active) = self.active.lock() else {
+                let _ = self.registry.revoke(agent_id, generation);
+                let _ = self.cleanup_or_retain(bootstrap);
+                return Err(JspHostError::Poisoned);
+            };
             active.insert(
                 agent_id.clone(),
                 ActiveLaunch {
@@ -566,14 +573,7 @@ impl JspLaunchCoordinator {
                 },
             )
         };
-        if let Some(previous) = previous {
-            self.registry.revoke(agent_id, previous.generation)?;
-            self.cleanup_or_retain(previous.bootstrap)?;
-        }
-        self.delivery.publish(RuntimeMessage::ObservationCleared(
-            agent_id.clone(),
-            generation,
-        ))?;
+        self.finish_prepared_launch(agent_id, generation, previous)?;
         Ok(Some(PreparedJspLaunch {
             coordinator: self.clone(),
             agent_id: agent_id.clone(),
@@ -581,6 +581,37 @@ impl JspLaunchCoordinator {
             bootstrap_path,
             committed: false,
         }))
+    }
+
+    /// Retire any superseded launch and announce the new one.
+    ///
+    /// The launch is already tracked, so `revoke` is the correct undo for any
+    /// failure here: returning early without it would leave a live credential
+    /// and its bootstrap file behind.
+    fn finish_prepared_launch(
+        &self,
+        agent_id: &AgentId,
+        generation: u64,
+        previous: Option<ActiveLaunch>,
+    ) -> Result<(), JspHostError> {
+        if let Some(previous) = previous {
+            if let Err(error) = self.registry.revoke(agent_id, previous.generation) {
+                let _ = self.revoke(agent_id);
+                return Err(error);
+            }
+            if let Err(error) = self.cleanup_or_retain(previous.bootstrap) {
+                let _ = self.revoke(agent_id);
+                return Err(error);
+            }
+        }
+        if let Err(error) = self.delivery.publish(RuntimeMessage::ObservationCleared(
+            agent_id.clone(),
+            generation,
+        )) {
+            let _ = self.revoke(agent_id);
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Revoke one agent's active credential and remove its bootstrap file.
@@ -854,14 +885,19 @@ fn owned_by_runtime_owner(
     true
 }
 
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
 fn random_opaque_id(prefix: &str, byte_count: usize) -> Result<String, JspHostError> {
     let mut bytes = vec![0_u8; byte_count];
     getrandom::fill(&mut bytes).map_err(JspHostError::Random)?;
     let mut value = String::with_capacity(prefix.len() + byte_count.saturating_mul(2));
     value.push_str(prefix);
+    // Hex-encode directly. Formatting would introduce a Result that has no
+    // meaningful failure for this input and was previously misreported as a
+    // malformed request.
     for byte in bytes {
-        use std::fmt::Write as _;
-        write!(value, "{byte:02x}").map_err(|_| JspHostError::InvalidRequest)?;
+        value.push(char::from(HEX[usize::from(byte >> 4)]));
+        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     Ok(value)
 }

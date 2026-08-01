@@ -121,10 +121,26 @@ fn post(
     else {
         return false;
     };
+    // These values are interpolated straight into header lines, so refuse
+    // anything that could terminate a header early and smuggle another.
+    if [credential, registration_id, route]
+        .iter()
+        .any(|value| value.contains(['\r', '\n']))
+    {
+        return false;
+    }
     let body = body.to_string();
     let Ok(mut stream) = TcpStream::connect(authority) else {
         return false;
     };
+    // Without timeouts an unresponsive server hangs the fixture until the
+    // harness kills it, which reports as an unrelated scenario timeout.
+    let timeout = std::time::Duration::from_secs(5);
+    if stream.set_read_timeout(Some(timeout)).is_err()
+        || stream.set_write_timeout(Some(timeout)).is_err()
+    {
+        return false;
+    }
     if write!(
         stream,
         "POST /jsp/1/{route} HTTP/1.1\r\nHost: {authority}\r\nAuthorization: Bearer {credential}\r\nJsp-Registration-Id: {registration_id}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

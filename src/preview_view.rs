@@ -135,12 +135,20 @@ fn append_todos(lines: &mut Vec<String>, observation: Option<&AgentObservation>)
         FieldState::Supported {
             availability: Availability::Degraded { last_value, .. },
             ..
-        } => lines.extend(
-            last_value
-                .items
-                .iter()
-                .map(|todo| format!("  [stale] {}", todo.text.as_str())),
-        ),
+        } => {
+            // An empty stale list must still say so; otherwise the section
+            // renders blank and reads as though nothing is known.
+            if last_value.items.is_empty() {
+                lines.push("  [stale] (no tasks)".to_string());
+            } else {
+                lines.extend(
+                    last_value
+                        .items
+                        .iter()
+                        .map(|todo| format!("  [stale] {}", todo.text.as_str())),
+                );
+            }
+        }
     }
 }
 
