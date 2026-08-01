@@ -122,10 +122,11 @@ pub use multiplexer::{
     MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
 };
 pub use multiplexer_conformance::{
-    ConformanceFinding, ConformanceReport, ConformanceVerdict, ProbeOutcome, ProbePlan,
-    classify_contract_probe, probe_plan_for, summarize_conformance,
+    ConformanceFinding, ConformanceReport, ConformanceVerdict, MultiplexerQualification,
+    ProbeOutcome, ProbePlan, classify_contract_probe, probe_plan_for, qualification_from_report,
+    summarize_conformance,
 };
-pub use multiplexer_conformance_io::qualify_multiplexer;
+pub use multiplexer_conformance_io::{qualify_multiplexer, qualify_multiplexer_for_startup};
 pub use multiplexer_contract::{
     ContractCapability, ContractItem, ContractItemKind, ResponseShape, contract_item,
     contract_items,

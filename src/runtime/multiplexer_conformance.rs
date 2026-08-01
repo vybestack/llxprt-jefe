@@ -12,6 +12,9 @@
 //! absence would let jefe run against something that is not the multiplexer it
 //! needs. Both mistakes are silent, so the difference is encoded in types.
 
+use std::fmt::Write as _;
+use std::path::Path;
+
 use super::multiplexer_contract::{
     ContractCapability, ContractItem, ContractItemKind, ResponseShape,
 };
@@ -104,7 +107,7 @@ pub enum ProbePlan {
 ///
 /// Every returned command targets `scratch_session` explicitly. The runner
 /// creates and destroys its own namespace, so verbs that would be destructive
-/// against live agent state — `kill-session`, `kill-server`, `send-keys` — are
+/// against live agent state Ã¢â‚¬â€ `kill-session`, `kill-server`, `send-keys` Ã¢â‚¬â€ are
 /// safe here precisely because they never address the caller's namespace.
 #[must_use]
 pub fn probe_plan_for(item: &ContractItem, scratch_session: &str) -> ProbePlan {
@@ -280,4 +283,65 @@ fn describe_stderr(stderr: &str) -> String {
     } else {
         trimmed.to_owned()
     }
+}
+
+/// The outcome of qualifying a multiplexer binary at startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MultiplexerQualification {
+    /// The binary honours every required item. The report is retained so
+    /// callers can degrade against capabilities it lacks.
+    Qualified { report: ConformanceReport },
+    /// The binary may not be used, with the operator-facing explanation.
+    Refused { message: String },
+}
+
+/// Environment variable that points jefe at a specific multiplexer build.
+const OVERRIDE_VARIABLE: &str = "JEFE_PSMUX_BIN";
+
+/// Turn a conformance report into a startup decision.
+///
+/// jefe does not ship or install psmux, so when it refuses to run the message
+/// is the entire remedy the operator receives. It therefore names the binary
+/// rejected, the version found there, every failing requirement, and how to
+/// supply a working build.
+#[must_use]
+pub fn qualification_from_report(
+    executable: &Path,
+    version: Option<String>,
+    report: ConformanceReport,
+) -> MultiplexerQualification {
+    if report.is_qualified() {
+        return MultiplexerQualification::Qualified { report };
+    }
+
+    let mut message = format!(
+        "the multiplexer at {} does not meet jefe's requirements.\n  version found: {}\n",
+        executable.display(),
+        version.unwrap_or_else(|| "unknown (the binary did not report one)".to_owned()),
+    );
+
+    message.push_str("  failing requirements:\n");
+    for violation in report.violations() {
+        let kind = match violation.kind {
+            ContractItemKind::Verb => "command",
+            ContractItemKind::Format => "format",
+            ContractItemKind::ServerOption => "server option",
+        };
+        let detail = match &violation.verdict {
+            ConformanceVerdict::Violated { detail } => detail.as_str(),
+            // Only violations are listed: a capability the build merely
+            // predates is not a defect, and naming it would send the operator
+            // after a fault that does not exist.
+            _ => continue,
+        };
+        let _ = writeln!(message, "    - {kind} `{}`: {detail}", violation.name);
+    }
+
+    let _ = write!(
+        message,
+        "  remedy: install a psmux build that satisfies the requirements above, \
+         or set {OVERRIDE_VARIABLE} to the full path of one.",
+    );
+
+    MultiplexerQualification::Refused { message }
 }

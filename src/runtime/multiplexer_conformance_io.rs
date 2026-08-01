@@ -10,8 +10,8 @@ use std::process::Stdio;
 
 use super::liveness::run_tmux_with_timeout;
 use super::multiplexer_conformance::{
-    ConformanceReport, ConformanceVerdict, ProbeOutcome, ProbePlan, classify_contract_probe,
-    probe_plan_for, summarize_conformance,
+    ConformanceReport, ConformanceVerdict, MultiplexerQualification, ProbeOutcome, ProbePlan,
+    classify_contract_probe, probe_plan_for, qualification_from_report, summarize_conformance,
 };
 use super::multiplexer_contract::{ContractItem, contract_items};
 use super::{MultiplexerIsolation, MultiplexerPlan};
@@ -101,6 +101,36 @@ pub fn qualify_multiplexer(plan: &MultiplexerPlan) -> ConformanceReport {
     let _ = execute_probe(&scratch, &["kill-server".to_owned()]);
 
     report
+}
+
+/// Qualify the multiplexer jefe is about to use, at startup.
+///
+/// Returns the report when the binary may be used, or an operator-facing
+/// refusal naming the binary, the version found, every failing requirement and
+/// the remedy. jefe neither ships nor installs psmux, so this message is the
+/// whole of what an operator gets to act on.
+///
+/// The probe runs against the resolved binary, which honours the
+/// `JEFE_PSMUX_BIN` override: pointing jefe at a specific build changes which
+/// binary is qualified, never whether qualification applies.
+#[must_use]
+pub fn qualify_multiplexer_for_startup(plan: &MultiplexerPlan) -> MultiplexerQualification {
+    let report = qualify_multiplexer(plan);
+    qualification_from_report(plan.executable(), probe_version(plan), report)
+}
+
+/// Ask the binary for its version, for the refusal message.
+///
+/// A binary too broken to answer yields `None`, which the refusal reports as
+/// unknown rather than implying a version it never observed.
+fn probe_version(plan: &MultiplexerPlan) -> Option<String> {
+    let outcome = execute_probe(plan, &["-V".to_owned()]);
+    let reported = outcome.stdout.trim();
+    if outcome.exit_code == Some(0) && !reported.is_empty() {
+        Some(reported.to_owned())
+    } else {
+        None
+    }
 }
 
 /// Derive a plan addressing isolation reserved for conformance probing.
