@@ -159,6 +159,75 @@ fn binding_accepts_only_definition_drift_for_the_stable_session() {
     );
 }
 
+/// Editing an agent field must never abandon that agent's live session.
+///
+/// A launch-signature field (here `model`; the version selector behaves
+/// identically) is edited while the agent keeps running. The tmux session and
+/// the worker process are both still alive, so jefe unambiguously still owns
+/// this process. Configuration content changed; process ownership did not.
+///
+/// `Stopped`, `Stale`, `Inconsistent` and `Orphaned` all clear the runtime
+/// binding without killing the session, which strands the live agent
+/// permanently: nothing re-adopts a session whose record was cleared. Startup
+/// must therefore reach a binding-preserving classification here.
+#[test]
+fn editing_a_launch_field_does_not_abandon_a_live_agent() {
+    let (mut agent, repository) = code_puppy_agent_and_repository();
+    let launch_request = launch_signature_for_agent(&agent, &repository);
+    let launched_with =
+        jefe::runtime::launch_compose::launch_signature_from_request(&launch_request)
+            .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
+
+    // The agent is running: the binding and the durable record both carry the
+    // signature stamped when the process was launched.
+    agent.persisted_launch_signature = Some(launched_with.clone());
+    agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+        session_name: RuntimeSession::session_name_for(&agent.id),
+        launch_signature: launched_with,
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: Some(WorkerProcessIdentity::new(std::process::id(), 4_242)),
+        lifecycle_generation: 0,
+        worker_identities: Vec::new(),
+    });
+
+    // The user edits a field. The running process is untouched.
+    set_string(&mut agent.values, "model", "changed-model");
+
+    let edited_request = launch_signature_for_agent(&agent, &repository);
+    let durable = durable_signature_evidence(&agent, &repository);
+    let binding = binding_evidence(
+        agent.runtime_binding.as_ref(),
+        &agent.id,
+        &edited_request,
+        agent.persisted_launch_signature.as_ref(),
+        durable,
+    );
+
+    // Session and worker are both observably alive.
+    let classification = classify_startup(
+        SessionEvidence::Alive,
+        binding,
+        false,
+        ProcessLiveness::Alive,
+        jefe::runtime::OrphanClassification::NoOrphan,
+    );
+
+    assert!(
+        !matches!(
+            classification,
+            StartupClassification::Stopped
+                | StartupClassification::Stale
+                | StartupClassification::Inconsistent
+                | StartupClassification::Orphaned
+        ),
+        "editing a field must not abandon a live agent, but startup classified \
+         an alive session with an alive worker as {classification:?}, which \
+         clears the runtime binding and strands the still-running session"
+    );
+}
+
 #[test]
 fn legacy_pid_only_binding_uses_conservative_native_probe() {
     // A legacy binding carries a worker PID with no creation token, so the
