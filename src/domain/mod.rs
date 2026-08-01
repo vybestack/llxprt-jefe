@@ -49,6 +49,13 @@ pub use errors::{ERROR_STORE_CAPACITY, ErrorEntry, ErrorSource};
 mod sandbox;
 pub use sandbox::*;
 
+/// Role-separated operating-system process identities (issue #543).
+mod process_identity;
+pub use process_identity::{
+    PaneProcessIdentity, PaneWorkerTopology, ProcessIdentity, ServerProcessIdentity,
+    WorkerProcessIdentity, worker_identity_from_pane,
+};
+
 /// Pagination contracts (PageToken, ListRequestId) shared across list state
 /// and boundary messages. Pure value types, no project-internal deps.
 mod pagination;
@@ -684,27 +691,6 @@ pub enum AgentOrigin {
     #[default]
     Persistent,
     Transient,
-}
-
-/// Stable identity of one operating-system process instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProcessIdentity {
-    pub pid: u32,
-    /// Platform process creation discriminator. Windows stores creation
-    /// FILETIME, Linux stores `/proc` start ticks, and macOS stores UTC epoch
-    /// seconds. `None` supports legacy and unavailable platform evidence.
-    #[serde(default)]
-    pub started_at: Option<u64>,
-}
-
-impl ProcessIdentity {
-    #[must_use]
-    pub const fn new(pid: u32, started_at: u64) -> Self {
-        Self {
-            pid,
-            started_at: Some(started_at),
-        }
-    }
 }
 
 /// Runtime session binding metadata.
