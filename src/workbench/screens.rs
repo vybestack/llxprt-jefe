@@ -11,7 +11,9 @@
 
 use std::num::NonZeroU16;
 
+use super::config::insets_config;
 use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
+use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId};
 use super::validate::{DescriptorError, validate_descriptor};
 
@@ -165,16 +167,26 @@ fn fixed(value: u16) -> Size {
     Size::Fixed(NonZeroU16::new(value).unwrap_or(NonZeroU16::MIN))
 }
 
+/// Chrome of a bordered list pane: top border + title row, side borders.
+const LIST_PANE_CHROME: Insets = Insets::new(2, 1, 1, 1);
+/// Chrome of a bordered detail pane: border plus one column of padding.
+const DETAIL_PANE_CHROME: Insets = Insets::new(1, 1, 2, 2);
+/// Chrome of the repository sidebar: border, title, and content padding.
+const SIDEBAR_CHROME: Insets = Insets::new(3, 1, 2, 2);
+/// Chrome of the embedded terminal view: border plus header row.
+const TERMINAL_CHROME: Insets = Insets::new(2, 1, 1, 1);
+
 fn panel(
     id: &str,
     panel_type: &str,
     focusable: bool,
     required: bool,
+    chrome: Insets,
 ) -> Result<PanelDescriptor, IdError> {
     Ok(PanelDescriptor {
         id: PanelId::parse(id)?,
         panel_type: PanelTypeId::parse(panel_type)?,
-        config: crate::domain::TypedMap::new(),
+        config: insets_config(chrome).ok_or(IdError::InvalidByte)?,
         focusable,
         required,
     })
@@ -235,8 +247,14 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
         title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: vec![
-            panel("repositories", "repository-list", true, true)?,
-            panel("agents", "agent-list", true, false)?,
+            panel(
+                "repositories",
+                "repository-list",
+                true,
+                true,
+                SIDEBAR_CHROME,
+            )?,
+            panel("agents", "agent-list", true, false, LIST_PANE_CHROME)?,
         ],
         initial_focus: PanelId::parse("repositories")?,
         focus_order: focus_order(&["repositories", "agents"])?,
@@ -258,9 +276,15 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         title: "Repositories".to_owned(),
         route: RouteId::parse("repositories")?,
         panels: vec![
-            panel("repositories", "repository-list", true, true)?,
-            panel("agents", "agent-list", true, false)?,
-            panel("terminal", PTY_PANEL_TYPE, true, true)?,
+            panel(
+                "repositories",
+                "repository-list",
+                true,
+                true,
+                SIDEBAR_CHROME,
+            )?,
+            panel("agents", "agent-list", true, false, LIST_PANE_CHROME)?,
+            panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
         ],
         initial_focus: PanelId::parse("repositories")?,
         focus_order: focus_order(&["repositories", "agents", "terminal"])?,
@@ -291,8 +315,14 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         title: "Issues".to_owned(),
         route: RouteId::parse("issues")?,
         panels: vec![
-            panel("issue-list", "issue-list", true, true)?,
-            panel("issue-detail", "issue-detail", true, false)?,
+            panel("issue-list", "issue-list", true, true, LIST_PANE_CHROME)?,
+            panel(
+                "issue-detail",
+                "issue-detail",
+                true,
+                false,
+                DETAIL_PANE_CHROME,
+            )?,
         ],
         initial_focus: PanelId::parse("issue-list")?,
         focus_order: focus_order(&["issue-list", "issue-detail"])?,
@@ -316,9 +346,9 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         title: "Pull Requests".to_owned(),
         route: RouteId::parse("pull-requests")?,
         panels: vec![
-            panel("pr-list", "pr-list", true, true)?,
-            panel("pr-detail", "pr-detail", true, false)?,
-            panel("pr-actions", "pr-actions", true, false)?,
+            panel("pr-list", "pr-list", true, true, LIST_PANE_CHROME)?,
+            panel("pr-detail", "pr-detail", true, false, DETAIL_PANE_CHROME)?,
+            panel("pr-actions", "pr-actions", true, false, LIST_PANE_CHROME)?,
         ],
         initial_focus: PanelId::parse("pr-list")?,
         focus_order: focus_order(&["pr-list", "pr-detail", "pr-actions"])?,
@@ -340,8 +370,14 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         title: "Actions".to_owned(),
         route: RouteId::parse("actions")?,
         panels: vec![
-            panel("action-list", "action-list", true, true)?,
-            panel("action-detail", "action-detail", true, false)?,
+            panel("action-list", "action-list", true, true, LIST_PANE_CHROME)?,
+            panel(
+                "action-detail",
+                "action-detail",
+                true,
+                false,
+                DETAIL_PANE_CHROME,
+            )?,
         ],
         initial_focus: PanelId::parse("action-list")?,
         focus_order: focus_order(&["action-list", "action-detail"])?,

@@ -14,9 +14,13 @@
 //! - [`migration`] — the one-way mapping from legacy persisted screen values to
 //!   stable [`ids::ScreenId`]s.
 
+pub mod allocate;
+pub mod config;
 pub mod descriptor;
+pub mod geometry;
 pub mod ids;
 pub mod migration;
+pub mod resolve;
 pub mod screens;
 pub mod validate;
 
@@ -36,12 +40,27 @@ mod screens_tests;
 #[path = "migration_tests.rs"]
 mod migration_tests;
 
+#[cfg(test)]
+#[path = "allocate_tests.rs"]
+mod allocate_tests;
+
+#[cfg(test)]
+#[path = "resolve_tests.rs"]
+mod resolve_tests;
+
+pub use allocate::LayoutError;
+pub use config::panel_insets;
 pub use descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
+pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
     ID_BYTE_LIMIT, IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SCREENS,
     MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, ScreenId,
     ScreenInstanceId,
 };
 pub use migration::{LEGACY_SCREEN_VALUES, migrate_legacy_screen_value};
+pub use resolve::{
+    PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
+    resolve_layout,
+};
 pub use screens::{ScreenRegistry, builtin_screens};
 pub use validate::{DescriptorError, validate_descriptor};
