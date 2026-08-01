@@ -1,0 +1,50 @@
+{
+  "comment": "Golden parity record for the shipped screen descriptors (issue #384, CW04-01). Compiled descriptors in src/workbench/screens.rs are compared against this file. collapse_order lists panels in the order the resolver hides them: collapse_priority ascending, then depth_first_index descending.",
+  "screens": [
+    {
+      "id": "core.dashboard",
+      "title": "Dashboard",
+      "route": "dashboard",
+      "initial_focus": "repositories",
+      "focus_order": ["repositories", "agents"],
+      "required_panels": ["repositories"],
+      "collapse_order": ["agents"]
+    },
+    {
+      "id": "core.repositories",
+      "title": "Repositories",
+      "route": "repositories",
+      "initial_focus": "repositories",
+      "focus_order": ["repositories", "agents", "terminal"],
+      "required_panels": ["repositories", "terminal"],
+      "collapse_order": ["agents"]
+    },
+    {
+      "id": "github.issues",
+      "title": "Issues",
+      "route": "issues",
+      "initial_focus": "issue-list",
+      "focus_order": ["issue-list", "issue-detail"],
+      "required_panels": ["issue-list"],
+      "collapse_order": ["issue-detail"]
+    },
+    {
+      "id": "github.pull-requests",
+      "title": "Pull Requests",
+      "route": "pull-requests",
+      "initial_focus": "pr-list",
+      "focus_order": ["pr-list", "pr-detail", "pr-actions"],
+      "required_panels": ["pr-list"],
+      "collapse_order": ["pr-detail", "pr-actions"]
+    },
+    {
+      "id": "github.actions",
+      "title": "Actions",
+      "route": "actions",
+      "initial_focus": "action-list",
+      "focus_order": ["action-list", "action-detail"],
+      "required_panels": ["action-list"],
+      "collapse_order": ["action-detail"]
+    }
+  ]
+}

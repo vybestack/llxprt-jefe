@@ -81,6 +81,8 @@ pub mod text_box_view;
 pub mod text_wrap;
 pub mod theme;
 pub mod ui;
+/// I/O-free screen descriptors and the sole executable layout resolver.
+pub mod workbench;
 
 /// Cached git repository info (origin shortform + branch) for agent display.
 pub mod git_info;
