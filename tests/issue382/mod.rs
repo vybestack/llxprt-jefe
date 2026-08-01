@@ -7,4 +7,5 @@ pub mod fresh_send;
 pub mod package_selector;
 pub mod preflight_order;
 pub mod probe_fixtures;
+pub mod remote_plan_golden;
 pub mod schema1_migration;

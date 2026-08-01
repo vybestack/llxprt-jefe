@@ -14,3 +14,4 @@ pub mod clippy_policy;
 pub mod process;
 pub mod source_size;
 pub mod toolchain;
+pub mod windows_coverage;
