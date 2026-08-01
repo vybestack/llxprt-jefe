@@ -197,8 +197,8 @@ fn parse_linked_pr_numbers(item: &Value) -> Vec<u64> {
     else {
         return Vec::new();
     };
-    let mut seen = Vec::new();
-    let mut seen_set = HashSet::new();
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
     for node in nodes {
         let is_cross_ref = node
             .get("__typename")
@@ -218,12 +218,12 @@ fn parse_linked_pr_numbers(item: &Value) -> Vec<u64> {
             continue;
         }
         if let Some(number) = source.get("number").and_then(Value::as_u64)
-            && seen_set.insert(number)
+            && seen.insert(number)
         {
-            seen.push(number);
+            result.push(number);
         }
     }
-    seen
+    result
 }
 
 /// Read a top-level string field as `String`, defaulting to "".
