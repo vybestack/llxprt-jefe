@@ -1,6 +1,7 @@
 //! Domain model layer - canonical entity types and invariants.
 
 /// Transport-neutral observation semantic values (issue #476 J1 slice).
+pub mod liveness_observation;
 pub mod observation;
 
 /// Pure document wrapping and content-line scroll geometry.
