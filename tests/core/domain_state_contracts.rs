@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
 
 // =============================================================================
 // Domain Invariants (REQ-FUNC-003, REQ-FUNC-004)
@@ -475,17 +475,17 @@ fn toggle_terminal_focus_clears_terminal_focused() {
 }
 
 #[test]
-fn enter_split_mode_changes_screen_mode() {
+fn enter_split_mode_changes_active_screen() {
     let state = AppState {
-        screen_mode: ScreenMode::Dashboard,
+        screen: ScreenId::Dashboard,
         ..AppState::default()
     };
 
     let next = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(
-        next.screen_mode,
-        ScreenMode::Split,
+        next.screen,
+        ScreenId::Repositories,
         "EnterSplitMode should change to Split"
     );
 }
@@ -493,15 +493,15 @@ fn enter_split_mode_changes_screen_mode() {
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
     let state = AppState {
-        screen_mode: ScreenMode::Split,
+        screen: ScreenId::Repositories,
         ..AppState::default()
     };
 
     let next = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
     assert_eq!(
-        next.screen_mode,
-        ScreenMode::Dashboard,
+        next.screen,
+        ScreenId::Dashboard,
         "ExitSplitMode should return to Dashboard"
     );
 }

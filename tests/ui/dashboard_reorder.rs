@@ -8,7 +8,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, DashboardGrabPane, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, DashboardGrabPane, PaneFocus, ScreenId};
 use std::path::PathBuf;
 
 /// Build a dashboard state with three repositories, each with one running
@@ -68,7 +68,7 @@ fn create_dashboard_test_state() -> AppState {
     a3.status = AgentStatus::Running;
 
     AppState {
-        screen_mode: ScreenMode::Dashboard,
+        screen: ScreenId::Dashboard,
         repositories: vec![repo1, repo2, repo3],
         agents: vec![a1, a2, a3],
         selected_repository_index: Some(0),
@@ -271,7 +271,7 @@ fn create_multi_agent_dashboard_state() -> AppState {
     a3.status = AgentStatus::Running;
 
     AppState {
-        screen_mode: ScreenMode::Dashboard,
+        screen: ScreenId::Dashboard,
         repositories: vec![repo],
         agents: vec![a1, a2, a3],
         selected_repository_index: Some(0),
@@ -433,7 +433,7 @@ fn agent_grab_only_affects_agents_within_selected_repository() {
     let b2 = running_agent("b2", "bravo-two", &repo2.id);
 
     let mut state = AppState {
-        screen_mode: ScreenMode::Dashboard,
+        screen: ScreenId::Dashboard,
         repositories: vec![repo1, repo2],
         agents: vec![a1, a2, b1, b2],
         selected_repository_index: Some(0),
@@ -506,7 +506,7 @@ fn enter_split_mode_clears_dashboard_grab() {
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Split);
+    assert_eq!(state.screen, ScreenId::Repositories);
     assert_eq!(state.dashboard_grab, None);
 }
 
@@ -668,11 +668,11 @@ fn enter_issues_mode_clears_dashboard_grab_via_finalize() {
     let mut state = create_dashboard_test_state();
     state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
-    // EnterIssuesMode changes screen_mode away from Dashboard; finalize_message
+    // EnterIssuesMode changes screen away from Dashboard; finalize_message
     // validation must clear the stale grab.
     state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
-    assert_ne!(state.screen_mode, ScreenMode::Dashboard);
+    assert_ne!(state.screen, ScreenId::Dashboard);
     assert_eq!(state.dashboard_grab, None);
 }
 

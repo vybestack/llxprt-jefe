@@ -13,7 +13,7 @@ use crate::domain::{
     PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{PrFocus, PrListIdentity, ScreenMode};
+use crate::state::types::{PrFocus, PrListIdentity, ScreenId};
 
 /// Build an empty comment list bound to the detail's repo and number (test helper).
 fn empty_comments(
@@ -99,7 +99,7 @@ fn test_pull_request_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail 
 /// @pseudocode component-001 lines 44-50
 pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(test_repository(repo_id));

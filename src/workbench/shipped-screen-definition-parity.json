@@ -1,0 +1,68 @@
+{
+  "comment": "Golden parity record for the shipped screen descriptors (issue #384, CW04-01). Compiled descriptors in src/workbench/screens.rs are compared against this file. collapse_order lists panels in the order the resolver hides them: collapse_priority ascending, then depth_first_index descending. The five parity screens named in the issue carry its behavior guarantees; core.errors and core.terminals are the remaining live screens, which need stable identities for the legacy screen enum to be removable.",
+  "screens": [
+    {
+      "id": "core.dashboard",
+      "title": "Dashboard",
+      "route": "dashboard",
+      "initial_focus": "repositories",
+      "focus_order": ["repositories", "agents", "terminal"],
+      "required_panels": ["repositories", "terminal"],
+      "collapse_order": ["search", "preview", "agents"]
+    },
+    {
+      "id": "core.repositories",
+      "title": "Repositories",
+      "route": "repositories",
+      "initial_focus": "repositories",
+      "focus_order": ["repositories"],
+      "required_panels": ["repositories"],
+      "collapse_order": ["filter"]
+    },
+    {
+      "id": "github.issues",
+      "title": "Issues",
+      "route": "issues",
+      "initial_focus": "issue-list",
+      "focus_order": ["repositories", "issue-list", "issue-detail"],
+      "required_panels": ["repositories", "issue-list"],
+      "collapse_order": ["issue-list-banner", "issue-list-filter", "issue-detail"]
+    },
+    {
+      "id": "github.pull-requests",
+      "title": "Pull Requests",
+      "route": "pull-requests",
+      "initial_focus": "pr-list",
+      "focus_order": ["repositories", "pr-list", "pr-detail"],
+      "required_panels": ["repositories", "pr-list"],
+      "collapse_order": ["pr-list-banner", "pr-list-filter", "pr-detail"]
+    },
+    {
+      "id": "github.actions",
+      "title": "Actions",
+      "route": "actions",
+      "initial_focus": "action-list",
+      "focus_order": ["repositories", "action-list", "action-detail"],
+      "required_panels": ["repositories", "action-list"],
+      "collapse_order": ["action-list-banner", "action-list-filter", "action-detail"]
+    },
+    {
+      "id": "core.errors",
+      "title": "Errors",
+      "route": "errors",
+      "initial_focus": "error-list",
+      "focus_order": ["repositories", "error-list", "error-detail"],
+      "required_panels": ["repositories", "error-list"],
+      "collapse_order": ["error-detail"]
+    },
+    {
+      "id": "core.terminals",
+      "title": "Terminals",
+      "route": "terminals",
+      "initial_focus": "shell-list",
+      "focus_order": ["repositories", "shell-list", "shell-preview"],
+      "required_panels": ["repositories", "shell-list"],
+      "collapse_order": ["shell-preview"]
+    }
+  ]
+}

@@ -63,6 +63,13 @@ mod pr_diff_content_tests;
 pub mod recovery;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
+pub mod screen_layout;
+#[cfg(test)]
+#[path = "screen_layout_parity_tests.rs"]
+mod screen_layout_parity_tests;
+#[cfg(test)]
+#[path = "screen_layout_tests.rs"]
+mod screen_layout_tests;
 pub mod selection;
 pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.
@@ -81,6 +88,8 @@ pub mod text_box_view;
 pub mod text_wrap;
 pub mod theme;
 pub mod ui;
+/// I/O-free screen descriptors and the sole executable layout resolver.
+pub mod workbench;
 
 /// Cached git repository info (origin shortform + branch) for agent display.
 pub mod git_info;

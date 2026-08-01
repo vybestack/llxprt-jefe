@@ -27,7 +27,7 @@ use jefe::domain::{
     Agent, AgentId, AgentLaunchRequest, PrCheckStatus, PrState, PullRequest,
     RemoteRepositorySettings, Repository, RepositoryId,
 };
-use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
+use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenId};
 
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
 // std::boxed::Box). The private fn pr_send_info_from_state is visible to
@@ -137,7 +137,7 @@ impl ApplyInPlace for AppState {
 #[test]
 fn it_enter_prs_mode_from_dashboard_loads_list() {
     let dashboard = dashboard_prs_state();
-    assert_eq!(dashboard.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(dashboard.screen, ScreenId::Dashboard);
 
     let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(
         &dashboard,
@@ -912,7 +912,7 @@ fn test_pr_merged_clears_pending_and_marks_merged() {
 ///
 /// @requirement issue #128
 #[test]
-fn test_background_refresh_function_exists_and_checks_screen_mode() {
+fn test_background_refresh_function_exists_and_checks_active_screen() {
     let _: fn(&mut AppStateHandle, &SharedContext, bool) =
         crate::app_input::request_pr_background_refresh;
 }
@@ -926,12 +926,12 @@ fn test_background_refresh_function_exists_and_checks_screen_mode() {
 #[test]
 fn test_background_refresh_skips_when_detail_load_in_flight() {
     use super::prs_orchestration::{BackgroundRefreshGuard, should_background_refresh};
-    use jefe::state::ScreenMode;
-    let pr_view = ScreenMode::DashboardPullRequests;
+    use jefe::state::ScreenId;
+    let pr_view = ScreenId::PullRequests;
     // No in-flight loads → should refresh.
     assert!(
         should_background_refresh(BackgroundRefreshGuard {
-            screen_mode: pr_view,
+            screen: pr_view,
             list_reload_pending: false,
             detail_pending: false,
             is_idle: false,
@@ -941,7 +941,7 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
     // Detail load in flight → must NOT refresh (clobber guard).
     assert!(
         !should_background_refresh(BackgroundRefreshGuard {
-            screen_mode: pr_view,
+            screen: pr_view,
             list_reload_pending: false,
             detail_pending: true,
             is_idle: false,
@@ -951,7 +951,7 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
     // List reload pending → must NOT refresh.
     assert!(
         !should_background_refresh(BackgroundRefreshGuard {
-            screen_mode: pr_view,
+            screen: pr_view,
             list_reload_pending: true,
             detail_pending: false,
             is_idle: false,
@@ -961,7 +961,7 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
     // Not on the PR view → must NOT refresh.
     assert!(
         !should_background_refresh(BackgroundRefreshGuard {
-            screen_mode: ScreenMode::Dashboard,
+            screen: ScreenId::Dashboard,
             list_reload_pending: false,
             detail_pending: false,
             is_idle: false,
@@ -975,9 +975,9 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
 #[test]
 fn test_background_refresh_skips_when_idle() {
     use super::prs_orchestration::{BackgroundRefreshGuard, should_background_refresh};
-    use jefe::state::ScreenMode;
+    use jefe::state::ScreenId;
     let guard = |is_idle| BackgroundRefreshGuard {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         list_reload_pending: false,
         detail_pending: false,
         is_idle,

@@ -1,7 +1,7 @@
 //! Key-routing coverage for the optional PR Changes drill-down.
 
 use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
-use jefe::state::{AppEvent, AppState, PrChangesFocus, PrFocus, PullRequestsState, ScreenMode};
+use jefe::state::{AppEvent, AppState, PrChangesFocus, PrFocus, PullRequestsState, ScreenId};
 
 use super::{resolve_prs_key_event, resolve_prs_key_event_for_rows};
 
@@ -11,7 +11,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn state_with_focus(focus: PrFocus) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState {
             active: true,
             pr_focus: focus,

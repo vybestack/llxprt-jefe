@@ -50,6 +50,8 @@ pub struct RestoredState {
     pub user_preferences: UserPreferences,
     /// Whether idle repositories are hidden.
     pub hide_idle_repositories: bool,
+    /// Screen the session was on, migrated from whatever the document carried.
+    pub screen: crate::workbench::ScreenId,
     /// Restored pane focus.
     pub pane_focus: PaneFocus,
     /// Whether the terminal pane held focus.
@@ -433,7 +435,10 @@ fn project_selection(
     Selection {
         repository_id,
         agent_id,
-        screen_id: None,
+        // The stable screen identity, so a restored session reopens where it
+        // left off. Written as the identity string rather than an ordinal, so
+        // the document survives any reordering of `ScreenId`.
+        screen_id: Id::parse(state.screen.as_str()).ok(),
     }
 }
 

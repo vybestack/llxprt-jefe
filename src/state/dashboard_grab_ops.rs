@@ -4,7 +4,7 @@
 //! repository or agent, arrows move it within its visible set, and Space/Enter
 //! drops it. Grab state is transient (not persisted).
 
-use super::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
+use super::{AppState, DashboardGrabPane, PaneFocus, ScreenId};
 
 impl AppState {
     /// Validate that an active dashboard grab still points to a valid visible
@@ -12,7 +12,7 @@ impl AppState {
     /// grabbed repository was deleted, or the visible-index/local-index is out
     /// of bounds after a visibility or data change.
     pub(super) fn validate_dashboard_grab(&mut self) {
-        if self.screen_mode != ScreenMode::Dashboard {
+        if self.screen != ScreenId::Dashboard {
             self.dashboard_grab = None;
             return;
         }

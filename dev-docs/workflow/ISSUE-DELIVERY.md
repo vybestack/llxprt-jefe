@@ -73,26 +73,22 @@ The agent must stop and report instead of expanding when the slice appears to re
 - an unplanned public abstraction or production module;
 - a workflow, agent-memory, quality-tool, or dependency change;
 - unrelated refactoring or test relocation;
-- behavior absent from the acceptance matrix;
-- exceeding the hard scope budget.
+- behavior absent from the acceptance matrix.
 
 The coordinator presents the alternatives and obtains approval or creates a separate prerequisite/follow-up issue.
 
 ## 6. Scope and drift guardrails
 
-These are reviewability triggers, not permission to weaken engineering standards.
+Scope is judged functionally, not by counting files or lines. A change is in scope when it is required to deliver the issue's accepted behavior and its stated done criteria; it is out of scope when it is unrelated work riding along.
 
-### Pull-request budget
+There is no file-count or line-count budget. A refactor that is genuinely part of the accepted outcome — replacing a duplicated mechanism, deleting a superseded type, or converting every consumer to a new contract — must be completed rather than left half-done to satisfy a size target, because a half-finished cutover is worse than either end state. Equally, a small diff is not automatically in scope.
 
-- Target: no more than 25 changed files or 1,500 net changed lines, including tests.
-- Mandatory scope review above either target.
-- Hard stop without explicit approval above 40 files or 2,500 net changed lines.
+### What actually bounds a change
 
-### Commit budget
-
-- One green behavior per commit.
-- Target: no more than 15 files or 800 net changed lines.
-- Larger commits require an explicit explanation for renames, generated artifacts, or inseparable behavior.
+- Every changed file maps to an acceptance row, a stated done criterion, or an approved scope entry in the ledger.
+- Unrelated refactors, opportunistic cleanups, and adjacent features are separate issues.
+- Changes to `.llxprt/`, `.code_puppy/`, `.github/`, dependency manifests, and quality-gate configuration still require explicit approval, whatever their size.
+- Commits stay one coherent green behavior each, so a large change stays reviewable commit by commit.
 
 ### Mainline drift
 
@@ -152,8 +148,7 @@ Stop and ask for a decision when:
 
 - acceptance language allows materially different architectures;
 - a slice requires a new subsystem or unplanned abstraction;
-- the hard scope budget is crossed;
-- integration ancestry is wrong or unrelated files flood the diff;
+- integration ancestry is wrong or issue-unrelated files flood the diff;
 - a subagent leaves its approved contract or file boundary;
 - required verification cannot complete.
 

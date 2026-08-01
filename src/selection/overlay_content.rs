@@ -612,7 +612,7 @@ mod tests {
     fn agent_chooser_default_and_clean_render() {
         use crate::domain::{AgentChooserEntry, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
-            screen_mode: crate::state::ScreenMode::DashboardIssues,
+            screen: crate::state::ScreenId::Issues,
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,

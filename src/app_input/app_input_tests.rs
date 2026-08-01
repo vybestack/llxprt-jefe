@@ -11,7 +11,7 @@ use jefe::domain::{
 };
 use jefe::domain::{IssueDetail, IssueState};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AgentChooserState, ModalState, ScreenMode};
+use jefe::state::{AgentChooserState, ModalState, ScreenId};
 
 pub(super) trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -319,7 +319,7 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
 /// Build an AppState populated with non-default PR data.
 fn state_with_active_prs() -> jefe::state::AppState {
     use jefe::domain::{Repository, RepositoryId};
-    use jefe::state::ScreenMode;
+    use jefe::state::ScreenId;
     use std::path::PathBuf;
 
     let mut prs_state = jefe::state::PullRequestsState {
@@ -330,7 +330,7 @@ fn state_with_active_prs() -> jefe::state::AppState {
     prs_state.list.replace_items(vec![test_pr(1)]);
     prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state,
         ..AppState::default()
     };
@@ -455,10 +455,10 @@ fn test_open_in_browser_sets_opening_notice_through_dispatch() {
 #[test]
 fn test_open_in_browser_no_selection_sets_notice_through_handler() {
     use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
-    use jefe::state::{PullRequestsState, ReadOnlyHintKind, ScreenMode};
+    use jefe::state::{PullRequestsState, ReadOnlyHintKind, ScreenId};
 
     let state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: {
             let mut ps = PullRequestsState {
                 active: true,
@@ -524,7 +524,7 @@ fn state_for_pr_agent_chooser_confirm(
     work_dir: &std::path::Path,
 ) -> jefe::state::AppState {
     use jefe::domain::{Agent, RepositoryId};
-    use jefe::state::{AgentChooserState, ScreenMode};
+    use jefe::state::{AgentChooserState, ScreenId};
     use std::path::PathBuf;
 
     let agent = Agent::new(
@@ -556,7 +556,7 @@ fn state_for_pr_agent_chooser_confirm(
     prs_state.list.replace_items(vec![test_pr(42)]);
     prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state,
         ..AppState::default()
     };
@@ -798,7 +798,7 @@ fn state_for_issue_agent_chooser_send(
     };
 
     let mut state = jefe::state::AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state,
         ..AppState::default()
     };

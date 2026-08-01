@@ -5,7 +5,7 @@
 //! modal suppression for the PR property editor.
 
 use super::*;
-use jefe::state::{PrPropertyEditorState, PrPropertyKind, PullRequestsState, ScreenMode};
+use jefe::state::{PrPropertyEditorState, PrPropertyKind, PullRequestsState, ScreenId};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(KeyEventKind::Press, code)
@@ -13,7 +13,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn prs_base_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,

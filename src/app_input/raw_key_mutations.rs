@@ -83,7 +83,7 @@ pub(super) fn text_modifiers(modifiers: KeyModifiers) -> bool {
 mod tests {
     use super::*;
     use iocraft::prelude::KeyEventKind;
-    use jefe::state::{InlineState, IssuesState, RepositoryFormCursor, ScreenMode};
+    use jefe::state::{InlineState, IssuesState, RepositoryFormCursor, ScreenId};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(KeyEventKind::Press, code)
@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn inline_text_is_raw_but_submit_and_cancel_are_not() {
         let state = AppState {
-            screen_mode: ScreenMode::DashboardIssues,
+            screen: ScreenId::Issues,
             issues_state: IssuesState {
                 active: true,
                 inline_state: InlineState::Composer {

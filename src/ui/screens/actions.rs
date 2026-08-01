@@ -8,7 +8,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{ActionsFocus, AppState, ScreenMode};
+use crate::state::{ActionsFocus, AppState, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
@@ -239,7 +239,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen_mode: state.map_or(ScreenMode::DashboardActions, |s| s.screen_mode),
+                screen: state.map_or(ScreenId::Actions, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: Some(actions_focus),

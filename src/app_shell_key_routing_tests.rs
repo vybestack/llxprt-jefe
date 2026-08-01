@@ -4,7 +4,7 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use jefe::domain::action_registry::{HandlerKey, Resolution};
 use jefe::state::{
     AppState, ConfirmFocus, ErrorsFocus, InlineState, IssueFocus, IssuePropertyEditorState,
-    IssuePropertyKind, IssuesState, ModalState, PaneFocus, ScreenMode,
+    IssuePropertyKind, IssuesState, ModalState, PaneFocus, ScreenId,
 };
 
 use super::resolve_compiled_registry_key;
@@ -57,7 +57,7 @@ fn dashboard_and_split_use_registry_handlers() {
         HandlerKey::NavigateDown,
     );
     let split = AppState {
-        screen_mode: ScreenMode::Split,
+        screen: ScreenId::Repositories,
         ..AppState::default()
     };
     assert_handler(
@@ -75,7 +75,7 @@ fn dashboard_and_split_use_registry_handlers() {
 #[test]
 fn errors_reverse_cycle_and_detail_scroll_use_registry_handlers() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardErrors,
+        screen: ScreenId::Errors,
         ..AppState::default()
     };
     assert_handler(&state, &key(KeyCode::Left), HandlerKey::ErrorsCyclePane);
@@ -96,7 +96,7 @@ fn terminal_and_actions_pre_mode_use_registry_handlers() {
         HandlerKey::TerminalScrollTail,
     );
     let actions = AppState {
-        screen_mode: ScreenMode::DashboardActions,
+        screen: ScreenId::Actions,
         ..AppState::default()
     };
     assert_handler(
@@ -126,13 +126,13 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
         },
         ..AppState::default()
     };
-    for screen_mode in [
-        ScreenMode::Dashboard,
-        ScreenMode::Split,
-        ScreenMode::DashboardActions,
+    for screen in [
+        ScreenId::Dashboard,
+        ScreenId::Repositories,
+        ScreenId::Actions,
     ] {
         let state = AppState {
-            screen_mode,
+            screen,
             ..modal.clone()
         };
         assert_handler(
@@ -145,12 +145,9 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
             Resolution::Unbound
         ));
     }
-    for screen_mode in [
-        ScreenMode::DashboardIssues,
-        ScreenMode::DashboardPullRequests,
-    ] {
+    for screen in [ScreenId::Issues, ScreenId::PullRequests] {
         let state = AppState {
-            screen_mode,
+            screen,
             ..modal.clone()
         };
         assert!(matches!(
@@ -163,7 +160,7 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
 #[test]
 fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

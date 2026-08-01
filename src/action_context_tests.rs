@@ -2,7 +2,7 @@
 
 use jefe::domain::AgentId;
 use jefe::input::InputMode;
-use jefe::state::{AppState, ConfirmFocus, DashboardGrabPane, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{AppState, ConfirmFocus, DashboardGrabPane, ModalState, PaneFocus, ScreenId};
 
 use super::{DispatchScope, derive_action_context};
 
@@ -24,7 +24,7 @@ fn context_names(state: &AppState) -> (DispatchScope, Vec<String>) {
 #[test]
 fn shell_overlay_has_absolute_context_precedence() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardErrors,
+        screen: ScreenId::Errors,
         ..AppState::default()
     };
     state.open_shell_overlay(AgentId("agent-shell".to_owned()));
@@ -79,7 +79,7 @@ fn dashboard_grab_uses_focused_child_before_dashboard() {
 #[test]
 fn actions_mode_is_full_s4_after_s4_migration() {
     let state = AppState {
-        screen_mode: ScreenMode::DashboardActions,
+        screen: ScreenId::Actions,
         ..AppState::default()
     };
     let result = derive_action_context(&state, InputMode::ActionsNormal);
@@ -100,7 +100,7 @@ fn actions_mode_is_full_s4_after_s4_migration() {
 #[test]
 fn issues_special_state_precedes_focused_panel_and_screen() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     };
     state.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
@@ -164,7 +164,7 @@ fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
 #[test]
 fn pr_changes_and_actions_focus_are_full_s4_contexts() {
     let mut prs = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     prs.prs_state.pr_focus = jefe::state::PrFocus::PrChanges;
@@ -181,7 +181,7 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
     );
 
     let mut actions = AppState {
-        screen_mode: ScreenMode::DashboardActions,
+        screen: ScreenId::Actions,
         ..AppState::default()
     };
     actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
@@ -250,17 +250,17 @@ fn compiled_snapshot() -> jefe::domain::action_registry::ActionRegistrySnapshot 
 fn keys_modal_context_keeps_the_protected_exit_reachable() {
     let snapshot = compiled_snapshot();
 
-    for screen_mode in [
-        ScreenMode::Dashboard,
-        ScreenMode::Split,
-        ScreenMode::DashboardActions,
-        ScreenMode::DashboardIssues,
-        ScreenMode::DashboardPullRequests,
-        ScreenMode::DashboardErrors,
-        ScreenMode::DashboardTerminals,
+    for screen in [
+        ScreenId::Dashboard,
+        ScreenId::Repositories,
+        ScreenId::Actions,
+        ScreenId::Issues,
+        ScreenId::PullRequests,
+        ScreenId::Errors,
+        ScreenId::Terminals,
     ] {
         let mut state = AppState {
-            screen_mode,
+            screen,
             ..AppState::default()
         };
         state.action_registry_snapshot = Some(snapshot.clone());
@@ -270,7 +270,7 @@ fn keys_modal_context_keeps_the_protected_exit_reachable() {
 
         let result = derive_action_context(&state, jefe::input::input_mode_for_state(&state));
         let Ok(context) = result else {
-            panic!("keys modal on {screen_mode:?} should derive a context, got {result:?}");
+            panic!("keys modal on {screen:?} should derive a context, got {result:?}");
         };
         let names: Vec<String> = context
             .stack
@@ -279,7 +279,7 @@ fn keys_modal_context_keeps_the_protected_exit_reachable() {
             .collect();
         assert!(
             names.iter().any(|name| name == "global"),
-            "keys modal on {screen_mode:?} must keep global reachable, got {names:?}"
+            "keys modal on {screen:?} must keep global reachable, got {names:?}"
         );
     }
 }

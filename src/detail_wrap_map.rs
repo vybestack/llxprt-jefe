@@ -116,6 +116,11 @@ pub fn content_coords_for_pane(
 /// `header_rows` is the fixed header count, and `wrap_width` is the content
 /// width the renderer wraps at. This mirrors exactly what the renderer feeds
 /// `ScrollableText` so the reverse-map cannot drift from the painted rows.
+///
+/// The wrap width comes from the frame's resolved snapshot when one exists, so
+/// the reverse map wraps at exactly the width the renderer drew at. The
+/// terminal-derived width is the superseded fallback for callers that have no
+/// snapshot yet.
 pub fn detail_wrap_projection(
     app_state: &AppState,
     pane: SelectablePane,
@@ -124,6 +129,11 @@ pub fn detail_wrap_projection(
     use jefe::issue_detail_content::build_detail_content;
     use jefe::layout::DETAIL_HEADER_ROWS;
     use jefe::pr_detail_content::build_pr_detail_content;
+
+    let resolved_width = app_state
+        .resolved_layout
+        .as_ref()
+        .and_then(|layout| jefe::selection::detail_wrap_width(layout, pane, app_state.screen));
     match pane {
         SelectablePane::IssueDetail => {
             let detail = app_state.issues_state.issue_detail.as_ref()?;
@@ -133,7 +143,8 @@ pub fn detail_wrap_projection(
                 &app_state.issues_state.inline_state,
                 app_state.issues_state.loading.comments,
             );
-            let width = usize::from(jefe::layout::issues_detail_content_width(cols));
+            let width = resolved_width
+                .unwrap_or_else(|| usize::from(jefe::layout::issues_detail_content_width(cols)));
             Some((content.text, DETAIL_HEADER_ROWS, width))
         }
         SelectablePane::PrDetail => {
@@ -145,7 +156,8 @@ pub fn detail_wrap_projection(
                 app_state.prs_state.loading.detail,
                 app_state.prs_state.loading.comments,
             );
-            let width = usize::from(jefe::layout::prs_detail_content_width(cols));
+            let width = resolved_width
+                .unwrap_or_else(|| usize::from(jefe::layout::prs_detail_content_width(cols)));
             Some((content.text, DETAIL_HEADER_ROWS, width))
         }
         SelectablePane::HelpModal => {

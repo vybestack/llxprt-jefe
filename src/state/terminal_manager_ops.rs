@@ -7,7 +7,7 @@
 //! boundary BEFORE these reducers run.
 
 use super::{
-    AppState, ManagedShellRow, PaneFocus, PriorAgentFocus, ScreenMode, ShellFocusOrigin,
+    AppState, ManagedShellRow, PaneFocus, PriorAgentFocus, ScreenId, ShellFocusOrigin,
     ShellReturnTarget, status_label_for,
 };
 use crate::domain::{AgentId, AgentStatus};
@@ -64,7 +64,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen_mode = ScreenMode::DashboardTerminals;
+        self.screen = ScreenId::Terminals;
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -76,7 +76,7 @@ impl AppState {
 
     /// Exit terminal-manager mode, restoring prior focus state.
     fn exit_terminal_manager_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.terminal_manager.active = false;
         self.terminal_manager.clear_pending_focus();
         self.terminal_manager.preview = super::ShellPreview::default();
@@ -166,12 +166,12 @@ impl AppState {
         match pending.origin {
             ShellFocusOrigin::DashboardF10 => {
                 self.terminal_manager.active = false;
-                self.screen_mode = ScreenMode::Dashboard;
+                self.screen = ScreenId::Dashboard;
                 self.shell_return_target = ShellReturnTarget::Dashboard;
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                self.screen_mode = ScreenMode::DashboardTerminals;
+                self.screen = ScreenId::Terminals;
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }
@@ -420,7 +420,7 @@ mod tests {
             AgentId("agent-1".into()),
         ));
         assert!(ok);
-        assert_eq!(state.screen_mode, ScreenMode::DashboardTerminals);
+        assert_eq!(state.screen, ScreenId::Terminals);
         assert!(state.terminal_manager.active);
         assert!(state.shell_overlay_active());
         assert!(state.terminal_focused);

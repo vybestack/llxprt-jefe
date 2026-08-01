@@ -20,6 +20,18 @@
 //!   constants (grouped as [`AppLayoutSpec::DEFAULT`]). Change a dimension in
 //!   one place and every screen + PTY layout follows automatically.
 
+// ── The executable layout contract ─────────────────────────────────────────
+//
+// `resolve_layout` is the single geometry authority (issue #384). It lives in
+// the I/O-free `crate::workbench` module so it can be swept exhaustively as a
+// pure function, and is named here so `layout` remains the one place a
+// consumer looks for geometry. The per-screen helpers below are the legacy
+// mirror arithmetic being replaced; new consumers read the resolved snapshot.
+pub use crate::workbench::{
+    Extent, Insets, PanelState, Rect, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect,
+    repair_focus, resolve_layout,
+};
+
 /// Left column width (repository list).
 pub const LEFT_COL_WIDTH: u16 = 22;
 /// Right column width (preview pane).

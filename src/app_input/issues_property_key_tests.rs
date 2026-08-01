@@ -7,8 +7,7 @@
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind};
 use jefe::state::{
-    DetailSubfocus, IssueFocus, IssuePropertyEditorState, IssuePropertyKind, IssuesState,
-    ScreenMode,
+    DetailSubfocus, IssueFocus, IssuePropertyEditorState, IssuePropertyKind, IssuesState, ScreenId,
 };
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -17,7 +16,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

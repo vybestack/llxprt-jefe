@@ -12,7 +12,7 @@ use iocraft::prelude::*;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
 use crate::state::project_managed_shell_rows;
-use crate::state::{AppState, ManagedShellRow, ScreenMode};
+use crate::state::{AppState, ManagedShellRow, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::detail_pane::{DetailHeaderColor, DetailHeaderRow, DetailPaneProps};
@@ -252,7 +252,7 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen_mode: state.map_or(ScreenMode::DashboardTerminals, |s| s.screen_mode),
+                screen: state.map_or(ScreenId::Terminals, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: live_shell_active,
                 actions_focus: None,

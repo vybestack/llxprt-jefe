@@ -8,7 +8,7 @@ use crate::domain::{Issue, IssueSortBy, IssueSortConfig, IssueState, SortOrder};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::ScreenMode;
+use crate::state::types::ScreenId;
 
 fn make_issue(number: u64, created_at: &str, updated_at: &str) -> Issue {
     Issue {
@@ -36,7 +36,7 @@ fn make_issue(number: u64, created_at: &str, updated_at: &str) -> Issue {
 
 fn issues_state_with_issues(issues: Vec<Issue>) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     };
     state.issues_state.active = true;

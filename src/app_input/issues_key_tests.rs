@@ -10,7 +10,7 @@ use jefe::domain::{Agent, AgentChooserEntry, AgentId, RepositoryId};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
-    InlineState, IssueFocus, IssuesState, ScreenMode,
+    InlineState, IssueFocus, IssuesState, ScreenId,
 };
 use std::path::PathBuf;
 
@@ -30,7 +30,7 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 fn issues_base_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -42,7 +42,7 @@ fn issues_base_state() -> AppState {
 
 fn issues_state_with_focus(focus: IssueFocus) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: focus,
@@ -54,7 +54,7 @@ fn issues_state_with_focus(focus: IssueFocus) -> AppState {
 
 fn issues_state_with_inline(inline: InlineState) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -67,7 +67,7 @@ fn issues_state_with_inline(inline: InlineState) -> AppState {
 
 fn issues_state_with_chooser() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -91,7 +91,7 @@ fn issues_state_with_chooser() -> AppState {
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

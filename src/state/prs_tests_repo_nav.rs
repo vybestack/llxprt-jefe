@@ -9,12 +9,12 @@ use crate::domain::{PrCheckStatus, PrState, PullRequest, Repository, RepositoryI
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
+use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenId};
 
 /// Helper: PR-mode state with multiple repositories.
 fn prs_mode_state() -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     for slug in ["repo-1", "repo-2", "repo-3"] {

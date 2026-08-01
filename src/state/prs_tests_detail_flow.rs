@@ -12,7 +12,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::{PrFocus, ScreenMode};
+use crate::state::types::{PrFocus, ScreenId};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
 use crate::state::transition::TransitionExt;
@@ -20,7 +20,7 @@ use crate::state::transition::TransitionExt;
 /// Helper: PR-mode state with a selected repo.
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

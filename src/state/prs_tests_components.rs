@@ -13,12 +13,12 @@ use crate::messages::{AppMessage, PullRequestsMessage};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::{ReadOnlyHintKind, ScreenMode};
+use crate::state::types::{ReadOnlyHintKind, ScreenId};
 
 /// Helper: PR-mode state with a selected PR.
 fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(
