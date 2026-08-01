@@ -50,6 +50,14 @@ fn request_with_registration(
     registration_id: &str,
     body: &[u8],
 ) -> String {
+    // These land directly in header lines, so a value containing CR or LF
+    // would smuggle an extra header and quietly change what is being tested.
+    for value in [route, token, registration_id] {
+        assert!(
+            !value.contains(['\r', '\n']),
+            "header values must not contain CR or LF"
+        );
+    }
     let mut stream =
         TcpStream::connect(addr).unwrap_or_else(|error| panic!("connect loopback host: {error}"));
     write!(
