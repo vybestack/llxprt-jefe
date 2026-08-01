@@ -32,10 +32,13 @@ use super::screen_file_bounds::{
 /// declaration where the syntax carries one.
 pub fn check_shape(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     check_collection_counts(file)?;
+    // The layout depth bound runs before anything else walks the tree, so a
+    // deeply nested layout is rejected on its shape rather than recursed into
+    // by a check that carries no depth of its own.
+    check_layout(&file.layout, 1)?;
     check_identifier_lengths(file)?;
     check_activation_fields(file)?;
-    check_panels(file)?;
-    check_layout(&file.layout, 1)
+    check_panels(file)
 }
 
 fn check_collection_counts(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {

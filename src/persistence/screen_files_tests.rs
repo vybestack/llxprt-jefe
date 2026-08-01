@@ -299,9 +299,10 @@ fn a_file_replaced_by_a_link_between_discovery_and_reading_is_refused() {
     let after = std::fs::metadata(&target)
         .unwrap_or_else(|error| unreachable!("fixture target must be stated: {error}"));
 
-    // The swapped-in link resolves to different bytes, which is exactly what
-    // the post-open identity check compares, so a read through the replaced
-    // name is refused rather than trusted.
+    // A link at the name is refused on the type check, before the handle is
+    // ever opened. The identity comparison is what covers the narrower race in
+    // which the name is swapped for another regular file, so it is exercised
+    // directly here as well.
     assert!(!same_file(&before, &after));
     assert_eq!(read_bounded(&target), Err(ScreenFileRejection::Replaced));
 }

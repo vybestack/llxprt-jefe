@@ -15,7 +15,8 @@
 //! - **Output to input, same versioned type.** Direction and type are checked
 //!   exactly, version included, so a panel that starts publishing a new shape
 //!   fails validation instead of quietly feeding the wrong value.
-//! - **Acyclic.** A cycle would make "the same committed transition" undefined.
+//! - **Acyclic.** Propagation advances one hop per intent, so a cycle would let
+//!   a screen drive itself forever as each panel republished in turn.
 //!   Acyclicity is measured over panels, because a panel that consumes a value
 //!   is what re-derives what it publishes.
 //! - **One incoming controlling edge per target.** Two edges driving one input

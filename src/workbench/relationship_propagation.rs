@@ -2,12 +2,18 @@
 //! CW05-05..CW05-07).
 //!
 //! Propagation is a total function from "what a source port now publishes" to
-//! "what every port on the screen holds afterwards". It performs no I/O, moves
-//! no focus, and never mutates in place: it computes the whole transition,
+//! "what every port that source drives holds afterwards". It performs no I/O,
+//! moves no focus, and never mutates in place: it computes the whole transition,
 //! checks the transition against its bound, and only then hands back a state the
 //! caller swaps in. That is what "no partial state" means concretely — a
 //! transition that violates its bound produces an error and nothing else, so
 //! there is no half-applied screen to reason about.
+//!
+//! Propagation is one hop. It applies the edges that leave the published port
+//! and stops; it does not decide that a driven panel has therefore republished
+//! its own outputs, because only that panel knows what it derives. A chain of
+//! edges advances one hop per intent, and the acyclicity rule the graph enforces
+//! is what makes such a sequence terminate.
 //!
 //! Two rules decide what a target holds when its source goes absent, and they
 //! apply in this order:

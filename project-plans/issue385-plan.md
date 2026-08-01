@@ -67,15 +67,15 @@ declared in `src/workbench/diagnostics.rs`; accompanying `CFG-W004`/`CFG-E005`/
 | ID | Actor / launch path | Input & boundary cases | Success behavior | Failure behavior + diagnostic | Side effects before failure | Persistence / compatibility | Proving test |
 |---|---|---|---|---|---|---|---|
 | CW05-01 | Startup discovery over `ResolvedPaths::definitions` | direct regular `<member>.screen.toml` where member is `[a-z][a-z0-9-]{0,62}`; subdirectory; symlink (to file and to dir); dotfile; `.screen.tml` / `.screen.toml.bak` / `.toml`; non-UTF-8 name; member 63 chars (accept) and 64 chars (reject); empty dir; missing dir; file at `FILE_LIMIT` bytes (accept) and `FILE_LIMIT + 1` (reject) | Only exact direct regular matches are candidates, ordered by canonical path bytes | Oversize file is rejected before parse with `SCR-E301`; unrecognised entries are silently not candidates | none (read-only) | missing directory is not an error | `persistence/screen_files_tests.rs` discovery matrix |
-| CW05-02 | `parse_screen_file` + `lower_screen` | a valid `local.review` file | Parsed once, lowered once into `ScreenDescriptor`; `validate_descriptor` passes; no external DTO in the composed registry | — | none | descriptor golden is stable | `workbench/screen_lowering_tests.rs` golden; `custom-screen-enable.json` |
+| CW05-02 | `parse_screen_file` + `lower_screen` | a valid `local.review` file | Parsed once, lowered once into `ScreenDescriptor`; `validate_descriptor` passes; no external DTO in the composed registry | — | none | descriptor golden is stable | `workbench/compose_tests.rs` golden; `custom-screen-enable.json` |
 | CW05-03 | Composition with an inactive (dormant) owner whose file is invalid | `enabled = false` in settings for `local.broken` | Registry publishes without that screen; file bytes untouched | `CFG-W004` warning naming the file | none | bytes preserved on disk | `workbench/compose_tests.rs`; `custom-screen-inactive-invalid.json` |
 | CW05-04 | Composition with an active owner whose file is invalid | unknown panel type; unresolvable action; unresolvable port ref; layout omits a panel; duplicate screen id across two files; `max < min` | Whole candidate registry is rejected; prior authority retained; no partial publication | `SCR-E301` plus `CFG-E005` (ownership/duplicate) or `CFG-E006` (reference/bound) | none | — | `workbench/compose_tests.rs` invalid matrix |
 | CW05-05 | Reducer, immediate master-detail edge | source selection changes | Source and target both updated in one committed transition | — | — | — | `workbench/relationships_tests.rs` |
 | CW05-06 | Reducer, explicit master-detail edge | selection changes, then declared activation action fires | Target unchanged until the declared action; staged source applied on activation | — | — | — | `workbench/relationships_tests.rs` |
 | CW05-07 | Reducer, source becomes absent | `empty` ∈ {`show-none`,`show-all`,`retain`} for master-detail; {`detach`,`retain`} for session-target; input `retained` true/false | Each closed policy applied exactly: clear / typed all-value / keep prior / detach | — | — | — | `workbench/relationships_tests.rs` deletion policy table |
 | CW05-08 | Graph validation and transition bound | cross-screen ref; self edge; 2-cycle; 3-cycle; output→output; input→input; type id mismatch; version mismatch; two incoming controlling edges on one target; duplicate `(source,kind)`; same-kind fan-out; relationships 64 (accept) / 65 (reject); follow-ups 64 (accept) / 65 (abort) | Rejected at validation, or transition aborts with no partial state | `SCR-E301` | none — transition is computed then committed once | — | `workbench/relationships_tests.rs` exhaustive invalid matrix |
-| CW05-09 | Issues / Pull Requests screens | list selection moves up/down/page/home/end; repository change; empty list | Detail invalidation, comment cancellation, and scroll reset occur exactly as before, now driven by the declared bundled relationship | — | — | no state schema change | `state/issues_tests*.rs`, `state/prs_tests*.rs` parity (existing suites must stay green) plus `workbench/bundled_relationship_tests.rs` |
-| CW05-10 | Layout resolution of a lowered custom screen | terminal too small for declared minima | The standard `resolve_layout` collapse ordering and `repair_focus` apply unchanged — no second geometry engine | `TooSmall` fallback | — | — | `workbench/screen_lowering_tests.rs` tiny-layout test; `custom-screen-tiny.json` |
+| CW05-09 | Issues / Pull Requests screens | list selection moves up/down/page/home/end; repository change; empty list | Detail invalidation, comment cancellation, and scroll reset occur exactly as before, now driven by the declared bundled relationship | — | — | no state schema change | `state/issues_tests*.rs`, `state/prs_tests*.rs` parity (existing suites must stay green) plus `state/screen_relationships_tests.rs` |
+| CW05-10 | Layout resolution of a lowered custom screen | terminal too small for declared minima | The standard `resolve_layout` collapse ordering and `repair_focus` apply unchanged — no second geometry engine | `TooSmall` fallback | — | — | `workbench/compose_tests.rs` tiny-layout test; the tiny-layout resolver test |
 
 ## 5. Non-goals (explicitly out)
 
@@ -95,10 +95,10 @@ declared in `src/workbench/diagnostics.rs`; accompanying `CFG-W004`/`CFG-E005`/
 | S1 | Interned identity + `ScreenIdentity` keying, registry unchanged for compiled screens | workbench | `intern.rs`, `ids.rs`, `descriptor.rs`, `screens.rs`, `validate.rs`, `mod.rs` | `intern_tests.rs`, existing workbench suites stay green |
 | S2 | Deterministic bounded discovery | persistence boundary | `persistence/screen_files.rs` + tests | discovery matrix |
 | S3 | Closed-syntax parser with spans and every bound at-limit/+1 | workbench | `screen_file.rs`, `screen_file_bounds.rs` + tests | parser matrix |
-| S4 | Port graph validation + pure bounded propagation | workbench | `relationships.rs`, `relationship_graph.rs` + tests | graph/propagation matrices |
+| S4 | Port graph validation + pure bounded propagation | workbench | `relationships.rs`, `relationship_propagation.rs` + tests | graph/propagation matrices |
 | S5 | `lower_screen` + transactional composition with owner activation | workbench | `screen_lowering.rs`, `compose.rs`, `diagnostics.rs` + tests | lowering golden, compose matrix |
 | S6 | Startup wiring | app | `app_init.rs`, `startup.rs`, `main.rs`, `workbench/mod.rs` | harness fixtures |
-| S7 | Bundled Issue/PR relationships replace embedded coupling | state | `screens.rs` (ports+relationships), `state/issues_ops.rs`, `state/prs_ops.rs` | parity suites |
+| S7 | Bundled Issue/PR relationships replace embedded coupling | state | `screens.rs` (ports+relationships), `state/issues_ops.rs`, `state/prs_nav_ops.rs` | parity suites |
 | S8 | Documentation | docs | `dev-docs/standards/architecture.md`, `display-and-ui.md` | — |
 
 All slices are complete. Deviations from the planned shape, and why:
@@ -109,7 +109,7 @@ All slices are complete. Deviations from the planned shape, and why:
   Composition needs resolved paths and published settings and must run before
   the TUI initializes; `app_init.rs` runs after, inside the binary crate.
 - **Fixtures are `custom-screen-enable`, `custom-screen-inactive-invalid`, and
-  `custom-screen-active-invalid`.** The issue names `custom-screen-tiny.json`
+  `custom-screen-active-invalid`.** The issue names the tiny-layout resolver test
   for CW05-10, but a custom screen has no renderer in this issue, so a tiny
   terminal cannot show one. CW05-10 is proven by resolving a lowered descriptor
   through the standard `resolve_layout` at a tiny rect, which is the behavior
@@ -126,7 +126,7 @@ All slices are complete. Deviations from the planned shape, and why:
 | `src/workbench/descriptor.rs` — `id: ScreenIdentity`, `PanelDescriptor::ports` | CW05-02, CW05-08 |
 | `src/workbench/screens.rs` — registry keyed by `ScreenIdentity`; Issues/PRs ports + relationships | CW05-04, CW05-09 |
 | `src/workbench/validate.rs` — validate ports alongside existing invariants | CW05-04 |
-| `src/state/issues_ops.rs`, `src/state/prs_ops.rs` | CW05-09 cutover |
+| `src/state/issues_ops.rs`, `src/state/prs_nav_ops.rs` | CW05-09 cutover |
 | `src/app_init.rs`, `src/startup.rs`, `src/main.rs` | CW05-02/03/04 startup composition |
 | `dev-docs/standards/*.md` | issue "done" requirement |
 | `dev-docs/tmux-scenarios/v1/custom-screen-*.json` | CW05-02/03/10 evidence |
@@ -204,6 +204,19 @@ clippy-allow policy, source-file size, architecture policy, complexity, coverage
 | `is_enabled` allocates per candidate | Reject | Composition runs once per process over at most 64 candidates. |
 | No test for `InternExhausted` | Reject | Filling a 67,712-entry process-global table would permanently consume the interner for every other test in the binary. The bound is proven by construction and by the discovery limit that feeds it. |
 | `PUBLISHED_REGISTRY` fallback is a test-ordering hazard | Reject | A premature read is not silent: publication then fails with `RegistryAlreadyPublished` and startup exits 78. `main.rs` reads the registry nowhere before `publish_screen_registry_or_exit`, and no test calls `compose_and_publish`. |
+
+### PR review round (CodeRabbit, 8 findings)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| Layout depth bound runs after an unbounded identifier walk of the same tree | In-scope—Fix | `check_shape` checks depth first, so a deeply nested layout is rejected on its shape rather than recursed into. |
+| Non-Unix `same_file` accepts two failed `modified()` reads as a match | In-scope—Fix | Both reads must succeed, and length is compared as well; a check that passes when it learned nothing is not a check. |
+| Propagation documents multi-hop behavior it does not implement | In-scope—Fix | The module states that propagation is one hop, and the acyclicity rationale says why a chain terminates. |
+| Dormant-definition test can pass vacuously if the example changes | In-scope—Fix | Asserts the mutation applied. |
+| Interner count delta is racy across test threads | In-scope—Fix | Asserts the local property — known text reuses its allocation — instead of a global count delta. |
+| Replacement test comment names the wrong branch | In-scope—Fix | The comment says the link is refused on the type check and that the identity comparison covers the narrower same-type race. |
+| Plan names tests and modules that do not exist | In-scope—Fix | The slice table and acceptance matrix name the files that exist. |
+| Test name promises two exit codes | Already fixed | Renamed in `bf2d1004`, before this review was posted. |
 
 ### Deferred
 

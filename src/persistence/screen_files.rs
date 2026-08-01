@@ -234,17 +234,26 @@ fn unreadable_file(error: std::io::Error) -> ScreenFileRejection {
 
 /// Whether an opened handle names the same file the directory scan saw.
 ///
-/// On Unix the device and inode settle it exactly. Elsewhere the comparison
-/// falls back to file type and modification time, which still catches a name
-/// swapped for a directory, a link to a different file, or a rewritten file,
-/// and is why the length is re-read from the handle rather than the scan.
+/// On Unix the device and inode settle it exactly.
 #[cfg(unix)]
 pub(super) fn same_file(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     before.dev() == after.dev() && before.ino() == after.ino()
 }
 
+/// Whether an opened handle names the same file the directory scan saw.
+///
+/// Without a stable file identity the comparison is type, length, and
+/// modification time. Two *failed* time reads are not a match: an unreadable
+/// timestamp says nothing about whether the name still points at the same
+/// bytes, and treating "neither could be read" as agreement would turn the
+/// check into one that passes exactly when it learned nothing.
 #[cfg(not(unix))]
 pub(super) fn same_file(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
-    before.file_type() == after.file_type() && before.modified().ok() == after.modified().ok()
+    let (Ok(before_time), Ok(after_time)) = (before.modified(), after.modified()) else {
+        return false;
+    };
+    before.file_type() == after.file_type()
+        && before.len() == after.len()
+        && before_time == after_time
 }

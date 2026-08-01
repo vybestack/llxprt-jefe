@@ -431,6 +431,11 @@ fn a_dormant_definition_is_parsed_but_never_lowered() {
     // dormant file must not be lowered, so this parses and produces no
     // warning even though it could never be enabled as written.
     let unlowerable = review_definition().replace("type = \"pr-list\"", "type = \"invented\"");
+    assert_ne!(
+        unlowerable,
+        review_definition(),
+        "the example must still declare the panel type this test replaces"
+    );
 
     let composition = composed(&[candidate("review", &unlowerable)], &[]);
 
