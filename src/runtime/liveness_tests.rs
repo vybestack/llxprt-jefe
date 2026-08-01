@@ -494,3 +494,49 @@ fn absent_anchors_leave_the_worker_fate_unknown() {
         "no evidence must read as unknown, not as confirmed death"
     );
 }
+
+/// The reaping predicate answers this same probe with a `bool` that means
+/// "safe to reap", so it reports `false` for a live process it merely cannot
+/// verify. Read as a liveness answer that would be a death sentence, so the
+/// liveness path must keep the third case.
+#[test]
+fn a_live_but_unverifiable_worker_is_unknown_not_gone() {
+    let weak = crate::domain::WorkerProcessIdentity::from_pid(std::process::id());
+
+    assert_eq!(
+        observe_worker_disposition(&[weak]),
+        WorkerDisposition::Unknown,
+        "a running process without a start token is unproven, not dead"
+    );
+}
+
+/// A worker proven to be the same process must still be reported alive, or
+/// fail-closed would degrade into never answering.
+#[test]
+fn a_verified_live_worker_survived() {
+    let identity = crate::runtime::capture_process_identity(std::process::id())
+        .unwrap_or_else(|error| panic!("this process must be observable: {error}"));
+    let strong = crate::domain::WorkerProcessIdentity::from_identity(identity);
+
+    assert_eq!(
+        observe_worker_disposition(&[strong]),
+        WorkerDisposition::SurvivedPane
+    );
+}
+
+/// PID 0 is never a worker, and is not evidence of a dead one either.
+#[test]
+fn a_zero_pid_anchor_is_unknown() {
+    let zero = crate::domain::WorkerProcessIdentity::from_pid(0);
+
+    assert_eq!(
+        observe_worker_disposition(&[zero]),
+        WorkerDisposition::Unknown
+    );
+}
+
+/// No anchors is the absence of evidence, not evidence of absence.
+#[test]
+fn no_anchors_is_unknown() {
+    assert_eq!(observe_worker_disposition(&[]), WorkerDisposition::Unknown);
+}

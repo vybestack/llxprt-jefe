@@ -315,6 +315,83 @@ pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
         .collect()
 }
 
+/// Observe whether the workers recorded for one agent are still alive.
+///
+/// Answers "did *this agent's* worker survive?", which is what makes a
+/// server-level event judgeable per agent instead of globally. A replaced
+/// multiplexer server is one process; the workers beneath it are others, and
+/// whether they died with it is a question that has to be asked of each one
+/// (issues #541 V6, #543).
+#[must_use]
+pub fn observe_worker_disposition(
+    anchors: &[crate::domain::WorkerProcessIdentity],
+) -> WorkerDisposition {
+    if anchors.is_empty() {
+        return WorkerDisposition::Unknown;
+    }
+    let mut unverifiable = false;
+    let mut alive = false;
+    for anchor in anchors {
+        match observe_anchor(*anchor) {
+            AnchorObservation::Alive => alive = true,
+            AnchorObservation::Gone => {}
+            AnchorObservation::Unverifiable => unverifiable = true,
+        }
+    }
+    if alive {
+        WorkerDisposition::SurvivedPane
+    } else if unverifiable {
+        WorkerDisposition::Unknown
+    } else {
+        WorkerDisposition::GoneWithPane
+    }
+}
+
+/// What one recorded anchor turned out to be.
+///
+/// Deliberately three-valued. `descendant_still_matches_anchor` answers the
+/// same probe with a `bool`, but that `bool` means "safe to reap", so it
+/// returns `false` for a process that is dead, one whose PID was recycled,
+/// *and* one it simply could not verify. That is the right default for
+/// termination and the wrong one for liveness: read as a liveness answer it
+/// turns "cannot tell" into "dead", which is the conflation this issue exists
+/// to remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnchorObservation {
+    Alive,
+    Gone,
+    Unverifiable,
+}
+
+/// Observe one anchor without collapsing uncertainty into death.
+#[must_use]
+fn observe_anchor(anchor: crate::domain::WorkerProcessIdentity) -> AnchorObservation {
+    if anchor.pid() == 0 {
+        return AnchorObservation::Unverifiable;
+    }
+    match super::process::pid_liveness(anchor.pid()) {
+        super::process::ProcessLiveness::Dead | super::process::ProcessLiveness::ReusedPid => {
+            AnchorObservation::Gone
+        }
+        super::process::ProcessLiveness::Alive => {
+            // Something is running under that PID. Only a matching start token
+            // proves it is still *our* process; without one the PID may have
+            // been recycled, so the honest answer is that we cannot tell.
+            let observed = super::process::capture_process_identity(anchor.pid())
+                .ok()
+                .and_then(|identity| identity.started_at);
+            match (anchor.started_at(), observed) {
+                (Some(recorded), Some(current)) if recorded == current => AnchorObservation::Alive,
+                (Some(_), Some(_)) => AnchorObservation::Gone,
+                _ => AnchorObservation::Unverifiable,
+            }
+        }
+        super::process::ProcessLiveness::Inaccessible
+        | super::process::ProcessLiveness::MalformedIdentity
+        | super::process::ProcessLiveness::ProbeFailure => AnchorObservation::Unverifiable,
+    }
+}
+
 /// Freshly probe each recorded worker anchor, rejecting PID reuse.
 #[must_use]
 fn probe_worker_anchors(

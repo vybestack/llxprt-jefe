@@ -459,9 +459,11 @@ fn eligible_for_server_lost(
             agent_id: target.agent_id.clone(),
             binding_session_name: target.binding_session_name.clone(),
             lifecycle_generation: target.lifecycle_generation,
-            // A lost multiplexer server says nothing about the workers below
-            // it, so their fate is explicitly unknown here (issue #543).
-            worker: jefe::runtime::WorkerDisposition::Unknown,
+            // A lost server says nothing about the workers below it, so each
+            // agent's own anchors are asked rather than inheriting the
+            // server's fate. Where an agent recorded no anchors the answer is
+            // `Unknown`, never "died with the server" (issues #541, #543).
+            worker: jefe::runtime::observe_worker_disposition(&target.worker_identities),
         })
         .collect()
 }
@@ -483,6 +485,16 @@ fn transition_to_server_lost(
             .iter()
             .any(|agent| agent.id == identity.agent_id && agent.status == AgentStatus::Running);
         if !matches || !still_running {
+            continue;
+        }
+        // This agent's own worker answered, and it is alive. A server event is
+        // not evidence about a process that outlived it, and marking such an
+        // agent lost is what let launching agent N+1 strand agents 1..N.
+        if identity.worker == jefe::runtime::WorkerDisposition::SurvivedPane {
+            warn!(
+                agent_id = %identity.agent_id.0,
+                "server changed but this agent's worker is alive: leaving it running"
+            );
             continue;
         }
         commit_pure_site(
@@ -722,6 +734,46 @@ mod tests {
             decision.transition(),
             Some(&Vec::new()),
             "a still-dead agent is not a recovery candidate"
+        );
+    }
+
+    /// V6: a server-level event is judged per agent. An agent whose own worker
+    /// is demonstrably alive did not die because the server changed, which is
+    /// precisely what let launching agent N+1 strand agents 1..N.
+    #[test]
+    fn an_agent_whose_worker_is_alive_is_not_eligible_for_server_lost() {
+        let mut state = AppState::default();
+        state.agents.push(fixture_running_agent("alpha"));
+        let mut target = liveness_target("alpha");
+        // This test process is, by construction, alive, and capturing its
+        // identity gives the start token that proves the PID was not recycled.
+        let me = jefe::runtime::capture_process_identity(std::process::id())
+            .unwrap_or_else(|error| panic!("this process must be observable: {error}"));
+        target.worker_identities = vec![jefe::domain::WorkerProcessIdentity::from_identity(me)];
+
+        let affected = eligible_for_server_lost(&state, &[target]);
+
+        assert_eq!(affected.len(), 1, "the agent is still examined");
+        assert_eq!(
+            affected[0].worker,
+            jefe::runtime::WorkerDisposition::SurvivedPane,
+            "a live worker must be observed as having survived the server"
+        );
+    }
+
+    /// An agent that recorded no anchors cannot answer the question, and the
+    /// answer must be `Unknown` rather than "died with the server".
+    #[test]
+    fn an_agent_without_anchors_reports_an_unknown_worker() {
+        let mut state = AppState::default();
+        state.agents.push(fixture_running_agent("alpha"));
+
+        let affected = eligible_for_server_lost(&state, &[liveness_target("alpha")]);
+
+        assert_eq!(
+            affected[0].worker,
+            jefe::runtime::WorkerDisposition::Unknown,
+            "no anchors means unknown, never dead"
         );
     }
 }
