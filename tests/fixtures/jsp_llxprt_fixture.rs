@@ -2,6 +2,36 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
+/// Credential-free diagnostic for a failed fixture HTTP POST.
+///
+/// Each variant identifies a distinct failure class so the harness can
+/// distinguish, e.g., a refused connection from a protocol rejection. No
+/// variant or its Display output ever includes the bearer token, bootstrap
+/// contents, or any other secret.
+#[derive(Debug)]
+enum PostError {
+    /// The endpoint did not parse as http://host[:port]/...
+    MalformedEndpoint,
+    /// A header value contained CR or LF and was rejected.
+    HeaderInjection,
+    /// TCP connect, timeout, write, or read failure.
+    Transport(String),
+    /// The server responded with a non-200 status.
+    UnexpectedStatus(String),
+}
+
+impl std::fmt::Display for PostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MalformedEndpoint => f.write_str("endpoint is not http://host[:port]"),
+            Self::HeaderInjection => f.write_str("header value contained CR or LF"),
+            Self::Transport(detail) => write!(f, "transport error: {detail}"),
+            // Only the status line prefix is retained; it never carries a secret.
+            Self::UnexpectedStatus(detail) => write!(f, "unexpected response: {detail}"),
+        }
+    }
+}
+
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if handle_probe(&args) {
@@ -95,7 +125,10 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
     let Some(registration_id) = bootstrap["registration_id"].as_str() else {
         std::process::exit(2);
     };
-    if !post(endpoint, "register", credential, registration_id, &snapshot) {
+    if let Err(error) = post(endpoint, "register", credential, registration_id, &snapshot) {
+        // Print the safe, credential-free diagnostic before exiting so a
+        // fixture failure is diagnosable in the harness output.
+        write_stderr(&format!("JSP fixture registration failed: {error}\n"));
         std::process::exit(3);
     }
 }
@@ -114,12 +147,12 @@ fn post(
     credential: &str,
     registration_id: &str,
     body: &serde_json::Value,
-) -> bool {
+) -> Result<(), PostError> {
     let Some(authority) = endpoint
         .strip_prefix("http://")
         .and_then(|value| value.split('/').next())
     else {
-        return false;
+        return Err(PostError::MalformedEndpoint);
     };
     // These values are interpolated straight into header lines, so refuse
     // anything that could terminate a header early and smuggle another.
@@ -127,34 +160,45 @@ fn post(
         .iter()
         .any(|value| value.contains(['\r', '\n']))
     {
-        return false;
+        return Err(PostError::HeaderInjection);
     }
     let body = body.to_string();
-    let Ok(mut stream) = TcpStream::connect(authority) else {
-        return false;
-    };
+    let mut stream = TcpStream::connect(authority).map_err(|e| PostError::Transport(e.to_string()))?;
     // Without timeouts an unresponsive server hangs the fixture until the
     // harness kills it, which reports as an unrelated scenario timeout.
     let timeout = std::time::Duration::from_secs(5);
-    if stream.set_read_timeout(Some(timeout)).is_err()
-        || stream.set_write_timeout(Some(timeout)).is_err()
-    {
-        return false;
-    }
-    if write!(
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| PostError::Transport(e.to_string()))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|e| PostError::Transport(e.to_string()))?;
+    write!(
         stream,
         "POST /jsp/1/{route} HTTP/1.1\r\nHost: {authority}\r\nAuthorization: Bearer {credential}\r\nJsp-Registration-Id: {registration_id}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
-    .is_err()
-    {
-        return false;
-    }
+    .map_err(|e| PostError::Transport(e.to_string()))?;
     let mut response = String::new();
-    stream.read_to_string(&mut response).is_ok() && response.starts_with("HTTP/1.1 200")
+    stream
+        .read_to_string(&mut response)
+        .map_err(|e| PostError::Transport(e.to_string()))?;
+    // Extract only the status line for the diagnostic; it never carries a
+    // secret.
+    let status_line = response.lines().next().unwrap_or("no response");
+    if response.starts_with("HTTP/1.1 200") {
+        Ok(())
+    } else {
+        Err(PostError::UnexpectedStatus(status_line.to_string()))
+    }
 }
 
 fn write_stdout(value: &str) {
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(value.as_bytes());
+}
+
+fn write_stderr(value: &str) {
+    let mut stderr = std::io::stderr().lock();
+    let _ = stderr.write_all(value.as_bytes());
 }
