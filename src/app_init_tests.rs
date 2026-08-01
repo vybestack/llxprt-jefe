@@ -7,6 +7,7 @@
 use super::*;
 use jefe::domain::{Repository, RepositoryId, TypedValue};
 use jefe::runtime::RuntimeSession;
+use std::time::Duration;
 
 fn code_puppy_agent_and_repository() -> (Agent, Repository) {
     let repository_id = RepositoryId("repo-model".to_owned());
@@ -548,4 +549,57 @@ fn conformance_and_provenance_problems_are_both_reported() {
 
     assert!(warning.contains("display-message"), "{warning}");
     assert!(warning.contains("deadbeef"), "{warning}");
+}
+
+/// #537 in miniature: one transient failure at the startup boundary must not
+/// be enough to withhold a verdict about a live agent.
+#[test]
+fn a_startup_session_probe_that_recovers_is_believed() {
+    let mut calls = 0_u32;
+
+    let evidence = retry_session_evidence(RetryPolicy::new(3, Duration::from_millis(0)), || {
+        calls += 1;
+        if calls < 3 {
+            SessionLiveness::Unavailable
+        } else {
+            SessionLiveness::Alive
+        }
+    });
+
+    assert_eq!(
+        evidence,
+        SessionEvidence::Alive,
+        "a probe that answered on retry must be believed"
+    );
+    assert_eq!(calls, 3);
+}
+
+/// When the probe never answers the honest result is still `Unavailable`, and
+/// the retry must be bounded rather than blocking startup indefinitely.
+#[test]
+fn a_startup_session_probe_that_never_answers_stays_unavailable() {
+    let mut calls = 0_u32;
+
+    let evidence = retry_session_evidence(RetryPolicy::new(3, Duration::from_millis(0)), || {
+        calls += 1;
+        SessionLiveness::Unavailable
+    });
+
+    assert_eq!(evidence, SessionEvidence::Unavailable);
+    assert_eq!(calls, 3, "retries are bounded");
+}
+
+/// A session that is genuinely gone has *answered*. Re-asking would delay
+/// every dead agent at startup and buy nothing.
+#[test]
+fn a_missing_session_is_not_retried() {
+    let mut calls = 0_u32;
+
+    let evidence = retry_session_evidence(RetryPolicy::new(5, Duration::from_millis(0)), || {
+        calls += 1;
+        SessionLiveness::Missing
+    });
+
+    assert_eq!(evidence, SessionEvidence::Missing);
+    assert_eq!(calls, 1, "an answered probe is asked exactly once");
 }

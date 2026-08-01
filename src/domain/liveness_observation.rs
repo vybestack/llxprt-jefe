@@ -219,9 +219,92 @@ impl<S> Resolution<S> {
     }
 }
 
+/// How many times a fallible probe may be asked, and how long to wait between.
+///
+/// Bounded by construction. A retry loop that can run forever converts a
+/// permanent failure into a hang, which is a worse outcome than the wrong
+/// answer it was added to prevent, so `attempts` is a hard ceiling and the
+/// caller is handed the last uncertainty rather than being made to wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetryPolicy {
+    attempts: u32,
+    initial_backoff: std::time::Duration,
+}
+
+impl RetryPolicy {
+    /// Build a policy, clamping `attempts` to at least one.
+    ///
+    /// Zero attempts would mean never asking, which is not a retry policy but
+    /// a way to guarantee an unknown answer.
+    #[must_use]
+    pub fn new(attempts: u32, initial_backoff: std::time::Duration) -> Self {
+        Self {
+            attempts: attempts.max(1),
+            initial_backoff,
+        }
+    }
+
+    #[must_use]
+    pub const fn attempts(&self) -> u32 {
+        self.attempts
+    }
+
+    #[must_use]
+    pub const fn initial_backoff(&self) -> std::time::Duration {
+        self.initial_backoff
+    }
+}
+
+impl Default for RetryPolicy {
+    /// Three attempts with a 50ms doubling backoff: enough to ride out a
+    /// transient subprocess failure at cold start without making startup feel
+    /// stalled when the multiplexer really is gone.
+    fn default() -> Self {
+        Self::new(3, std::time::Duration::from_millis(50))
+    }
+}
+
+/// Ask a fallible probe until it answers, or until the policy is exhausted.
+///
+/// Returns the *last* uncertainty rather than the first: if the reason for
+/// failing changed between attempts, the most recent one describes the state
+/// the caller is actually in.
+///
+/// `sleep` is injected so the backoff schedule is observable in a test without
+/// spending the wall-clock time it describes.
+pub fn retry_observation<T>(
+    policy: RetryPolicy,
+    mut probe: impl FnMut() -> Observed<T>,
+    mut sleep: impl FnMut(std::time::Duration),
+) -> Observed<T> {
+    let mut backoff = policy.initial_backoff();
+    let mut last = None;
+    for attempt in 0..policy.attempts() {
+        match probe() {
+            Observed::Known(value) => return Observed::Known(value),
+            Observed::Unknown(uncertainty) => last = Some(uncertainty),
+        }
+        // No trailing sleep: waiting after the final attempt delays the caller
+        // without buying another observation.
+        if attempt + 1 < policy.attempts() {
+            sleep(backoff);
+            backoff = backoff.saturating_mul(2);
+        }
+    }
+    last.map_or_else(
+        || {
+            Observed::unknown(
+                ProbeBoundary::SessionExists,
+                "probe was never asked".to_owned(),
+            )
+        },
+        Observed::Unknown,
+    )
+}
 #[cfg(test)]
 mod tests {
-    use super::{Observed, ProbeBoundary, Resolution, Uncertainty};
+    use super::{Observed, ProbeBoundary, Resolution, RetryPolicy, Uncertainty, retry_observation};
+    use std::time::Duration;
 
     /// The whole point of the type: the decision closure never runs for an
     /// observation that did not answer, so no call site can transition on one.
@@ -315,5 +398,91 @@ mod tests {
                 "{boundary:?} must name itself for fault-injection diagnostics"
             );
         }
+    }
+
+    /// A transient failure is exactly what #537 hit: one subprocess failure at
+    /// cold start stranded a live agent. Retrying must let the answer arrive.
+    #[test]
+    fn a_probe_that_answers_on_a_later_attempt_is_not_held() {
+        let mut calls = 0_u32;
+        let mut slept = Vec::new();
+
+        let observed = retry_observation(
+            RetryPolicy::new(3, Duration::from_millis(10)),
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Observed::unknown(ProbeBoundary::SessionExists, "transient")
+                } else {
+                    Observed::Known(7)
+                }
+            },
+            |delay| slept.push(delay),
+        );
+
+        assert_eq!(observed.known(), Some(&7));
+        assert_eq!(calls, 3, "it must stop asking once answered");
+        assert_eq!(
+            slept,
+            vec![Duration::from_millis(10), Duration::from_millis(20)],
+            "backoff doubles, and there is no wait after the answering attempt"
+        );
+    }
+
+    /// The V4 mirror hazard for retries: bounded means bounded. A retry loop
+    /// that never gives up turns a permanent failure into a hang.
+    #[test]
+    fn a_probe_that_never_answers_stops_asking() {
+        let mut calls = 0_u32;
+        let mut slept = 0_usize;
+
+        let observed: Observed<u32> = retry_observation(
+            RetryPolicy::new(4, Duration::from_millis(5)),
+            || {
+                calls += 1;
+                Observed::unknown(ProbeBoundary::PaneList, format!("attempt {calls}"))
+            },
+            |_| slept += 1,
+        );
+
+        assert_eq!(calls, 4, "exactly the permitted number of attempts");
+        assert_eq!(slept, 3, "no wait after the final attempt");
+        assert_eq!(
+            observed.uncertainty().map(Uncertainty::diagnostic),
+            Some("attempt 4"),
+            "the most recent reason describes the state the caller is in"
+        );
+    }
+
+    /// An answer on the first attempt must cost nothing.
+    #[test]
+    fn an_immediate_answer_never_sleeps() {
+        let mut slept = 0_usize;
+
+        let observed = retry_observation(
+            RetryPolicy::default(),
+            || Observed::Known("ready"),
+            |_| slept += 1,
+        );
+
+        assert!(observed.is_known());
+        assert_eq!(slept, 0);
+    }
+
+    /// Zero attempts is not a policy, it is a guaranteed unknown.
+    #[test]
+    fn a_policy_always_asks_at_least_once() {
+        let mut calls = 0_u32;
+
+        let _observed: Observed<u32> = retry_observation(
+            RetryPolicy::new(0, Duration::from_millis(1)),
+            || {
+                calls += 1;
+                Observed::unknown(ProbeBoundary::DurableRead, "no")
+            },
+            |_| {},
+        );
+
+        assert_eq!(calls, 1, "the probe is always asked at least once");
     }
 }

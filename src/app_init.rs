@@ -15,13 +15,15 @@ use self::signature_reconcile::{
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::liveness_observation::{ProbeBoundary, Uncertainty};
+use jefe::domain::liveness_observation::{
+    Observed, ProbeBoundary, RetryPolicy, Uncertainty, retry_observation,
+};
 use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
 use jefe::runtime::{
-    ProcessLiveness, RuntimeError, RuntimeManager, TmuxRuntimeManager, pid_alive,
+    ProcessLiveness, RuntimeError, RuntimeManager, SessionLiveness, TmuxRuntimeManager, pid_alive,
     platform_engine_diagnostic, process_liveness,
 };
 use jefe::state::AppState;
@@ -173,14 +175,45 @@ fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
     false
 }
 
+/// Ask the session probe again before accepting that it cannot answer.
+///
+/// #537 was a single transient subprocess failure at cold start that stranded
+/// a live agent. Holding instead of guessing stops that becoming a false
+/// death, but a hold is still the wrong answer when the probe would have
+/// succeeded a moment later, so `Unavailable` is retried before it is believed.
+///
+/// Only `Unavailable` is retried. `Missing` is an answer -- the session really
+/// is gone -- and re-asking a question that was already answered would delay
+/// every genuinely dead agent at startup for nothing.
+fn retry_session_evidence(
+    policy: RetryPolicy,
+    mut probe: impl FnMut() -> SessionLiveness,
+) -> SessionEvidence {
+    let observed = retry_observation(
+        policy,
+        || match probe() {
+            SessionLiveness::Unavailable => Observed::unknown(
+                ProbeBoundary::SessionExists,
+                "session probe did not answer".to_owned(),
+            ),
+            answered => Observed::Known(answered),
+        },
+        std::thread::sleep,
+    );
+    observed
+        .known()
+        .copied()
+        .map_or(SessionEvidence::Unavailable, SessionEvidence::from)
+}
+
 fn classify_agent_startup(
     agent: &Agent,
     signature: &AgentLaunchRequest,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
-    let session = runtime
-        .session_liveness_for_signature(&agent.id, signature)
-        .into();
+    let session = retry_session_evidence(RetryPolicy::default(), || {
+        runtime.session_liveness_for_signature(&agent.id, signature)
+    });
     let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id);
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
