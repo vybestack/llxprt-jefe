@@ -25,6 +25,7 @@ fn make_issues() -> Vec<Issue> {
             state_reason: None,
             created_at: String::new(),
             priority: None,
+            linked_pr_numbers: Vec::new(),
         })
         .collect()
 }

@@ -41,6 +41,7 @@ impl CreatedIssue {
             body: self.body,
             priority: None,
             state_reason: None,
+            linked_pr_numbers: Vec::new(),
         }
     }
 }

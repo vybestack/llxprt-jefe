@@ -413,3 +413,26 @@ fn issue_search_args_omit_body_for_fast_first_paint() {
     let paged_fields = issue_query_fields(paged_query_arg);
     assert!(!paged_fields.contains(&"body"));
 }
+
+#[test]
+fn issue_search_args_request_linked_pr_timeline_items() {
+    let args =
+        jefe::github::build_issue_search_args("owner", "repo", &IssueFilter::default(), None, 30);
+    let query = args
+        .iter()
+        .find(|arg| arg.starts_with("query="))
+        .unwrap_or_else(|| panic!("missing GraphQL query arg: {args:?}"));
+
+    assert!(
+        query.contains("timelineItems(first: 15, itemTypes: [CROSS_REFERENCED_EVENT])"),
+        "issue search query must request linked-PR timeline items: {query}"
+    );
+    assert!(
+        query.contains("... on CrossReferencedEvent"),
+        "query must inline the CrossReferencedEvent fragment: {query}"
+    );
+    assert!(
+        query.contains("... on PullRequest { number }"),
+        "query must select the linked PR number: {query}"
+    );
+}
