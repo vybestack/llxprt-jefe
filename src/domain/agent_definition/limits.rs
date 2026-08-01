@@ -26,8 +26,12 @@ pub const PROBE_STREAM_LIMIT: usize = 65_536;
 /// Local probe timeout per child process (milliseconds).
 ///
 /// A definition probe may run identity and capability commands sequentially.
-/// Each process receives this independently authored bound, so a two-process
-/// probe has an explicit finite combined ceiling of twice this value.
+/// Each process receives this independently authored bound, so a directly
+/// resolved two-process probe has an explicit finite combined ceiling of twice
+/// this value. When the agent is reached through a package runner, the identity
+/// process also materializes the package and is bounded by
+/// [`PACKAGE_MATERIALIZATION_TIMEOUT_MS`] instead, so that probe's combined
+/// ceiling is that constant plus this one (issue #553).
 pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 10_000;
 /// Remote probe timeout (milliseconds).
 pub const REMOTE_PROBE_TIMEOUT_MS: u64 = 20_000;

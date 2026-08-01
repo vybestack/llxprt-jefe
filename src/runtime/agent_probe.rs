@@ -42,6 +42,10 @@ const LOADER_TRANSIENT_BACKOFF: Duration = Duration::from_millis(500);
 const PACKAGE_MATERIALIZATION_TIMEOUT: Duration =
     Duration::from_millis(PACKAGE_MATERIALIZATION_TIMEOUT_MS);
 
+/// Deadline used when a phase budget is too large to represent as an `Instant`.
+/// Every real budget is a bounded constant, so this only guards the arithmetic.
+const UNBOUNDED_PHASE_BUDGET: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// Whether an exit status is a retryable Windows loader transient.
 fn is_retryable_loader_transient(status: std::process::ExitStatus) -> bool {
     status.code() == Some(STATUS_DLL_INIT_FAILED)
@@ -213,10 +217,12 @@ impl<'a> ProbePhase<'a> {
         }
     }
 
+    /// An unrepresentable deadline means the budget is effectively unbounded,
+    /// so it must fall forward rather than collapse into an instant timeout.
     fn deadline(&self) -> Instant {
         self.started
             .checked_add(self.budget)
-            .unwrap_or(self.started)
+            .unwrap_or_else(|| self.started + UNBOUNDED_PHASE_BUDGET)
     }
 
     /// Attribute a failure to this phase and the program it ran.
@@ -624,6 +630,20 @@ mod tests {
             process_timeout.saturating_mul(2),
             std::time::Duration::from_secs(20),
             "identity and capability each receive one bounded process timeout"
+        );
+    }
+
+    /// A runner-mediated probe pays materialization once, in identity, so its
+    /// combined ceiling is that budget plus one ordinary probe budget. It is
+    /// larger than a direct probe's ceiling by design, and still finite.
+    #[test]
+    fn runner_mediated_probe_has_a_finite_combined_ceiling() {
+        let probe_budget = super::AgentProbeTarget::Local.total_timeout();
+        let combined = super::PACKAGE_MATERIALIZATION_TIMEOUT.saturating_add(probe_budget);
+        assert_eq!(combined, std::time::Duration::from_secs(310));
+        assert!(
+            combined > probe_budget.saturating_mul(2),
+            "materialization is deliberately not charged to the probe budget"
         );
     }
 

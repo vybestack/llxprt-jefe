@@ -23,8 +23,9 @@ const PINNED_SELECTOR: &str = "0.0.600";
 /// timing assertion stays bounded and deterministic.
 const SHORT_PROBE_TIMEOUT_MS: u64 = 1_500;
 
-/// Fixture delay, in seconds, used to exceed the authored probe budget.
-const FIXTURE_DELAY_SECONDS: &str = "4";
+/// Fixture delay, in seconds, written into the delay marker the fixture
+/// reads. Comfortably above the authored budget above.
+const FIXTURE_DELAY_SECONDS: &[u8] = b"4\n";
 
 /// Fixture runner/agent. It records its full argument vector and dispatches on
 /// the final argument, so the same script serves as a direct agent executable
@@ -39,11 +40,11 @@ for argument in "$@"; do
 done
 case "$last" in
 --version)
-    if [ -f "$dir/identity.sleep" ]; then sleep DELAY; fi
+    if [ -f "$dir/identity.sleep" ]; then sleep "$(cat "$dir/identity.sleep")"; fi
     cat "$dir/identity.stdout"
     ;;
 --help)
-    if [ -f "$dir/help.sleep" ]; then sleep DELAY; fi
+    if [ -f "$dir/help.sleep" ]; then sleep "$(cat "$dir/help.sleep")"; fi
     cat "$dir/help.stdout"
     ;;
 *)
@@ -81,7 +82,7 @@ impl Fixture {
         // Both the runner and the direct agent resolve from the same fixture
         // directory; the selector decides which candidate the resolver picks.
         for name in ["uvx", "code-puppy"] {
-            write_executable(&temp.path().join(name), fixture_process().as_bytes());
+            write_executable(&temp.path().join(name), FIXTURE_PROCESS.as_bytes());
         }
         let executable = temp.path().join(program);
         write_file(temp.path(), "identity.stdout", IDENTITY_LINE);
@@ -110,14 +111,15 @@ impl Fixture {
         }
     }
 
-    /// Enable a fixture delay marker such as `identity.sleep` or `help.sleep`.
+    /// Make the named phase sleep past the authored probe budget. The marker
+    /// carries the delay, so the fixture script needs no substitution.
     fn delay(&self, marker: &str) -> &Self {
         write_file(
             self.executable
                 .parent()
                 .unwrap_or_else(|| panic!("fixture parent")),
             marker,
-            b"",
+            FIXTURE_DELAY_SECONDS,
         );
         self
     }
@@ -125,10 +127,6 @@ impl Fixture {
     fn run(&self, generation: u64) -> AgentProbeResult {
         run_local_agent_probe(&self.definition, &self.resolution, generation)
     }
-}
-
-fn fixture_process() -> String {
-    FIXTURE_PROCESS.replace("DELAY", FIXTURE_DELAY_SECONDS)
 }
 
 fn normalized_selector(selector: &str) -> VersionSelector {
