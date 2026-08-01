@@ -181,6 +181,13 @@ Addressed:
   reused across a relaunch could carry two entries. It is now replaced in
   place.
 
+- Source-size pressure after rebasing onto current main. `messages.rs` and
+  `state/events.rs` both sit at the 1000-line limit upstream, so the observation
+  additions pushed them over. `PullRequestsMessage` moved into
+  `src/messages/prs.rs`, matching the existing actions, errors, and
+  terminal-manager message modules, and `main`'s JSP host startup moved into a
+  named helper to stay inside the function-length limit.
+
 Dismissed with reason:
 
 - "`turn_observed_at` is never populated." It is: `src/jsp_host/mod.rs` sets it

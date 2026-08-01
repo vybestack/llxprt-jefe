@@ -1,7 +1,6 @@
 use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 use crate::domain::RepositoryId;
 use crate::list_viewport::PageItemCount;
-
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     /// Typed completion for a staged post-commit effect (issue #381 CW01-11).

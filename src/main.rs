@@ -289,6 +289,24 @@ fn main() {
     run_tui(cli_args, startup);
 }
 
+/// Start the local JSP host beside the state file.
+///
+/// Returns `None` when the host cannot start. Observation is optional
+/// telemetry, so Jefe still runs and agents launch uninstrumented.
+fn start_jsp_host(state_path: &std::path::Path) -> Option<jefe::jsp_host::JspHostRuntime> {
+    let runtime_dir = state_path.parent().map_or_else(
+        || std::path::PathBuf::from("jsp"),
+        |parent| parent.join("jsp"),
+    );
+    match jefe::jsp_host::JspHostRuntime::start(runtime_dir) {
+        Ok(host) => Some(host),
+        Err(error) => {
+            write_jsp_startup_error(&error);
+            None
+        }
+    }
+}
+
 fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersistence) {
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
@@ -321,17 +339,7 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 
     let mut theme_manager = FileThemeManager::new();
     theme_manager.load_from_dir(&themes_dir);
-    let jsp_runtime_dir = startup.paths.state.path.parent().map_or_else(
-        || std::path::PathBuf::from("jsp"),
-        |parent| parent.join("jsp"),
-    );
-    let jsp_host = match jefe::jsp_host::JspHostRuntime::start(jsp_runtime_dir) {
-        Ok(host) => Some(host),
-        Err(error) => {
-            write_jsp_startup_error(&error);
-            None
-        }
-    };
+    let jsp_host = start_jsp_host(&startup.paths.state.path);
     let mut runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
     if let Some(host) = &jsp_host {
         runtime.install_jsp_launches(host.coordinator());
