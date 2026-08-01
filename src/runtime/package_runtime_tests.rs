@@ -356,6 +356,7 @@ fn counting_npm_stub(bin: &TempDir) {
         bin,
         "npm",
         "#!/bin/sh
+set -e
 if [ -f package-lock.json ]; then echo present >> .jefe-lock-witness; else echo absent >> .jefe-lock-witness; fi
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\nexit 0\n' > node_modules/.bin/llxprt

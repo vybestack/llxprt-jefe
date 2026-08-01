@@ -396,9 +396,20 @@ fn prepare_managed_npm(
         write_package_json(&install_dir, selection)?;
         // Issue #554: a stale lockfile makes `npm install` reuse the previously
         // resolved dist-tag target. Drop it for volatile selectors so npm
-        // re-resolves `nightly`/`latest` against the registry.
+        // re-resolves `nightly`/`latest` against the registry. A real failure to
+        // remove an existing lockfile must surface — otherwise npm would silently
+        // reinstall the old target and the freshly stamped marker would freeze
+        // the stale build for another TTL window.
         if selection.selector().is_volatile() {
-            let _ = std::fs::remove_file(install_dir.join("package-lock.json"));
+            match std::fs::remove_file(install_dir.join("package-lock.json")) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(PackageRuntimeError::InstallDirectory(format!(
+                        "failed to remove stale lockfile for re-resolve: {error}"
+                    )));
+                }
+            }
         }
         run_npm_install(candidate, &install_dir)?;
     }
