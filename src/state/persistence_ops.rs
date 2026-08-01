@@ -66,6 +66,15 @@ impl AppState {
     /// *what* would be written.
     #[must_use]
     pub fn take_durable_save_request(&mut self) -> Option<(Box<StateV2>, u64, Correlation)> {
+        // The document on disk could not be read, so what is in memory is not
+        // known to be everything that was persisted. Projecting it back over
+        // the file would replace a document we failed to understand with one
+        // built from the little we recovered, which is how #445 turned an
+        // unreadable state file into an empty one. Hold the write instead: the
+        // bytes we could not read are the only copy of whatever they contain.
+        if self.durable_read_held.is_some() {
+            return None;
+        }
         self.stage_durable_save();
         let issued = self.pending_effects.take_staged_persist()?;
         let IssuedEffect {

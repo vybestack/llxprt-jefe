@@ -421,15 +421,24 @@ pub fn init_app_state(
         Settings::default_with_version()
     });
 
-    let persisted = ctx_guard
-        .persistence
-        .load_durable_state()
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "could not load state, using defaults");
-            jefe::state::durable_projection::RestoredState::default()
-        });
+    // A read that fails is not a read that found nothing. Defaulting here is
+    // what let #445 turn an unreadable document into an empty one, because the
+    // empty result was then projected straight back over the file.
+    let (persisted, durable_read_held) = match ctx_guard.persistence.load_durable_state() {
+        Ok(value) => (value, None),
+        Err(error) => {
+            warn!(error = %error, "could not read durable state; holding writes");
+            (
+                jefe::state::durable_projection::RestoredState::default(),
+                Some(format!(
+                    "Durable state could not be read ({error}). Agents shown may be incomplete and saving is paused so the existing file is not overwritten."
+                )),
+            )
+        }
+    };
 
     let mut state = app_state.write();
+    state.durable_read_held = durable_read_held;
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
     state.override_agent_theme = settings.override_agent_theme;
