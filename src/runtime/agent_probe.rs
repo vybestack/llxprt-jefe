@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution, ResolvedCandidate};
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
 use crate::agent_candidate_path::AgentWrapperKind;
-use crate::domain::agent_definition::limits::{LOCAL_PROBE_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS};
+use crate::domain::agent_definition::limits::{
+    LOCAL_PROBE_TIMEOUT_MS, PACKAGE_MATERIALIZATION_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS,
+};
 use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
 use crate::domain::agent_definition::{
     AgentDefinition, Availability, DefinitionSha256, ProbeErrorCode,
@@ -35,6 +37,10 @@ const MAX_LOADER_TRANSIENT_RETRIES: u32 = 3;
 
 /// Backoff between loader-transient retries.
 const LOADER_TRANSIENT_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Budget for the one probe process that also materializes a package.
+const PACKAGE_MATERIALIZATION_TIMEOUT: Duration =
+    Duration::from_millis(PACKAGE_MATERIALIZATION_TIMEOUT_MS);
 
 /// Whether an exit status is a retryable Windows loader transient.
 fn is_retryable_loader_transient(status: std::process::ExitStatus) -> bool {
@@ -180,7 +186,15 @@ fn probe_resolved(
     let process_timeout = AgentProbeTarget::Local
         .total_timeout()
         .min(Duration::from_millis(definition.probe.timeout_ms));
-    let identity_deadline = Instant::now() + process_timeout;
+    // A runner-mediated invocation materializes its package inside the first
+    // process it runs, which is registry work rather than agent startup
+    // latency, so that phase gets the materialization budget (issue #553).
+    let identity_timeout = if is_runner_mediated(invocation) {
+        PACKAGE_MATERIALIZATION_TIMEOUT
+    } else {
+        process_timeout
+    };
+    let identity_deadline = Instant::now() + identity_timeout;
     let identity = match run_identity(definition, candidate, invocation, identity_deadline) {
         Ok(identity) => identity,
         Err(failure) => return failure.into_availability(generation),
@@ -188,6 +202,8 @@ fn probe_resolved(
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
+    // Materialization is complete once identity has run, so every later phase
+    // is bounded by the ordinary probe budget.
     let capability_deadline = Instant::now() + process_timeout;
     run_capabilities(
         definition,
@@ -197,6 +213,12 @@ fn probe_resolved(
         capability_deadline,
         generation,
     )
+}
+
+/// Whether the invocation reaches the agent through a package runner that
+/// materializes the package as part of executing it.
+fn is_runner_mediated(invocation: Option<&super::package_runtime::PackageInvocation>) -> bool {
+    invocation.is_some_and(|invocation| !invocation.prefix().is_empty())
 }
 
 fn run_identity(

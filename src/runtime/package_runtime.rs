@@ -22,7 +22,9 @@ use crate::domain::agent_definition::DefinitionSha256;
 use super::agent_probe::command_for_path;
 use super::command_capture::run_command_capture_with_timeout;
 
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const INSTALL_TIMEOUT: Duration = Duration::from_millis(
+    crate::domain::agent_definition::limits::PACKAGE_MATERIALIZATION_TIMEOUT_MS,
+);
 const INSTALL_MARKER: &str = ".jefe-installed";
 static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
