@@ -26,6 +26,7 @@ use super::descriptor::{
 };
 use super::ids::{
     CustomScreenId, IdError, PanelId, PortId, RouteId, ScreenIdentity, VersionedTypeId,
+    check_identifier,
 };
 use super::intern::intern;
 use super::lowering_error::LoweringError;
@@ -114,19 +115,34 @@ pub fn lower_screen(
     })
 }
 
-/// Intern one declared identifier and parse it with `parse`.
+/// Validate one declared identifier, then intern it and parse it with `parse`.
+///
+/// The grammar is checked first so text that can never become an identifier
+/// never consumes a slot in the process-lifetime interning table.
 fn parse_id<T>(
     field: &'static str,
     value: &str,
     parse: fn(&'static str) -> Result<T, IdError>,
 ) -> Result<T, LoweringError> {
-    parse(intern(value)?).map_err(|reason| LoweringError::Identifier { field, reason })
+    let bad = |reason| LoweringError::Identifier { field, reason };
+    check_declared(value).map_err(bad)?;
+    parse(intern(value)?).map_err(bad)
+}
+
+/// Pre-intern grammar check covering both plain identifiers and versioned
+/// types, which share every rule except the trailing `@<version>`.
+fn check_declared(value: &str) -> Result<(), IdError> {
+    match value.split_once('@') {
+        Some((name, _)) if !name.is_empty() => check_identifier(name),
+        Some(_) => Err(IdError::Empty),
+        None => check_identifier(value),
+    }
 }
 
 fn lower_panel(panel: &PanelFile) -> Result<PanelDescriptor, LoweringError> {
     Ok(PanelDescriptor {
         id: parse_id("panels.id", &panel.id, PanelId::parse)?,
-        panel_type: resolve_panel_type(intern(&panel.panel_type)?)?,
+        panel_type: resolve_panel_type(&panel.panel_type)?,
         config: lower_config(&panel.config)?,
         focusable: panel.focusable,
         required: panel.required,

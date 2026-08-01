@@ -121,6 +121,14 @@ pub enum ScreenSyntaxReason {
         /// Whether the field declared the enum kind.
         is_enum: bool,
     },
+    /// An identifier that has to be addressable in a `<panel>.<port>` reference
+    /// contains the separator those references are split on.
+    SeparatorInComponent {
+        /// Which field carried it.
+        field: &'static str,
+    },
+    /// A relationship endpoint is not spelled `<panel>.<port>`.
+    MalformedPortReference,
 }
 
 impl std::fmt::Display for ScreenSyntaxReason {
@@ -206,6 +214,13 @@ impl ScreenSyntaxReason {
                 formatter,
                 "values must be present exactly for enum fields (enum = {is_enum})"
             ),
+            Self::SeparatorInComponent { field } => write!(
+                formatter,
+                "{field} may not contain '.', because port references are split on it"
+            ),
+            Self::MalformedPortReference => {
+                formatter.write_str("port reference must be spelled '<panel>.<port>'")
+            }
             _ => Ok(()),
         }
     }
@@ -315,6 +330,40 @@ pub fn check_identifier_length(field: &'static str, value: &str) -> Result<(), S
                 field,
                 bytes: value.len(),
             },
+        ));
+    }
+    Ok(())
+}
+
+/// Check one string-valued field against the string byte limit.
+///
+/// # Errors
+///
+/// Returns [`ScreenSyntaxReason::StringTooLong`].
+pub fn check_string_length(value: &str) -> Result<(), ScreenSyntaxError> {
+    if value.len() > STRING_LIMIT {
+        return Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::StringTooLong { bytes: value.len() },
+        ));
+    }
+    Ok(())
+}
+
+/// Check one identifier that must also be addressable inside a port reference.
+///
+/// Panel and port identifiers are named again as `<panel>.<port>`, and that
+/// reference is split on its first separator. An identifier containing one
+/// would therefore be either unreachable or ambiguous with a different pair, so
+/// the external grammar is narrower here than the internal identifier grammar.
+///
+/// # Errors
+///
+/// Returns the length violation or [`ScreenSyntaxReason::SeparatorInComponent`].
+pub fn check_component(field: &'static str, value: &str) -> Result<(), ScreenSyntaxError> {
+    check_identifier_length(field, value)?;
+    if value.contains('.') {
+        return Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::SeparatorInComponent { field },
         ));
     }
     Ok(())

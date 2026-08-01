@@ -4,7 +4,11 @@
 use std::path::{Path, PathBuf};
 
 use super::diagnostic::FILE_LIMIT;
-use super::screen_files::{ScreenFileCandidate, ScreenFileRejection, discover};
+use crate::workbench::ids::MAX_SCREENS;
+
+use super::screen_files::{
+    ScreenFileCandidate, ScreenFileRejection, discover, read_bounded, same_file,
+};
 
 /// A temporary definitions directory that removes itself.
 struct Definitions {
@@ -242,4 +246,76 @@ fn discovery_of_the_same_directory_is_repeatable() {
         discovered(definitions.path()),
         discovered(definitions.path())
     );
+}
+
+// ── Aggregate bound and replacement (issue #385 review remediation) ────────
+
+#[test]
+fn a_directory_may_hold_candidates_up_to_the_screen_limit_but_not_one_past_it() {
+    let definitions = Definitions::new("aggregate");
+    for index in 0..MAX_SCREENS {
+        definitions.write(&format!("s{index}.screen.toml"), "screen_schema = 1\n");
+    }
+
+    assert_eq!(discovered(definitions.path()).len(), MAX_SCREENS);
+
+    definitions.write("overflow.screen.toml", "screen_schema = 1\n");
+
+    let error = discover(definitions.path())
+        .err()
+        .unwrap_or_else(|| unreachable!("an overfull directory must be refused"));
+    assert!(
+        error.reason.contains(&format!("max {MAX_SCREENS}")),
+        "the refusal must name the declared limit, got {:?}",
+        error.reason
+    );
+}
+
+#[test]
+fn a_name_that_vanishes_before_it_is_read_is_reported_rather_than_ignored() {
+    let definitions = Definitions::new("vanished");
+    let absent = definitions.path().join("review.screen.toml");
+
+    assert!(matches!(
+        read_bounded(&absent),
+        Err(ScreenFileRejection::Unreadable { .. })
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_replaced_by_a_link_between_discovery_and_reading_is_refused() {
+    let definitions = Definitions::new("replaced");
+    definitions.write("elsewhere.txt", "screen_schema = 1\n");
+    definitions.write("review.screen.toml", "screen_schema = 1\n");
+
+    let target = definitions.path().join("review.screen.toml");
+    let before = std::fs::symlink_metadata(&target)
+        .unwrap_or_else(|error| unreachable!("fixture must be stated: {error}"));
+    std::fs::remove_file(&target)
+        .unwrap_or_else(|error| unreachable!("fixture must be removable: {error}"));
+    std::os::unix::fs::symlink(definitions.path().join("elsewhere.txt"), &target)
+        .unwrap_or_else(|error| unreachable!("fixture symlink must be created: {error}"));
+    let after = std::fs::metadata(&target)
+        .unwrap_or_else(|error| unreachable!("fixture target must be stated: {error}"));
+
+    // The swapped-in link resolves to different bytes, which is exactly what
+    // the post-open identity check compares, so a read through the replaced
+    // name is refused rather than trusted.
+    assert!(!same_file(&before, &after));
+    assert_eq!(read_bounded(&target), Err(ScreenFileRejection::Replaced));
+}
+
+#[test]
+fn an_unchanged_file_passes_the_identity_check_it_is_read_through() {
+    let definitions = Definitions::new("identity");
+    definitions.write("review.screen.toml", "screen_schema = 1\n");
+    let path = definitions.path().join("review.screen.toml");
+    let before = std::fs::symlink_metadata(&path)
+        .unwrap_or_else(|error| unreachable!("fixture must be stated: {error}"));
+    let after = std::fs::metadata(&path)
+        .unwrap_or_else(|error| unreachable!("fixture must be stated: {error}"));
+
+    assert!(same_file(&before, &after));
+    assert_eq!(read_bounded(&path), Ok("screen_schema = 1\n".to_owned()));
 }

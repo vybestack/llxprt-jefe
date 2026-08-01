@@ -270,3 +270,69 @@ fn text_that_is_not_toml_is_rejected() {
         ScreenSyntaxReason::Malformed { .. }
     ));
 }
+
+// ── Redaction and reference shape (issue #385 review remediation) ──────────
+
+#[test]
+fn a_type_mismatch_report_names_the_types_without_repeating_the_value() {
+    let text = valid_text().replacen("screen_schema = 1", "screen_schema = \"tok-abc123\"", 1);
+
+    let reason = rejected(&text);
+
+    let rendered = reason.to_string();
+    assert!(
+        !rendered.contains("tok-abc123"),
+        "a diagnostic must not repeat what the file said, got {rendered:?}"
+    );
+    assert!(
+        rendered.contains("invalid type"),
+        "a diagnostic must still say what was wrong, got {rendered:?}"
+    );
+}
+
+#[test]
+fn an_unsupported_schema_is_reported_before_any_other_field_is_interpreted() {
+    // The file is also missing a required field; an author running the wrong
+    // version needs to hear about the version, not about a field their schema
+    // spells differently.
+    let text = "screen_schema = 7\n";
+
+    assert_eq!(
+        rejected(text),
+        ScreenSyntaxReason::UnsupportedSchema { found: 7 }
+    );
+}
+
+#[test]
+fn a_panel_or_port_identifier_may_not_contain_the_reference_separator() {
+    let panel = valid_text().replacen("id = \"pr-list\"", "id = \"pr.list\"", 1);
+    let port = valid_text().replacen("id = \"selection\"", "id = \"sel.ection\"", 1);
+
+    assert_eq!(
+        rejected(&panel),
+        ScreenSyntaxReason::SeparatorInComponent { field: "panels.id" }
+    );
+    assert_eq!(
+        rejected(&port),
+        ScreenSyntaxReason::SeparatorInComponent { field: "ports.id" }
+    );
+}
+
+#[test]
+fn a_relationship_endpoint_must_be_spelled_panel_dot_port() {
+    let text = valid_text().replacen("source = \"pr-list.selection\"", "source = \"pr-list\"", 1);
+
+    assert_eq!(rejected(&text), ScreenSyntaxReason::MalformedPortReference);
+}
+
+#[test]
+fn an_enum_field_declaring_an_empty_value_list_is_rejected() {
+    let text = format!(
+        "{HEADER}{PANELS}{LAYOUT}\n[[activation]]\nname = \"mode\"\ntype = \"enum\"\nvalues = []\n"
+    );
+
+    assert_eq!(
+        rejected(&text),
+        ScreenSyntaxReason::EnumValuesMismatch { is_enum: true }
+    );
+}

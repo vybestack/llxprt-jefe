@@ -71,9 +71,9 @@ pub struct ActivationField {
     /// Closed value kind.
     #[serde(rename = "type")]
     pub kind: ActivationKind,
-    /// Permitted values, meaningful only for [`ActivationKind::Enum`].
-    #[serde(default)]
-    pub values: Vec<String>,
+    /// Permitted values. Present exactly for [`ActivationKind::Enum`], so an
+    /// absent list and an explicitly empty one stay distinguishable.
+    pub values: Option<Vec<String>>,
 }
 
 /// The closed set of activation field kinds.
@@ -304,24 +304,39 @@ pub struct BindingRefFile {
 /// where the parser can attribute one.
 pub fn parse_screen_file(text: &str) -> Result<ScreenFile, ScreenSyntaxError> {
     let document: toml::Table = text.parse().map_err(malformed)?;
+    // The declared version is read first, so a file written for a schema this
+    // build does not implement is reported as that rather than as whichever
+    // field the newer schema happens to spell differently.
+    check_schema(&document)?;
     let file: ScreenFile = toml::from_str(text).map_err(malformed)?;
-    if file.screen_schema != SCREEN_SCHEMA {
-        return Err(ScreenSyntaxError::unspanned(
-            ScreenSyntaxReason::UnsupportedSchema {
-                found: file.screen_schema,
-            },
-        ));
-    }
     check_shape(&file)?;
     check_document_bounds(&document)?;
     Ok(file)
 }
 
+/// Check the declared schema version before anything else is interpreted.
+fn check_schema(document: &toml::Table) -> Result<(), ScreenSyntaxError> {
+    let declared = document
+        .get("screen_schema")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u32::try_from(value).ok());
+    // An absent or non-integer `screen_schema` is an ordinary shape error and
+    // is left to the typed parse, which can attribute a span to it.
+    match declared {
+        Some(found) if found != SCREEN_SCHEMA => Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::UnsupportedSchema { found },
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Convert a TOML deserialization failure into a span-bearing syntax error.
 ///
-/// The message is the TOML crate's own, which names the offending key or type
-/// without echoing a value, so a mistyped setting stays reportable without a
-/// document's contents leaking into a diagnostic.
+/// The parser's message names the offending key and the expected type, which is
+/// what an author needs, but for a type mismatch it also quotes the value that
+/// was found. Definition files are not secret-bearing, but a title or a config
+/// string is still the user's text and has no business in a log line, so quoted
+/// content is elided and the span carries the location instead.
 fn malformed(error: toml::de::Error) -> ScreenSyntaxError {
     let span = error.span().map(|range| {
         ByteSpan::new(
@@ -331,10 +346,33 @@ fn malformed(error: toml::de::Error) -> ScreenSyntaxError {
     });
     ScreenSyntaxError {
         reason: ScreenSyntaxReason::Malformed {
-            detail: error.message().to_owned(),
+            detail: elide_quoted(error.message()),
         },
         span,
     }
+}
+
+/// Replace every double-quoted run in `message` with an ellipsis.
+///
+/// Only the parser's own structural text survives: `invalid type: string "…",
+/// expected u32` still says which type was wrong and which was wanted, without
+/// repeating what the file said.
+fn elide_quoted(message: &str) -> String {
+    let mut redacted = String::with_capacity(message.len());
+    let mut inside = false;
+    for character in message.chars() {
+        if character == '"' {
+            if !inside {
+                redacted.push_str("\"\u{2026}\"");
+            }
+            inside = !inside;
+            continue;
+        }
+        if !inside {
+            redacted.push(character);
+        }
+    }
+    redacted
 }
 
 /// Convert a `Spanned` wrapper's byte range into the shared span type.

@@ -16,8 +16,13 @@ use super::ids::{
     MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
     MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
 };
-use super::screen_file::{ActivationKind, ChildFile, LayoutFile, ScreenFile, SizeFile, span_of};
-use super::screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason, check_identifier_length};
+use super::screen_file::{
+    ActivationKind, ChildFile, LayoutFile, RelationshipFile, ScreenFile, SizeFile, span_of,
+};
+use super::screen_file_bounds::{
+    ScreenSyntaxError, ScreenSyntaxReason, check_component, check_identifier_length,
+    check_string_length,
+};
 
 /// Check every structural bound the grammar declares.
 ///
@@ -68,15 +73,56 @@ fn check_collection_counts(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
 fn check_identifier_lengths(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     check_identifier_length("id", file.id.get_ref())?;
     check_identifier_length("route", &file.route)?;
-    check_identifier_length("initial_focus", &file.initial_focus)?;
+    check_component("initial_focus", &file.initial_focus)?;
     for panel in &file.focus_order {
-        check_identifier_length("focus_order entry", panel)?;
+        check_component("focus_order entry", panel)?;
     }
     for binding in &file.bindings {
         check_identifier_length("bindings.context", &binding.get_ref().context)?;
         check_identifier_length("bindings.action", &binding.get_ref().action)?;
     }
-    Ok(())
+    for relationship in &file.relationships {
+        let (source, target) = endpoints(relationship.get_ref());
+        check_port_reference("relationships.source", source)?;
+        check_port_reference("relationships.target", target)?;
+    }
+    check_layout_identifiers(&file.layout)
+}
+
+/// The endpoints of one relationship, whatever its kind.
+fn endpoints(relationship: &RelationshipFile) -> (&str, &str) {
+    match relationship {
+        RelationshipFile::Scope { source, target }
+        | RelationshipFile::MasterDetail { source, target, .. }
+        | RelationshipFile::SessionTarget { source, target, .. } => (source, target),
+    }
+}
+
+/// Check one `<panel>.<port>` reference.
+///
+/// The reference is split on the first separator, which is why a definition's
+/// panel and port identifiers may not contain one — see [`check_component`].
+fn check_port_reference(field: &'static str, reference: &str) -> Result<(), ScreenSyntaxError> {
+    let Some((panel, port)) = reference.split_once('.') else {
+        return Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::MalformedPortReference,
+        ));
+    };
+    check_component(field, panel)?;
+    check_component(field, port)
+}
+
+/// Check every panel a layout tree names.
+fn check_layout_identifiers(node: &LayoutFile) -> Result<(), ScreenSyntaxError> {
+    match node {
+        LayoutFile::Leaf { panel } => check_component("layout.panel", panel),
+        LayoutFile::Split { children, .. } => {
+            for child in children {
+                check_layout_identifiers(&child.node)?;
+            }
+            Ok(())
+        }
+    }
 }
 
 fn check_activation_fields(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
@@ -84,7 +130,25 @@ fn check_activation_fields(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
         let declared = field.get_ref();
         check_identifier_length("activation.name", &declared.name)?;
         let is_enum = declared.kind == ActivationKind::Enum;
-        if is_enum == declared.values.is_empty() {
+        // Presence and emptiness are separate facts: `values = []` on a
+        // non-enum field is a mistaken belief about what the field does, so it
+        // is rejected as loudly as omitting it from an enum field.
+        let permitted = match &declared.values {
+            None => false,
+            Some(values) if values.is_empty() => {
+                return Err(ScreenSyntaxError::at(
+                    ScreenSyntaxReason::EnumValuesMismatch { is_enum },
+                    span_of(field),
+                ));
+            }
+            Some(values) => {
+                for value in values {
+                    check_string_length(value)?;
+                }
+                true
+            }
+        };
+        if is_enum != permitted {
             return Err(ScreenSyntaxError::at(
                 ScreenSyntaxReason::EnumValuesMismatch { is_enum },
                 span_of(field),
@@ -97,7 +161,7 @@ fn check_activation_fields(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
 fn check_panels(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     for panel in &file.panels {
         let declared = panel.get_ref();
-        check_identifier_length("panels.id", &declared.id)?;
+        check_component("panels.id", &declared.id)?;
         check_identifier_length("panels.type", &declared.panel_type)?;
         if declared.ports.len() > MAX_PORTS_PER_PANEL {
             return Err(ScreenSyntaxError::at(
@@ -108,7 +172,7 @@ fn check_panels(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
             ));
         }
         for port in &declared.ports {
-            check_identifier_length("ports.id", &port.get_ref().id)?;
+            check_component("ports.id", &port.get_ref().id)?;
             check_identifier_length("ports.type_id", &port.get_ref().type_id)?;
         }
     }

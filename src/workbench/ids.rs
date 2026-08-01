@@ -125,6 +125,18 @@ impl fmt::Display for IdError {
 
 impl std::error::Error for IdError {}
 
+/// Check any text against the shared identifier grammar.
+///
+/// Callers validate before interning, so text that can never become an
+/// identifier never consumes a slot in the process-lifetime table.
+///
+/// # Errors
+///
+/// Returns the specific [`IdError`] describing the violated rule.
+pub fn check_identifier(value: &str) -> Result<(), IdError> {
+    check_plain_grammar(value)
+}
+
 const fn is_separator(byte: u8) -> bool {
     matches!(byte, b'.' | b'-' | b'_')
 }

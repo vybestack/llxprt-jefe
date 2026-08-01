@@ -191,7 +191,9 @@ screen, named `<member>.screen.toml`, where `member` matches
 `[a-z][a-z0-9-]{0,62}` and is also the screen's identity — `review.screen.toml`
 declares `local.review` and nothing else. Subdirectories, symbolic links, hidden
 files, extension aliases, and non-UTF-8 names are not candidates. Files are read
-in canonical path order and bounded before parsing.
+in canonical path order and bounded before parsing, the directory holds at most
+64 candidates, and a file whose identity changes between being listed and being
+opened is refused rather than read.
 
 A definition takes effect only when settings enable it:
 
@@ -235,9 +237,17 @@ meaning is optional, so `focusable`, `required`, and `collapsible` must be
 written rather than defaulted. There is no secret field kind, and `pty-terminal`
 is not a panel type a definition may name.
 
+Panel and port identifiers may not contain `.`, because a port is named again as
+`<panel>.<port>` and that reference is split on its first separator; an
+identifier containing one would be unreachable or ambiguous with a different
+pair.
+
 `type` and `bindings` resolve against the compiled panel-type registry and the
 compiled action inventory. A definition can request what the program already
 has; it can never introduce a renderer, an action, or an effect.
+
+A definition whose owner settings do not enable is parsed but never lowered, so
+a screen nobody enabled resolves nothing against those registries.
 
 #### Bounds
 
@@ -247,7 +257,7 @@ has; it can never introduce a renderer, an action, or an effect.
 | Data nesting (tables) / layout nesting | 16 / 8 |
 | Map entries / array elements | 256 / 1,024 |
 | String / identifier / path bytes | 262,144 / 128 / 4,096 |
-| Screens in the registry | 64 |
+| Screens in the registry, and candidates in the definitions directory | 64 |
 | Panels per screen | 1–16 |
 | Ports per panel | 32 |
 | Split children | 2–8 |
@@ -268,7 +278,8 @@ or one source panel.
 Propagation runs in declaration order inside one committed transition, never
 moves focus, and is computed in full before it is committed — a transition that
 would exceed the follow-up bound is abandoned with `SCR-E301` and no partial
-state. `immediate` edges move the target at once; `explicit` edges stage the
+state. A follow-up is work an edge does, including staging a selection that
+moves no port; the publication that started the transition is not one. `immediate` edges move the target at once; `explicit` edges stage the
 selection until the declared activation action fires. When a source becomes
 absent, a target that did not declare `retained` clears regardless of policy,
 and a retained target follows its own: `show-none` clears, `show-all` sets the

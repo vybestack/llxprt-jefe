@@ -20,12 +20,14 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 /// Ceiling on distinct interned identifier strings.
 ///
-/// The worst legal definitions directory declares [`MAX_SCREENS`] screens, each
-/// with an identity and a route, [`MAX_PANELS_PER_SCREEN`] panels, and for each
-/// panel an identity, a panel type, and [`MAX_PORTS_PER_PANEL`] ports with a
-/// port identity and a versioned type. That is 64 * (2 + 16 * (2 + 32 * 2)) =
-/// 67,712 strings before deduplication, so this ceiling admits every legal
-/// directory and rejects anything past it.
+/// Only a screen that settings enable is lowered, and discovery admits at most
+/// [`MAX_SCREENS`] candidates, so the worst case is that many screens each with
+/// an identity and a route, [`MAX_PANELS_PER_SCREEN`] panels, and for each panel
+/// an identity and [`MAX_PORTS_PER_PANEL`] ports with a port identity and a
+/// versioned type. That is 64 * (2 + 16 * (2 + 32 * 2)) = 67,712 strings before
+/// deduplication, so this ceiling admits every legal directory and rejects
+/// anything past it. Panel types are not counted because they resolve to
+/// compiled literals rather than interned text.
 ///
 /// [`MAX_SCREENS`]: super::ids::MAX_SCREENS
 /// [`MAX_PANELS_PER_SCREEN`]: super::ids::MAX_PANELS_PER_SCREEN

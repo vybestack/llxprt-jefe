@@ -11,7 +11,7 @@
 //! obtaining a shell is not, so the two are separated at the registry rather
 //! than behind a flag.
 
-use super::ids::{IdError, PanelTypeId};
+use super::ids::{IdError, PanelTypeId, check_identifier};
 use super::screens::PTY_PANEL_TYPE;
 
 /// Every panel type a screen definition may name, in registry order.
@@ -80,14 +80,15 @@ impl std::error::Error for PanelTypeError {}
 
 /// Resolve a declared panel type against the immutable registry.
 ///
-/// `declared` must already be interned, because the resulting identifier lives
-/// for as long as the registry that holds it.
+/// The registry entry is found before anything is interned, so the identifier
+/// that comes back is the compiled `'static` literal and an unknown or
+/// forbidden name never consumes a slot in the interning table.
 ///
 /// # Errors
 ///
 /// Returns why the name was refused: malformed, unknown, or forbidden.
-pub fn resolve_panel_type(declared: &'static str) -> Result<PanelTypeId, PanelTypeError> {
-    let id = PanelTypeId::parse(declared).map_err(|reason| PanelTypeError::Malformed {
+pub fn resolve_panel_type(declared: &str) -> Result<PanelTypeId, PanelTypeError> {
+    check_identifier(declared).map_err(|reason| PanelTypeError::Malformed {
         declared: declared.to_owned(),
         reason,
     })?;
@@ -96,10 +97,14 @@ pub fn resolve_panel_type(declared: &'static str) -> Result<PanelTypeId, PanelTy
             declared: declared.to_owned(),
         });
     }
-    if !DEFINABLE_PANEL_TYPES.contains(&declared) {
-        return Err(PanelTypeError::Unknown {
+    let compiled = DEFINABLE_PANEL_TYPES
+        .iter()
+        .find(|candidate| **candidate == declared)
+        .ok_or_else(|| PanelTypeError::Unknown {
             declared: declared.to_owned(),
-        });
-    }
-    Ok(id)
+        })?;
+    PanelTypeId::parse(compiled).map_err(|reason| PanelTypeError::Malformed {
+        declared: declared.to_owned(),
+        reason,
+    })
 }

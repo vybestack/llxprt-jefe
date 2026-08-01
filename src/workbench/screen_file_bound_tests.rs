@@ -441,3 +441,41 @@ fn data_may_nest_to_the_document_limit_but_not_one_past_it() {
         }
     );
 }
+
+// ── Identifier bounds on referenced names (issue #385 review remediation) ──
+
+#[test]
+fn a_layout_leaf_identifier_is_bounded_like_every_other_identifier() {
+    let over_limit = "a".repeat(ID_BYTE_LIMIT + 1);
+    let text = valid_text().replacen(
+        "node = { type = \"leaf\", panel = \"pr-list\" }",
+        &format!("node = {{ type = \"leaf\", panel = \"{over_limit}\" }}"),
+        1,
+    );
+
+    assert_eq!(
+        rejected(&text),
+        ScreenSyntaxReason::IdentifierTooLong {
+            field: "layout.panel",
+            bytes: ID_BYTE_LIMIT + 1
+        }
+    );
+}
+
+#[test]
+fn a_relationship_endpoint_component_is_bounded_like_every_other_identifier() {
+    let over_limit = "a".repeat(ID_BYTE_LIMIT + 1);
+    let text = valid_text().replacen(
+        "target = \"pr-detail.subject\"",
+        &format!("target = \"pr-detail.{over_limit}\""),
+        1,
+    );
+
+    assert_eq!(
+        rejected(&text),
+        ScreenSyntaxReason::IdentifierTooLong {
+            field: "relationships.target",
+            bytes: ID_BYTE_LIMIT + 1
+        }
+    );
+}

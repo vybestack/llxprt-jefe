@@ -171,19 +171,12 @@ impl AppState {
     /// @requirement REQ-PR-NFR-002
     /// @pseudocode component-001 lines 88-98
     fn invalidate_detail_requests_if_pr_selection_changed(&mut self, previous: Option<usize>) {
-        let subject_at = |index: Option<usize>| {
-            crate::state::screen_relationships::subject(
-                index
-                    .and_then(|index| self.prs_state.pull_requests().get(index))
-                    .map(|pull_request| pull_request.number),
-            )
-        };
-        let moved = crate::state::screen_relationships::detail_follows_selection(
+        if self.prs_state.selected_pr_index() == previous {
+            return;
+        }
+        if !crate::state::screen_relationships::couples_list_to_detail(
             crate::workbench::ScreenId::PullRequests,
-            &subject_at(previous),
-            &subject_at(self.prs_state.selected_pr_index()),
-        );
-        if !moved {
+        ) {
             return;
         }
         self.prs_state.loading.detail = false;

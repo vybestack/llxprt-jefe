@@ -162,6 +162,23 @@ No change to `.github/`, `Cargo.toml`, `clippy.toml`, `xtask/`, `.llxprt/`, or a
 clippy-allow policy, source-file size, architecture policy, complexity, coverage
 ≥30%, `--locked` build, tests) on the candidate head.
 
-## 10. Deferred findings
+## 10. Review findings and triage
 
-_(none yet)_
+### Local review round 1 (Rust reviewer, plus one OCR run)
+
+| # | Finding | Disposition | Action |
+|---|---|---|---|
+| H1 | `symlink_metadata` then `File::open` lets a swapped symlink be read | Blocker—Fix | The opened handle is compared against the enumerated entry (device/inode on Unix, type plus mtime elsewhere) and a mismatch is `Replaced`. An exactly named entry whose metadata cannot be read is now kept as an unreadable candidate instead of silently dropped. |
+| H1b | Opening a name swapped for a FIFO could block | Reject | Requires an actor with write access to the config directory racing startup; such an actor can already rewrite the configuration outright. The identity re-check is what closes the exploitable half. |
+| H2 | Aggregate startup memory unbounded by candidate count | Blocker—Fix | Discovery refuses a directory holding more than `MAX_SCREENS` candidates, before any file is read. |
+| M3 | Diagnostics echoed values via `toml::de::Error::message()` | In-scope—Fix | Quoted runs are elided from the parser message. Identifiers (panel, port, type, schema version) are kept: they are structural names an author needs, drawn from a closed grammar. |
+| M4 | Interner capacity ignored dormant and failed candidates | In-scope—Fix | Dormant candidates are parsed but never lowered, identifiers are grammar-checked before interning, and panel types resolve to compiled literals rather than interned text. |
+| M5 | `serde(default)` widened the grammar | Partly—Fix | `values` became `Option`, so presence and emptiness stay distinguishable and `values = []` is rejected on any field. Defaults on `0..N` collections are Reject: the grammar states those bounds start at zero, and omitting an empty list is how TOML spells that. |
+| M6 | Identifier bound not applied to layout leaves or relationship endpoints | In-scope—Fix | Both are checked during shape validation, before lowering. |
+| M7 | `PortRef` ambiguous because identifiers may contain `.` | In-scope—Fix | A definition's panel and port identifiers may not contain `.`. |
+| M8 | Follow-up bound miscounted and skipped explicit staging | In-scope—Fix | Follow-ups are counted as edge work, excluding the publication that caused the transition and including staging. |
+| M9 | Issue/PR cutover diverged for duplicate subjects and stale indices | In-scope—Fix | The trigger is again row movement, exactly as before; the descriptor decides whether the screen couples list to detail and what the detail input receives. |
+
+### Deferred
+
+_(none)_

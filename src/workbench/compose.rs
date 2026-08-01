@@ -95,22 +95,38 @@ pub fn compose_screens(
 }
 
 /// Compose one candidate, or explain why it contributes nothing.
+///
+/// A dormant candidate is read and parsed but never lowered. That is what
+/// "preserve and omit" means in practice: the file is inspected far enough to
+/// say whether it is well formed, and no further, so a screen nobody enabled
+/// cannot consume identifier capacity or resolve anything against the compiled
+/// registries.
 fn compose_one(
     candidate: &ScreenFileCandidate,
     enabled: &BTreeSet<Id>,
     path: &DiagnosticPath,
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Option<ScreenDescriptor>, CompositionRefused> {
-    let active = is_enabled(&candidate.member, enabled);
-    match lower_candidate(candidate) {
-        Ok(descriptor) if active => Ok(Some(descriptor)),
-        Ok(_) => Ok(None),
-        Err(failure) if active => Err(failure.refuse(path)),
-        Err(failure) => {
+    if !is_enabled(&candidate.member, enabled) {
+        if let Err(failure) = inspect_candidate(candidate) {
             warnings.push(failure.warning(path));
-            Ok(None)
         }
+        return Ok(None);
     }
+    lower_candidate(candidate)
+        .map(Some)
+        .map_err(|failure| failure.refuse(path))
+}
+
+/// Read and parse a candidate without lowering it.
+fn inspect_candidate(candidate: &ScreenFileCandidate) -> Result<(), CandidateFailure> {
+    let text = candidate
+        .text
+        .as_ref()
+        .map_err(|rejection| CandidateFailure::Unreadable(rejection.clone()))?;
+    parse_screen_file(text)
+        .map(|_| ())
+        .map_err(CandidateFailure::Syntax)
 }
 
 /// Whether settings enable the owner this file declares.

@@ -370,9 +370,7 @@ fn over_wide_screen(count: usize) -> ScreenDescriptor {
 
 #[test]
 fn a_transition_at_the_follow_up_bound_commits() {
-    // The source's own change counts, so the widest committing transition
-    // drives one fewer target than the bound.
-    let descriptor = over_wide_screen(FOLLOW_UP_LIMIT - 1);
+    let descriptor = over_wide_screen(FOLLOW_UP_LIMIT);
 
     let transition = propagate(
         &descriptor,
@@ -384,14 +382,60 @@ fn a_transition_at_the_follow_up_bound_commits() {
     );
 
     assert_eq!(
-        transition.map(|committed| committed.updates.len()),
-        Ok(FOLLOW_UP_LIMIT)
+        transition.map(|committed| committed.follow_ups),
+        Ok(FOLLOW_UP_LIMIT),
+        "the source's own publication is what caused the transition, not a follow-up"
     );
 }
 
 #[test]
+fn staging_an_explicit_selection_counts_against_the_follow_up_bound() {
+    // Staging changes no port, so counting reported updates would let an
+    // explicit graph mutate more than the bound allows without noticing.
+    let mut descriptor = over_wide_screen(FOLLOW_UP_LIMIT + 1);
+    for relationship in &mut descriptor.relationships {
+        relationship.kind = RelationshipKind::MasterDetail {
+            activation: ActivationMode::Explicit,
+            empty: EmptyPolicy::Retain,
+        };
+    }
+
+    let transition = propagate(
+        &descriptor,
+        &RelationshipState::new(),
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("42"),
+        },
+    );
+
+    assert_eq!(
+        transition.err(),
+        Some(PropagationAbort::FollowUpLimit {
+            attempted: FOLLOW_UP_LIMIT + 1
+        })
+    );
+}
+
+#[test]
+fn a_transition_that_moves_nothing_performs_no_follow_ups() {
+    let descriptor = list_detail(IMMEDIATE, false);
+
+    let transition = propagate(
+        &descriptor,
+        &RelationshipState::new(),
+        &SourceIntent::Activate {
+            target: port_ref("detail", "subject"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("activation must commit: {error}"));
+
+    assert_eq!(transition.follow_ups, 0);
+}
+
+#[test]
 fn a_transition_one_past_the_follow_up_bound_aborts_without_partial_state() {
-    let descriptor = over_wide_screen(FOLLOW_UP_LIMIT);
+    let descriptor = over_wide_screen(FOLLOW_UP_LIMIT + 1);
     let before = RelationshipState::new();
 
     let transition = propagate(

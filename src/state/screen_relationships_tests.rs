@@ -6,7 +6,7 @@ use crate::workbench::{
     master_detail_edge, screen_descriptor,
 };
 
-use super::{detail_follows_selection, subject};
+use super::{couples_list_to_detail, detail_target_for, subject};
 
 /// The declared coupling of one workspace screen, as text.
 fn declared_edge(screen: ScreenId) -> Option<(String, String)> {
@@ -89,47 +89,41 @@ fn the_bundled_ports_face_the_right_way_and_share_one_versioned_type() {
     }
 }
 
-// ── Parity with the rule the reducer used to hold ──────────────────────────
+// ── What the declaration tells the reducer ─────────────────────────────────
 
 #[test]
-fn the_detail_moves_exactly_when_the_selected_subject_changes() {
+fn a_coupled_screen_hands_its_detail_the_selected_subject() {
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
-        assert!(
-            detail_follows_selection(screen, &subject(Some(41)), &subject(Some(42))),
-            "{screen} must invalidate when the selection moves"
-        );
-        assert!(
-            !detail_follows_selection(screen, &subject(Some(42)), &subject(Some(42))),
-            "{screen} must not invalidate when the selection stays put"
+        assert_eq!(
+            detail_target_for(screen, &subject(Some(42))),
+            Some(PortValue::Subject("42".to_owned())),
+            "{screen} must hand its detail whatever the list selected"
         );
     }
 }
 
 #[test]
-fn the_detail_clears_when_the_selection_empties_and_fills_when_it_appears() {
+fn a_coupled_screen_clears_its_detail_when_nothing_is_selected() {
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
-        assert!(
-            detail_follows_selection(screen, &subject(Some(42)), &subject(None)),
-            "{screen} must clear its detail when nothing is selected"
-        );
-        assert!(
-            detail_follows_selection(screen, &subject(None), &subject(Some(42))),
-            "{screen} must populate its detail when a selection appears"
-        );
-        assert!(
-            !detail_follows_selection(screen, &subject(None), &subject(None)),
-            "{screen} must not invalidate while nothing is selected"
+        assert_eq!(
+            detail_target_for(screen, &subject(None)),
+            Some(PortValue::Absent),
+            "{screen} shows nothing when its list selects nothing"
         );
     }
 }
 
 #[test]
-fn a_screen_with_no_declared_coupling_never_reports_a_detail_move() {
-    assert!(!detail_follows_selection(
-        ScreenId::Actions,
-        &subject(Some(41)),
-        &subject(Some(42))
-    ));
+fn only_the_screens_that_declare_a_coupling_report_one() {
+    assert!(couples_list_to_detail(ScreenId::Issues));
+    assert!(couples_list_to_detail(ScreenId::PullRequests));
+    assert!(!couples_list_to_detail(ScreenId::Actions));
+    assert!(!couples_list_to_detail(ScreenId::Errors));
+    assert!(!couples_list_to_detail(ScreenId::Dashboard));
+    assert_eq!(
+        detail_target_for(ScreenId::Actions, &subject(Some(42))),
+        None
+    );
 }
 
 #[test]

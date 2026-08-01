@@ -417,3 +417,43 @@ fn composition_ignores_an_enabled_set_naming_something_that_is_not_a_screen() {
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
 }
+
+// ── Dormant candidates are inspected, not lowered (review remediation) ─────
+
+#[test]
+fn a_dormant_definition_is_parsed_but_never_lowered() {
+    // The panel type does not exist, which only lowering would notice. A
+    // dormant file must not be lowered, so this parses and produces no
+    // warning even though it could never be enabled as written.
+    let unlowerable = REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"invented\"");
+
+    let composition = composed(&[candidate("review", &unlowerable)], &[]);
+
+    assert!(
+        composition.warnings.is_empty(),
+        "a dormant definition is inspected for well-formedness and no further"
+    );
+    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+}
+
+#[test]
+fn the_same_definition_enabled_is_lowered_and_refused() {
+    let unlowerable = REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"invented\"");
+
+    let refusal = refused(&unlowerable);
+
+    assert_eq!(refusal.configuration.code, CfgCode::E005);
+}
+
+#[test]
+fn a_refusal_names_the_rule_without_repeating_the_files_prose() {
+    let text = REVIEW_DEFINITION.replace("title = \"Review\"", "title = 7");
+
+    let refusal = refused(&text);
+
+    assert!(
+        !refusal.screen.redacted_detail.contains("Review"),
+        "a refusal must not repeat the file's prose, got {:?}",
+        refusal.screen.redacted_detail
+    );
+}

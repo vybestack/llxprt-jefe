@@ -117,6 +117,13 @@ pub struct RelationshipTransition {
     pub state: RelationshipState,
     /// Every change, in relationship declaration order, with the source first.
     pub updates: Vec<PortUpdate>,
+    /// How many relationship follow-ups the transition performed.
+    ///
+    /// This counts work the edges did, not changes the caller can see: an
+    /// explicit edge that stages a selection is a follow-up even though it
+    /// moves no port, and the source's own publication is not one because it is
+    /// what caused the transition rather than something it caused.
+    pub follow_ups: usize,
 }
 
 /// The transition was abandoned before anything was committed.
@@ -157,47 +164,50 @@ pub fn propagate(
     state: &RelationshipState,
     intent: &SourceIntent,
 ) -> Result<RelationshipTransition, PropagationAbort> {
-    let mut next = state.clone();
-    let mut updates = Vec::new();
+    let mut draft = Draft {
+        state: state.clone(),
+        updates: Vec::new(),
+        follow_ups: 0,
+    };
     match intent {
-        SourceIntent::Publish { port, value } => {
-            publish(descriptor, &mut next, &mut updates, port, value);
-        }
-        SourceIntent::Activate { target } => activate(&mut next, &mut updates, target),
+        SourceIntent::Publish { port, value } => publish(descriptor, &mut draft, port, value),
+        SourceIntent::Activate { target } => activate(&mut draft, target),
     }
-    if updates.len() > FOLLOW_UP_LIMIT {
+    if draft.follow_ups > FOLLOW_UP_LIMIT {
         return Err(PropagationAbort::FollowUpLimit {
-            attempted: updates.len(),
+            attempted: draft.follow_ups,
         });
     }
     Ok(RelationshipTransition {
-        state: next,
-        updates,
+        state: draft.state,
+        updates: draft.updates,
+        follow_ups: draft.follow_ups,
     })
 }
 
+/// A transition under construction, discarded whole if it breaks its bound.
+struct Draft {
+    state: RelationshipState,
+    updates: Vec<PortUpdate>,
+    follow_ups: usize,
+}
+
 /// Apply a source publication and every edge that leaves it.
-fn publish(
-    descriptor: &ScreenDescriptor,
-    next: &mut RelationshipState,
-    updates: &mut Vec<PortUpdate>,
-    port: &PortRef,
-    value: &PortValue,
-) {
-    set(next, updates, port, value.clone());
+fn publish(descriptor: &ScreenDescriptor, draft: &mut Draft, port: &PortRef, value: &PortValue) {
+    set(draft, port, value.clone());
     for relationship in &descriptor.relationships {
         if &relationship.source != port {
             continue;
         }
-        drive(descriptor, next, updates, relationship, value);
+        draft.follow_ups += 1;
+        drive(descriptor, draft, relationship, value);
     }
 }
 
 /// Apply one edge for one published source value.
 fn drive(
     descriptor: &ScreenDescriptor,
-    next: &mut RelationshipState,
-    updates: &mut Vec<PortUpdate>,
+    draft: &mut Draft,
     relationship: &Relationship,
     value: &PortValue,
 ) {
@@ -205,17 +215,17 @@ fn drive(
     if value.is_absent() {
         // A vanished source is not a pending selection, so discard any staged
         // one before the empty policy decides what the target shows.
-        next.staged.remove(&target);
+        draft.state.staged.remove(&target);
         if let Some(resolved) = absent_value(descriptor, relationship) {
-            set(next, updates, &target, resolved);
+            set(draft, &target, resolved);
         }
         return;
     }
     if is_explicit(relationship.kind) {
-        next.staged.insert(target, value.clone());
+        draft.state.staged.insert(target, value.clone());
         return;
     }
-    set(next, updates, &target, value.clone());
+    set(draft, &target, value.clone());
 }
 
 /// What a target holds once its source is absent, or `None` to leave it alone.
@@ -241,25 +251,21 @@ fn absent_value(descriptor: &ScreenDescriptor, relationship: &Relationship) -> O
 }
 
 /// Apply the selection an explicit edge staged for this target.
-fn activate(next: &mut RelationshipState, updates: &mut Vec<PortUpdate>, target: &PortRef) {
-    let Some(value) = next.staged.remove(target) else {
+fn activate(draft: &mut Draft, target: &PortRef) {
+    let Some(value) = draft.state.staged.remove(target) else {
         return;
     };
-    set(next, updates, target, value);
+    draft.follow_ups += 1;
+    set(draft, target, value);
 }
 
 /// Record one change, unless the port already holds that value.
-fn set(
-    next: &mut RelationshipState,
-    updates: &mut Vec<PortUpdate>,
-    port: &PortRef,
-    value: PortValue,
-) {
-    if next.value(port) == value {
+fn set(draft: &mut Draft, port: &PortRef, value: PortValue) {
+    if draft.state.value(port) == value {
         return;
     }
-    next.values.insert(*port, value.clone());
-    updates.push(PortUpdate { port: *port, value });
+    draft.state.values.insert(*port, value.clone());
+    draft.updates.push(PortUpdate { port: *port, value });
 }
 
 /// Whether this kind waits for an activation action.
