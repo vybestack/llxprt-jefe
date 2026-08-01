@@ -14,6 +14,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Stable physical fingerprint of one resolved executable.
 ///
@@ -118,11 +119,57 @@ impl CandidateFingerprint {
     }
 }
 
+/// Failure to capture authoritative physical executable evidence.
+#[derive(Debug, Error)]
+pub(crate) enum FingerprintCaptureError {
+    /// The supplied executable path could not be canonicalized.
+    #[error("canonicalize executable {}: {source}", path.display())]
+    Canonicalize {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// Metadata for the canonical executable could not be read.
+    #[error("read executable metadata {}: {source}", path.display())]
+    Metadata {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The executable modification time could not be read.
+    #[error("read executable modification time {}: {source}", path.display())]
+    Modified {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// Windows physical-file identity capture failed.
+    #[cfg(windows)]
+    #[error("capture Windows file identity for {}: {detail}", path.display())]
+    WindowsFileKey { path: PathBuf, detail: String },
+}
+
 /// Capture one executable fingerprint using the platform's physical file key.
-pub(crate) fn capture_candidate_fingerprint(path: &Path) -> Result<CandidateFingerprint, String> {
-    let canonical = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
-    let metadata = std::fs::metadata(&canonical).map_err(|error| error.to_string())?;
-    let (mtime_secs, mtime_nanos) = metadata.modified().map(timestamp_parts).unwrap_or_default();
+pub(crate) fn capture_candidate_fingerprint(
+    path: &Path,
+) -> Result<CandidateFingerprint, FingerprintCaptureError> {
+    let canonical =
+        std::fs::canonicalize(path).map_err(|source| FingerprintCaptureError::Canonicalize {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    let metadata =
+        std::fs::metadata(&canonical).map_err(|source| FingerprintCaptureError::Metadata {
+            path: canonical.clone(),
+            source,
+        })?;
+    let modified = metadata
+        .modified()
+        .map_err(|source| FingerprintCaptureError::Modified {
+            path: canonical.clone(),
+            source,
+        })?;
+    let (mtime_secs, mtime_nanos) = timestamp_parts(modified);
     #[cfg(unix)]
     let (dev, ino) = capture_file_key(&metadata, &canonical);
     #[cfg(windows)]
@@ -167,14 +214,17 @@ fn capture_file_key(metadata: &std::fs::Metadata, _path: &Path) -> (Option<u64>,
 fn capture_file_key(
     _metadata: &std::fs::Metadata,
     path: &Path,
-) -> Result<(Option<u64>, Option<u64>), String> {
+) -> Result<(Option<u64>, Option<u64>), FingerprintCaptureError> {
     use winsafe::{HFILE, co};
 
-    let path = path
+    let path_text = path
         .to_str()
-        .ok_or_else(|| "canonical executable path is not Unicode".to_owned())?;
+        .ok_or_else(|| FingerprintCaptureError::WindowsFileKey {
+            path: path.to_path_buf(),
+            detail: "canonical executable path is not Unicode".to_owned(),
+        })?;
     let (handle, _) = HFILE::CreateFile(
-        path,
+        path_text,
         co::GENERIC::READ,
         Some(co::FILE_SHARE::READ | co::FILE_SHARE::WRITE | co::FILE_SHARE::DELETE),
         None,
@@ -184,10 +234,16 @@ fn capture_file_key(
         None,
         None,
     )
-    .map_err(|error| error.to_string())?;
-    let information = handle
-        .GetFileInformationByHandle()
-        .map_err(|error| error.to_string())?;
+    .map_err(|error| FingerprintCaptureError::WindowsFileKey {
+        path: path.to_path_buf(),
+        detail: error.to_string(),
+    })?;
+    let information = handle.GetFileInformationByHandle().map_err(|error| {
+        FingerprintCaptureError::WindowsFileKey {
+            path: path.to_path_buf(),
+            detail: error.to_string(),
+        }
+    })?;
     Ok((
         Some(u64::from(information.dwVolumeSerialNumber)),
         Some(information.nFileIndex()),

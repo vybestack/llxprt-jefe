@@ -1,6 +1,6 @@
 //! Unit tests for [`CandidateFingerprint`].
 
-use super::CandidateFingerprint;
+use super::{CandidateFingerprint, FingerprintCaptureError, capture_candidate_fingerprint};
 
 #[test]
 fn new_captures_all_fields() {
@@ -90,4 +90,21 @@ fn display_includes_subsecond_modification_time() {
     );
 
     assert!(fp.to_string().contains("mtime=4.123456789"));
+}
+
+#[test]
+fn missing_executable_reports_typed_canonicalize_error() {
+    let missing =
+        std::env::temp_dir().join(format!("jefe-missing-fingerprint-{}", std::process::id()));
+
+    let error = capture_candidate_fingerprint(&missing)
+        .err()
+        .unwrap_or_else(|| panic!("missing executable must fail fingerprint capture"));
+    match error {
+        FingerprintCaptureError::Canonicalize { path, source } => {
+            assert_eq!(path, missing);
+            assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+        }
+        other => panic!("expected canonicalize error, got {other}"),
+    }
 }

@@ -497,7 +497,7 @@ fn prepare_managed_npm_with_lock_policy(
         });
     };
     let fingerprint = capture_candidate_fingerprint(&executable)
-        .map_err(PackageRuntimeError::InstallDirectory)?;
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
     Ok(PackageInvocation {
         executable,
         wrapper_kind,

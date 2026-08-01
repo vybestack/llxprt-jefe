@@ -77,14 +77,14 @@ or unrelated refactor is authorized.
 ## Review and verification ledger
 
 - Local OCR: `1 / 2` — reviewed 21 supported changed files; seven findings triaged. Fixed signed/subsecond timestamp capture, fingerprint diagnostics, typed refresh gating and tests, discarded duplicate probe, recapture logging, and implicit fixture target mutation. Four files timed out in OCR subtasks and remain covered by the full reviewer cycle and local gates.
-- PR OCR: `0 / 2`
+- PR OCR: `1 / 2` — six findings triaged. Fixed typed fingerprint capture errors and modification-time failure propagation. Rejected the diagnostic-format compatibility claim because `CandidateFingerprint::Display` is an internal diagnostic with no parser contract; rejected both cached-availability findings because A2/A4/A5 require the immediate authoritative launch probe to discover current installed, incompatible, failed, or removed state; rejected the private test-fixture interpolation warning because every value is a hardcoded trusted version literal.
 - rustreviewer / DeepThinker: one clean full-review cycle requested over all changed and untracked files; review remediation used the complete available findings plus OCR.
 - RED evidence: the issue TUI fixture failed before implementation because the upgraded agent became `Dead` instead of `Running`; the stable replacement and race-boundary runtime tests also established the intended behavior.
 - Fast verification: `cargo xtask quick` passes after review remediation.
 - TUI verification: `direct_upgrade_fixture_launches_replacement_without_stale_error` passes, including an empty Errors screen and unchanged persisted selector/version data.
 - Windows structural verification: `cargo check --target x86_64-pc-windows-msvc --all-features` passes.
-- Exact-head verification: `cargo xtask ci` passes after remediation; line coverage is 71.26% (30% floor).
-- Native Windows CI: pending PR checks.
+- Exact-head verification: `cargo xtask ci` passes after PR review remediation; line coverage remains above the 30% floor.
+- Native Windows CI: passed on PR #582, including MSVC + psmux, Windows Clippy, and Windows coverage floors.
 - Deferred findings: none
 
 ## Completion contract

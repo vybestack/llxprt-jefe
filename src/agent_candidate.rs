@@ -528,7 +528,10 @@ impl<'a> AgentCandidateResolver<'a> {
                 fingerprint,
                 launch,
             }),
-            Err(detail) => ResolveOne::skip(CandidateSkip::FingerprintCapture { index, detail }),
+            Err(error) => ResolveOne::skip(CandidateSkip::FingerprintCapture {
+                index,
+                detail: error.to_string(),
+            }),
         }
     }
 }
