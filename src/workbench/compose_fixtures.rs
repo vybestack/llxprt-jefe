@@ -8,63 +8,11 @@ use crate::domain::Id;
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
 
 /// A complete, valid `local.review` definition.
-pub const REVIEW_DEFINITION: &str = r#"screen_schema = 1
-id = "local.review"
-title = "Review"
-route = "review"
-initial_focus = "pr-list"
-focus_order = ["pr-list", "pr-detail"]
-
-[[panels]]
-id = "pr-list"
-type = "pr-list"
-focusable = true
-required = true
-
-[[panels.ports]]
-id = "selection"
-direction = "output"
-type_id = "github.pull-request@1"
-required = false
-retained = false
-
-[[panels]]
-id = "pr-detail"
-type = "pr-detail"
-focusable = true
-required = false
-
-[[panels.ports]]
-id = "subject"
-direction = "input"
-type_id = "github.pull-request@1"
-required = false
-retained = true
-
-[layout]
-type = "split"
-axis = "horizontal"
-
-[[layout.children]]
-min = 20
-collapsible = false
-size = { weight = 1 }
-node = { type = "leaf", panel = "pr-list" }
-
-[[layout.children]]
-min = 20
-collapsible = true
-collapse_priority = 0
-size = { weight = 1 }
-node = { type = "leaf", panel = "pr-detail" }
-
-[[relationships]]
-kind = "master-detail"
-source = "pr-list.selection"
-target = "pr-detail.subject"
-activation = "immediate"
-empty = "retain"
-"#;
+///
+/// It lives beside this file as real TOML rather than as a string literal, so
+/// the same bytes can be embedded here and written to disk by the startup
+/// tests, and so an author can read it as the worked example it is.
+pub const REVIEW_DEFINITION: &str = include_str!("testdata/local-review.screen.toml");
 
 /// A candidate holding the given text under `<root>/<member>.screen.toml`.
 pub fn candidate(member: &str, text: &str) -> ScreenFileCandidate {

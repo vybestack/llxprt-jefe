@@ -332,6 +332,37 @@ fn startup_malformed_state_fixture_blocks_before_tui_without_writing() {
     cleanup(&outcome);
 }
 
+/// Issue #385 CW05-02: a valid definition whose owner settings enable is
+/// discovered, lowered, and composed into the published registry, and the
+/// program starts normally with no diagnostic.
+#[test]
+fn custom_screen_enable_fixture_starts_with_the_definition_composed() {
+    let outcome = run_fixture("custom-screen-enable.json");
+    assert_passed("custom-screen-enable", &outcome);
+    cleanup(&outcome);
+}
+
+/// Issue #385 CW05-03: an invalid definition whose owner is not enabled is
+/// reported as a warning, omitted from the registry, and left byte-for-byte
+/// unchanged while the program starts.
+#[test]
+fn custom_screen_inactive_invalid_fixture_warns_and_preserves_the_file() {
+    let outcome = run_fixture("custom-screen-inactive-invalid.json");
+    assert_passed("custom-screen-inactive-invalid", &outcome);
+    cleanup(&outcome);
+}
+
+/// Issue #385 CW05-04: an invalid definition whose owner is enabled refuses the
+/// candidate registry before any screen renders, names the file, and writes
+/// nothing.
+#[test]
+fn custom_screen_active_invalid_fixture_blocks_before_tui_without_writing() {
+    let outcome = run_fixture("custom-screen-active-invalid.json");
+    assert_passed("custom-screen-active-invalid", &outcome);
+    assert_exit_code("custom-screen-active-invalid", &outcome, 2);
+    cleanup(&outcome);
+}
+
 /// Issue #381 CW01-10: a reducer-staged `RuntimeEffect::KillSession` runs
 /// only after the transition commits and state guards are released; its typed
 /// failure completion is delivered back through the reducer and surfaces on
