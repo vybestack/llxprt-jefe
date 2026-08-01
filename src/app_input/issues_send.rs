@@ -56,7 +56,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     let prompt = issues_dispatch::format_issue_prompt(&send_info.payload);
     let launch_sig = prepare_issue_launch_signature(send_info.signature, &prompt);
 
-    if !super::availability::launch_refresh_available_or_error(app_state, &launch_sig)
+    if !super::availability::launch_available_or_error(app_state, &launch_sig)
         || !super::availability::validate_launch_or_error(app_state, &launch_sig)
     {
         return;
@@ -254,7 +254,7 @@ fn prepare_confirm_send_target(
 
     // Re-check availability BEFORE prep side effects: the runtime may have
     // been removed while the confirm modal was open.
-    if !super::availability::launch_refresh_available_or_error(app_state, launch_sig)
+    if !super::availability::launch_available_or_error(app_state, launch_sig)
         || !super::availability::validate_launch_or_error(app_state, launch_sig)
     {
         return None;
