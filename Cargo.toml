@@ -127,7 +127,11 @@ path = "src/bin/jefe-jsp-compliance.rs"
 iocraft = { path = "vendor/iocraft" }
 
 [lints.rust]
+# Issue #564: deny all rustc warnings on every cargo invocation (build, check,
+# test, clippy) — not only the clippy CI jobs that pass -D warnings. Scoped to
+# the rust namespace, so [lints.clippy] allow entries are unaffected.
 unsafe_code = "forbid"
+warnings = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
