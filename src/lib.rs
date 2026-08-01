@@ -63,6 +63,10 @@ mod pr_diff_content_tests;
 pub mod recovery;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
+pub mod screen_layout;
+#[cfg(test)]
+#[path = "screen_layout_tests.rs"]
+mod screen_layout_tests;
 pub mod selection;
 pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.

@@ -420,6 +420,14 @@ pub struct AppState {
     /// Runtime-only; composed settings remain the persistence authority.
     pub action_registry_snapshot: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
 
+    /// One root-owned immutable geometry snapshot for the active screen.
+    ///
+    /// Resolved once per size or state change and read by every geometry
+    /// consumer — renderer, mouse routing, selection, wrapping, scrolling, and
+    /// PTY resize — so no two can disagree about where a panel is. Runtime-only
+    /// and never persisted: geometry is derived, not remembered.
+    pub resolved_layout: Option<crate::workbench::ResolvedLayout>,
+
     // Errors/warnings
     pub error_message: Option<String>,
     pub warning_message: Option<String>,

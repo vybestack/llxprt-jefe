@@ -199,7 +199,72 @@ fn forward_maps_selection_indices_to_ids() {
         selection.agent_id.as_ref().map(Id::as_str),
         Some("agent-a2")
     );
-    assert_eq!(selection.screen_id, None);
+    assert_eq!(
+        selection.screen_id.as_ref().map(Id::as_str),
+        Some("core.dashboard")
+    );
+}
+
+#[test]
+fn forward_writes_the_active_screen_as_its_stable_identity() {
+    let mut state = sample_state();
+    state.screen = crate::workbench::ScreenId::PullRequests;
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+    assert_eq!(
+        projected.selection.screen_id.as_ref().map(Id::as_str),
+        Some("github.pull-requests"),
+        "the document must carry the stable identity, not an ordinal"
+    );
+}
+
+#[test]
+fn the_active_screen_round_trips_through_the_durable_document() {
+    for screen in crate::workbench::ScreenId::ALL {
+        let mut state = sample_state();
+        state.screen = screen;
+        let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+        let restored = crate::state::durable_restore::from_durable_state(&projected)
+            .value_or_panic("restore succeeds");
+        assert_eq!(restored.screen, screen, "screen {screen} must round-trip");
+    }
+}
+
+#[test]
+fn a_legacy_variant_name_cannot_reach_the_durable_screen_slot() {
+    // The durable slot is an `Id`, which must start lowercase. The legacy
+    // screen vocabulary was CamelCase, so no document can carry one there —
+    // which is why the restore path treats an unrecognised value as a fallback
+    // rather than as a second supported encoding. The legacy mapping itself is
+    // exercised directly in the migration tests.
+    for (legacy, _) in crate::workbench::LEGACY_SCREEN_VALUES {
+        assert!(
+            Id::parse(legacy).is_err(),
+            "{legacy} unexpectedly parses as a durable id"
+        );
+    }
+}
+
+#[test]
+fn an_unreadable_persisted_screen_value_costs_only_the_screen() {
+    let mut projected = to_durable_state(&sample_state()).value_or_panic("projection succeeds");
+    projected.selection.screen_id = Id::parse("core.nonesuch").ok();
+    let restored = crate::state::durable_restore::from_durable_state(&projected)
+        .value_or_panic("restore succeeds");
+    assert_eq!(restored.screen, crate::workbench::ScreenId::default());
+    assert_eq!(
+        restored.repositories.len(),
+        2,
+        "the rest of the session must still restore"
+    );
+}
+
+#[test]
+fn a_document_without_a_screen_value_opens_on_the_initial_screen() {
+    let mut projected = to_durable_state(&sample_state()).value_or_panic("projection succeeds");
+    projected.selection.screen_id = None;
+    let restored = crate::state::durable_restore::from_durable_state(&projected)
+        .value_or_panic("restore succeeds");
+    assert_eq!(restored.screen, crate::workbench::ScreenId::Dashboard);
 }
 
 #[test]

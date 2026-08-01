@@ -1,6 +1,6 @@
 //! One-way legacy screen-value migration matrix (issue #384, CW04-09).
 
-use super::migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_legacy_screen_value};
+use super::migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
 use super::screens::{ScreenRegistry, builtin_screens};
 
 fn registry() -> ScreenRegistry {
@@ -18,7 +18,7 @@ fn every_legacy_value_maps_to_its_specified_stable_identity() {
         ("DashboardActions", "github.actions"),
     ];
     for (legacy, stable) in expected {
-        let outcome = migrate_legacy_screen_value(Some(legacy), &registry);
+        let outcome = migrate_persisted_screen_value(Some(legacy), &registry);
         assert!(
             matches!(&outcome, Some(MigrationOutcome::Mapped(id)) if id.as_str() == stable),
             "{legacy} must map to {stable}, got {outcome:?}"
@@ -58,7 +58,7 @@ fn the_migration_table_covers_every_registered_screen_exactly_once() {
 #[test]
 fn an_unrecognised_legacy_value_falls_back_to_the_initial_screen() {
     let registry = registry();
-    let outcome = migrate_legacy_screen_value(Some("DashboardMystery"), &registry);
+    let outcome = migrate_persisted_screen_value(Some("DashboardMystery"), &registry);
     assert!(
         matches!(
             &outcome,
@@ -71,7 +71,7 @@ fn an_unrecognised_legacy_value_falls_back_to_the_initial_screen() {
 #[test]
 fn a_missing_legacy_value_falls_back_to_the_initial_screen() {
     let registry = registry();
-    let outcome = migrate_legacy_screen_value(None, &registry);
+    let outcome = migrate_persisted_screen_value(None, &registry);
     assert!(
         matches!(
             &outcome,
@@ -86,7 +86,7 @@ fn migration_never_depends_on_the_position_of_a_legacy_value() {
     // Selecting by ordinal rather than by name would map the third entry to the
     // third screen; this asserts the mapping is by name.
     let registry = registry();
-    let outcome = migrate_legacy_screen_value(Some("Split"), &registry);
+    let outcome = migrate_persisted_screen_value(Some("Split"), &registry);
     assert!(
         matches!(&outcome, Some(MigrationOutcome::Mapped(id)) if id.as_str() == "core.repositories"),
         "Split must map by name to core.repositories, got {outcome:?}"
@@ -97,7 +97,7 @@ fn migration_never_depends_on_the_position_of_a_legacy_value() {
 fn the_migrated_identity_is_always_present_in_the_registry() {
     let registry = registry();
     for (legacy, _) in LEGACY_SCREEN_VALUES {
-        let Some(outcome) = migrate_legacy_screen_value(Some(legacy), &registry) else {
+        let Some(outcome) = migrate_persisted_screen_value(Some(legacy), &registry) else {
             unreachable!("the shipped registry is never empty");
         };
         assert!(

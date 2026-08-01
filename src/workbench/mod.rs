@@ -48,6 +48,41 @@ mod allocate_tests;
 #[path = "resolve_tests.rs"]
 mod resolve_tests;
 
+use std::sync::OnceLock;
+
+static SHIPPED_REGISTRY: OnceLock<ScreenRegistry> = OnceLock::new();
+
+/// The validated shipped screen registry.
+///
+/// Built and validated once. Startup calls this before any screen is rendered,
+/// so a malformed compiled descriptor stops the program with a diagnostic
+/// rather than reaching a renderer that would have to cope with a half-formed
+/// screen.
+///
+/// # Errors
+///
+/// Returns the first structural violation in the compiled table. That is a
+/// programming error in [`screens`], and the descriptor tests fail on it too.
+pub fn screen_registry() -> Result<&'static ScreenRegistry, RegistryError> {
+    if let Some(registry) = SHIPPED_REGISTRY.get() {
+        return Ok(registry);
+    }
+    let built = builtin_screens()?;
+    Ok(SHIPPED_REGISTRY.get_or_init(|| built))
+}
+
+/// The descriptor for one screen.
+///
+/// # Errors
+///
+/// Returns the registry error if the compiled table is malformed.
+pub fn screen_descriptor(id: ScreenId) -> Result<&'static ScreenDescriptor, RegistryError> {
+    let registry = screen_registry()?;
+    registry
+        .get(id)
+        .ok_or(RegistryError::MissingScreen { screen: id })
+}
+
 pub use allocate::LayoutError;
 pub use config::panel_insets;
 pub use descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
@@ -57,10 +92,12 @@ pub use ids::{
     MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, ScreenId,
     ScreenInstanceId,
 };
-pub use migration::{LEGACY_SCREEN_VALUES, migrate_legacy_screen_value};
+pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
 pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
 };
-pub use screens::{PTY_PANEL_TYPE, REPOSITORIES_PANEL, ScreenRegistry, builtin_screens};
+pub use screens::{
+    PTY_PANEL_TYPE, REPOSITORIES_PANEL, RegistryError, ScreenRegistry, builtin_screens,
+};
 pub use validate::{DescriptorError, validate_descriptor};

@@ -117,6 +117,11 @@ pub enum RegistryError {
         /// Declared screen count.
         count: usize,
     },
+    /// A screen has no compiled descriptor.
+    MissingScreen {
+        /// The screen with no descriptor.
+        screen: ScreenId,
+    },
 }
 
 impl From<IdError> for RegistryError {
@@ -141,6 +146,9 @@ impl std::fmt::Display for RegistryError {
             }
             Self::TooManyScreens { count } => {
                 write!(formatter, "{count} screens declared (max {MAX_SCREENS})")
+            }
+            Self::MissingScreen { screen } => {
+                write!(formatter, "screen {screen} has no compiled descriptor")
             }
         }
     }

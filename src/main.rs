@@ -273,6 +273,8 @@ fn main() {
         run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
+    validate_screen_registry_or_exit();
+
     let startup = build_startup_or_exit(cli_args.config_dir.as_deref());
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
@@ -329,6 +331,23 @@ fn main() {
 
     let _console_guard = prepare_console_and_detect_font();
     run_app(context);
+}
+
+/// Build and validate the compiled screen descriptors before anything renders.
+///
+/// A malformed descriptor is a programming error that the descriptor tests also
+/// catch. Stopping here with a diagnostic is better than letting a renderer meet
+/// a half-formed screen, where the failure would surface as unexplained
+/// geometry rather than as the invariant that was broken.
+fn validate_screen_registry_or_exit() {
+    let Err(error) = jefe::workbench::screen_registry() else {
+        return;
+    };
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    let _ = writeln!(handle, "jefe: {error}");
+    // EX_CONFIG: the compiled screen table is wrong, not the user's input.
+    std::process::exit(78);
 }
 
 fn build_startup_or_exit(

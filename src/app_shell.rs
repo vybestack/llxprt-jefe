@@ -395,6 +395,15 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
+    // Resolve this frame's geometry exactly once. Every consumer downstream —
+    // renderer, mouse routing, selection, wrapping, PTY resize — reads this one
+    // snapshot, so a band opening or a resize cannot leave two of them
+    // disagreeing about where a panel is. A resize produces a new snapshot on
+    // the next frame because the size read above is the only input.
+    let mut snapshot = snapshot;
+    snapshot.resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
+    let snapshot = snapshot;
+
     // Capture scrollback history lines for the terminal pane (issue #198).
     // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
     // cache capture to that mode — other modes waste the clone every frame.

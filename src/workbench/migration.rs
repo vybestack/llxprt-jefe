@@ -19,6 +19,12 @@ use super::screens::ScreenRegistry;
 /// Each legacy value appears exactly once. This table is the migration: adding
 /// a legacy value without a target, or listing one twice, fails the migration
 /// matrix test.
+///
+/// Note that the current durable slot is an `Id`, which must start lowercase,
+/// so these CamelCase names cannot appear in a document written by any shipped
+/// version. The table is the one-way translation for any value that does reach
+/// the reader carrying the legacy vocabulary; a value matching nothing here
+/// falls back rather than being treated as a second supported encoding.
 pub const LEGACY_SCREEN_VALUES: [(&str, &str); 7] = [
     ("Dashboard", "core.dashboard"),
     ("Split", "core.repositories"),
@@ -49,32 +55,30 @@ impl MigrationOutcome {
     }
 }
 
-/// Translate one legacy screen value into a stable screen identity.
+/// Translate a persisted screen value into a stable screen identity.
 ///
-/// `legacy` is the persisted value, or `None` when the document predates the
-/// field. Returns `None` only when the registry itself is empty, which
-/// validation prevents for the shipped table.
+/// `persisted` is the value read from the durable document, or `None` when the
+/// document does not carry one. A stable identity resolves directly; a legacy
+/// variant name is translated here and nowhere else. Returns `None` only when
+/// the registry is empty, which validation prevents for the shipped table.
 #[must_use]
-pub fn migrate_legacy_screen_value(
-    legacy: Option<&str>,
+pub fn migrate_persisted_screen_value(
+    persisted: Option<&str>,
     registry: &ScreenRegistry,
 ) -> Option<MigrationOutcome> {
-    let mapped = legacy
-        .and_then(|value| {
-            LEGACY_SCREEN_VALUES
-                .iter()
-                .find(|(legacy_value, _)| *legacy_value == value)
-                .map(|(_, stable)| *stable)
-        })
-        .and_then(|stable| registry.resolve(stable));
+    let resolved = persisted.and_then(|value| {
+        registry
+            .resolve(value)
+            .or_else(|| resolve_legacy(value, registry))
+    });
 
-    if let Some(id) = mapped {
+    if let Some(id) = resolved {
         return Some(MigrationOutcome::Mapped(id));
     }
 
-    if let Some(value) = legacy {
+    if let Some(value) = persisted {
         tracing::warn!(
-            legacy_screen_value = value,
+            persisted_screen_value = value,
             "unrecognised persisted screen value; falling back to the initial screen"
         );
     }
@@ -82,4 +86,12 @@ pub fn migrate_legacy_screen_value(
     registry
         .initial_screen()
         .map(|screen| MigrationOutcome::FellBackToInitial(screen.id))
+}
+
+/// Map one legacy variant name onto its stable identity.
+fn resolve_legacy(value: &str, registry: &ScreenRegistry) -> Option<ScreenId> {
+    LEGACY_SCREEN_VALUES
+        .iter()
+        .find(|(legacy_value, _)| *legacy_value == value)
+        .and_then(|(_, stable)| registry.resolve(stable))
 }
