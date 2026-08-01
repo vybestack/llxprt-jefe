@@ -79,52 +79,63 @@ fn launch_request_does_not_dynamically_inherit_repository_values() {
     assert!(jefe::domain::canonical_values::typed_field(&request.values, "model").is_none());
 }
 
+/// Ownership evidence is derived from the session name and process identity
+/// only. Configuration content is a statement about the *next* launch and must
+/// not participate (issue #583).
 #[test]
-fn durable_signature_distinguishes_definition_drift_from_value_and_target_changes() {
+fn binding_evidence_ignores_configuration_and_uses_only_ownership_anchors() {
     let (mut agent, repository) = code_puppy_agent_and_repository();
-    let current = jefe::state::durable_projection::current_launch_signature(&agent, &repository)
-        .unwrap_or_else(|error| panic!("fixture signature must project: {error}"));
-    agent.persisted_launch_signature = Some(current.clone());
+    let request = launch_signature_for_agent(&agent, &repository);
+    let launched_with = jefe::runtime::launch_compose::launch_signature_from_request(&request)
+        .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
+    let mut binding = jefe::domain::RuntimeBinding {
+        session_name: RuntimeSession::session_name_for(&agent.id),
+        launch_signature: launched_with,
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: Some(WorkerProcessIdentity::new(std::process::id(), 4_242)),
+        lifecycle_generation: 0,
+        worker_identities: Vec::new(),
+    };
+
     assert_eq!(
-        durable_signature_evidence(&agent, &repository),
-        DurableSignatureEvidence::Match
+        binding_evidence(Some(&binding), &agent.id),
+        BindingEvidence::Coherent,
+        "a coherent binding for the stable session is owned"
     );
 
-    let mut previous_definition = current;
-    previous_definition.definition_hash =
-        jefe::domain::LaunchSignatureV1::default().definition_hash;
-    agent.persisted_launch_signature = Some(previous_definition);
-    assert_eq!(
-        durable_signature_evidence(&agent, &repository),
-        DurableSignatureEvidence::DefinitionDrift
-    );
-
+    // Every kind of configuration drift leaves ownership untouched: a changed
+    // value, a changed target, and a definition hash the running process
+    // predates.
     set_string(&mut agent.values, "model", "changed-model");
-    assert_eq!(
-        durable_signature_evidence(&agent, &repository),
-        DurableSignatureEvidence::Inconsistent
-    );
-    agent.values.clear();
     agent.work_dir = std::path::PathBuf::from("/tmp/changed-target");
+    agent.persisted_launch_signature = Some(jefe::domain::LaunchSignatureV1::default());
     assert_eq!(
-        durable_signature_evidence(&agent, &repository),
-        DurableSignatureEvidence::Inconsistent
+        binding_evidence(Some(&binding), &agent.id),
+        BindingEvidence::Coherent,
+        "configuration drift must never revoke ownership of a running process"
+    );
+
+    // A binding naming a different session is genuinely not ours.
+    binding.session_name = "jefe-agent-other".to_owned();
+    assert_eq!(
+        binding_evidence(Some(&binding), &agent.id),
+        BindingEvidence::Inconsistent
     );
 }
 
+/// A binding without a creation token cannot reject PID reuse, so it stays
+/// Legacy rather than being trusted as coherent.
 #[test]
-fn binding_accepts_only_definition_drift_for_the_stable_session() {
-    let (mut agent, repository) = code_puppy_agent_and_repository();
+fn binding_without_a_creation_token_is_legacy() {
+    let (agent, repository) = code_puppy_agent_and_repository();
     let request = launch_signature_for_agent(&agent, &repository);
-    let current = jefe::runtime::launch_compose::launch_signature_from_request(&request)
+    let launched_with = jefe::runtime::launch_compose::launch_signature_from_request(&request)
         .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
-    let mut previous_definition = current;
-    previous_definition.definition_hash =
-        jefe::domain::LaunchSignatureV1::default().definition_hash;
-    agent.persisted_launch_signature = Some(previous_definition.clone());
-    let mut binding = jefe::domain::RuntimeBinding {
+    let binding = jefe::domain::RuntimeBinding {
         session_name: RuntimeSession::session_name_for(&agent.id),
-        launch_signature: previous_definition,
+        launch_signature: launched_with,
         attached: false,
         last_seen: None,
         pane_identity: None,
@@ -132,30 +143,72 @@ fn binding_accepts_only_definition_drift_for_the_stable_session() {
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     };
-    let durable = durable_signature_evidence(&agent, &repository);
 
-    assert_eq!(durable, DurableSignatureEvidence::DefinitionDrift);
     assert_eq!(
-        binding_evidence(
-            Some(&binding),
-            &agent.id,
-            &request,
-            agent.persisted_launch_signature.as_ref(),
-            durable,
-        ),
-        BindingEvidence::DefinitionDrift
+        binding_evidence(Some(&binding), &agent.id),
+        BindingEvidence::Legacy
+    );
+    assert_eq!(binding_evidence(None, &agent.id), BindingEvidence::Legacy);
+}
+
+/// Editing an agent field must never abandon that agent's live session.
+///
+/// A launch-signature field (here `model`; the version selector behaves
+/// identically) is edited while the agent keeps running. The tmux session and
+/// the worker process are both still alive, so jefe unambiguously still owns
+/// this process. Configuration content changed; process ownership did not.
+///
+/// `Stopped`, `Stale`, `Inconsistent` and `Orphaned` all clear the runtime
+/// binding without killing the session, which strands the live agent
+/// permanently: nothing re-adopts a session whose record was cleared. Startup
+/// must therefore reach a binding-preserving classification here.
+#[test]
+fn editing_a_launch_field_does_not_abandon_a_live_agent() {
+    let (mut agent, repository) = code_puppy_agent_and_repository();
+    let launch_request = launch_signature_for_agent(&agent, &repository);
+    let launched_with =
+        jefe::runtime::launch_compose::launch_signature_from_request(&launch_request)
+            .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
+
+    // The agent is running: the binding and the durable record both carry the
+    // signature stamped when the process was launched.
+    agent.persisted_launch_signature = Some(launched_with.clone());
+    agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+        session_name: RuntimeSession::session_name_for(&agent.id),
+        launch_signature: launched_with,
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: Some(WorkerProcessIdentity::new(std::process::id(), 4_242)),
+        lifecycle_generation: 0,
+        worker_identities: Vec::new(),
+    });
+
+    // The user edits a field. The running process is untouched.
+    set_string(&mut agent.values, "model", "changed-model");
+
+    let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id);
+
+    // Session and worker are both observably alive.
+    let classification = classify_startup(
+        SessionEvidence::Alive,
+        binding,
+        false,
+        ProcessLiveness::Alive,
+        jefe::runtime::OrphanClassification::NoOrphan,
     );
 
-    binding.session_name = "jefe-agent-other".to_owned();
-    assert_eq!(
-        binding_evidence(
-            Some(&binding),
-            &agent.id,
-            &request,
-            agent.persisted_launch_signature.as_ref(),
-            durable,
+    assert!(
+        !matches!(
+            classification,
+            StartupClassification::Stopped
+                | StartupClassification::Stale
+                | StartupClassification::Inconsistent
+                | StartupClassification::Orphaned
         ),
-        BindingEvidence::Inconsistent
+        "editing a field must not abandon a live agent, but startup classified \
+         an alive session with an alive worker as {classification:?}, which \
+         clears the runtime binding and strands the still-running session"
     );
 }
 
@@ -286,68 +339,19 @@ fn malformed_or_inaccessible_process_identity_is_classified_conservatively() {
     );
 }
 
+/// PID reuse still overrides a live session. Removing the configuration
+/// comparison must not weaken the ownership checks that remain (issue #583).
 #[test]
-fn live_session_survives_definition_hash_drift() {
-    for liveness in [ProcessLiveness::Alive, ProcessLiveness::MalformedIdentity] {
-        assert_eq!(
-            classify_startup(
-                SessionEvidence::Alive,
-                BindingEvidence::DefinitionDrift,
-                false,
-                liveness,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::DefinitionDrift,
-            "live local session with definition drift must use reattach-only registration"
-        );
-    }
+fn reused_pid_still_overrides_a_live_session() {
     assert_eq!(
         classify_startup(
             SessionEvidence::Alive,
-            BindingEvidence::DefinitionDrift,
-            false,
-            ProcessLiveness::Dead,
-            jefe::runtime::OrphanClassification::NoOrphan,
-        ),
-        StartupClassification::Inconsistent
-    );
-}
-
-#[test]
-fn definition_drift_does_not_override_reused_pid_or_missing_session() {
-    assert_eq!(
-        classify_startup(
-            SessionEvidence::Alive,
-            BindingEvidence::DefinitionDrift,
+            BindingEvidence::Coherent,
             false,
             ProcessLiveness::ReusedPid,
             jefe::runtime::OrphanClassification::NoOrphan,
         ),
         StartupClassification::Stale
-    );
-    assert_eq!(
-        classify_startup(
-            SessionEvidence::Missing,
-            BindingEvidence::DefinitionDrift,
-            false,
-            ProcessLiveness::Alive,
-            jefe::runtime::OrphanClassification::NoOrphan,
-        ),
-        StartupClassification::Inconsistent
-    );
-}
-
-#[test]
-fn remote_definition_drift_is_rejected() {
-    assert_eq!(
-        classify_startup(
-            SessionEvidence::Alive,
-            BindingEvidence::DefinitionDrift,
-            true,
-            ProcessLiveness::MalformedIdentity,
-            jefe::runtime::OrphanClassification::NoOrphan,
-        ),
-        StartupClassification::Inconsistent
     );
 }
 

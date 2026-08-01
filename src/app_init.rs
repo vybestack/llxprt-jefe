@@ -8,10 +8,9 @@ mod shell_reconcile;
 mod signature_reconcile;
 
 #[cfg(test)]
-use self::signature_reconcile::{BindingEvidence, DurableSignatureEvidence};
+use self::signature_reconcile::BindingEvidence;
 use self::signature_reconcile::{
     SessionEvidence, StartupClassification, binding_evidence, classify_startup,
-    durable_signature_evidence,
 };
 use iocraft::hooks::State as HookState;
 use tracing::warn;
@@ -116,21 +115,13 @@ fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
 
 fn classify_agent_startup(
     agent: &Agent,
-    repository: &jefe::domain::Repository,
     signature: &AgentLaunchRequest,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
     let session = runtime
         .session_liveness_for_signature(&agent.id, signature)
         .into();
-    let durable_signature = durable_signature_evidence(agent, repository);
-    let binding = binding_evidence(
-        agent.runtime_binding.as_ref(),
-        &agent.id,
-        signature,
-        agent.persisted_launch_signature.as_ref(),
-        durable_signature,
-    );
+    let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id);
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
     } else {
@@ -335,7 +326,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
             continue;
         };
         let signature = launch_signature_for_agent(agent, repository);
-        match classify_agent_startup(agent, repository, &signature, runtime) {
+        match classify_agent_startup(agent, &signature, runtime) {
             StartupClassification::Orphaned => {
                 // Dead pane with surviving validated worker descendants
                 // (issue #332): reap the orphan tree and remove the stale
@@ -414,21 +405,29 @@ fn restore_one_agent(
     };
     let signature = launch_signature_for_agent(agent, &repository);
 
-    match classify_agent_startup(agent, &repository, &signature, runtime) {
+    match classify_agent_startup(agent, &signature, runtime) {
         StartupClassification::Stopped
         | StartupClassification::Stale
         | StartupClassification::Inconsistent
         | StartupClassification::Orphaned => RestoreOneOutcome::Dead,
         StartupClassification::Recoverable => RestoreOneOutcome::Skip,
-        StartupClassification::DefinitionDrift => {
-            let Some(persisted_signature) = agent.persisted_launch_signature.clone() else {
+        // A live local session means jefe is re-adopting a process it already
+        // started. Adoption is proved by session name, liveness and process
+        // identity, so it must not re-resolve a version selector or probe an
+        // executable: the running process is unaffected by what the
+        // configuration says now, and making adoption depend on the current
+        // executable is what stranded live agents (issue #583).
+        //
+        // The binding carries the signature the process was *launched* with,
+        // not the one the current configuration would produce.
+        StartupClassification::Running if !signature.remote.enabled => {
+            let Some(launched_with) = agent.persisted_launch_signature.clone().or_else(|| {
+                jefe::runtime::launch_compose::launch_signature_from_request(&signature).ok()
+            }) else {
                 return RestoreOneOutcome::Dead;
             };
-            match runtime.register_existing_local_session(
-                &agent.id,
-                &agent.work_dir,
-                persisted_signature,
-            ) {
+            match runtime.register_existing_local_session(&agent.id, &agent.work_dir, launched_with)
+            {
                 Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
                 Err(error) => {
                     warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
