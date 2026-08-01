@@ -17,7 +17,7 @@
 //! `Dead`, binding-clear, and durable-save path.
 
 #[cfg(windows)]
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use tracing::debug;
@@ -144,10 +144,10 @@ async fn handle_windows_cycle(
 ) {
     let observation = match MultiplexerPlan::current() {
         Ok(plan) => {
-            let prior = *pinned_prior;
-            let applied = *applied_exit_empty;
+            let prior = pinned_prior.clone();
+            let applied = applied_exit_empty.clone();
             let (observation, next_applied) = smol::unblock(move || {
-                let cell = Cell::new(applied);
+                let cell = RefCell::new(applied);
                 let observation = observe_server_liveness(&plan, prior.as_ref(), &cell);
                 (observation, cell.into_inner())
             })
@@ -163,7 +163,7 @@ async fn handle_windows_cycle(
 
     match observation {
         ServerLivenessObservation::Healthy(current) => {
-            *pinned_prior = current.or(*pinned_prior);
+            *pinned_prior = current.or_else(|| pinned_prior.clone());
             reconcile_healthy_agents(app_state, ctx, running_targets).await;
         }
         ServerLivenessObservation::Gone | ServerLivenessObservation::Replaced(_) => {

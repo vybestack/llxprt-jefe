@@ -47,17 +47,76 @@ fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
     }
 }
 
+/// Compose the startup diagnostic from what qualification and provenance found.
+///
+/// Kept free of I/O so both verdicts can be exercised directly. Both are
+/// reported when both fail: showing only the first would send the operator
+/// round the loop twice (issue #540).
+///
+/// Windows-only because the psmux contract is: other platforms run tmux and
+/// have nothing to qualify against it.
+#[cfg(windows)]
+fn startup_multiplexer_warning(
+    qualification: &jefe::runtime::MultiplexerQualification,
+    provenance: Option<&jefe::runtime::ProvenanceVerdict>,
+) -> Option<String> {
+    let mut problems: Vec<&str> = Vec::new();
+
+    if let jefe::runtime::MultiplexerQualification::Refused { message } = qualification {
+        problems.push(message);
+    }
+    if let Some(
+        jefe::runtime::ProvenanceVerdict::Unqualified { diagnostic }
+        | jefe::runtime::ProvenanceVerdict::Changed { diagnostic },
+    ) = provenance
+    {
+        problems.push(diagnostic);
+    }
+
+    (!problems.is_empty()).then(|| {
+        problems.join(
+            "
+
+",
+        )
+    })
+}
+
 #[cfg(windows)]
 fn windows_multiplexer_startup_warning() -> Option<String> {
-    let result = MultiplexerPlan::current().and_then(|plan| plan.preflight(&[]));
-    match result {
-        Ok(version) => {
-            tracing::info!(%version, "native Windows multiplexer preflight succeeded");
+    // The version gate used to run at first `new-session`, so an unusable
+    // multiplexer was discovered only when starting an agent. Version,
+    // conformance and provenance are all settled here instead (issue #540).
+    let plan = match MultiplexerPlan::current() {
+        Ok(plan) => plan,
+        Err(error) => {
+            warn!(error = %error, "native Windows multiplexer could not be resolved");
+            return Some(format!("psmux preflight warning: {error}"));
+        }
+    };
+
+    let qualification = jefe::runtime::qualify_multiplexer_for_startup(&plan);
+    let provenance = jefe::runtime::fingerprint_multiplexer(&plan).map(|fingerprint| {
+        // No manifest ships yet, so every binary is unrecognised. Verifying
+        // against an empty manifest would refuse every install, so provenance
+        // reports only once digests are recorded; the fingerprint is taken
+        // regardless so a mid-session replacement can still be detected.
+        let manifest = jefe::runtime::ProvenanceManifest::default();
+        if manifest.is_empty() {
+            jefe::runtime::ProvenanceVerdict::Qualified
+        } else {
+            manifest.verify(&fingerprint)
+        }
+    });
+
+    match startup_multiplexer_warning(&qualification, provenance.as_ref()) {
+        None => {
+            tracing::info!("native Windows multiplexer qualified at startup");
             None
         }
-        Err(error) => {
-            warn!(error = %error, "native Windows multiplexer preflight failed");
-            Some(format!("psmux preflight warning: {error}"))
+        Some(warning) => {
+            warn!(warning = %warning, "native Windows multiplexer qualification failed");
+            Some(warning)
         }
     }
 }
