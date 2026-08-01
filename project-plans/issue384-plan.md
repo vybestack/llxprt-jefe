@@ -232,9 +232,20 @@ S4/S5 migrate one consumer at a time preserving parity; S6 deletes only after pa
 
 ---
 
-## 5. Blocking questions (workflow §1 / §10 — must be resolved before implementation)
+## 5. Resolved questions
+
+_(These were open before implementation. Both are now decided; the reasoning is
+kept because the decisions shaped the descriptors.)_
 
 ### 5.1 `ScreenMode` has seven variants; the issue specifies five screens
+
+**Decided: option (a).** The registry covers all seven live screens. `core.errors`
+and `core.terminals` were added, so `ScreenMode` became deletable and CW04-09 is
+satisfiable as written. The five parity screens keep their specified stable
+identities and carry the issue's behavior guarantees; the two additions exist so
+there is exactly one screen vocabulary rather than one-and-a-bit.
+
+**Original analysis:**
 
 `DashboardErrors` (the errors panel screen, `src/ui/screens/errors.rs`) and `DashboardTerminals`
 (Terminal Manager, `src/ui/screens/terminal_manager.rs`) exist as first-class screens today but
@@ -252,6 +263,16 @@ is impossible while two live screens have no stable `ScreenId`. Options:
   unconverted screens plus the migration module".
 
 ### 5.2 Scope budget
+
+**Decided: the numeric budget is gone.** It was pushing this work toward the
+wrong shape — either stacked PRs that each leave two competing mechanisms live,
+or a cutover stopped halfway to stay under a line count. `dev-docs/workflow/
+ISSUE-DELIVERY.md` now bounds scope functionally: a change is in scope when it
+is required to deliver the issue's accepted behavior. `.code_puppy/AGENTS.md`
+and `.llxprt/LLXPRT.md` were updated to match, and issue #361 (the only open
+issue carrying a file/line estimate) was rewritten.
+
+**Original analysis:**
 
 Measured blast radius for full delivery of all ten rows:
 
@@ -322,10 +343,65 @@ suppression, no dependency change, no threshold change. Largest new file 396 lin
 | Which `resolve_layout` "lives in `src/layout.rs`" means, given `layout.rs` is 869 lines against a 750 warn / 1000 hard limit | Implementation in the I/O-free `workbench`, re-exported by name from `src/layout.rs` | Keeps the resolver exhaustively testable as pure data and keeps every file under the size gates, while `layout` stays the one place a consumer looks. |
 | `TooSmall{needed, available}` field types | `Extent { cols, rows }` | The shortfall is a size, not a rectangle. |
 
-### Remaining slices
+**S6 — the `ScreenMode` cutover** (commit `2eeff685`)
 
-S3 (startup + single snapshot choke point), S4 (consumer migration), S5 (thin renderers),
-S6 (`ScreenMode` deletion), S7 (docs) — all blocked or budget-blocked, see §5.
+All 416 references across 93 files moved in one change. A staged conversion would
+have left two screen vocabularies live at once, with every consumer needing to
+know which one it held. `AppState.screen` is now a `ScreenId`; the legacy variant
+names survive only in the migration table. The variant names also stopped
+describing the wrong thing — `Split` renders the repository list, so it is
+`Repositories`; `DashboardIssues`/`DashboardPullRequests` are not dashboards.
+
+**S7 — standards** (in the same commit)
+
+`display-and-ui.md` documents the screen table, descriptor invariants, the
+allocation algorithm, snapshot guarantees, focus repair, and the too-small
+behavior. `architecture.md` names `layout` as the sole geometry authority and
+states that consumers may not derive their own rectangles.
+
+**S3 — startup and the single snapshot** (commit `6e2f3ce4`)
+
+Startup validates the compiled table and exits with a diagnostic if it is
+malformed. `src/screen_layout.rs` is the one place a snapshot is produced; the
+shell resolves once at its existing size read. The active screen is now really
+persisted: `Selection.screen_id` existed in the durable contract but was always
+written as `None` and never read, so a restored session always reopened on the
+dashboard.
+
+That test also established a fact worth recording: the durable slot is an `Id`,
+which must start lowercase, so the CamelCase legacy screen names can never appear
+in it. The legacy mapping remains the one-way translation for any value that does
+arrive carrying the old vocabulary, and anything unrecognised falls back rather
+than becoming a second supported encoding.
+
+### Remaining work: S4 and S5, the consumer cutover
+
+`resolved_layout` is produced, validated, and carried on `AppState`, but the
+geometry consumers still read the legacy mirror arithmetic in `src/layout.rs`.
+Moving them is the remaining slice, and it is not mechanical, for one specific
+reason found while checking parity:
+
+**The specified algorithm and the shipped geometry do not agree on where minima
+apply.** The issue's algorithm assigns weighted children their minima *first* and
+shares only what is left. Taffy distributes by weight across the whole span and
+then clamps. On the dashboard at 120x40 the shipped split is 10 agent rows over
+28 terminal rows; the descriptor as written yields 12 over 26, because 9 rows of
+minima are taken off the top before the 1:3 weighting applies.
+
+Both rules are defensible, but only one can be parity. Resolving it is the first
+step of S4 and the options are:
+
+- declare `min: 0` on panes the shipped layout does not reserve minima for, which
+  reproduces taffy exactly (`floor(38/4) = 9`, `floor(38*3/4) = 28`, remainder to
+  the first child gives 10 and 28) and leans on the degenerate-panel hide for
+  safety; or
+- change the allocation rule to weight-first-then-clamp, which matches flexbox and
+  keeps minima meaningful, at the cost of departing from the issue's stated
+  algorithm.
+
+Until that is settled, migrating a consumer would change real pane sizes and PTY
+dimensions. The snapshot is additive and provably correct today; the consumers
+move once the rule is chosen, with per-screen goldens as the evidence.
 
 ## 7. Scope ledger
 
@@ -336,7 +412,13 @@ S6 (`ScreenMode` deletion), S7 (docs) — all blocked or budget-blocked, see §5
 | `src/layout.rs` re-export block (10 lines) | Planned S2 | In scope |
 | `project-plans/issue384-plan.md` | Required by workflow §2 | In scope |
 | Reused `crate::domain::TypedMap` instead of a new config bag | Avoided an unplanned public abstraction | In scope |
-| **Measured net lines at S2: 4,251 across 20 files** | **Exceeds the 2,500-line hard stop** | **Blocked — §5.2** |
+| Seven descriptors rather than five (, ) | Required for CW04-09 to be satisfiable at all | In scope |
+| Descriptors describe the real screens rather than the issue's sketch | Required by the binding parity constraint | In scope |
+| Per-split `gap` on `LayoutNode::Split` | Required for parity: shipped panes draw borders inside their own rectangle | In scope |
+| `ScreenId` as a closed enum with stable-string identity | Keeps exhaustive matching for render/route/label | In scope |
+| `ScreenMode` deleted across 93 files | Stated done criterion (CW04-09) | In scope |
+| `Selection.screen_id` now written and read | The migration contract requires a persisted value to migrate | In scope |
+| Scope policy de-numbered in workflow docs, agent memory, and issue #361 | **Explicitly requested by the user** | Approved |
 
 ## 8. Review counters
 
@@ -350,10 +432,14 @@ S6 (`ScreenMode` deletion), S7 (docs) — all blocked or budget-blocked, see §5
 
 | Gate | Head | Result |
 |---|---|---|
-| `cargo fmt --all` | `f6093fc7` | clean |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `f6093fc7` | clean |
-| `cargo test --lib workbench::` | `f6093fc7` | 90 passed, 0 failed |
-| `cargo test --workspace --all-features --locked` | `f6093fc7` | 5,106 passed, 0 failed (62 targets) — no pre-existing test regressed |
+| `cargo fmt --all --check` | `6e2f3ce4` | clean |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `6e2f3ce4` | clean |
+| `cargo test --workspace --all-features --locked` | `6e2f3ce4` | 62 targets, 0 failed |
+| `cargo xtask ci` (fmt, clippy policy, source size, architecture, strict lint, complexity, coverage, locked all-feature build, full test suite) | `6e2f3ce4` | **exit 0** |
+
+No lint or complexity rule was loosened, no suppression directive was added, no
+threshold was raised, no dependency changed, no `unsafe`, and no production
+`unwrap`/`expect`. Largest new file is 396 lines against a 750-line warn limit.
 
 ## 10. Deferred findings / follow-ups
 
