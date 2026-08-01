@@ -12,6 +12,7 @@
 //! sibling timestamp comparator — mirroring `parse_pr.rs`.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 use crate::domain::PrCheckStatus;
 use serde_json::Value;
@@ -44,37 +45,43 @@ pub fn parse_check_status(raw_status: &str) -> PrCheckStatus {
 /// attempt alongside a newer successful one. GitHub's own UI and `gh pr checks`
 /// project only the latest attempt; this function reproduces that projection.
 ///
-/// Identity groups by `__typename` + `name`/`context` + a transport-provided
-/// disambiguator (`workflowName` from `gh pr view --json`, or
-/// `checkSuite.app.slug` from raw GraphQL), so unrelated apps or workflows that
-/// happen to share a job name are never merged. Within an identity the attempt
-/// with the greatest `startedAt` (fallback `completedAt`, then array position)
-/// wins. Output preserves first-occurrence order of each identity.
+/// Identity groups by `__typename` + `name`/`context` + a workflow disambiguator
+/// (`workflowName` from `gh pr view --json`, or
+/// `checkSuite.workflowRun.workflow.name` from raw GraphQL) + `checkSuite.app.slug`,
+/// so unrelated apps or workflows that happen to share a job name are never
+/// merged. Within an identity the attempt with the greatest `startedAt`
+/// (fallback `completedAt`, then array position) wins. Output preserves
+/// first-occurrence order of each identity.
 ///
 /// `StatusContext` entries are treated as independent identities (one per
 /// `context`), matching GitHub's status API semantics.
 #[must_use]
 pub fn effective_check_nodes(nodes: &[Value]) -> Vec<Value> {
-    // (identity, index of the winning node so far) in first-occurrence order.
-    let mut winners: Vec<(String, usize)> = Vec::new();
+    // `winners` maps identity → index of the latest winning node; `order`
+    // records identities in first-occurrence order so the output stays stable.
+    let mut winners: HashMap<String, usize> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
     for (idx, node) in nodes.iter().enumerate() {
         let identity = effective_check_identity(node);
-        match winners.iter().position(|(id, _)| *id == identity) {
-            Some(pos) => {
-                let incumbent = winners[pos].1;
-                if is_later_attempt(
-                    order_key(node),
-                    idx,
-                    order_key(&nodes[incumbent]),
-                    incumbent,
-                ) {
-                    winners[pos].1 = idx;
-                }
+        if let Some(&incumbent) = winners.get(&identity) {
+            if is_later_attempt(
+                order_key(node),
+                idx,
+                order_key(&nodes[incumbent]),
+                incumbent,
+            ) {
+                winners.insert(identity, idx);
             }
-            None => winners.push((identity, idx)),
+        } else {
+            winners.insert(identity.clone(), idx);
+            order.push(identity);
         }
     }
-    winners.iter().map(|(_, idx)| nodes[*idx].clone()).collect()
+    order
+        .iter()
+        .filter_map(|identity| winners.get(identity).copied())
+        .map(|idx| nodes[idx].clone())
+        .collect()
 }
 
 /// Aggregate the effective check statuses into a single rollup status.
@@ -124,19 +131,33 @@ fn effective_check_identity(node: &Value) -> String {
         .or_else(|| node.get("context"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let disambiguator = node
+    // GitHub Actions exposes the same app slug ("github-actions") for every
+    // workflow, so the app slug alone cannot tell two workflows apart. The
+    // workflow name is what distinguishes same-named jobs across workflows.
+    // `gh pr view --json` surfaces it as a top-level `workflowName`; raw
+    // GraphQL surfaces it nested under `checkSuite.workflowRun.workflow.name`.
+    let workflow = node
         .get("workflowName")
         .and_then(Value::as_str)
         .or_else(|| {
             node.get("checkSuite")
-                .and_then(|suite| suite.get("app"))
-                .and_then(|app| app.get("slug"))
+                .and_then(|suite| suite.get("workflowRun"))
+                .and_then(|run| run.get("workflow"))
+                .and_then(|wf| wf.get("name"))
                 .and_then(Value::as_str)
         })
         .unwrap_or("");
+    // The app slug is also included so a third-party app sharing a job name
+    // with GitHub Actions (or another app) is never merged.
+    let app_slug = node
+        .get("checkSuite")
+        .and_then(|suite| suite.get("app"))
+        .and_then(|app| app.get("slug"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
     // UNIT SEPARATOR delimits the components so a name containing the delimiter
     // cannot forge a different identity.
-    format!("{typename}\u{1f}{name}\u{1f}{disambiguator}")
+    format!("{typename}\u{1f}{name}\u{1f}{workflow}\u{1f}{app_slug}")
 }
 
 /// Latest-start ordering key: `startedAt`, falling back to `completedAt`.

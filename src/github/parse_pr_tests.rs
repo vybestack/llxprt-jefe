@@ -279,7 +279,7 @@ fn effective_nodes_keeps_latest_per_identity() {
 /// Identity disambiguation: two checks that share a job name but belong to
 /// different workflows are distinct effective checks and must both be kept.
 #[test]
-fn effective_nodes_distinguishes_same_namedifferent_workflow() {
+fn effective_nodes_distinguishes_same_name_different_workflow() {
     let nodes = vec![
         check_run("build", "CI", "2026-07-29T02:00:00Z", "SUCCESS"),
         check_run("build", "Release", "2026-07-29T02:30:00Z", "SUCCESS"),
@@ -289,6 +289,74 @@ fn effective_nodes_distinguishes_same_namedifferent_workflow() {
         effective.len(),
         2,
         "same job name under different workflows are distinct checks"
+    );
+}
+
+/// A GraphQL-list-path CheckRun node. Unlike the `gh pr view --json` shape,
+/// raw GraphQL exposes the workflow name nested under
+/// `checkSuite.workflowRun.workflow.name` (NOT a top-level `workflowName`),
+/// and every GitHub Actions workflow reports the same `app.slug`. This is the
+/// production shape for the PR list query.
+fn graphql_check_run(name: &str, workflow: &str, started_at: &str, conclusion: &str) -> Value {
+    json!({
+        "__typename": "CheckRun",
+        "name": name,
+        "startedAt": started_at,
+        "completedAt": started_at,
+        "status": "COMPLETED",
+        "conclusion": conclusion,
+        "detailsUrl": format!("https://github.com/o/r/runs/{started_at}"),
+        "checkSuite": {
+            "app": {"slug": "github-actions"},
+            "workflowRun": {"workflow": {"name": workflow}}
+        }
+    })
+}
+
+/// Cross-workflow disambiguation on the raw-GraphQL list shape: two jobs named
+/// "Build" under different workflows share the same `app.slug` ("github-actions")
+/// but must NOT collapse. With a FAILURE in one workflow and a SUCCESS in the
+/// other, the aggregate must be Failure — proving both are kept. An app-slug-only
+/// disambiguator would collapse them to the latest (SUCCESS) and wrongly report
+/// Success.
+#[test]
+fn graphql_path_same_name_different_workflow_stays_distinct() {
+    let nodes = vec![
+        graphql_check_run("Build", "CI", "2026-07-29T02:00:00Z", "FAILURE"),
+        graphql_check_run("Build", "Release", "2026-07-29T02:30:00Z", "SUCCESS"),
+    ];
+    let effective = effective_check_nodes(&nodes);
+    assert_eq!(
+        effective.len(),
+        2,
+        "same job name under different workflows must stay distinct on the GraphQL shape"
+    );
+    assert_eq!(
+        parse_checks_rollup(&nodes),
+        PrCheckStatus::Failure,
+        "the CI Build failure must drive the aggregate to Failure even though \
+         the Release Build succeeded"
+    );
+}
+
+/// Supersession still collapses attempts within the SAME workflow on the
+/// raw-GraphQL list shape (the nested workflow name groups them): an older
+/// CANCELLED and a newer SUCCESS for "Build" under "CI" resolve to Success.
+#[test]
+fn graphql_path_supersession_collapses_within_same_workflow() {
+    let nodes = vec![
+        graphql_check_run("Build", "CI", "2026-07-29T02:00:00Z", "CANCELLED"),
+        graphql_check_run("Build", "CI", "2026-07-29T02:30:00Z", "SUCCESS"),
+    ];
+    assert_eq!(
+        effective_check_nodes(&nodes).len(),
+        1,
+        "two attempts of the same workflow job must collapse to one"
+    );
+    assert_eq!(
+        parse_checks_rollup(&nodes),
+        PrCheckStatus::Success,
+        "the superseded CANCELLED must clear when the same workflow job later succeeds"
     );
 }
 
