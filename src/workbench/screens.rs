@@ -34,7 +34,7 @@ use std::num::NonZeroU16;
 use super::config::insets_config;
 use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
 use super::geometry::Insets;
-use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId};
+use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
 use super::validate::{DescriptorError, validate_descriptor};
 
 /// Panel type whose visible content rectangle drives a live PTY.
@@ -198,29 +198,42 @@ impl ScreenRegistry {
         &self.screens
     }
 
-    /// Look up one descriptor by stable identity.
+    /// Look up one compiled screen's descriptor.
     #[must_use]
     pub fn get(&self, id: ScreenId) -> Option<&ScreenDescriptor> {
+        self.get_identity(ScreenIdentity::Compiled(id))
+    }
+
+    /// Look up one descriptor by stable identity, compiled or lowered.
+    #[must_use]
+    pub fn get_identity(&self, id: ScreenIdentity) -> Option<&ScreenDescriptor> {
         self.screens.iter().find(|screen| screen.id == id)
     }
 
-    /// Resolve a screen identity from text that came from outside the program.
+    /// Resolve a routable screen from text that came from outside the program.
     ///
     /// This is the only way a persisted or otherwise external value becomes a
     /// [`ScreenId`], so an unrecognised value can never become an identity no
-    /// descriptor backs.
+    /// descriptor backs. A lowered custom screen is deliberately not resolvable
+    /// here: it has a descriptor but no renderer or route, so restoring a
+    /// session onto it would open a screen nothing can draw.
     #[must_use]
     pub fn resolve(&self, value: &str) -> Option<ScreenId> {
         self.screens
             .iter()
             .find(|screen| screen.id.as_str() == value)
-            .map(|screen| screen.id)
+            .and_then(|screen| screen.id.compiled())
     }
 
     /// The screen selected when no valid prior screen is known.
+    ///
+    /// Only a compiled screen can be the fallback, because the fallback must
+    /// always be renderable and routable.
     #[must_use]
     pub fn initial_screen(&self) -> Option<&ScreenDescriptor> {
-        self.screens.first()
+        self.screens
+            .iter()
+            .find(|screen| screen.id.compiled().is_some())
     }
 }
 
@@ -273,6 +286,7 @@ fn panel(
         config: insets_config(chrome).ok_or(IdError::InvalidByte)?,
         focusable,
         required,
+        ports: Vec::new(),
     })
 }
 
@@ -378,7 +392,7 @@ fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
 /// active, so it is a band the application shows and hides.
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Dashboard,
+        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
         title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: vec![
@@ -430,7 +444,7 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// band, occupying the full width.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Repositories,
+        id: ScreenIdentity::Compiled(ScreenId::Repositories),
         title: "Repositories".to_owned(),
         route: RouteId::parse("repositories")?,
         panels: vec![
@@ -487,7 +501,7 @@ struct WorkspaceSpec {
 /// A workspace screen: the repository sidebar beside the shared column.
 fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: spec.id,
+        id: ScreenIdentity::Compiled(spec.id),
         title: spec.title.to_owned(),
         route: RouteId::parse(spec.route)?,
         panels: vec![
@@ -561,7 +575,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// Errors mode renders no banner and no filter band, so it declares neither.
 fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Errors,
+        id: ScreenIdentity::Compiled(ScreenId::Errors),
         title: "Errors".to_owned(),
         route: RouteId::parse("errors")?,
         panels: vec![
@@ -600,7 +614,7 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// throttled read-only preview of the selected one.
 fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Terminals,
+        id: ScreenIdentity::Compiled(ScreenId::Terminals),
         title: "Terminals".to_owned(),
         route: RouteId::parse("terminals")?,
         panels: vec![

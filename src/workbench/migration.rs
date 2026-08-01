@@ -85,7 +85,8 @@ pub fn migrate_persisted_screen_value(
 
     registry
         .initial_screen()
-        .map(|screen| MigrationOutcome::FellBackToInitial(screen.id))
+        .and_then(|screen| screen.id.compiled())
+        .map(MigrationOutcome::FellBackToInitial)
 }
 
 /// Map one legacy variant name onto its stable identity.

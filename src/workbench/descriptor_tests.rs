@@ -5,8 +5,14 @@
 
 use std::num::NonZeroU16;
 
-use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
-use super::ids::{PanelId, PanelTypeId, RouteId, ScreenId};
+use super::descriptor::{
+    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
+    ScreenDescriptor, Size,
+};
+use super::ids::{
+    MAX_PORTS_PER_PANEL, PanelId, PanelTypeId, PortId, RouteId, ScreenId, ScreenIdentity,
+    VersionedTypeId,
+};
 use super::validate::{DescriptorError, validate_descriptor};
 
 fn panel_id(value: &'static str) -> PanelId {
@@ -27,6 +33,7 @@ fn make_panel(id: &'static str, focusable: bool, required: bool) -> PanelDescrip
         config: crate::domain::TypedMap::new(),
         focusable,
         required,
+        ports: Vec::new(),
     }
 }
 
@@ -50,7 +57,7 @@ fn child(id: &'static str, collapsible: bool, collapse_priority: Option<i32>) ->
 /// A two-panel screen: `list` required+focusable, `detail` collapsible.
 fn valid_descriptor() -> ScreenDescriptor {
     ScreenDescriptor {
-        id: ScreenId::Dashboard,
+        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
         title: "Fixture".to_owned(),
         route: RouteId::parse("fixture")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),
@@ -259,7 +266,7 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
         };
     }
     ScreenDescriptor {
-        id: ScreenId::Dashboard,
+        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
         title: "Nested".to_owned(),
         route: RouteId::parse("nested")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),
@@ -355,4 +362,101 @@ fn the_first_required_focusable_panel_follows_focus_order() {
             .map(|panel| panel.id.as_str()),
         Some("list")
     );
+}
+
+// ── Ports (issue #385) ─────────────────────────────────────────────────────
+
+fn port(id: &'static str, direction: PortDirection, type_id: &'static str) -> PortDescriptor {
+    PortDescriptor {
+        id: PortId::parse(id).unwrap_or_else(|_| unreachable!("fixture port id is valid")),
+        direction,
+        type_id: VersionedTypeId::parse(type_id)
+            .unwrap_or_else(|_| unreachable!("fixture port type is valid")),
+        required: false,
+        retained: false,
+    }
+}
+
+fn descriptor_with_ports(ports: Vec<PortDescriptor>) -> ScreenDescriptor {
+    let mut descriptor = valid_descriptor();
+    descriptor.panels[0].ports = ports;
+    descriptor
+}
+
+#[test]
+fn a_port_reference_resolves_only_against_the_panel_that_declares_it() {
+    let descriptor = descriptor_with_ports(vec![port(
+        "selection",
+        PortDirection::Output,
+        "github.issue@1",
+    )]);
+
+    let declared = PortRef {
+        panel: panel_id("list"),
+        port: PortId::parse("selection").unwrap_or_else(|_| unreachable!("valid")),
+    };
+    let other_panel = PortRef {
+        panel: panel_id("detail"),
+        port: PortId::parse("selection").unwrap_or_else(|_| unreachable!("valid")),
+    };
+    let unknown_port = PortRef {
+        panel: panel_id("list"),
+        port: PortId::parse("absent").unwrap_or_else(|_| unreachable!("valid")),
+    };
+
+    assert_eq!(
+        descriptor.port(&declared).map(|found| found.id.as_str()),
+        Some("selection")
+    );
+    assert_eq!(descriptor.port(&other_panel), None);
+    assert_eq!(descriptor.port(&unknown_port), None);
+}
+
+#[test]
+fn a_panel_may_not_declare_one_port_identity_twice() {
+    let descriptor = descriptor_with_ports(vec![
+        port("selection", PortDirection::Output, "github.issue@1"),
+        port("selection", PortDirection::Input, "github.issue@1"),
+    ]);
+
+    assert_eq!(
+        validate_descriptor(&descriptor),
+        Err(DescriptorError::DuplicatePort {
+            screen: "core.dashboard",
+            panel: "list",
+            port: "selection",
+        })
+    );
+}
+
+#[test]
+fn a_panel_may_declare_ports_up_to_the_limit_but_not_one_past_it() {
+    let at_limit: Vec<PortDescriptor> = (0..MAX_PORTS_PER_PANEL)
+        .map(|index| {
+            let id = crate::workbench::intern::intern(&format!("port-{index}"))
+                .unwrap_or_else(|error| unreachable!("fixture port id must intern: {error}"));
+            port(id, PortDirection::Output, "github.issue@1")
+        })
+        .collect();
+    let mut over_limit = at_limit.clone();
+    over_limit.push(port("port-extra", PortDirection::Output, "github.issue@1"));
+
+    assert_eq!(
+        validate_descriptor(&descriptor_with_ports(at_limit)),
+        Ok(())
+    );
+    assert_eq!(
+        validate_descriptor(&descriptor_with_ports(over_limit)),
+        Err(DescriptorError::TooManyPorts {
+            screen: "core.dashboard",
+            panel: "list",
+            count: MAX_PORTS_PER_PANEL + 1,
+        })
+    );
+}
+
+#[test]
+fn a_port_direction_renders_the_text_the_external_syntax_uses() {
+    assert_eq!(PortDirection::Input.as_str(), "input");
+    assert_eq!(PortDirection::Output.as_str(), "output");
 }

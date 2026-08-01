@@ -19,6 +19,7 @@ pub mod config;
 pub mod descriptor;
 pub mod geometry;
 pub mod ids;
+pub mod intern;
 pub mod migration;
 pub mod resolve;
 pub mod screens;
@@ -27,6 +28,14 @@ pub mod validate;
 #[cfg(test)]
 #[path = "ids_tests.rs"]
 mod ids_tests;
+
+#[cfg(test)]
+#[path = "custom_ids_tests.rs"]
+mod custom_ids_tests;
+
+#[cfg(test)]
+#[path = "intern_tests.rs"]
+mod intern_tests;
 
 #[cfg(test)]
 #[path = "config_tests.rs"]
@@ -89,13 +98,19 @@ pub fn screen_descriptor(id: ScreenId) -> Result<&'static ScreenDescriptor, Regi
 
 pub use allocate::LayoutError;
 pub use config::panel_insets;
-pub use descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
+pub use descriptor::{
+    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
+    ScreenDescriptor, Size,
+};
 pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
-    ID_BYTE_LIMIT, IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SCREENS,
-    MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, ScreenId,
-    ScreenInstanceId,
+    CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
+    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
+    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN,
+    MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, PortId, RouteId, ScreenId, ScreenIdentity,
+    ScreenInstanceId, VersionedTypeId,
 };
+pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
 pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,

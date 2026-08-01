@@ -42,6 +42,19 @@ pub const MIN_SPLIT_CHILDREN: usize = 2;
 pub const MAX_SPLIT_CHILDREN: usize = 8;
 /// Maximum nesting depth of a layout tree (the root leaf/split is depth 1).
 pub const MAX_LAYOUT_DEPTH: usize = 8;
+/// Maximum number of ports one panel may declare.
+pub const MAX_PORTS_PER_PANEL: usize = 32;
+/// Maximum number of relationships one screen may declare.
+pub const MAX_RELATIONSHIPS_PER_SCREEN: usize = 64;
+/// Maximum number of activation fields one custom screen may declare.
+pub const MAX_ACTIVATION_FIELDS: usize = 32;
+/// Maximum number of binding references one custom screen may declare.
+pub const MAX_BINDINGS_PER_SCREEN: usize = 256;
+/// Maximum byte length of the member part of a custom screen identifier.
+pub const CUSTOM_MEMBER_BYTE_LIMIT: usize = 63;
+
+/// Namespace every externally authored screen must sit in.
+pub const CUSTOM_SCREEN_NAMESPACE: &str = "local.";
 
 /// Reserved screen-identifier namespaces, in declaration order.
 pub const SCREEN_NAMESPACES: [&str; 3] = ["core.", "github.", "local."];
@@ -63,6 +76,17 @@ pub enum IdError {
     DoubledSeparator,
     /// A screen identifier is not in a reserved namespace.
     UnknownNamespace,
+    /// An externally authored screen identifier is not in the `local.`
+    /// namespace.
+    NotCustomNamespace,
+    /// The member part of a custom screen identifier violates its narrower
+    /// grammar.
+    InvalidCustomMember,
+    /// A versioned type identifier is not `<name>@<version>`.
+    MissingTypeVersion,
+    /// The version part of a versioned type identifier is not a positive
+    /// decimal integer without leading zeros.
+    InvalidTypeVersion,
 }
 
 impl IdError {
@@ -80,6 +104,14 @@ impl IdError {
             Self::DoubledSeparator => "identifier contains two adjacent separators",
             Self::UnknownNamespace => {
                 "screen identifier must start with 'core.', 'github.', or 'local.'"
+            }
+            Self::NotCustomNamespace => {
+                "externally authored screen identifier must start with 'local.'"
+            }
+            Self::InvalidCustomMember => "custom screen member must match [a-z][a-z0-9-]{0,62}",
+            Self::MissingTypeVersion => "versioned type identifier must be '<name>@<version>'",
+            Self::InvalidTypeVersion => {
+                "versioned type version must be a positive decimal integer without leading zeros"
             }
         }
     }
@@ -196,6 +228,205 @@ plain_id! {
     /// Kind of content a panel renders (drives renderer selection and the
     /// PTY-panel guarantee).
     PanelTypeId
+}
+plain_id! {
+    /// Identity of one typed port within a panel.
+    PortId
+}
+
+/// Identity of the value a port carries, qualified by its version.
+///
+/// Two ports may only be joined by a relationship when their versioned types
+/// are identical, so the version is part of identity rather than metadata: a
+/// panel that starts emitting `github.issue@2` no longer satisfies a target that
+/// declared `github.issue@1`, and the mismatch is a validation failure instead
+/// of a silent shape change at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct VersionedTypeId(&'static str);
+
+impl VersionedTypeId {
+    /// Parse `<name>@<version>`.
+    ///
+    /// The name follows the plain identifier grammar and the version is a
+    /// positive decimal integer without leading zeros, so one type version has
+    /// exactly one spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns the specific [`IdError`] describing the violated rule.
+    pub fn parse(value: &'static str) -> Result<Self, IdError> {
+        if value.len() > ID_BYTE_LIMIT {
+            return Err(IdError::TooLong);
+        }
+        let Some((name, version)) = value.split_once('@') else {
+            return Err(IdError::MissingTypeVersion);
+        };
+        check_plain_grammar(name)?;
+        check_type_version(version)?;
+        Ok(Self(value))
+    }
+
+    /// Borrow the full `<name>@<version>` text.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+
+    /// Borrow the name part.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        self.0.split_once('@').map_or(self.0, |(name, _)| name)
+    }
+
+    /// Borrow the version part.
+    #[must_use]
+    pub fn version(self) -> &'static str {
+        self.0.split_once('@').map_or("", |(_, version)| version)
+    }
+}
+
+impl fmt::Display for VersionedTypeId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+fn check_type_version(version: &str) -> Result<(), IdError> {
+    let bytes = version.as_bytes();
+    let Some(&first) = bytes.first() else {
+        return Err(IdError::InvalidTypeVersion);
+    };
+    if !first.is_ascii_digit() || first == b'0' {
+        return Err(IdError::InvalidTypeVersion);
+    }
+    if bytes.iter().any(|byte| !byte.is_ascii_digit()) {
+        return Err(IdError::InvalidTypeVersion);
+    }
+    Ok(())
+}
+
+/// Identity of one externally authored screen.
+///
+/// The grammar is narrower than the plain one because the identifier and the
+/// file name are the same value: `local.<member>` is declared inside
+/// `<member>.screen.toml`, so a member that cannot be a file-name stem cannot be
+/// a screen identity either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CustomScreenId(&'static str);
+
+impl CustomScreenId {
+    /// Parse a `local.<member>` identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns the specific [`IdError`] describing the violated rule.
+    pub fn parse(value: &'static str) -> Result<Self, IdError> {
+        let Some(member) = value.strip_prefix(CUSTOM_SCREEN_NAMESPACE) else {
+            return Err(IdError::NotCustomNamespace);
+        };
+        check_custom_member(member)?;
+        Ok(Self(value))
+    }
+
+    /// Borrow the full `local.<member>` text.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+
+    /// Borrow the member part, which is also the file-name stem.
+    #[must_use]
+    pub fn member(self) -> &'static str {
+        self.0
+            .strip_prefix(CUSTOM_SCREEN_NAMESPACE)
+            .unwrap_or(self.0)
+    }
+}
+
+impl fmt::Display for CustomScreenId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+/// Check the `[a-z][a-z0-9-]{0,62}` member grammar.
+///
+/// # Errors
+///
+/// Returns [`IdError::InvalidCustomMember`] for any violation, because the rule
+/// is one closed pattern rather than a set of independently reportable rules.
+pub fn check_custom_member(member: &str) -> Result<(), IdError> {
+    let bytes = member.as_bytes();
+    let Some(&first) = bytes.first() else {
+        return Err(IdError::InvalidCustomMember);
+    };
+    if bytes.len() > CUSTOM_MEMBER_BYTE_LIMIT
+        || !first.is_ascii_lowercase()
+        || bytes
+            .iter()
+            .any(|&byte| !(byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'))
+    {
+        return Err(IdError::InvalidCustomMember);
+    }
+    Ok(())
+}
+
+/// Identity of any descriptor in the composed registry.
+///
+/// Screen *routing* stays a closed [`ScreenId`] match, because every routable
+/// screen must also be rendered and labelled. Screen *description* is open, so
+/// that a lowered custom screen can be validated, resolved, and laid out by the
+/// same code as a compiled one without inventing a second descriptor type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ScreenIdentity {
+    /// A screen compiled into this executable.
+    Compiled(ScreenId),
+    /// A screen lowered from a user definition file.
+    Custom(CustomScreenId),
+}
+
+impl ScreenIdentity {
+    /// The stable identity string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Compiled(id) => id.as_str(),
+            Self::Custom(id) => id.as_str(),
+        }
+    }
+
+    /// The compiled screen this identity names, if it names one.
+    #[must_use]
+    pub const fn compiled(self) -> Option<ScreenId> {
+        match self {
+            Self::Compiled(id) => Some(id),
+            Self::Custom(_) => None,
+        }
+    }
+
+    /// Check that this identity satisfies its grammar.
+    ///
+    /// # Errors
+    ///
+    /// Returns the specific [`IdError`] describing the violated rule.
+    pub fn check(self) -> Result<(), IdError> {
+        match self {
+            Self::Compiled(id) => id.check(),
+            Self::Custom(id) => CustomScreenId::parse(id.as_str()).map(|_| ()),
+        }
+    }
+}
+
+impl From<ScreenId> for ScreenIdentity {
+    fn from(id: ScreenId) -> Self {
+        Self::Compiled(id)
+    }
+}
+
+impl fmt::Display for ScreenIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 /// Stable identity of one screen.

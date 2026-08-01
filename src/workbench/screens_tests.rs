@@ -160,7 +160,11 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 #[test]
 fn the_declared_screen_constants_match_the_registry_exactly() {
     let registry = registry();
-    let registered: Vec<ScreenId> = registry.screens().iter().map(|screen| screen.id).collect();
+    let registered: Vec<ScreenId> = registry
+        .screens()
+        .iter()
+        .filter_map(|screen| screen.id.compiled())
+        .collect();
     assert_eq!(registered, ScreenId::ALL.to_vec());
 }
 
