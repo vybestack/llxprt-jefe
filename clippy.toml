@@ -5,7 +5,14 @@
 # local clippy runs (without CLIPPY_CONF_DIR) apply the same MSRV-aware lint
 # decisions as CI (e.g. from_mins is const-stable since 1.91, so the
 # duration_suboptimal_units suggestion is suppressed under this MSRV).
-msrv = "1.75"
+#
+# 1.89 is the floor at which `std::fs::File::try_lock`/`unlock` are stable.
+# The managed package-install cache is guarded by that kernel advisory lock
+# (issue #556), which is the only correct way to serialize installs across
+# processes without an added dependency or `unsafe`. The previous value of
+# 1.75 predated `edition = "2024"` (Rust 1.85) and could not have built this
+# crate; CI has always used the stable toolchain.
+msrv = "1.89"
 
 # Maximum cognitive complexity per function
 cognitive-complexity-threshold = 15

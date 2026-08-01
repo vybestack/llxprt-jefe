@@ -111,10 +111,10 @@ impl ConsolePolicy for RecordingPolicy {
         if self.check_fail("set_cp") {
             return Err(std::io::Error::other("injected set_cp failure"));
         }
-        if let Some(log) = &self.restore_log {
-            if let Ok(mut guard) = log.lock() {
-                guard.push(code_page);
-            }
+        if let Some(log) = &self.restore_log
+            && let Ok(mut guard) = log.lock()
+        {
+            guard.push(code_page);
         }
         self.code_page = code_page;
         Ok(())

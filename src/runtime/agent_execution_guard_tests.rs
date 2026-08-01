@@ -152,7 +152,7 @@ fn exact_match_authorizes_and_borrows_plan() {
     let evidence = base_evidence();
     match authorize_execution(&plan, &evidence) {
         AuthorizationResult::Authorized(authorized) => {
-            assert!(std::ptr::eq(authorized.plan(), &plan));
+            assert!(std::ptr::eq(authorized.plan(), &raw const plan));
             assert_eq!(authorized.plan().definition_sha256, plan.definition_sha256);
             assert_eq!(authorized.plan().executable, plan.executable);
             assert_eq!(authorized.plan().probe_generation, plan.probe_generation);

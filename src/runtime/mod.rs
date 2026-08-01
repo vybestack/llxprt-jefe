@@ -52,6 +52,9 @@ mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
+/// Cross-process advisory lock over the managed package install cache
+/// (issue #556).
+mod package_install_lock;
 mod package_probe;
 /// Generic package-backed invocation and preparation boundary (issue #382 S12).
 pub mod package_runtime;
