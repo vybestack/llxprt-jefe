@@ -365,14 +365,28 @@ chmod 755 node_modules/.bin/llxprt
     );
 }
 
-/// Install directory owning a managed executable (`…/<hash>/node_modules/.bin/llxprt`).
+/// Install directory owning a managed executable.
+///
+/// Walks upward from the binary (`…/<hash>/node_modules/.bin/llxprt`) to the
+/// nearest ancestor that holds the `.jefe-installed` marker, rather than
+/// assuming a fixed directory depth, so a structural change cannot silently
+/// target the wrong directory.
 #[cfg(unix)]
 fn install_dir_of(executable: &Path) -> &Path {
-    executable
+    let mut dir = executable
         .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .unwrap_or_else(|| panic!("managed executable lives under an install dir: {}", executable.display()))
+        .unwrap_or_else(|| panic!("managed executable has a parent dir: {}", executable.display()));
+    loop {
+        if dir.join(".jefe-installed").exists() {
+            return dir;
+        }
+        dir = dir.parent().unwrap_or_else(|| {
+            panic!(
+                "no ancestor of {} holds the .jefe-installed marker",
+                executable.display()
+            )
+        });
+    }
 }
 
 #[cfg(unix)]
@@ -493,9 +507,19 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     );
     let refreshed = std::fs::read_to_string(install_dir.join(".jefe-installed"))
         .unwrap_or_else(|error| panic!("read refreshed marker: {error}"));
+    let lines: Vec<&str> = refreshed.lines().collect();
     assert!(
-        refreshed.lines().count() >= 4,
+        lines.len() >= 4,
         "refreshed volatile marker must carry an install-time line: {refreshed:?}"
+    );
+    // The identity lines must be preserved across the refresh (no corruption).
+    assert_eq!(lines[0], selection.package(), "package line preserved");
+    assert_eq!(lines[1], selection.binary(), "binary line preserved");
+    assert_eq!(lines[2], effective, "effective-selector line preserved");
+    assert!(
+        lines[3].parse::<u64>().is_ok(),
+        "the 4th line must be a valid install-time epoch, got {:?}",
+        lines[3]
     );
 }
 
@@ -560,5 +584,9 @@ fn volatile_re_resolve_removes_stale_lockfile() {
     assert_eq!(
         lines[1], "absent",
         "the stale package-lock.json must be removed before npm re-resolves (got {lines:?})",
+    );
+    assert!(
+        !install_dir.join("package-lock.json").exists(),
+        "the stale lockfile must remain absent after the re-resolve completes"
     );
 }
