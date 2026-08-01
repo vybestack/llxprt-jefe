@@ -270,31 +270,29 @@ mod tests {
         let deliveries = GhDeliveryHandle::default();
         let (sender, receiver) = mpsc::channel();
 
-        smol::block_on(async move {
+        smol::block_on(async {
             let mut app = element!(PanicProbe(
                 deliveries: Some(deliveries),
                 notify: Some(sender),
             ));
-            let result = smol::future::or(
-                async move {
-                    let _: Vec<_> = app
-                        .mock_terminal_render_loop(MockTerminalConfig::default())
-                        .collect()
-                        .await;
-                    receiver.recv().ok()
-                },
-                async {
-                    smol::Timer::after(Duration::from_secs(10)).await;
-                    None
-                },
-            )
-            .await;
-            let message = result.unwrap_or_default();
-            assert!(
-                message.starts_with("panic handled: boom (at "),
-                "panic message and location must reach state: {message}"
-            );
+            let _: Vec<_> = app
+                .mock_terminal_render_loop(MockTerminalConfig::default())
+                .collect()
+                .await;
         });
+
+        // The probe sends before it exits the render loop, so the value is
+        // already queued once the loop above drains. `try_recv` keeps this a
+        // behavioural assertion rather than a wall-clock race, and the render
+        // loop itself is left unbounded so a genuine hang is caught by the test
+        // harness instead of by a deadline that only measures load (issue #562).
+        let message = receiver
+            .try_recv()
+            .unwrap_or_else(|_| panic!("the contained panic must reach state"));
+        assert!(
+            message.starts_with("panic handled: boom (at "),
+            "panic message and location must reach state: {message}"
+        );
     }
 
     #[derive(Default, Props)]
@@ -372,22 +370,17 @@ mod tests {
                 deliveries: Some(deliveries),
                 observed: Some(observed_tx),
             ));
-            let _: Vec<_> = smol::future::or(
-                async {
-                    app.mock_terminal_render_loop(MockTerminalConfig::default())
-                        .collect()
-                        .await
-                },
-                async {
-                    smol::Timer::after(Duration::from_secs(10)).await;
-                    Vec::new()
-                },
-            )
-            .await;
+            let _: Vec<_> = app
+                .mock_terminal_render_loop(MockTerminalConfig::default())
+                .collect()
+                .await;
         });
 
+        // The probe sends before it exits the render loop, so by the time the
+        // loop above has drained the value is already queued. `try_recv` keeps
+        // this a behavioural assertion instead of a wall-clock race (issue #562).
         let (render_thread, apply_thread) = observed_rx
-            .recv_timeout(Duration::from_secs(5))
+            .try_recv()
             .unwrap_or_else(|_| panic!("the background result must be applied"));
         assert_eq!(
             render_thread, apply_thread,
@@ -474,22 +467,16 @@ mod tests {
                 deliveries: Some(deliveries),
                 observed: Some(observed_tx),
             ));
-            let _: Vec<_> = smol::future::or(
-                async {
-                    app.mock_terminal_render_loop(MockTerminalConfig::default())
-                        .collect()
-                        .await
-                },
-                async {
-                    smol::Timer::after(Duration::from_secs(10)).await;
-                    Vec::new()
-                },
-            )
-            .await;
+            let _: Vec<_> = app
+                .mock_terminal_render_loop(MockTerminalConfig::default())
+                .collect()
+                .await;
         });
 
+        // Sent synchronously during the render that records the panic, so the
+        // value is queued once the loop above drains (issue #562).
         let (count, title, detail, screen_mode) = observed_rx
-            .recv_timeout(Duration::from_secs(5))
+            .try_recv()
             .unwrap_or_else(|_| panic!("a silent route panic must reach the errors screen"));
         assert_eq!(count, 1, "exactly one error entry must be retained");
         assert_eq!(title, "Background task panicked");
@@ -624,7 +611,22 @@ mod tests {
                 .await;
         });
 
-        assert!(worker_rx.recv_timeout(Duration::from_secs(2)).is_ok());
-        assert!(applied_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        // The worker runs on a blocking thread and may still be scheduling when
+        // the render loop drains, so wait for it without a deadline: a genuine
+        // failure to deliver is a hang the harness catches, whereas a fixed
+        // budget only measures machine load (issue #562).
+        assert!(
+            worker_rx.recv().is_ok(),
+            "the worker must report that it produced a result"
+        );
+        // Deliberately a bounded *negative* assertion, not a `try_recv`. The
+        // worker signals `worker_notify` before `deliver()` runs, so the
+        // delivery may still be in flight here. A negative assertion can only
+        // ever catch more by waiting longer, so this window is not
+        // load-sensitive in the failing direction and must not be shortened.
+        assert!(
+            applied_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a late worker result must not be applied after the component drops"
+        );
     }
 }
