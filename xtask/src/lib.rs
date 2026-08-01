@@ -11,6 +11,7 @@
 pub mod architecture;
 pub mod cli;
 pub mod clippy_policy;
+pub mod multiplexer_surface;
 pub mod process;
 pub mod source_size;
 pub mod toolchain;

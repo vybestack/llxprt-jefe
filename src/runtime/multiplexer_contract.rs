@@ -280,12 +280,6 @@ static CONTRACT: &[ContractItem] = &[
         ContractCapability::Always,
         "sizes scrollback reads",
     ),
-    format(
-        "next_display_index",
-        false,
-        ContractCapability::Always,
-        "allocates the next window display index",
-    ),
     // --- server options ---
     server_option(
         "exit-empty",

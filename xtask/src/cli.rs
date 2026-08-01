@@ -10,12 +10,13 @@ use std::process::ExitCode;
 
 use crate::architecture;
 use crate::clippy_policy;
+use crate::multiplexer_surface;
 use crate::process::{CommandFailed, CommandPlan, repo_path};
 use crate::source_size;
 use crate::toolchain;
 use crate::windows_coverage;
 
-/// The aggregate `ci` ordering — fmt, clippy-allow policy, source-size policy,
+/// The aggregate `ci` ordering â€” fmt, clippy-allow policy, source-size policy,
 /// architecture policy, strict clippy, complexity clippy, coverage, locked
 /// build, locked test (A1). Each step fails fast.
 const CI_STEPS: &[&str] = &[
@@ -23,6 +24,7 @@ const CI_STEPS: &[&str] = &[
     "check-clippy-allows",
     "check-source-size",
     "check-architecture",
+    "check-multiplexer-surface",
     "lint",
     "complexity",
     "coverage",
@@ -103,7 +105,7 @@ fn exit(result: Result<(), CommandFailed>) -> ExitCode {
 
 // --- aggregate commands -----------------------------------------------------
 
-/// `cargo xtask ci` — the full gate in CI order (A1). Fail-fast: the first
+/// `cargo xtask ci` â€” the full gate in CI order (A1). Fail-fast: the first
 /// failing step aborts and its exit code propagates.
 fn run_ci() -> Result<(), CommandFailed> {
     let root = repo_path("").map_err(|err| CommandFailed {
@@ -126,6 +128,7 @@ fn run_ci_step(step: &str, root: &Path) -> Result<(), CommandFailed> {
         "check-clippy-allows" => clippy_policy::run_repo_check(root),
         "check-source-size" => source_size::run_repo_check(root),
         "check-architecture" => architecture::run_repo_check(root),
+        "check-multiplexer-surface" => multiplexer_surface::run_repo_check(root),
         "lint" => lint_plan().run_inherit(),
         "complexity" => complexity_plan().run_inherit(),
         "coverage" => run_coverage(),
@@ -141,7 +144,7 @@ fn run_ci_step(step: &str, root: &Path) -> Result<(), CommandFailed> {
     }
 }
 
-/// `cargo xtask quick` — replaces `make quick-check` (A2).
+/// `cargo xtask quick` â€” replaces `make quick-check` (A2).
 fn run_quick() -> Result<(), CommandFailed> {
     let fmt = CommandPlan::new("cargo").arg("fmt").run_inherit();
     fmt?;
@@ -152,7 +155,7 @@ fn run_quick() -> Result<(), CommandFailed> {
     CommandPlan::new("cargo").args(["test", "-q"]).run_inherit()
 }
 
-/// `cargo xtask trim-cache` — replaces `make trim-cache` (A3). Coverage clean
+/// `cargo xtask trim-cache` â€” replaces `make trim-cache` (A3). Coverage clean
 /// + removal of `target/debug/incremental`, using platform-aware paths.
 fn run_trim_cache() -> Result<(), CommandFailed> {
     toolchain::coverage_clean_plan().run_inherit()?;
@@ -223,7 +226,7 @@ fn run_coverage() -> Result<(), CommandFailed> {
     toolchain::coverage_plan()?.run_inherit()
 }
 
-/// `cargo xtask coverage-windows` — enforce a floor per Windows-only module.
+/// `cargo xtask coverage-windows` â€” enforce a floor per Windows-only module.
 ///
 /// The workspace coverage gate runs on Ubuntu, where these modules are
 /// compiled out, so it can never observe them. This gate names the module that
@@ -291,7 +294,9 @@ fn run_windows_coverage() -> Result<(), CommandFailed> {
 
 fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
     let Some(target) = rest.first() else {
-        eprintln!("usage: cargo xtask check <clippy-allows|source-size|architecture>");
+        eprintln!(
+            "usage: cargo xtask check <clippy-allows|source-size|architecture|multiplexer-surface>"
+        );
         return Err(usage_error("check", "missing policy name"));
     };
     let root = repo_path("").map_err(|err| CommandFailed {
@@ -305,6 +310,7 @@ fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
         "clippy-allows" => clippy_policy::run_repo_check(&root),
         "source-size" => source_size::run_repo_check(&root),
         "architecture" => architecture::run_repo_check(&root),
+        "multiplexer-surface" => multiplexer_surface::run_repo_check(&root),
         other => {
             eprintln!("error: unknown check target `{other}`");
             Err(usage_error("check", "unknown policy name"))
