@@ -137,9 +137,9 @@ No change to `.github/`, `Cargo.toml`, `clippy.toml`, `xtask/`, `.llxprt/`, or a
 
 | Review | Cap | Used |
 |---|---|---|
-| Local OCR | 2 | 0 |
-| PR OCR | 2 | 0 |
-| Design/code review cycles | 2 | 0 |
+| Local OCR | 2 | 1 (one run; produced no parseable output) |
+| PR OCR | 2 | 2 (automatic budget exhausted; run 1 failed to parse, run 2 produced 24 findings) |
+| Design/code review cycles | 2 | 2 (local Rust review, PR review) |
 
 ## 8a. Evidence by acceptance row
 
@@ -178,6 +178,32 @@ clippy-allow policy, source-file size, architecture policy, complexity, coverage
 | M7 | `PortRef` ambiguous because identifiers may contain `.` | In-scope—Fix | A definition's panel and port identifiers may not contain `.`. |
 | M8 | Follow-up bound miscounted and skipped explicit staging | In-scope—Fix | Follow-ups are counted as edge work, excluding the publication that caused the transition and including staging. |
 | M9 | Issue/PR cutover diverged for duplicate subjects and stale indices | In-scope—Fix | The trigger is again row movement, exactly as before; the descriptor decides whether the screen couples list to detail and what the detail input receives. |
+
+### PR review round (OpenCodeReview on the PR, 24 findings)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| `ScreenFileRejection` does not implement `Error` | In-scope—Fix | Implemented, matching `DefinitionsUnreadable` in the same module. |
+| `ScreenStartupError` / `LoweringError` never chain a source | In-scope—Fix | Both implement `source()` for the variants that wrap a cause. |
+| `compiled_inventory()` rebuilt per binding | In-scope—Fix | The inventory is built once per screen and every binding resolves against it. |
+| Config-key failure discards the key | In-scope—Fix | The key is named. It is an identifier from a closed grammar, not a value. |
+| Binding failure discards the action/context name | In-scope—Fix | The name is reported for the same reason. |
+| Unknown panel type does not list what is available | In-scope—Fix | The refusal enumerates the definable panel types. |
+| Zero extent silently coerced to one during lowering | In-scope—Fix | Lowering rejects zero rather than correcting it, so a parser regression cannot become a layout that does not match the file. |
+| `ScreenSyntaxReason` `Display` could render empty for a new variant | In-scope—Fix | The second half matches exhaustively, so a new variant is a compile error. |
+| `panel_types.rs` double dereference | In-scope—Fix | Uses `copied()`. |
+| Test name promises two exit codes, asserts one | In-scope—Fix | Renamed to what it checks. |
+| Hardcoded `core.dashboard` as the initial screen | In-scope—Fix | Derived from the compiled registry. |
+| Test name/body mismatch on the empty enabled set | In-scope—Fix | Renamed to what it checks. |
+| `unreachable!` messages omit the parse error | In-scope—Fix | The error is included. |
+| Interner count test not self-contained | In-scope—Fix | Asserts an exact delta of one, then zero. |
+| Multi-panel cycle tests use `matches!` | In-scope—Fix | Assert the exact reported panel, matching the self-edge test. |
+| "Text fixtures" reads as a typo | In-scope—Fix | Reworded. |
+| `drop(resident)` in `intern` is redundant | Reject | `clippy::significant_drop_tightening` requires it; removing it fails the lint gate. |
+| `compose_fixtures` is not `#[cfg(test)]` gated | Reject | It is: `src/workbench/mod.rs` declares it under `#[cfg(test)]`. |
+| `is_enabled` allocates per candidate | Reject | Composition runs once per process over at most 64 candidates. |
+| No test for `InternExhausted` | Reject | Filling a 67,712-entry process-global table would permanently consume the interner for every other test in the binary. The bound is proven by construction and by the discovery limit that feeds it. |
+| `PUBLISHED_REGISTRY` fallback is a test-ordering hazard | Reject | A premature read is not silent: publication then fails with `RegistryAlreadyPublished` and startup exits 78. `main.rs` reads the registry nowhere before `publish_screen_registry_or_exit`, and no test calls `compose_and_publish`. |
 
 ### Deferred
 

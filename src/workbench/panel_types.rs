@@ -99,7 +99,8 @@ pub fn resolve_panel_type(declared: &str) -> Result<PanelTypeId, PanelTypeError>
     }
     let compiled = DEFINABLE_PANEL_TYPES
         .iter()
-        .find(|candidate| **candidate == declared)
+        .copied()
+        .find(|candidate| *candidate == declared)
         .ok_or_else(|| PanelTypeError::Unknown {
             declared: declared.to_owned(),
         })?;

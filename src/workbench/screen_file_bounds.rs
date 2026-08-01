@@ -133,6 +133,10 @@ pub enum ScreenSyntaxReason {
 
 impl std::fmt::Display for ScreenSyntaxReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Split only to keep each arm set small. Between them the two halves
+        // cover every variant, and `fmt_count` matches exhaustively, so a new
+        // variant is a compile error rather than a diagnostic that renders as
+        // nothing.
         self.fmt_shape(formatter)
             .unwrap_or_else(|| self.fmt_count(formatter))
     }
@@ -221,7 +225,15 @@ impl ScreenSyntaxReason {
             Self::MalformedPortReference => {
                 formatter.write_str("port reference must be spelled '<panel>.<port>'")
             }
-            _ => Ok(()),
+            Self::Malformed { .. }
+            | Self::UnsupportedSchema { .. }
+            | Self::DocumentTooDeep { .. }
+            | Self::MapTooLarge { .. }
+            | Self::ArrayTooLarge { .. }
+            | Self::StringTooLong { .. }
+            | Self::IdentifierTooLong { .. } => self
+                .fmt_shape(formatter)
+                .unwrap_or_else(|| formatter.write_str("malformed screen definition")),
         }
     }
 }

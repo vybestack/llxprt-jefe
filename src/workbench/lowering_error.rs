@@ -37,9 +37,14 @@ pub enum LoweringError {
     UnknownBinding {
         /// Which half was unresolvable.
         field: &'static str,
+        /// The unresolvable name, which is an identifier rather than a value.
+        declared: String,
     },
     /// A configuration key is not a well-formed identifier.
-    ConfigKey,
+    ConfigKey {
+        /// The offending key, which is a name rather than a value.
+        key: String,
+    },
     /// A configuration value is of a kind panel configuration does not carry.
     ConfigValue {
         /// The offending TOML kind.
@@ -47,6 +52,12 @@ pub enum LoweringError {
     },
     /// A relationship endpoint is not spelled `<panel>.<port>`.
     PortReference,
+    /// A size, minimum, or maximum reached lowering as zero, which parsing
+    /// should already have refused.
+    ZeroExtent {
+        /// Which field carried it.
+        field: &'static str,
+    },
     /// The lowered descriptor violates a structural invariant.
     Descriptor(DescriptorError),
 }
@@ -76,25 +87,35 @@ impl std::fmt::Display for LoweringError {
                 "screen identity must be {expected:?} to match its file name"
             ),
             Self::PanelType(error) => write!(formatter, "{error}"),
-            Self::UnknownBinding { field } => {
-                write!(
-                    formatter,
-                    "bindings.{field} is not published by the registry"
-                )
+            Self::UnknownBinding { field, declared } => write!(
+                formatter,
+                "bindings.{field} {declared:?} is not published by the registry"
+            ),
+            Self::ConfigKey { key } => {
+                write!(formatter, "config key {key:?} is not a valid identifier")
             }
-            Self::ConfigKey => formatter.write_str("config key is not a valid identifier"),
             Self::ConfigValue { kind } => {
                 write!(formatter, "panel config does not carry {kind} values")
             }
             Self::PortReference => {
                 formatter.write_str("port reference must be spelled '<panel>.<port>'")
             }
+            Self::ZeroExtent { field } => write!(formatter, "{field} must be at least 1"),
             Self::Descriptor(error) => write!(formatter, "{error}"),
         }
     }
 }
 
-impl std::error::Error for LoweringError {}
+impl std::error::Error for LoweringError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Interning(error) => Some(error),
+            Self::PanelType(error) => Some(error),
+            Self::Descriptor(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<InternExhausted> for LoweringError {
     fn from(error: InternExhausted) -> Self {

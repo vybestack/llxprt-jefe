@@ -173,7 +173,7 @@ fn an_invalid_enabled_definition_refuses_the_whole_registry_and_keeps_its_bytes(
 }
 
 #[test]
-fn a_refusal_exits_two_and_a_compiled_fault_exits_seventy_eight() {
+fn a_refusal_traceable_to_a_file_exits_two() {
     let config = Config::new("exit-codes");
     config.write_definition("review", "not toml {{{");
 

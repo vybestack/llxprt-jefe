@@ -31,11 +31,9 @@ use super::ids::{
 use super::intern::intern;
 use super::lowering_error::LoweringError;
 use super::panel_types::resolve_panel_type;
-use super::screen_file::{
-    BindingRefFile, PanelFile, PortDirectionFile, PortFile, ScreenFile, span_of,
-};
+use super::screen_file::{PanelFile, PortDirectionFile, PortFile, ScreenFile, span_of};
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
-use super::screen_lowering_values::{lower_config, resolve_binding};
+use super::screen_lowering_values::{lower_config, published_actions, resolve_binding};
 use super::validate::validate_descriptor;
 
 /// Where a lowered screen came from.
@@ -102,8 +100,12 @@ pub fn lower_screen(
         layout: lower_layout(&file.layout)?,
         relationships: lower_relationships(&file.relationships)?,
     };
-    for binding in &file.bindings {
-        check_binding(binding.get_ref())?;
+    if !file.bindings.is_empty() {
+        let published = published_actions()?;
+        for binding in &file.bindings {
+            let declared = binding.get_ref();
+            resolve_binding(&published, &declared.context, &declared.action)?;
+        }
     }
     validate_descriptor(&descriptor)?;
     Ok(LoweredScreen {
@@ -195,14 +197,4 @@ pub fn lower_port_ref(value: &str) -> Result<PortRef, LoweringError> {
         panel: parse_id("relationship panel", panel, PanelId::parse)?,
         port: parse_id("relationship port", port, PortId::parse)?,
     })
-}
-
-/// Check that a binding names an action and a context the registry publishes.
-///
-/// Nothing in this issue consumes the resolved binding: there is no keymap
-/// composition here and no editor. Resolving it anyway is the point — a
-/// definition that names an action the program does not have is rejected before
-/// it can be enabled, rather than silently doing nothing once it is.
-fn check_binding(binding: &BindingRefFile) -> Result<(), LoweringError> {
-    resolve_binding(&binding.context, &binding.action)
 }

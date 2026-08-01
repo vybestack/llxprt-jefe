@@ -55,12 +55,14 @@ fn interning_empty_text_is_permitted_and_stable() {
 }
 
 #[test]
-fn resident_count_grows_only_for_new_text() {
+fn resident_count_grows_by_one_for_new_text_and_not_at_all_for_repeated_text() {
     let unique = "intern-resident-count-probe";
-    intern(unique).unwrap_or_else(|error| unreachable!("intern must succeed: {error}"));
     let before = resident_count();
 
     intern(unique).unwrap_or_else(|error| unreachable!("intern must succeed: {error}"));
+    let after_first = resident_count();
+    intern(unique).unwrap_or_else(|error| unreachable!("intern must succeed: {error}"));
 
-    assert_eq!(resident_count(), before);
+    assert_eq!(after_first, before + 1, "new text admits exactly one entry");
+    assert_eq!(resident_count(), after_first, "repeated text admits none");
 }

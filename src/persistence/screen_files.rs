@@ -76,6 +76,8 @@ impl std::fmt::Display for ScreenFileRejection {
     }
 }
 
+impl std::error::Error for ScreenFileRejection {}
+
 /// One discovered screen definition candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenFileCandidate {

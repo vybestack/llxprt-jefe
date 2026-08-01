@@ -53,22 +53,24 @@ pub fn lower_layout(node: &LayoutFile) -> Result<LayoutNode, LoweringError> {
 fn lower_child(child: &ChildFile) -> Result<LayoutChild, LoweringError> {
     Ok(LayoutChild {
         node: lower_layout(&child.node)?,
+        // Parsing already rejects a zero extent. Rejecting it again rather than
+        // coercing it to one keeps that the only answer: silently correcting a
+        // size here would turn a parser regression into a layout that does not
+        // match the file and cannot be traced back to it.
         size: match child.size {
-            // Zero is rejected during parsing, so the fallback is unreachable;
-            // it exists because `NonZeroU16` has no infallible conversion and a
-            // panic here would be a worse answer than the smallest size.
-            SizeFile::Fixed(cells) => {
-                Size::Fixed(NonZeroU16::new(cells).unwrap_or(NonZeroU16::MIN))
-            }
-            SizeFile::Weight(share) => {
-                Size::Weight(NonZeroU16::new(share).unwrap_or(NonZeroU16::MIN))
-            }
+            SizeFile::Fixed(cells) => Size::Fixed(nonzero(cells, "size.fixed")?),
+            SizeFile::Weight(share) => Size::Weight(nonzero(share, "size.weight")?),
         },
         min: child.min,
         max: child.max,
         collapsible: child.collapsible,
         collapse_priority: child.collapse_priority,
     })
+}
+
+/// Reject a zero extent rather than correcting it.
+fn nonzero(value: u16, field: &'static str) -> Result<NonZeroU16, LoweringError> {
+    NonZeroU16::new(value).ok_or(LoweringError::ZeroExtent { field })
 }
 
 /// Lower the relationship list, preserving declaration order.

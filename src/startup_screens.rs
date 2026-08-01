@@ -64,7 +64,16 @@ impl std::fmt::Display for ScreenStartupError {
     }
 }
 
-impl std::error::Error for ScreenStartupError {}
+impl std::error::Error for ScreenStartupError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Compiled(error) => Some(error),
+            Self::Definitions(error) => Some(error),
+            Self::Refused(refusal) => Some(refusal.as_ref()),
+            Self::AlreadyPublished(error) => Some(error),
+        }
+    }
+}
 
 /// Discover, lower, and compose the candidate screen registry.
 ///

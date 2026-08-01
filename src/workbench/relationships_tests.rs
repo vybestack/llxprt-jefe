@@ -216,10 +216,12 @@ fn a_two_panel_cycle_is_rejected() {
         vec![edge("a", "b"), edge("b", "a")],
     );
 
-    assert!(matches!(
+    assert_eq!(
         validate_relationships(&descriptor),
-        Err(RelationshipError::Cycle { .. })
-    ));
+        Err(RelationshipError::Cycle {
+            panel: panel_id("a")
+        })
+    );
 }
 
 #[test]
@@ -229,10 +231,12 @@ fn a_three_panel_cycle_is_rejected() {
         vec![edge("a", "b"), edge("b", "c"), edge("c", "a")],
     );
 
-    assert!(matches!(
+    assert_eq!(
         validate_relationships(&descriptor),
-        Err(RelationshipError::Cycle { .. })
-    ));
+        Err(RelationshipError::Cycle {
+            panel: panel_id("a")
+        })
+    );
 }
 
 #[test]

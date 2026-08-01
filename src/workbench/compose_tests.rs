@@ -406,12 +406,13 @@ fn a_lowered_screen_is_not_resolvable_from_persisted_text() {
             .registry
             .initial_screen()
             .map(|screen| screen.id.as_str()),
-        Some("core.dashboard")
+        compiled().initial_screen().map(|screen| screen.id.as_str()),
+        "adding a lowered screen must not move the fallback"
     );
 }
 
 #[test]
-fn composition_ignores_an_enabled_set_naming_something_that_is_not_a_screen() {
+fn a_definition_is_left_out_when_the_enabled_set_is_empty() {
     let composition = compose_screens(
         &compiled(),
         &[candidate("review", &review_definition())],

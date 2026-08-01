@@ -1,4 +1,4 @@
-//! Text fixtures shared by the screen-syntax parser tests (issue #385).
+//! Definition text shared by the screen-syntax parser tests (issue #385).
 
 use super::screen_file::{ScreenFile, parse_screen_file};
 use super::screen_file_bounds::ScreenSyntaxReason;

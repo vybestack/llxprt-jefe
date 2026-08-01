@@ -370,10 +370,11 @@ fn the_first_required_focusable_panel_follows_focus_order() {
 
 fn port(id: &'static str, direction: PortDirection, type_id: &'static str) -> PortDescriptor {
     PortDescriptor {
-        id: PortId::parse(id).unwrap_or_else(|_| unreachable!("fixture port id is valid")),
+        id: PortId::parse(id)
+            .unwrap_or_else(|error| unreachable!("fixture port id must parse: {error}")),
         direction,
         type_id: VersionedTypeId::parse(type_id)
-            .unwrap_or_else(|_| unreachable!("fixture port type is valid")),
+            .unwrap_or_else(|error| unreachable!("fixture port type must parse: {error}")),
         required: false,
         retained: false,
     }
@@ -395,15 +396,18 @@ fn a_port_reference_resolves_only_against_the_panel_that_declares_it() {
 
     let declared = PortRef {
         panel: panel_id("list"),
-        port: PortId::parse("selection").unwrap_or_else(|_| unreachable!("valid")),
+        port: PortId::parse("selection")
+            .unwrap_or_else(|error| unreachable!("fixture port id must parse: {error}")),
     };
     let other_panel = PortRef {
         panel: panel_id("detail"),
-        port: PortId::parse("selection").unwrap_or_else(|_| unreachable!("valid")),
+        port: PortId::parse("selection")
+            .unwrap_or_else(|error| unreachable!("fixture port id must parse: {error}")),
     };
     let unknown_port = PortRef {
         panel: panel_id("list"),
-        port: PortId::parse("absent").unwrap_or_else(|_| unreachable!("valid")),
+        port: PortId::parse("absent")
+            .unwrap_or_else(|error| unreachable!("fixture port id must parse: {error}")),
     };
 
     assert_eq!(
