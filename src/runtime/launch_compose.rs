@@ -213,6 +213,39 @@ fn authorize_and_preflight(
     AuthorizedLaunchPlan::from_cleared(cleared, final_plan, evidence.clone())
         .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))
 }
+/// Reject an unlaunchable request without probing, installing, or executing.
+///
+/// Every guard that runs *before* a destructive side effect (working-copy
+/// clone, checkout, or reclone) uses this, so a single send performs exactly
+/// one authoritative probe in [`prepare_launch`] instead of one per guard
+/// (issue #553). It validates everything that does not depend on probe
+/// evidence: definition, remote validity, support matrix, selector, target,
+/// typed field values, preflight contract, and — for a local launch — that a
+/// candidate still resolves.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::SpawnFailed`] with the same message the equivalent
+/// [`prepare_launch`] rejection would produce.
+pub fn validate_launch(configuration: &AgentLaunchRequest) -> Result<(), RuntimeError> {
+    let definition = definition_for(configuration)?;
+    validate_support_before_effects(&definition, configuration)?;
+    let selector = version_selector(&configuration.values)?;
+    launch_target(configuration)?;
+    launch_values(&definition, &configuration.values, configuration.operation)?;
+    preflight_contract(&definition, &configuration.values)?;
+    if configuration.remote.enabled {
+        // Remote candidate resolution is authoritative on the remote host and
+        // is owned by the remote probe adapter.
+        return Ok(());
+    }
+    let snapshot = PathSnapshot::current();
+    let resolution = AgentCandidateResolver::new(&snapshot, configuration.work_dir.clone())
+        .with_version_selector(selector)
+        .resolve(&definition);
+    resolved_candidate(&resolution).map(|_| ())
+}
+
 /// Establish an isolated launch-state root for production routes that do not
 /// own `AppState` (currently the non-interactive CLI boundary).
 pub fn observe_launch_state(

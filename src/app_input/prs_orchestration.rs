@@ -579,7 +579,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     // agent runtime or an invalid/incomplete remote config must not trigger
     // local or remote prep.
     if !super::availability::launch_available_or_error(app_state, &launch_sig)
-        || !super::availability::prepare_launch_or_error(app_state, &launch_sig)
+        || !super::availability::validate_launch_or_error(app_state, &launch_sig)
     {
         return;
     }

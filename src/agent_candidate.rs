@@ -89,6 +89,19 @@ impl VersionSelector {
         matches!(self, Self::Direct)
     }
 
+    /// Whether the selector resolves to a moving package-manager target whose
+    /// published version advances over time (a dist-tag or "latest" sentinel).
+    ///
+    /// `Latest` and `LatestNightly` are volatile: a fresh `npm install` may
+    /// resolve them to a newer build each time. `Direct` and `Explicit` are
+    /// not — an explicit version is an immutable pin. The managed install cache
+    /// uses this to re-resolve volatile selectors periodically (issue #554)
+    /// instead of caching the first resolution forever.
+    #[must_use]
+    pub const fn is_volatile(&self) -> bool {
+        matches!(self, Self::Latest | Self::LatestNightly)
+    }
+
     /// Normalized persisted value; `None` means direct.
     #[must_use]
     pub fn normalized(&self) -> Option<&str> {
