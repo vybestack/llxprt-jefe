@@ -232,7 +232,7 @@ mod tests {
     use super::{ProbeProcessError, run_probe_process};
 
     const NESTED_MARKER: &str = "JEFE_PROBE_STDIN_NESTED";
-    const STDIN_REPORTER_MARKER: &str = "JEFE_PROBE_STDIN_REPORTER";
+    const    STDIN_REPORTER_MARKER:&str="JEFE_PROBE_STDIN_REPORTER";
     const TEST_NAME: &str = "runtime::agent_probe_process::tests::probe_child_receives_null_stdin_under_inherited_parent_stdin";
 
     #[test]
