@@ -90,6 +90,20 @@ macro_rules! role_identity {
                 self.0
             }
 
+            #[doc = concat!("Record the ", $role, " from a bare PID, with no creation discriminator.")]
+            ///
+            /// Only for evidence that genuinely lacks a creation token, such as
+            /// a runtime binding restored from a pre-#543 document. Anchors
+            /// built this way cannot reject PID reuse, so callers must treat
+            /// them as weaker evidence.
+            #[must_use]
+            pub const fn from_pid(pid: u32) -> Self {
+                Self(ProcessIdentity {
+                    pid,
+                    started_at: None,
+                })
+            }
+
             /// The operating-system PID.
             #[must_use]
             pub const fn pid(self) -> u32 {

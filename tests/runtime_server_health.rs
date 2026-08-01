@@ -1,4 +1,7 @@
-use jefe::domain::{Agent, AgentId, AgentStatus, ProcessIdentity, RepositoryId};
+use jefe::domain::{
+    Agent, AgentId, AgentStatus, PaneProcessIdentity, ProcessIdentity, RepositoryId,
+    WorkerProcessIdentity,
+};
 use jefe::runtime::{
     MultiplexerVersion, ServerHealth, ServerIdentity, ServerLivenessEvidence,
     ServerLivenessObservation, classify_server_health, classify_server_liveness,
@@ -210,8 +213,8 @@ fn server_lost_preserves_runtime_binding_when_transitioned() {
         launch_signature: jefe::domain::LaunchSignatureV1::default(),
         attached: false,
         last_seen: None,
-        pid: Some(123),
-        process_identity: Some(ProcessIdentity::new(123, 1)),
+        pane_identity: Some(PaneProcessIdentity::new(123, 1)),
+        worker_identity: Some(WorkerProcessIdentity::new(123, 1)),
         lifecycle_generation: 0,
         worker_identities: vec![],
     });

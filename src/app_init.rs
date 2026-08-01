@@ -16,7 +16,7 @@ use self::signature_reconcile::{
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, ProcessIdentity};
+use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
@@ -134,12 +134,14 @@ fn classify_agent_startup(
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
     } else {
+        // Startup classification asks whether the *agent* is still running, so
+        // it is anchored on the worker identity. Where the worker cannot be
+        // identified the answer is "unknown", never the pane's answer (#543).
         process_liveness_for_binding(
-            agent.runtime_binding.as_ref().and_then(|value| value.pid),
             agent
                 .runtime_binding
                 .as_ref()
-                .and_then(|value| value.process_identity),
+                .and_then(|value| value.worker_identity),
         )
     };
     let orphan = orphan_reconcile::orphan_evidence(
@@ -153,17 +155,19 @@ fn classify_agent_startup(
     classify_startup(session, binding, signature.remote.enabled, process, orphan)
 }
 
-fn process_liveness_for_binding(
-    pid: Option<u32>,
-    process_identity: Option<ProcessIdentity>,
-) -> ProcessLiveness {
-    if process_identity.is_some() {
-        return process_liveness(process_identity);
+fn process_liveness_for_binding(worker: Option<WorkerProcessIdentity>) -> ProcessLiveness {
+    let Some(worker) = worker else {
+        return ProcessLiveness::MalformedIdentity;
+    };
+    // A creation token lets the probe reject PID reuse; without one all we can
+    // do is ask whether the bare PID is live.
+    if worker.started_at().is_some() {
+        return process_liveness(Some(worker.identity()));
     }
-    match pid {
-        Some(pid) if pid_alive(pid) => ProcessLiveness::Alive,
-        Some(_) => ProcessLiveness::Dead,
-        None => ProcessLiveness::MalformedIdentity,
+    if pid_alive(worker.pid()) {
+        ProcessLiveness::Alive
+    } else {
+        ProcessLiveness::Dead
     }
 }
 
@@ -375,7 +379,10 @@ fn apply_dead_reconciliations(
 /// Outcome of processing a single agent during [`restore_runtime_sessions`].
 enum RestoreOneOutcome {
     /// Agent was revived/reattached with the runtime's authoritative binding.
-    Revived(jefe::domain::RuntimeBinding),
+    ///
+    /// Boxed because the binding now carries a distinct identity per process
+    /// role, which makes it far larger than the unit variants (issue #543).
+    Revived(Box<jefe::domain::RuntimeBinding>),
     /// Agent should be marked Dead (binding cleared).
     Dead,
     /// Agent should be left as-is (non-running, or local orphan kept Running).
@@ -383,7 +390,7 @@ enum RestoreOneOutcome {
 }
 struct RevivedAgent {
     agent_id: AgentId,
-    binding: jefe::domain::RuntimeBinding,
+    binding: Box<jefe::domain::RuntimeBinding>,
 }
 
 /// Process one agent during restore: decide Dead / Skip / Revive and, when
@@ -421,7 +428,7 @@ fn restore_one_agent(
                 &agent.work_dir,
                 persisted_signature,
             ) {
-                Ok(binding) => RestoreOneOutcome::Revived(binding),
+                Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
                 Err(error) => {
                     warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
                     RestoreOneOutcome::Dead
@@ -438,7 +445,9 @@ fn restore_one_agent(
                     };
                     runtime
                         .runtime_binding(&agent.id, &launch_signature)
-                        .map_or(RestoreOneOutcome::Dead, RestoreOneOutcome::Revived)
+                        .map_or(RestoreOneOutcome::Dead, |binding| {
+                            RestoreOneOutcome::Revived(Box::new(binding))
+                        })
                 }
                 ReviveOutcome::Died => RestoreOneOutcome::Dead,
             }
@@ -569,7 +578,7 @@ fn apply_restored_state(
         {
             agent.status = AgentStatus::Running;
             agent.persisted_launch_signature = Some(revived.binding.launch_signature.clone());
-            agent.runtime_binding = Some(revived.binding);
+            agent.runtime_binding = Some(*revived.binding);
         }
     }
     for agent_id in newly_dead {
@@ -712,8 +721,8 @@ mod tests {
             launch_signature: previous_definition,
             attached: false,
             last_seen: None,
-            pid: None,
-            process_identity: None,
+            pane_identity: None,
+            worker_identity: None,
             lifecycle_generation: 0,
             worker_identities: Vec::new(),
         };
@@ -746,17 +755,19 @@ mod tests {
 
     #[test]
     fn legacy_pid_only_binding_uses_conservative_native_probe() {
+        // A legacy binding carries a worker PID with no creation token, so the
+        // probe falls back to a bare liveness question (issue #543).
         let pid = std::process::id();
         assert_eq!(
-            process_liveness_for_binding(Some(pid), None),
+            process_liveness_for_binding(Some(WorkerProcessIdentity::from_pid(pid))),
             ProcessLiveness::Alive
         );
         assert_eq!(
-            process_liveness_for_binding(Some(2_000_000_000), None),
+            process_liveness_for_binding(Some(WorkerProcessIdentity::from_pid(2_000_000_000))),
             ProcessLiveness::Dead
         );
         assert_eq!(
-            process_liveness_for_binding(None, None),
+            process_liveness_for_binding(None),
             ProcessLiveness::MalformedIdentity
         );
     }

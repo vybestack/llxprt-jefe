@@ -11,6 +11,7 @@ use jefe::runtime::{
 };
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
+use super::agent_runtime::BoundIdentities;
 use super::relaunch::{
     ServerLostRecoveryOutcome, apply_server_lost_recovery_outcomes, attach_relaunched_session,
     open_server_lost_recovery, persist_relaunch_failure,
@@ -48,8 +49,8 @@ fn bound_agent_state(agent_id: &AgentId) -> AppState {
         launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
-        process_identity: None,
-        pid: None,
+        pane_identity: None,
+        worker_identity: None,
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });
@@ -135,14 +136,15 @@ fn batch_recovery_keeps_failures_server_lost_and_reports_partial_success() {
             ServerLostRecoveryOutcome {
                 agent_id: first_id,
                 result: Ok(()),
-                pid: Some(100),
-                process_identity: None,
+                identities: BoundIdentities {
+                    worker: Some(jefe::domain::WorkerProcessIdentity::from_pid(100)),
+                    ..BoundIdentities::default()
+                },
             },
             ServerLostRecoveryOutcome {
                 agent_id: second_id,
                 result: Err(RuntimeError::SpawnFailed("psmux unavailable".to_owned())),
-                pid: None,
-                process_identity: None,
+                identities: BoundIdentities::default(),
             },
         ],
     );

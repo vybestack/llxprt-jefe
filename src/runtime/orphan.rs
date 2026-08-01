@@ -1,4 +1,4 @@
-//! Descendant-process observation and validated orphan-tree reaping.
+﻿//! Descendant-process observation and validated orphan-tree reaping.
 //!
 //! On native Windows with psmux, exiting/rebuilding the Jefe dashboard can kill
 //! the psmux pane leader (the intermediate `jefe.exe --jefe-internal-agent-launch`
@@ -16,7 +16,7 @@
 use super::process::{
     ProcessLiveness, ProcessObservation, capture_process_identity, classify_process_observation,
 };
-use crate::domain::ProcessIdentity;
+use crate::domain::{ProcessIdentity, WorkerProcessIdentity};
 
 /// Outcome of classifying a session against orphan evidence.
 ///
@@ -26,7 +26,7 @@ use crate::domain::ProcessIdentity;
 /// reap-then-Dead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrphanClassification {
-    /// Pane is alive (or unobservable) with no orphan condition — healthy,
+    /// Pane is alive (or unobservable) with no orphan condition â€” healthy,
     /// reattachable session. No reaping required.
     NoOrphan,
     /// Pane is dead and no validated worker descendants remain. The session is
@@ -45,15 +45,15 @@ pub enum OrphanClassification {
 /// `reap_orphan_tree`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservedDescendant {
-    /// Identity captured at spawn/attach time — the trusted anchor.
-    pub recorded: ProcessIdentity,
-    /// Fresh platform probe verdict for `recorded.pid`.
+    /// Worker identity captured at spawn/attach time â€” the trusted anchor.
+    pub recorded: WorkerProcessIdentity,
+    /// Fresh platform probe verdict for the recorded PID.
     pub liveness: ProcessLiveness,
 }
 
 impl ObservedDescendant {
     #[must_use]
-    pub const fn alive(recorded: ProcessIdentity) -> Self {
+    pub const fn alive(recorded: WorkerProcessIdentity) -> Self {
         Self {
             recorded,
             liveness: ProcessLiveness::Alive,
@@ -61,7 +61,7 @@ impl ObservedDescendant {
     }
 
     #[must_use]
-    pub const fn dead(recorded: ProcessIdentity) -> Self {
+    pub const fn dead(recorded: WorkerProcessIdentity) -> Self {
         Self {
             recorded,
             liveness: ProcessLiveness::Dead,
@@ -76,7 +76,7 @@ pub enum PaneLiveness {
     Alive,
     /// `pane_dead=1` or session entirely missing.
     Dead,
-    /// Multiplexer server unavailable — cannot establish death.
+    /// Multiplexer server unavailable â€” cannot establish death.
     Unavailable,
 }
 
@@ -87,7 +87,7 @@ pub enum PaneLiveness {
 /// decides how the caller must treat the session.
 ///
 /// A live descendant under a dead pane is only treated as an orphan when its
-/// `ProcessIdentity` still matches the recorded anchor — PID reuse is rejected
+/// `ProcessIdentity` still matches the recorded anchor â€” PID reuse is rejected
 /// so a recycled PID is never reaped.
 #[must_use]
 pub fn classify_orphan_state(
@@ -100,7 +100,7 @@ pub fn classify_orphan_state(
         return OrphanClassification::NoOrphan;
     }
     // When the multiplexer server is unavailable we cannot establish that the
-    // pane is actually dead — reaping risks killing workers belonging to a
+    // pane is actually dead â€” reaping risks killing workers belonging to a
     // still-healthy session. Fail safe: do not treat as an orphan.
     if pane == PaneLiveness::Unavailable {
         return OrphanClassification::NoOrphan;
@@ -133,8 +133,8 @@ fn has_validated_live_orphan(observed: &[ObservedDescendant]) -> bool {
 /// callers before constructing `ObservedDescendant`; this guard rejects anchors
 /// that could never have been validated.
 #[must_use]
-const fn matches_recorded_anchor(identity: ProcessIdentity) -> bool {
-    identity.pid != 0
+const fn matches_recorded_anchor(identity: WorkerProcessIdentity) -> bool {
+    identity.pid() != 0
 }
 
 /// Re-derive a descendant's liveness against its recorded anchor using the
@@ -219,7 +219,7 @@ mod windows_probes {
     pub(super) fn reap_validated(anchors: &[ProcessIdentity]) -> Result<usize, ReapOutcome> {
         let mut reaped = 0usize;
         for anchor in anchors {
-            if !super::descendant_still_matches_anchor(*anchor) {
+            if !super::identity_still_matches_anchor(*anchor) {
                 // PID exited or was recycled: nothing to reap for this anchor.
                 continue;
             }
@@ -318,7 +318,7 @@ mod unix_probes {
     pub(super) fn reap_validated(anchors: &[ProcessIdentity]) -> Result<usize, ReapOutcome> {
         let mut reaped = 0usize;
         for anchor in anchors {
-            if !super::descendant_still_matches_anchor(*anchor) {
+            if !super::identity_still_matches_anchor(*anchor) {
                 continue;
             }
             if nix_like_kill(anchor.pid) {
@@ -377,20 +377,39 @@ pub fn enumerate_descendants(root: u32) -> Vec<ProcessIdentity> {
     platform_probes::enumerate_descendants(root)
 }
 
-/// Capture the worker descendant tree for a launcher PID, returning an empty
+/// Capture the worker descendant tree below a pane leader, returning an empty
 /// vec for `None`/zero PIDs. Convenience wrapper for spawn/reattach paths
 /// (issue #332).
+///
+/// Everything below the pane leader belongs to the agent, so the enumerated
+/// descendants are worker-role identities. The pane leader itself is
+/// deliberately excluded: it is the launcher, not the agent (issue #543).
 #[must_use]
-pub fn capture_worker_identities(launcher_pid: Option<u32>) -> Vec<ProcessIdentity> {
-    launcher_pid
+pub fn capture_worker_identities(pane_pid: Option<u32>) -> Vec<WorkerProcessIdentity> {
+    pane_pid
         .filter(|pid| *pid != 0)
-        .map_or_else(Vec::new, enumerate_descendants)
+        .map_or_else(Vec::new, |pid| {
+            enumerate_descendants(pid)
+                .into_iter()
+                .map(WorkerProcessIdentity::from_identity)
+                .collect()
+        })
 }
 
 /// Confirm a recorded anchor's PID still matches its original identity
 /// (PID-reuse guard) using the shared probe path.
 #[must_use]
-pub fn descendant_still_matches_anchor(anchor: ProcessIdentity) -> bool {
+pub fn descendant_still_matches_anchor(anchor: WorkerProcessIdentity) -> bool {
+    identity_still_matches_anchor(anchor.identity())
+}
+
+/// Role-agnostic PID-reuse guard shared by the platform reapers.
+///
+/// The platform probes work on raw identities because termination is a process
+/// operation, not a role operation; the public entry point above is the one
+/// that pins the worker role (issue #543).
+#[must_use]
+fn identity_still_matches_anchor(anchor: ProcessIdentity) -> bool {
     if anchor.pid == 0 {
         return false;
     }
@@ -425,11 +444,15 @@ fn pid_anchors_match(expected: ProcessIdentity, actual: ProcessIdentity) -> bool
 /// `ReapOutcome`/`Result` and never panic.
 ///
 /// Returns the number of anchors that were reaped.
-pub fn reap_orphan_tree(anchors: &[ProcessIdentity]) -> Result<usize, ReapOutcome> {
+pub fn reap_orphan_tree(anchors: &[WorkerProcessIdentity]) -> Result<usize, ReapOutcome> {
     if anchors.is_empty() {
         return Ok(0);
     }
-    platform_probes::reap_validated(anchors)
+    // jefe validates and terminates the tree itself rather than delegating to the
+    // multiplexer's own reaper, which carries the same PID-reuse defect this
+    // guard exists to prevent (psmux#447, issue #543 V5).
+    let anchors: Vec<ProcessIdentity> = anchors.iter().map(|anchor| anchor.identity()).collect();
+    platform_probes::reap_validated(&anchors)
 }
 
 /// Best-effort reap of a dead-launcher orphan: terminate the validated worker
@@ -440,7 +463,7 @@ pub fn reap_orphan_tree(anchors: &[ProcessIdentity]) -> Result<usize, ReapOutcom
 /// operation. Every failure is logged as a warning and swallowed; this never
 /// returns an error that a caller must propagate, because cleanup must not
 /// abort startup, relaunch, or deletion.
-pub fn reap_orphan_session(anchors: &[ProcessIdentity], session_name: &str) {
+pub fn reap_orphan_session(anchors: &[WorkerProcessIdentity], session_name: &str) {
     if let Err(outcome) = reap_orphan_tree(anchors) {
         tracing::warn!(
             ?outcome,

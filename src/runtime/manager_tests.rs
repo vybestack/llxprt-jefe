@@ -79,8 +79,10 @@ fn observed_existing_session_returns_complete_authoritative_binding() {
     let agent_id = AgentId("existing-agent".to_owned());
     let mut manager = TmuxRuntimeManager::new(24, 80);
     let signature = crate::domain::LaunchSignatureV1::default();
-    let identity = crate::domain::ProcessIdentity::new(42, 900);
-    let worker = crate::domain::ProcessIdentity::new(43, 901);
+    // A Windows-shaped observation: the pane leader is the session host (42) and
+    // the agent worker is a distinct process below it (43) (issue #543).
+    let pane = crate::domain::PaneProcessIdentity::new(42, 900);
+    let worker = crate::domain::WorkerProcessIdentity::new(43, 901);
 
     let binding = manager.register_observed_local_session(
         &agent_id,
@@ -88,15 +90,23 @@ fn observed_existing_session_returns_complete_authoritative_binding() {
         signature.clone(),
         RuntimeSession::session_name_for(&agent_id),
         ExistingLocalSessionObservation {
-            pid: 42,
-            process_identity: identity,
+            pane_identity: pane,
+            worker_identity: Some(worker),
             worker_identities: vec![worker],
         },
     );
 
     assert_eq!(binding.launch_signature, signature);
-    assert_eq!(binding.pid, Some(42));
-    assert_eq!(binding.process_identity, Some(identity));
+    assert_eq!(
+        binding.pane_identity,
+        Some(pane),
+        "the observed pane leader must be recorded in the pane role"
+    );
+    assert_eq!(
+        binding.worker_identity,
+        Some(worker),
+        "the observed worker must be recorded in the worker role, not the pane's PID"
+    );
     assert_eq!(binding.worker_identities, vec![worker]);
     assert!(binding.lifecycle_generation > 0);
     let target = manager

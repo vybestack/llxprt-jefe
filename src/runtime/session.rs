@@ -7,7 +7,9 @@
 use std::path::PathBuf;
 
 use crate::domain::agent_definition::AgentLaunchPlan;
-use crate::domain::{AgentId, ProcessIdentity, RemoteRepositorySettings};
+use crate::domain::{
+    AgentId, PaneProcessIdentity, RemoteRepositorySettings, WorkerProcessIdentity,
+};
 
 /// Runtime session binding for an agent.
 ///
@@ -25,22 +27,26 @@ pub struct RuntimeSession {
     pub remote: Option<RemoteRepositorySettings>,
     /// Whether a viewer is currently attached to this session.
     pub attached: bool,
-    /// OS PID of the worker process (`llxprt`) backing this session, when
-    /// known. Captured via tmux `list-panes` (the pane PID *is* the worker
-    /// because the worker runs as the pane's direct command). Used as a
-    /// liveness fallback when the tmux session is gone but the worker process
-    /// is still alive.
-    pub pid: Option<u32>,
-    /// Stable process-instance identity used to reject PID reuse.
-    pub process_identity: Option<ProcessIdentity>,
+    /// Identity of the process the multiplexer started as the pane's direct
+    /// command, as reported by `#{pane_pid}`.
+    ///
+    /// A fact about the pane, not the agent: on Unix the pane's direct command
+    /// is the worker, but on Windows it is a PowerShell process above the
+    /// session host (issue #543).
+    pub pane_identity: Option<PaneProcessIdentity>,
+    /// Identity of the process actually running the coding agent, when known.
+    ///
+    /// `None` means the worker has not been identified yet, not that it is
+    /// absent. It must never be back-filled from [`Self::pane_identity`].
+    pub worker_identity: Option<WorkerProcessIdentity>,
     /// Monotonically increasing lifecycle generation. Incremented on
     /// spawn/relaunch/kill/rebind so stale liveness results can be rejected
     /// (issue #301 Phase 4).
     pub lifecycle_generation: u64,
-    /// Captured worker descendant identities (issue #332). On Windows/psmux the
-    /// pane PID is the launcher, not the real worker; these anchors let a
-    /// dead-launcher orphan be reaped PID-reuse-safely.
-    pub worker_identities: Vec<ProcessIdentity>,
+    /// Captured worker descendant identities (issue #332), enumerated from the
+    /// pane leader's subtree so a dead-launcher orphan can still be reaped
+    /// PID-reuse-safely after the launcher dies.
+    pub worker_identities: Vec<WorkerProcessIdentity>,
 }
 
 impl RuntimeSession {
@@ -58,8 +64,8 @@ impl RuntimeSession {
             work_dir: launch_plan.cwd,
             remote,
             attached: false,
-            pid: None,
-            process_identity: None,
+            pane_identity: None,
+            worker_identity: None,
             lifecycle_generation: 0,
             worker_identities: Vec::new(),
         }
@@ -75,8 +81,8 @@ impl RuntimeSession {
             work_dir,
             remote: None,
             attached: false,
-            pid: None,
-            process_identity: None,
+            pane_identity: None,
+            worker_identity: None,
             lifecycle_generation: 0,
             worker_identities: Vec::new(),
         }

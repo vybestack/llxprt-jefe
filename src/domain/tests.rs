@@ -156,8 +156,8 @@ fn runtime_binding_roundtrips_launch_signature_v1() {
         launch_signature: LaunchSignatureV1::default(),
         attached: true,
         last_seen: Some(42),
-        pid: Some(7),
-        process_identity: Some(ProcessIdentity::new(7, 11)),
+        pane_identity: Some(PaneProcessIdentity::new(7, 11)),
+        worker_identity: Some(WorkerProcessIdentity::new(8, 12)),
         lifecycle_generation: 3,
         worker_identities: Vec::new(),
     };
@@ -165,7 +165,16 @@ fn runtime_binding_roundtrips_launch_signature_v1() {
     let restored: RuntimeBinding =
         serde_json::from_value(json).value_or_panic("deserialize binding");
     assert_eq!(restored.launch_signature, LaunchSignatureV1::default());
-    assert_eq!(restored.process_identity, Some(ProcessIdentity::new(7, 11)));
+    assert_eq!(
+        restored.pane_identity,
+        Some(PaneProcessIdentity::new(7, 11)),
+        "the pane identity must round-trip in its own role"
+    );
+    assert_eq!(
+        restored.worker_identity,
+        Some(WorkerProcessIdentity::new(8, 12)),
+        "the worker identity must round-trip distinctly from the pane's"
+    );
 }
 
 #[test]
@@ -293,12 +302,80 @@ fn runtime_binding_deserializes_missing_pid_as_none() {
 
     let binding: RuntimeBinding =
         serde_json::from_value(value).value_or_panic("binding should deserialize");
-    assert!(binding.pid.is_none());
-    assert!(binding.process_identity.is_none());
+    assert!(binding.pane_identity.is_none());
+    assert!(binding.worker_identity.is_none());
     assert!(
         binding.worker_identities.is_empty(),
         "legacy state.json without worker_identities must default to empty"
     );
+}
+
+/// Issue #543: the legacy `pid` / `process_identity` keys always held the *pane
+/// leader*, never the worker — that was the defect. They must therefore load
+/// into `pane_identity`, and must not be promoted into the worker role, because
+/// on Windows the pane leader is an ancestor two hops above the agent.
+#[test]
+fn legacy_process_identity_loads_as_the_pane_identity_not_the_worker() {
+    let value = serde_json::json!({
+        "session_name": "jefe-agent-legacy",
+        "launch_signature": {
+            "version": 0,
+            "definition_hash": "0".repeat(64),
+            "typed_value_hash": "0".repeat(64),
+            "target_fingerprint": "0".repeat(64)
+        },
+        "attached": false,
+        "last_seen": null,
+        "pid": 42_000,
+        "process_identity": { "pid": 42_000, "started_at": 123_456 }
+    });
+
+    let binding: RuntimeBinding =
+        serde_json::from_value(value).value_or_panic("legacy binding should deserialize");
+
+    assert_eq!(
+        binding.pane_identity,
+        Some(PaneProcessIdentity::new(42_000, 123_456)),
+        "the legacy identity described the pane leader"
+    );
+    assert!(
+        binding.worker_identity.is_none(),
+        "a pane identity must never be promoted into the worker role"
+    );
+}
+
+/// Older files predate `process_identity` entirely and carry only a bare `pid`.
+/// That PID is still pane evidence, but without a creation token, so it must
+/// load with no `started_at` — which the PID-reuse guard treats as unverifiable
+/// rather than as a match.
+#[test]
+fn legacy_bare_pid_loads_as_pane_evidence_without_a_creation_token() {
+    let value = serde_json::json!({
+        "session_name": "jefe-agent-ancient",
+        "launch_signature": {
+            "version": 0,
+            "definition_hash": "0".repeat(64),
+            "typed_value_hash": "0".repeat(64),
+            "target_fingerprint": "0".repeat(64)
+        },
+        "attached": false,
+        "last_seen": null,
+        "pid": 42_000
+    });
+
+    let binding: RuntimeBinding =
+        serde_json::from_value(value).value_or_panic("ancient binding should deserialize");
+
+    let Some(pane) = binding.pane_identity else {
+        panic!("a bare legacy pid is still pane evidence and must be retained");
+    };
+    assert_eq!(pane.pid(), 42_000);
+    assert_eq!(
+        pane.started_at(),
+        None,
+        "no creation token was recorded, so PID reuse cannot be ruled out"
+    );
+    assert!(binding.worker_identity.is_none());
 }
 
 #[test]
@@ -308,28 +385,32 @@ fn runtime_binding_roundtrips_pid_when_present() {
         launch_signature: LaunchSignatureV1::default(),
         attached: false,
         last_seen: None,
-        pid: Some(42_000),
-        process_identity: Some(ProcessIdentity::new(42_000, 123_456)),
+        pane_identity: Some(PaneProcessIdentity::new(42_000, 123_456)),
+        worker_identity: Some(WorkerProcessIdentity::new(42_010, 123_460)),
         lifecycle_generation: 0,
         worker_identities: vec![
-            ProcessIdentity::new(42_001, 123_457),
-            ProcessIdentity::new(42_002, 123_458),
+            WorkerProcessIdentity::new(42_001, 123_457),
+            WorkerProcessIdentity::new(42_002, 123_458),
         ],
     };
 
     let json = serde_json::to_value(&binding).value_or_panic("should serialize");
     let binding2: RuntimeBinding =
         serde_json::from_value(json).value_or_panic("should deserialize");
-    assert_eq!(binding2.pid, Some(42_000));
     assert_eq!(
-        binding2.process_identity,
-        Some(ProcessIdentity::new(42_000, 123_456))
+        binding2.pane_identity,
+        Some(PaneProcessIdentity::new(42_000, 123_456))
+    );
+    assert_eq!(
+        binding2.worker_identity,
+        Some(WorkerProcessIdentity::new(42_010, 123_460)),
+        "the worker identity must round-trip independently of the pane identity"
     );
     assert_eq!(
         binding2.worker_identities,
         vec![
-            ProcessIdentity::new(42_001, 123_457),
-            ProcessIdentity::new(42_002, 123_458),
+            WorkerProcessIdentity::new(42_001, 123_457),
+            WorkerProcessIdentity::new(42_002, 123_458),
         ],
         "worker_identities must round-trip through serde"
     );

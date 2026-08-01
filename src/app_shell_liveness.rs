@@ -477,8 +477,8 @@ mod tests {
             launch_signature: jefe::domain::LaunchSignatureV1::default(),
             attached: false,
             last_seen: None,
-            pid: None,
-            process_identity: None,
+            pane_identity: None,
+            worker_identity: None,
             lifecycle_generation: 2,
             worker_identities: vec![],
         });

@@ -694,39 +694,95 @@ pub enum AgentOrigin {
 }
 
 /// Runtime session binding metadata.
+///
+/// Carries the pane leader and the agent worker as separate, non-substitutable
+/// identities (issue #543). Before that split a single field held whichever of
+/// the two the capture path happened to observe, which on Windows is always the
+/// pane leader — an ancestor two hops above the agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "RuntimeBindingWire")]
 pub struct RuntimeBinding {
     pub session_name: String,
     pub launch_signature: LaunchSignatureV1,
     pub attached: bool,
     pub last_seen: Option<u64>,
-    /// OS PID of the worker process (`llxprt`), used as a liveness fallback
-    /// when the tmux session is gone but the worker is still alive.
+    /// Identity of the process the multiplexer started as the pane's direct
+    /// command, as reported by `#{pane_pid}`.
     ///
-    /// PID-based liveness is a best-effort heuristic: OS PID reuse can in
-    /// principle produce a false positive (a recycled PID appearing alive).
-    /// The window is narrow because this check only fires when the tmux
-    /// session is *recently* gone, so a real crash is far more likely than a
-    /// collision with a recycled PID in that interval.
-    /// `#[serde(default)]` for backward-compatible loading of older state.json
-    /// files that predate this field.
+    /// This is a fact about the *pane*, not about the agent. It answers "is the
+    /// pane leader still there", which on Unix coincides with the worker and on
+    /// Windows does not.
     #[serde(default)]
-    pub pid: Option<u32>,
-    /// Process-instance identity captured with the PID. Older state files omit
-    /// this field and continue through the legacy PID-only migration path.
+    pub pane_identity: Option<PaneProcessIdentity>,
+    /// Identity of the process actually running the coding agent, when known.
+    ///
+    /// `None` means the worker has not been identified yet — on Windows the
+    /// session host has to report it, because the pane leader is only an
+    /// ancestor. `None` must never be filled in with the pane identity.
     #[serde(default)]
-    pub process_identity: Option<ProcessIdentity>,
+    pub worker_identity: Option<WorkerProcessIdentity>,
     /// Lifecycle generation at binding time. Used to reject stale liveness
     /// results after a restart/rebind (issue #301 Phase 4).
     #[serde(default)]
     pub lifecycle_generation: u64,
-    /// Captured worker descendant identities (issue #332). On Windows/psmux the
-    /// `pane_pid` captures the launcher, not the real worker; persisting the
-    /// resolved worker descendant anchors lets a dead-launcher orphan still be
-    /// reaped PID-reuse-safely after the launcher dies. Empty for legacy
-    /// state.json and for sessions where no descendants were captured.
+    /// Captured worker descendant identities (issue #332).
+    ///
+    /// Enumerated from the pane leader's subtree, so these anchor the worker
+    /// tree even after the pane leader dies and let a dead-launcher orphan be
+    /// reaped PID-reuse-safely. Empty for legacy state.json and for sessions
+    /// where no descendants were captured.
     #[serde(default)]
-    pub worker_identities: Vec<ProcessIdentity>,
+    pub worker_identities: Vec<WorkerProcessIdentity>,
+}
+
+/// Deserialization shape for [`RuntimeBinding`], accepting the pre-#543 keys.
+///
+/// Older `state.json` files carry `pid` and/or `process_identity`. Both always
+/// described the pane leader, so both load into `pane_identity`; neither is
+/// promoted into the worker role. `pid` predates `process_identity` and has no
+/// creation token, so a file carrying only `pid` yields pane evidence with
+/// `started_at: None`, which the PID-reuse guard treats as unverifiable rather
+/// than as a match.
+#[derive(Deserialize)]
+struct RuntimeBindingWire {
+    session_name: String,
+    launch_signature: LaunchSignatureV1,
+    attached: bool,
+    last_seen: Option<u64>,
+    #[serde(default)]
+    pane_identity: Option<PaneProcessIdentity>,
+    #[serde(default)]
+    worker_identity: Option<WorkerProcessIdentity>,
+    #[serde(default)]
+    lifecycle_generation: u64,
+    #[serde(default)]
+    worker_identities: Vec<WorkerProcessIdentity>,
+    #[serde(default)]
+    pid: Option<u32>,
+    #[serde(default)]
+    process_identity: Option<ProcessIdentity>,
+}
+
+impl From<RuntimeBindingWire> for RuntimeBinding {
+    fn from(wire: RuntimeBindingWire) -> Self {
+        let pane_identity = wire
+            .pane_identity
+            .or_else(|| {
+                wire.process_identity
+                    .map(PaneProcessIdentity::from_identity)
+            })
+            .or_else(|| wire.pid.map(PaneProcessIdentity::from_pid));
+        Self {
+            session_name: wire.session_name,
+            launch_signature: wire.launch_signature,
+            attached: wire.attached,
+            last_seen: wire.last_seen,
+            pane_identity,
+            worker_identity: wire.worker_identity,
+            lifecycle_generation: wire.lifecycle_generation,
+            worker_identities: wire.worker_identities,
+        }
+    }
 }
 
 /// Generic inputs from application state used to compose one immutable launch plan.
