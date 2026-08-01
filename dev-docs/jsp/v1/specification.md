@@ -461,6 +461,21 @@ Heartbeats exist so a healthy-but-quiet source is distinguishable from a hung
 one. A missed heartbeat means observation health is `stale` — never that the
 agent is idle, ready, or dead.
 
+### 19.1 Heartbeat cadence and the observer lease
+
+An observer holds a **lease** of 15000 ms: it marks observation health `stale`
+once that much time passes with no accepted snapshot, event, or heartbeat.
+
+A producer MUST heartbeat at an interval no greater than one third of the
+lease, so two consecutive heartbeats can be lost before the observer declares
+the source stale.
+
+Choosing an interval equal to the lease is non-conforming even though it looks
+correct: expiry then races scheduling jitter and the observation flickers
+between `live` and `stale` for a source that is perfectly healthy. Both sides
+of this repository pair previously defaulted to 15000 ms independently, which
+is exactly that race.
+
 ## 20. Observation health is observer-owned
 
 Observation health (`unsupported`, `connecting`, `live`, `stale`,

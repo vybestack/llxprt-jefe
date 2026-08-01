@@ -24,6 +24,11 @@ use crate::messages::RuntimeMessage;
 
 const MAX_REQUEST_BYTES: usize = 1_100_000;
 const MAX_PUBLISHERS: usize = 256;
+/// Observer lease (specification §19.1).
+///
+/// Observation health becomes stale once this elapses with no accepted
+/// document. Producers must heartbeat at or below a third of this so two
+/// consecutive heartbeats can be lost before the lease expires.
 const PRODUCER_LEASE: Duration = Duration::from_secs(15);
 
 /// Environment variable authorized local LLxprt launches receive.

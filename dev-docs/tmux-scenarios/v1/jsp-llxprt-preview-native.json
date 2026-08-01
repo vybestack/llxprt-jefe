@@ -196,6 +196,12 @@
       "timeout_ms": 30000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Status: Ready",
+      "timeout_ms": 30000
+    },
+    {
       "op": "assert-frame",
       "contains": [
         "Status: Ready",
