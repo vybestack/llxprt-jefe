@@ -1,0 +1,166 @@
+//! Check-rollup projection for pull requests.
+//!
+//! Extracted from `parse_pr.rs` to keep that file within the source-size
+//! policy. Owns the three concerns that turn a raw `statusCheckRollup` into the
+//! aggregate `PrCheckStatus`:
+//!
+//! 1. per-token status mapping (`parse_check_status`),
+//! 2. supersession resolution (`effective_check_nodes`), and
+//! 3. precedence aggregation (`parse_checks_rollup`).
+//!
+//! Boundary isolation: imports only `crate::domain`, `serde_json::Value`, and a
+//! sibling timestamp comparator — mirroring `parse_pr.rs`.
+
+use std::cmp::Ordering;
+
+use crate::domain::PrCheckStatus;
+use serde_json::Value;
+
+use super::timestamp::cmp_rfc3339_newest_first;
+
+/// Map a raw status/conclusion/state token to a [`PrCheckStatus`] (union of
+/// CheckRun-conclusion, CheckRun-status, and StatusContext-state tokens).
+///
+/// A lone/latest `CANCELLED` stays `Failure` by design (issue #514 removes
+/// *superseded* attempts before aggregation; it does not weaken this mapping).
+#[must_use]
+pub fn parse_check_status(raw_status: &str) -> PrCheckStatus {
+    match raw_status {
+        "SUCCESS" => PrCheckStatus::Success,
+        "FAILURE" | "ERROR" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" | "CANCELLED" => {
+            PrCheckStatus::Failure
+        }
+        "PENDING" | "EXPECTED" | "QUEUED" | "IN_PROGRESS" | "WAITING" | "REQUESTED"
+        | "COMPLETED" | "" => PrCheckStatus::Pending,
+        _ => PrCheckStatus::Neutral,
+    }
+}
+
+/// Resolve superseded attempts so only the latest effective run per check
+/// identity remains.
+///
+/// GitHub's `statusCheckRollup` can return several `CheckRun` nodes for the
+/// same logical check when a workflow was re-run: an older `CANCELLED`/failed
+/// attempt alongside a newer successful one. GitHub's own UI and `gh pr checks`
+/// project only the latest attempt; this function reproduces that projection.
+///
+/// Identity groups by `__typename` + `name`/`context` + a transport-provided
+/// disambiguator (`workflowName` from `gh pr view --json`, or
+/// `checkSuite.app.slug` from raw GraphQL), so unrelated apps or workflows that
+/// happen to share a job name are never merged. Within an identity the attempt
+/// with the greatest `startedAt` (fallback `completedAt`, then array position)
+/// wins. Output preserves first-occurrence order of each identity.
+///
+/// `StatusContext` entries are treated as independent identities (one per
+/// `context`), matching GitHub's status API semantics.
+#[must_use]
+pub fn effective_check_nodes(nodes: &[Value]) -> Vec<Value> {
+    // (identity, index of the winning node so far) in first-occurrence order.
+    let mut winners: Vec<(String, usize)> = Vec::new();
+    for (idx, node) in nodes.iter().enumerate() {
+        let identity = effective_check_identity(node);
+        match winners.iter().position(|(id, _)| *id == identity) {
+            Some(pos) => {
+                let incumbent = winners[pos].1;
+                if is_later_attempt(
+                    order_key(node),
+                    idx,
+                    order_key(&nodes[incumbent]),
+                    incumbent,
+                ) {
+                    winners[pos].1 = idx;
+                }
+            }
+            None => winners.push((identity, idx)),
+        }
+    }
+    winners.iter().map(|(_, idx)| nodes[*idx].clone()).collect()
+}
+
+/// Aggregate the effective check statuses into a single rollup status.
+///
+/// Supersession is resolved first via [`effective_check_nodes`], then
+/// precedence is applied: empty→`None`; any Failure→Failure; any Pending→
+/// Pending; all Success→Success; else Neutral.
+#[must_use]
+pub fn parse_checks_rollup(nodes: &[Value]) -> PrCheckStatus {
+    let effective = effective_check_nodes(nodes);
+    if effective.is_empty() {
+        return PrCheckStatus::None;
+    }
+    let mut has_failure = false;
+    let mut has_pending = false;
+    let mut all_success = true;
+    for node in &effective {
+        let status = node
+            .get("conclusion")
+            .or_else(|| node.get("state"))
+            .or_else(|| node.get("status"))
+            .and_then(Value::as_str)
+            .map_or(PrCheckStatus::Pending, parse_check_status);
+        match status {
+            PrCheckStatus::Failure => has_failure = true,
+            PrCheckStatus::Pending => has_pending = true,
+            PrCheckStatus::Success => {}
+            _ => all_success = false,
+        }
+    }
+    if has_failure {
+        PrCheckStatus::Failure
+    } else if has_pending {
+        PrCheckStatus::Pending
+    } else if all_success {
+        PrCheckStatus::Success
+    } else {
+        PrCheckStatus::Neutral
+    }
+}
+
+/// Stable identity key for one effective check. See [`effective_check_nodes`].
+fn effective_check_identity(node: &Value) -> String {
+    let typename = node.get("__typename").and_then(Value::as_str).unwrap_or("");
+    let name = node
+        .get("name")
+        .or_else(|| node.get("context"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let disambiguator = node
+        .get("workflowName")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            node.get("checkSuite")
+                .and_then(|suite| suite.get("app"))
+                .and_then(|app| app.get("slug"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("");
+    // UNIT SEPARATOR delimits the components so a name containing the delimiter
+    // cannot forge a different identity.
+    format!("{typename}\u{1f}{name}\u{1f}{disambiguator}")
+}
+
+/// Latest-start ordering key: `startedAt`, falling back to `completedAt`.
+fn order_key(node: &Value) -> &str {
+    node.get("startedAt")
+        .and_then(Value::as_str)
+        .or_else(|| node.get("completedAt").and_then(Value::as_str))
+        .unwrap_or("")
+}
+
+/// True when the challenger attempt is newer than (or, on a timestamp tie,
+/// later in the rollup than) the incumbent — i.e. it should win the identity.
+fn is_later_attempt(
+    challenger_key: &str,
+    challenger_idx: usize,
+    incumbent_key: &str,
+    incumbent_idx: usize,
+) -> bool {
+    // `cmp_rfc3339_newest_first` orders newest-first, so the newer timestamp
+    // compares as `Less`. Valid timestamps precede malformed/empty values, so a
+    // node carrying a timestamp correctly beats one without.
+    match cmp_rfc3339_newest_first(challenger_key, incumbent_key) {
+        Ordering::Less => true,
+        Ordering::Greater => false,
+        Ordering::Equal => challenger_idx > incumbent_idx,
+    }
+}
