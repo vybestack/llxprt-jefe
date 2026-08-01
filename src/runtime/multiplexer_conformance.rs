@@ -51,7 +51,11 @@ pub struct ConformanceFinding {
 }
 
 /// The result of probing a binary against the whole contract surface.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The default is an empty report: nothing probed, so nothing found. It is not
+/// a passing result, and `is_qualified` treats it as such only because an
+/// absence of violations is all that can be said about an absence of probes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConformanceReport {
     findings: Vec<ConformanceFinding>,
 }

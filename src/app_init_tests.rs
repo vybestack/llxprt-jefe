@@ -409,3 +409,76 @@ fn published_agent_enablement_is_separate_from_availability() {
         .unwrap_or_else(|error| panic!("type id must parse: {error}"));
     assert!(agent_type_enabled(migration.published(), &absent));
 }
+
+// -- Startup multiplexer qualification (issue #540 req 3) -----------------
+
+/// The issue's complaint is that the gate ran at first `new-session`, so a user
+/// could launch jefe, navigate the UI, and only discover the multiplexer was
+/// unusable when starting an agent. A refusal must therefore surface at
+/// startup, carrying the detail needed to act on it.
+#[test]
+fn a_refused_multiplexer_is_reported_at_startup() {
+    let qualification = jefe::runtime::MultiplexerQualification::Refused {
+        message: "psmux at C:/tools/psmux.exe (3.3.6) lacks set-option -s exit-empty".to_owned(),
+    };
+
+    let warning = startup_multiplexer_warning(&qualification, None)
+        .unwrap_or_else(|| panic!("a refusal must reach the operator at startup"));
+
+    assert!(warning.contains("C:/tools/psmux.exe"), "{warning}");
+    assert!(warning.contains("exit-empty"), "{warning}");
+}
+
+/// A qualified binary with nothing wrong produces no noise, or the warning
+/// surface stops being read.
+#[test]
+fn a_qualified_multiplexer_is_silent() {
+    let qualification = jefe::runtime::MultiplexerQualification::Qualified {
+        report: jefe::runtime::ConformanceReport::default(),
+    };
+
+    assert_eq!(
+        startup_multiplexer_warning(
+            &qualification,
+            Some(&jefe::runtime::ProvenanceVerdict::Qualified)
+        ),
+        None,
+    );
+}
+
+/// Provenance is checked at startup alongside version and conformance, so an
+/// unrecognised binary is reported even when it behaves correctly. Behaving
+/// correctly is not evidence of being the binary jefe qualified.
+#[test]
+fn an_unqualified_provenance_is_reported_even_when_conformance_passes() {
+    let qualification = jefe::runtime::MultiplexerQualification::Qualified {
+        report: jefe::runtime::ConformanceReport::default(),
+    };
+    let provenance = jefe::runtime::ProvenanceVerdict::Unqualified {
+        diagnostic: "the multiplexer on PATH is not one jefe has qualified: C:/x/psmux.exe"
+            .to_owned(),
+    };
+
+    let warning = startup_multiplexer_warning(&qualification, Some(&provenance))
+        .unwrap_or_else(|| panic!("unknown provenance must be surfaced"));
+
+    assert!(warning.contains("C:/x/psmux.exe"), "{warning}");
+}
+
+/// Both problems at once must both be reported; showing only the first would
+/// send the operator round the loop twice.
+#[test]
+fn conformance_and_provenance_problems_are_both_reported() {
+    let qualification = jefe::runtime::MultiplexerQualification::Refused {
+        message: "missing display-message -p".to_owned(),
+    };
+    let provenance = jefe::runtime::ProvenanceVerdict::Unqualified {
+        diagnostic: "unrecognised digest deadbeef".to_owned(),
+    };
+
+    let warning = startup_multiplexer_warning(&qualification, Some(&provenance))
+        .unwrap_or_else(|| panic!("both problems must surface"));
+
+    assert!(warning.contains("display-message"), "{warning}");
+    assert!(warning.contains("deadbeef"), "{warning}");
+}
