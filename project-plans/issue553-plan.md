@@ -135,15 +135,36 @@ this table requires explicit approval.
 
 | Review | Budget | Used |
 |---|---|---|
-| Open Code Review before PR | 2 | 0 |
+| Open Code Review before PR | 2 | 1 |
 | Open Code Review after PR | 2 | 0 |
-| Independent review-and-remediation rounds | 2 | 0 |
+| Independent review-and-remediation rounds | 2 | 1 |
+
+### Open Code Review run 1 triage (`--from main --to issue553`)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| Capability phase loses a global probe bound | **Reject** the premise, **In-scope—Fix** the documentation | `origin/main` already re-based `Instant::now()` for the capability deadline, which is the per-process budget #525 deliberately introduced; the refactor preserves it. The combined ceiling is nevertheless larger for a runner-mediated probe, so `LOCAL_PROBE_TIMEOUT_MS` now documents it and `runner_mediated_probe_has_a_finite_combined_ceiling` asserts it |
+| Materialization budget should be clamped to the authored probe timeout | **Reject** | Clamping restores the defect this issue fixes: the authored timeout budgets agent startup responsiveness, not a registry download. The resulting AGT-E202 names the budget it exceeded, so the larger bound is visible at the point of failure |
+| Overflowing phase deadline collapses into an instant timeout | **In-scope—Fix** | An unrepresentable deadline falls forward instead of backward |
+| Fixture `DELAY` placeholder substitution is fragile | **In-scope—Fix** | The delay marker carries the delay; no textual substitution remains |
 
 ## Verification evidence
 
-Recorded at the candidate head before the pull request is opened.
+`cargo xtask ci` at the pull-request head, rebased onto `origin/main` at
+`de2682b` (#550): fmt, check-clippy-allows, check-source-size,
+check-architecture, lint, complexity, coverage (71.78% lines against a 30%
+floor), build, and test all pass; 128 test-target results, zero failures.
+
+An earlier coverage run failed
+`runtime::session_host_tests::concurrent_staging_of_the_same_image_is_idempotent`.
+That test is untouched by this branch (`git diff main...HEAD -- src/runtime/session_host*`
+is empty), passed five isolated re-runs, and passed both instrumented and
+uninstrumented runs at the candidate head. Recorded as a pre-existing flake in
+the deferred findings below rather than treated as a change regression.
 
 ## Deferred findings and follow-ups
 
 - #555 / #556 / #557 — cross-process package-cache lock and atomic install.
 - #554 — dist-tag selector refresh (in progress, expected to land first).
+- Pre-existing flake in `concurrent_staging_of_the_same_image_is_idempotent`
+  (session-host staging rename race): #561.
