@@ -182,12 +182,17 @@ fn append_last_message(lines: &mut Vec<String>, observation: Option<&AgentObserv
 }
 
 /// Resolve the accepted status precedence without mutating `AgentStatus`.
+///
+/// The nine-level precedence from issue #522 is evaluated top-down:
+/// process-level facts (levels 1–2) come before observation-derived status
+/// (levels 3–9). A queued/spawning process is always "Starting" even when a
+/// stale observation payload is present, because the process has not started
+/// yet and cannot be Working.
 #[must_use]
 pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation>) -> String {
+    // Level 1: confirmed process exit is terminal. These match the labels the
+    // rest of the application already renders.
     match status {
-        // A confirmed exit is terminal, but the label must not conflate a
-        // successful completion with a failure. These match the status labels
-        // the rest of the application already renders.
         AgentStatus::Dead => return "Dead".to_string(),
         AgentStatus::Completed => return "Completed".to_string(),
         AgentStatus::Errored => return "Errored".to_string(),
@@ -195,16 +200,22 @@ pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation
         AgentStatus::Queued | AgentStatus::Running | AgentStatus::Waiting | AgentStatus::Paused => {
         }
     }
+    // Level 2: a queued/spawning process is always Starting, regardless of any
+    // observation payload. Process-level facts take precedence over
+    // observation-derived status.
+    if status == AgentStatus::Queued {
+        return "Starting".to_string();
+    }
     let Some(observation) = observation else {
         // Without observation the process status is all we know, so report it
         // rather than flattening distinct states into "Running".
         return match status {
-            AgentStatus::Queued => "Starting".to_string(),
             AgentStatus::Waiting => "Waiting".to_string(),
             AgentStatus::Paused => "Paused".to_string(),
             _ => "Running — telemetry unsupported".to_string(),
         };
     };
+    // Levels 3–4: observation health determines the status for alive processes.
     match observation.health {
         ObservationHealth::Unsupported => return "Running — telemetry unsupported".to_string(),
         ObservationHealth::Connecting => return "Connecting".to_string(),
@@ -213,6 +224,7 @@ pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation
         ObservationHealth::ProtocolError => return "Protocol error".to_string(),
         ObservationHealth::Live => {}
     }
+    // Levels 5–9: live observation status.
     live_status(observation)
 }
 
