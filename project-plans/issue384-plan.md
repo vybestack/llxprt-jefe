@@ -286,13 +286,59 @@ Options:
 
 ---
 
-## 6. Scope ledger
+## 6. Progress
 
-| Date | Change | Category | Approval |
-|---|---|---|---|
-| — | (no implementation started; awaiting §5 decisions) | — | — |
+### Completed slices
 
-## 7. Review counters
+**S1 — descriptor foundation** (commit `7d2bf1df`)
+
+`src/workbench/`: `ids.rs` (validated `ScreenId`/`PanelId`/`RouteId`/`PanelTypeId`/
+`ScreenInstanceId` newtypes, closed grammar, declared limits), `descriptor.rs` (the closed
+`ScreenDescriptor`/`PanelDescriptor`/`LayoutNode`/`Axis`/`LayoutChild`/`Size` value types, reusing
+the existing `crate::domain::TypedMap` rather than introducing a second config bag), `validate.rs`
+(16 typed structural invariants), `screens.rs` (the five compiled descriptors + `ScreenRegistry`),
+`migration.rs` (one-way legacy mapping by name, warn-and-fall-back on unknown values), and the
+`shipped-screen-definition-parity.json` golden. 53 tests.
+
+**S2 — deterministic resolver** (commit `f6093fc7`)
+
+`geometry.rs` (`Rect`/`Extent`/`Insets`, checked `u32` edges), `allocate.rs` (the whole one-axis
+algorithm isolated for exhaustive sweeping — separators, clamping, minima-then-weight distribution,
+max-pinning with redistribution, declaration-order remainder, collapse victim selection),
+`config.rs` (chrome insets read from the panel config bag, so the content rectangle is descriptor
+data rather than per-screen renderer trivia), and `resolve.rs` (tree walk, `ResolvedLayout`,
+too-small fallback, `repair_focus`, `pty_content_rect`). Re-exported from `src/layout.rs` so
+`layout` is the single named geometry authority. 37 further tests, including 1×1..80×24 sweeps.
+
+Combined: **90 workbench tests**, all green. No production `unwrap`/`expect`, no `unsafe`, no
+suppression, no dependency change, no threshold change. Largest new file 396 lines (warn limit 750).
+
+### Resolved ambiguities
+
+| Ambiguity | Resolution | Rationale |
+|---|---|---|
+| "detail then actions collapsible" for `github.pull-requests` | Read as a collapse *order*: `pr-detail` gets `collapse_priority` 0 and `pr-actions` 1, so detail hides first | The column states an order, and CW04-06 requires a deterministic, fixture-tested collapse sequence. Recorded in the parity golden so a different intent is a one-line, visible change. |
+| Where the chrome inset for a panel's content rectangle comes from | The panel's `config: TypedMap`, via well-known `chrome.top`/`bottom`/`left`/`right` keys | The issue fixes the struct shapes and names `config: TypedMap` as the extension point; a new struct field would deviate from the specified contract. |
+| Which `resolve_layout` "lives in `src/layout.rs`" means, given `layout.rs` is 869 lines against a 750 warn / 1000 hard limit | Implementation in the I/O-free `workbench`, re-exported by name from `src/layout.rs` | Keeps the resolver exhaustively testable as pure data and keeps every file under the size gates, while `layout` stays the one place a consumer looks. |
+| `TooSmall{needed, available}` field types | `Extent { cols, rows }` | The shortfall is a size, not a rectangle. |
+
+### Remaining slices
+
+S3 (startup + single snapshot choke point), S4 (consumer migration), S5 (thin renderers),
+S6 (`ScreenMode` deletion), S7 (docs) — all blocked or budget-blocked, see §5.
+
+## 7. Scope ledger
+
+| Change | Category | Status |
+|---|---|---|
+| `src/workbench/` new module (12 files) | Planned S1/S2 | In scope |
+| `src/lib.rs` module registration (2 lines) | Planned S1 | In scope |
+| `src/layout.rs` re-export block (10 lines) | Planned S2 | In scope |
+| `project-plans/issue384-plan.md` | Required by workflow §2 | In scope |
+| Reused `crate::domain::TypedMap` instead of a new config bag | Avoided an unplanned public abstraction | In scope |
+| **Measured net lines at S2: 4,251 across 20 files** | **Exceeds the 2,500-line hard stop** | **Blocked — §5.2** |
+
+## 8. Review counters
 
 | Review | Cap | Used |
 |---|---:|---:|
@@ -300,12 +346,15 @@ Options:
 | PR OCR | 2 | 0 |
 | Rust architecture review | — | 0 |
 
-## 8. Verification evidence
+## 9. Verification evidence
 
 | Gate | Head | Result |
 |---|---|---|
-| — | — | not yet run |
+| `cargo fmt --all` | `f6093fc7` | clean |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `f6093fc7` | clean |
+| `cargo test --lib workbench::` | `f6093fc7` | 90 passed, 0 failed |
+| `cargo test --workspace --all-features --locked` | `f6093fc7` | 5,106 passed, 0 failed (62 targets) — no pre-existing test regressed |
 
-## 9. Deferred findings / follow-ups
+## 10. Deferred findings / follow-ups
 
 _(none yet)_
