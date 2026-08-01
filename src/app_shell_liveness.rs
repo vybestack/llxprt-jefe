@@ -235,6 +235,20 @@ async fn apply_dead_identities(
             debug!(agent_id = %identity.agent_id.0, "liveness: stale result after preview capture; skipping");
             continue;
         }
+        // Issue #543: a dead pane is not a dead agent. Where the pane leader is
+        // the session host, a validated worker anchor can outlive its pane, and
+        // reporting that as death both lies to the user and drops the binding
+        // that still names a live process. Deciding what an unowned live worker
+        // should become is the ownership model's call (issue #542); until then
+        // this pass refuses to call it death and leaves the agent as it was.
+        if identity.worker == jefe::runtime::WorkerDisposition::SurvivedPane {
+            tracing::warn!(
+                agent_id = %identity.agent_id.0,
+                "liveness: pane died but a validated worker anchor is still alive; \
+                 not reporting the agent dead"
+            );
+            continue;
+        }
         let preview = dead_previews.remove(&identity.agent_id);
         commit_pure_site(
             &mut state,
@@ -310,6 +324,9 @@ fn eligible_for_server_lost(
             agent_id: target.agent_id.clone(),
             binding_session_name: target.binding_session_name.clone(),
             lifecycle_generation: target.lifecycle_generation,
+            // A lost multiplexer server says nothing about the workers below
+            // it, so their fate is explicitly unknown here (issue #543).
+            worker: jefe::runtime::WorkerDisposition::Unknown,
         })
         .collect()
 }
@@ -420,6 +437,7 @@ mod tests {
             remote: None,
             binding_session_name: Some(format!("jefe-{id}")),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         }
     }
 
@@ -487,11 +505,13 @@ mod tests {
             agent_id: AgentId("a".into()),
             binding_session_name: Some("jefe-old".into()),
             lifecycle_generation: 2,
+            worker: jefe::runtime::WorkerDisposition::GoneWithPane,
         };
         let stale_generation = LivenessIdentity {
             agent_id: AgentId("a".into()),
             binding_session_name: Some("jefe-current".into()),
             lifecycle_generation: 1,
+            worker: jefe::runtime::WorkerDisposition::GoneWithPane,
         };
 
         assert_eq!(

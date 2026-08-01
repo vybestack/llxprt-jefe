@@ -9,6 +9,7 @@ use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
+use super::worker_report;
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::domain::{
     AgentId, AgentLaunchRequest, PaneProcessIdentity, PaneWorkerTopology, RemoteRepositorySettings,
@@ -102,6 +103,13 @@ pub struct LivenessCheck {
     /// spawn/relaunch/kill/rebind. A mismatch means the agent was
     /// restarted/rebound after the liveness check was dispatched.
     pub lifecycle_generation: u64,
+    /// PID-reuse-safe anchors for the agent's worker processes (issue #543).
+    ///
+    /// A dead pane does not imply a dead worker: where the pane leader is the
+    /// session host rather than the agent, the worker can outlive the pane.
+    /// These anchors let the liveness pass say which of the two actually
+    /// happened instead of assuming they are the same event.
+    pub worker_identities: Vec<WorkerProcessIdentity>,
 }
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -392,6 +400,7 @@ impl TmuxRuntimeManager {
                 remote: session.remote.clone(),
                 binding_session_name: Some(session.session_name.clone()),
                 lifecycle_generation: session.lifecycle_generation,
+                worker_identities: session.worker_identities.clone(),
             })
             .collect()
     }
@@ -489,6 +498,31 @@ impl TmuxRuntimeManager {
         self.sessions
             .get(agent_id)
             .and_then(|session| session.worker_identity)
+    }
+
+    /// Adopt the session host's report of the worker it spawned, for sessions
+    /// whose worker could not be derived from the pane leader (issue #543).
+    ///
+    /// This is deliberately pull-based and unbounded in time rather than a
+    /// post-spawn wait: the report appears when the host has spawned the
+    /// worker, and polling for it against a deadline would turn a scheduling
+    /// delay into a false verdict (issue #562). Until the report lands the
+    /// worker identity stays *unknown*, which is the honest answer.
+    ///
+    /// Returns the identity now known for the agent, if any.
+    pub fn adopt_reported_worker_identity(
+        &mut self,
+        agent_id: &AgentId,
+    ) -> Option<WorkerProcessIdentity> {
+        let session = self.sessions.get(agent_id)?;
+        if let Some(known) = session.worker_identity {
+            return Some(known);
+        }
+        let pane = session.pane_identity?;
+        let reported = worker_report::worker_identity_from_report(&session.session_name, pane)?;
+        let session = self.sessions.get_mut(agent_id)?;
+        session.worker_identity = Some(reported);
+        Some(reported)
     }
 
     /// Return the recorded worker descendant anchors for an agent.

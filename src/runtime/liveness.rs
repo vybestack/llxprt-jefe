@@ -230,6 +230,50 @@ pub struct LivenessIdentity {
     pub agent_id: AgentId,
     pub binding_session_name: Option<String>,
     pub lifecycle_generation: u64,
+    /// What became of the agent worker when this pane died (issue #543).
+    pub worker: WorkerDisposition,
+}
+
+/// The fate of an agent worker relative to the pane that launched it.
+///
+/// Pane death and worker death are separate events. They coincide only where
+/// the agent runs as the pane's direct command; where the pane leader is a
+/// session host, the worker can outlive the pane and become an orphan. Naming
+/// the two cases apart is what stops a dead pane from being reported as a dead
+/// agent (issue #543).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WorkerDisposition {
+    /// No recorded worker anchor survived the pane: the agent really is gone.
+    GoneWithPane,
+    /// A recorded worker anchor is still alive and still matches its creation
+    /// token. The pane died; the agent did not. Deciding what to *do* about an
+    /// unowned live worker belongs to the ownership model (issue #542); this
+    /// pass only refuses to call it death.
+    SurvivedPane,
+    /// No worker anchors were recorded, so the pane's death says nothing about
+    /// the worker either way.
+    Unknown,
+}
+
+/// Classify a worker's fate from freshly probed anchor evidence.
+///
+/// Only a confirmed-alive anchor that still matches its recorded creation token
+/// counts as survival, so a recycled PID can never make a dead agent look
+/// alive.
+#[must_use]
+pub fn classify_worker_disposition(
+    anchors: &[super::orphan::ObservedDescendant],
+) -> WorkerDisposition {
+    if anchors.is_empty() {
+        return WorkerDisposition::Unknown;
+    }
+    if anchors
+        .iter()
+        .any(|anchor| matches!(anchor.liveness, super::process::ProcessLiveness::Alive))
+    {
+        return WorkerDisposition::SurvivedPane;
+    }
+    WorkerDisposition::GoneWithPane
 }
 
 /// Reconcile dead agents and return identity triples (issue #301 Phase 4).
@@ -263,6 +307,26 @@ pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
             agent_id: t.agent_id.clone(),
             binding_session_name: t.binding_session_name.clone(),
             lifecycle_generation: t.lifecycle_generation,
+            // Probe the recorded anchors so a pane death is not reported as a
+            // worker death without evidence (issue #543).
+            worker: classify_worker_disposition(&probe_worker_anchors(&t.worker_identities)),
+        })
+        .collect()
+}
+
+/// Freshly probe each recorded worker anchor, rejecting PID reuse.
+#[must_use]
+fn probe_worker_anchors(
+    anchors: &[crate::domain::WorkerProcessIdentity],
+) -> Vec<super::orphan::ObservedDescendant> {
+    anchors
+        .iter()
+        .map(|anchor| {
+            if super::orphan::descendant_still_matches_anchor(*anchor) {
+                super::orphan::ObservedDescendant::alive(*anchor)
+            } else {
+                super::orphan::ObservedDescendant::dead(*anchor)
+            }
         })
         .collect()
 }
@@ -505,6 +569,7 @@ mod tests {
             },
             binding_session_name: Some(session_name.to_string()),
             lifecycle_generation: 0,
+            worker_identities: Vec::new(),
         }
     }
 
@@ -856,5 +921,42 @@ jefe-b:0:0
         let output = result.unwrap_or_else(|()| panic!("checked ok"));
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("ok"), "output must contain echo result");
+    }
+    /// A dead pane whose recorded worker anchor is still alive is a surviving
+    /// worker, not a dead agent (issue #543).
+    #[test]
+    fn a_live_anchor_under_a_dead_pane_is_survival_not_death() {
+        let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
+        let observed = vec![crate::runtime::orphan::ObservedDescendant::alive(anchor)];
+
+        assert_eq!(
+            classify_worker_disposition(&observed),
+            WorkerDisposition::SurvivedPane,
+            "a validated live worker must never be reported as gone with its pane"
+        );
+    }
+
+    /// Every recorded anchor being dead is the only evidence that lets the pane's
+    /// death stand in for the agent's (issue #543).
+    #[test]
+    fn only_dead_anchors_confirm_the_worker_died_with_the_pane() {
+        let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
+        let observed = vec![crate::runtime::orphan::ObservedDescendant::dead(anchor)];
+
+        assert_eq!(
+            classify_worker_disposition(&observed),
+            WorkerDisposition::GoneWithPane
+        );
+    }
+
+    /// With no recorded anchors the pane's death is simply not evidence about
+    /// the worker, and must not be reported as if it were (issue #543).
+    #[test]
+    fn absent_anchors_leave_the_worker_fate_unknown() {
+        assert_eq!(
+            classify_worker_disposition(&[]),
+            WorkerDisposition::Unknown,
+            "no evidence must read as unknown, not as confirmed death"
+        );
     }
 }
