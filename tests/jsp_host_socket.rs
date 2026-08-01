@@ -242,8 +242,7 @@ fn routes_require_one_registration_and_idempotent_re_registration() {
     // An identical re-registration (same identity triple, same epoch) is an
     // idempotent replay: it returns 200 but delivers no message so the
     // canonical state is not double-applied.
-    let (replay_response, replay_message) =
-        serve_request(&registry, "/jsp/1/register", snapshot);
+    let (replay_response, replay_message) = serve_request(&registry, "/jsp/1/register", snapshot);
     assert!(replay_response.starts_with("HTTP/1.1 200"));
     assert!(replay_message.is_none());
 }
@@ -329,8 +328,7 @@ fn idempotent_re_registration_preserves_sequence_rules() {
             .starts_with("HTTP/1.1 200")
     );
     // Idempotent replay: same snapshot, same epoch -> 200, no message.
-    let (replay_response, replay_message) =
-        serve_request(&registry, "/jsp/1/register", snapshot);
+    let (replay_response, replay_message) = serve_request(&registry, "/jsp/1/register", snapshot);
     assert!(replay_response.starts_with("HTTP/1.1 200"));
     assert!(replay_message.is_none());
 

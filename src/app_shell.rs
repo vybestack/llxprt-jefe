@@ -35,11 +35,7 @@ fn drain_jsp_messages(
         return false;
     };
     let messages = match ctx_arc.try_lock() {
-        Ok(context) => match context
-            .jsp_host
-            .as_ref()
-            .map(|host| host.drain_messages())
-        {
+        Ok(context) => match context.jsp_host.as_ref().map(|host| host.drain_messages()) {
             Some(Ok(messages)) => messages,
             Some(Err(error)) => {
                 warn!(error = %error, "JSP observation delivery poisoned; draining aborted");

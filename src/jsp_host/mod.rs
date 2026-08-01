@@ -14,11 +14,11 @@ mod wire;
 
 use self::wire::{read_request, write_response};
 
+pub(crate) use launch::authorize_launch_environment_path;
 pub use launch::{
     BootstrapMaterial, JspHostRuntime, JspLaunchCoordinator, PreparedJspLaunch,
     authorize_launch_environment, create_bootstrap,
 };
-pub(crate) use launch::authorize_launch_environment_path;
 
 use crate::domain::AgentId;
 use crate::jsp::v1::reducer::{ReducerError, ReferenceReducer};
@@ -419,4 +419,3 @@ fn observation_message(publisher: &mut Publisher, now: Instant) -> RuntimeMessag
         Box::new(observation),
     )
 }
-

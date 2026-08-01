@@ -163,7 +163,8 @@ fn post(
         return Err(PostError::HeaderInjection);
     }
     let body = body.to_string();
-    let mut stream = TcpStream::connect(authority).map_err(|e| PostError::Transport(e.to_string()))?;
+    let mut stream =
+        TcpStream::connect(authority).map_err(|e| PostError::Transport(e.to_string()))?;
     // Without timeouts an unresponsive server hangs the fixture until the
     // harness kills it, which reports as an unrelated scenario timeout.
     let timeout = std::time::Duration::from_secs(5);

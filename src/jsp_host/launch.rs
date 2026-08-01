@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::{JspHost, JspHostError, PublisherRegistry, MAX_PUBLISHERS};
+use super::{JspHost, JspHostError, MAX_PUBLISHERS, PublisherRegistry};
 use crate::domain::AgentId;
 use crate::messages::RuntimeMessage;
 
