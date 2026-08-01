@@ -29,6 +29,7 @@ use crate::app_input::{
 };
 use crate::app_shell_workers::capture_dead_previews;
 
+use jefe::domain::liveness_observation::Observed;
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::runtime::LivenessIdentity;
 #[cfg(windows)]
@@ -196,7 +197,7 @@ async fn handle_unix_cycle(
     if running_targets.is_empty() {
         return;
     }
-    let dead_identities = batch_dead_identities(running_targets).await;
+    let dead_identities = answered_dead_identities(batch_dead_identities(running_targets).await);
     if dead_identities.is_empty() {
         return;
     }
@@ -209,9 +210,27 @@ async fn handle_unix_cycle(
 
 /// Return the dead identity triples for the given targets via a background
 /// OS thread so the smol executor stays free for input events (issue #287).
-async fn batch_dead_identities(targets: &[jefe::runtime::LivenessCheck]) -> Vec<LivenessIdentity> {
+async fn batch_dead_identities(
+    targets: &[jefe::runtime::LivenessCheck],
+) -> Observed<Vec<LivenessIdentity>> {
     let targets_owned = targets.to_vec();
     smol::unblock(move || jefe::runtime::batch_liveness_check_with_identity(&targets_owned)).await
+}
+
+/// The dead identities from an answered poll, or none when the multiplexer
+/// could not answer.
+///
+/// A held poll leaves every agent exactly as it was. The reason is logged
+/// rather than dropped, because an invisible hold is indistinguishable to the
+/// operator from the fail-open bug this replaces (issue #541).
+fn answered_dead_identities(observed: Observed<Vec<LivenessIdentity>>) -> Vec<LivenessIdentity> {
+    match observed {
+        Observed::Known(dead) => dead,
+        Observed::Unknown(reason) => {
+            tracing::warn!(%reason, "liveness poll held: no agent state was changed");
+            Vec::new()
+        }
+    }
 }
 
 /// Capture previews, then commit generation-checked `Dead` transitions,
@@ -295,7 +314,7 @@ async fn reconcile_healthy_agents(
     if running_targets.is_empty() {
         return;
     }
-    let dead_identities = batch_dead_identities(running_targets).await;
+    let dead_identities = answered_dead_identities(batch_dead_identities(running_targets).await);
     if dead_identities.is_empty() {
         return;
     }

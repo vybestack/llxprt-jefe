@@ -207,6 +207,10 @@ mod process_tests;
 mod orphan_tests;
 
 #[cfg(test)]
+#[path = "liveness_tests.rs"]
+mod liveness_tests;
+
+#[cfg(test)]
 #[path = "multiplexer_tests.rs"]
 mod multiplexer_tests;
 
