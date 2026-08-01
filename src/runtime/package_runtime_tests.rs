@@ -352,12 +352,19 @@ fn counting_npm_stub(bin: &TempDir) {
     // already existed when the stub started, otherwise "absent". Counting lines
     // therefore proves how many times `npm install` ran, and the content proves
     // whether jefe removed a stale lockfile before re-installing.
+    //
+    // The witness is written one directory level ABOVE the npm working dir
+    // (`../.jefe-lock-witness`). Issue #556 makes the install atomic: npm runs
+    // in a sibling temp dir that is renamed over the final dir, so a witness
+    // written inside the working dir would be replaced on every rebuild. The
+    // cache root (the temp dir's parent) is stable across rebuilds, so the
+    // witness accumulates there for both the atomic (Unix) and direct paths.
     executable(
         bin,
         "npm",
         "#!/bin/sh
 set -e
-if [ -f package-lock.json ]; then echo present >> .jefe-lock-witness; else echo absent >> .jefe-lock-witness; fi
+if [ -f package-lock.json ]; then echo present >> ../.jefe-lock-witness; else echo absent >> ../.jefe-lock-witness; fi
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\nexit 0\n' > node_modules/.bin/llxprt
 chmod 755 node_modules/.bin/llxprt
@@ -389,9 +396,15 @@ fn install_dir_of(executable: &Path) -> &Path {
     }
 }
 
+/// The npm-witness file lives at the cache root (the parent of the install
+/// dir) so it survives the atomic rebuild that replaces the install dir
+/// (issue #556). `install_dir` is the directory owning `.jefe-installed`.
 #[cfg(unix)]
 fn witness_lines(install_dir: &Path) -> Vec<String> {
-    let path = install_dir.join(".jefe-lock-witness");
+    let cache_root = install_dir
+        .parent()
+        .unwrap_or_else(|| panic!("install dir has a cache-root parent: {}", install_dir.display()));
+    let path = cache_root.join(".jefe-lock-witness");
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read install witness: {error}"))
         .lines()

@@ -52,6 +52,10 @@ mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
+/// Cross-process install lock and atomic swap for the managed package cache
+/// (issue #556). Unix-only; Windows locking is handled separately.
+#[cfg(unix)]
+mod package_cache_lock;
 mod package_probe;
 /// Generic package-backed invocation and preparation boundary (issue #382 S12).
 pub mod package_runtime;

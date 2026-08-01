@@ -8,6 +8,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
+#[cfg(unix)]
+use std::time::Instant;
 use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
@@ -97,6 +99,10 @@ pub enum PackageRuntimeError {
     InstallFailed(String),
     /// The selected installed package binary is absent.
     InstalledBinaryMissing { binary: String },
+    /// Cross-process install lock acquisition or stale recovery failed.
+    CacheLock(String),
+    /// The atomic rename of a built install tree into place failed.
+    InstallRename(String),
 }
 
 impl std::fmt::Display for PackageRuntimeError {
@@ -127,6 +133,12 @@ impl std::fmt::Display for PackageRuntimeError {
                 formatter,
                 "managed package binary `{binary}` is missing after install"
             ),
+            Self::CacheLock(detail) => {
+                write!(formatter, "managed package install lock failed: {detail}")
+            }
+            Self::InstallRename(detail) => {
+                write!(formatter, "managed package install rename failed: {detail}")
+            }
         }
     }
 }
@@ -294,9 +306,7 @@ fn append_digest_part(bytes: &mut Vec<u8>, part: &[u8]) {
 }
 
 fn managed_bin_dir(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
-    managed_install_dir(cache_root, selection)
-        .join("node_modules")
-        .join(".bin")
+    bin_dir_within(&managed_install_dir(cache_root, selection))
 }
 
 fn marker_contents(selection: &PackageSelection, now: SystemTime) -> String {
@@ -387,51 +397,50 @@ fn prepare_managed_npm(
     cache_root: &Path,
     now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
-    let _guard = match INSTALL_LOCK.lock() {
+    // The static guard remains the intra-process invariant; cross-process
+    // exclusion and the atomic install are layered on Unix (issue #556).
+    let _intra_process = match INSTALL_LOCK.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
     let install_dir = managed_install_dir(cache_root, selection);
-    let bin_dir = managed_bin_dir(cache_root, selection);
-    let cache_hit = cache_hit(&install_dir, &bin_dir, selection, now);
-    if !cache_hit {
-        write_package_json(&install_dir, selection)?;
-        // Issue #554: a stale lockfile makes `npm install` reuse the previously
-        // resolved dist-tag target. Drop it for volatile selectors so npm
-        // re-resolves `nightly`/`latest` against the registry. A real failure to
-        // remove an existing lockfile must surface — otherwise npm would silently
-        // reinstall the old target and the freshly stamped marker would freeze
-        // the stale build for another TTL window.
-        if selection.selector().is_volatile() {
-            match std::fs::remove_file(install_dir.join("package-lock.json")) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(PackageRuntimeError::InstallDirectory(format!(
-                        "failed to remove stale lockfile for re-resolve: {error}"
-                    )));
-                }
-            }
-        }
-        run_npm_install(candidate, &install_dir)?;
+    #[cfg(unix)]
+    {
+        prepare_managed_npm_atomic(candidate, selection, cache_root, &install_dir, now)
     }
-    let snapshot = PathSnapshot::for_platform(
+    #[cfg(not(unix))]
+    {
+        prepare_managed_npm_direct(candidate, selection, &install_dir, now)
+    }
+}
+
+fn bin_dir_within(install_dir: &Path) -> PathBuf {
+    install_dir.join("node_modules").join(".bin")
+}
+
+fn resolve_binary_in(
+    bin_dir: &Path,
+    selection: &PackageSelection,
+) -> Option<(PathBuf, AgentWrapperKind)> {
+    PathSnapshot::for_platform(
         AgentExecutablePlatform::current(),
-        vec![bin_dir],
+        vec![bin_dir.to_path_buf()],
         std::env::var_os("PATHEXT"),
-    );
-    let Some((executable, wrapper_kind)) = snapshot.resolve_binary(selection.binary()) else {
+    )
+    .resolve_binary(selection.binary())
+}
+
+/// Resolve the installed managed binary and capture its fingerprint. Shared by
+/// the Unix atomic path and the Windows direct path.
+fn resolve_managed_binary(
+    bin_dir: &Path,
+    selection: &PackageSelection,
+) -> Result<PackageInvocation, PackageRuntimeError> {
+    let Some((executable, wrapper_kind)) = resolve_binary_in(bin_dir, selection) else {
         return Err(PackageRuntimeError::InstalledBinaryMissing {
             binary: selection.binary().to_owned(),
         });
     };
-    if !cache_hit {
-        std::fs::write(
-            install_dir.join(INSTALL_MARKER),
-            marker_contents(selection, now),
-        )
-        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
-    }
     let fingerprint = capture_candidate_fingerprint(&executable)
         .map_err(PackageRuntimeError::InstallDirectory)?;
     Ok(PackageInvocation {
@@ -440,6 +449,232 @@ fn prepare_managed_npm(
         prefix: Vec::new(),
         fingerprint: Some(fingerprint),
     })
+}
+
+/// Issue #554: a stale lockfile makes `npm install` reuse the previously
+/// resolved dist-tag target. Drop it for volatile selectors so npm re-resolves
+/// `nightly`/`latest` against the registry. A real failure to remove an existing
+/// lockfile must surface — otherwise npm would silently reinstall the old target
+/// and the freshly stamped marker would freeze the stale build for another TTL.
+fn remove_stale_lockfile_if_volatile(
+    target_dir: &Path,
+    selection: &PackageSelection,
+) -> Result<(), PackageRuntimeError> {
+    if !selection.selector().is_volatile() {
+        return Ok(());
+    }
+    match std::fs::remove_file(target_dir.join("package-lock.json")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(PackageRuntimeError::InstallDirectory(format!(
+            "failed to remove stale lockfile for re-resolve: {error}"
+        ))),
+    }
+}
+
+#[cfg(not(unix))]
+fn prepare_managed_npm_direct(
+    candidate: &ResolvedCandidate,
+    selection: &PackageSelection,
+    install_dir: &Path,
+    now: SystemTime,
+) -> Result<PackageInvocation, PackageRuntimeError> {
+    let bin_dir = bin_dir_within(install_dir);
+    let hit = cache_hit(install_dir, &bin_dir, selection, now);
+    if !hit {
+        write_package_json(install_dir, selection)?;
+        remove_stale_lockfile_if_volatile(install_dir, selection)?;
+        run_npm_install(candidate, install_dir)?;
+    }
+    let invocation = resolve_managed_binary(&bin_dir, selection)?;
+    if !hit {
+        std::fs::write(
+            install_dir.join(INSTALL_MARKER),
+            marker_contents(selection, now),
+        )
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
+    }
+    Ok(invocation)
+}
+
+// ── Issue #556: cross-process serialization + atomic install (Unix) ──────────
+
+/// Poll interval while waiting for another process to finish an install.
+#[cfg(unix)]
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Upper bound on waiting for a contended install. Generous (several material
+/// windows) so a real install always completes first; a genuinely stuck lock is
+/// reported as a typed error rather than hanging forever. This is a safety bound
+/// on the wait, not a stale-detection timer (issue #556 A4).
+#[cfg(unix)]
+const LOCK_WAIT_BUDGET: Duration = Duration::from_millis(
+    crate::domain::agent_definition::limits::PACKAGE_MATERIALIZATION_TIMEOUT_MS * 3,
+);
+
+/// Per-process nonce so concurrent builds in one process never collide.
+#[cfg(unix)]
+static BUILD_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Either the cache is already complete, or this caller won the install.
+#[cfg(unix)]
+enum Need {
+    CacheHit,
+    Install(super::package_cache_lock::InstallLock),
+}
+
+#[cfg(unix)]
+fn prepare_managed_npm_atomic(
+    candidate: &ResolvedCandidate,
+    selection: &PackageSelection,
+    cache_root: &Path,
+    install_dir: &Path,
+    now: SystemTime,
+) -> Result<PackageInvocation, PackageRuntimeError> {
+    let bin_dir = bin_dir_within(install_dir);
+    // Fast path: a complete cache hit needs no cross-process lock.
+    if cache_hit(install_dir, &bin_dir, selection, now) {
+        return resolve_managed_binary(&bin_dir, selection);
+    }
+    let lock_path = install_lock_path(cache_root, selection);
+    match acquire_or_observe_cache(&lock_path, install_dir, &bin_dir, selection, now)? {
+        Need::CacheHit => resolve_managed_binary(&bin_dir, selection),
+        Need::Install(guard) => {
+            // Build atomically under the lock; the guard releases on drop.
+            let outcome = build_and_swap(candidate, selection, install_dir, cache_root, now)
+                .and_then(|()| resolve_managed_binary(&bin_dir, selection));
+            drop(guard);
+            outcome
+        }
+    }
+}
+
+/// Double-checked locking: wait for the cache to complete or the lock to free,
+/// then either observe the cache hit or win the install. A dead holder's lock is
+/// reclaimed immediately (no fixed timeout) inside [`try_acquire`].
+#[cfg(unix)]
+fn acquire_or_observe_cache(
+    lock_path: &Path,
+    install_dir: &Path,
+    bin_dir: &Path,
+    selection: &PackageSelection,
+    now: SystemTime,
+) -> Result<Need, PackageRuntimeError> {
+    use super::package_cache_lock::{AcquireOutcome, try_acquire};
+    let deadline = Instant::now() + LOCK_WAIT_BUDGET;
+    loop {
+        if cache_hit(install_dir, bin_dir, selection, now) {
+            return Ok(Need::CacheHit);
+        }
+        match try_acquire(lock_path)? {
+            AcquireOutcome::Acquired(guard) => {
+                if cache_hit(install_dir, bin_dir, selection, now) {
+                    drop(guard);
+                    return Ok(Need::CacheHit);
+                }
+                return Ok(Need::Install(guard));
+            }
+            AcquireOutcome::Contended => wait_or_bust(deadline)?,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn wait_or_bust(deadline: Instant) -> Result<(), PackageRuntimeError> {
+    if Instant::now() >= deadline {
+        return Err(PackageRuntimeError::CacheLock(
+            "timed out waiting for another process to finish the install".to_string(),
+        ));
+    }
+    std::thread::sleep(LOCK_POLL_INTERVAL);
+    Ok(())
+}
+
+#[cfg(unix)]
+fn build_and_swap(
+    candidate: &ResolvedCandidate,
+    selection: &PackageSelection,
+    install_dir: &Path,
+    cache_root: &Path,
+    now: SystemTime,
+) -> Result<(), PackageRuntimeError> {
+    use super::package_cache_lock::atomic_swap_into_place;
+    // We hold the lock, so any sibling building dir for this digest is abandoned.
+    sweep_stale_build_dirs(cache_root, selection);
+    let temp = new_building_dir(cache_root, selection)?;
+    // Build entirely inside the temp dir, then swap. Any failure after the temp
+    // is created must remove it so failed installs do not accumulate on disk
+    // (issue #556 A3): the final path stays untouched and the retry is clean.
+    let result = build_into_temp(candidate, selection, &temp, now)
+        .and_then(|()| atomic_swap_into_place(&temp, install_dir));
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+    result
+}
+
+/// Write the package manifest, run the install, and stamp the completion marker
+/// entirely inside `temp`. Nothing is published to the final path until the
+/// caller swaps the completed tree into place.
+#[cfg(unix)]
+fn build_into_temp(
+    candidate: &ResolvedCandidate,
+    selection: &PackageSelection,
+    temp: &Path,
+    now: SystemTime,
+) -> Result<(), PackageRuntimeError> {
+    write_package_json(temp, selection)?;
+    remove_stale_lockfile_if_volatile(temp, selection)?;
+    run_npm_install(candidate, temp)?;
+    // Gate the marker on a resolvable binary: a broken install is not published,
+    // and bailing before the swap leaves nothing at the final path.
+    if resolve_binary_in(&bin_dir_within(temp), selection).is_none() {
+        return Err(PackageRuntimeError::InstalledBinaryMissing {
+            binary: selection.binary().to_owned(),
+        });
+    }
+    std::fs::write(temp.join(INSTALL_MARKER), marker_contents(selection, now))
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))
+}
+
+#[cfg(unix)]
+fn digest_hex(selection: &PackageSelection) -> String {
+    selection_digest(selection).to_hex()
+}
+
+#[cfg(unix)]
+fn install_lock_path(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
+    cache_root.join(format!("{}.lock", digest_hex(selection)))
+}
+
+#[cfg(unix)]
+fn new_building_dir(
+    cache_root: &Path,
+    selection: &PackageSelection,
+) -> Result<PathBuf, PackageRuntimeError> {
+    let nonce = BUILD_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = cache_root.join(format!(
+        ".{}.building-{}-{}",
+        digest_hex(selection),
+        std::process::id(),
+        nonce
+    ));
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
+    Ok(dir)
+}
+
+#[cfg(unix)]
+fn sweep_stale_build_dirs(cache_root: &Path, selection: &PackageSelection) {
+    let prefix = format!(".{}.building-", digest_hex(selection));
+    let Ok(entries) = std::fs::read_dir(cache_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -500,4 +735,5 @@ mod tests {
     use crate::domain::agent_definition::{AgentDefinition, AgentLaunchPlan, Target};
 
     include!("package_runtime_tests.rs");
+    include!("package_runtime_atomic_tests.rs");
 }

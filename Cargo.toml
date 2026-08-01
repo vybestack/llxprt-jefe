@@ -112,6 +112,10 @@ name = "jefe-capture-shim"
 path = "src/bin/jefe-capture-shim.rs"
 
 [[bin]]
+name = "jefe-issue556-installer"
+path = "src/bin/jefe-issue556-installer.rs"
+
+[[bin]]
 name = "jefe-harness-probe"
 path = "src/bin/jefe-harness-probe.rs"
 
