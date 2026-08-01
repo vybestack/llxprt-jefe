@@ -101,6 +101,23 @@ declared in `src/workbench/diagnostics.rs`; accompanying `CFG-W004`/`CFG-E005`/
 | S7 | Bundled Issue/PR relationships replace embedded coupling | state | `screens.rs` (ports+relationships), `state/issues_ops.rs`, `state/prs_ops.rs` | parity suites |
 | S8 | Documentation | docs | `dev-docs/standards/architecture.md`, `display-and-ui.md` | — |
 
+All slices are complete. Deviations from the planned shape, and why:
+
+- **Modules live in `src/workbench/`**, per AD-3. The issue's inventory names
+  `src/domain/workbench/`, which predates #384.
+- **The startup boundary is `src/startup_screens.rs`**, not `src/app_init.rs`.
+  Composition needs resolved paths and published settings and must run before
+  the TUI initializes; `app_init.rs` runs after, inside the binary crate.
+- **Fixtures are `custom-screen-enable`, `custom-screen-inactive-invalid`, and
+  `custom-screen-active-invalid`.** The issue names `custom-screen-tiny.json`
+  for CW05-10, but a custom screen has no renderer in this issue, so a tiny
+  terminal cannot show one. CW05-10 is proven by resolving a lowered descriptor
+  through the standard `resolve_layout` at a tiny rect, which is the behavior
+  the row asks for; the third harness fixture covers the refusal path instead.
+- **Layout children carry no span.** Serde buffers the body of an internally
+  tagged enum before dispatching on `type`, and a buffered value has lost the
+  source positions a span needs. Layout violations name the structure instead.
+
 ## 7. Scope ledger
 
 | Change | Justification |
@@ -123,6 +140,21 @@ No change to `.github/`, `Cargo.toml`, `clippy.toml`, `xtask/`, `.llxprt/`, or a
 | Local OCR | 2 | 0 |
 | PR OCR | 2 | 0 |
 | Design/code review cycles | 2 | 0 |
+
+## 8a. Evidence by acceptance row
+
+| ID | Evidence |
+|---|---|
+| CW05-01 | `src/persistence/screen_files_tests.rs` (14 tests: type, name, symlink, order, size, UTF-8, repeatability) |
+| CW05-02 | `src/workbench/compose_tests.rs` lowering tests; `src/workbench/screen_file_tests.rs`; harness `custom-screen-enable` |
+| CW05-03 | `src/workbench/compose_tests.rs` dormant tests; `src/startup_screens_tests.rs`; harness `custom-screen-inactive-invalid` |
+| CW05-04 | `src/workbench/compose_tests.rs` refusal matrix; `src/startup_screens_tests.rs`; harness `custom-screen-active-invalid` |
+| CW05-05 | `src/workbench/relationship_propagation_tests.rs` immediate tests |
+| CW05-06 | `src/workbench/relationship_propagation_tests.rs` explicit/activation tests |
+| CW05-07 | `src/workbench/relationship_propagation_tests.rs` retained/empty policy table |
+| CW05-08 | `src/workbench/relationships_tests.rs` (18 tests); propagation bound at 64 and 65 |
+| CW05-09 | `src/state/screen_relationships_tests.rs`; the existing `issues_*`/`prs_*` suites stay green |
+| CW05-10 | `src/workbench/compose_tests.rs::a_tiny_lowered_screen_falls_back_through_the_standard_resolver` |
 
 ## 9. Verification
 
