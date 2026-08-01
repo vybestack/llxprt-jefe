@@ -477,6 +477,25 @@ signal, not a quiet queue. Resolved by merging `origin/main` (a true two-parent
 merge, `d2575724`, parents `a6df40cb` and `97126eb2`), taking main's `try_recv`
 fix from issue #562 together with this branch's field rename.
 
-## 10. Deferred findings / follow-ups
+## 10. PR review triage
+
+The PR's inline review left 27 threads. Most named code that had already been
+changed by the geometry-parity fix (`952f8139`), because the review ran against
+the earlier head; those are recorded as *already addressed* with the assertion
+that now covers them, not waved away. Four were acted on:
+
+| Finding | Verdict | Action |
+|---|---|---|
+| Panel identities in `screen_layout.rs` are literals nothing checks | In-scope fix | `every_panel_the_application_hides_is_declared_by_its_screen` asserts every identity the hiding rules can name is declared by the screen that names it, across both branches of every rule. Proven by renaming one identity and watching it fail. |
+| A chrome inset outside the cell range reads as zero silently | In-scope fix | `read_cells` now warns with the key and the offending value. The read stays total: the bag is shared with panel keys this module does not know. |
+| `allocate_tests` helpers coerce a zero weight/size to 1 | In-scope fix | The helpers now fail loudly; a test case cannot quietly measure something other than what it declares. |
+| `config.rs` had no tests | Already addressed | `config_tests.rs` covers round-trip, zero omission, missing, wrongly typed, negative, and out-of-range reads. |
+| `too_small_layout` ignores panel insets | Already addressed | The survivor is inset exactly as on the normal path (`resolve.rs`), so a PTY consumer is never told it has more cells than it can draw in. |
+| `Id::parse` is the wrong parser for the persisted screen | Rejected — factually wrong | `Selection::screen_id` is typed `Option<Id>` in the durable contract, so `Id` is the only type that can be written. The reverse direction already uses the migration table (`durable_restore.rs`), and both directions are asserted in `durable_projection_tests.rs`. |
+| A wrap-width constant with no single source of truth | Already addressed | `the_snapshot_wrap_width_matches_the_width_the_renderer_wraps_at` ties it to the renderer's own width helpers across five widths. |
+| Precompute the four chrome `Id`s; replace the remainder loop with a queue | Rejected — micro-optimisation | Both are bounded by the panel count (≤ 8 per axis); neither shows in any measurement, and both would trade clarity for nothing. |
+| A test hardcodes `core.repositories` | Rejected | Renaming that screen *should* fail the test loudly rather than silently retarget it at whichever screen happens to be too small. |
+
+## 11. Deferred findings / follow-ups
 
 _(none yet)_

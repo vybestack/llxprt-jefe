@@ -5,9 +5,16 @@ use std::num::NonZeroU16;
 use super::allocate::{AxisChild, allocate_axis};
 use super::descriptor::Size;
 
+/// A test case that asks for a zero weight or a zero fixed size is malformed:
+/// the descriptor vocabulary cannot express one. Coercing it to 1 would let the
+/// case pass while measuring something other than what it says.
+fn nonzero(value: u16, what: &str) -> NonZeroU16 {
+    NonZeroU16::new(value).unwrap_or_else(|| unreachable!("a test case may not declare {what} 0"))
+}
+
 fn weighted(weight: u16, min: u16, max: Option<u16>) -> AxisChild {
     AxisChild {
-        size: Size::Weight(NonZeroU16::new(weight).unwrap_or(NonZeroU16::MIN)),
+        size: Size::Weight(nonzero(weight, "a weight of")),
         min,
         max,
         collapsible: false,
@@ -19,7 +26,7 @@ fn weighted(weight: u16, min: u16, max: Option<u16>) -> AxisChild {
 
 fn fixed(cells: u16, min: u16, max: Option<u16>) -> AxisChild {
     AxisChild {
-        size: Size::Fixed(NonZeroU16::new(cells).unwrap_or(NonZeroU16::MIN)),
+        size: Size::Fixed(nonzero(cells, "a fixed size of")),
         min,
         max,
         collapsible: false,
@@ -31,7 +38,7 @@ fn fixed(cells: u16, min: u16, max: Option<u16>) -> AxisChild {
 
 fn collapsible(weight: u16, min: u16, priority: i32, depth_first_index: usize) -> AxisChild {
     AxisChild {
-        size: Size::Weight(NonZeroU16::new(weight).unwrap_or(NonZeroU16::MIN)),
+        size: Size::Weight(nonzero(weight, "a weight of")),
         min,
         max: None,
         collapsible: true,

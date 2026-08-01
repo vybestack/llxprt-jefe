@@ -58,12 +58,23 @@ pub fn insets_config(insets: Insets) -> Option<TypedMap> {
 }
 
 /// Read one non-negative cell count, defaulting to zero.
+///
+/// An integer outside the cell range is a mistake in a compiled descriptor
+/// rather than a condition the running program can encounter, so it is named in
+/// a warning instead of quietly becoming zero and shrinking a panel's chrome.
 fn read_cells(config: &TypedMap, key: &str) -> u16 {
     Id::parse(key)
         .ok()
         .and_then(|id| config.get(&id))
         .and_then(|value| match value {
-            TypedValue::Integer(cells) => u16::try_from(*cells).ok(),
+            TypedValue::Integer(cells) => u16::try_from(*cells).ok().or_else(|| {
+                tracing::warn!(
+                    key,
+                    cells = *cells,
+                    "chrome inset outside the cell range; reading it as no chrome"
+                );
+                None
+            }),
             _ => None,
         })
         .unwrap_or(0)

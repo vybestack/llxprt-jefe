@@ -73,7 +73,11 @@ fn hidden_panels(state: &AppState) -> PanelState {
 }
 
 /// Panel identities the application is hiding on the active screen.
-fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
+///
+/// The identities are literals, so nothing but a test can notice a descriptor
+/// renaming a panel out from under them; `screen_layout_tests` asserts every
+/// identity produced here is declared by the screen it names.
+pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
     let mut hidden = Vec::new();
     match state.screen {
         ScreenId::Dashboard => {

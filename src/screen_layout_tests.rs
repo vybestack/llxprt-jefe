@@ -1,8 +1,9 @@
 //! Snapshot-production tests (issue #384, CW04-04).
 
-use crate::screen_layout::{resolve_screen, screen_rect};
+use crate::domain::AgentId;
+use crate::screen_layout::{hidden_panel_ids, resolve_screen, screen_rect};
 use crate::state::AppState;
-use crate::workbench::{PanelId, ScreenId};
+use crate::workbench::{PanelId, ScreenId, screen_descriptor};
 
 fn state_on(screen: ScreenId) -> AppState {
     AppState {
@@ -189,6 +190,59 @@ fn the_terminal_pane_never_resolves_to_zero_cells() {
                     "terminal collapsed to nothing at {cols}x{rows}"
                 );
             }
+        }
+    }
+}
+
+/// One state per branch of the hiding rules, so the assertion below sees every
+/// identity the module can name on the given screen.
+fn hiding_states(screen: ScreenId) -> Vec<AppState> {
+    let quiet = state_on(screen);
+
+    let mut showing = state_on(screen);
+    showing.error_message = Some("rate limited".to_owned());
+    showing.issues_state.filter_ui.controls_open = true;
+    showing.prs_state.filter_ui.controls_open = true;
+    showing.actions_state.ui.filter_ui_open = true;
+    showing.dashboard_search.input_focused = true;
+
+    let mut overlay = state_on(screen);
+    overlay.open_shell_overlay(AgentId("agent-1".to_owned()));
+
+    vec![quiet, showing, overlay]
+}
+
+#[test]
+fn every_panel_the_application_hides_is_declared_by_its_screen() {
+    // The hiding rules name panels by identity literal, so a descriptor that
+    // renamed a panel would leave them addressing nothing and the band would
+    // stay on screen forever. Nothing else would notice.
+    for screen in ScreenId::ALL {
+        let Ok(descriptor) = screen_descriptor(screen) else {
+            unreachable!("every screen has a compiled descriptor");
+        };
+        let mut named = 0_usize;
+        for state in hiding_states(screen) {
+            for panel in hidden_panel_ids(&state) {
+                assert!(
+                    descriptor
+                        .panels
+                        .iter()
+                        .any(|declared| declared.id == panel),
+                    "screen {screen} hides {panel}, which its descriptor does not declare"
+                );
+                named += 1;
+            }
+        }
+        // Guard the assertion against becoming vacuous: the screens that carry
+        // conditional panels must actually produce some.
+        if matches!(
+            screen,
+            ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals
+        ) {
+            assert_eq!(named, 0, "screen {screen} hides nothing conditionally");
+        } else {
+            assert!(named > 0, "screen {screen} must exercise its hiding rules");
         }
     }
 }
