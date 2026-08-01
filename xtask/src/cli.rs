@@ -13,6 +13,7 @@ use crate::clippy_policy;
 use crate::process::{CommandFailed, CommandPlan, repo_path};
 use crate::source_size;
 use crate::toolchain;
+use crate::windows_coverage;
 
 /// The aggregate `ci` ordering — fmt, clippy-allow policy, source-size policy,
 /// architecture policy, strict clippy, complexity clippy, coverage, locked
@@ -53,6 +54,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         "lint" => exit(lint_plan().run_inherit()),
         "complexity" => exit(complexity_plan().run_inherit()),
         "coverage" => exit(run_coverage()),
+        "coverage-windows" => exit(run_windows_coverage()),
         "build" => exit(build_plan().run_inherit()),
         "test" => exit(test_plan().run_inherit()),
         "check" => exit(run_check(rest)),
@@ -80,6 +82,7 @@ commands:
   lint                strict clippy (warnings as errors)
   complexity          complexity-threshold clippy
   coverage            llvm-cov line-coverage gate (30%)
+  coverage-windows    per-module coverage floors for Windows-only modules
   build               locked all-feature workspace build
   test                locked all-feature workspace test
   check clippy-allows  zero-tolerance clippy allow/expect policy
@@ -218,6 +221,70 @@ fn test_plan() -> CommandPlan {
 
 fn run_coverage() -> Result<(), CommandFailed> {
     toolchain::coverage_plan()?.run_inherit()
+}
+
+/// `cargo xtask coverage-windows` — enforce a floor per Windows-only module.
+///
+/// The workspace coverage gate runs on Ubuntu, where these modules are
+/// compiled out, so it can never observe them. This gate names the module that
+/// regressed instead of moving a workspace-wide average.
+fn run_windows_coverage() -> Result<(), CommandFailed> {
+    let root = repo_path("").map_err(|err| CommandFailed {
+        program: "xtask".into(),
+        args: vec!["coverage-windows".into()],
+        status: None,
+        stdout: Vec::new(),
+        stderr: err.into_bytes(),
+    })?;
+    let tracefile = root.join("target").join("windows-coverage.lcov");
+    if let Some(parent) = tracefile.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| CommandFailed {
+            program: "xtask".into(),
+            args: vec!["coverage-windows".into()],
+            status: None,
+            stdout: Vec::new(),
+            stderr: format!("could not create {}: {error}", parent.display()).into_bytes(),
+        })?;
+    }
+    windows_coverage::windows_coverage_plan(&tracefile)?.run_inherit()?;
+
+    let text = std::fs::read_to_string(&tracefile).map_err(|error| CommandFailed {
+        program: "xtask".into(),
+        args: vec!["coverage-windows".into()],
+        status: None,
+        stdout: Vec::new(),
+        stderr: format!("could not read {}: {error}", tracefile.display()).into_bytes(),
+    })?;
+    let coverage = windows_coverage::parse_lcov(&text);
+    print!(
+        "{}",
+        windows_coverage::render_report(&coverage, windows_coverage::WINDOWS_MODULE_FLOORS)
+    );
+
+    let violations =
+        windows_coverage::evaluate_floors(&coverage, windows_coverage::WINDOWS_MODULE_FLOORS);
+    if violations.is_empty() {
+        return Ok(());
+    }
+    let detail = violations
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    Err(CommandFailed {
+        program: "xtask".into(),
+        args: vec!["coverage-windows".into()],
+        status: Some(1),
+        stdout: Vec::new(),
+        stderr: format!(
+            "Windows-only module coverage regressed:
+{detail}"
+        )
+        .into_bytes(),
+    })
 }
 
 // --- check subcommands ------------------------------------------------------
