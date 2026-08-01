@@ -468,11 +468,15 @@ fn a_registry_version_answer_is_validated_before_it_is_trusted() {
         );
     }
 
-    // A newline would forge an extra marker line; the rest are control or
-    // unbounded answers that must never reach the marker.
+    // Production trims the registry answer before validating, so a *trailing*
+    // newline never reaches the validator; it is included here to pin that the
+    // validator would reject it anyway. An *embedded* newline is the case that
+    // matters, because it would forge an extra marker line. The rest are
+    // control, whitespace or unbounded answers.
     for rejected in [
         "",
         "1.0.0\n2.0.0",
+        "1.0.0\n",
         "1.0.0 2.0.0",
         "1.0.0\u{0}",
         "1.0.0\t",
@@ -579,7 +583,8 @@ fn volatile_selector_uses_the_cached_install_when_the_registry_is_unreachable() 
 #[test]
 fn volatile_marker_without_a_resolved_version_re_installs() {
     // AC3: a legacy/stuck marker (3 lines, no timestamp) for a volatile selector
-    // is treated as expired and re-installed, writing a fresh timestamped marker.
+    // is treated as stale and re-installed, writing a marker that records the
+// version the dist-tag resolved to.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
@@ -590,7 +595,7 @@ fn volatile_marker_without_a_resolved_version_re_installs() {
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let install_dir = install_dir_of(first.executable()).to_path_buf();
     // Simulate a stuck/legacy cache: overwrite the marker with the old 3-line
-    // form (no install-time line) while keeping the binary present.
+    // form (no resolved-version line) while keeping the binary present.
     let selection = candidate
         .package()
         .unwrap_or_else(|| panic!("volatile candidate carries a package selection"));
@@ -624,7 +629,7 @@ fn volatile_marker_without_a_resolved_version_re_installs() {
     let lines: Vec<&str> = refreshed.lines().collect();
     assert!(
         lines.len() >= 4,
-        "refreshed volatile marker must carry an install-time line: {refreshed:?}"
+        "refreshed volatile marker must carry a resolved-version line: {refreshed:?}"
     );
     // The identity lines must be preserved across the refresh (no corruption).
     assert_eq!(lines[0], selection.package(), "package line preserved");
