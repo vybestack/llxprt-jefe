@@ -12,6 +12,7 @@ use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -372,11 +373,19 @@ fn which_psmux() -> Option<PathBuf> {
     PathBuf::from(text.lines().next()?.trim()).into()
 }
 
+/// Build a namespace unique across threads, processes, and clock ticks.
+/// See `tests/psmux_parallel_isolation.rs` for the proof this construction
+/// is required: a timestamp alone collides under concurrency on Windows.
 fn unique_name(label: &str) -> String {
+    static NAMESPACE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let sequence = NAMESPACE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("jefe-orph-{label}-{stamp}")
+    format!(
+        "jefe-orph-{label}-{}-{stamp:x}-{sequence:x}",
+        std::process::id()
+    )
 }
 
 fn format_output(output: &Output) -> String {

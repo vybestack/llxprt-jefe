@@ -55,18 +55,32 @@ impl<T> TestOptionExt<T> for Option<T> {
     }
 }
 
-fn exit_success() -> ExitStatus {
-    // `true` exits 0 on all platforms; its exit status is the portable
-    // success sentinel without constructing a platform-specific code.
-    std::process::Command::new("true")
+/// Produce a real `ExitStatus` with the given code.
+///
+/// Windows has no `true`/`false` executables, so naming them made these tests
+/// fail on Windows only. Shelling out to the platform's own no-op keeps the
+/// status genuine, without constructing a platform-specific raw code.
+fn exit_with(code: i32) -> ExitStatus {
+    let mut command = if cfg!(windows) {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "exit", &code.to_string()]);
+        command
+    } else {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", &format!("exit {code}")]);
+        command
+    };
+    command
         .status()
-        .value_or_panic("a successful exit status can be produced")
+        .value_or_panic("an exit status can be produced")
+}
+
+fn exit_success() -> ExitStatus {
+    exit_with(0)
 }
 
 fn exit_failure() -> ExitStatus {
-    std::process::Command::new("false")
-        .status()
-        .value_or_panic("a failing exit status can be produced")
+    exit_with(1)
 }
 
 #[test]
