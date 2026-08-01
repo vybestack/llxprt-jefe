@@ -438,12 +438,32 @@ fn resolve_volatile_version(
         return None;
     }
     let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    // A version never contains a newline or whitespace; anything else means the
-    // registry answered with something this code should not act on.
-    if version.is_empty() || version.split_whitespace().count() != 1 {
-        return None;
-    }
-    Some(version)
+    is_plausible_version(&version).then_some(version)
+}
+
+/// Whether a registry answer is shaped like a version this code may act on.
+///
+/// The answer is the one input here that jefe does not control, so it is
+/// validated rather than trusted. It is written verbatim into a newline
+/// delimited marker and compared against a later answer, so anything carrying
+/// whitespace, a control character, or unbounded length is rejected outright
+/// instead of being allowed to corrupt the marker.
+///
+/// `is_ascii_graphic` admits exactly printable non-space ASCII, which excludes
+/// every control character, NUL, and the newline that delimits the marker.
+///
+/// This deliberately does not enforce semver: npm dist-tags legitimately point
+/// at prerelease and build-metadata forms, and rejecting an unfamiliar but
+/// harmless shape would break a launch for no safety gain.
+fn is_plausible_version(version: &str) -> bool {
+    /// Generous next to any real version, small enough to bound a marker line.
+    const MAX_VERSION_LEN: usize = 256;
+
+    !version.is_empty()
+        && version.len() <= MAX_VERSION_LEN
+        && version
+            .chars()
+            .all(|character| character.is_ascii_graphic())
 }
 
 /// Whether the stored marker's package/binary/effective lines match `selection`.

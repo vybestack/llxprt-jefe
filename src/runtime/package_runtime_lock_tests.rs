@@ -79,6 +79,10 @@ final={final_dir}
 versions={versions}
 # A metadata-only resolve records no observation and installs nothing.
 if [ \"$1\" = view ]; then
+  if [ \"$#\" -ne 3 ] || [ \"$3\" != version ]; then
+    echo \"unexpected npm view invocation: $*\" >&2
+    exit 64
+  fi
   if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
 fi
 mkdir -p node_modules/.bin

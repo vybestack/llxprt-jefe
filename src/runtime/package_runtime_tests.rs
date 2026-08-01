@@ -368,6 +368,10 @@ set -e
 witness={witness}
 versions={versions}
 if [ \"$1\" = view ]; then
+  if [ \"$#\" -ne 3 ] || [ \"$3\" != version ]; then
+    echo \"unexpected npm view invocation: $*\" >&2
+    exit 64
+  fi
   if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
 fi
 if [ -f package-lock.json ]; then echo present >> \"$witness\"; else echo absent >> \"$witness\"; fi
@@ -445,6 +449,45 @@ fn witness_path(dir: &TempDir) -> PathBuf {
 fn volatile_npm_candidate(bin: &TempDir, selector: &str) -> ResolvedCandidate {
     let definition = definition("LLxprt");
     resolve_package(&definition, bin.path(), selector)
+}
+
+/// The registry answer is the one input here jefe does not control, so it is
+/// validated rather than trusted before it reaches the marker (issue #584).
+#[test]
+fn a_registry_version_answer_is_validated_before_it_is_trusted() {
+    use super::is_plausible_version;
+
+    for accepted in [
+        "1.0.0",
+        "0.11.0-nightly.260801.19ac22acc",
+        "2.0.0-rc.1+build.5",
+    ] {
+        assert!(
+            is_plausible_version(accepted),
+            "a legitimate dist-tag answer must be accepted: {accepted:?}"
+        );
+    }
+
+    // A newline would forge an extra marker line; the rest are control or
+    // unbounded answers that must never reach the marker.
+    for rejected in [
+        "",
+        "1.0.0\n2.0.0",
+        "1.0.0 2.0.0",
+        "1.0.0\u{0}",
+        "1.0.0\t",
+        "1.0.0\u{7f}",
+    ] {
+        assert!(
+            !is_plausible_version(rejected),
+            "a malformed registry answer must be rejected: {rejected:?}"
+        );
+    }
+
+    assert!(
+        !is_plausible_version(&"9".repeat(257)),
+        "an unbounded registry answer must be rejected"
+    );
 }
 
 #[cfg(unix)]
