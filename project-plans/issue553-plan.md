@@ -136,7 +136,7 @@ this table requires explicit approval.
 | Review | Budget | Used |
 |---|---|---|
 | Open Code Review before PR | 2 | 1 |
-| Open Code Review after PR | 2 | 1 |
+| Open Code Review after PR | 2 | 2 |
 | Independent review-and-remediation rounds | 2 | 2 |
 
 ### Open Code Review run 1 triage (`--from main --to issue553`)
@@ -155,6 +155,12 @@ this table requires explicit approval.
 | `validate_launch_or_error` is not defined and the call sites will not compile (reported twice) | **Reject** | It is defined at `src/app_input/availability.rs:185`. The workspace builds, `cargo clippy --workspace --all-targets --all-features -- -D warnings` is clean, and the PR's own Build, Lint, and Test jobs pass on this head. The reviewer's context did not include the defining hunk |
 | `deadline()` fallback can panic on unchecked `Instant` addition | **In-scope—Fix** | Every step is now checked; no path can panic |
 | The combined-ceiling test hardcodes 310s | **In-scope—Fix (partial)** | The pinned ceiling is kept deliberately, matching the sibling `local_probe_budget_bounds_each_sequential_process` assertion: these are published contract values, and changing one should require a visible edit. The materialization constant is now pinned explicitly so a failure names which constant moved instead of only the sum |
+
+### Open Code Review run 3 triage (automated, remediated head)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| `deadline()` documentation contradicts its terminal fallback arm | **In-scope—Fix (documentation)** | The contradiction was real and the comment now states what the code does. Both suggested code changes were rejected: an unchecked `Add` reintroduces the panic the previous run correctly flagged on the same line, and an unreachable panic is forbidden by the same rule. If both checked additions fail there is no representable later instant to return, so the arm must return something; the comment now explains why it cannot be reached |
 
 ## Verification evidence
 
