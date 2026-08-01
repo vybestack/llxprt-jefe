@@ -53,6 +53,10 @@ fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
 /// Kept free of I/O so both verdicts can be exercised directly. Both are
 /// reported when both fail: showing only the first would send the operator
 /// round the loop twice (issue #540).
+///
+/// Windows-only because the psmux contract is: other platforms run tmux and
+/// have nothing to qualify against it.
+#[cfg(windows)]
 fn startup_multiplexer_warning(
     qualification: &jefe::runtime::MultiplexerQualification,
     provenance: Option<&jefe::runtime::ProvenanceVerdict>,

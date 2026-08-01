@@ -416,6 +416,7 @@ fn published_agent_enablement_is_separate_from_availability() {
 /// could launch jefe, navigate the UI, and only discover the multiplexer was
 /// unusable when starting an agent. A refusal must therefore surface at
 /// startup, carrying the detail needed to act on it.
+#[cfg(windows)]
 #[test]
 fn a_refused_multiplexer_is_reported_at_startup() {
     let qualification = jefe::runtime::MultiplexerQualification::Refused {
@@ -431,6 +432,7 @@ fn a_refused_multiplexer_is_reported_at_startup() {
 
 /// A qualified binary with nothing wrong produces no noise, or the warning
 /// surface stops being read.
+#[cfg(windows)]
 #[test]
 fn a_qualified_multiplexer_is_silent() {
     let qualification = jefe::runtime::MultiplexerQualification::Qualified {
@@ -449,6 +451,7 @@ fn a_qualified_multiplexer_is_silent() {
 /// Provenance is checked at startup alongside version and conformance, so an
 /// unrecognised binary is reported even when it behaves correctly. Behaving
 /// correctly is not evidence of being the binary jefe qualified.
+#[cfg(windows)]
 #[test]
 fn an_unqualified_provenance_is_reported_even_when_conformance_passes() {
     let qualification = jefe::runtime::MultiplexerQualification::Qualified {
@@ -467,6 +470,7 @@ fn an_unqualified_provenance_is_reported_even_when_conformance_passes() {
 
 /// Both problems at once must both be reported; showing only the first would
 /// send the operator round the loop twice.
+#[cfg(windows)]
 #[test]
 fn conformance_and_provenance_problems_are_both_reported() {
     let qualification = jefe::runtime::MultiplexerQualification::Refused {
