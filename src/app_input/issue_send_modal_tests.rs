@@ -21,7 +21,7 @@ use super::issue_self_assignment::{IssueAssignment, SelfAssignment};
 use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{AgentId, IssueDetail, IssueState, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AgentChooserState, ModalState, ScreenMode};
+use jefe::state::{AgentChooserState, ModalState, ScreenId};
 
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
@@ -79,7 +79,7 @@ fn state_for_issue_agent_chooser_send(
     };
 
     let mut state = jefe::state::AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state,
         ..AppState::default()
     };
@@ -231,7 +231,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             "acme/widgets".to_owned(),
             PathBuf::from("/tmp/repo"),
         )],
-        screen_mode: jefe::state::ScreenMode::DashboardIssues,
+        screen: jefe::state::ScreenId::Issues,
         ..AppState::default()
     };
     let state = AppState {
@@ -245,7 +245,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         repositories: seeded.repositories.clone(),
-        screen_mode: seeded.screen_mode,
+        screen: seeded.screen,
         ..AppState::default()
     };
 
@@ -256,12 +256,12 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
         "CloseModal must dismiss ConfirmIssueOriginMismatch without side effects"
     );
     // Non-modal state is preserved: CloseModal is a pure transition that
-    // only touches `modal`, never agents/repositories/screen_mode.
+    // only touches `modal`, never agents/repositories/screen.
     assert_eq!(next.repositories.len(), 1, "repositories must be preserved");
     assert_eq!(
-        next.screen_mode,
-        jefe::state::ScreenMode::DashboardIssues,
-        "screen_mode must be preserved"
+        next.screen,
+        jefe::state::ScreenId::Issues,
+        "screen must be preserved"
     );
     assert!(
         next.agents.is_empty(),

@@ -15,7 +15,7 @@ use crate::layout::{
     LEFT_COL_WIDTH, PRS_SIDEBAR_WIDTH, PrsColumns, pr_error_banner_line, prs_detail_viewport_rows,
     prs_main_columns,
 };
-use crate::state::ScreenMode;
+use crate::state::ScreenId;
 use crate::ui::components::keybind_bar::keybind_hints_for;
 use crate::ui::components::pr_filter_controls::pr_filter_field_views;
 
@@ -210,7 +210,7 @@ fn test_pr_screen_renders_error_banner_when_error_present() {
 fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
     let hints = keybind_hints_for(
         &crate::action_projection::test_snapshot(),
-        ScreenMode::DashboardPullRequests,
+        ScreenId::PullRequests,
         false,
         None,
     );
@@ -235,7 +235,7 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
     assert_eq!(
         keybind_hints_for(
             &crate::action_projection::test_snapshot(),
-            ScreenMode::DashboardPullRequests,
+            ScreenId::PullRequests,
             true,
             None
         ),
@@ -254,7 +254,7 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
 fn test_issues_keybind_bar_lists_property_edit_shortcuts() {
     let hints = keybind_hints_for(
         &crate::action_projection::test_snapshot(),
-        ScreenMode::DashboardIssues,
+        ScreenId::Issues,
         false,
         None,
     );
@@ -270,7 +270,7 @@ fn test_issues_keybind_bar_lists_property_edit_shortcuts() {
 fn test_pr_keybind_bar_has_no_type_shortcut() {
     let hints = keybind_hints_for(
         &crate::action_projection::test_snapshot(),
-        ScreenMode::DashboardPullRequests,
+        ScreenId::PullRequests,
         false,
         None,
     );

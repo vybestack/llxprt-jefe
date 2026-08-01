@@ -8,7 +8,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ScreenMode};
+use jefe::state::{AppEvent, AppState, ScreenId};
 use std::path::PathBuf;
 
 /// Create a test state with multiple repositories.
@@ -39,7 +39,7 @@ fn create_split_test_state() -> AppState {
     );
 
     AppState {
-        screen_mode: ScreenMode::Split,
+        screen: ScreenId::Repositories,
         repositories: vec![repo1, repo2, repo3],
         selected_repository_index: Some(0),
         ..Default::default()
@@ -53,13 +53,13 @@ fn create_split_test_state() -> AppState {
 #[test]
 fn s_key_enters_split_mode() {
     let state = AppState {
-        screen_mode: ScreenMode::Dashboard,
+        screen: ScreenId::Dashboard,
         ..Default::default()
     };
 
     let state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Split);
+    assert_eq!(state.screen, ScreenId::Repositories);
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn esc_key_exits_split_mode() {
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
 }
 
 // ============================================================================

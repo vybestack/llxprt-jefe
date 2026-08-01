@@ -33,8 +33,6 @@ use super::package_runtime::{finalize_local_invocation, managed_package_cache_ro
 /// Current state-owned evidence from which one launch attempt is derived.
 #[derive(Debug, Clone)]
 pub struct LaunchStateEvidence {
-    availability: crate::domain::agent_definition::Availability,
-    resolution: Option<CandidateResolution>,
     candidate_generation_key: Option<CandidateGenerationKey>,
     probe_generation: u64,
     target_generation: u64,
@@ -51,8 +49,6 @@ impl LaunchStateEvidence {
         activation_generation: u64,
     ) -> Self {
         Self {
-            availability: observation.availability().clone(),
-            resolution: observation.candidate_resolution().cloned(),
             candidate_generation_key: observation.candidate_generation_key().cloned(),
             probe_generation: observation.generation(),
             target_generation,
@@ -121,6 +117,15 @@ pub fn prepare_launch(
     configuration: &AgentLaunchRequest,
     state_evidence: &LaunchStateEvidence,
 ) -> Result<PreparedLaunch, RuntimeError> {
+    let snapshot = PathSnapshot::current();
+    prepare_launch_with_snapshot(configuration, state_evidence, &snapshot)
+}
+
+fn prepare_launch_with_snapshot(
+    configuration: &AgentLaunchRequest,
+    state_evidence: &LaunchStateEvidence,
+    local_snapshot: &PathSnapshot,
+) -> Result<PreparedLaunch, RuntimeError> {
     let definition = definition_for(configuration)?;
     validate_support_before_effects(&definition, configuration)?;
     let selector = version_selector(&configuration.values)?;
@@ -134,7 +139,13 @@ pub fn prepare_launch(
             state_evidence.probe_generation,
         )?
     } else {
-        local_candidate(&definition, configuration, &selector, state_evidence)?
+        local_candidate_with_snapshot(
+            &definition,
+            configuration,
+            &selector,
+            state_evidence,
+            local_snapshot,
+        )?
     };
     let preflight = preflight_contract(&definition, &configuration.values)?;
     let plan = immutable_plan(ImmutablePlanInputs {
@@ -267,10 +278,7 @@ pub fn observe_launch_state(
     let key = candidate.generation_key(&definition);
     let generation = next_probe_generation(None, &key, u64::default())
         .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
-    let probe = run_local_agent_probe(&definition, &resolution, generation);
     Ok(LaunchStateEvidence {
-        availability: probe.availability().clone(),
-        resolution: Some(resolution),
         candidate_generation_key: Some(key),
         probe_generation: generation,
         target_generation: u64::default(),
@@ -339,22 +347,16 @@ fn support_target(configuration: &AgentLaunchRequest) -> Target {
     }
 }
 
-fn local_candidate(
+fn local_candidate_with_snapshot(
     definition: &AgentDefinition,
     configuration: &AgentLaunchRequest,
     selector: &VersionSelector,
     state_evidence: &LaunchStateEvidence,
+    snapshot: &PathSnapshot,
 ) -> Result<CandidateEvidence, RuntimeError> {
-    let resolution = if selector.is_direct() {
-        state_evidence.resolution.clone().ok_or_else(|| {
-            RuntimeError::SpawnFailed("state has no resolved local executable evidence".into())
-        })?
-    } else {
-        let snapshot = PathSnapshot::current();
-        AgentCandidateResolver::new(&snapshot, configuration.work_dir.clone())
-            .with_version_selector(selector.clone())
-            .resolve(definition)
-    };
+    let resolution = AgentCandidateResolver::new(snapshot, configuration.work_dir.clone())
+        .with_version_selector(selector.clone())
+        .resolve(definition);
     let candidate = resolved_candidate(&resolution)?;
     let current_key = candidate.generation_key(definition);
     let generation = next_probe_generation(
@@ -363,17 +365,6 @@ fn local_candidate(
         state_evidence.probe_generation,
     )
     .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
-    if selector.is_direct()
-        && !matches!(
-            state_evidence.availability,
-            crate::domain::agent_definition::Availability::InstalledCompatible { .. }
-                | crate::domain::agent_definition::Availability::NotFound
-        )
-    {
-        return Err(RuntimeError::SpawnFailed(
-            "state-owned local availability is not compatible".into(),
-        ));
-    }
     let probe = run_local_agent_probe(definition, &resolution, generation);
     let invocation = finalize_local_invocation(candidate, &managed_package_cache_root())
         .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;

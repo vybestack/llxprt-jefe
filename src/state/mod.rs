@@ -512,7 +512,7 @@ impl AppState {
                 dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
-                self.screen_mode = ScreenMode::Split;
+                self.screen = ScreenId::Repositories;
                 self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
@@ -585,7 +585,7 @@ impl AppState {
     }
 
     fn exit_split_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.split_filter = None;
         self.split_grab_index = None;
     }

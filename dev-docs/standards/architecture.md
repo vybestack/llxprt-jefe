@@ -189,6 +189,34 @@ Raw text insertion in an editor and raw PTY forwarding in terminal capture are
 deliberately *not* actions. They stay raw so remapping can never change what a
 child process receives.
 
+## One geometry authority
+
+`layout` is the sole geometry authority. The implementation lives in the
+I/O-free `workbench/` module and is re-exported by `src/layout.rs`, so there is
+exactly one `resolve_layout` and exactly one place a consumer looks for
+rectangles.
+
+```text
+ScreenId ──> workbench::ScreenRegistry ──> ScreenDescriptor  (compiled, validated)
+(descriptor, outer Rect, PanelState) ──> resolve_layout  (pure, checked u32)
+        └──> ResolvedLayout { screen_instance, panels, too_small }
+                 ├──> renderers        (chrome / content rectangles)
+                 ├──> mouse routing    (hit regions)
+                 ├──> selection + wrap (content rectangles)
+                 └──> PTY resize       (pty_content_rect, never zero)
+```
+
+The snapshot is computed once per size or state change and carries a
+`ScreenInstanceId`, so a consumer can prove it read the geometry the renderer
+used rather than deriving its own. Screen-specific geometry arithmetic and
+independent terminal-size reads are not permitted in consumers: a panel's
+position is whatever the snapshot says it is.
+
+`workbench/` depends on nothing project-internal except the shared typed-value
+contract in `domain/`. It performs no I/O, holds no state, and imports no
+terminal, rendering, persistence, runtime, or harness types, which is what lets
+the allocation algorithm be swept exhaustively as pure arithmetic.
+
 ## The Pure-Views Pattern
 
 This is the most important architectural discipline in Jefe, and historically it

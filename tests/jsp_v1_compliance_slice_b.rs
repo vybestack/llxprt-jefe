@@ -225,18 +225,17 @@ fn producer_fabricated_adapter_version_fails_executable_qualification() {
 fn producer_missing_process_binding_fails() {
     let mut trace = read_json(&traces_dir().join("producer-trace.json"));
     // Remove process binding from the snapshot
-    if let Some(facts) = trace.get_mut("facts").and_then(Value::as_array_mut) {
-        if let Some(doc) = facts.iter_mut().find_map(|f| {
+    if let Some(facts) = trace.get_mut("facts").and_then(Value::as_array_mut)
+        && let Some(doc) = facts.iter_mut().find_map(|f| {
             if f.get("fact").and_then(Value::as_str) == Some("document") {
                 f.get_mut("document")
             } else {
                 None
             }
-        }) {
-            if doc["kind"] == "snapshot" {
-                doc["process_binding"] = Value::String("unsupported".to_string());
-            }
-        }
+        })
+        && doc["kind"] == "snapshot"
+    {
+        doc["process_binding"] = Value::String("unsupported".to_string());
     }
     let report = validate_producer_trace(&json_bytes(&trace));
     assert!(!report.passed, "missing process binding must fail");
@@ -312,11 +311,10 @@ fn server_unknown_credential_handle_fails() {
     if let Some(interactions) = transcript
         .get_mut("interactions")
         .and_then(Value::as_array_mut)
+        && let Some(first) = interactions.first_mut()
     {
-        if let Some(first) = interactions.first_mut() {
-            first["request"]["credential_handle"] =
-                Value::String("unknown-credential-handle".to_string());
-        }
+        first["request"]["credential_handle"] =
+            Value::String("unknown-credential-handle".to_string());
     }
     let report = validate_server_transcript(&json_bytes(&transcript));
     // The unknown credential should be treated as forbidden (403), not
@@ -336,10 +334,9 @@ fn server_partial_binding_fails() {
     if let Some(interactions) = transcript
         .get_mut("interactions")
         .and_then(Value::as_array_mut)
+        && let Some(first) = interactions.first_mut()
     {
-        if let Some(first) = interactions.first_mut() {
-            first["request"]["principal_handle"] = Value::String("wrong-principal".to_string());
-        }
+        first["request"]["principal_handle"] = Value::String("wrong-principal".to_string());
     }
     let report = validate_server_transcript(&json_bytes(&transcript));
     assert!(
@@ -485,13 +482,11 @@ fn server_activity_value_never_maps_unknown_to_idle() {
         .and_then(Value::as_array_mut)
     {
         for interaction in interactions.iter_mut() {
-            if let Some(response) = interaction.get_mut("response") {
-                if response.get("kind").and_then(Value::as_str) == Some("observation_health_stale")
-                {
-                    if let Some(body) = response.get_mut("body") {
-                        body["native_activity"] = Value::String("unsupported".to_string());
-                    }
-                }
+            if let Some(response) = interaction.get_mut("response")
+                && response.get("kind").and_then(Value::as_str) == Some("observation_health_stale")
+                && let Some(body) = response.get_mut("body")
+            {
+                body["native_activity"] = Value::String("unsupported".to_string());
             }
         }
     }

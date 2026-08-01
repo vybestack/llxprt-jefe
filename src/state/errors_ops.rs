@@ -5,7 +5,7 @@
 //! issues/prs/actions), list navigation, detail scrolling, focus cycling, and
 //! clearing the log.
 
-use super::{AppState, ErrorsFocus, PaneFocus, PriorAgentFocus, ScreenMode};
+use super::{AppState, ErrorsFocus, PaneFocus, PriorAgentFocus, ScreenId};
 use crate::messages::{ErrorsMessage, NavDir, ScrollDir};
 
 impl AppState {
@@ -16,7 +16,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen_mode = ScreenMode::DashboardErrors;
+        self.screen = ScreenId::Errors;
         self.errors_state.active = true;
         self.errors_state.focus = ErrorsFocus::ErrorList;
         // Ensure selection is valid (newest error after any recent push).
@@ -31,7 +31,7 @@ impl AppState {
 
     /// Exit errors mode, restoring prior focus state.
     fn exit_errors_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.errors_state.active = false;
         if let Some(prior) = self.errors_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;

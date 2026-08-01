@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 use jefe::domain::AgentId;
 use jefe::runtime::{RuntimeManager, RuntimeSession, capture_shell_preview, close_shell_window};
 use jefe::state::{
-    AppEvent, AppState, ManagedShellRow, ScreenMode, ShellFocusOrigin, project_managed_shell_rows,
+    AppEvent, AppState, ManagedShellRow, ScreenId, ShellFocusOrigin, project_managed_shell_rows,
 };
 
 use super::{
@@ -215,10 +215,10 @@ struct ManagerPreviewSnapshot {
     generation: u64,
 }
 
-fn expected_focus_screen(origin: ShellFocusOrigin) -> ScreenMode {
+fn expected_focus_screen(origin: ShellFocusOrigin) -> ScreenId {
     match origin {
-        ShellFocusOrigin::DashboardF10 => ScreenMode::Dashboard,
-        ShellFocusOrigin::ManagerEnter => ScreenMode::DashboardTerminals,
+        ShellFocusOrigin::DashboardF10 => ScreenId::Dashboard,
+        ShellFocusOrigin::ManagerEnter => ScreenId::Terminals,
     }
 }
 
@@ -295,7 +295,7 @@ pub async fn complete_pending_shell_focus(
     let Some(pending) = pending else {
         return;
     };
-    if app_state.read().screen_mode != expected_focus_screen(pending.origin) {
+    if app_state.read().screen != expected_focus_screen(pending.origin) {
         return;
     }
     if pending.agent_id != attached_agent_id {

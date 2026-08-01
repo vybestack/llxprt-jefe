@@ -1,6 +1,6 @@
 //! Multiplexer server-health I/O for the Windows liveness observer.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::process::Stdio;
 
 use super::liveness::run_tmux_with_timeout;
@@ -10,13 +10,22 @@ use super::server_health::{
 };
 use super::{MultiplexerIsolation, MultiplexerPlan, capture_process_identity};
 
-const SERVER_IDENTITY_FORMAT: &str = "#{pid}|#{version}";
+/// Server-identity probe format (issue #540).
+///
+/// `#{server_instance}` is the stable `-L` namespace token added by
+/// upstream psmux#509. It leads the format deliberately: a multiplexer that
+/// predates it renders the variable as empty text and still answers
+/// successfully, so one format string works against both and a blank leading
+/// field is the capability signal. `#{pid}` names whichever of the namespace's
+/// per-session servers replied and is retained only as weaker fallback
+/// evidence.
+const SERVER_IDENTITY_FORMAT: &str = "#{server_instance}|#{pid}|#{version}";
 
 /// Probe the local multiplexer server and classify it against the pinned identity.
 pub fn observe_server_liveness(
     plan: &MultiplexerPlan,
     prior: Option<&ServerIdentity>,
-    applied_exit_empty: &Cell<Option<ServerIdentity>>,
+    applied_exit_empty: &RefCell<Option<ServerIdentity>>,
 ) -> ServerLivenessObservation {
     let evidence = capture_server_identity_evidence(plan);
     let observation = classify_observation(prior, &evidence);
@@ -105,21 +114,21 @@ fn log_server_observation(
 fn apply_exit_empty_if_new_identity(
     plan: &MultiplexerPlan,
     observation: &ServerLivenessObservation,
-    applied: &Cell<Option<ServerIdentity>>,
+    applied: &RefCell<Option<ServerIdentity>>,
 ) {
     let current = match observation {
         ServerLivenessObservation::Healthy(Some(id)) | ServerLivenessObservation::Replaced(id) => {
-            Some(*id)
+            Some(id.clone())
         }
         _ => None,
     };
-    if current.is_none() || applied.get() == current {
+    if current.is_none() || *applied.borrow() == current {
         return;
     }
     let mut command = plan.command();
-    command.args(["set-option", "-s", "exit-empty", "off"]);
+    command.args(super::multiplexer_contract::EXIT_EMPTY_REMEDIATION);
     match run_tmux_with_timeout(&mut command) {
-        Ok(output) if output.status.success() => applied.set(current),
+        Ok(output) if output.status.success() => *applied.borrow_mut() = current,
         Ok(output) => tracing::warn!(
             namespace = ?plan.isolation(),
             stderr = %String::from_utf8_lossy(&output.stderr).trim(),

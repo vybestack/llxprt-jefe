@@ -10,6 +10,7 @@ use std::process::ExitCode;
 
 use crate::architecture;
 use crate::clippy_policy;
+use crate::multiplexer_surface;
 use crate::process::{CommandFailed, CommandPlan, repo_path};
 use crate::source_size;
 use crate::toolchain;
@@ -23,6 +24,7 @@ const CI_STEPS: &[&str] = &[
     "check-clippy-allows",
     "check-source-size",
     "check-architecture",
+    "check-multiplexer-surface",
     "lint",
     "complexity",
     "coverage",
@@ -126,6 +128,7 @@ fn run_ci_step(step: &str, root: &Path) -> Result<(), CommandFailed> {
         "check-clippy-allows" => clippy_policy::run_repo_check(root),
         "check-source-size" => source_size::run_repo_check(root),
         "check-architecture" => architecture::run_repo_check(root),
+        "check-multiplexer-surface" => multiplexer_surface::run_repo_check(root),
         "lint" => lint_plan().run_inherit(),
         "complexity" => complexity_plan().run_inherit(),
         "coverage" => run_coverage(),
@@ -291,7 +294,9 @@ fn run_windows_coverage() -> Result<(), CommandFailed> {
 
 fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
     let Some(target) = rest.first() else {
-        eprintln!("usage: cargo xtask check <clippy-allows|source-size|architecture>");
+        eprintln!(
+            "usage: cargo xtask check <clippy-allows|source-size|architecture|multiplexer-surface>"
+        );
         return Err(usage_error("check", "missing policy name"));
     };
     let root = repo_path("").map_err(|err| CommandFailed {
@@ -305,6 +310,7 @@ fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
         "clippy-allows" => clippy_policy::run_repo_check(&root),
         "source-size" => source_size::run_repo_check(&root),
         "architecture" => architecture::run_repo_check(&root),
+        "multiplexer-surface" => multiplexer_surface::run_repo_check(&root),
         other => {
             eprintln!("error: unknown check target `{other}`");
             Err(usage_error("check", "unknown policy name"))

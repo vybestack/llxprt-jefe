@@ -11,7 +11,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution, ResolvedCandidate};
-use crate::agent_candidate_fingerprint::CandidateFingerprint;
+use crate::agent_candidate_fingerprint::{CandidateFingerprint, capture_candidate_fingerprint};
 use crate::agent_candidate_path::AgentWrapperKind;
 use crate::domain::agent_definition::limits::{
     LOCAL_PROBE_TIMEOUT_MS, PACKAGE_MATERIALIZATION_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS,
@@ -495,41 +495,10 @@ fn command_with_args(program: &OsStr, argv: &[OsString]) -> Command {
 }
 
 fn fingerprint_changed(candidate: &ResolvedCandidate) -> bool {
-    match capture_fingerprint(candidate.executable()) {
-        Some(current) => &current != candidate.fingerprint(),
-        None => true,
+    match capture_candidate_fingerprint(candidate.executable()) {
+        Ok(current) => &current != candidate.fingerprint(),
+        Err(_) => true,
     }
-}
-
-fn capture_fingerprint(path: &Path) -> Option<CandidateFingerprint> {
-    let canonical = std::fs::canonicalize(path).ok()?;
-    let metadata = std::fs::metadata(&canonical).ok()?;
-    let mtime_secs = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |duration| {
-            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
-        });
-    let (dev, ino) = capture_dev_ino(&metadata);
-    Some(CandidateFingerprint::new(
-        canonical,
-        dev,
-        ino,
-        metadata.len(),
-        mtime_secs,
-    ))
-}
-
-#[cfg(unix)]
-fn capture_dev_ino(metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
-    use std::os::unix::fs::MetadataExt;
-    (Some(metadata.dev()), Some(metadata.ino()))
-}
-
-#[cfg(not(unix))]
-fn capture_dev_ino(_metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
-    (None, None)
 }
 
 fn compatible(identity: String, capabilities: Vec<String>, generation: u64) -> Availability {

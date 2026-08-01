@@ -4,7 +4,7 @@ use crate::domain::ErrorSource;
 use crate::messages::{ErrorsMessage, NavDir, ScrollDir};
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::{AppState, ErrorsFocus, ScreenMode};
+use crate::state::{AppState, ErrorsFocus, ScreenId};
 
 /// In-place apply helper to avoid the take/replace dance on owned AppState.
 fn apply_in_place(state: &mut AppState, event: AppEvent) {
@@ -104,12 +104,12 @@ fn push_evicts_oldest_at_capacity() {
     assert_eq!(*oldest, "error 5");
 }
 
-/// `EnterErrorsMode` switches screen mode, activates state, and focuses list.
+/// `EnterErrorsMode` switches active screen, activates state, and focuses list.
 #[test]
 fn enter_errors_mode_sets_screen_and_focus() {
     let mut state = AppState::default();
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
-    assert_eq!(state.screen_mode, ScreenMode::DashboardErrors);
+    assert_eq!(state.screen, ScreenId::Errors);
     assert!(state.errors_state.active);
     assert_eq!(state.errors_state.focus, ErrorsFocus::ErrorList);
 }
@@ -125,7 +125,7 @@ fn enter_exit_restores_focus() {
     assert!(state.errors_state.prior_agent_focus.is_some());
 
     apply_in_place(&mut state, AppEvent::ExitErrorsMode);
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
     assert!(!state.errors_state.active);
     // Prior focus restored.
     assert_eq!(state.pane_focus, crate::state::PaneFocus::Repositories);
@@ -466,7 +466,7 @@ fn nav_while_repo_focused_does_not_move_error_selection() {
 #[test]
 fn silent_panic_is_stored_without_changing_visible_error_or_navigation() {
     let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardErrors;
+    state.screen = ScreenId::Errors;
     state.pane_focus = crate::state::PaneFocus::Repositories;
     state.errors_state.active = true;
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
@@ -501,7 +501,7 @@ fn silent_panic_is_stored_without_changing_visible_error_or_navigation() {
         Some("visible failure")
     );
     assert_eq!(state.last_error_title().as_deref(), Some("visible failure"));
-    assert_eq!(state.screen_mode, ScreenMode::DashboardErrors);
+    assert_eq!(state.screen, ScreenId::Errors);
     assert_eq!(state.pane_focus, crate::state::PaneFocus::Repositories);
     assert_eq!(state.errors_state.focus, ErrorsFocus::ErrorDetail);
     assert_eq!(state.errors_state.selected_index, Some(1));

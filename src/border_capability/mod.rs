@@ -264,8 +264,8 @@ mod windows_adapter {
             // terminal_init sibling module: log on failure so a stray glyph is
             // observable in diagnostics without failing the probe). This must
             // run regardless of whether the read-back succeeded.
-            if let Some(cell) = original.first() {
-                if let Err(error) = console.write_output(
+            if let Some(cell) = original.first()
+                && let Err(error) = console.write_output(
                     &[CharInfo {
                         char_value: cell.char_value,
                         attributes: cell.attributes,
@@ -273,13 +273,13 @@ mod windows_adapter {
                     Self::SINGLE_CELL,
                     Self::ORIGIN,
                     Self::scratch_region(scratch_x, scratch_y),
-                ) {
-                    tracing::warn!(
-                        error = %error,
-                        "rounded-corner probe: failed to restore scratch cell; \
-                         a stray glyph may be visible briefly"
-                    );
-                }
+                )
+            {
+                tracing::warn!(
+                    error = %error,
+                    "rounded-corner probe: failed to restore scratch cell; \
+                     a stray glyph may be visible briefly"
+                );
             }
 
             // Now surface the read-back error (fail-safe to RoundSupported at

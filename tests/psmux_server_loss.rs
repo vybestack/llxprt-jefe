@@ -1,6 +1,6 @@
 #![cfg(all(windows, feature = "psmux-smoke"))]
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -81,9 +81,9 @@ fn native_psmux_server_loss_is_observed_without_empty_inventory_reconciliation()
         "create first server session",
     );
 
-    let applied = Cell::new(None);
+    let applied = RefCell::new(None);
     let baseline = observe_server_liveness(&plan, None, &applied);
-    let ServerLivenessObservation::Healthy(Some(first)) = baseline else {
+    let ServerLivenessObservation::Healthy(Some(first)) = baseline.clone() else {
         panic!("expected a healthy first server observation, got {baseline:?}");
     };
     let option = run(&plan, &["show-options", "-s", "exit-empty"]);
@@ -96,7 +96,7 @@ fn native_psmux_server_loss_is_observed_without_empty_inventory_reconciliation()
         observe_server_liveness(&plan, Some(&first), &applied),
         baseline
     );
-    assert_eq!(applied.get(), Some(first));
+    assert_eq!(*applied.borrow(), Some(first.clone()));
 
     assert_success(&run(&plan, &["kill-server"]), "terminate owned server");
     assert_eq!(
@@ -113,5 +113,5 @@ fn native_psmux_server_loss_is_observed_without_empty_inventory_reconciliation()
         panic!("expected replacement server observation, got {replacement:?}");
     };
     assert_ne!(second.process, first.process);
-    assert_eq!(applied.get(), Some(second));
+    assert_eq!(*applied.borrow(), Some(second));
 }

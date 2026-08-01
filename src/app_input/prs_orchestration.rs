@@ -260,7 +260,7 @@ pub fn request_pr_background_refresh(
     let should_refresh = {
         let state = app_state.read();
         should_background_refresh(BackgroundRefreshGuard {
-            screen_mode: state.screen_mode,
+            screen: state.screen,
             list_reload_pending: state.prs_state.list.has_pending_request(),
             detail_pending: state.prs_state.detail_pending.is_some(),
             is_idle,
@@ -276,7 +276,7 @@ pub fn request_pr_background_refresh(
 pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let ready = {
         let state = app_state.read();
-        state.screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+        state.screen == jefe::state::ScreenId::PullRequests
             && state.pr_post_mutation_refresh_ready()
     };
     if !ready {
@@ -291,7 +291,7 @@ pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ct
 /// Grouped into a struct to avoid excessive bool parameters.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BackgroundRefreshGuard {
-    pub screen_mode: jefe::state::ScreenMode,
+    pub screen: jefe::state::ScreenId,
     pub list_reload_pending: bool,
     pub detail_pending: bool,
     pub is_idle: bool,
@@ -308,7 +308,7 @@ pub(super) struct BackgroundRefreshGuard {
 ///
 /// @requirement issue #128, issue #411
 pub(super) fn should_background_refresh(guard: BackgroundRefreshGuard) -> bool {
-    guard.screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+    guard.screen == jefe::state::ScreenId::PullRequests
         && !guard.list_reload_pending
         && !guard.detail_pending
         && !guard.is_idle

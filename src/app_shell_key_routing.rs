@@ -289,7 +289,7 @@ pub fn execute_mouse_resolution(
 fn dashboard_page_items(app_state: &HookState<AppState>) -> PageItemCount {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let state = app_state.read();
-    crate::app_input::dashboard_page_item_count(&state, state.screen_mode, cols, rows)
+    crate::app_input::dashboard_page_item_count(&state, state.screen, cols, rows)
 }
 
 #[cfg(test)]

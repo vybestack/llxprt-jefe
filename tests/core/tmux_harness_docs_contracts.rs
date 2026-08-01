@@ -147,6 +147,53 @@ fn the_superseded_scenario_parser_is_absent() {
         );
     }
 }
+/// Issue #574: no integration-test source under `tests/` may construct a bare
+/// direct `tmux` process. The harness owns all tmux access through
+/// `TmuxDriver`, which pins every call to the private `-L jefe-harness-<pid>`
+/// socket and scrubs the inherited tmux client env (#171, #173). A bare
+/// command in a test resolves against the socket named by an inherited
+/// `$TMUX` — exactly the bug #574 fixed: the reorder scenario's hand-rolled
+/// cleanup issued a session kill on the outer server while never reaching the
+/// harness session it was written to remove. Integration tests must route
+/// every tmux operation through the driver (or `run_tmux_v1`) so teardown and
+/// isolation stay a single source of truth.
+///
+/// The needle is assembled with `concat!` so its contiguous form never appears
+/// in this file's own source, keeping the scan self-clean.
+///
+/// Scope: like the sibling doc/workflow contracts in this file, this is a
+/// pragmatic source-text scan, not a data-flow analysis. It catches a direct
+/// literal `tmux` `Command` construction (the exact shape of the #574
+/// regression) but not variable indirection such as binding `"tmux"` to a
+/// variable and passing that to `Command::new`. New integration tests must keep
+/// routing tmux access through the driver, which is the real invariant; this
+/// scan is the tripwire that stops the direct form coming back, not a static
+/// analyzer.
+#[test]
+fn no_test_suite_source_constructs_a_bare_tmux_command() {
+    let tests_dir = repo_path("tests");
+    let mut rust_files = Vec::new();
+    collect_rust_sources(&tests_dir, &mut rust_files);
+    assert!(
+        !rust_files.is_empty(),
+        "expected to find integration-test sources under tests/"
+    );
+
+    let needle = concat!("Command::", "new(\"tmux\")");
+    let mut hits = Vec::new();
+    for file in &rust_files {
+        let source = std::fs::read_to_string(file)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", file.display()));
+        if source.contains(needle) {
+            hits.push(file.display().to_string());
+        }
+    }
+    assert!(
+        hits.is_empty(),
+        "integration tests must route tmux access through TmuxDriver (issue #574); \
+         found a bare direct tmux command in: {hits:?}"
+    );
+}
 
 fn shipped_scenario_paths() -> Vec<PathBuf> {
     let dir = repo_path("dev-docs/tmux-scenarios");
@@ -171,6 +218,26 @@ fn read_json_paths(dir: &Path) -> Vec<PathBuf> {
         }
     }
     found
+}
+
+/// Recursively collect every `.rs` file under `dir` (issue #574 contract scan).
+///
+/// Read failures panic rather than skip the subtree: this is a contract test,
+/// so silently swallowing a `read_dir` error would let a violating file pass
+/// undetected — the opposite of the test's intent.
+fn collect_rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()));
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|err| panic!("failed to read entry in {}: {err}", dir.display()))
+            .path();
+        if path.is_dir() {
+            collect_rust_sources(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
 }
 
 fn read_repo_text(relative_path: impl AsRef<Path>) -> String {

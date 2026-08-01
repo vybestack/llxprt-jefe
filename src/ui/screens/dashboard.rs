@@ -9,7 +9,7 @@ use iocraft::prelude::*;
 
 use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_heights_inner};
 use crate::runtime::TerminalSnapshot;
-use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
+use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::util::text_with_caret;
 
@@ -329,7 +329,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
 
             // Bottom keybind bar
             KeybindBar(
-                screen_mode: state.map_or(ScreenMode::Dashboard, |s| s.screen_mode),
+                screen: state.map_or(ScreenId::Dashboard, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: terminal_focused,
                 shell_overlay_active: shell_overlay_active,

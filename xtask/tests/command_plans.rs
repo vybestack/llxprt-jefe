@@ -17,6 +17,7 @@ fn ci_runs_steps_in_the_documented_order() {
             "check-clippy-allows",
             "check-source-size",
             "check-architecture",
+            "check-multiplexer-surface",
             "lint",
             "complexity",
             "coverage",

@@ -4,7 +4,9 @@ Follow the canonical bounded issue-delivery workflow in [`dev-docs/workflow/ISSU
 
 Before implementation, create a decision-complete acceptance matrix, explicit non-goals, bounded vertical slices, expected paths, and a scope ledger. Use behavioral RED → GREEN → REFACTOR and add a failing TUI scenario first for UI-visible features. Preserve the architecture, lint, complexity, safety, source-size, coverage, cross-platform, and full-verification requirements in `dev-docs/RULES.md` and `dev-docs/project-standards.md`.
 
-Stop and request approval before adding an unplanned subsystem, public abstraction, workflow or agent-memory change, quality-tool change, dependency, unrelated refactor/test move, or behavior absent from the acceptance matrix. Target no more than 25 files or 1,500 net changed lines per PR; perform a mandatory scope review above either target and stop without explicit approval above 40 files or 2,500 net lines.
+Stop and request approval before adding an unplanned subsystem, public abstraction, workflow or agent-memory change, quality-tool change, dependency, unrelated refactor/test move, or behavior absent from the acceptance matrix.
+
+Scope is functional, not numeric. There is no file-count or line-count budget: a change is in scope when it is required to deliver the issue's accepted behavior and stated done criteria. Finish the cutover the issue asks for rather than leaving a mechanism half-replaced to hit a size target, and keep unrelated work in its own issue regardless of how small it looks.
 
 Classify review findings as Blocker—Fix, In-scope—Fix, Reject, or Defer. A valid out-of-scope suggestion belongs in a follow-up, not automatically in the current issue. Use no more than two local OCR reviews and two PR OCR reviews per issue/PR effort.
 

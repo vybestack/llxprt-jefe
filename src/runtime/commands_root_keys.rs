@@ -10,7 +10,11 @@
 use super::{local_prefix_value, prefix_options_for_passthrough};
 
 /// The root-table `PageUp` unbind command for transparent Page-key delivery.
-pub(super) const PAGE_UP_ROOT_UNBIND: &[&str] = &["unbind-key", "-T", "root", "PageUp"];
+///
+/// Defined by the declared divergence rather than spelled again here, so the
+/// remediation and the expectation it satisfies cannot drift apart (#540).
+pub(super) const PAGE_UP_ROOT_UNBIND: [&str; 4] =
+    crate::runtime::multiplexer_contract::PAGE_UP_ROOT_UNBIND_COMMAND;
 
 /// Configure multiplexer prefix keys and root-table bindings for transparent
 /// child input (#200, #260, #465).
@@ -40,7 +44,7 @@ pub(super) fn configure_prefix_with(
         }
     }
     if cfg!(windows) {
-        apply(PAGE_UP_ROOT_UNBIND)?;
+        apply(&PAGE_UP_ROOT_UNBIND)?;
     }
     Ok(())
 }

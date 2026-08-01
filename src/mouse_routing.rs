@@ -15,7 +15,7 @@ use jefe::selection::{
     SelectablePane, SelectionPoint, TextSelection, pane_at, point_to_content_coords,
     selection_text, terminal_selection_text,
 };
-use jefe::state::{AppState, PaneFocus, ScreenMode};
+use jefe::state::{AppState, PaneFocus, ScreenId};
 pub use mouse_action_execution::MouseClickState;
 use mouse_routing_detail::refresh_detail_viewport_rows;
 pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
@@ -225,12 +225,12 @@ fn route_terminal_gesture(
 ///
 /// Returns `(false, false)` when the terminal is not the active input target.
 fn terminal_target_info(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) -> (bool, bool) {
-    let (terminal_focused, pane_focus, screen_mode, modal_blocking) = {
+    let (terminal_focused, pane_focus, screen, modal_blocking) = {
         let state = app_state.read();
         (
             state.terminal_focused,
             state.pane_focus,
-            state.screen_mode,
+            state.screen,
             is_blocking_modal_open(&state),
         )
     };
@@ -238,7 +238,7 @@ fn terminal_target_info(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) -
     // Finding G: blocking modal intercepts mouse input.
     let terminal_active = terminal_focused
         && pane_focus == PaneFocus::Terminal
-        && screen_mode == ScreenMode::Dashboard
+        && screen == ScreenId::Dashboard
         && !modal_blocking;
     if !terminal_active {
         return (false, false);
@@ -709,31 +709,29 @@ fn resolve_app_selection_point(
     Some(SelectionPoint::new(pane, line, c))
 }
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let (mode_error, filter_open) = match state.screen_mode {
-        ScreenMode::DashboardIssues => (
+    let (mode_error, filter_open) = match state.screen {
+        ScreenId::Issues => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
                 state.issues_state.draft_notice.as_deref(),
             ),
             state.issues_state.filter_ui.controls_open,
         ),
-        ScreenMode::DashboardPullRequests => (
+        ScreenId::PullRequests => (
             state.prs_state.error.is_some(),
             state.prs_state.filter_ui.controls_open,
         ),
-        ScreenMode::DashboardActions => (
+        ScreenId::Actions => (
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        ScreenMode::DashboardErrors
-        | ScreenMode::Dashboard
-        | ScreenMode::Split
-        | ScreenMode::DashboardTerminals => (false, false),
+        ScreenId::Errors | ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Terminals => {
+            (false, false)
+        }
     };
-    let error_visible = (state.error_message.is_some()
-        && !matches!(state.screen_mode, ScreenMode::DashboardErrors))
-        || mode_error;
-    ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
+    let error_visible =
+        (state.error_message.is_some() && !matches!(state.screen, ScreenId::Errors)) || mode_error;
+    ScreenLayout::new(cols, rows, state.screen, error_visible, filter_open)
         .with_overlay(active_overlay_for(state))
 }
 /// Whether a blocking modal is open (Finding G).
@@ -825,7 +823,13 @@ fn resolve_pane(
     terminal_input_enabled: bool,
 ) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
     let layout = screen_layout_for(state, cols, rows);
-    pane_at(col, row, state.screen_mode, terminal_input_enabled, &layout)
+    pane_at(
+        col,
+        row,
+        state.resolved_layout.as_ref(),
+        terminal_input_enabled,
+        &layout,
+    )
 }
 /// HelpModal title rows (title text + blank): not affected by scroll offset.
 const HELP_TITLE_ROWS: usize = 2;

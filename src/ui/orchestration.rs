@@ -5,7 +5,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
+use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, TerminalManagerScreen,
@@ -236,7 +236,7 @@ fn terminal_manager_element(
     .into_any()
 }
 
-/// Build the screen element for the current screen mode.
+/// Build the screen element for the current active screen.
 #[must_use]
 pub fn build_screen_element(
     snapshot: &AppState,
@@ -244,8 +244,8 @@ pub fn build_screen_element(
     theme_name: &str,
     terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
-    match snapshot.screen_mode {
-        ScreenMode::Dashboard => element! {
+    match snapshot.screen {
+        ScreenId::Dashboard => element! {
             Dashboard(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -260,7 +260,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenMode::DashboardIssues => element! {
+        ScreenId::Issues => element! {
             IssuesScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -268,7 +268,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenMode::Split => element! {
+        ScreenId::Repositories => element! {
             SplitScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -278,7 +278,7 @@ pub fn build_screen_element(
         .into_any(),
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
-        ScreenMode::DashboardPullRequests => element! {
+        ScreenId::PullRequests => element! {
             PullRequestsScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -286,7 +286,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenMode::DashboardActions => element! {
+        ScreenId::Actions => element! {
             ActionsScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -294,7 +294,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenMode::DashboardErrors => element! {
+        ScreenId::Errors => element! {
             ErrorsScreen(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -302,9 +302,7 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenMode::DashboardTerminals => {
-            terminal_manager_element(snapshot, colors, theme_name, terminal)
-        }
+        ScreenId::Terminals => terminal_manager_element(snapshot, colors, theme_name, terminal),
     }
 }
 

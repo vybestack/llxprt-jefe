@@ -9,7 +9,7 @@
 
 use jefe::domain::{Agent, AgentId, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, ScreenMode};
+use jefe::state::{AppEvent, AppState, ModalState, ScreenId};
 use std::path::PathBuf;
 
 /// Create a test state with search-related data.
@@ -168,7 +168,7 @@ fn search_no_match_shows_empty() {
 #[test]
 fn search_works_in_dashboard_mode() {
     let mut state = create_search_test_state();
-    state.screen_mode = ScreenMode::Dashboard;
+    state.screen = ScreenId::Dashboard;
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 
@@ -178,7 +178,7 @@ fn search_works_in_dashboard_mode() {
 #[test]
 fn search_works_in_split_mode() {
     let mut state = create_search_test_state();
-    state.screen_mode = ScreenMode::Split;
+    state.screen = ScreenId::Repositories;
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 

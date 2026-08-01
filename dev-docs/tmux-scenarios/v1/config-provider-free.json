@@ -32,7 +32,7 @@
     {
       "op": "wait",
       "source": "stdout",
-      "literal": "settings.toml",
+      "literal": "themes",
       "timeout_ms": 15000
     },
     {

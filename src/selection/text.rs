@@ -13,7 +13,7 @@ use crate::selection::PaneGeometry;
 /// [`SelectionPoint`] ordering, not the enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SelectablePane {
-    /// Repository sidebar (left column, all screen modes).
+    /// Repository sidebar (left column, all screens).
     #[default]
     Sidebar,
     /// Agent list (dashboard middle column, top).

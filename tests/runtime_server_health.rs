@@ -243,3 +243,57 @@ fn server_lost_status_is_distinct_variant() {
     assert_ne!(AgentStatus::ServerLost, AgentStatus::Running);
     assert_ne!(AgentStatus::ServerLost, AgentStatus::Errored);
 }
+
+/// psmux runs one server process per session, so `#{pid}` names whichever
+/// server answered the request rather than the `-L` namespace. Measured on
+/// 2026-08-01: creating sessions in one namespace moved `#{pid}` through
+/// 9008 -> 17784 -> 3832 while the namespace itself never restarted.
+///
+/// Adding a session must therefore not be reported as a replaced server. The
+/// stable answer is psmux's `#{server_instance}` token, which held constant
+/// across those same three probes (issue #540, upstream psmux#509).
+/// Parse a probe line, naming the input in the failure so a regression says
+/// which line stopped parsing rather than only that one did.
+fn parse_identity(output: &str) -> ServerIdentity {
+    parse_server_identity_output(output).unwrap_or_else(|| {
+        panic!("a server identity probe must parse the namespace instance token, got {output:?}")
+    })
+}
+
+#[test]
+fn a_session_added_to_a_namespace_is_not_a_replaced_server() {
+    // Same namespace instance token, different answering server process.
+    let before = parse_identity("883b25f5379f199a|9008|3.3.7");
+    let after = parse_identity("883b25f5379f199a|3832|3.3.7");
+
+    let observation = classify_server_liveness(
+        Some(&before),
+        &ServerLivenessEvidence::command_succeeded("883b25f5379f199a|3832|3.3.7", ""),
+    );
+
+    assert_eq!(
+        classify_server_health(Some(&before), Some(&after), true),
+        ServerHealth::Healthy,
+        "a namespace that merely gained a session has not been replaced",
+    );
+    assert!(
+        matches!(observation, ServerLivenessObservation::Healthy(_)),
+        "adding a session must not be observed as a replaced server, got {observation:?}",
+    );
+}
+
+/// Two different `-L` namespaces are different servers even if a PID is
+/// recycled between them, so the instance token must decide (issue #540).
+#[test]
+fn a_different_namespace_instance_is_a_replaced_server() {
+    let ours = parse_server_identity_output("883b25f5379f199a|9008|3.3.7")
+        .unwrap_or_else(|| panic!("namespace instance token must parse"));
+    let theirs = parse_server_identity_output("f3cb9da032325298|9008|3.3.7")
+        .unwrap_or_else(|| panic!("namespace instance token must parse"));
+
+    assert_eq!(
+        classify_server_health(Some(&ours), Some(&theirs), true),
+        ServerHealth::Replaced,
+        "a different namespace instance is a different server even at the same PID",
+    );
+}

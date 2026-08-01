@@ -217,11 +217,14 @@ impl IssueSortBy {
     }
 }
 
-/// Active sort configuration for the Issues list (issue #473).
+/// Active sort configuration for the Issues list (issue #473, #573).
 ///
-/// Lives on `IssuesState` (not on the fetch-time filter identity) because sort
-/// is a projection-time view transform: changing it must not re-run the fetch
-/// or perturb the `IssueListIdentity` stale-rejection guard.
+/// Sort is applied two ways: (1) as a fetch-time GraphQL `orderBy` direction so
+/// the first page and pagination advance in the user's chosen direction (a
+/// sort-config change triggers a fresh reload), and (2) as a projection re-sort
+/// on already-loaded items. The config lives on `IssuesState` and is read at
+/// fetch time without being folded into `IssueListIdentity` (the stale-rejection
+/// guard stays filter-scoped; sort changes force a reload instead).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct IssueSortConfig {
     #[serde(default)]
@@ -239,6 +242,19 @@ impl IssueSortConfig {
             order: SortOrder::Desc,
         }
     }
+}
+
+/// A server-side issue list query: the filter plus the sort.
+///
+/// Bundled so the fetch order always matches the display sort (issue #573).
+/// The filter alone forms the `IssueListIdentity` stale-rejection key; the
+/// sort drives the GraphQL `orderBy`/search `sort:` direction.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IssueListQuery {
+    /// Which issues to fetch.
+    pub filter: IssueFilter,
+    /// What order to fetch them in.
+    pub sort: IssueSortConfig,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

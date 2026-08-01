@@ -201,7 +201,7 @@ mod tests {
     use crate::app_input::apply_background_gh_delivery;
     use core::time::Duration;
     use iocraft::prelude::*;
-    use jefe::state::{AppState, ScreenMode};
+    use jefe::state::{AppState, ScreenId};
     use smol::stream::StreamExt;
     use std::sync::mpsc;
 
@@ -391,7 +391,7 @@ mod tests {
     #[derive(Default, Props)]
     struct SilentPanicProbeProps {
         deliveries: Option<GhDeliveryHandle>,
-        observed: Option<mpsc::Sender<(usize, String, String, ScreenMode)>>,
+        observed: Option<mpsc::Sender<(usize, String, String, ScreenId)>>,
     }
 
     /// Drives a worker that panics on a route which fails silently, then
@@ -402,7 +402,7 @@ mod tests {
         props: &SilentPanicProbeProps,
     ) -> impl Into<AnyElement<'static>> {
         let state = hooks.use_state(|| AppState {
-            screen_mode: ScreenMode::DashboardIssues,
+            screen: ScreenId::Issues,
             ..AppState::default()
         });
         let mut started = hooks.use_state(|| false);
@@ -441,7 +441,7 @@ mod tests {
                     snapshot.errors_state.count(),
                     entry.title.clone(),
                     entry.detail.clone(),
-                    snapshot.screen_mode,
+                    snapshot.screen,
                 )
             });
             drop(snapshot);
@@ -475,7 +475,7 @@ mod tests {
 
         // Sent synchronously during the render that records the panic, so the
         // value is queued once the loop above drains (issue #562).
-        let (count, title, detail, screen_mode) = observed_rx
+        let (count, title, detail, screen) = observed_rx
             .try_recv()
             .unwrap_or_else(|_| panic!("a silent route panic must reach the errors screen"));
         assert_eq!(count, 1, "exactly one error entry must be retained");
@@ -485,8 +485,8 @@ mod tests {
             "the copyable detail must carry the payload and location: {detail}"
         );
         assert_eq!(
-            screen_mode,
-            ScreenMode::DashboardIssues,
+            screen,
+            ScreenId::Issues,
             "recording an error must not navigate away from the active screen"
         );
     }

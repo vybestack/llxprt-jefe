@@ -141,10 +141,10 @@ pub fn build_external_terminal_plan(
 
     // Auto-detect the terminal jefe is running inside, so a user in iTerm2 or
     // WezTerm gets that emulator rather than the platform default (#549).
-    if let Some(detected) = detect_emulator_from_env() {
-        if let Some(plan) = plan_from_detected(&detected, work_dir, platform) {
-            return Ok(plan);
-        }
+    if let Some(detected) = detect_emulator_from_env()
+        && let Some(plan) = plan_from_detected(&detected, work_dir, platform)
+    {
+        return Ok(plan);
     }
 
     match platform {

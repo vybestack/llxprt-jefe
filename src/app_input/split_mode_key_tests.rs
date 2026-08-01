@@ -4,7 +4,7 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use jefe::domain::action_registry::Resolution;
 use jefe::list_viewport::PageItemCount;
-use jefe::state::{AppEvent, AppState, ScreenMode};
+use jefe::state::{AppEvent, AppState, ScreenId};
 
 use super::action_handlers::{HandlerExecution, execution_for};
 
@@ -37,7 +37,7 @@ fn dashboard_s_emits_enter_split_mode_via_registry() {
 #[test]
 fn split_esc_emits_exit_split_mode_via_registry() {
     let state = AppState {
-        screen_mode: ScreenMode::Split,
+        screen: ScreenId::Repositories,
         ..AppState::default()
     };
     assert!(matches!(

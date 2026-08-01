@@ -25,7 +25,7 @@ use crate::domain::{
 };
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::state::transition::TransitionExt;
-use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, ScreenMode};
+use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, ScreenId};
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::{pr_list_status_message, pr_list_visible_rows};
 
@@ -36,7 +36,7 @@ use crate::ui::components::pr_list::{pr_list_status_message, pr_list_visible_row
 /// @pseudocode component-001 lines 1-12
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

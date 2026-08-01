@@ -18,7 +18,7 @@ use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
     ModalViewport, TerminalRenderData, build_modal_element, build_screen_element,
@@ -370,7 +370,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     trace!(
         modal = ?std::mem::discriminant(&modal),
-        screen_mode = ?snapshot.screen_mode,
+        screen = ?snapshot.screen,
         pane_focus = ?snapshot.pane_focus,
         terminal_focused = snapshot.terminal_focused,
         repos = snapshot.repositories.len(),
@@ -430,6 +430,15 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
+    // Resolve this frame's geometry exactly once. Every consumer downstream —
+    // renderer, mouse routing, selection, wrapping, PTY resize — reads this one
+    // snapshot, so a band opening or a resize cannot leave two of them
+    // disagreeing about where a panel is. A resize produces a new snapshot on
+    // the next frame because the size read above is the only input.
+    let mut snapshot = snapshot;
+    snapshot.resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
+    let snapshot = snapshot;
+
     // Capture scrollback history lines for the terminal pane (issue #198).
     // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
     // cache capture to that mode — other modes waste the clone every frame.
@@ -439,9 +448,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // requests a background capture via the `CaptureHandle` and reads the
     // runtime's `HistoryCache` directly (non-blocking `get`). The background
     // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard
-        || (snapshot.screen_mode == ScreenMode::DashboardTerminals
-            && snapshot.shell_overlay_active())
+    let history_lines: Vec<String> = if snapshot.screen == ScreenId::Dashboard
+        || (snapshot.screen == ScreenId::Terminals && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
@@ -454,15 +462,35 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-    let pty_layout = if snapshot.shell_overlay_active()
-        && snapshot.screen_mode == ScreenMode::DashboardTerminals
-    {
+    // The embedded shell overlay replaces the workspace wholesale and is not
+    // modelled by a descriptor, so it keeps its own geometry. Everything else
+    // reads the frame's snapshot: the terminal pane is sized by the resolver,
+    // which guarantees a nonzero content rectangle or hides the pane, so there
+    // is no `.max(1)` to apply here.
+    let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
+        let descriptor = jefe::workbench::screen_descriptor(snapshot.screen).ok()?;
+        jefe::workbench::pty_content_rect(
+            descriptor,
+            layout,
+            &jefe::workbench::PanelId::from_static("terminal"),
+        )
+    });
+    let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen == ScreenId::Terminals {
         jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
     } else if snapshot.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
     } else {
         compute_pty_layout(term_cols, term_rows)
     };
+    let (terminal_pane_rows, terminal_pane_cols) = terminal_rect.map_or_else(
+        || {
+            (
+                usize::from(pty_layout.pty_rows).max(1),
+                usize::from(pty_layout.pty_cols).max(1),
+            )
+        },
+        |rect| (usize::from(rect.height), usize::from(rect.width)),
+    );
     let screen_el = build_screen_element(
         &snapshot,
         &colors,
@@ -470,8 +498,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         TerminalRenderData {
             snapshot: terminal_snapshot,
             history_lines,
-            pane_rows: usize::from(pty_layout.pty_rows).max(1),
-            pane_cols: usize::from(pty_layout.pty_cols).max(1),
+            pane_rows: terminal_pane_rows,
+            pane_cols: terminal_pane_cols,
         },
     );
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
@@ -714,7 +742,7 @@ fn handle_key_event(
     let state_ro = app_state.read();
     let term_focused = state_ro.terminal_focused;
     let pane_focus = state_ro.pane_focus;
-    let screen_mode = state_ro.screen_mode;
+    let screen = state_ro.screen;
     let modal = state_ro.modal.clone();
     let input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
@@ -725,7 +753,7 @@ fn handle_key_event(
         kind = ?key_event.kind,
         term_focused,
         pane_focus = ?pane_focus,
-        screen_mode = ?screen_mode,
+        screen = ?screen,
         modal = ?std::mem::discriminant(&modal),
         "key event received"
     );

@@ -5,13 +5,13 @@
 //! component, mirroring how `pr_render_tests.rs` asserts via projection seams
 //! rather than rendering the `element!` macro directly.
 
-use crate::state::ScreenMode;
+use crate::state::ScreenId;
 use crate::ui::components::issue_delete_confirm::{delete_confirm_header, delete_confirm_hint};
 use crate::ui::components::keybind_bar::keybind_hints_for;
 
 #[test]
 fn issues_keybind_hint_includes_close_and_delete() {
-    let hints = keybind_hints_for(&crate::action_projection::test_snapshot(), ScreenMode::DashboardIssues, false, None);
+    let hints = keybind_hints_for(&crate::action_projection::test_snapshot(), ScreenId::Issues, false, None);
     assert!(
         hints.contains("close"),
         "issues keybind hint should include close, got: {hints}"
@@ -24,7 +24,7 @@ fn issues_keybind_hint_includes_close_and_delete() {
 
 #[test]
 fn issues_keybind_hint_includes_capital_c_and_d() {
-    let hints = keybind_hints_for(&crate::action_projection::test_snapshot(), ScreenMode::DashboardIssues, false, None);
+    let hints = keybind_hints_for(&crate::action_projection::test_snapshot(), ScreenId::Issues, false, None);
     assert!(
         hints.contains("C close"),
         "issues keybind hint should show 'C close', got: {hints}"

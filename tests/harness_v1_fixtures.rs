@@ -69,6 +69,11 @@ fn run_fixture(name: &str) -> RunOutcome {
     if name == "llxprt-continue-field.json" {
         installs.push(("gh".to_string(), repo_path("scripts/issue520-gh-shim.sh")));
         installs.push(("git".to_string(), repo_path("scripts/issue520-git-shim.sh")));
+    }
+    if matches!(
+        name,
+        "llxprt-continue-field.json" | "issue575-direct-upgrade-launch.json"
+    ) {
         installs.push((
             "tmux".to_string(),
             repo_path("scripts/issue520-tmux-shim.sh"),
@@ -152,6 +157,29 @@ fn config_path_fixture_runs_the_real_provider_free_binary() {
 fn panic_capture_fixture_projects_silent_error_without_raw_terminal_output() {
     let outcome = run_fixture("panic-capture-errors.json");
     assert_passed("panic-capture-errors", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn direct_upgrade_fixture_launches_replacement_without_stale_error() {
+    let outcome = run_fixture("issue575-direct-upgrade-launch.json");
+    assert_passed("issue575-direct-upgrade-launch", &outcome);
+    let capture = outcome
+        .report
+        .captures
+        .iter()
+        .find(|capture| capture.name == "llxprt-agent")
+        .unwrap_or_else(|| panic!("LLxprt launch capture must be reported"));
+    assert_eq!(
+        capture.invocations.len(),
+        1,
+        "the upgraded executable must launch in the original action"
+    );
+    let state =
+        std::fs::read_to_string(Path::new(&outcome.report.workspace).join("config/state.json"))
+            .unwrap_or_else(|error| panic!("read persisted issue575 state: {error}"));
+    assert!(state.contains("branch-575"));
+    assert!(!state.contains("0.11.0-nightly.260801.19ac22acc"));
     cleanup(&outcome);
 }
 

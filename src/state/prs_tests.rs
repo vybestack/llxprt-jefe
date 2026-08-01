@@ -14,7 +14,7 @@ use crate::domain::{
 use crate::persistence::State as PersistedState;
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenMode};
+use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenId};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
 use crate::state::transition::TransitionExt;
@@ -55,7 +55,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
-/// EnterPrsMode sets screen_mode=DashboardPullRequests, active=true, and pr_focus=PrList.
+/// EnterPrsMode sets screen=DashboardPullRequests, active=true, and pr_focus=PrList.
 ///
 /// @plan PLAN-20260624-PR-MODE.P04
 /// @requirement REQ-PR-001
@@ -70,7 +70,7 @@ fn test_enter_prs_mode_sets_active_and_saves_prior_focus() {
     };
     let new_state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
-    assert_eq!(new_state.screen_mode, ScreenMode::DashboardPullRequests);
+    assert_eq!(new_state.screen, ScreenId::PullRequests);
     assert!(new_state.prs_state.active);
     assert_eq!(new_state.prs_state.pr_focus, PrFocus::PrList);
 
@@ -145,7 +145,7 @@ fn test_clear_committed_filter_resets_state_to_open() {
 #[test]
 fn test_exit_prs_mode_restores_prior_focus_with_bounds_fallback() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..dashboard_state()
     };
     state.prs_state.active = true;
@@ -158,7 +158,7 @@ fn test_exit_prs_mode_restores_prior_focus_with_bounds_fallback() {
 
     let new_state = state.apply(AppEvent::ExitPrsMode).committed_pure();
 
-    assert_eq!(new_state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(new_state.screen, ScreenId::Dashboard);
     assert!(!new_state.prs_state.active);
     // Fallback: must be Agents pane, index clamped to a valid value or None.
     assert_eq!(new_state.pane_focus, PaneFocus::Agents);
@@ -233,7 +233,7 @@ fn test_app_state_default_has_inactive_prs_state() {
 #[test]
 fn test_empty_pr_list_shows_empty_state_not_panic() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..dashboard_state()
     };
     state.prs_state.active = true;

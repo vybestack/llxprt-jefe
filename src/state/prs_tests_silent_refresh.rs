@@ -17,7 +17,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::{PrListIdentity, ScreenMode};
+use crate::state::types::{PrListIdentity, ScreenId};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
 use crate::state::transition::TransitionExt;
@@ -27,7 +27,7 @@ use crate::state::transition::TransitionExt;
 /// Build a PR-mode AppState with the given repo scope.
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

@@ -6,7 +6,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, ScreenMode};
+use crate::state::{AppState, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{KeybindBar, Sidebar, StatusBar};
@@ -134,7 +134,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
 
             // Keybind bar
             KeybindBar(
-                screen_mode: ScreenMode::Split,
+                screen: ScreenId::Repositories,
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,

@@ -258,3 +258,154 @@ fn remote_normal_and_resume_emit_only_selected_continuation() {
         }
     }
 }
+
+#[cfg(unix)]
+fn write_direct_fixture(path: &std::path::Path, version: &str, exit_code: i32) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let body = format!("#!/bin/sh\nprintf '{version}\\n'\nexit {exit_code}\n");
+    std::fs::write(path, body).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+    let mut permissions = std::fs::metadata(path)
+        .unwrap_or_else(|error| panic!("metadata {}: {error}", path.display()))
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions)
+        .unwrap_or_else(|error| panic!("chmod {}: {error}", path.display()));
+}
+
+#[cfg(unix)]
+fn direct_fixture(
+    generation: u64,
+) -> (
+    tempfile::TempDir,
+    AgentDefinition,
+    AgentLaunchRequest,
+    LaunchStateEvidence,
+) {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let bin = root.path().join("bin");
+    std::fs::create_dir(&bin).unwrap_or_else(|error| panic!("create bin: {error}"));
+    let executable = bin.join("llxprt");
+    write_direct_fixture(&executable, "0.10.0", 0);
+    let definition = llxprt();
+    let snapshot = PathSnapshot::for_platform(
+        crate::agent_candidate_path::AgentExecutablePlatform::Unix,
+        vec![bin],
+        None,
+    );
+    let resolution =
+        AgentCandidateResolver::new(&snapshot, root.path().to_path_buf()).resolve(&definition);
+    let mut observation =
+        AgentAvailabilityObservation::pending(&definition, true, generation, resolution.clone());
+    let probe = run_local_agent_probe(&definition, &resolution, generation);
+    assert!(observation.apply_probe_result(generation, probe.availability().clone()));
+    let request = AgentLaunchRequest {
+        type_id: definition.id.clone(),
+        values: typed_values(false),
+        work_dir: root.path().to_path_buf(),
+        remote: RemoteRepositorySettings::default(),
+        operation: Operation::Normal,
+    };
+    let evidence = LaunchStateEvidence::from_observation(&observation, 0, 0);
+    (root, definition, request, evidence)
+}
+
+#[cfg(unix)]
+fn direct_snapshot(root: &std::path::Path) -> PathSnapshot {
+    PathSnapshot::for_platform(
+        crate::agent_candidate_path::AgentExecutablePlatform::Unix,
+        vec![root.join("bin")],
+        None,
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn unchanged_direct_candidate_retains_probe_generation() {
+    let (root, _definition, request, evidence) = direct_fixture(7);
+    let prepared = prepare_launch_with_snapshot(&request, &evidence, &direct_snapshot(root.path()))
+        .unwrap_or_else(|error| panic!("unchanged direct candidate must prepare: {error}"));
+
+    assert_eq!(prepared.plan().probe_generation, 7);
+}
+
+#[cfg(unix)]
+#[test]
+fn stable_direct_replacement_advances_generation_and_reprobes_current_file() {
+    let (root, _definition, request, evidence) = direct_fixture(7);
+    let executable = root.path().join("bin/llxprt");
+    let replacement = root.path().join("bin/llxprt.next");
+    write_direct_fixture(&replacement, "0.11.0", 0);
+    std::fs::rename(&replacement, &executable)
+        .unwrap_or_else(|error| panic!("replace {}: {error}", executable.display()));
+
+    let prepared = prepare_launch_with_snapshot(&request, &evidence, &direct_snapshot(root.path()))
+        .unwrap_or_else(|error| panic!("stable replacement must prepare: {error}"));
+
+    assert_eq!(prepared.plan().probe_generation, 8);
+}
+
+#[cfg(unix)]
+#[test]
+fn removed_direct_candidate_reports_current_not_found() {
+    let (root, _definition, request, evidence) = direct_fixture(7);
+    let executable = root.path().join("bin/llxprt");
+    std::fs::remove_file(&executable)
+        .unwrap_or_else(|error| panic!("remove {}: {error}", executable.display()));
+
+    let error = prepare_launch_with_snapshot(&request, &evidence, &direct_snapshot(root.path()))
+        .err()
+        .unwrap_or_else(|| panic!("removed direct candidate must fail"));
+
+    assert!(
+        error
+            .to_string()
+            .contains("configured agent executable was not found")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn failing_direct_replacement_reports_current_probe_error() {
+    let (root, _definition, request, evidence) = direct_fixture(7);
+    let executable = root.path().join("bin/llxprt");
+    let replacement = root.path().join("bin/llxprt.next");
+    write_direct_fixture(&replacement, "0.11.0", 9);
+    std::fs::rename(&replacement, &executable)
+        .unwrap_or_else(|error| panic!("replace {}: {error}", executable.display()));
+
+    let error = prepare_launch_with_snapshot(&request, &evidence, &direct_snapshot(root.path()))
+        .err()
+        .unwrap_or_else(|| panic!("failing replacement must reject launch"));
+
+    assert!(error.to_string().contains("AGT-E202"));
+}
+
+#[cfg(unix)]
+#[test]
+fn post_evidence_replacement_is_rejected_before_stub_session_effects() {
+    use crate::domain::AgentId;
+    use crate::runtime::{RuntimeManager, StubRuntimeManager};
+
+    let (root, _definition, request, evidence) = direct_fixture(7);
+    let prepared = prepare_launch_with_snapshot(&request, &evidence, &direct_snapshot(root.path()))
+        .unwrap_or_else(|error| panic!("initial launch must prepare: {error}"));
+    let executable = root.path().join("bin/llxprt");
+    let replacement = root.path().join("bin/llxprt.next");
+    write_direct_fixture(&replacement, "0.12.0", 0);
+    std::fs::rename(&replacement, &executable)
+        .unwrap_or_else(|error| panic!("replace {}: {error}", executable.display()));
+
+    let agent_id = AgentId("issue575-race".to_owned());
+    let mut manager = StubRuntimeManager::default();
+    let error = manager
+        .spawn_session(&agent_id, prepared.authorized(), None)
+        .err()
+        .unwrap_or_else(|| panic!("post-evidence replacement must fail closed"));
+
+    let crate::runtime::RuntimeError::SpawnFailed(reason) = error else {
+        panic!("fingerprint mismatch must be a spawn failure");
+    };
+    assert!(reason.contains("AGT-E203"), "{reason}");
+    assert!(!manager.session_exists(&agent_id));
+}

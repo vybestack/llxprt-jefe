@@ -6,7 +6,7 @@
 //! `AcceptOutcome`.
 
 use super::{
-    ActionsFocus, AppState, ModalState, PaneFocus, PriorAgentFocus, ScreenMode,
+    ActionsFocus, AppState, ModalState, PaneFocus, PriorAgentFocus, ScreenId,
     actions_load_ops::RunsLoadData,
 };
 use crate::domain::{ActionsFilter, RepositoryId};
@@ -25,7 +25,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen_mode = ScreenMode::DashboardActions;
+        self.screen = ScreenId::Actions;
         self.actions_state.active = true;
         self.actions_state.focus = ActionsFocus::RunList;
         self.actions_state.list.clear();
@@ -59,7 +59,7 @@ impl AppState {
 
     /// Exit actions mode, restoring prior focus state.
     fn exit_actions_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.actions_state.active = false;
         if let Some(prior) = self.actions_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;

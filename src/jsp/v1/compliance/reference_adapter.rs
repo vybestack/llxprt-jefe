@@ -485,11 +485,11 @@ fn bind_server_interaction(interaction: &mut serde_json::Value, credential: &Cre
     {
         bind_server_identity(&mut request["body"], &credential.identity);
     }
-    if interaction.get("stream").is_some() {
-        if let Some(items) = interaction["stream"].as_array_mut() {
-            for item in items {
-                bind_server_identity(&mut item["document"], &credential.identity);
-            }
+    if interaction.get("stream").is_some()
+        && let Some(items) = interaction["stream"].as_array_mut()
+    {
+        for item in items {
+            bind_server_identity(&mut item["document"], &credential.identity);
         }
     }
     if interaction

@@ -13,7 +13,7 @@
 
 use super::{
     AgentChooserState, AppEvent, AppState, InlineState, IssueFocus, PaneFocus, PrFocus,
-    PriorAgentFocus, ReadOnlyHintKind, ScreenMode,
+    PriorAgentFocus, ReadOnlyHintKind, ScreenId,
 };
 use crate::domain::{PrFilter, PrFilterState};
 use crate::messages::PullRequestsMessage;
@@ -61,7 +61,7 @@ impl AppState {
         // active in a list-mode render.
         self.terminal_focused = false;
         self.pane_focus = PaneFocus::Agents;
-        self.screen_mode = ScreenMode::DashboardPullRequests;
+        self.screen = ScreenId::PullRequests;
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
         self.prs_state.list.clear();
@@ -112,7 +112,7 @@ impl AppState {
     /// @requirement REQ-PR-005
     /// @pseudocode component-001 lines 77-87
     fn exit_prs_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.prs_state.active = false;
         if self.prs_state.inline_state != InlineState::None {
             self.prs_state.draft_notice = Some("Unsent draft discarded".to_string());

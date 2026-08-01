@@ -3,7 +3,7 @@
 use jefe::domain::action_registry::HandlerKey;
 use jefe::domain::keymap::Chord;
 use jefe::list_viewport::PageItemCount;
-use jefe::state::{AppEvent, AppState, ErrorsFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, ErrorsFocus, ScreenId};
 
 use super::action_handlers::{BoundaryAction, HandlerExecution, execution_for};
 
@@ -18,7 +18,7 @@ fn chord(text: &str) -> Chord {
 #[test]
 fn page_navigation_produces_typed_page_event() {
     let state = AppState {
-        screen_mode: ScreenMode::Split,
+        screen: ScreenId::Repositories,
         ..AppState::default()
     };
     let execution = execution_for(
@@ -37,7 +37,7 @@ fn page_navigation_produces_typed_page_event() {
 #[test]
 fn errors_back_and_reverse_cycle_preserve_focus_behavior() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardErrors,
+        screen: ScreenId::Errors,
         ..AppState::default()
     };
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
@@ -112,7 +112,7 @@ fn s4_modal_controls_have_typed_executions() {
 #[test]
 fn s4_workspace_handlers_produce_source_specific_events() {
     let mut issues = AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     };
     issues.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
@@ -127,7 +127,7 @@ fn s4_workspace_handlers_produce_source_specific_events() {
     ));
 
     let mut prs = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     prs.prs_state.pr_focus = jefe::state::PrFocus::PrList;
@@ -144,7 +144,7 @@ fn s4_workspace_handlers_produce_source_specific_events() {
     ));
 
     let mut actions = AppState {
-        screen_mode: ScreenMode::DashboardActions,
+        screen: ScreenId::Actions,
         ..AppState::default()
     };
     actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
