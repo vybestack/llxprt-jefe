@@ -57,6 +57,7 @@ fn valid_descriptor() -> ScreenDescriptor {
         focus_order: vec![panel_id("list"), panel_id("detail")],
         layout: LayoutNode::Split {
             axis: Axis::Vertical,
+            gap: 1,
             children: vec![child("list", false, None), child("detail", true, Some(0))],
         },
     }
@@ -102,6 +103,7 @@ fn a_layout_panel_that_is_not_declared_is_rejected() {
     let mut descriptor = valid_descriptor();
     descriptor.layout = LayoutNode::Split {
         axis: Axis::Vertical,
+        gap: 1,
         children: vec![child("list", false, None), child("ghost", true, Some(0))],
     };
     assert!(matches!(
@@ -115,6 +117,7 @@ fn placing_one_panel_twice_is_rejected() {
     let mut descriptor = valid_descriptor();
     descriptor.layout = LayoutNode::Split {
         axis: Axis::Vertical,
+        gap: 1,
         children: vec![child("list", false, None), child("list", true, Some(0))],
     };
     assert!(matches!(
@@ -191,6 +194,7 @@ fn a_split_with_fewer_than_two_children_is_rejected() {
     descriptor.focus_order = vec![panel_id("list")];
     descriptor.layout = LayoutNode::Split {
         axis: Axis::Vertical,
+        gap: 1,
         children: vec![child("list", false, None)],
     };
     assert!(matches!(
@@ -212,6 +216,7 @@ fn a_split_with_more_than_eight_children_is_rejected() {
     descriptor.initial_focus = panel_id(&ids[0]);
     descriptor.layout = LayoutNode::Split {
         axis: Axis::Vertical,
+        gap: 1,
         children: ids
             .iter()
             .enumerate()
@@ -234,6 +239,7 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
     for id in ids[..depth].iter().rev() {
         node = LayoutNode::Split {
             axis: Axis::Vertical,
+            gap: 1,
             children: vec![
                 child(id, false, None),
                 LayoutChild {

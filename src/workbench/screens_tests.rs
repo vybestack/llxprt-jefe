@@ -59,7 +59,29 @@ fn golden() -> Value {
 }
 
 #[test]
-fn the_registry_contains_exactly_the_five_parity_screens() {
+fn the_registry_declares_the_five_parity_screens_with_their_stable_identities() {
+    let registry = registry();
+    let ids: Vec<&str> = registry
+        .screens()
+        .iter()
+        .map(|screen| screen.id.as_str())
+        .collect();
+    for parity in [
+        "core.dashboard",
+        "core.repositories",
+        "github.issues",
+        "github.pull-requests",
+        "github.actions",
+    ] {
+        assert!(ids.contains(&parity), "{parity} must be compiled in");
+    }
+}
+
+#[test]
+fn the_registry_covers_every_screen_the_application_can_display() {
+    // The registry replaces the legacy screen enum outright, so every screen
+    // that can be displayed needs a stable identity — not only the five that
+    // carry explicit parity guarantees.
     let registry = registry();
     let ids: Vec<&str> = registry
         .screens()
@@ -74,6 +96,8 @@ fn the_registry_contains_exactly_the_five_parity_screens() {
             "github.issues",
             "github.pull-requests",
             "github.actions",
+            "core.errors",
+            "core.terminals",
         ]
     );
 }
@@ -142,7 +166,7 @@ fn lookup_by_stable_identity_finds_each_screen() {
 }
 
 #[test]
-fn only_the_repositories_screen_declares_a_pty_panel() {
+fn exactly_the_screens_that_host_a_live_terminal_declare_a_pty_panel() {
     for screen in registry().screens() {
         let pty_panels: Vec<&str> = screen
             .panels
@@ -150,13 +174,59 @@ fn only_the_repositories_screen_declares_a_pty_panel() {
             .filter(|panel| panel.panel_type.as_str() == PTY_PANEL_TYPE)
             .map(|panel| panel.id.as_str())
             .collect();
-        let expected: Vec<&str> = if screen.id.as_str() == "core.repositories" {
-            vec!["terminal"]
-        } else {
-            Vec::new()
+        let expected: Vec<&str> = match screen.id.as_str() {
+            "core.dashboard" => vec!["terminal"],
+            "core.terminals" => vec!["shell-preview"],
+            _ => Vec::new(),
         };
         assert_eq!(pty_panels, expected, "screen {}", screen.id);
     }
+}
+
+#[test]
+fn every_workspace_screen_shares_the_repository_sidebar() {
+    for screen in registry().screens() {
+        if screen.id.as_str() == "core.repositories" {
+            continue;
+        }
+        assert!(
+            screen
+                .panels
+                .iter()
+                .any(|panel| panel.id.as_str() == "repositories" && panel.focusable),
+            "screen {} must declare the focusable repository sidebar it renders",
+            screen.id
+        );
+    }
+}
+
+#[test]
+fn a_screen_opens_on_its_declared_initial_focus_not_the_head_of_its_focus_order() {
+    // The workspace screens cycle through the sidebar but open on their list,
+    // so initial focus and focus-order head are genuinely different values.
+    for screen in registry().screens() {
+        assert!(
+            screen
+                .focus_order
+                .iter()
+                .any(|panel| panel == &screen.initial_focus),
+            "screen {} opens on a panel outside its focus order",
+            screen.id
+        );
+    }
+    let registry = registry();
+    let Some(issues) = registry
+        .screens()
+        .iter()
+        .find(|screen| screen.id.as_str() == "github.issues")
+    else {
+        unreachable!("the issues screen is compiled in");
+    };
+    assert_eq!(issues.initial_focus.as_str(), "issue-list");
+    assert_eq!(
+        issues.focus_order.first().map(PanelId::as_str),
+        Some("repositories")
+    );
 }
 
 #[test]

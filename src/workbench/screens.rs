@@ -8,6 +8,26 @@
 //! Every descriptor is validated before it enters the registry, so a compiled
 //! mistake fails in tests and at startup rather than producing a half-formed
 //! screen at render time.
+//!
+//! # Why seven screens
+//!
+//! Every screen the application can display has a descriptor, because the
+//! registry replaces the legacy screen enum outright. Five of them
+//! (`core.dashboard`, `core.repositories`, `github.issues`,
+//! `github.pull-requests`, `github.actions`) carry the parity guarantees in
+//! issue #384; `core.errors` and `core.terminals` are the remaining live
+//! screens, which must have stable identities for the legacy enum to be
+//! deletable at all.
+//!
+//! # Why the panel sets look the way they do
+//!
+//! Each descriptor mirrors the screen that exists today, verified against its
+//! renderer. In particular the repository sidebar is a real, focusable panel on
+//! every workspace screen (`IssueFocus::RepoList`, `PrFocus::RepoList`,
+//! `ActionsFocus::RepoList`, `ErrorsFocus::RepoList`), and the conditional
+//! banner and filter bands are real rows that shift every pane below them, so
+//! both are modelled as panels the application shows or hides. Leaving either
+//! out would change behavior, which the parity requirement forbids.
 
 use std::num::NonZeroU16;
 
@@ -20,24 +40,65 @@ use super::validate::{DescriptorError, validate_descriptor};
 /// Panel type whose visible content rectangle drives a live PTY.
 ///
 /// The resolver guarantees a visible panel of this type always receives a
-/// nonzero content rectangle (CW04-08); it is hidden rather than sized to zero.
+/// nonzero content rectangle (CW04-08); it is hidden, or the screen falls back
+/// to the too-small layout, rather than a PTY being sized to zero.
 pub const PTY_PANEL_TYPE: &str = "pty-terminal";
 
-/// Columns reserved for the repository sidebar, matching the shipped width.
-const REPOSITORY_PANEL_COLUMNS: u16 = 22;
-/// Fewest rows the agent panel can occupy while keeping chrome and one row.
-const AGENT_PANEL_MIN_ROWS: u16 = 3;
-/// Fewest rows the terminal panel can occupy while keeping chrome and a
-/// usable viewport.
-const TERMINAL_PANEL_MIN_ROWS: u16 = 5;
-/// Fewest rows a list panel can occupy while keeping chrome and one row.
-const LIST_PANEL_MIN_ROWS: u16 = 3;
-/// Fewest rows a detail panel can occupy while keeping chrome and one row.
-const DETAIL_PANEL_MIN_ROWS: u16 = 3;
-/// Fewest rows the pull-request actions panel can occupy.
-const ACTIONS_PANEL_MIN_ROWS: u16 = 3;
-/// Fewest columns any panel can occupy while keeping chrome and one column.
-const PANEL_MIN_COLUMNS: u16 = 3;
+/// Identity of the repository sidebar, which every workspace screen shares.
+pub const REPOSITORIES_PANEL: &str = "repositories";
+
+// ── Shipped geometry constants ─────────────────────────────────────────────
+//
+// These mirror the widths and proportions the screens render today.
+
+/// Columns reserved for the repository sidebar.
+const SIDEBAR_COLUMNS: u16 = 22;
+/// Columns reserved for the dashboard preview pane.
+const PREVIEW_COLUMNS: u16 = 36;
+/// Rows the dashboard search input row occupies when shown.
+const SEARCH_ROW_ROWS: u16 = 1;
+/// Rows the split-screen filter band occupies.
+const SPLIT_FILTER_ROWS: u16 = 3;
+/// Rows a workspace error/notice banner occupies when shown.
+const BANNER_ROWS: u16 = 1;
+/// Rows the workspace filter-controls band occupies when open.
+const FILTER_CONTROLS_ROWS: u16 = 6;
+/// Weight of the workspace list pane; the list takes three tenths.
+const LIST_WEIGHT: u16 = 3;
+/// Weight of the workspace detail pane; the detail takes seven tenths.
+const DETAIL_WEIGHT: u16 = 7;
+/// Weight of the dashboard agent pane; the agent list takes a quarter.
+const AGENT_WEIGHT: u16 = 1;
+/// Weight of the dashboard terminal pane; the terminal takes three quarters.
+const TERMINAL_WEIGHT: u16 = 3;
+
+/// Fewest rows the agent panel keeps while visible: chrome plus one row.
+const AGENT_MIN_ROWS: u16 = 4;
+/// Fewest rows the terminal panel keeps while visible: chrome plus two rows.
+const TERMINAL_MIN_ROWS: u16 = 5;
+/// Fewest rows a list panel keeps while visible: chrome plus one row.
+const LIST_MIN_ROWS: u16 = 4;
+/// Fewest rows a detail panel keeps while visible: chrome plus one row.
+const DETAIL_MIN_ROWS: u16 = 3;
+/// Fewest columns a flexible panel keeps while visible.
+const FLEX_MIN_COLUMNS: u16 = 4;
+
+// ── Shipped chrome ─────────────────────────────────────────────────────────
+
+/// Bordered list pane: top border + title row, side borders, bottom border.
+const LIST_PANE_CHROME: Insets = Insets::new(2, 1, 1, 1);
+/// Detail pane: border plus one column of content padding per side.
+const DETAIL_PANE_CHROME: Insets = Insets::new(1, 1, 2, 2);
+/// Repository sidebar: border, title, and one column of content padding.
+const SIDEBAR_CHROME: Insets = Insets::new(3, 1, 2, 2);
+/// Preview pane: border, title, and one column of content padding.
+const PREVIEW_CHROME: Insets = Insets::new(3, 1, 2, 2);
+/// Embedded terminal view: border plus header row.
+const TERMINAL_CHROME: Insets = Insets::new(2, 1, 1, 1);
+/// Unbordered single-row band (search input, error banner).
+const BAND_CHROME: Insets = Insets::new(0, 0, 1, 0);
+/// Bordered band (filter controls).
+const BORDERED_BAND_CHROME: Insets = Insets::new(1, 1, 1, 1);
 
 /// Why a compiled screen table could not be built.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,8 +210,12 @@ pub fn builtin_screens() -> Result<ScreenRegistry, RegistryError> {
         issues_screen()?,
         pull_requests_screen()?,
         actions_screen()?,
+        errors_screen()?,
+        terminals_screen()?,
     ])
 }
+
+// ── Construction helpers ───────────────────────────────────────────────────
 
 /// A weighted share of the cells left once every minimum is satisfied.
 ///
@@ -166,15 +231,6 @@ fn weight(value: u16) -> Size {
 fn fixed(value: u16) -> Size {
     Size::Fixed(NonZeroU16::new(value).unwrap_or(NonZeroU16::MIN))
 }
-
-/// Chrome of a bordered list pane: top border + title row, side borders.
-const LIST_PANE_CHROME: Insets = Insets::new(2, 1, 1, 1);
-/// Chrome of a bordered detail pane: border plus one column of padding.
-const DETAIL_PANE_CHROME: Insets = Insets::new(1, 1, 2, 2);
-/// Chrome of the repository sidebar: border, title, and content padding.
-const SIDEBAR_CHROME: Insets = Insets::new(3, 1, 2, 2);
-/// Chrome of the embedded terminal view: border plus header row.
-const TERMINAL_CHROME: Insets = Insets::new(2, 1, 1, 1);
 
 fn panel(
     id: &str,
@@ -192,12 +248,24 @@ fn panel(
     })
 }
 
+/// The repository sidebar, which every workspace screen shares.
+fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
+    panel(
+        REPOSITORIES_PANEL,
+        "repository-list",
+        true,
+        true,
+        SIDEBAR_CHROME,
+    )
+}
+
 fn leaf(id: &str) -> Result<LayoutNode, IdError> {
     Ok(LayoutNode::Leaf {
         panel: PanelId::parse(id)?,
     })
 }
 
+/// A child that is never hidden by the resolver.
 fn required_child(node: LayoutNode, size: Size, min: u16) -> LayoutChild {
     LayoutChild {
         node,
@@ -209,6 +277,7 @@ fn required_child(node: LayoutNode, size: Size, min: u16) -> LayoutChild {
     }
 }
 
+/// A child pinned to an exact cell count.
 fn fixed_child(node: LayoutNode, cells: u16) -> LayoutChild {
     LayoutChild {
         node,
@@ -220,6 +289,7 @@ fn fixed_child(node: LayoutNode, cells: u16) -> LayoutChild {
     }
 }
 
+/// A child the resolver may hide to fit its siblings.
 fn collapsible_child(
     node: LayoutNode,
     size: Size,
@@ -236,157 +306,289 @@ fn collapsible_child(
     }
 }
 
+/// A fixed-height band the resolver may hide before anything else.
+fn band_child(node: LayoutNode, rows: u16, collapse_priority: i32) -> LayoutChild {
+    LayoutChild {
+        node,
+        size: fixed(rows),
+        min: rows,
+        max: Some(rows),
+        collapsible: true,
+        collapse_priority: Some(collapse_priority),
+    }
+}
+
+/// Panes draw their own border inside their rectangle, so shipped splits leave
+/// no gap between children.
+const NO_GAP: u16 = 0;
+
+fn column(children: Vec<LayoutChild>) -> LayoutNode {
+    LayoutNode::Split {
+        axis: Axis::Vertical,
+        gap: NO_GAP,
+        children,
+    }
+}
+
+fn row(children: Vec<LayoutChild>) -> LayoutNode {
+    LayoutNode::Split {
+        axis: Axis::Horizontal,
+        gap: NO_GAP,
+        children,
+    }
+}
+
 fn focus_order(ids: &[&str]) -> Result<Vec<PanelId>, IdError> {
     ids.iter().map(|id| PanelId::parse(id)).collect()
 }
 
-/// `core.dashboard` — repository list with the agent list beside it.
+// ── Shipped screens ────────────────────────────────────────────────────────
+
+/// `core.dashboard` — sidebar, agent list over the embedded terminal, preview.
+///
+/// The search row appears only while the dashboard filter is focused or
+/// active, so it is a band the application shows and hides.
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: ScreenId::parse("core.dashboard")?,
         title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: vec![
-            panel(
-                "repositories",
-                "repository-list",
-                true,
-                true,
-                SIDEBAR_CHROME,
-            )?,
+            sidebar_panel()?,
+            panel("search", "search-input", false, false, BAND_CHROME)?,
             panel("agents", "agent-list", true, false, LIST_PANE_CHROME)?,
+            panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
+            panel("preview", "agent-preview", false, false, PREVIEW_CHROME)?,
         ],
-        initial_focus: PanelId::parse("repositories")?,
-        focus_order: focus_order(&["repositories", "agents"])?,
-        layout: LayoutNode::Split {
-            axis: Axis::Horizontal,
-            children: vec![
-                fixed_child(leaf("repositories")?, REPOSITORY_PANEL_COLUMNS),
-                collapsible_child(leaf("agents")?, weight(1), PANEL_MIN_COLUMNS, 0),
-            ],
-        },
+        initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", "terminal"])?,
+        layout: column(vec![
+            band_child(leaf("search")?, SEARCH_ROW_ROWS, -100),
+            required_child(
+                row(vec![
+                    fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
+                    required_child(
+                        column(vec![
+                            collapsible_child(
+                                leaf("agents")?,
+                                weight(AGENT_WEIGHT),
+                                AGENT_MIN_ROWS,
+                                0,
+                            ),
+                            required_child(
+                                leaf("terminal")?,
+                                weight(TERMINAL_WEIGHT),
+                                TERMINAL_MIN_ROWS,
+                            ),
+                        ]),
+                        weight(1),
+                        FLEX_MIN_COLUMNS,
+                    ),
+                    collapsible_child(
+                        leaf("preview")?,
+                        fixed(PREVIEW_COLUMNS),
+                        PREVIEW_COLUMNS,
+                        -1,
+                    ),
+                ]),
+                weight(1),
+                TERMINAL_MIN_ROWS,
+            ),
+        ]),
     })
 }
 
-/// `core.repositories` — the split view: repositories, agents, and the
-/// embedded terminal.
+/// `core.repositories` — the split view: the repository list under its filter
+/// band, occupying the full width.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: ScreenId::parse("core.repositories")?,
         title: "Repositories".to_owned(),
         route: RouteId::parse("repositories")?,
         panels: vec![
-            panel(
-                "repositories",
-                "repository-list",
-                true,
-                true,
-                SIDEBAR_CHROME,
-            )?,
-            panel("agents", "agent-list", true, false, LIST_PANE_CHROME)?,
-            panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
+            sidebar_panel()?,
+            panel("filter", "filter-band", false, false, BAND_CHROME)?,
         ],
-        initial_focus: PanelId::parse("repositories")?,
-        focus_order: focus_order(&["repositories", "agents", "terminal"])?,
-        layout: LayoutNode::Split {
-            axis: Axis::Horizontal,
-            children: vec![
-                fixed_child(leaf("repositories")?, REPOSITORY_PANEL_COLUMNS),
-                required_child(
-                    LayoutNode::Split {
-                        axis: Axis::Vertical,
-                        children: vec![
-                            collapsible_child(leaf("agents")?, weight(1), AGENT_PANEL_MIN_ROWS, 0),
-                            required_child(leaf("terminal")?, weight(3), TERMINAL_PANEL_MIN_ROWS),
-                        ],
-                    },
-                    weight(1),
-                    PANEL_MIN_COLUMNS,
-                ),
-            ],
-        },
+        initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL])?,
+        layout: column(vec![
+            band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
+            required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
+        ]),
     })
 }
 
-/// `github.issues` — issue list above the issue detail.
-fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
-    Ok(ScreenDescriptor {
-        id: ScreenId::parse("github.issues")?,
-        title: "Issues".to_owned(),
-        route: RouteId::parse("issues")?,
-        panels: vec![
-            panel("issue-list", "issue-list", true, true, LIST_PANE_CHROME)?,
-            panel(
-                "issue-detail",
-                "issue-detail",
-                true,
-                false,
-                DETAIL_PANE_CHROME,
-            )?,
-        ],
-        initial_focus: PanelId::parse("issue-list")?,
-        focus_order: focus_order(&["issue-list", "issue-detail"])?,
-        layout: LayoutNode::Split {
-            axis: Axis::Vertical,
-            children: vec![
-                required_child(leaf("issue-list")?, weight(1), LIST_PANEL_MIN_ROWS),
-                collapsible_child(leaf("issue-detail")?, weight(2), DETAIL_PANEL_MIN_ROWS, 0),
-            ],
-        },
-    })
+/// The workspace column shared by the issues, pull-request, and actions
+/// screens: an optional banner, an optional filter band, then a list over a
+/// detail pane in a three-to-seven split.
+fn workspace_column(
+    banner: &str,
+    filter: &str,
+    list: &str,
+    detail: &str,
+) -> Result<LayoutNode, IdError> {
+    Ok(column(vec![
+        band_child(leaf(banner)?, BANNER_ROWS, -100),
+        band_child(leaf(filter)?, FILTER_CONTROLS_ROWS, -99),
+        required_child(leaf(list)?, weight(LIST_WEIGHT), LIST_MIN_ROWS),
+        collapsible_child(leaf(detail)?, weight(DETAIL_WEIGHT), DETAIL_MIN_ROWS, 0),
+    ]))
 }
 
-/// `github.pull-requests` — PR list, detail, and the actions panel.
+/// The values that distinguish one workspace screen from another.
 ///
-/// Collapse order follows the parity table: the detail panel is hidden before
-/// the actions panel, so the lower `collapse_priority` belongs to the detail.
-fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
+/// The three GitHub-backed screens differ only in their identity and their two
+/// content panels, so they are described rather than duplicated.
+struct WorkspaceSpec<'spec> {
+    /// Stable screen identity.
+    id: &'spec str,
+    /// Screen title.
+    title: &'spec str,
+    /// Navigation route.
+    route: &'spec str,
+    /// Identity and type of the list panel.
+    list: &'spec str,
+    /// Identity and type of the detail panel.
+    detail: &'spec str,
+}
+
+/// A workspace screen: the repository sidebar beside the shared column.
+fn workspace_screen(spec: &WorkspaceSpec<'_>) -> Result<ScreenDescriptor, RegistryError> {
+    let banner = format!("{}-banner", spec.list);
+    let filter = format!("{}-filter", spec.list);
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("github.pull-requests")?,
-        title: "Pull Requests".to_owned(),
-        route: RouteId::parse("pull-requests")?,
+        id: ScreenId::parse(spec.id)?,
+        title: spec.title.to_owned(),
+        route: RouteId::parse(spec.route)?,
         panels: vec![
-            panel("pr-list", "pr-list", true, true, LIST_PANE_CHROME)?,
-            panel("pr-detail", "pr-detail", true, false, DETAIL_PANE_CHROME)?,
-            panel("pr-actions", "pr-actions", true, false, LIST_PANE_CHROME)?,
+            sidebar_panel()?,
+            panel(&banner, "notice-band", false, false, BAND_CHROME)?,
+            panel(&filter, "filter-band", false, false, BORDERED_BAND_CHROME)?,
+            panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
+            panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
         ],
-        initial_focus: PanelId::parse("pr-list")?,
-        focus_order: focus_order(&["pr-list", "pr-detail", "pr-actions"])?,
-        layout: LayoutNode::Split {
-            axis: Axis::Vertical,
-            children: vec![
-                required_child(leaf("pr-list")?, weight(1), LIST_PANEL_MIN_ROWS),
-                collapsible_child(leaf("pr-detail")?, weight(2), DETAIL_PANEL_MIN_ROWS, 0),
-                collapsible_child(leaf("pr-actions")?, weight(1), ACTIONS_PANEL_MIN_ROWS, 1),
-            ],
-        },
+        initial_focus: PanelId::parse(spec.list)?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
+        layout: row(vec![
+            fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
+            required_child(
+                workspace_column(&banner, &filter, spec.list, spec.detail)?,
+                weight(1),
+                FLEX_MIN_COLUMNS,
+            ),
+        ]),
     })
 }
 
-/// `github.actions` — workflow-run list above the run detail.
+/// `github.issues` — issue list over issue detail.
+fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
+    workspace_screen(&WorkspaceSpec {
+        id: "github.issues",
+        title: "Issues",
+        route: "issues",
+        list: "issue-list",
+        detail: "issue-detail",
+    })
+}
+
+/// `github.pull-requests` — PR list over PR detail, which also hosts the
+/// review threads, actions, and merge affordances.
+fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
+    workspace_screen(&WorkspaceSpec {
+        id: "github.pull-requests",
+        title: "Pull Requests",
+        route: "pull-requests",
+        list: "pr-list",
+        detail: "pr-detail",
+    })
+}
+
+/// `github.actions` — workflow-run list over run detail.
 fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
+    workspace_screen(&WorkspaceSpec {
+        id: "github.actions",
+        title: "Actions",
+        route: "actions",
+        list: "action-list",
+        detail: "action-detail",
+    })
+}
+
+/// `core.errors` — the error ring buffer beside the repository sidebar.
+///
+/// Errors mode renders no banner and no filter band, so it declares neither.
+fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("github.actions")?,
-        title: "Actions".to_owned(),
-        route: RouteId::parse("actions")?,
+        id: ScreenId::parse("core.errors")?,
+        title: "Errors".to_owned(),
+        route: RouteId::parse("errors")?,
         panels: vec![
-            panel("action-list", "action-list", true, true, LIST_PANE_CHROME)?,
+            sidebar_panel()?,
+            panel("error-list", "error-list", true, true, LIST_PANE_CHROME)?,
             panel(
-                "action-detail",
-                "action-detail",
+                "error-detail",
+                "error-detail",
                 true,
                 false,
                 DETAIL_PANE_CHROME,
             )?,
         ],
-        initial_focus: PanelId::parse("action-list")?,
-        focus_order: focus_order(&["action-list", "action-detail"])?,
-        layout: LayoutNode::Split {
-            axis: Axis::Vertical,
-            children: vec![
-                required_child(leaf("action-list")?, weight(1), LIST_PANEL_MIN_ROWS),
-                collapsible_child(leaf("action-detail")?, weight(2), DETAIL_PANEL_MIN_ROWS, 0),
-            ],
-        },
+        initial_focus: PanelId::parse("error-list")?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "error-list", "error-detail"])?,
+        layout: row(vec![
+            fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
+            required_child(
+                column(vec![
+                    required_child(leaf("error-list")?, weight(LIST_WEIGHT), LIST_MIN_ROWS),
+                    collapsible_child(
+                        leaf("error-detail")?,
+                        weight(DETAIL_WEIGHT),
+                        DETAIL_MIN_ROWS,
+                        0,
+                    ),
+                ]),
+                weight(1),
+                FLEX_MIN_COLUMNS,
+            ),
+        ]),
+    })
+}
+
+/// `core.terminals` — the Terminal Manager: every runtime shell with a
+/// throttled read-only preview of the selected one.
+fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
+    Ok(ScreenDescriptor {
+        id: ScreenId::parse("core.terminals")?,
+        title: "Terminals".to_owned(),
+        route: RouteId::parse("terminals")?,
+        panels: vec![
+            sidebar_panel()?,
+            panel("shell-list", "shell-list", true, true, LIST_PANE_CHROME)?,
+            panel(
+                "shell-preview",
+                PTY_PANEL_TYPE,
+                true,
+                false,
+                TERMINAL_CHROME,
+            )?,
+        ],
+        initial_focus: PanelId::parse("shell-list")?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "shell-list", "shell-preview"])?,
+        layout: row(vec![
+            fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
+            required_child(
+                column(vec![
+                    required_child(leaf("shell-list")?, weight(LIST_WEIGHT), LIST_MIN_ROWS),
+                    collapsible_child(
+                        leaf("shell-preview")?,
+                        weight(DETAIL_WEIGHT),
+                        TERMINAL_MIN_ROWS,
+                        0,
+                    ),
+                ]),
+                weight(1),
+                FLEX_MIN_COLUMNS,
+            ),
+        ]),
     })
 }

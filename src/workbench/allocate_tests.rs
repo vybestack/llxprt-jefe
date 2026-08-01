@@ -42,7 +42,11 @@ fn collapsible(weight: u16, min: u16, priority: i32, depth_first_index: usize) -
 }
 
 fn granted(children: &[AxisChild], available: u16) -> Vec<Option<u16>> {
-    allocate_axis(children, available)
+    granted_with_gap(children, available, 1)
+}
+
+fn granted_with_gap(children: &[AxisChild], available: u16, gap: u16) -> Vec<Option<u16>> {
+    allocate_axis(children, available, gap)
         .unwrap_or_else(|error| unreachable!("allocation must not fail: {error}"))
         .cells
 }
@@ -130,7 +134,7 @@ fn allocation_exactly_tiles_the_axis_for_every_size_it_fits() {
         fixed(6, 2, None),
     ];
     for available in 12_u16..=200 {
-        let allocation = allocate_axis(&children, available)
+        let allocation = allocate_axis(&children, available, 1)
             .unwrap_or_else(|error| unreachable!("allocation must not fail: {error}"));
         if !allocation.fits {
             continue;
@@ -224,7 +228,7 @@ fn collapsing_continues_until_the_survivors_fit() {
 #[test]
 fn an_axis_that_cannot_fit_its_required_minima_reports_what_it_needed() {
     let children = [weighted(1, 10, None), weighted(1, 10, None)];
-    let allocation = allocate_axis(&children, 8)
+    let allocation = allocate_axis(&children, 8, 1)
         .unwrap_or_else(|error| unreachable!("allocation must not fail: {error}"));
     assert!(!allocation.fits);
     assert_eq!(allocation.needed, 21, "10 + 10 plus one separator");
@@ -243,7 +247,7 @@ fn an_application_hidden_child_consumes_no_cells_and_no_separator() {
 
 #[test]
 fn a_zero_length_axis_never_panics() {
-    let allocation = allocate_axis(&[weighted(1, 1, None), weighted(1, 1, None)], 0)
+    let allocation = allocate_axis(&[weighted(1, 1, None), weighted(1, 1, None)], 0, 1)
         .unwrap_or_else(|error| unreachable!("allocation must not fail: {error}"));
     assert!(!allocation.fits);
 }
@@ -251,7 +255,7 @@ fn a_zero_length_axis_never_panics() {
 #[test]
 fn an_axis_at_the_maximum_terminal_width_does_not_overflow() {
     let children = [weighted(1, 1, None), weighted(1, 1, None)];
-    assert!(allocate_axis(&children, u16::MAX).is_ok());
+    assert!(allocate_axis(&children, u16::MAX, 1).is_ok());
 }
 
 #[test]
@@ -262,5 +266,42 @@ fn eight_children_are_allocated_in_declaration_order() {
         granted(&children, 15),
         vec![Some(1); 8],
         "each child receives its minimum"
+    );
+}
+
+#[test]
+fn a_zero_gap_leaves_no_cell_between_children() {
+    // Panes that draw their own border need no divider, so all 20 cells are
+    // content: an even split is 10 and 10 with nothing between them.
+    assert_eq!(
+        granted_with_gap(&[weighted(1, 1, None), weighted(1, 1, None)], 20, 0),
+        vec![Some(10), Some(10)]
+    );
+}
+
+#[test]
+fn a_wider_gap_is_charged_once_per_adjacent_visible_pair() {
+    // Three children with a two-cell gap: 4 cells of divider, 21 of content.
+    let children = [
+        weighted(1, 1, None),
+        weighted(1, 1, None),
+        weighted(1, 1, None),
+    ];
+    let cells = granted_with_gap(&children, 25, 2);
+    let total: u32 = cells
+        .iter()
+        .map(|cells| u32::from(cells.unwrap_or(0)))
+        .sum();
+    assert_eq!(total, 21);
+}
+
+#[test]
+fn a_gap_is_not_charged_for_a_hidden_child() {
+    let mut hidden = weighted(1, 5, None);
+    hidden.hidden = true;
+    // Only one child is visible, so no gap is charged and it takes everything.
+    assert_eq!(
+        granted_with_gap(&[weighted(1, 1, None), hidden], 20, 3),
+        vec![Some(20), None]
     );
 }

@@ -19,12 +19,14 @@ use super::screens::ScreenRegistry;
 /// Each legacy value appears exactly once. This table is the migration: adding
 /// a legacy value without a target, or listing one twice, fails the migration
 /// matrix test.
-pub const LEGACY_SCREEN_VALUES: [(&str, &str); 5] = [
+pub const LEGACY_SCREEN_VALUES: [(&str, &str); 7] = [
     ("Dashboard", "core.dashboard"),
     ("Split", "core.repositories"),
     ("DashboardIssues", "github.issues"),
     ("DashboardPullRequests", "github.pull-requests"),
     ("DashboardActions", "github.actions"),
+    ("DashboardErrors", "core.errors"),
+    ("DashboardTerminals", "core.terminals"),
 ];
 
 /// Outcome of translating one legacy screen value.

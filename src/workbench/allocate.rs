@@ -3,8 +3,10 @@
 //! This is the whole of the sizing algorithm, isolated from the layout tree so
 //! it can be swept exhaustively as pure arithmetic. The rules, in order:
 //!
-//! 1. One separator cell is reserved between each adjacent pair of *visible*
-//!    children.
+//! 1. The split's declared gap is reserved between each adjacent pair of
+//!    *visible* children. A pane that draws its own border inside its own
+//!    rectangle needs no gap and declares zero; a gap is for splits that want a
+//!    drawn or blank divider between children.
 //! 2. While the visible children's minima do not fit, hide one collapsible
 //!    child chosen by `(collapse_priority ascending, depth_first_index
 //!    descending)`. If the survivors still do not fit, the axis does not fit
@@ -77,12 +79,13 @@ pub struct AxisAllocation {
 pub fn allocate_axis(
     children: &[AxisChild],
     available: u16,
+    gap: u16,
 ) -> Result<AxisAllocation, LayoutError> {
     let mut visible: Vec<bool> = children.iter().map(|child| !child.hidden).collect();
     let available = u32::from(available);
 
     let needed = loop {
-        let required = minimum_span(children, &visible)?;
+        let required = minimum_span(children, &visible, gap)?;
         if required <= available {
             break required;
         }
@@ -100,7 +103,7 @@ pub fn allocate_axis(
         });
     }
 
-    let separators = separator_cells(&visible)?;
+    let separators = separator_cells(&visible, gap)?;
     let content = available
         .checked_sub(separators)
         .ok_or(LayoutError::Overflow)?;
@@ -113,8 +116,8 @@ pub fn allocate_axis(
 }
 
 /// Cells the currently visible children need at their minima, plus separators.
-fn minimum_span(children: &[AxisChild], visible: &[bool]) -> Result<u32, LayoutError> {
-    let mut total = separator_cells(visible)?;
+fn minimum_span(children: &[AxisChild], visible: &[bool], gap: u16) -> Result<u32, LayoutError> {
+    let mut total = separator_cells(visible, gap)?;
     for (child, shown) in children.iter().zip(visible) {
         if *shown {
             total = total
@@ -125,11 +128,14 @@ fn minimum_span(children: &[AxisChild], visible: &[bool]) -> Result<u32, LayoutE
     Ok(total)
 }
 
-/// One separator cell per adjacent visible pair.
-fn separator_cells(visible: &[bool]) -> Result<u32, LayoutError> {
+/// The declared gap, charged once per adjacent visible pair.
+fn separator_cells(visible: &[bool], gap: u16) -> Result<u32, LayoutError> {
     let shown = u32::try_from(visible.iter().filter(|shown| **shown).count())
         .map_err(|_| LayoutError::Overflow)?;
-    Ok(shown.saturating_sub(1))
+    shown
+        .saturating_sub(1)
+        .checked_mul(u32::from(gap))
+        .ok_or(LayoutError::Overflow)
 }
 
 /// The next collapsible child to hide: lowest `collapse_priority`, then

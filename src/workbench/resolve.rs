@@ -134,13 +134,7 @@ pub fn resolve_layout(
     let mut cursor = 0_usize;
     index_panels(&descriptor.layout, &mut cursor, &mut placements);
 
-    let outcome = place(
-        &descriptor.layout,
-        outer,
-        descriptor,
-        state,
-        &mut placements,
-    )?;
+    let outcome = place(&descriptor.layout, outer, state, &mut placements)?;
     let mut layout = build_layout(descriptor, screen_instance, outer, &placements);
 
     let unfit = match outcome {
@@ -172,8 +166,13 @@ pub fn repair_focus(
     }
     let is_visible = |id: &PanelId| layout.panel(id).is_some_and(|resolved| resolved.visible);
 
-    let start = prior
-        .and_then(|focus| order.iter().position(|candidate| candidate == focus))
+    // With no prior focus the screen opens on its declared initial focus, which
+    // is not necessarily the head of the focus order: the workspace screens
+    // cycle through the repository sidebar first but open on their list.
+    let anchor = prior.unwrap_or(&descriptor.initial_focus);
+    let start = order
+        .iter()
+        .position(|candidate| candidate == anchor)
         .unwrap_or(0);
     for offset in 0..order.len() {
         let index = (start + offset) % order.len();
@@ -182,9 +181,6 @@ pub fn repair_focus(
         {
             return Some(candidate.clone());
         }
-    }
-    if is_visible(&descriptor.initial_focus) {
-        return Some(descriptor.initial_focus.clone());
     }
     None
 }
@@ -245,7 +241,6 @@ fn index_panels(node: &LayoutNode, cursor: &mut usize, placements: &mut Vec<Plac
 fn place(
     node: &LayoutNode,
     rect: Rect,
-    descriptor: &ScreenDescriptor,
     state: &PanelState,
     placements: &mut [Placement],
 ) -> Result<Fit, LayoutError> {
@@ -259,17 +254,19 @@ fn place(
             }
             Ok(Fit::Fits)
         }
-        LayoutNode::Split { axis, children } => {
-            place_split(*axis, children, rect, descriptor, state, placements)
-        }
+        LayoutNode::Split {
+            axis,
+            gap,
+            children,
+        } => place_split(*axis, *gap, children, rect, state, placements),
     }
 }
 
 fn place_split(
     axis: Axis,
+    gap: u16,
     children: &[LayoutChild],
     rect: Rect,
-    descriptor: &ScreenDescriptor,
     state: &PanelState,
     placements: &mut [Placement],
 ) -> Result<Fit, LayoutError> {
@@ -281,7 +278,7 @@ fn place_split(
         Axis::Horizontal => rect.width,
         Axis::Vertical => rect.height,
     };
-    let allocation = allocate_axis(&axis_children, available)?;
+    let allocation = allocate_axis(&axis_children, available, gap)?;
     if !allocation.fits {
         let needed = u16::try_from(allocation.needed).unwrap_or(u16::MAX);
         return Ok(Fit::Unfit(match axis {
@@ -298,7 +295,7 @@ fn place_split(
             continue;
         };
         if !first_visible {
-            offset = offset.saturating_add(1);
+            offset = offset.saturating_add(gap);
         }
         first_visible = false;
         let child_rect = match axis {
@@ -313,7 +310,7 @@ fn place_split(
             }
         };
         offset = offset.saturating_add(cells);
-        if let Fit::Unfit(needed) = place(&child.node, child_rect, descriptor, state, placements)? {
+        if let Fit::Unfit(needed) = place(&child.node, child_rect, state, placements)? {
             worst = Some(worst.map_or(needed, |current| {
                 Extent::new(current.cols.max(needed.cols), current.rows.max(needed.rows))
             }));

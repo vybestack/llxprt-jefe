@@ -62,6 +62,12 @@ pub enum LayoutNode {
     Split {
         /// Axis the rectangle is divided along.
         axis: Axis,
+        /// Cells left between each adjacent pair of visible children.
+        ///
+        /// Panels draw their border and title *inside* their own rectangle, so
+        /// a split of bordered panes declares zero. A nonzero gap is for
+        /// splits that want a drawn or blank divider.
+        gap: u16,
         /// Children in declaration order; allocation and remainder
         /// distribution both follow this order.
         children: Vec<LayoutChild>,
