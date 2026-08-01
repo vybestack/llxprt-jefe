@@ -31,9 +31,9 @@ use crate::jsp::Snapshot;
 use super::projection::{
     ActivityProjection, AvailabilityProjection, MessagePresence, NormalizedProjection,
     ProjectionProvenance, TodoProjection, ToolPhaseProjection, TurnOutcomeProjection,
-    WaitProjection, project_activity, project_availability, project_message, project_presence,
-    project_provenance, project_source_terminal, project_todos, project_tool, project_turn_active,
-    project_wait,
+    WaitProjection, project_activity, project_availability, project_message,
+    project_optional_availability, project_presence, project_provenance, project_source_terminal,
+    project_todos, project_tool, project_turn_active, project_wait,
 };
 
 fn observation_from_snapshot(snapshot: &Snapshot) -> AgentObservation {
@@ -378,13 +378,7 @@ impl ReferenceReducer {
         self.state.wait = project_wait(&snapshot.current_wait);
         self.state.wait_provenance = project_provenance(&snapshot.current_wait);
         self.state.turn_active = project_turn_active(&snapshot.current_turn);
-        self.state.turn_availability = match &snapshot.current_turn {
-            FieldState::Supported {
-                availability: Availability::Known(None),
-                ..
-            } => AvailabilityProjection::KnownAbsent,
-            field => project_availability(field),
-        };
+        self.state.turn_availability = project_optional_availability(&snapshot.current_turn);
         self.state.turn_provenance = project_provenance(&snapshot.current_turn);
         self.state.todos = project_todos(&snapshot.todos);
         self.state.message = project_message(&snapshot.last_displayed_assistant_message);
