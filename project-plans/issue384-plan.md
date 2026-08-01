@@ -452,14 +452,30 @@ it, which is an explicit non-goal.
 
 | Gate | Head | Result |
 |---|---|---|
-| `cargo fmt --all --check` | `6e2f3ce4` | clean |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `6e2f3ce4` | clean |
-| `cargo test --workspace --all-features --locked` | `6e2f3ce4` | 62 targets, 0 failed |
-| `cargo xtask ci` (fmt, clippy policy, source size, architecture, strict lint, complexity, coverage, locked all-feature build, full test suite) | `6e2f3ce4` | **exit 0** |
+| `cargo xtask ci` (fmt, clippy policy, source size, architecture, strict lint, complexity, coverage, locked all-feature build, full test suite) | `d2575724` | **exit 0**, 128 test targets, 0 failures |
+| GitHub CI on PR #566 | `d2575724` | all jobs pass, including Native Windows (MSVC + psmux), Windows Clippy, Windows coverage floors, and the coverage gate |
+| OpenCodeReview | 2 of 2 automatic runs used | 27 findings triaged; 2 blockers fixed |
+| LLxprt PR review | run | pass |
 
 No lint or complexity rule was loosened, no suppression directive was added, no
 threshold was raised, no dependency changed, no `unsafe`, and no production
-`unwrap`/`expect`. Largest new file is 396 lines against a 750-line warn limit.
+`unwrap`/`expect`.
+
+### A note on the CI gap
+
+Between `fb78f265` and the merge, GitHub stopped creating CI check suites for
+this PR entirely — no failures, no runs at all. The cause was that six commits
+landed on `main` and two of them conflicted with this branch, so GitHub could
+not compute the pull request's merge ref and silently skipped every
+`pull_request`-triggered workflow. The review workflows kept running because
+they trigger on `pull_request_target`, which does not need the merge ref, and
+that masked the gap: the PR looked healthy while its real gates were not
+running.
+
+Worth remembering: a PR showing only review checks and no CI is a conflict
+signal, not a quiet queue. Resolved by merging `origin/main` (a true two-parent
+merge, `d2575724`, parents `a6df40cb` and `97126eb2`), taking main's `try_recv`
+fix from issue #562 together with this branch's field rename.
 
 ## 10. Deferred findings / follow-ups
 
