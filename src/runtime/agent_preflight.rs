@@ -35,7 +35,8 @@
 use std::fmt;
 use std::process::Command;
 
-use crate::domain::agent_definition::types::AgentLaunchPlan;
+use crate::agent_candidate_fingerprint::capture_candidate_fingerprint;
+use crate::domain::agent_definition::types::{AgentLaunchPlan, Target};
 use crate::runtime::agent_execution_guard::{
     AuthorizationRejection, AuthorizationResult, AuthorizedExecution, ExecutionEvidence,
     authorize_execution,
@@ -341,7 +342,8 @@ impl AuthorizedLaunchPlan {
         &self,
         inspector: &dyn SandboxInspector,
     ) -> Result<PreflightCleared<'_>, LaunchProofError> {
-        let authorized = match authorize_execution(&self.plan, &self.evidence) {
+        let current_evidence = self.current_execution_evidence()?;
+        let authorized = match authorize_execution(&self.plan, &current_evidence) {
             AuthorizationResult::Authorized(authorized) => authorized,
             AuthorizationResult::Rejected(error) => {
                 return Err(LaunchProofError::Authorization(error));
@@ -351,6 +353,31 @@ impl AuthorizedLaunchPlan {
             PreparationOutcome::Cleared(cleared) => Ok(cleared),
             PreparationOutcome::Unavailable(reason) => Err(LaunchProofError::Preflight(reason)),
         }
+    }
+
+    fn current_execution_evidence(&self) -> Result<ExecutionEvidence, LaunchProofError> {
+        let executable_fingerprint =
+            match self.plan.target {
+                Target::Local { .. } => capture_candidate_fingerprint(&self.plan.executable)
+                    .map_err(|error| {
+                        tracing::warn!(
+                            %error,
+                            executable = %self.plan.executable.display(),
+                            "failed to recapture local executable fingerprint before launch"
+                        );
+                        LaunchProofError::Authorization(
+                            AuthorizationRejection::executable_fingerprint(),
+                        )
+                    })?,
+                Target::Remote(_) => self.evidence.executable_fingerprint().clone(),
+            };
+        Ok(ExecutionEvidence::new(
+            *self.evidence.definition_sha256(),
+            executable_fingerprint,
+            self.evidence.probe_generation(),
+            self.evidence.target_generation(),
+            self.evidence.activation_generation(),
+        ))
     }
 }
 

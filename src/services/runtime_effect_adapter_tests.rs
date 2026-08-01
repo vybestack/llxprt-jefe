@@ -47,9 +47,15 @@ fn manager_with_session(agent_id: &AgentId) -> StubRuntimeManager {
     let mut manager = StubRuntimeManager::default();
     let plan = crate::domain::agent_definition::AgentLaunchPlan {
         cwd: std::path::PathBuf::from("/tmp/agent"),
-        target: crate::domain::agent_definition::Target::Local {
-            canonical_cwd: std::path::PathBuf::from("/tmp/agent"),
-        },
+        target: crate::domain::agent_definition::Target::Remote(
+            crate::domain::agent_definition::RemoteTarget {
+                user: "fixture".to_owned(),
+                host: "example.invalid".to_owned(),
+                port: None,
+                run_as_user: String::new(),
+                canonical_cwd: std::path::PathBuf::from("/tmp/agent"),
+            },
+        ),
         ..crate::domain::agent_definition::AgentLaunchPlan::default()
     };
     let authorized = crate::runtime::test_support::authorized_launch_plan(&plan);

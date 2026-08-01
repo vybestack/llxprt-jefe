@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
+pub(crate) use crate::agent_candidate_fingerprint::capture_candidate_fingerprint;
 use crate::agent_candidate_path::{AgentWrapperKind, PathSnapshot, resolve_repository_local};
 use crate::domain::agent_definition::type_id::{CandidateKind, ExecutableCandidate};
 use crate::domain::agent_definition::{AgentDefinition, DefinitionSha256};
@@ -540,36 +541,6 @@ impl ResolveOne {
     fn skip(reason: CandidateSkip) -> Self {
         Self::Skip(reason)
     }
-}
-
-pub(crate) fn capture_candidate_fingerprint(path: &Path) -> Result<CandidateFingerprint, String> {
-    let canonical = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
-    let metadata = std::fs::metadata(&canonical).map_err(|error| error.to_string())?;
-    let mtime_secs = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |duration| {
-            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
-        });
-    let (dev, ino) = capture_dev_ino(&metadata);
-    Ok(CandidateFingerprint::new(
-        canonical,
-        dev,
-        ino,
-        metadata.len(),
-        mtime_secs,
-    ))
-}
-
-#[cfg(unix)]
-fn capture_dev_ino(metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
-    use std::os::unix::fs::MetadataExt;
-    (Some(metadata.dev()), Some(metadata.ino()))
-}
-#[cfg(not(unix))]
-fn capture_dev_ino(_metadata: &std::fs::Metadata) -> (Option<u64>, Option<u64>) {
-    (None, None)
 }
 
 #[cfg(test)]

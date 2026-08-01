@@ -245,6 +245,15 @@ mod tests {
     fn fixture_plan(work_dir: &str) -> AgentLaunchPlan {
         AgentLaunchPlan {
             cwd: PathBuf::from(work_dir),
+            target: crate::domain::agent_definition::Target::Remote(
+                crate::domain::agent_definition::RemoteTarget {
+                    user: "fixture".to_owned(),
+                    host: "example.invalid".to_owned(),
+                    port: None,
+                    run_as_user: String::new(),
+                    canonical_cwd: PathBuf::from(work_dir),
+                },
+            ),
             ..AgentLaunchPlan::default()
         }
     }

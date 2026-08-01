@@ -37,7 +37,7 @@ pub(super) fn handle_request_issue_rewrite(app_state: &mut AppStateHandle, ctx: 
         Ok(Some(context)) => context,
     };
 
-    if !super::availability::launch_available_or_error(app_state, &context.signature) {
+    if !super::availability::launch_refresh_available_or_error(app_state, &context.signature) {
         return;
     }
 
