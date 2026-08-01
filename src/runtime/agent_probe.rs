@@ -217,10 +217,15 @@ impl<'a> ProbePhase<'a> {
         }
     }
 
-    /// An unrepresentable deadline means the budget is effectively unbounded,
-    /// so it falls forward rather than collapsing into an instant timeout.
-    /// Every step stays checked: probe budgets are bounded constants, so
-    /// neither fallback is reachable, and none of them may panic.
+    /// Deadline for this phase.
+    ///
+    /// Every step is checked because this path may not panic. A budget too
+    /// large to represent falls forward to a bounded far-future deadline
+    /// instead of collapsing into an instant timeout. The final arm exists
+    /// only to keep the arithmetic total: it is unreachable, because
+    /// `Instant::now()` cannot be within [`UNBOUNDED_PHASE_BUDGET`] of the
+    /// representable maximum, and every real probe budget is a bounded
+    /// constant well under it.
     fn deadline(&self) -> Instant {
         self.started
             .checked_add(self.budget)
