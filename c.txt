@@ -1,9 +1,0 @@
-﻿cargo :     Checking jefe v0.0.32 (C:\Users\acoli\projects\jefe\branch-1)
-At line:1 char:18
-+ ...  fmt --all; cargo clippy --workspace --all-targets --all-features --  ...
-+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (    Checking je...\jefe\branch-1):String) [], R 
-   emoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.34s

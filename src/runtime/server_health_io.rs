@@ -37,8 +37,11 @@ fn classify_observation(
             let Some(parsed) = parse_server_identity_output(stdout) else {
                 return ServerLivenessObservation::Unavailable;
             };
-            let current = match capture_process_identity(parsed.process.pid) {
-                Ok(process) => ServerIdentity::new(process, parsed.multiplexer),
+            let current = match capture_process_identity(parsed.process.pid()) {
+                Ok(process) => ServerIdentity::new(
+                    crate::domain::ServerProcessIdentity::from_identity(process),
+                    parsed.multiplexer,
+                ),
                 Err(_) => return ServerLivenessObservation::Unavailable,
             };
             match classify_server_health(prior, Some(&current), true) {
@@ -92,7 +95,7 @@ fn log_server_observation(
         command = "display-message",
         status,
         has_stderr,
-        prior_pid = prior.map(|id| id.process.pid),
+        prior_pid = prior.map(|id| id.process.pid()),
         observation = ?observation,
         "server liveness probe",
     );

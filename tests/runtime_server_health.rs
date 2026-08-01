@@ -1,5 +1,5 @@
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, PaneProcessIdentity, ProcessIdentity, RepositoryId,
+    Agent, AgentId, AgentStatus, PaneProcessIdentity, RepositoryId, ServerProcessIdentity,
     WorkerProcessIdentity,
 };
 use jefe::runtime::{
@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 fn identity(pid: u32, started_at: u64) -> ServerIdentity {
     ServerIdentity::new(
-        ProcessIdentity::new(pid, started_at),
+        ServerProcessIdentity::new(pid, started_at),
         MultiplexerVersion::new(3, 3, 7),
     )
 }
@@ -174,7 +174,7 @@ fn parse_identity_output_extracts_pid_and_version() {
     let parsed = parse_server_identity_output("100|3.3.7");
 
     let expected = ServerIdentity::new(
-        ProcessIdentity::new(100, 1),
+        ServerProcessIdentity::new(100, 1),
         MultiplexerVersion::new(3, 3, 7),
     );
     assert_eq!(parsed, Some(expected));
