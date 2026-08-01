@@ -32,9 +32,14 @@
 use std::num::NonZeroU16;
 
 use super::config::insets_config;
-use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
+use super::descriptor::{
+    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDirection, ScreenDescriptor, Size,
+};
 use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
+use super::screens_ports::{selection_port, subject_port, workspace_relationships};
+
+pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT, master_detail_edge};
 use super::validate::{DescriptorError, validate_descriptor};
 
 /// Panel type whose visible content rectangle drives a live PTY.
@@ -498,6 +503,21 @@ struct WorkspaceSpec {
     banner: &'static str,
     /// Identity of the conditional filter-controls band.
     filter: &'static str,
+    /// Versioned type the list publishes and the detail consumes, when the
+    /// screen couples them.
+    ///
+    /// `None` means the screen's detail pane is not driven by its list
+    /// selection, so it declares no ports and no relationship.
+    subject_type: Option<&'static str>,
+}
+
+/// Attach an optional port to a panel.
+fn ported(
+    mut panel: PanelDescriptor,
+    port: Option<super::descriptor::PortDescriptor>,
+) -> PanelDescriptor {
+    panel.ports.extend(port);
+    panel
 }
 
 /// A workspace screen: the repository sidebar beside the shared column.
@@ -516,12 +536,18 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
                 false,
                 BORDERED_BAND_CHROME,
             )?,
-            panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
-            panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
+            ported(
+                panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
+                selection_port(spec.subject_type, PortDirection::Output)?,
+            ),
+            ported(
+                panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
+                subject_port(spec.subject_type, PortDirection::Input)?,
+            ),
         ],
         initial_focus: PanelId::parse(spec.list)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
-        relationships: Vec::new(),
+        relationships: workspace_relationships(spec.list, spec.detail, spec.subject_type)?,
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
@@ -543,6 +569,7 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "issue-detail",
         banner: "issue-list-banner",
         filter: "issue-list-filter",
+        subject_type: Some("github.issue@1"),
     })
 }
 
@@ -557,6 +584,7 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "pr-detail",
         banner: "pr-list-banner",
         filter: "pr-list-filter",
+        subject_type: Some("github.pull-request@1"),
     })
 }
 
@@ -570,6 +598,9 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "action-detail",
         banner: "action-list-banner",
         filter: "action-list-filter",
+        // The actions screen loads its run detail on demand rather than
+        // following the list selection, so it declares no coupling.
+        subject_type: None,
     })
 }
 

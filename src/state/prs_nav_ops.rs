@@ -160,13 +160,30 @@ impl AppState {
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
     }
 
-    /// Invalidate detail requests when the PR selection changes.
+    /// Invalidate the PR detail when the screen's declared master-detail
+    /// relationship says its subject moved (issue #385, CW05-09).
+    ///
+    /// The rule lives in the `github.pull-requests` descriptor rather than
+    /// here, so the coupling between the list and the detail pane is stated
+    /// once, as data, in the same form a user-authored screen would state it.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
     /// @pseudocode component-001 lines 88-98
     fn invalidate_detail_requests_if_pr_selection_changed(&mut self, previous: Option<usize>) {
-        if self.prs_state.selected_pr_index() == previous {
+        let subject_at = |index: Option<usize>| {
+            crate::state::screen_relationships::subject(
+                index
+                    .and_then(|index| self.prs_state.pull_requests().get(index))
+                    .map(|pull_request| pull_request.number),
+            )
+        };
+        let moved = crate::state::screen_relationships::detail_follows_selection(
+            crate::workbench::ScreenId::PullRequests,
+            &subject_at(previous),
+            &subject_at(self.prs_state.selected_pr_index()),
+        );
+        if !moved {
             return;
         }
         self.prs_state.loading.detail = false;

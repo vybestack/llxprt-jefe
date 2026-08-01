@@ -35,11 +35,20 @@ pub mod screen_lowering;
 pub mod screen_lowering_layout;
 pub mod screen_lowering_values;
 pub mod screens;
+pub mod screens_ports;
 pub mod validate;
+
+#[cfg(test)]
+#[path = "screen_file_fixtures.rs"]
+mod screen_file_fixtures;
 
 #[cfg(test)]
 #[path = "screen_file_tests.rs"]
 mod screen_file_tests;
+
+#[cfg(test)]
+#[path = "screen_file_bound_tests.rs"]
+mod screen_file_bound_tests;
 
 #[cfg(test)]
 #[path = "compose_fixtures.rs"]
@@ -199,6 +208,7 @@ pub use screen_file::{ScreenFile, parse_screen_file};
 pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
 pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_screen};
 pub use screens::{
-    PTY_PANEL_TYPE, REPOSITORIES_PANEL, RegistryError, ScreenRegistry, builtin_screens,
+    PTY_PANEL_TYPE, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT, SUBJECT_PORT,
+    ScreenRegistry, builtin_screens, master_detail_edge,
 };
 pub use validate::{DescriptorError, validate_descriptor};

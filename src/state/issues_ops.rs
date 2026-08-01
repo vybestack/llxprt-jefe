@@ -345,8 +345,26 @@ impl AppState {
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
+    /// Invalidate the issue detail when the screen's declared master-detail
+    /// relationship says its subject moved (issue #385, CW05-09).
+    ///
+    /// The rule lives in the `github.issues` descriptor rather than here, so
+    /// the coupling between the list and the detail pane is stated once, as
+    /// data, in the same form a user-authored screen would state it.
     fn invalidate_detail_requests_if_issue_selection_changed(&mut self, previous: Option<usize>) {
-        if self.issues_state.selected_issue_index() == previous {
+        let subject_at = |index: Option<usize>| {
+            crate::state::screen_relationships::subject(
+                index
+                    .and_then(|index| self.issues_state.issues().get(index))
+                    .map(|issue| issue.number),
+            )
+        };
+        let moved = crate::state::screen_relationships::detail_follows_selection(
+            ScreenId::Issues,
+            &subject_at(previous),
+            &subject_at(self.issues_state.selected_issue_index()),
+        );
+        if !moved {
             return;
         }
         self.issues_state.loading.detail = false;
