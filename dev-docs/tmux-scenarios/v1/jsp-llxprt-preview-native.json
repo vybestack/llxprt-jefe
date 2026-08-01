@@ -192,6 +192,18 @@
     {
       "op": "wait",
       "source": "frame",
+      "literal": "Native LLxprt todo",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "[x] Native LLxprt todo",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
       "literal": "Native LLxprt JSP r",
       "timeout_ms": 30000
     },

@@ -273,24 +273,34 @@ Two operational notes for anyone reproducing this:
 - The scenarios drive the New Agent form by a fixed number of `tab` steps, so
   adding or removing a form field invalidates them. The symptom is a timeout
   waiting for `> [Create enabled]` while the cursor rests on the last field.
-- The native scenario is intermittent against the 30000 ms ceiling and has been
-  observed failing roughly half the time on this machine, including with warm
-  caches. The failure always presents the same way: `Status: Stale` with the
-  first todo already rendered, meaning registration and publication succeeded
-  and the run simply did not reach the committed reply inside the ceiling.
+- The native scenario was previously intermittent, failing roughly half the time
+  against the 30000 ms per-wait ceiling. Both causes have since been found and
+  fixed, and the scenario now passes repeatedly.
 
-  This was investigated rather than assumed. Real LLxprt reaches the committed
-  reply in about four seconds when run directly under a PTY, both with
-  observation disabled and with an unreachable broker configured, which also
-  confirms that a failing observation transport does not block the foreground
-  agent. Bisecting the producer commits did not isolate a breaking change: the
-  same commit both passes and fails across runs. The fixture scenario, which
-  removes the real agent from the loop, is stable.
+  The first cause was environmental. The harness workspace has a fresh HOME, so
+  real LLxprt had no theme configured and opened its first-run theme dialog
+  instead of running the prompt. The JSP producer registers during CLI bootstrap,
+  so it registered and then only heartbeated: Preview showed a live but idle
+  agent and no todo or reply ever arrived. The launcher used for the proof now
+  seeds a settings file with a theme. Note that the harness PATH is hermetic, so
+  a launcher may use shell builtins only; writing that settings file with `cat`
+  produced an empty file and LLxprt exited on a JSON parse error.
 
-  Treat a single native failure as inconclusive and re-run. The scenario is not
-  part of continuous integration, so this does not gate the pull request, but
-  it should not be presented as a reliably green check either.
+  The second cause was a real producer defect, found by this proof and fixed in
+  llxprt-code. The `turn.ended` event carries only the outcome, yet applying it
+  also returns activity to idle in the producer's own state. Jefe deliberately
+  does not synthesize idle on turn end, so it kept the last announced activity
+  and rendered a finished agent as Working forever. The producer now publishes
+  the resulting activity explicitly so the event stream reproduces the snapshot.
+  Unit tests had not caught it because the producer's snapshot already said idle;
+  only the event stream disagreed.
 
+  The waits are also staged on sticky milestones now (first todo, completed todo,
+  committed reply, then Ready) rather than one wait for the reply. Each milestone
+  gets its own budget under the 30000 ms per-wait cap, and each is a real
+  semantic checkpoint rather than a sleep.
+
+  Verified with four consecutive passing runs.
 
 ### Scope review
 - Every changed path maps to the accepted Jefe host, lifecycle, reducer/state, Preview, protocol, test, plan, or harness behavior.
