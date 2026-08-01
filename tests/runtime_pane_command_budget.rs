@@ -17,7 +17,11 @@
 //! A budget that is merely documented cannot catch that, so it is declared with
 //! its provenance and asserted against the prompt limits that depend on it.
 
-use jefe::runtime::{BudgetSource, pane_command_budget};
+use jefe::runtime::pane_command_budget;
+// Every assertion naming a specific source is Windows-only, because that is
+// where the budget was measured.
+#[cfg(windows)]
+use jefe::runtime::BudgetSource;
 
 /// A budget with no recorded provenance is the failure being corrected: a
 /// number nobody can re-derive, attributed to the wrong component.
@@ -38,6 +42,12 @@ fn the_budget_records_where_it_came_from() {
 
 /// The constraint is the shell's command line, not the multiplexer. Attributing
 /// it to the multiplexer is what produced a tmux number on a psmux system.
+///
+/// Windows-only, because that is where the claim was measured and where it
+/// holds: psmux imposes no pane-command limit of its own. tmux does, so on
+/// other platforms attributing the budget to the multiplexer is the correct
+/// answer rather than the inherited mistake.
+#[cfg(windows)]
 #[test]
 fn the_budget_is_not_attributed_to_the_multiplexer() {
     let budget = pane_command_budget();
