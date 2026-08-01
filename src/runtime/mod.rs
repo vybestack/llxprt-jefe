@@ -135,8 +135,9 @@ pub use process::{
     classify_process_observation, process_liveness, process_liveness_indicates_alive,
 };
 pub use server_health::{
-    ServerHealth, ServerIdentity, ServerLivenessEvidence, ServerLivenessObservation,
-    classify_server_health, classify_server_liveness, parse_server_identity_output,
+    ServerHealth, ServerIdentity, ServerInstanceToken, ServerLivenessEvidence,
+    ServerLivenessObservation, classify_server_health, classify_server_liveness,
+    parse_server_identity_output,
 };
 pub use server_health_io::observe_server_liveness;
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};

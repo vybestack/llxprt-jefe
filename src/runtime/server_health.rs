@@ -7,17 +7,55 @@
 
 use crate::domain::ServerProcessIdentity;
 use crate::runtime::MultiplexerVersion;
-/// Composite identity of one runtime server instance: the operating-system
-/// process plus the multiplexer version hosting it. Two identities are the
-/// same server only when both components agree.
+/// Stable identity of one `-L` multiplexer namespace.
+///
+/// psmux runs one server *process per session*, so the process answering a
+/// request is not the namespace (issue #540, upstream psmux#509). This token is
+/// minted by the first server in a namespace and reported by every server in
+/// it, so it stays constant while the namespace is up and changes only after a
+/// genuine restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerInstanceToken(String);
+
+impl ServerInstanceToken {
+    /// Build a token from probe output, treating blank text as absent.
+    ///
+    /// A multiplexer that does not implement the token renders the format
+    /// variable as an empty string rather than failing, so "blank" is the
+    /// capability signal for a build predating psmux#509.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(Self(trimmed.to_owned()))
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Composite identity of one runtime server instance.
+///
+/// Carries the operating-system process, the multiplexer version hosting it,
+/// and — where the multiplexer supplies one — the stable token of the
+/// namespace it serves.
 ///
 /// The process component is a [`ServerProcessIdentity`], so the multiplexer
 /// server can never be compared against, or substituted for, a pane leader or
 /// an agent worker (issue #543).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerIdentity {
     pub process: ServerProcessIdentity,
     pub multiplexer: MultiplexerVersion,
+    /// `None` on a multiplexer that does not report a namespace token. The
+    /// namespace is then simply not identifiable, and the process identity is
+    /// the only (weaker) evidence available.
+    pub instance: Option<ServerInstanceToken>,
 }
 
 impl ServerIdentity {
@@ -26,6 +64,21 @@ impl ServerIdentity {
         Self {
             process,
             multiplexer,
+            instance: None,
+        }
+    }
+
+    /// Build an identity anchored to a namespace token.
+    #[must_use]
+    pub const fn with_instance(
+        process: ServerProcessIdentity,
+        multiplexer: MultiplexerVersion,
+        instance: ServerInstanceToken,
+    ) -> Self {
+        Self {
+            process,
+            multiplexer,
+            instance: Some(instance),
         }
     }
 }
@@ -67,8 +120,23 @@ pub fn classify_server_health(
         (None, Some(_)) => ServerHealth::Healthy,
         (Some(_), None) => ServerHealth::Gone,
         (Some(previous), Some(current)) => {
-            // A changed PID or a changed creation token both indicate a
-            // distinct process instance now occupying the server role.
+            // Where both observations carry a namespace token it is decisive:
+            // psmux answers from whichever of the namespace's per-session
+            // servers replied, so the answering PID changes when a session is
+            // merely added and says nothing about a restart (issue #540).
+            if let (Some(previous_instance), Some(current_instance)) =
+                (previous.instance.as_ref(), current.instance.as_ref())
+            {
+                return if previous_instance == current_instance {
+                    ServerHealth::Healthy
+                } else {
+                    ServerHealth::Replaced
+                };
+            }
+            // No namespace token on at least one side, so fall back to the
+            // process identity. This is the weaker pre-psmux#509 evidence and
+            // is why a multiplexer without the token cannot distinguish "a
+            // session was added" from "the server restarted".
             if previous.process.pid() == current.process.pid()
                 && previous.process.started_at() == current.process.started_at()
             {
@@ -218,26 +286,37 @@ fn stderr_indicates_no_server(stderr: &str) -> bool {
         .any(|marker| lower.contains(marker))
 }
 
-/// Parse the `display-message -p '#{pid}|#{version}'` output of one server
-/// probe into a [`ServerIdentity`] (issue #493 Stack A).
+/// Parse the server-identity probe output into a [`ServerIdentity`]
+/// (issue #493 Stack A, extended by issue #540).
 ///
-/// Expected form: `<pid>|<major>.<minor>.<patch>` (e.g. `4321|3.3.7`). The
-/// PID supplies the process identity; `started_at` defaults to `1` because
-/// the multiplexer `display-message` format string does not expose a creation
-/// token, and the probe distinguishes server replacement via a PID change
-/// rather than a creation-token change (the per-agent
-/// [`crate::domain::ProcessIdentity`] service remains the authoritative
-/// reuse-safe check).
+/// Two forms are accepted:
+/// - `<instance>|<pid>|<version>` — the current probe. A multiplexer without
+///   psmux#509 renders `#{server_instance}` as empty text rather than failing,
+///   so `|22440|3.3.7` is a valid answer meaning "no namespace token here" and
+///   yields an identity with `instance: None`.
+/// - `<pid>|<version>` — the pre-#540 form, still accepted so a probe answered
+///   by an older code path parses rather than failing open.
+///
+/// The PID supplies the process identity; `started_at` defaults to `1` because
+/// `display-message` exposes no creation token for the server process (the
+/// per-agent [`crate::domain::ProcessIdentity`] service remains the
+/// authoritative reuse-safe check).
 ///
 /// Returns `None` for any malformed input so the caller fails open.
 #[must_use]
 pub fn parse_server_identity_output(output: &str) -> Option<ServerIdentity> {
     let trimmed = output.trim();
-    let (pid_raw, version_raw) = trimmed.split_once('|')?;
+    let fields: Vec<&str> = trimmed.split('|').collect();
+    let (instance_raw, pid_raw, version_raw) = match fields.as_slice() {
+        [instance, pid, version] => (Some(*instance), *pid, *version),
+        [pid, version] => (None, *pid, *version),
+        _ => return None,
+    };
     let pid: u32 = pid_raw.trim().parse().ok()?;
     let version = MultiplexerVersion::parse(version_raw.trim()).ok()?;
-    Some(ServerIdentity::new(
-        ServerProcessIdentity::new(pid, 1),
-        version,
-    ))
+    let process = ServerProcessIdentity::new(pid, 1);
+    match instance_raw.and_then(ServerInstanceToken::parse) {
+        Some(instance) => Some(ServerIdentity::with_instance(process, version, instance)),
+        None => Some(ServerIdentity::new(process, version)),
+    }
 }
