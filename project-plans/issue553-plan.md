@@ -136,8 +136,8 @@ this table requires explicit approval.
 | Review | Budget | Used |
 |---|---|---|
 | Open Code Review before PR | 2 | 1 |
-| Open Code Review after PR | 2 | 0 |
-| Independent review-and-remediation rounds | 2 | 1 |
+| Open Code Review after PR | 2 | 1 |
+| Independent review-and-remediation rounds | 2 | 2 |
 
 ### Open Code Review run 1 triage (`--from main --to issue553`)
 
@@ -147,6 +147,14 @@ this table requires explicit approval.
 | Materialization budget should be clamped to the authored probe timeout | **Reject** | Clamping restores the defect this issue fixes: the authored timeout budgets agent startup responsiveness, not a registry download. The resulting AGT-E202 names the budget it exceeded, so the larger bound is visible at the point of failure |
 | Overflowing phase deadline collapses into an instant timeout | **In-scope—Fix** | An unrepresentable deadline falls forward instead of backward |
 | Fixture `DELAY` placeholder substitution is fragile | **In-scope—Fix** | The delay marker carries the delay; no textual substitution remains |
+
+### Open Code Review run 2 triage (automated, PR head)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| `validate_launch_or_error` is not defined and the call sites will not compile (reported twice) | **Reject** | It is defined at `src/app_input/availability.rs:185`. The workspace builds, `cargo clippy --workspace --all-targets --all-features -- -D warnings` is clean, and the PR's own Build, Lint, and Test jobs pass on this head. The reviewer's context did not include the defining hunk |
+| `deadline()` fallback can panic on unchecked `Instant` addition | **In-scope—Fix** | Every step is now checked; no path can panic |
+| The combined-ceiling test hardcodes 310s | **In-scope—Fix (partial)** | The pinned ceiling is kept deliberately, matching the sibling `local_probe_budget_bounds_each_sequential_process` assertion: these are published contract values, and changing one should require a visible edit. The materialization constant is now pinned explicitly so a failure names which constant moved instead of only the sum |
 
 ## Verification evidence
 

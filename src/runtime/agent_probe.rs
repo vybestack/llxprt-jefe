@@ -218,11 +218,14 @@ impl<'a> ProbePhase<'a> {
     }
 
     /// An unrepresentable deadline means the budget is effectively unbounded,
-    /// so it must fall forward rather than collapse into an instant timeout.
+    /// so it falls forward rather than collapsing into an instant timeout.
+    /// Every step stays checked: probe budgets are bounded constants, so
+    /// neither fallback is reachable, and none of them may panic.
     fn deadline(&self) -> Instant {
         self.started
             .checked_add(self.budget)
-            .unwrap_or_else(|| self.started + UNBOUNDED_PHASE_BUDGET)
+            .or_else(|| self.started.checked_add(UNBOUNDED_PHASE_BUDGET))
+            .unwrap_or(self.started)
     }
 
     /// Attribute a failure to this phase and the program it ran.
@@ -639,6 +642,11 @@ mod tests {
     #[test]
     fn runner_mediated_probe_has_a_finite_combined_ceiling() {
         let probe_budget = super::AgentProbeTarget::Local.total_timeout();
+        assert_eq!(
+            super::PACKAGE_MATERIALIZATION_TIMEOUT,
+            std::time::Duration::from_secs(300),
+            "materialization budget is a pinned contract value"
+        );
         let combined = super::PACKAGE_MATERIALIZATION_TIMEOUT.saturating_add(probe_budget);
         assert_eq!(combined, std::time::Duration::from_secs(310));
         assert!(
