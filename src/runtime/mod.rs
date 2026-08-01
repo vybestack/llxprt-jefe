@@ -185,6 +185,10 @@ mod session_host_tests;
 #[path = "job_object_tests.rs"]
 mod job_object_tests;
 
+#[cfg(test)]
+#[path = "jsp_launch_tests.rs"]
+mod jsp_launch_tests;
+
 /// Shared test support for sealing a fixture [`AgentLaunchPlan`] into an
 /// [`AuthorizedLaunchPlan`] through the real authorize + preflight proof chain.
 ///
