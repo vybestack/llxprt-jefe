@@ -25,6 +25,8 @@ fn the_contract_declares_every_format_the_runtime_depends_on() {
         "session_name",
         "window_index",
         "window_name",
+        "version",
+        "history_size",
     ] {
         assert!(
             contract_item(ContractItemKind::Format, name).is_some(),
@@ -123,6 +125,21 @@ fn every_declared_item_states_its_response_shape() {
             "contract item `{}` must record why jefe depends on it",
             item.name,
         );
+        // The shape is what the runner routes on, so a format declared as
+        // producing nothing would be judged by its exit status and its
+        // substitution never checked -- the check would pass without ever
+        // looking at the answer.
+        if item.kind == ContractItemKind::Format {
+            assert!(
+                !matches!(
+                    item.response,
+                    ResponseShape::NoOutput | ResponseShape::ExitStatusOnly
+                ),
+                "format #{{{}}} declares a shape that produces no output, so its \
+                 substitution would never be examined",
+                item.name,
+            );
+        }
     }
 }
 

@@ -58,7 +58,7 @@ fn the_pinned_archive_digest_is_recorded() {
     );
 }
 
-/// A binary jefe has qualified is accepted.
+/// A binary that jefe has qualified is accepted.
 #[test]
 fn a_qualified_binary_is_accepted() {
     let fingerprint = BinaryFingerprint::new("C:/tools/psmux.exe", 1024, sha256_hex(b"psmux"));

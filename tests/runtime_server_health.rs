@@ -252,15 +252,19 @@ fn server_lost_status_is_distinct_variant() {
 /// Adding a session must therefore not be reported as a replaced server. The
 /// stable answer is psmux's `#{server_instance}` token, which held constant
 /// across those same three probes (issue #540, upstream psmux#509).
+/// Parse a probe line, naming the input in the failure so a regression says
+/// which line stopped parsing rather than only that one did.
+fn parse_identity(output: &str) -> ServerIdentity {
+    parse_server_identity_output(output).unwrap_or_else(|| {
+        panic!("a server identity probe must parse the namespace instance token, got {output:?}")
+    })
+}
+
 #[test]
 fn a_session_added_to_a_namespace_is_not_a_replaced_server() {
     // Same namespace instance token, different answering server process.
-    let before = parse_server_identity_output("883b25f5379f199a|9008|3.3.7").unwrap_or_else(|| {
-        panic!("a server identity probe must parse the namespace instance token")
-    });
-    let after = parse_server_identity_output("883b25f5379f199a|3832|3.3.7").unwrap_or_else(|| {
-        panic!("a server identity probe must parse the namespace instance token")
-    });
+    let before = parse_identity("883b25f5379f199a|9008|3.3.7");
+    let after = parse_identity("883b25f5379f199a|3832|3.3.7");
 
     let observation = classify_server_liveness(
         Some(&before),

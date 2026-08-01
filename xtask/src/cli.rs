@@ -16,7 +16,7 @@ use crate::source_size;
 use crate::toolchain;
 use crate::windows_coverage;
 
-/// The aggregate `ci` ordering â€” fmt, clippy-allow policy, source-size policy,
+/// The aggregate `ci` ordering — fmt, clippy-allow policy, source-size policy,
 /// architecture policy, strict clippy, complexity clippy, coverage, locked
 /// build, locked test (A1). Each step fails fast.
 const CI_STEPS: &[&str] = &[
@@ -105,7 +105,7 @@ fn exit(result: Result<(), CommandFailed>) -> ExitCode {
 
 // --- aggregate commands -----------------------------------------------------
 
-/// `cargo xtask ci` â€” the full gate in CI order (A1). Fail-fast: the first
+/// `cargo xtask ci` — the full gate in CI order (A1). Fail-fast: the first
 /// failing step aborts and its exit code propagates.
 fn run_ci() -> Result<(), CommandFailed> {
     let root = repo_path("").map_err(|err| CommandFailed {
@@ -144,7 +144,7 @@ fn run_ci_step(step: &str, root: &Path) -> Result<(), CommandFailed> {
     }
 }
 
-/// `cargo xtask quick` â€” replaces `make quick-check` (A2).
+/// `cargo xtask quick` — replaces `make quick-check` (A2).
 fn run_quick() -> Result<(), CommandFailed> {
     let fmt = CommandPlan::new("cargo").arg("fmt").run_inherit();
     fmt?;
@@ -155,7 +155,7 @@ fn run_quick() -> Result<(), CommandFailed> {
     CommandPlan::new("cargo").args(["test", "-q"]).run_inherit()
 }
 
-/// `cargo xtask trim-cache` â€” replaces `make trim-cache` (A3). Coverage clean
+/// `cargo xtask trim-cache` — replaces `make trim-cache` (A3). Coverage clean
 /// + removal of `target/debug/incremental`, using platform-aware paths.
 fn run_trim_cache() -> Result<(), CommandFailed> {
     toolchain::coverage_clean_plan().run_inherit()?;
@@ -226,7 +226,7 @@ fn run_coverage() -> Result<(), CommandFailed> {
     toolchain::coverage_plan()?.run_inherit()
 }
 
-/// `cargo xtask coverage-windows` â€” enforce a floor per Windows-only module.
+/// `cargo xtask coverage-windows` — enforce a floor per Windows-only module.
 ///
 /// The workspace coverage gate runs on Ubuntu, where these modules are
 /// compiled out, so it can never observe them. This gate names the module that

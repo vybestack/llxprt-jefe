@@ -61,7 +61,7 @@ pub(super) fn fresh_prompt_instruction(
 
 /// Bytes of the pane command reserved for everything that is not prompt
 /// content: env-scrub prefix, executable path, mode flags, instruction framing
-/// and â€” on Windows â€” the environment block, which `CreateProcess` counts
+/// and — on Windows — the environment block, which `CreateProcess` counts
 /// against the same ceiling.
 const PANE_COMMAND_FRAMING_RESERVE_BYTES: usize = 6_000;
 
@@ -73,7 +73,7 @@ const PANE_COMMAND_FRAMING_RESERVE_BYTES: usize = 6_000;
 ///
 /// The constraint is **not** the multiplexer. psmux was measured to impose no
 /// pane-command limit of its own; the boundary tracks the shell's command-line
-/// ceiling, and it is reached *silently* â€” psmux exits 0 and creates the
+/// ceiling, and it is reached *silently* — psmux exits 0 and creates the
 /// session while the command never runs. Content over
 /// [`PROMPT_COMPACTION_THRESHOLD_BYTES`] is compacted to a preview + `gh` fetch
 /// reference well before this ceiling, so truncation stays a last-resort safety
@@ -85,13 +85,13 @@ pub(super) const MAX_PROMPT_CONTENT_BYTES: usize =
 /// short preview + `gh issue/pr view --comments` fetch reference instead of
 /// being inlined verbatim.
 ///
-/// Held at a third of the measured budget so the compacted prompt â€” metadata,
+/// Held at a third of the measured budget so the compacted prompt — metadata,
 /// base prompt, the `ISSUE_DELIVERY_WORKFLOW` appendix and the instruction
-/// framing â€” stays well inside it. Sizing this against tmux's limit was how a
+/// framing — stays well inside it. Sizing this against tmux's limit was how a
 /// macOS measurement came to govern a Windows launch (issue #540).
 ///
 /// The agent runs in a checked-out git repo with `gh` available and
-/// authenticated, so it can fetch the full live issue/PR content itself â€”
+/// authenticated, so it can fetch the full live issue/PR content itself —
 /// strictly better than a truncated copy (issue #409).
 pub(super) const PROMPT_COMPACTION_THRESHOLD_BYTES: usize =
     jefe::runtime::pane_command_budget().bytes / 3;
@@ -134,7 +134,7 @@ pub(super) fn compact_prompt_content(content: &str, fetch_command: &str) -> Stri
         "{preview}
 
 \
-         [... {omitted} more bytes omitted â€” run the command below to fetch the full content ...]
+         [... {omitted} more bytes omitted — run the command below to fetch the full content ...]
 
 \
          Fetch the full content with: {fetch_command}

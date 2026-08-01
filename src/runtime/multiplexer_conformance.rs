@@ -180,7 +180,14 @@ fn verb_probe_plan(name: &str, scratch_session: &str, disposable_session: &str) 
         ),
         "unbind-key" => with("unbind-key", vec!["-T".to_owned(), "root".to_owned()]),
         "select-window" => with("select-window", target()),
-        "new-window" => with("new-window", vec!["-d".to_owned()]),
+        // Targeted like every other session-scoped verb. Untargeted it lands in
+        // whatever session the multiplexer considers current, which during the
+        // run is whichever session was touched last rather than a session the
+        // probe chose.
+        "new-window" => with(
+            "new-window",
+            vec!["-d".to_owned(), "-t".to_owned(), scratch_session.to_owned()],
+        ),
         // An empty literal key sequence: exercises the verb without typing
         // anything into the pane.
         "send-keys" => with(

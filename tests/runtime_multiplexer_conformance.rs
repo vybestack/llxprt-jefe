@@ -8,8 +8,9 @@
 //! format that renders as nothing.
 
 use jefe::runtime::{
-    ConformanceVerdict, ContractItemKind, ProbeOutcome, ProbePlan, classify_contract_probe,
-    contract_item, contract_items, probe_ordered_items, probe_plan_for, summarize_conformance,
+    ConformanceVerdict, ContractItem, ContractItemKind, ProbeOutcome, ProbePlan,
+    classify_contract_probe, contract_item, contract_items, probe_ordered_items, probe_plan_for,
+    summarize_conformance,
 };
 
 const DISPOSABLE: &str = "jefe-conformance-disposable";
@@ -23,12 +24,12 @@ fn probe(exit_code: i32, stdout: &str) -> ProbeOutcome {
     }
 }
 
-fn format_item(name: &str) -> &'static jefe::runtime::ContractItem {
+fn format_item(name: &str) -> &'static ContractItem {
     contract_item(ContractItemKind::Format, name)
         .unwrap_or_else(|| panic!("{name} must be declared in the contract"))
 }
 
-fn verb_item(name: &str) -> &'static jefe::runtime::ContractItem {
+fn verb_item(name: &str) -> &'static ContractItem {
     contract_item(ContractItemKind::Verb, name)
         .unwrap_or_else(|| panic!("{name} must be declared in the contract"))
 }
@@ -221,6 +222,16 @@ fn a_format_probe_requests_exactly_that_format() {
     };
 
     assert!(args.contains(&"#{pane_pid}".to_owned()), "got {args:?}");
+
+    // "exactly that format" is the point: a probe carrying a second variable
+    // could be satisfied by the other one substituting, and the item under test
+    // would be passed without ever being rendered.
+    let requested: Vec<&String> = args.iter().filter(|arg| arg.contains("#{")).collect();
+    assert_eq!(
+        requested,
+        vec![&"#{pane_pid}".to_owned()],
+        "a format probe must request one variable and no others: {args:?}"
+    );
 }
 
 // -- Probe safety against the runner's own environment (issue #540) --------

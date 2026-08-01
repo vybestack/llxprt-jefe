@@ -11,7 +11,7 @@
 //!   capability jefe does not need, which can reject a serviceable binary.
 //!
 //! Rust shares the `#{...}` spelling whenever a literal `#` precedes a
-//! placeholder â€” `format!("... #{ordinal}")` names a variable in scope, and
+//! placeholder — `format!("... #{ordinal}")` names a variable in scope, and
 //! `format!("#{next_display_index}")` builds an agent's display identifier.
 //! Neither is a multiplexer format, so occurrences inside a formatting macro
 //! are not counted.
@@ -81,7 +81,7 @@ impl Violation {
 
 /// Read the declared format names out of the contract source.
 ///
-/// Matches the `format("name", â€¦)` declarations rather than every string in the
+/// Matches the `format("name", …)` declarations rather than every string in the
 /// file, so rationale prose cannot be mistaken for a declaration.
 #[must_use]
 pub fn declared_surface(contract_source: &str) -> Surface {
@@ -130,9 +130,9 @@ pub fn format_usages(source: &str) -> BTreeSet<String> {
     used
 }
 
-/// Whether a line carries a bare `{â€¦}` placeholder.
+/// Whether a line carries a bare `{…}` placeholder.
 ///
-/// A multiplexer format spells every variable `#{â€¦}`, so an unprefixed brace
+/// A multiplexer format spells every variable `#{…}`, so an unprefixed brace
 /// means the line is a Rust format string. This catches the case the macro name
 /// alone cannot: a `format!` whose literal sits on a later line, as in
 /// `"read capture record '{name}' #{ordinal}: {err}"`.

@@ -13,7 +13,7 @@ use super::fresh_prompt::{
     PROMPT_COMPACTION_THRESHOLD_BYTES, compact_prompt_content, fresh_prompt_instruction,
 };
 
-// â”€â”€ Threshold consistency â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Threshold consistency ────────────────────────────────────────────────
 
 /// The compaction threshold must be strictly less than the max-content budget
 /// so a prompt that is exactly at the threshold is NOT also truncated (which
@@ -23,7 +23,7 @@ const _: () = assert!(
     "compaction threshold must be strictly below max content bytes to prevent double-processing"
 );
 
-// â”€â”€ Large prompt produces compact reference â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Large prompt produces compact reference ──────────────────────────────
 
 /// A large prompt (content exceeds the threshold) must be compacted by
 /// `fresh_prompt_instruction`: the instruction must NOT contain the full body,
@@ -55,7 +55,7 @@ fn large_issue_prompt_produces_gh_fetch_reference() {
     );
 }
 
-// â”€â”€ Small prompt is inlined unchanged â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Small prompt is inlined unchanged ───────────────────────────────────
 
 /// A small prompt (under the threshold) must pass through `compact_prompt_content`
 /// unchanged.
@@ -88,7 +88,7 @@ fn large_pr_prompt_produces_gh_fetch_reference() {
     );
 }
 
-// â”€â”€ Threshold-boundary prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Threshold-boundary prompt ────────────────────────────────────────────
 
 /// A prompt exactly at the threshold must be inlined (boundary inclusive).
 #[test]
@@ -118,10 +118,10 @@ fn prompt_one_byte_over_threshold_is_compacted() {
     );
 }
 
-// â”€â”€ Compaction preserves the issue delivery workflow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Compaction preserves the issue delivery workflow ─────────────────────
 
 /// The ISSUE_DELIVERY_WORKFLOW appendix must still be appended for compacted
-/// issue prompts â€” compaction only replaces the body, not the workflow rules.
+/// issue prompts — compaction only replaces the body, not the workflow rules.
 #[test]
 fn compacted_issue_prompt_still_includes_delivery_workflow() {
     // Build a compacted prompt body, then pass it through fresh_prompt_instruction
@@ -139,7 +139,7 @@ fn compacted_issue_prompt_still_includes_delivery_workflow() {
     );
 }
 
-// â”€â”€ Compacted prompt stays under tmux pane limit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Compacted prompt stays under tmux pane limit ────────────────────────
 
 /// The compacted instruction (with workflow) must stay well under the tmux
 /// pane-command limit (~16,340 bytes). This is the core invariant that
@@ -161,7 +161,7 @@ fn compacted_prompt_with_workflow_stays_under_tmux_pane_limit() {
     );
 }
 
-// â”€â”€ format_issue_prompt compacts large body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── format_issue_prompt compacts large body ─────────────────────────────
 
 /// The issue prompt formatter must compact the body when it is large,
 /// replacing it with a preview + `gh issue view` reference, while keeping
@@ -249,7 +249,7 @@ fn format_issue_prompt_inlines_small_body() {
     );
 }
 
-// â”€â”€ format_pr_prompt compacts large body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── format_pr_prompt compacts large body ─────────────────────────────────
 
 /// The PR prompt formatter must compact the body when it is large, using
 /// `gh pr view` for the fetch reference.

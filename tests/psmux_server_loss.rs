@@ -113,5 +113,5 @@ fn native_psmux_server_loss_is_observed_without_empty_inventory_reconciliation()
         panic!("expected replacement server observation, got {replacement:?}");
     };
     assert_ne!(second.process, first.process);
-    assert_eq!(*applied.borrow(), Some(second.clone()));
+    assert_eq!(*applied.borrow(), Some(second));
 }

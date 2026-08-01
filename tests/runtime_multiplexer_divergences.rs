@@ -4,7 +4,7 @@
 //! that vanished under jefe (#493), Page keys swallowed before reaching the
 //! agent (#465), and jefe believing it was nested inside a parent session. A
 //! patch records that something was wrong; it does not record what jefe
-//! *requires*, so the next divergence is found the same way â€” in production.
+//! *requires*, so the next divergence is found the same way — in production.
 //!
 //! Declaring them turns each scar into a stated expectation the conformance
 //! runner can assert, and gives the remediation a single definition instead of
