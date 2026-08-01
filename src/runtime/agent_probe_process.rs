@@ -232,10 +232,16 @@ mod tests {
     use super::{ProbeProcessError, run_probe_process};
 
     const NESTED_MARKER: &str = "JEFE_PROBE_STDIN_NESTED";
+    const STDIN_REPORTER_MARKER: &str = "JEFE_PROBE_STDIN_REPORTER";
     const TEST_NAME: &str = "runtime::agent_probe_process::tests::probe_child_receives_null_stdin_under_inherited_parent_stdin";
 
     #[test]
     fn probe_child_receives_null_stdin_under_inherited_parent_stdin() {
+        // Innermost role first: the reporter inherits NESTED_MARKER from its
+        // parent, so checking that marker before this one would recurse.
+        if std::env::var_os(STDIN_REPORTER_MARKER).is_some() {
+            report_whether_stdin_carried_data();
+        }
         if std::env::var_os(NESTED_MARKER).is_some() {
             run_nested_probe_child();
             return;
@@ -271,13 +277,28 @@ mod tests {
         );
     }
 
+    /// Innermost child: exit 0 when stdin is at EOF, 1 when it carried data.
+    ///
+    /// Never returns.
+    fn report_whether_stdin_carried_data() -> ! {
+        let mut line = String::new();
+        let read = std::io::stdin().read_line(&mut line).unwrap_or(0);
+        std::process::exit(i32::from(read > 0));
+    }
+
     fn run_nested_probe_child() {
-        let script = concat!(
-            "$line = [Console]::In.ReadLine(); ",
-            "if ($null -ne $line) { exit 1 } else { exit 0 }"
-        );
-        let mut command = Command::new("powershell.exe");
-        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        // Re-exec this already-warm test binary rather than powershell.exe.
+        // The assertion is about stdin wiring, not about any particular
+        // program, and a cold PowerShell start on a saturated runner can
+        // exceed the probe deadline on its own -- which made this test report
+        // runner load as a stdin defect under coverage instrumentation.
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("could not resolve test binary: {error}"));
+        let mut command = Command::new(exe);
+        command
+            .env_remove(NESTED_MARKER)
+            .env(STDIN_REPORTER_MARKER, "1")
+            .args(["--exact", TEST_NAME, "--nocapture"]);
         let deadline = Instant::now() + Duration::from_secs(10);
         let output = run_probe_process(command, deadline).unwrap_or_else(|error| match error {
             ProbeProcessError::Timeout => panic!("probe process timed out"),
