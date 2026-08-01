@@ -4,7 +4,7 @@
 //! that vanished under jefe (#493), Page keys swallowed before reaching the
 //! agent (#465), and jefe believing it was nested inside a parent session. A
 //! patch records that something was wrong; it does not record what jefe
-//! *requires*, so the next divergence is found the same way — in production.
+//! *requires*, so the next divergence is found the same way â€” in production.
 //!
 //! Declaring them turns each scar into a stated expectation the conformance
 //! runner can assert, and gives the remediation a single definition instead of
@@ -12,7 +12,7 @@
 
 use jefe::runtime::{
     Divergence, declared_divergences, divergence, exit_empty_remediation, page_up_root_unbind,
-    psmux_session_routing_vars,
+    prefix_value_for_platform, psmux_session_routing_vars,
 };
 
 fn find(name: &str) -> &'static Divergence {
@@ -121,4 +121,41 @@ fn only_session_routing_variables_are_scrubbed() {
 #[test]
 fn an_undeclared_divergence_is_not_found() {
     assert!(divergence("remain-on-exit-forever").is_none());
+}
+
+/// The prefix override is version-specific and, per the issue, had "no
+/// assertion that it is still true". Declaring it records the psmux behaviour
+/// that forces the choice, so a future re-check has something to test against
+/// rather than a bare constant.
+#[test]
+fn the_reserved_prefix_key_divergence_is_declared() {
+    let entry = find("reserved-prefix-key");
+
+    assert!(
+        entry.discovered_by.contains("446"),
+        "got {}",
+        entry.discovered_by,
+    );
+    assert!(
+        entry.expectation.contains("C-b"),
+        "the expectation must name the key psmux keeps reserved: {}",
+        entry.expectation,
+    );
+    assert!(
+        entry.discovered_by.contains("3.3.6"),
+        "a version-specific quirk must record the version it was seen on: {}",
+        entry.discovered_by,
+    );
+}
+
+/// The remediation applies to Windows only; tmux honours `None`, so releasing
+/// the prefix there needs no substitute key.
+#[test]
+fn only_the_psmux_platform_needs_a_substitute_prefix() {
+    assert_eq!(prefix_value_for_platform(true), "F12");
+    assert_eq!(
+        prefix_value_for_platform(false),
+        "None",
+        "tmux honours None, so no key needs to be spent there",
+    );
 }

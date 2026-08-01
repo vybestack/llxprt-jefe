@@ -136,9 +136,12 @@ fn multiplexer_cmd_status(plan: &MultiplexerPlan, args: &[&str]) -> Result<(), S
 }
 
 /// Prefix value that preserves `C-b`; Jefe intercepts F12 before forwarding.
+///
+/// Derived from the `reserved-prefix-key` divergence rather than spelled here,
+/// so the value and the psmux behaviour that forces it stay together (#540).
 #[must_use]
 const fn local_prefix_value() -> &'static str {
-    if cfg!(windows) { "F12" } else { "None" }
+    super::multiplexer_contract::prefix_value_for_platform(cfg!(windows))
 }
 
 #[cfg(test)]

@@ -32,7 +32,7 @@ pub enum ContractCapability {
 pub enum ContractItemKind {
     /// A command word such as `has-session`.
     Verb,
-    /// A `#{â€¦}` format variable.
+    /// A `#{Ã¢â‚¬Â¦}` format variable.
     Format,
     /// A server option set through `set-option -s`.
     ServerOption,
@@ -342,6 +342,15 @@ static DIVERGENCES: &[Divergence] = &[
         discovered_by: "issue #465",
     },
     Divergence {
+        name: "reserved-prefix-key",
+        expectation: "the prefix key can be released so keystrokes reach the agent \
+                      untouched; psmux still reserves C-b when the prefix option is set to \
+                      None, which tmux honours, so there is no way to have no prefix at all",
+        remediation: "assign the prefix to jefe-owned F12 on Windows, which jefe intercepts \
+                      before forwarding, rather than the None that psmux ignores",
+        discovered_by: "issue #446, observed on psmux 3.3.6",
+    },
+    Divergence {
         name: "inherited-session-routing",
         expectation: "jefe must not appear nested inside a parent session; psmux exports \
                       session-routing variables that children inherit, and a jefe process \
@@ -468,5 +477,21 @@ pub const fn pane_command_budget() -> PaneCommandBudget {
             measured_on: "tmux 3.7b, macOS",
             evidence: POSIX_EVIDENCE,
         }
+    }
+}
+
+/// The Windows prefix key, set by the `reserved-prefix-key` divergence.
+///
+/// `None` is the value that would mean "no prefix", but psmux ignores it and
+/// keeps `C-b` reserved, so a key jefe owns is assigned instead.
+pub const WINDOWS_RESERVED_PREFIX_REPLACEMENT: &str = "F12";
+
+/// The prefix value for a platform, derived from the declared divergence.
+#[must_use]
+pub const fn prefix_value_for_platform(windows: bool) -> &'static str {
+    if windows {
+        WINDOWS_RESERVED_PREFIX_REPLACEMENT
+    } else {
+        "None"
     }
 }

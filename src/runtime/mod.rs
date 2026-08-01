@@ -61,6 +61,8 @@ pub mod package_runtime;
 mod pane_capture;
 mod preflight;
 mod process;
+/// SHA256 provenance verification for the multiplexer binary (issue #540).
+pub mod provenance;
 /// Pure server-health classification contract (issue #493 Slice 1).
 mod server_health;
 mod server_health_io;
@@ -126,14 +128,16 @@ pub use multiplexer_conformance::{
     ProbeOutcome, ProbePlan, classify_contract_probe, probe_plan_for, qualification_from_report,
     summarize_conformance,
 };
-pub use multiplexer_conformance_io::{qualify_multiplexer, qualify_multiplexer_for_startup};
+pub use multiplexer_conformance_io::{
+    fingerprint_multiplexer, qualify_multiplexer, qualify_multiplexer_for_startup,
+};
 pub use multiplexer_contract::{
     BudgetSource, ContractCapability, ContractItem, ContractItemKind, PaneCommandBudget,
     ResponseShape, contract_item, contract_items, pane_command_budget,
 };
 pub use multiplexer_contract::{
     Divergence, declared_divergences, divergence, exit_empty_remediation, page_up_root_unbind,
-    psmux_session_routing_vars,
+    prefix_value_for_platform, psmux_session_routing_vars,
 };
 pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 /// Descendant-process observation and validated orphan-tree reaping (issue #332).
@@ -150,6 +154,10 @@ pub use preflight::{
 pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
     classify_process_observation, process_liveness, process_liveness_indicates_alive,
+};
+pub use provenance::{
+    BinaryFingerprint, PINNED_PSMUX_ARCHIVE_SHA256, ProvenanceManifest, ProvenanceVerdict,
+    sha256_hex,
 };
 pub use server_health::{
     ServerHealth, ServerIdentity, ServerInstanceToken, ServerLivenessEvidence,
