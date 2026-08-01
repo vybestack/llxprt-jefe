@@ -183,11 +183,11 @@ fn append_last_message(lines: &mut Vec<String>, observation: Option<&AgentObserv
 
 /// Resolve the accepted status precedence without mutating `AgentStatus`.
 ///
-/// The nine-level precedence from issue #522 is evaluated top-down:
-/// process-level facts (levels 1–2) come before observation-derived status
-/// (levels 3–9). A queued/spawning process is always "Starting" even when a
-/// stale observation payload is present, because the process has not started
-/// yet and cannot be Working.
+/// The nine-level precedence from issue #522 is evaluated top-down. A
+/// confirmed process exit (level 1) is terminal and wins over everything. A
+/// queued/spawning process (level 2) reports "Starting" only while nothing has
+/// been observed from it, because levels 3-9 all describe an alive process and
+/// a published observation is proof that it is alive.
 #[must_use]
 pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation>) -> String {
     // Level 1: confirmed process exit is terminal. These match the labels the
@@ -200,10 +200,14 @@ pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation
         AgentStatus::Queued | AgentStatus::Running | AgentStatus::Waiting | AgentStatus::Paused => {
         }
     }
-    // Level 2: a queued/spawning process is always Starting, regardless of any
-    // observation payload. Process-level facts take precedence over
-    // observation-derived status.
-    if status == AgentStatus::Queued {
+    // Level 2: a queued/spawning process is Starting until it proves otherwise.
+    //
+    // Levels 3-9 all describe an *alive* process, and an observation is that
+    // proof: the producer only registers and publishes from inside a running
+    // LLxprt process. The queued status is jefe's own pre-spawn bookkeeping and
+    // is not re-derived once telemetry arrives, so treating it as authoritative
+    // over a live observation would pin a working agent at Starting forever.
+    if status == AgentStatus::Queued && observation.is_none() {
         return "Starting".to_string();
     }
     let Some(observation) = observation else {

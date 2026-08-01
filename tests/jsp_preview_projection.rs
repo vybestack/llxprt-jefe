@@ -76,14 +76,14 @@ fn status_precedence_keeps_process_and_health_separate() {
 }
 
 #[test]
-fn queued_process_is_starting_regardless_of_observation() {
+fn queued_process_is_starting_only_until_something_is_observed() {
     let observation = live_observation();
-    // Process-level facts take precedence over observation-derived status: a
-    // queued/spawning process is always "Starting" even when a live observation
-    // payload (that would otherwise map to Working) is present.
+    // A published observation proves the process is alive, so the queued
+    // bookkeeping no longer describes it and the live status wins. Without an
+    // observation there is nothing to supersede it and it stays Starting.
     assert_eq!(
         jefe::preview_view::project_status(AgentStatus::Queued, Some(&observation)),
-        "Starting"
+        "Working"
     );
     assert_eq!(
         jefe::preview_view::project_status(AgentStatus::Queued, None),
@@ -298,13 +298,15 @@ fn process_level_cases() -> Vec<PrecedenceCase> {
             observation: Some(live_ready_observation()),
             expected: "Dead",
         },
-        // Level 2: queued/spawning process -> Starting. Even with a live
-        // observation that would otherwise map to Working/Ready.
+        // Level 2: queued/spawning process -> Starting, but only while nothing
+        // has been observed. Levels 3-9 describe an alive process, and a
+        // published observation is proof of aliveness, so it supersedes the
+        // pre-spawn bookkeeping rather than being masked by it.
         PrecedenceCase {
             label: "L2: Queued process with live work observation",
             status: AgentStatus::Queued,
             observation: Some(live_observation()),
-            expected: "Starting",
+            expected: "Working",
         },
         PrecedenceCase {
             label: "L2: Queued process with no observation",
