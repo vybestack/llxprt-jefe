@@ -541,7 +541,7 @@ pub fn authorize_launch_environment(
     authorize_launch_environment_path(plan, bootstrap.path())
 }
 
-pub(crate) fn authorize_launch_environment_path(
+pub fn authorize_launch_environment_path(
     plan: &mut crate::domain::agent_definition::AgentLaunchPlan,
     bootstrap_path: &Path,
 ) -> bool {

@@ -12,6 +12,7 @@ use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
+use jefe::jsp_host::JspHostRuntime;
 use jefe::layout::{compute_pty_layout, effective_render_size};
 use jefe::messages::AppMessage;
 use jefe::runtime::{
@@ -35,7 +36,11 @@ fn drain_jsp_messages(
         return false;
     };
     let messages = match ctx_arc.try_lock() {
-        Ok(context) => match context.jsp_host.as_ref().map(|host| host.drain_messages()) {
+        Ok(context) => match context
+            .jsp_host
+            .as_ref()
+            .map(JspHostRuntime::drain_messages)
+        {
             Some(Ok(messages)) => messages,
             Some(Err(error)) => {
                 warn!(error = %error, "JSP observation delivery poisoned; draining aborted");
