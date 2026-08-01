@@ -22,8 +22,15 @@ pub mod ids;
 pub mod intern;
 pub mod migration;
 pub mod resolve;
+pub mod screen_file;
+pub mod screen_file_bounds;
+pub mod screen_file_shape;
 pub mod screens;
 pub mod validate;
+
+#[cfg(test)]
+#[path = "screen_file_tests.rs"]
+mod screen_file_tests;
 
 #[cfg(test)]
 #[path = "ids_tests.rs"]
