@@ -3,7 +3,9 @@ use std::net::{SocketAddr, TcpStream};
 use std::thread;
 
 use jefe::domain::{AgentId, observation::Availability};
-use jefe::jsp_host::{JspHost, PublisherRegistry, PublisherReservation, create_bootstrap};
+use jefe::jsp_host::{
+    CredentialRole, JspHost, PublisherRegistry, PublisherReservation, create_bootstrap,
+};
 use jefe::messages::RuntimeMessage;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
@@ -42,6 +44,7 @@ fn reservation() -> PublisherReservation {
         generation: 7,
         registration_id: "reg-fixture".to_string(),
         publisher_credential: TOKEN.to_string(),
+        role: CredentialRole::Publisher,
     }
 }
 
@@ -156,6 +159,75 @@ fn unknown_credential_is_401_and_wrong_binding_is_403() {
         .join()
         .unwrap_or_else(|_| panic!("host thread panicked"))
         .unwrap_or_else(|error| panic!("serve request: {error}"));
+}
+
+/// A credential that authenticates (it is known) but carries the wrong role is
+/// rejected with 403, not 401. The rejection must never mutate canonical
+/// state — no observation message is emitted and the publisher never
+/// transitions out of the Reserved phase. (issue #522, J3)
+#[test]
+fn wrong_role_credential_is_403_without_mutation() {
+    let registry = PublisherRegistry::default();
+    // Reserve the legitimate publisher credential.
+    registry
+        .reserve(reservation())
+        .unwrap_or_else(|error| panic!("reserve publisher credential: {error}"));
+    // Reserve an observer credential for the same agent/generation but a
+    // different role. It uses a distinct credential so it is independently
+    // authenticatable.
+    let observer_token = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let observer_reservation = PublisherReservation {
+        agent_id: AgentId("agent-alex".to_string()),
+        generation: 7,
+        registration_id: "reg-fixture".to_string(),
+        publisher_credential: observer_token.to_string(),
+        role: CredentialRole::Observer,
+    };
+    registry
+        .reserve(observer_reservation)
+        .unwrap_or_else(|error| panic!("reserve observer credential: {error}"));
+
+    // The observer credential authenticates (it is known) but is rejected
+    // with 403 because publisher-only routes require the Publisher role.
+    let host = JspHost::bind(registry.clone()).unwrap_or_else(|error| panic!("bind host: {error}"));
+    let addr = host
+        .local_addr()
+        .unwrap_or_else(|error| panic!("host address: {error}"));
+    let worker = thread::spawn(move || host.serve_once());
+    let response = request_with_registration(
+        addr,
+        "/jsp/1/register",
+        observer_token,
+        "reg-fixture",
+        include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json"),
+    );
+    assert!(
+        response.starts_with("HTTP/1.1 403"),
+        "wrong-role credential must be 403, got: {response}"
+    );
+    let message = worker
+        .join()
+        .unwrap_or_else(|_| panic!("host thread panicked"))
+        .unwrap_or_else(|error| panic!("serve request: {error}"));
+    // No observation message may be delivered: rejection never mutates
+    // canonical state.
+    assert!(
+        message.is_none(),
+        "wrong-role rejection must not emit an observation message"
+    );
+
+    // The legitimate publisher credential for the same agent still succeeds,
+    // proving the observer rejection did not mutate any canonical state.
+    assert!(
+        serve_request(
+            &registry,
+            "/jsp/1/register",
+            include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json"),
+        )
+        .0
+        .starts_with("HTTP/1.1 200"),
+        "publisher credential must still register after a wrong-role rejection"
+    );
 }
 
 #[test]

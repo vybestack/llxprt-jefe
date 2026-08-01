@@ -83,6 +83,18 @@ impl From<ReducerError> for JspHostError {
     }
 }
 
+/// Credential role at the authentication boundary.
+///
+/// A publisher credential may register, publish, and heartbeat. A non-publisher
+/// credential (e.g. a future observer) authenticates but is forbidden from
+/// publisher-only mutation routes. This lets the host distinguish an unknown
+/// credential (401) from a valid-but-wrong-role credential (403).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialRole {
+    Publisher,
+    Observer,
+}
+
 /// One pre-authorized publisher binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublisherReservation {
@@ -90,6 +102,9 @@ pub struct PublisherReservation {
     pub generation: u64,
     pub registration_id: String,
     pub publisher_credential: String,
+    /// Role the credential is authorized for. Publisher-only routes reject
+    /// non-publisher credentials with 403 after authentication succeeds.
+    pub role: CredentialRole,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,7 +263,16 @@ fn handle_stream(
 ) -> Result<Option<RuntimeMessage>, JspHostError> {
     let request = read_request(stream)?;
     registry.mutate(&request.token, |publisher| {
+        // The credential authenticates (the token was found in the registry),
+        // so an unknown credential surfaces as Unauthorized (401) from
+        // `mutate` before this closure runs. Here we validate the binding
+        // (registration_id) and the role. A wrong binding or a
+        // valid-but-wrong-role credential is Forbidden (403): the caller is
+        // authenticated but not authorized for publisher-only routes.
         if publisher.reservation.registration_id != request.registration_id {
+            return Err(JspHostError::Forbidden);
+        }
+        if publisher.reservation.role != CredentialRole::Publisher {
             return Err(JspHostError::Forbidden);
         }
         Ok(())

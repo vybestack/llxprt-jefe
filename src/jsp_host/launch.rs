@@ -163,6 +163,7 @@ impl JspLaunchCoordinator {
             generation,
             registration_id: random_opaque_id("reg-", 24)?,
             publisher_credential: random_opaque_id("pub-", 32)?,
+            role: super::CredentialRole::Publisher,
         };
         self.registry.reserve(reservation.clone())?;
         let bootstrap = match create_bootstrap(&self.runtime_dir, self.endpoint, &reservation) {
