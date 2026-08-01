@@ -25,7 +25,6 @@ use jefe::agent_candidate::AgentCandidateResolver;
 use jefe::agent_candidate_path::PathSnapshot;
 use jefe::agent_registry::AgentTypeRegistry;
 use jefe::agent_status_view::AgentAvailabilityObservation;
-use jefe::domain::agent_definition::Availability;
 use jefe::domain::effects::AgentAvailabilityProbe;
 
 /// Candidate-only startup publication plus deferred process probes.
@@ -125,29 +124,14 @@ pub(super) fn require_local_kind_available(
     require_local_kind_available_for_target(type_id, available)
 }
 
-enum DirectAvailabilityGate {
-    Cached,
-    RefreshCurrent,
-}
-
+/// Admit or reject one launch attempt before any preparation side effect.
+///
+/// Every launch action — creating an agent, relaunching, Ctrl-r and sending —
+/// uses this one function, so they cannot disagree about whether a runtime is
+/// usable (issue #587).
 pub(super) fn launch_available_or_error(
     app_state: &mut AppStateHandle,
     request: &AgentLaunchRequest,
-) -> bool {
-    launch_availability_or_error(app_state, request, DirectAvailabilityGate::Cached)
-}
-
-pub(super) fn launch_refresh_available_or_error(
-    app_state: &mut AppStateHandle,
-    request: &AgentLaunchRequest,
-) -> bool {
-    launch_availability_or_error(app_state, request, DirectAvailabilityGate::RefreshCurrent)
-}
-
-fn launch_availability_or_error(
-    app_state: &mut AppStateHandle,
-    request: &AgentLaunchRequest,
-    direct_gate: DirectAvailabilityGate,
 ) -> bool {
     let result = {
         let state = app_state.read();
@@ -162,7 +146,6 @@ fn launch_availability_or_error(
                     .iter()
                     .find(|observation| observation.type_id() == &request.type_id),
                 &request.type_id,
-                direct_gate,
             )
         }
     };
@@ -219,37 +202,24 @@ pub(super) fn validate_launch_or_error(
     }
 }
 
-fn launch_availability_result(observation: &AgentAvailabilityObservation) -> Result<(), String> {
-    match observation.availability() {
-        Availability::InstalledCompatible { .. } => Ok(()),
-        Availability::InstalledIncompatible { reason, .. }
-        | Availability::ProbeError { reason, .. } => Err(reason.clone()),
-        Availability::NotFound
-            if observation.pending_generation().is_some()
-                && observation
-                    .candidate_resolution()
-                    .is_some_and(jefe::agent_candidate::CandidateResolution::is_resolved) =>
-        {
-            Ok(())
-        }
-        Availability::NotFound => Err(format!(
-            "{} is not installed on the local PATH",
-            observation.display_name()
-        )),
-    }
-}
-
+/// Admission for a direct (non-package, non-remote) selector.
+///
+/// The startup observation describes the system as it was when jefe started.
+/// A runtime installed or upgraded afterwards does not update it, so a verdict
+/// derived from it can only be stale. The authoritative probe belongs to launch
+/// preparation (issue #553), which resolves and probes from a current snapshot
+/// (issue #575) and fails closed with a typed diagnostic, so admission asks
+/// only whether the agent type is known.
+///
+/// A missing observation is not staleness — it means the type is not in the
+/// published registry at all — so it remains rejected.
 fn direct_availability_result(
     observation: Option<&AgentAvailabilityObservation>,
     type_id: &AgentTypeId,
-    gate: DirectAvailabilityGate,
 ) -> Result<(), String> {
-    let observation =
-        observation.ok_or_else(|| format!("no state-owned availability for {type_id}"))?;
-    match gate {
-        DirectAvailabilityGate::Cached => launch_availability_result(observation),
-        DirectAvailabilityGate::RefreshCurrent => Ok(()),
-    }
+    observation
+        .map(|_| ())
+        .ok_or_else(|| format!("no state-owned availability for {type_id}"))
 }
 
 fn has_package_selector(request: &AgentLaunchRequest) -> bool {
@@ -279,6 +249,7 @@ pub(super) fn require_local_kind_available_for_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jefe::domain::agent_definition::Availability;
     use jefe::domain::{AgentTypeId, RemoteRepositorySettings};
 
     /// A pinned package-runner selector does not require a global snapshot of
@@ -326,46 +297,50 @@ mod tests {
         }
     }
 
+    /// Every direct-selector launch action admits identically.
+    ///
+    /// A startup observation records what the system looked like when jefe
+    /// started. Installing or upgrading a runtime afterwards does not update
+    /// it, so any verdict derived from it is stale. Launch preparation already
+    /// resolves and probes from a current snapshot and fails closed, so
+    /// admission asks only whether the agent type is known — and it must give
+    /// the same answer for creating an agent, relaunching, Ctrl-r and sending
+    /// (issue #587).
     #[test]
-    fn refresh_current_bypasses_stale_cached_failure_but_requires_observation() {
+    fn every_direct_launch_action_admits_on_the_same_evidence() {
         let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
             .into_iter()
             .find(|definition| definition.id.as_str() == "core.llxprt")
             .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
-        let observation = AgentAvailabilityObservation::new(
-            &definition,
-            true,
+
+        // Each of these is a startup verdict that a later install or upgrade
+        // would invalidate.
+        let stale_verdicts = [
             Availability::ProbeError {
                 code: jefe::domain::agent_definition::ProbeErrorCode::Agte202,
                 reason: "stale startup probe failure".to_owned(),
                 generation: 7,
             },
-        );
+            Availability::InstalledIncompatible {
+                reason: "stale startup incompatibility".to_owned(),
+                generation: 7,
+            },
+            Availability::NotFound,
+        ];
 
-        assert!(
-            direct_availability_result(
-                Some(&observation),
-                &definition.id,
-                DirectAvailabilityGate::Cached,
-            )
-            .is_err()
-        );
-        assert!(
-            direct_availability_result(
-                Some(&observation),
-                &definition.id,
-                DirectAvailabilityGate::RefreshCurrent,
-            )
-            .is_ok()
-        );
-        assert!(
-            direct_availability_result(
-                None,
-                &definition.id,
-                DirectAvailabilityGate::RefreshCurrent,
-            )
-            .is_err()
-        );
+        for availability in stale_verdicts {
+            let observation =
+                AgentAvailabilityObservation::new(&definition, true, availability.clone());
+            assert!(
+                direct_availability_result(Some(&observation), &definition.id).is_ok(),
+                "a startup verdict of {availability:?} must not outlive the startup that \
+                 produced it; launch preparation owns the authoritative probe"
+            );
+        }
+
+        // An unknown agent type is still rejected: that is not staleness, it is
+        // an absent definition.
+        assert!(direct_availability_result(None, &definition.id).is_err());
     }
 
     fn valid_remote() -> RemoteRepositorySettings {
@@ -375,64 +350,6 @@ mod tests {
             host: "build.example.com".to_owned(),
             ..Default::default()
         }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn pending_resolved_candidate_can_continue_to_authoritative_launch_probe() {
-        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
-            .into_iter()
-            .find(|definition| definition.id.as_str() == "core.llxprt")
-            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
-        let temp = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must be created: {error}"));
-        let wrapper = temp.path().join("llxprt.cmd");
-        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
-            .unwrap_or_else(|error| panic!("wrapper fixture must be written: {error}"));
-        let path = PathSnapshot::for_platform(
-            jefe::runtime::AgentExecutablePlatform::current(),
-            vec![temp.path().to_path_buf()],
-            std::env::var_os("PATHEXT"),
-        );
-        let resolution =
-            AgentCandidateResolver::new(&path, temp.path().to_path_buf()).resolve(&definition);
-        assert!(resolution.is_resolved(), "wrapper fixture must resolve");
-        let observation = AgentAvailabilityObservation::pending(&definition, true, 1, resolution);
-
-        assert!(
-            launch_availability_result(&observation).is_ok(),
-            "a pending observation is checking a resolved startup candidate; launch preparation owns the authoritative probe"
-        );
-    }
-
-    #[test]
-    fn final_not_found_candidate_remains_rejected() {
-        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
-            .into_iter()
-            .find(|definition| definition.id.as_str() == "core.llxprt")
-            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
-        let observation = AgentAvailabilityObservation::not_found(&definition, true, 1);
-
-        match launch_availability_result(&observation) {
-            Ok(()) => panic!("final NotFound must remain fail-closed"),
-            Err(error) => assert!(error.contains("local PATH")),
-        }
-    }
-
-    #[test]
-    fn malformed_pending_not_found_evidence_remains_rejected() {
-        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
-            .into_iter()
-            .find(|definition| definition.id.as_str() == "core.llxprt")
-            .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
-        let observation = AgentAvailabilityObservation::pending(
-            &definition,
-            true,
-            1,
-            jefe::agent_candidate::CandidateResolution::NotFound(Vec::new()),
-        );
-
-        assert!(launch_availability_result(&observation).is_err());
     }
 
     #[cfg(unix)]
