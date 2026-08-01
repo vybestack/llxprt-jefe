@@ -119,8 +119,9 @@ fn jefe_terminal_override() -> Option<String> {
 ///
 /// Resolution order:
 /// 1. `JEFE_TERMINAL` environment variable (user override).
-/// 2. Platform-specific discovered emulator.
-/// 3. `NoTerminalFound` error.
+/// 2. Auto-detect the emulator jefe is running inside (`TERM_PROGRAM` etc.).
+/// 3. Platform-specific discovered/default emulator.
+/// 4. `NoTerminalFound` error.
 ///
 /// The work directory is validated to exist before the plan is built so callers
 /// can surface an actionable warning without spawning.
@@ -138,10 +139,64 @@ pub fn build_external_terminal_plan(
         return Ok(plan_from_override(&override_prog, work_dir, platform));
     }
 
+    // Auto-detect the terminal jefe is running inside, so a user in iTerm2 or
+    // WezTerm gets that emulator rather than the platform default (#549).
+    if let Some(detected) = detect_emulator_from_env() {
+        if let Some(plan) = plan_from_detected(&detected, work_dir, platform) {
+            return Ok(plan);
+        }
+    }
+
     match platform {
         DesktopPlatform::Macos => Ok(plan_macos(work_dir)),
         DesktopPlatform::Linux => plan_linux(work_dir),
         DesktopPlatform::Windows => Ok(plan_windows(work_dir)),
+    }
+}
+
+/// Detect the terminal emulator jefe is running inside, from its own process
+/// environment. Reads `TERM_PROGRAM` (set by iTerm2, Apple Terminal, WezTerm,
+/// VS Code, …) and falls back to macOS' `__CFBundleIdentifier` bundle id.
+fn detect_emulator_from_env() -> Option<String> {
+    std::env::var("TERM_PROGRAM")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("__CFBundleIdentifier")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve a detected emulator identifier into a structural launch plan.
+///
+/// Returns `None` for unrecognized identifiers so the caller falls back to the
+/// platform default rather than guessing. Pure: no env reads, no I/O.
+fn plan_from_detected(
+    detected: &str,
+    work_dir: &Path,
+    platform: DesktopPlatform,
+) -> Option<ExternalTerminalPlan> {
+    match platform {
+        DesktopPlatform::Macos => {
+            macos_app_for_emulator(detected).map(|app| plan_macos_open(work_dir, app))
+        }
+        DesktopPlatform::Linux => linux_plan_for_emulator(detected, work_dir),
+        // Windows Terminal is already the `plan_windows` default, so a detected
+        // identifier never overrides it.
+        DesktopPlatform::Windows => None,
+    }
+}
+
+/// Map a detected macOS terminal identifier (`TERM_PROGRAM` value or
+/// `__CFBundleIdentifier` bundle id) to the app name `open -a` expects.
+#[must_use]
+fn macos_app_for_emulator(detected: &str) -> Option<&'static str> {
+    match detected {
+        "iTerm.app" | "com.googlecode.iterm2" => Some("iTerm"),
+        "Apple_Terminal" | "com.apple.Terminal" => Some("Terminal"),
+        "WezTerm" | "com.github.wez.wezterm" => Some("WezTerm"),
+        _ => None,
     }
 }
 
@@ -167,11 +222,17 @@ fn plan_from_override(
 
 /// macOS default: Terminal.app via `open`.
 fn plan_macos(work_dir: &Path) -> ExternalTerminalPlan {
+    plan_macos_open(work_dir, "Terminal")
+}
+
+/// macOS: open a named app (`open -a <app> <workdir>`) in the work directory.
+/// Used both for the default and for a detected/override app name (#549).
+fn plan_macos_open(work_dir: &Path, app: &str) -> ExternalTerminalPlan {
     ExternalTerminalPlan {
         program: "open".to_owned(),
         args: vec![
             "-a".to_owned(),
-            "Terminal".to_owned(),
+            app.to_owned(),
             work_dir.to_string_lossy().into_owned(),
         ],
         work_dir: work_dir.to_path_buf(),
@@ -200,6 +261,25 @@ fn plan_linux(work_dir: &Path) -> Result<ExternalTerminalPlan, ExternalTerminalE
     }
 
     Err(ExternalTerminalError::NoTerminalFound)
+}
+
+/// Build a structural plan for a known Linux emulator detected from the
+/// environment (`TERM_PROGRAM`). Returns `None` for unrecognized emulators so
+/// the caller falls back to PATH discovery. Pure: no env reads, no I/O.
+fn linux_plan_for_emulator(detected: &str, work_dir: &Path) -> Option<ExternalTerminalPlan> {
+    let program = match detected {
+        "WezTerm" => "wezterm",
+        _ => return None,
+    };
+    Some(ExternalTerminalPlan {
+        program: program.to_owned(),
+        args: vec![
+            "start".to_owned(),
+            "--cwd".to_owned(),
+            work_dir.to_string_lossy().into_owned(),
+        ],
+        work_dir: work_dir.to_path_buf(),
+    })
 }
 
 fn linux_gnome_args(work_dir: &Path) -> Vec<String> {

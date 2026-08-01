@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 use crate::agent_candidate::{CandidateGenerationKey, CandidateResolution, ResolvedCandidate};
 use crate::agent_candidate_fingerprint::CandidateFingerprint;
 use crate::agent_candidate_path::AgentWrapperKind;
-use crate::domain::agent_definition::limits::{LOCAL_PROBE_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS};
+use crate::domain::agent_definition::limits::{
+    LOCAL_PROBE_TIMEOUT_MS, PACKAGE_MATERIALIZATION_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS,
+};
 use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
 use crate::domain::agent_definition::{
     AgentDefinition, Availability, DefinitionSha256, ProbeErrorCode,
@@ -35,6 +37,14 @@ const MAX_LOADER_TRANSIENT_RETRIES: u32 = 3;
 
 /// Backoff between loader-transient retries.
 const LOADER_TRANSIENT_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Budget for the one probe process that also materializes a package.
+const PACKAGE_MATERIALIZATION_TIMEOUT: Duration =
+    Duration::from_millis(PACKAGE_MATERIALIZATION_TIMEOUT_MS);
+
+/// Deadline used when a phase budget is too large to represent as an `Instant`.
+/// Every real budget is a bounded constant, so this only guards the arithmetic.
+const UNBOUNDED_PHASE_BUDGET: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Whether an exit status is a retryable Windows loader transient.
 fn is_retryable_loader_transient(status: std::process::ExitStatus) -> bool {
@@ -165,6 +175,74 @@ pub fn run_local_agent_probe_with_cache(
     }
 }
 
+/// What one probe phase executes: the resolved candidate and, when the agent is
+/// reached through a package runner, the prepared package invocation.
+struct ProbeTarget<'a> {
+    candidate: &'a ResolvedCandidate,
+    invocation: Option<&'a super::package_runtime::PackageInvocation>,
+}
+
+impl ProbeTarget<'_> {
+    /// The program every phase of this probe actually runs.
+    fn executable(&self) -> &Path {
+        self.invocation.map_or_else(
+            || self.candidate.executable(),
+            super::package_runtime::PackageInvocation::executable,
+        )
+    }
+
+    /// Whether the agent is reached through a package runner that materializes
+    /// the package as part of executing it.
+    fn is_runner_mediated(&self) -> bool {
+        self.invocation
+            .is_some_and(|invocation| !invocation.prefix().is_empty())
+    }
+}
+
+/// One bounded probe phase, carrying everything a failure must name.
+struct ProbePhase<'a> {
+    name: &'static str,
+    executable: &'a Path,
+    budget: Duration,
+    started: Instant,
+}
+
+impl<'a> ProbePhase<'a> {
+    fn start(name: &'static str, executable: &'a Path, budget: Duration) -> Self {
+        Self {
+            name,
+            executable,
+            budget,
+            started: Instant::now(),
+        }
+    }
+
+    /// Deadline for this phase.
+    ///
+    /// Every step is checked because this path may not panic. A budget too
+    /// large to represent falls forward to a bounded far-future deadline
+    /// instead of collapsing into an instant timeout. The final arm exists
+    /// only to keep the arithmetic total: it is unreachable, because
+    /// `Instant::now()` cannot be within [`UNBOUNDED_PHASE_BUDGET`] of the
+    /// representable maximum, and every real probe budget is a bounded
+    /// constant well under it.
+    fn deadline(&self) -> Instant {
+        self.started
+            .checked_add(self.budget)
+            .or_else(|| self.started.checked_add(UNBOUNDED_PHASE_BUDGET))
+            .unwrap_or(self.started)
+    }
+
+    /// Attribute a failure to this phase and the program it ran.
+    fn describe(&self, detail: &str) -> String {
+        format!(
+            "{name} probe of {executable} {detail}",
+            name = self.name,
+            executable = self.executable.display()
+        )
+    }
+}
+
 fn probe_resolved(
     definition: &AgentDefinition,
     candidate: &ResolvedCandidate,
@@ -177,51 +255,50 @@ fn probe_resolved(
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    let process_timeout = AgentProbeTarget::Local
+    let target = ProbeTarget {
+        candidate,
+        invocation,
+    };
+    let probe_budget = AgentProbeTarget::Local
         .total_timeout()
         .min(Duration::from_millis(definition.probe.timeout_ms));
-    let identity_deadline = Instant::now() + process_timeout;
-    let identity = match run_identity(definition, candidate, invocation, identity_deadline) {
+    // A runner-mediated invocation materializes its package inside the first
+    // process it runs, which is registry work rather than agent startup
+    // latency, so that phase gets the materialization budget (issue #553).
+    let identity_budget = if target.is_runner_mediated() {
+        PACKAGE_MATERIALIZATION_TIMEOUT
+    } else {
+        probe_budget
+    };
+    let identity_phase = ProbePhase::start("identity", target.executable(), identity_budget);
+    let identity = match run_identity(definition, &target, &identity_phase) {
         Ok(identity) => identity,
-        Err(failure) => return failure.into_availability(generation),
+        Err(failure) => return failure.into_availability(&identity_phase, generation),
     };
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    let capability_deadline = Instant::now() + process_timeout;
-    run_capabilities(
-        definition,
-        candidate,
-        invocation,
-        identity,
-        capability_deadline,
-        generation,
-    )
+    // Materialization is complete once identity has run, so every later phase
+    // is bounded by the ordinary probe budget.
+    let capability_phase = ProbePhase::start("capability", target.executable(), probe_budget);
+    run_capabilities(definition, &target, identity, &capability_phase, generation)
 }
 
 fn run_identity(
     definition: &AgentDefinition,
-    candidate: &ResolvedCandidate,
-    invocation: Option<&super::package_runtime::PackageInvocation>,
-    deadline: Instant,
+    target: &ProbeTarget<'_>,
+    phase: &ProbePhase<'_>,
 ) -> Result<String, ProbeFailure> {
-    let output = execute_probe(
-        candidate,
-        invocation,
-        &definition.probe.argv,
-        deadline,
-        "identity",
-    )?;
+    let output = execute_probe(target, &definition.probe.argv, phase)?;
     let selected = select_stream(&output, definition.probe.stream)?;
     parse_identity(&selected, &definition.probe).map_err(ProbeFailure::Evidence)
 }
 
 fn run_capabilities(
     definition: &AgentDefinition,
-    candidate: &ResolvedCandidate,
-    invocation: Option<&super::package_runtime::PackageInvocation>,
+    target: &ProbeTarget<'_>,
     identity: String,
-    deadline: Instant,
+    phase: &ProbePhase<'_>,
     generation: u64,
 ) -> Availability {
     let Some(probe) = &definition.probe.capabilities else {
@@ -233,17 +310,16 @@ fn run_capabilities(
     // release supports all authored arguments.
     if probe.trusted {
         let capabilities = probe.authored_capability_ids();
-        if fingerprint_changed(candidate) {
+        if fingerprint_changed(target.candidate) {
             return stale_error(generation);
         }
         return compatible(identity, capabilities, generation);
     }
-    let evaluation =
-        match execute_capability_probe(definition, candidate, invocation, probe, deadline) {
-            Ok(evaluation) => evaluation,
-            Err(failure) => return failure.into_availability(generation),
-        };
-    if fingerprint_changed(candidate) {
+    let evaluation = match execute_capability_probe(definition, target, probe, phase) {
+        Ok(evaluation) => evaluation,
+        Err(failure) => return failure.into_availability(phase, generation),
+    };
+    if fingerprint_changed(target.candidate) {
         return stale_error(generation);
     }
     if let Some(missing) = evaluation.missing_required.first() {
@@ -257,12 +333,11 @@ fn run_capabilities(
 
 fn execute_capability_probe(
     definition: &AgentDefinition,
-    candidate: &ResolvedCandidate,
-    invocation: Option<&super::package_runtime::PackageInvocation>,
+    target: &ProbeTarget<'_>,
     probe: &CapabilityProbe,
-    deadline: Instant,
+    phase: &ProbePhase<'_>,
 ) -> Result<crate::domain::agent_definition::CapabilityEvaluation, ProbeFailure> {
-    let output = execute_probe(candidate, invocation, &probe.argv, deadline, "capability")?;
+    let output = execute_probe(target, &probe.argv, phase)?;
     let selected = select_stream(&output, probe.stream)?;
     parse_capabilities(
         &selected,
@@ -274,17 +349,16 @@ fn execute_capability_probe(
 }
 
 fn execute_probe(
-    candidate: &ResolvedCandidate,
-    invocation: Option<&super::package_runtime::PackageInvocation>,
+    target: &ProbeTarget<'_>,
     argv: &[String],
-    deadline: Instant,
-    phase: &str,
+    phase: &ProbePhase<'_>,
 ) -> Result<ProbeProcessOutput, ProbeFailure> {
+    let deadline = phase.deadline();
     if Instant::now() >= deadline {
         return Err(ProbeFailure::Timeout);
     }
     let arguments: Vec<OsString> = argv.iter().map(OsString::from).collect();
-    let build_command = || match invocation {
+    let build_command = || match target.invocation {
         Some(invocation) => {
             let mut package_arguments = invocation.prefix().to_vec();
             package_arguments.extend(arguments.iter().cloned());
@@ -294,10 +368,10 @@ fn execute_probe(
                 &package_arguments,
             )
         }
-        None => command_for_candidate(candidate, &arguments),
+        None => command_for_candidate(target.candidate, &arguments),
     };
     let output = run_probe_with_loader_retry(&build_command, deadline)?;
-    validate_process_output(output, phase)
+    validate_process_output(output)
 }
 
 /// Run a probe command, retrying on Windows loader transients.
@@ -326,7 +400,7 @@ fn run_probe_with_loader_retry(
                     "agent probe hit Windows loader transient (STATUS_DLL_INIT_FAILED); retrying"
                 );
                 last_error = Some(ProbeFailure::Failed(format!(
-                    "{output_status} probe exited with loader transient status",
+                    "exited with a loader transient status: {output_status}",
                     output_status = output.status
                 )));
             }
@@ -336,14 +410,12 @@ fn run_probe_with_loader_retry(
             std::thread::sleep(LOADER_TRANSIENT_BACKOFF);
         }
     }
-    Err(last_error
-        .unwrap_or_else(|| ProbeFailure::Failed("loader transient retries exhausted".to_string())))
+    Err(last_error.unwrap_or_else(|| {
+        ProbeFailure::Failed("exhausted its loader transient retries".to_string())
+    }))
 }
 
-fn validate_process_output(
-    output: ProbeProcessOutput,
-    phase: &str,
-) -> Result<ProbeProcessOutput, ProbeFailure> {
+fn validate_process_output(output: ProbeProcessOutput) -> Result<ProbeProcessOutput, ProbeFailure> {
     if output.stdout.truncated || output.stderr.truncated {
         return Err(ProbeFailure::Truncated);
     }
@@ -351,8 +423,8 @@ fn validate_process_output(
         return Ok(output);
     }
     let detail = output.status.code().map_or_else(
-        || format!("{phase} probe terminated by signal"),
-        |code| format!("{phase} probe exited with status {code}"),
+        || "terminated by signal".to_string(),
+        |code| format!("exited with status {code}"),
     );
     Err(ProbeFailure::Failed(detail))
 }
@@ -493,26 +565,33 @@ enum ProbeFailure {
 }
 
 impl ProbeFailure {
-    fn into_availability(self, generation: u64) -> Availability {
-        let reason = match self {
-            Self::Timeout | Self::Process(ProbeProcessError::Timeout) => {
-                "probe timed out".to_string()
+    /// Render this failure as an AGT-E202 whose reason names the phase, the
+    /// executable that ran, and — for a timeout — the elapsed time and the
+    /// budget it exceeded, so a field report is attributable (issue #553).
+    fn into_availability(self, phase: &ProbePhase<'_>, generation: u64) -> Availability {
+        let detail = match self {
+            Self::Timeout | Self::Process(ProbeProcessError::Timeout) => format!(
+                "timed out after {elapsed} ms (budget {budget} ms)",
+                elapsed = phase.started.elapsed().as_millis(),
+                budget = phase.budget.as_millis()
+            ),
+            Self::Truncated => "produced a truncated stream".to_string(),
+            Self::Failed(detail) => detail,
+            Self::Process(ProbeProcessError::Failed(detail)) => format!("failed: {detail}"),
+            Self::Evidence(ProbeEvidenceError::Bounds(detail)) => {
+                format!("exceeded its bounds: {detail}")
             }
-            Self::Truncated => "probe stream was truncated".to_string(),
-            Self::Process(ProbeProcessError::Failed(detail))
-            | Self::Failed(detail)
-            | Self::Evidence(ProbeEvidenceError::Bounds(detail)) => detail,
             Self::Evidence(ProbeEvidenceError::InvalidUtf8) => {
-                "probe stream is not valid UTF-8".to_string()
+                "produced a stream that is not valid UTF-8".to_string()
             }
             Self::Evidence(ProbeEvidenceError::MalformedFraming) => {
-                "probe has malformed framing".to_string()
+                "produced malformed framing".to_string()
             }
             Self::Evidence(ProbeEvidenceError::IdentityMismatch) => {
-                "probe identity mismatch".to_string()
+                "reported an unrecognized identity".to_string()
             }
         };
-        probe_error(ProbeErrorCode::Agte202, reason, generation)
+        probe_error(ProbeErrorCode::Agte202, phase.describe(&detail), generation)
     }
 }
 
@@ -559,6 +638,25 @@ mod tests {
             process_timeout.saturating_mul(2),
             std::time::Duration::from_secs(20),
             "identity and capability each receive one bounded process timeout"
+        );
+    }
+
+    /// A runner-mediated probe pays materialization once, in identity, so its
+    /// combined ceiling is that budget plus one ordinary probe budget. It is
+    /// larger than a direct probe's ceiling by design, and still finite.
+    #[test]
+    fn runner_mediated_probe_has_a_finite_combined_ceiling() {
+        let probe_budget = super::AgentProbeTarget::Local.total_timeout();
+        assert_eq!(
+            super::PACKAGE_MATERIALIZATION_TIMEOUT,
+            std::time::Duration::from_secs(300),
+            "materialization budget is a pinned contract value"
+        );
+        let combined = super::PACKAGE_MATERIALIZATION_TIMEOUT.saturating_add(probe_budget);
+        assert_eq!(combined, std::time::Duration::from_secs(310));
+        assert!(
+            combined > probe_budget.saturating_mul(2),
+            "materialization is deliberately not charged to the probe budget"
         );
     }
 

@@ -26,11 +26,24 @@ pub const PROBE_STREAM_LIMIT: usize = 65_536;
 /// Local probe timeout per child process (milliseconds).
 ///
 /// A definition probe may run identity and capability commands sequentially.
-/// Each process receives this independently authored bound, so a two-process
-/// probe has an explicit finite combined ceiling of twice this value.
+/// Each process receives this independently authored bound, so a directly
+/// resolved two-process probe has an explicit finite combined ceiling of twice
+/// this value. When the agent is reached through a package runner, the identity
+/// process also materializes the package and is bounded by
+/// [`PACKAGE_MATERIALIZATION_TIMEOUT_MS`] instead, so that probe's combined
+/// ceiling is that constant plus this one (issue #553).
 pub const LOCAL_PROBE_TIMEOUT_MS: u64 = 10_000;
 /// Remote probe timeout (milliseconds).
 pub const REMOTE_PROBE_TIMEOUT_MS: u64 = 20_000;
+/// Maximum duration for one package-runner materialization (milliseconds).
+///
+/// Installing or resolving a package is registry and network work, not agent
+/// startup latency, so it is budgeted separately from the probe timeouts above.
+/// A managed npm install pays this budget before any probe deadline exists; a
+/// runner-mediated invocation such as `uvx --from <spec> <binary>` pays it
+/// inside its first probe process, which is why that phase is bounded by this
+/// constant rather than by the authored probe timeout (issue #553).
+pub const PACKAGE_MATERIALIZATION_TIMEOUT_MS: u64 = 300_000;
 /// Maximum artifact bytes.
 pub const ARTIFACT_LIMIT: usize = 1_048_576;
 /// Maximum JSON data depth.

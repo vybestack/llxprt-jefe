@@ -177,14 +177,19 @@ pub(super) fn launch_state_evidence(
     )
 }
 
-pub(super) fn prepare_launch_or_error(
+/// Reject an unlaunchable request before any prep side effect, without probing.
+///
+/// The authoritative probe belongs to `prepare_launch` at spawn time; running
+/// it again here made one send execute the agent two or three times and
+/// multiplied the exposure to a transient probe timeout (issue #553).
+pub(super) fn validate_launch_or_error(
     app_state: &mut AppStateHandle,
     request: &AgentLaunchRequest,
 ) -> bool {
-    let prepared = launch_state_evidence(app_state, request)
-        .and_then(|evidence| jefe::runtime::launch_compose::prepare_launch(request, &evidence));
-    match prepared {
-        Ok(_) => true,
+    let validated = launch_state_evidence(app_state, request)
+        .and_then(|_| jefe::runtime::launch_compose::validate_launch(request));
+    match validated {
+        Ok(()) => true,
         Err(error) => {
             app_state.write().error_message = Some(error.to_string());
             false

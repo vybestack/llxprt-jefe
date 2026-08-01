@@ -41,10 +41,13 @@ fn plan_accepts_valid_work_dir() {
 // ── A9: macOS structural plan ─────────────────────────────────────────────
 
 #[test]
-fn macos_plan_uses_open_terminal_app() {
+fn macos_default_plan_uses_open_terminal_app() {
+    // Test the pure default plan directly. The full `build_external_terminal_plan`
+    // resolver now honors a detected emulator from the environment (#549), so
+    // exercising the default path here keeps the assertion deterministic
+    // regardless of which terminal runs `cargo test`.
     let dir = tmp_work_dir();
-    let plan = build_external_terminal_plan(&dir, DesktopPlatform::Macos)
-        .unwrap_or_else(|e| panic!("macos plan: {e}"));
+    let plan = super::plan_macos(&dir);
     assert_eq!(plan.program, "open");
     assert!(plan.args.contains(&"-a".to_owned()));
     assert!(plan.args.contains(&"Terminal".to_owned()));
@@ -107,6 +110,122 @@ fn windows_wt_plan_uses_separate_argv() {
         let has_d_flag = plan.args.iter().any(|arg| arg == "-d");
         assert!(has_d_flag, "wt.exe plan must have -d as separate arg");
     }
+}
+
+// ── Terminal detection mappings (issue #549) ──────────────────────────────
+
+#[test]
+fn macos_maps_iterm_term_program_to_iterm_app() {
+    assert_eq!(super::macos_app_for_emulator("iTerm.app"), Some("iTerm"));
+}
+
+#[test]
+fn macos_maps_iterm_bundle_id_to_iterm_app() {
+    assert_eq!(
+        super::macos_app_for_emulator("com.googlecode.iterm2"),
+        Some("iTerm")
+    );
+}
+
+#[test]
+fn macos_maps_apple_terminal_to_terminal_app() {
+    assert_eq!(
+        super::macos_app_for_emulator("Apple_Terminal"),
+        Some("Terminal")
+    );
+    assert_eq!(
+        super::macos_app_for_emulator("com.apple.Terminal"),
+        Some("Terminal")
+    );
+}
+
+#[test]
+fn macos_maps_wezterm_to_wezterm_app() {
+    assert_eq!(super::macos_app_for_emulator("WezTerm"), Some("WezTerm"));
+}
+
+#[test]
+fn macos_maps_wezterm_bundle_id_to_wezterm_app() {
+    // __CFBundleIdentifier fallback when TERM_PROGRAM is unset (#549 review).
+    assert_eq!(
+        super::macos_app_for_emulator("com.github.wez.wezterm"),
+        Some("WezTerm")
+    );
+}
+
+#[test]
+fn macos_unknown_emulator_maps_to_none() {
+    assert_eq!(super::macos_app_for_emulator("MysteryTerm"), None);
+    assert_eq!(super::macos_app_for_emulator(""), None);
+}
+
+#[test]
+fn plan_macos_open_is_structural_argv_for_named_app() {
+    let dir = tmp_work_dir();
+    let plan = super::plan_macos_open(&dir, "iTerm");
+    assert_eq!(plan.program, "open");
+    assert_eq!(
+        plan.args,
+        vec![
+            "-a".to_owned(),
+            "iTerm".to_owned(),
+            dir.to_string_lossy().to_string()
+        ]
+    );
+    for arg in &plan.args {
+        assert!(!arg.contains("&&"), "dangerous shell operator in: {arg}");
+        assert!(!arg.contains(';'), "dangerous separator in: {arg}");
+        assert!(!arg.starts_with("cd "), "shell cd command in: {arg}");
+    }
+}
+
+#[test]
+fn plan_from_detected_macos_iterm_produces_open_a_iterm() {
+    let dir = tmp_work_dir();
+    let Some(plan) = super::plan_from_detected("iTerm.app", &dir, DesktopPlatform::Macos) else {
+        panic!("iTerm.app must resolve to a plan");
+    };
+    assert_eq!(plan.program, "open");
+    assert!(plan.args.contains(&"iTerm".to_owned()));
+    assert_eq!(plan.work_dir, dir);
+}
+
+#[test]
+fn plan_from_detected_macos_unknown_falls_back_to_none() {
+    let dir = tmp_work_dir();
+    assert!(super::plan_from_detected("MysteryTerm", &dir, DesktopPlatform::Macos).is_none());
+}
+
+#[test]
+fn linux_maps_wezterm_emulator_to_wezterm_plan() {
+    let dir = tmp_work_dir();
+    let Some(plan) = super::linux_plan_for_emulator("WezTerm", &dir) else {
+        panic!("WezTerm must resolve to a plan");
+    };
+    assert_eq!(plan.program, "wezterm");
+    assert_eq!(
+        plan.args,
+        vec![
+            "start".to_owned(),
+            "--cwd".to_owned(),
+            dir.to_string_lossy().to_string()
+        ]
+    );
+    assert_eq!(plan.work_dir, dir);
+}
+
+#[test]
+fn linux_unknown_emulator_maps_to_none() {
+    let dir = tmp_work_dir();
+    assert!(super::linux_plan_for_emulator("MysteryTerm", &dir).is_none());
+}
+
+#[test]
+fn plan_from_detected_windows_is_none_so_default_wins() {
+    let dir = tmp_work_dir();
+    assert!(
+        super::plan_from_detected("Windows Terminal", &dir, DesktopPlatform::Windows).is_none()
+    );
 }
 
 // ── JEFE_TERMINAL override (structural) ───────────────────────────────────

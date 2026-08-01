@@ -410,6 +410,21 @@ fn version_selector_blank_for_empty_string() {
 }
 
 #[test]
+fn version_selector_volatile_for_moving_sentinels_only() {
+    // Issue #554: only the moving dist-tag sentinels are volatile; an explicit
+    // version is an immutable pin even if its name contains "nightly".
+    assert!(VersionSelector::Latest.is_volatile());
+    assert!(VersionSelector::LatestNightly.is_volatile());
+    assert!(!VersionSelector::Direct.is_volatile());
+    assert!(
+        !VersionSelector::normalize("0.10.0-nightly.260720.abc")
+            .unwrap_or_else(|error| panic!("explicit selector: {error}"))
+            .is_volatile(),
+        "an explicit nightly version string is pinned, not volatile"
+    );
+}
+
+#[test]
 fn version_selector_rejects_nul_byte() {
     let Err(err) = VersionSelector::normalize("a\u{0}b") else {
         panic!("NUL rejected");
