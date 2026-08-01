@@ -374,34 +374,54 @@ in it. The legacy mapping remains the one-way translation for any value that doe
 arrive carrying the old vocabulary, and anything unrecognised falls back rather
 than becoming a second supported encoding.
 
-### Remaining work: S4 and S5, the consumer cutover
+### Geometry parity, and the two rules it forced (commit `d522d789`)
 
-`resolved_layout` is produced, validated, and carried on `AppState`, but the
-geometry consumers still read the legacy mirror arithmetic in `src/layout.rs`.
-Moving them is the remaining slice, and it is not mechanical, for one specific
-reason found while checking parity:
+Comparing the resolver against the mirror arithmetic the PTY path still uses
+found two defects in the descriptors and the algorithm:
 
-**The specified algorithm and the shipped geometry do not agree on where minima
-apply.** The issue's algorithm assigns weighted children their minima *first* and
-shares only what is left. Taffy distributes by weight across the whole span and
-then clamps. On the dashboard at 120x40 the shipped split is 10 agent rows over
-28 terminal rows; the descriptor as written yields 12 over 26, because 9 rows of
-minima are taken off the top before the 1:3 weighting applies.
+1. **Weighted panes must not reserve a minimum.** A minimum is charged before
+   weights apply, so a comfortable-looking one skews the share a pane receives —
+   the dashboard's quarter/three-quarter split came out 12/26 instead of 10/28
+   because nine rows were taken off the top first. The shipped screens reserve
+   nothing for flexible panes, so the descriptors no longer do either, and a
+   test rejects a minimum on a weighted child.
+2. **Leftover cells go to the largest unmet claim, not the first child.** Plain
+   declaration order biases every split toward its head: a three-to-seven split
+   of 38 rows gave the small pane 12 rows instead of 11, and the error recurs at
+   every size where the division is inexact. Ties still fall back to declaration
+   order, so the result stays deterministic.
 
-Both rules are defensible, but only one can be parity. Resolving it is the first
-step of S4 and the options are:
+With both fixed, the dashboard resolves to the same PTY viewport dimensions and
+origin as the shipped helper across every size tested.
 
-- declare `min: 0` on panes the shipped layout does not reserve minima for, which
-  reproduces taffy exactly (`floor(38/4) = 9`, `floor(38*3/4) = 28`, remainder to
-  the first child gives 10 and 28) and leans on the degenerate-panel hide for
-  safety; or
-- change the allocation rule to weight-first-then-clamp, which matches flexbox and
-  keeps minima meaningful, at the cost of departing from the issue's stated
-  algorithm.
+Two differences remain and are deliberate, each asserted by name:
 
-Until that is settled, migrating a consumer would change real pane sizes and PTY
-dimensions. The snapshot is additive and provably correct today; the consumers
-move once the rule is chosen, with per-screen goldens as the evidence.
+- a pane whose border and title consume all its rows is hidden rather than drawn
+  as an empty husk;
+- a terminal with no content columns reports too-small instead of fabricating a
+  two-column viewport with `.max(2)`.
+
+Both are the scattered guards this issue exists to remove.
+
+### S4 started: the terminal pane reads the snapshot (commit `f0c…`)
+
+The PTY pane's dimensions now come from `pty_content_rect`, so the `.max(1)` at
+that call site is gone rather than relocated. The embedded shell overlay keeps
+its own geometry: it replaces the workspace wholesale and no descriptor models
+it, which is an explicit non-goal.
+
+### Remaining work
+
+- **S4 (rest):** `src/mouse_routing.rs`, `src/selection/geometry.rs`,
+  `src/selection/layout_descriptor.rs`, `src/detail_wrap_map.rs`, and
+  `src/ui/components/terminal_view.rs` still derive their own rectangles. Each
+  needs a `PanelId` to `SelectablePane` mapping and per-screen parity goldens
+  like the ones now in `src/screen_layout_parity_tests.rs`.
+- **S5:** the five renderers still declare their own flexbox proportions rather
+  than reading the snapshot, and the superseded helpers in `src/layout.rs`
+  (`compute_pty_layout`, `dashboard_middle_row_heights_inner`,
+  `split_layout_for_render_size`, `issues_pane_rows`, `prs_pane_rows`) are
+  deleted only once nothing reads them.
 
 ## 7. Scope ledger
 
