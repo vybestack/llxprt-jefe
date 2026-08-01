@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use super::{Id, TypedMap};
+use super::{Id, PaneProcessIdentity, TypedMap, WorkerProcessIdentity};
 
 /// Current durable state schema version.
 pub const STATE_SCHEMA_V2: u64 = 2;
@@ -179,6 +179,19 @@ pub struct RuntimeRecord {
     pub session_id: Option<String>,
     pub invocation_generation: u64,
     pub last_known: LastKnownRuntime,
+    /// The pane leader observed for this session (issue #543).
+    ///
+    /// Defaulted so documents written before the roles were separated still
+    /// load; absent means "not recorded", never "same as the worker".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_identity: Option<PaneProcessIdentity>,
+    /// The agent worker observed for this session (issue #543).
+    ///
+    /// Recorded separately from the pane leader because on platforms where the
+    /// pane runs a session host they are different processes, and a restore
+    /// that inferred one from the other would reintroduce the conflation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_identity: Option<WorkerProcessIdentity>,
 }
 
 /// Last persisted runtime observation.

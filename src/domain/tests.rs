@@ -596,3 +596,48 @@ fn digests_reject_non_canonical_text_when_deserialized() {
         "a canonical digest round-trips unchanged"
     );
 }
+
+/// Both process roles survive a durable round trip in their own slots, so a
+/// restore never has to infer one identity from the other (issue #543).
+#[test]
+fn runtime_record_roundtrips_pane_and_worker_identities_separately() {
+    let record = crate::domain::state_contract::RuntimeRecord {
+        session_id: Some("jefe-agent-1".to_owned()),
+        invocation_generation: 3,
+        last_known: crate::domain::state_contract::LastKnownRuntime::Running,
+        pane_identity: Some(PaneProcessIdentity::new(1111, 7)),
+        worker_identity: Some(WorkerProcessIdentity::new(2222, 9)),
+    };
+
+    let encoded = serde_json::to_string(&record)
+        .unwrap_or_else(|error| panic!("runtime record must serialize: {error}"));
+    let decoded: crate::domain::state_contract::RuntimeRecord = serde_json::from_str(&encoded)
+        .unwrap_or_else(|error| panic!("runtime record must deserialize: {error}"));
+
+    assert_eq!(
+        decoded.pane_identity,
+        Some(PaneProcessIdentity::new(1111, 7))
+    );
+    assert_eq!(
+        decoded.worker_identity,
+        Some(WorkerProcessIdentity::new(2222, 9)),
+        "the worker must come back as the worker, not as the pane leader"
+    );
+}
+
+/// A document written before the roles were separated still loads, and leaves
+/// both identities unrecorded rather than inventing one (issue #543).
+#[test]
+fn a_runtime_record_without_identities_loads_with_both_roles_absent() {
+    let legacy =
+        r#"{"session_id":"jefe-agent-1","invocation_generation":2,"last_known":"running"}"#;
+
+    let decoded: crate::domain::state_contract::RuntimeRecord = serde_json::from_str(legacy)
+        .unwrap_or_else(|error| panic!("a pre-split document must still load: {error}"));
+
+    assert_eq!(decoded.pane_identity, None);
+    assert_eq!(
+        decoded.worker_identity, None,
+        "an unrecorded worker must stay unknown, not be filled in from the pane"
+    );
+}
