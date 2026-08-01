@@ -19,9 +19,12 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::collections::HashSet;
 
 use tracing::debug;
 #[cfg(windows)]
+use tracing::info;
 use tracing::warn;
 
 use crate::app_input::{
@@ -30,6 +33,8 @@ use crate::app_input::{
 use crate::app_shell_workers::capture_dead_previews;
 
 use jefe::domain::liveness_observation::Observed;
+#[cfg(windows)]
+use jefe::domain::liveness_observation::Resolution;
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::runtime::LivenessIdentity;
 #[cfg(windows)]
@@ -71,8 +76,8 @@ pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContex
 
         // Collect local-only check targets for Running and ServerLost agents
         // under the lock, then release it before any subprocess work.
-        let (running_targets, lost_ids) = collect_local_targets(&app_state, ctx_arc);
-        if running_targets.is_empty() && lost_ids.is_empty() {
+        let (running_targets, lost_targets) = collect_local_targets(&app_state, ctx_arc);
+        if running_targets.is_empty() && lost_targets.is_empty() {
             continue;
         }
 
@@ -82,7 +87,7 @@ pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContex
                 &mut app_state,
                 &ctx,
                 &running_targets,
-                &lost_ids,
+                &lost_targets,
                 &mut pinned_prior,
                 &mut applied_exit_empty,
             )
@@ -96,15 +101,20 @@ pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContex
     }
 }
 
-/// Collect local liveness targets plus the ids of agents already `ServerLost`.
+/// Collect local liveness targets for `Running` agents and for agents already
+/// `ServerLost`.
 ///
-/// Returns the runtime-supplied targets filtered to local agents whose status
-/// is `Running`, and the ids of local agents currently `ServerLost` (so the
-/// Windows path can recover them when the server returns).
+/// Lost agents are returned as full probe targets rather than bare ids because
+/// recovery has to *ask* whether their sessions came back. Returning only ids
+/// is what left `ServerLost` a one-way trapdoor: there was nothing to probe
+/// with, so the recovery path could never be written (issue #541).
 fn collect_local_targets(
     app_state: &AppStateHandle,
     ctx_arc: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
-) -> (Vec<jefe::runtime::LivenessCheck>, Vec<AgentId>) {
+) -> (
+    Vec<jefe::runtime::LivenessCheck>,
+    Vec<jefe::runtime::LivenessCheck>,
+) {
     let Ok(ctx_guard) = ctx_arc.lock() else {
         return (Vec::new(), Vec::new());
     };
@@ -125,11 +135,19 @@ fn collect_local_targets(
     let all_targets = ctx_guard.runtime.liveness_targets();
     drop(ctx_guard);
 
-    let running_targets = all_targets
-        .into_iter()
-        .filter(|target| target.remote.is_none() && running_ids.contains(&target.agent_id))
-        .collect::<Vec<_>>();
-    (running_targets, lost_ids)
+    let mut running_targets = Vec::new();
+    let mut lost_targets = Vec::new();
+    for target in all_targets {
+        if target.remote.is_some() {
+            continue;
+        }
+        if running_ids.contains(&target.agent_id) {
+            running_targets.push(target);
+        } else if lost_ids.contains(&target.agent_id) {
+            lost_targets.push(target);
+        }
+    }
+    (running_targets, lost_targets)
 }
 
 /// Windows liveness cycle: probe the shared psmux server identity first, then
@@ -139,7 +157,7 @@ async fn handle_windows_cycle(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     running_targets: &[jefe::runtime::LivenessCheck],
-    lost_ids: &[AgentId],
+    lost_targets: &[jefe::runtime::LivenessCheck],
     pinned_prior: &mut Option<ServerIdentity>,
     applied_exit_empty: &mut Option<ServerIdentity>,
 ) {
@@ -166,6 +184,7 @@ async fn handle_windows_cycle(
         ServerLivenessObservation::Healthy(current) => {
             *pinned_prior = current.or_else(|| pinned_prior.clone());
             reconcile_healthy_agents(app_state, ctx, running_targets).await;
+            recover_server_lost_agents(app_state, ctx, lost_targets).await;
         }
         ServerLivenessObservation::Gone | ServerLivenessObservation::Replaced(_) => {
             if let ServerLivenessObservation::Replaced(next) = observation {
@@ -180,10 +199,98 @@ async fn handle_windows_cycle(
             transition_to_server_lost(app_state, ctx, &affected);
         }
         ServerLivenessObservation::Unavailable => {
-            // Probe failure fails open: no agent status change this cycle.
+            // The server probe did not answer. No agent status changes this
+            // cycle, in either direction: an unanswered probe is no more
+            // evidence that a lost agent recovered than that a live one died.
         }
     }
-    let _ = lost_ids;
+}
+
+#[cfg(windows)]
+/// Decide which lost agents the probe says have returned.
+///
+/// Pure, so the held case is testable rather than only reachable through a
+/// real subprocess failure. An agent is a recovery candidate when the probe
+/// answered *and* did not name it among the dead: absence from an answered
+/// result is evidence, absence from an unanswered one is nothing at all.
+fn classify_recovery(
+    lost_targets: &[jefe::runtime::LivenessCheck],
+    observed: Observed<Vec<LivenessIdentity>>,
+) -> Resolution<Vec<AgentId>> {
+    observed.resolve(|dead| {
+        let dead_ids: HashSet<&AgentId> = dead.iter().map(|identity| &identity.agent_id).collect();
+        lost_targets
+            .iter()
+            .filter(|target| !dead_ids.contains(&target.agent_id))
+            .map(|target| target.agent_id.clone())
+            .collect()
+    })
+}
+
+/// Restore agents whose sessions are alive again now the server has returned.
+///
+/// `ServerLost` was previously a one-way trapdoor: nothing re-examined those
+/// agents, so a transient server replacement stranded them until the operator
+/// intervened by hand. The live repro on issue #541 hit exactly this -- agents
+/// showing `!` while every process was alive.
+///
+/// Recovery is fail-closed in the same direction as everything else here. Only
+/// a probe that *answered* can recover an agent, and only for agents whose
+/// binding still matches the one that was probed; anything else leaves the
+/// agent lost, because "we could not tell" must not promote a status any more
+/// than it may demote one.
+#[cfg(windows)]
+async fn recover_server_lost_agents(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    lost_targets: &[jefe::runtime::LivenessCheck],
+) {
+    if lost_targets.is_empty() {
+        return;
+    }
+    let observed = batch_dead_identities(lost_targets).await;
+    let recovered = match classify_recovery(lost_targets, observed) {
+        Resolution::Transition(ids) => ids,
+        Resolution::Hold(reason) => {
+            warn!(%reason, "server-lost recovery held: agents left as they were");
+            return;
+        }
+    };
+    if recovered.is_empty() {
+        return;
+    }
+
+    let mut state = app_state.write();
+    let mut changed = 0usize;
+    for target in lost_targets
+        .iter()
+        .filter(|target| recovered.contains(&target.agent_id))
+    {
+        let still_lost_and_bound = state.agents.iter().any(|agent| {
+            agent.id == target.agent_id
+                && agent.status == AgentStatus::ServerLost
+                && agent.runtime_binding.as_ref().is_some_and(|binding| {
+                    Some(binding.session_name.as_str()) == target.binding_session_name.as_deref()
+                        && binding.lifecycle_generation == target.lifecycle_generation
+                })
+        });
+        if !still_lost_and_bound {
+            continue;
+        }
+        commit_pure_site(
+            &mut state,
+            AppEvent::AgentStatusChanged(target.agent_id.clone(), AgentStatus::Running).into(),
+        );
+        changed = changed.saturating_add(1);
+    }
+    if changed > 0 {
+        info!(count = changed, "server returned: agents recovered");
+        let persisted = durable_save_request(&mut state);
+        drop(state);
+        schedule_durable_save(ctx, persisted);
+    } else {
+        drop(state);
+    }
 }
 
 /// Non-Windows liveness cycle: preserve the exact pre-extraction batched
@@ -227,7 +334,7 @@ fn answered_dead_identities(observed: Observed<Vec<LivenessIdentity>>) -> Vec<Li
     match observed {
         Observed::Known(dead) => dead,
         Observed::Unknown(reason) => {
-            tracing::warn!(%reason, "liveness poll held: no agent state was changed");
+            warn!(%reason, "liveness poll held: no agent state was changed");
             Vec::new()
         }
     }
@@ -428,6 +535,8 @@ fn compute_binding_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use jefe::domain::liveness_observation::{ProbeBoundary, Uncertainty};
     use jefe::domain::{Agent, RemoteRepositorySettings, RepositoryId};
     use jefe::runtime::LivenessCheck;
     use std::path::PathBuf;
@@ -545,6 +654,74 @@ mod tests {
         assert_eq!(
             compute_binding_matches(&state, &[stale_session, stale_generation]),
             vec![false, false]
+        );
+    }
+
+    #[cfg(windows)]
+    fn dead_identity(id: &str) -> LivenessIdentity {
+        LivenessIdentity {
+            agent_id: AgentId(id.into()),
+            binding_session_name: Some(format!("jefe-{id}")),
+            lifecycle_generation: 0,
+            worker: jefe::runtime::WorkerDisposition::GoneWithPane,
+        }
+    }
+
+    /// The live repro on issue #541: agents sat at `ServerLost` while every
+    /// process was alive, because nothing ever re-examined them.
+    #[cfg(windows)]
+    #[test]
+    fn a_lost_agent_whose_session_returned_is_recovered() {
+        let lost = vec![liveness_target("alpha"), liveness_target("beta")];
+
+        let decision = classify_recovery(&lost, Observed::Known(vec![dead_identity("beta")]));
+
+        let recovered = decision
+            .transition()
+            .unwrap_or_else(|| panic!("an answered probe must produce a decision"));
+        assert_eq!(
+            recovered,
+            &vec![AgentId("alpha".into())],
+            "only the agent absent from the dead list returns"
+        );
+    }
+
+    /// Recovery is fail-closed in the same direction as everything else: an
+    /// unanswered probe is no more evidence that a lost agent came back than
+    /// that a live one died.
+    #[cfg(windows)]
+    #[test]
+    fn an_unanswered_probe_recovers_nobody() {
+        let lost = vec![liveness_target("alpha")];
+
+        let decision = classify_recovery(
+            &lost,
+            Observed::unknown(ProbeBoundary::SessionList, "list-sessions failed"),
+        );
+
+        assert!(
+            decision.transition().is_none(),
+            "an unanswered probe must not promote an agent"
+        );
+        assert_eq!(
+            decision.held().map(Uncertainty::boundary),
+            Some(ProbeBoundary::SessionList)
+        );
+    }
+
+    /// The mirror hazard for recovery: an agent the probe still reports dead
+    /// must stay lost, or "never demote" would become "always promote".
+    #[cfg(windows)]
+    #[test]
+    fn an_agent_still_reported_dead_is_not_recovered() {
+        let lost = vec![liveness_target("alpha")];
+
+        let decision = classify_recovery(&lost, Observed::Known(vec![dead_identity("alpha")]));
+
+        assert_eq!(
+            decision.transition(),
+            Some(&Vec::new()),
+            "a still-dead agent is not a recovery candidate"
         );
     }
 }
