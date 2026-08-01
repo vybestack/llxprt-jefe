@@ -2,7 +2,7 @@ use super::*;
 use crate::domain::{Agent, RemoteRepositorySettings, Repository, RepositoryId};
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::{ModalState, ScreenMode};
+use crate::state::types::{ModalState, ScreenId};
 
 fn seed_repository() -> Repository {
     Repository::new(
@@ -25,7 +25,7 @@ fn default_state_has_no_selection() {
 #[test]
 fn default_state_is_dashboard_mode() {
     let state = AppState::default();
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
 }
 
 #[test]

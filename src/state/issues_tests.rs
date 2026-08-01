@@ -5,13 +5,13 @@ use crate::domain::{
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{
-    ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
+    ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenId,
 };
 use std::path::PathBuf;
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     }
 }
@@ -87,15 +87,15 @@ fn state_with_repo(repo_id: &str) -> AppState {
 use super::issues_test_fixtures::begin_issue_list_reload;
 use crate::state::transition::TransitionExt;
 
-/// Test 1: EnterIssuesMode sets screen mode, activates issues state, and focuses issue list.
+/// Test 1: EnterIssuesMode sets active screen, activates issues state, and focuses issue list.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
 /// @requirement REQ-ISS-001
 /// @pseudocode component-001 lines 10-15
 #[test]
-fn test_enter_issues_mode_sets_screen_mode() {
+fn test_enter_issues_mode_sets_active_screen() {
     let state = AppState::default();
     let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(new_state.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(new_state.screen, ScreenId::Issues);
     assert!(new_state.issues_state.active);
     assert_eq!(new_state.issues_state.issue_focus, IssueFocus::IssueList);
 }
@@ -168,7 +168,7 @@ fn test_exit_issues_mode_restores_focus() {
     ));
 
     let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(new_state.screen, ScreenId::Dashboard);
     assert_eq!(new_state.pane_focus, PaneFocus::Agents);
     assert_eq!(new_state.selected_agent_index, Some(1));
 }

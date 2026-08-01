@@ -9,7 +9,7 @@ use jefe::layout::{
     effective_render_size, issues_pane_rows, prs_pane_rows, split_layout_for_render_size,
 };
 use jefe::list_viewport::{ListGeometry, PageItemCount, PaneRows, RowsPerItem};
-use jefe::state::{AppState, PaneFocus, ScreenMode};
+use jefe::state::{AppState, PaneFocus, ScreenId};
 
 /// Derive the visible compact-list capacity for Issues mode.
 #[must_use]
@@ -63,34 +63,30 @@ pub(super) fn actions_page_item_count(
 #[must_use]
 pub fn dashboard_page_item_count(
     state: &AppState,
-    screen_mode: ScreenMode,
+    screen: ScreenId,
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
-    match screen_mode {
-        ScreenMode::DashboardIssues => issues_page_item_count(state, terminal_cols, terminal_rows),
-        ScreenMode::DashboardPullRequests => {
-            prs_page_item_count(state, terminal_cols, terminal_rows)
-        }
-        ScreenMode::DashboardActions => {
-            actions_page_item_count(state, terminal_cols, terminal_rows)
-        }
-        _ => dashboard_or_split_page_item_count(state, screen_mode, terminal_cols, terminal_rows),
+    match screen {
+        ScreenId::Issues => issues_page_item_count(state, terminal_cols, terminal_rows),
+        ScreenId::PullRequests => prs_page_item_count(state, terminal_cols, terminal_rows),
+        ScreenId::Actions => actions_page_item_count(state, terminal_cols, terminal_rows),
+        _ => dashboard_or_split_page_item_count(state, screen, terminal_cols, terminal_rows),
     }
 }
 
 fn dashboard_or_split_page_item_count(
     state: &AppState,
-    screen_mode: ScreenMode,
+    screen: ScreenId,
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
     let (render_cols, render_rows) = effective_render_size(terminal_cols, terminal_rows);
-    let pane_rows = match (screen_mode, state.pane_focus) {
-        (ScreenMode::Dashboard, PaneFocus::Agents) => {
+    let pane_rows = match (screen, state.pane_focus) {
+        (ScreenId::Dashboard, PaneFocus::Agents) => {
             dashboard_middle_row_heights_inner(render_rows).0
         }
-        (ScreenMode::Split, _) => {
+        (ScreenId::Repositories, _) => {
             split_layout_for_render_size(render_cols, render_rows).sidebar_rows
         }
         (_, PaneFocus::Repositories) => render_rows.saturating_sub(OUTER_BARS_HEIGHT),
@@ -124,7 +120,7 @@ mod tests {
     #[test]
     fn split_page_capacity_uses_the_actual_sidebar_pane() {
         let state = AppState {
-            screen_mode: ScreenMode::Split,
+            screen: ScreenId::Repositories,
             ..AppState::default()
         };
         let layout = jefe::layout::split_layout_for_render_size(100, 25);
@@ -134,7 +130,7 @@ mod tests {
         assert_eq!(layout.sidebar_rows, 18);
         assert_eq!(expected, PageItemCount::new(13));
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenMode::Split, 100, 25),
+            dashboard_page_item_count(&state, ScreenId::Repositories, 100, 25),
             expected
         );
     }
@@ -149,7 +145,7 @@ mod tests {
         assert_eq!(layout.sidebar_rows, 0);
         assert_eq!(expected, PageItemCount::new(0));
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenMode::Split, 2, 6),
+            dashboard_page_item_count(&state, ScreenId::Repositories, 2, 6),
             expected
         );
     }
@@ -177,7 +173,7 @@ mod tests {
             )
         );
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenMode::Split, raw.0, raw.1),
+            dashboard_page_item_count(&state, ScreenId::Repositories, raw.0, raw.1),
             ListGeometry::bordered_padded(RowsPerItem::new(1)).page_item_count(PaneRows::new(
                 usize::from(split_layout_for_render_size(effective.0, effective.1).sidebar_rows),
             ))

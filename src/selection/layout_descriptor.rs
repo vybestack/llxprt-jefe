@@ -6,7 +6,7 @@
 //! signature stable as more conditional bands are added.
 
 use crate::selection::SelectablePane;
-use crate::state::ScreenMode;
+use crate::state::ScreenId;
 
 /// Which overlay (modal / form / chooser) is currently active, if any.
 ///
@@ -85,8 +85,8 @@ pub struct ScreenLayout {
     pub term_cols: u16,
     /// Raw terminal height in rows (as reported by crossterm).
     pub term_rows: u16,
-    /// Active screen mode (drives the layout template).
-    pub screen_mode: ScreenMode,
+    /// Active active screen (drives the layout template).
+    pub screen: ScreenId,
     /// Whether an error banner is visible in the workspace (Issues/PR mode).
     pub error_visible: bool,
     /// Whether the filter-controls band is open (Issues/PR mode).
@@ -101,14 +101,14 @@ impl ScreenLayout {
     pub const fn new(
         term_cols: u16,
         term_rows: u16,
-        screen_mode: ScreenMode,
+        screen: ScreenId,
         error_visible: bool,
         filter_controls_open: bool,
     ) -> Self {
         Self {
             term_cols,
             term_rows,
-            screen_mode,
+            screen,
             error_visible,
             filter_controls_open,
             overlay: OverlayPane::None,
@@ -118,7 +118,7 @@ impl ScreenLayout {
     /// Whether this layout is for PR mode (affects pane identity, not geometry).
     #[must_use]
     pub fn is_pr_mode(self) -> bool {
-        matches!(self.screen_mode, ScreenMode::DashboardPullRequests)
+        matches!(self.screen, ScreenId::PullRequests)
     }
 
     /// Return a copy of this layout with the given overlay active (issue #178).
@@ -131,13 +131,13 @@ impl ScreenLayout {
     /// geometry — Actions shares the Issues/PR list+detail split).
     #[must_use]
     pub fn is_actions_mode(self) -> bool {
-        matches!(self.screen_mode, ScreenMode::DashboardActions)
+        matches!(self.screen, ScreenId::Actions)
     }
 
     /// Whether this layout is for Errors mode (affects pane identity, not
     /// geometry — Errors shares the Issues/PR list+detail split). Issue #292.
     #[must_use]
     pub fn is_errors_mode(self) -> bool {
-        matches!(self.screen_mode, ScreenMode::DashboardErrors)
+        matches!(self.screen, ScreenId::Errors)
     }
 }

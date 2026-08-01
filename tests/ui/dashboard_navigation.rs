@@ -9,7 +9,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, PaneFocus, ScreenId};
 use std::path::PathBuf;
 
 /// Create a test app state with some repositories and agents.
@@ -212,34 +212,34 @@ fn f12_focus_blocks_non_terminal_navigation() {
 // ============================================================================
 
 #[test]
-fn enter_split_mode_changes_screen_mode() {
+fn enter_split_mode_changes_active_screen() {
     let mut state = create_test_state();
-    state.screen_mode = ScreenMode::Dashboard;
+    state.screen = ScreenId::Dashboard;
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Split);
+    assert_eq!(state.screen, ScreenId::Repositories);
 }
 
 #[test]
 fn enter_split_mode_focuses_the_visible_repository_list() {
     let mut state = create_test_state();
-    state.screen_mode = ScreenMode::Dashboard;
+    state.screen = ScreenId::Dashboard;
     state.pane_focus = PaneFocus::Agents;
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Split);
+    assert_eq!(state.screen, ScreenId::Repositories);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 }
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
     let mut state = create_test_state();
-    state.screen_mode = ScreenMode::Split;
+    state.screen = ScreenId::Repositories;
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
 }
 
 // ============================================================================

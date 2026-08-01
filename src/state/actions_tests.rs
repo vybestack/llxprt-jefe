@@ -5,7 +5,7 @@ mod tests {
         WorkflowRunStatus,
     };
     use crate::messages::{ActionsMessage, NavDir, ScrollDir};
-    use crate::state::{ActionsFocus, ActionsListIdentity, AppState, ModalState, ScreenMode};
+    use crate::state::{ActionsFocus, ActionsListIdentity, AppState, ModalState, ScreenId};
 
     fn create_test_state() -> AppState {
         let mut state = AppState::default();
@@ -56,7 +56,7 @@ mod tests {
 
         state.apply_actions_message(ActionsMessage::EnterMode);
         assert!(state.actions_state.active);
-        assert_eq!(state.screen_mode, ScreenMode::DashboardActions);
+        assert_eq!(state.screen, ScreenId::Actions);
         assert_eq!(state.actions_state.focus, ActionsFocus::RunList);
         assert!(
             state.actions_state.runs().is_empty(),
@@ -65,7 +65,7 @@ mod tests {
 
         state.apply_actions_message(ActionsMessage::ExitMode);
         assert!(!state.actions_state.active);
-        assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+        assert_eq!(state.screen, ScreenId::Dashboard);
     }
 
     #[test]

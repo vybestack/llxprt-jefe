@@ -13,7 +13,7 @@ use jefe::runtime::{
     DesktopPlatform, ExternalTerminalError, RuntimeError, RuntimeManager, RuntimeSession,
     build_external_terminal_plan, spawn_external_terminal,
 };
-use jefe::state::{AppEvent, ScreenMode};
+use jefe::state::{AppEvent, ScreenId};
 
 use super::{AppStateHandle, SharedContext, dispatch_app_event};
 
@@ -158,14 +158,13 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
     let Ok(mut guard) = ctx_arc.lock() else {
         return;
     };
-    let layout =
-        if state.shell_overlay_active() && state.screen_mode == ScreenMode::DashboardTerminals {
-            jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
-        } else if state.shell_overlay_active() {
-            jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
-        } else {
-            jefe::layout::compute_pty_layout(cols, rows)
-        };
+    let layout = if state.shell_overlay_active() && state.screen == ScreenId::Terminals {
+        jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
+    } else if state.shell_overlay_active() {
+        jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
+    } else {
+        jefe::layout::compute_pty_layout(cols, rows)
+    };
     if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
         warn!(error = %error, "failed to resize shell terminal");
     }
@@ -375,7 +374,7 @@ fn read_local_agent(
     require_running: bool,
 ) -> Option<(jefe::domain::AgentId, std::path::PathBuf)> {
     let state = app_state.read();
-    if state.screen_mode != ScreenMode::Dashboard {
+    if state.screen != ScreenId::Dashboard {
         return None;
     }
     let agent = state.selected_agent()?;

@@ -16,7 +16,7 @@ use jefe::layout::{compute_pty_layout, effective_render_size};
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
     ModalViewport, TerminalRenderData, build_modal_element, build_screen_element,
@@ -335,7 +335,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     trace!(
         modal = ?std::mem::discriminant(&modal),
-        screen_mode = ?snapshot.screen_mode,
+        screen = ?snapshot.screen,
         pane_focus = ?snapshot.pane_focus,
         terminal_focused = snapshot.terminal_focused,
         repos = snapshot.repositories.len(),
@@ -404,9 +404,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // requests a background capture via the `CaptureHandle` and reads the
     // runtime's `HistoryCache` directly (non-blocking `get`). The background
     // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard
-        || (snapshot.screen_mode == ScreenMode::DashboardTerminals
-            && snapshot.shell_overlay_active())
+    let history_lines: Vec<String> = if snapshot.screen == ScreenId::Dashboard
+        || (snapshot.screen == ScreenId::Terminals && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
@@ -419,9 +418,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-    let pty_layout = if snapshot.shell_overlay_active()
-        && snapshot.screen_mode == ScreenMode::DashboardTerminals
-    {
+    let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen == ScreenId::Terminals {
         jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
     } else if snapshot.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
@@ -679,7 +676,7 @@ fn handle_key_event(
     let state_ro = app_state.read();
     let term_focused = state_ro.terminal_focused;
     let pane_focus = state_ro.pane_focus;
-    let screen_mode = state_ro.screen_mode;
+    let screen = state_ro.screen;
     let modal = state_ro.modal.clone();
     let input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
@@ -690,7 +687,7 @@ fn handle_key_event(
         kind = ?key_event.kind,
         term_focused,
         pane_focus = ?pane_focus,
-        screen_mode = ?screen_mode,
+        screen = ?screen,
         modal = ?std::mem::discriminant(&modal),
         "key event received"
     );

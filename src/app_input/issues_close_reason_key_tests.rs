@@ -2,7 +2,7 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind};
-use jefe::state::{AppEvent, IssueCloseReasonChooserState, IssueFocus, IssuesState, ScreenMode};
+use jefe::state::{AppEvent, IssueCloseReasonChooserState, IssueFocus, IssuesState, ScreenId};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(KeyEventKind::Press, code)
@@ -10,7 +10,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn issues_state_with_close_reason_chooser() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,

@@ -6,7 +6,7 @@ use jefe::list_viewport::PageItemCount;
 use jefe::state::{
     ActionsFilterField, ActionsFocus, AppEvent, AppState, DetailSubfocus, IssueFocus,
     IssuePropertyKind, NewIssueFormFocus, PrChangesFocus, PrDetailSubfocus, PrFocus,
-    PrPropertyKind, ReadOnlyHintKind, ScreenMode,
+    PrPropertyKind, ReadOnlyHintKind, ScreenId,
 };
 
 use super::{BoundaryAction, HandlerExecution};
@@ -20,11 +20,11 @@ pub(super) fn execution_for(
     if state.modal != jefe::state::ModalState::None {
         return modal_execution(handler, chord);
     }
-    match state.screen_mode {
-        ScreenMode::DashboardIssues => issues_execution(handler, chord, state, page),
-        ScreenMode::DashboardPullRequests => prs_execution(handler, chord, state, page),
-        ScreenMode::DashboardActions => actions_execution(handler, chord, state, page),
-        ScreenMode::Dashboard if state.dashboard_search.input_focused => {
+    match state.screen {
+        ScreenId::Issues => issues_execution(handler, chord, state, page),
+        ScreenId::PullRequests => prs_execution(handler, chord, state, page),
+        ScreenId::Actions => actions_execution(handler, chord, state, page),
+        ScreenId::Dashboard if state.dashboard_search.input_focused => {
             dashboard_search_execution(handler, state)
         }
         _ => None,

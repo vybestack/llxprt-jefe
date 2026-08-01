@@ -6,7 +6,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, PaneFocus, PrFocus, ScreenMode};
+use crate::state::{AppState, PaneFocus, PrFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
@@ -469,7 +469,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 vec![element! {
                     Box(height: 1u32, width: 100pct) {
                         KeybindBar(
-                            screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
+                            screen: state.map_or(ScreenId::PullRequests, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                             terminal_focused: state.is_some_and(|s| s.terminal_focused),
                             actions_focus: None,

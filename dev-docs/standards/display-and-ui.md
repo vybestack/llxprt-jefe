@@ -107,14 +107,80 @@ The conversion seam is `src/messages/event_conversion.rs`. The UI keeps
 producing the historical `AppEvent` facade; reducers route through typed domain
 messages.
 
-### Screen modes
+### Screens
 
-`ScreenMode` (`src/state/types.rs`) enumerates the active screen:
+`ScreenId` (`src/workbench/ids.rs`, re-exported from `crate::state`) names the
+active screen. Its identity is the stable namespaced string returned by
+`as_str`, not the variant's position, so persistence and descriptors agree on
+one vocabulary and reordering the enum cannot change which screen a restored
+session opens on. `ScreenId::from_stable` is the only way an external value
+becomes a screen identity.
 
-- `Dashboard` (default) — repositories, agents, terminal, preview.
-- `Split` — compact cross-agent operational view.
-- `DashboardIssues` — issues list/detail with filter and search.
-- `DashboardPullRequests` — PR list/detail with filter, search, merge.
+| `ScreenId` | Stable identity | Screen |
+|---|---|---|
+| `Dashboard` (default) | `core.dashboard` | Repositories, agents over the embedded terminal, preview |
+| `Repositories` | `core.repositories` | Compact cross-agent repository list under its filter band |
+| `Issues` | `github.issues` | Issue list/detail with filter and search |
+| `PullRequests` | `github.pull-requests` | PR list/detail with filter, search, merge |
+| `Actions` | `github.actions` | Workflow-run list/detail |
+| `Errors` | `core.errors` | Error ring buffer list/detail |
+| `Terminals` | `core.terminals` | Terminal Manager: shell list with a read-only preview |
+
+`ScreenId` answers *which* screen is active and nothing else. What a screen
+*contains* is its descriptor's business — see the next section.
+
+### Screen descriptors and the layout resolver
+
+`src/workbench/` is the sole definition of every screen's structure and the sole
+implementation of geometry. It is I/O-free: it owns no state, touches no
+terminal, and knows nothing about rendering, so it is exercised exhaustively as
+pure data.
+
+- `screens.rs` compiles one `ScreenDescriptor` per screen: its panels, which are
+  focusable, which are required, the focus order, and the layout tree. There is
+  no external screen syntax and no override source, so this is the only place a
+  screen's structure is described. `shipped-screen-definition-parity.json` is
+  the golden that must move with it.
+- `validate.rs` enforces the structural invariants: each panel appears exactly
+  once in `panels` and exactly once in the layout; each focusable panel appears
+  exactly once in the focus order; initial focus is focusable; a required panel
+  never sits under a collapsible child; split children number 2–8; nesting stays
+  within 8. A malformed compiled descriptor fails at startup and in tests, never
+  at render time.
+- `allocate.rs` is the whole sizing algorithm on one axis, isolated so it can be
+  swept exhaustively. In order: charge the split's declared gap per adjacent
+  visible pair; while the visible minima do not fit, hide one collapsible child
+  chosen by `(collapse_priority ascending, depth_first_index descending)`; clamp
+  fixed sizes into `[min, max]`; give weighted children their minima, then share
+  the rest by `floor(remaining * weight / sum_weight)`; pin any child that
+  reaches its maximum and redistribute what it gave back; hand out the remainder
+  one cell at a time in declaration order. All interior arithmetic is checked
+  `u32` and overflow is a typed error, never a panic.
+- `resolve.rs` walks the tree into one immutable `ResolvedLayout`. Every
+  geometry consumer — renderer, mouse routing, selection, wrapping, scrolling,
+  PTY resize — reads that snapshot, so no two can disagree about where a panel
+  is. `src/layout.rs` re-exports it, so `layout` stays the one place a consumer
+  looks for geometry.
+
+Guarantees the snapshot carries:
+
+- rectangles along an axis are contiguous and non-overlapping;
+- a hidden panel has no hit region, no content rectangle, and no PTY region;
+- `pty_content_rect` never yields a zero-area rectangle, which is why no caller
+  needs its own `.max(1)` guard — a required PTY panel that cannot keep a
+  nonzero rectangle makes the screen too small instead;
+- when the required panels do not fit, exactly the first required focusable
+  panel in descriptor focus order is visible, with a `TooSmall { needed,
+  available }` notice, so Back and exit stay reachable;
+- `repair_focus` advances cyclically from the prior focus to the first visible
+  focusable panel, starting from the descriptor's initial focus when there is no
+  prior focus. The workspace screens cycle through the repository sidebar but
+  open on their list, so those are genuinely different panels.
+
+Legacy persisted screen values are translated once, by name, in
+`src/workbench/migration.rs`. That module is the only place the legacy
+vocabulary is named; an unrecognised value warns and selects the compiled
+initial screen rather than costing the user the rest of their restored state.
 
 ---
 

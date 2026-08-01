@@ -14,7 +14,7 @@ use super::prs_dispatch::{
 };
 use jefe::domain::{Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, PullRequestsState, ScreenMode};
+use jefe::state::{AppEvent, AppState, PullRequestsState, ScreenId};
 use std::path::PathBuf;
 
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -49,7 +49,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
 /// @pseudocode component-004 lines 160-175
 fn state_with_invalid_slug() -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState {
             active: true,
             ..PullRequestsState::default()
@@ -179,7 +179,7 @@ fn test_open_in_browser_no_selection_yields_no_selection() {
 #[test]
 fn test_preview_guard_detects_selection_change_after_read_lock() {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState::default(),
         ..AppState::default()
     };
@@ -345,7 +345,7 @@ fn test_format_pr_prompt_wraps_focused_comment_in_delimiters() {
 /// Used to prove the list→detail preview propagates the mergeable signal.
 fn state_with_mergeable_pr(value: Option<bool>) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState::default(),
         ..AppState::default()
     };

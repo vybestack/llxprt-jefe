@@ -2,11 +2,11 @@ use crate::domain::{Issue, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::{IssueFocus, PaneFocus, ScreenMode};
+use crate::state::types::{IssueFocus, PaneFocus, ScreenId};
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     }
 }

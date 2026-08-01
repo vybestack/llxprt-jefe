@@ -2,7 +2,7 @@
 //! same [`crate::layout`] constants the screens render with.
 //!
 //! The single entry point is [`pane_at`], which mirrors the on-screen layout
-//! of each [`crate::state::ScreenMode`] (dashboard, issues, PRs) and returns
+//! of each [`crate::state::ScreenId`] (dashboard, issues, PRs) and returns
 //! the pane under a `(col, row)` along with its screen-space rectangle.
 
 use crate::layout::{
@@ -102,7 +102,7 @@ impl PaneGeometry {
 ///
 /// Returns `None` when the point falls outside any known pane (e.g. on a
 /// border line or in the gutter). The layout is computed from `term_cols` /
-/// `term_rows` and the active screen mode (read from `layout.screen_mode`),
+/// `term_rows` and the active active screen (read from `layout.screen`),
 /// using the exact [`crate::layout`] constants the screens render with, so
 /// geometry can never drift from the rendered output.
 ///
@@ -120,7 +120,7 @@ impl PaneGeometry {
 pub fn pane_at(
     col: u16,
     row: u16,
-    _screen_mode: crate::state::ScreenMode,
+    _screen: crate::state::ScreenId,
     terminal_input_enabled: bool,
     layout: &ScreenLayout,
 ) -> Option<(SelectablePane, PaneGeometry)> {
@@ -157,18 +157,18 @@ pub fn pane_at(
         return Some(keybind_bar(render_cols, render_rows));
     }
 
-    match layout.screen_mode {
-        crate::state::ScreenMode::Dashboard => {
+    match layout.screen {
+        crate::state::ScreenId::Dashboard => {
             dashboard_pane_at(col, row, render_cols, render_rows, terminal_input_enabled)
         }
-        crate::state::ScreenMode::Split => split_pane_at(col, row, render_cols, render_rows),
-        crate::state::ScreenMode::DashboardIssues
-        | crate::state::ScreenMode::DashboardPullRequests
-        | crate::state::ScreenMode::DashboardActions
-        | crate::state::ScreenMode::DashboardErrors => {
+        crate::state::ScreenId::Repositories => split_pane_at(col, row, render_cols, render_rows),
+        crate::state::ScreenId::Issues
+        | crate::state::ScreenId::PullRequests
+        | crate::state::ScreenId::Actions
+        | crate::state::ScreenId::Errors => {
             issues_pane_at(col, row, render_cols, render_rows, *layout)
         }
-        crate::state::ScreenMode::DashboardTerminals => None,
+        crate::state::ScreenId::Terminals => None,
     }
 }
 
@@ -280,7 +280,7 @@ fn dashboard_pane_at(
 
 /// Issues/PR-mode layout hit-test (identical geometry, different pane names).
 ///
-/// The [`ScreenLayout`]'s screen mode determines whether the list and detail
+/// The [`ScreenLayout`]'s active screen determines whether the list and detail
 /// panes are returned as `IssueList`/`IssueDetail` or `PrList`/`PrDetail`
 /// (see [`list_pane`] and [`detail_pane`], which branch on
 /// `layout.is_pr_mode()`). The geometry itself is shared between issues and
@@ -362,7 +362,7 @@ fn skip_non_list_bands(row: u16, content_top: u16, layout: ScreenLayout) -> Opti
     Some(cursor_row)
 }
 
-/// Choose the IssueList vs PrList variant based on the screen mode in layout.
+/// Choose the IssueList vs PrList variant based on the active screen in layout.
 fn list_pane(
     col0: u16,
     row0: u16,
@@ -392,7 +392,7 @@ fn list_pane(
     )
 }
 
-/// Choose the IssueDetail vs PrDetail variant based on the screen mode in layout.
+/// Choose the IssueDetail vs PrDetail variant based on the active screen in layout.
 fn detail_pane(
     col0: u16,
     row0: u16,
@@ -552,7 +552,7 @@ const CHOOSER_MAX_HEIGHT: u16 = 30;
 /// `LEFT_COL_WIDTH` (issues) or `prs_main_columns().sidebar_width` (PRs);
 /// both resolve to `LEFT_COL_WIDTH` in the common 120-col case. Since
 /// `prs_main_columns` is a runtime function, we use `LEFT_COL_WIDTH` as the
-/// baseline and let the caller's screen mode disambiguate if needed.
+/// baseline and let the caller's active screen disambiguate if needed.
 fn chooser_pane_if_inside(
     col: u16,
     row: u16,

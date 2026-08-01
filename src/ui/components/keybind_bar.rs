@@ -8,14 +8,14 @@ use iocraft::prelude::*;
 
 use crate::action_projection::{FooterProjectionInput, project_footer};
 use crate::domain::action_registry::ActionRegistrySnapshot;
-use crate::state::{ActionsFocus, ScreenMode};
+use crate::state::{ActionsFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the keybind bar component.
 #[derive(Default, Props)]
 pub struct KeybindBarProps {
-    /// Current screen mode.
-    pub screen_mode: ScreenMode,
+    /// Current active screen.
+    pub screen: ScreenId,
     /// Whether terminal is focused.
     pub terminal_focused: bool,
     /// Whether the embedded agent shell overlay is visible (issue #222/#361).
@@ -38,14 +38,14 @@ pub struct KeybindBarProps {
 #[must_use]
 pub fn keybind_hints_for(
     snapshot: &ActionRegistrySnapshot,
-    screen_mode: ScreenMode,
+    screen: ScreenId,
     terminal_focused: bool,
     actions_focus: Option<ActionsFocus>,
 ) -> String {
     project_footer(
         snapshot,
         FooterProjectionInput {
-            screen_mode,
+            screen,
             terminal_focused,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -66,7 +66,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
             project_footer(
                 snapshot,
                 FooterProjectionInput {
-                    screen_mode: props.screen_mode,
+                    screen: props.screen,
                     terminal_focused: props.terminal_focused,
                     shell_overlay_active: props.shell_overlay_active,
                     shell_resume_available: props.shell_resume_available,
@@ -102,7 +102,7 @@ mod tests {
     fn dashboard_hints_include_shell_shortcuts_without_changing_focused_terminal_hint() {
         let dashboard = keybind_hints_for(
             &crate::action_projection::test_snapshot(),
-            ScreenMode::Dashboard,
+            ScreenId::Dashboard,
             false,
             None,
         );
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(
             keybind_hints_for(
                 &crate::action_projection::test_snapshot(),
-                ScreenMode::Dashboard,
+                ScreenId::Dashboard,
                 true,
                 None
             ),
@@ -123,19 +123,19 @@ mod tests {
     fn actions_hints_are_focus_specific_and_fit_footer_width() {
         let repos = keybind_hints_for(
             &crate::action_projection::test_snapshot(),
-            ScreenMode::DashboardActions,
+            ScreenId::Actions,
             false,
             Some(ActionsFocus::RepoList),
         );
         let list = keybind_hints_for(
             &crate::action_projection::test_snapshot(),
-            ScreenMode::DashboardActions,
+            ScreenId::Actions,
             false,
             Some(ActionsFocus::RunList),
         );
         let detail = keybind_hints_for(
             &crate::action_projection::test_snapshot(),
-            ScreenMode::DashboardActions,
+            ScreenId::Actions,
             false,
             Some(ActionsFocus::Detail),
         );
@@ -164,7 +164,7 @@ mod tests {
             Box(width: 80u32, height: 1u32) {
                 KeybindBar(
                     action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen_mode: ScreenMode::Dashboard,
+                    screen: ScreenId::Dashboard,
                     terminal_focused: true,
                     shell_overlay_active: true,
                     shell_resume_available: false,
@@ -192,7 +192,7 @@ mod tests {
             Box(width: 180u32, height: 1u32) {
                 KeybindBar(
                     action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen_mode: ScreenMode::Dashboard,
+                    screen: ScreenId::Dashboard,
                     terminal_focused: false,
                     shell_overlay_active: false,
                     shell_resume_available: true,
@@ -220,7 +220,7 @@ mod tests {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
                     action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen_mode: ScreenMode::DashboardActions,
+                    screen: ScreenId::Actions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::RunList),
                     identity_label: "pid:1 abc".to_string(),
@@ -247,7 +247,7 @@ mod tests {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
                     action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen_mode: ScreenMode::DashboardActions,
+                    screen: ScreenId::Actions,
                     terminal_focused: false,
                     actions_focus: Some(ActionsFocus::Detail),
                     identity_label: "pid:1 abc".to_string(),
@@ -269,12 +269,12 @@ mod tests {
     #[test]
     fn keybind_bar_renders_identity_label_in_lower_right() {
         let identity = "pid:99999 deadbeef".to_string();
-        // Use a width wide enough for the hints + identity in any screen mode.
+        // Use a width wide enough for the hints + identity in any active screen.
         let mut element = element! {
             Box(width: 360u32, height: 1u32) {
                 KeybindBar(
                     action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen_mode: ScreenMode::Dashboard,
+                    screen: ScreenId::Dashboard,
                     terminal_focused: false,
                     actions_focus: None,
                     identity_label: identity.clone(),

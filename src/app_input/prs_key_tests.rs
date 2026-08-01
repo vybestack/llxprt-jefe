@@ -17,7 +17,7 @@ use jefe::domain::{AgentChooserEntry, AgentId, ChecksFilter, ReviewDecisionFilte
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{
-    AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenMode,
+    AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenId,
 };
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -32,7 +32,7 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 fn prs_base_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,

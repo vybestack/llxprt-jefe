@@ -5,6 +5,11 @@ use std::time::Instant;
 use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
 use crate::runtime::PreflightIssue;
 
+// Which screen is active is the workbench's vocabulary: identity is the stable
+// namespaced string that descriptors, persistence, and goldens agree on. State
+// re-exports it so consumers keep reaching for it through `crate::state`.
+pub use crate::workbench::ScreenId;
+
 // @plan PLAN-20260624-PR-MODE.P03
 #[path = "pr_types.rs"]
 mod pr_types;
@@ -298,26 +303,6 @@ pub enum ModalState {
     },
 }
 
-/// Screen mode variants.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ScreenMode {
-    #[default]
-    Dashboard,
-    Split,
-    /// @plan PLAN-20260329-ISSUES-MODE.P03
-    /// @requirement REQ-ISS-001
-    DashboardIssues,
-    /// @plan PLAN-20260624-PR-MODE.P03
-    /// @requirement REQ-PR-001
-    /// @pseudocode component-001 lines 66-76
-    DashboardPullRequests,
-    DashboardActions,
-    DashboardErrors,
-    /// Terminal Manager screen (issue #361 PR B). Lists every runtime
-    /// inventory shell and shows a throttled read-only preview.
-    DashboardTerminals,
-}
-
 /// Pane focus within a view.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaneFocus {
@@ -397,7 +382,7 @@ pub struct AppState {
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state
-    pub screen_mode: ScreenMode,
+    pub screen: ScreenId,
     pub pane_focus: PaneFocus,
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,

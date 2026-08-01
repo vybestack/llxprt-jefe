@@ -2,7 +2,7 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::state::{AppEvent, ComposerTarget, InlineState, IssueFocus, IssuesState, ScreenMode};
+use jefe::state::{AppEvent, ComposerTarget, InlineState, IssueFocus, IssuesState, ScreenId};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(KeyEventKind::Press, code)
@@ -16,7 +16,7 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 fn issues_state_with_inline(inline: InlineState) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,

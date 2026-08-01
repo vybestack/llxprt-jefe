@@ -7,7 +7,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
+use crate::state::{AppState, IssueFocus, PaneFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
@@ -439,7 +439,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen_mode: state.map_or(ScreenMode::DashboardIssues, |s| s.screen_mode),
+                screen: state.map_or(ScreenId::Issues, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,

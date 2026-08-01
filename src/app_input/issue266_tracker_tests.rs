@@ -23,7 +23,7 @@ use super::prs_dispatch::resolve_pr_gh_repo;
 use super::tests::{TestOptionExt, sample_agent};
 use super::tracker_resolver::resolve_tracker_for_repo;
 use jefe::domain::{AgentId, IssueDetail, IssueState, Repository, RepositoryId};
-use jefe::state::{AgentChooserState, AppState, IssuesState, ScreenMode};
+use jefe::state::{AgentChooserState, AppState, IssuesState, ScreenId};
 use std::path::PathBuf;
 
 fn tracker_target_or_panic(
@@ -224,7 +224,7 @@ fn issue_send_state(repo: Repository) -> AppState {
     };
 
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state,
         ..AppState::default()
     };

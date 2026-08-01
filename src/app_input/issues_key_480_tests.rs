@@ -15,7 +15,7 @@ use super::*;
 /// `resolve_new_issue_inline_key_event`.
 fn issues_state_with_new_issue_form(focus: NewIssueFormFocus) -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

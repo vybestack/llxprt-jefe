@@ -4,7 +4,7 @@ use crate::domain::{Issue, IssueComment, IssueDetail, IssueState, Repository, Re
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{
-    ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
+    ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenId,
 };
 
 use super::issues_test_fixtures::begin_issue_list_reload;
@@ -12,7 +12,7 @@ use crate::state::transition::TransitionExt;
 
 pub(super) fn dashboard_issues_state() -> AppState {
     AppState {
-        screen_mode: ScreenMode::DashboardIssues,
+        screen: ScreenId::Issues,
         ..AppState::default()
     }
 }
@@ -41,29 +41,29 @@ pub(super) fn make_test_issue(number: u64) -> Issue {
     }
 }
 
-/// P13 Test 14: ScreenMode::DashboardIssues is distinct from ScreenMode::Dashboard.
+/// P13 Test 14: ScreenId::Issues is distinct from ScreenId::Dashboard.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13
 /// @requirement REQ-ISS-002
 #[test]
 fn test_keybind_bar_issues_mode() {
     let dashboard_state = AppState::default();
-    assert_eq!(dashboard_state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(dashboard_state.screen, ScreenId::Dashboard);
 
     let issues_state = AppState::default()
         .apply(AppEvent::EnterIssuesMode)
         .committed_pure();
-    assert_eq!(issues_state.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(issues_state.screen, ScreenId::Issues);
 
     // Modes are distinguishable — keybind bar can branch on this
-    assert_ne!(dashboard_state.screen_mode, issues_state.screen_mode);
+    assert_ne!(dashboard_state.screen, issues_state.screen);
 
     // And exit returns to Dashboard
     let exited = issues_state
         .apply(AppEvent::ExitIssuesMode)
         .committed_pure();
-    assert_eq!(exited.screen_mode, ScreenMode::Dashboard);
-    assert_ne!(exited.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(exited.screen, ScreenId::Dashboard);
+    assert_ne!(exited.screen, ScreenId::Issues);
 }
 
 // =========================================================================
@@ -208,7 +208,7 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 
 /// P15 Test 1: Enter issues mode, load issues, select one, exit.
 /// Verifies: mode entered, issues loaded, mode exited, issues_state cleared,
-/// screen_mode back to Dashboard.
+/// screen back to Dashboard.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-001
@@ -216,7 +216,7 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 fn test_mode_lifecycle_enter_browse_exit() {
     // Enter issues mode
     let mut state = issues_mode_state_with_repo("repo-1");
-    assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(state.screen, ScreenId::Issues);
     assert!(state.issues_state.active);
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
@@ -243,7 +243,7 @@ fn test_mode_lifecycle_enter_browse_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
     assert!(!state.issues_state.active);
 }
 
@@ -305,7 +305,7 @@ fn test_mode_lifecycle_enter_interact_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.screen, ScreenId::Dashboard);
     assert!(!state.issues_state.active);
 }
 
@@ -397,7 +397,7 @@ fn test_key_routing_suppression_comprehensive() {
             state.issues_state.issue_focus, domain,
             "issues focus changed unexpectedly in domain {domain:?}"
         );
-        assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
+        assert_eq!(state.screen, ScreenId::Issues);
         assert!(state.issues_state.active);
     }
 
@@ -507,7 +507,7 @@ fn test_error_handling_auth_failure_blocks_ops() {
     assert!(err.contains("authentication") || err.contains("token"));
     // Mode remains active
     assert!(state.issues_state.active);
-    assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(state.screen, ScreenId::Issues);
     // List loading is cleared
     assert!(!state.issues_state.list_loading());
 }
@@ -539,7 +539,7 @@ fn test_error_handling_network_error_stable_mode() {
     assert_eq!(state.issues_state.issue_focus, focus_before);
     // Mode stable
     assert!(state.issues_state.active);
-    assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
+    assert_eq!(state.screen, ScreenId::Issues);
 }
 
 /// P15 Test 8: Load issues with has_more=true — has_more_issues flag set.

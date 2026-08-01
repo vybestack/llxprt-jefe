@@ -298,7 +298,7 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
 #[test]
 fn keybind_bar_lines_match_rendered_hints() {
     let state = AppState {
-        screen_mode: crate::state::ScreenMode::Dashboard,
+        screen: crate::state::ScreenId::Dashboard,
         action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
         ..AppState::default()
     };

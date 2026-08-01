@@ -8,17 +8,17 @@ use jefe::selection::{
     HighlightRange, PaneGeometry, SelectablePane, SelectionPoint, TextSelection,
     normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
 };
-use jefe::state::ScreenMode;
+use jefe::state::ScreenId;
 
-const DASHBOARD: ScreenMode = ScreenMode::Dashboard;
-const SPLIT: ScreenMode = ScreenMode::Split;
-const ISSUES: ScreenMode = ScreenMode::DashboardIssues;
-const PRS: ScreenMode = ScreenMode::DashboardPullRequests;
+const DASHBOARD: ScreenId = ScreenId::Dashboard;
+const SPLIT: ScreenId = ScreenId::Repositories;
+const ISSUES: ScreenId = ScreenId::Issues;
+const PRS: ScreenId = ScreenId::PullRequests;
 
 fn layout(
     cols: u16,
     rows: u16,
-    mode: ScreenMode,
+    mode: ScreenId,
     error_visible: bool,
     filter_open: bool,
 ) -> jefe::selection::ScreenLayout {
@@ -587,7 +587,7 @@ fn highlight_range_works_with_reversed_anchor_focus() {
 fn layout_with_overlay(
     cols: u16,
     rows: u16,
-    mode: ScreenMode,
+    mode: ScreenId,
     overlay: jefe::selection::OverlayPane,
 ) -> jefe::selection::ScreenLayout {
     jefe::selection::ScreenLayout::new(cols, rows, mode, false, false).with_overlay(overlay)

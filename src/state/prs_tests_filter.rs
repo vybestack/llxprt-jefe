@@ -8,12 +8,12 @@ use crate::domain::{PrFilter, PrFilterState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::ScreenMode;
+use crate::state::types::ScreenId;
 
 /// Helper: PR-mode state with filter controls open and a selected repo.
 fn prs_filter_open_state() -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

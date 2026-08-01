@@ -11,12 +11,12 @@ use crate::domain::{
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
-use crate::state::types::{PrDetailSubfocus, ScreenMode};
+use crate::state::types::{PrDetailSubfocus, ScreenId};
 
 /// Helper: PR-mode state with one repository selected at index 0.
 pub(super) fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
+        screen: ScreenId::PullRequests,
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

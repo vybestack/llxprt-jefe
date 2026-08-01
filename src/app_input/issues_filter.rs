@@ -301,7 +301,7 @@ mod tests {
     use super::*;
     use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
     use jefe::domain::{Issue, IssueState};
-    use jefe::state::{AppState, IssueFilterUiState, ScreenMode};
+    use jefe::state::{AppState, IssueFilterUiState, ScreenId};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(KeyEventKind::Press, code)
@@ -315,7 +315,7 @@ mod tests {
 
     fn filter_state() -> AppState {
         AppState {
-            screen_mode: ScreenMode::DashboardIssues,
+            screen: ScreenId::Issues,
             issues_state: jefe::state::IssuesState {
                 active: true,
                 filter_ui: IssueFilterUiState {

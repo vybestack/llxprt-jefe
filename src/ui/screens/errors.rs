@@ -8,7 +8,7 @@
 use iocraft::prelude::*;
 
 use crate::selection::SelectablePane;
-use crate::state::{AppState, ErrorsFocus, ScreenMode};
+use crate::state::{AppState, ErrorsFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::detail_pane::{DetailHeaderColor, DetailHeaderRow, DetailPaneProps};
@@ -249,7 +249,7 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen_mode: state.map_or(ScreenMode::DashboardErrors, |s| s.screen_mode),
+                screen: state.map_or(ScreenId::Errors, |s| s.screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,

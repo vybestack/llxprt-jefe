@@ -218,7 +218,7 @@ mod tests {
     use super::*;
     use jefe::domain::{IssueComment, PrCheckStatus, PrState, PullRequestDetail, Repository};
     use jefe::state::{
-        AppState, ComposerTarget, InlineState, PrDetailSubfocus, PullRequestsState, ScreenMode,
+        AppState, ComposerTarget, InlineState, PrDetailSubfocus, PullRequestsState, ScreenId,
     };
     use std::path::PathBuf;
 
@@ -288,7 +288,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let mut state = AppState {
-            screen_mode: ScreenMode::DashboardPullRequests,
+            screen: ScreenId::PullRequests,
             prs_state,
             ..AppState::default()
         };
@@ -345,7 +345,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let state = AppState {
-            screen_mode: ScreenMode::DashboardPullRequests,
+            screen: ScreenId::PullRequests,
             prs_state,
             ..AppState::default()
         };
@@ -379,7 +379,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let mut state = AppState {
-            screen_mode: ScreenMode::DashboardPullRequests,
+            screen: ScreenId::PullRequests,
             prs_state,
             ..AppState::default()
         };

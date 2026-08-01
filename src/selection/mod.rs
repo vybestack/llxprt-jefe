@@ -18,7 +18,7 @@
 //!   point. Both points always live in the *same* pane; selections never cross
 //!   pane boundaries.
 //! - [`PaneGeometry`] is the screen-space rectangle of one pane, computed by
-//!   [`pane_at`] from the active [`crate::state::ScreenMode`] and terminal size.
+//!   [`pane_at`] from the active [`crate::state::ScreenId`] and terminal size.
 //! - [`ScreenLayout`] carries the conditional band flags (error banner,
 //!   filter controls) that affect vertical row splits in Issues/PR mode.
 //!

@@ -4,7 +4,7 @@
 use super::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus,
     ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PrFocus, PriorAgentFocus,
-    ScreenMode,
+    ScreenId,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -52,7 +52,7 @@ impl AppState {
         // active in a list-mode render.
         self.terminal_focused = false;
         self.pane_focus = PaneFocus::Agents;
-        self.screen_mode = ScreenMode::DashboardIssues;
+        self.screen = ScreenId::Issues;
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
@@ -93,7 +93,7 @@ impl AppState {
 
     /// Exit issues mode, restoring prior focus state.
     fn exit_issues_mode(&mut self) {
-        self.screen_mode = ScreenMode::Dashboard;
+        self.screen = ScreenId::Dashboard;
         self.issues_state.active = false;
         if self.issues_state.inline_state != InlineState::None {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());

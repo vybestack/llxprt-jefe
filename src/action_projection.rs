@@ -18,7 +18,7 @@ use crate::domain::default_action_inventory::display::{
 };
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::{Chord, Key, Modifier, ModifierSet};
-use crate::state::{ActionsFocus, ScreenMode};
+use crate::state::{ActionsFocus, ScreenId};
 
 const UNAVAILABLE_PREFIX: &str = "Unavailable: ";
 
@@ -65,7 +65,7 @@ impl ProjectedAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FooterProjectionInput {
-    pub screen_mode: ScreenMode,
+    pub screen: ScreenId,
     pub terminal_focused: bool,
     pub shell_overlay_active: bool,
     pub shell_resume_available: bool,
@@ -321,7 +321,7 @@ pub fn project_footer(snapshot: &ActionRegistrySnapshot, input: FooterProjection
     } else if input.terminal_focused {
         sorted_hints(TERMINAL_FOCUSED_HINTS)
     } else {
-        footer_hints(footer_mode(input.screen_mode), input.actions_focus)
+        footer_hints(footer_mode(input.screen), input.actions_focus)
     };
     let mut parts = annotate_hints_with_status(
         snapshot,
@@ -329,20 +329,20 @@ pub fn project_footer(snapshot: &ActionRegistrySnapshot, input: FooterProjection
         input.shell_resume_available && !input.shell_overlay_active,
     );
     if !input.shell_overlay_active && !input.terminal_focused {
-        append_unlisted_unavailable_statuses(snapshot, input.screen_mode, &mut parts);
+        append_unlisted_unavailable_statuses(snapshot, input.screen, &mut parts);
     }
     parts.join(" | ")
 }
 
-fn footer_mode(screen_mode: ScreenMode) -> FooterMode {
-    match screen_mode {
-        ScreenMode::Dashboard => FooterMode::Dashboard,
-        ScreenMode::Split => FooterMode::Split,
-        ScreenMode::DashboardIssues => FooterMode::Issues,
-        ScreenMode::DashboardPullRequests => FooterMode::PullRequests,
-        ScreenMode::DashboardActions => FooterMode::Actions,
-        ScreenMode::DashboardErrors => FooterMode::Errors,
-        ScreenMode::DashboardTerminals => FooterMode::Terminals,
+fn footer_mode(screen: ScreenId) -> FooterMode {
+    match screen {
+        ScreenId::Dashboard => FooterMode::Dashboard,
+        ScreenId::Repositories => FooterMode::Split,
+        ScreenId::Issues => FooterMode::Issues,
+        ScreenId::PullRequests => FooterMode::PullRequests,
+        ScreenId::Actions => FooterMode::Actions,
+        ScreenId::Errors => FooterMode::Errors,
+        ScreenId::Terminals => FooterMode::Terminals,
     }
 }
 
@@ -403,10 +403,10 @@ fn render_footer_hint(
 
 fn append_unlisted_unavailable_statuses(
     snapshot: &ActionRegistrySnapshot,
-    screen_mode: ScreenMode,
+    screen: ScreenId,
     parts: &mut Vec<String>,
 ) {
-    let mode_contexts = footer_contexts(screen_mode);
+    let mode_contexts = footer_contexts(screen);
     let rows = project_action_rows(snapshot);
     for row in rows.iter().filter(|row| {
         row.reason().is_some()
@@ -430,15 +430,15 @@ fn footer_hints_for_mode(mode: FooterMode) -> &'static [FooterDisplayHint] {
         .map_or(&[], |group| group.hints)
 }
 
-fn footer_contexts(mode: ScreenMode) -> &'static [&'static str] {
+fn footer_contexts(mode: ScreenId) -> &'static [&'static str] {
     match mode {
-        ScreenMode::Dashboard => &["dashboard"],
-        ScreenMode::Split => &["split"],
-        ScreenMode::DashboardIssues => &["issues.list", "issues.detail"],
-        ScreenMode::DashboardPullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
-        ScreenMode::DashboardActions => &["actions"],
-        ScreenMode::DashboardErrors => &["errors"],
-        ScreenMode::DashboardTerminals => &["terminal-manager"],
+        ScreenId::Dashboard => &["dashboard"],
+        ScreenId::Repositories => &["split"],
+        ScreenId::Issues => &["issues.list", "issues.detail"],
+        ScreenId::PullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
+        ScreenId::Actions => &["actions"],
+        ScreenId::Errors => &["errors"],
+        ScreenId::Terminals => &["terminal-manager"],
     }
 }
 
@@ -469,7 +469,7 @@ mod tests {
     use crate::domain::effects::{Correlation, CorrelationId, EffectFamily, SemanticKey};
     use crate::domain::input_context::{ContextId, ContextStack};
     use crate::domain::keymap::Chord;
-    use crate::state::{ActionsFocus, ScreenMode};
+    use crate::state::{ActionsFocus, ScreenId};
 
     const REASON: &str = "This section is read-only";
     const STATUS: &str = "Unavailable: This section is read-only";
@@ -525,7 +525,7 @@ mod tests {
 
     fn pr_footer_input() -> FooterProjectionInput {
         FooterProjectionInput {
-            screen_mode: ScreenMode::DashboardPullRequests,
+            screen: ScreenId::PullRequests,
             terminal_focused: false,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -591,7 +591,7 @@ mod tests {
             project_footer(
                 &snapshot,
                 FooterProjectionInput {
-                    screen_mode: ScreenMode::Split,
+                    screen: ScreenId::Repositories,
                     terminal_focused: false,
                     shell_overlay_active: false,
                     shell_resume_available: false,
@@ -630,7 +630,7 @@ mod tests {
         let footer = project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen_mode: ScreenMode::Dashboard,
+                screen: ScreenId::Dashboard,
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,

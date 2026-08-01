@@ -6,7 +6,7 @@
 
 use jefe::domain::input_context::{ContextStack, ContextStackError};
 use jefe::input::InputMode;
-use jefe::state::{ActionsFocus, AppState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenMode};
+use jefe::state::{ActionsFocus, AppState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchScope {
@@ -38,28 +38,26 @@ pub fn derive_action_context(
         );
     }
     if let Some(modal) = modal_context(&state.modal) {
-        return modal_stack(state.screen_mode, modal);
+        return modal_stack(state.screen, modal);
     }
-    match state.screen_mode {
-        ScreenMode::Dashboard if input_mode == InputMode::DashboardSearch => action_context(
+    match state.screen {
+        ScreenId::Dashboard if input_mode == InputMode::DashboardSearch => action_context(
             &["dashboard.search", "dashboard.pre-mode", "global"],
             false,
             DispatchScope::FullS4,
         ),
-        ScreenMode::Dashboard if input_mode == InputMode::Normal => dashboard_context(state),
-        ScreenMode::Split if input_mode == InputMode::Normal => full_s3(&["split", "global"]),
-        ScreenMode::DashboardErrors if input_mode == InputMode::Normal => {
-            full_s3(&["errors", "global"])
-        }
-        ScreenMode::DashboardTerminals if input_mode == InputMode::Normal => {
+        ScreenId::Dashboard if input_mode == InputMode::Normal => dashboard_context(state),
+        ScreenId::Repositories if input_mode == InputMode::Normal => full_s3(&["split", "global"]),
+        ScreenId::Errors if input_mode == InputMode::Normal => full_s3(&["errors", "global"]),
+        ScreenId::Terminals if input_mode == InputMode::Normal => {
             full_s3(&["terminal-manager", "global"])
         }
-        ScreenMode::DashboardIssues => issues_context(state),
-        ScreenMode::DashboardPullRequests => prs_context(state),
-        ScreenMode::DashboardActions => actions_context(state),
-        ScreenMode::Dashboard => pre_mode(&["dashboard", "global"]),
-        ScreenMode::Split => pre_mode(&["split", "global"]),
-        ScreenMode::DashboardErrors | ScreenMode::DashboardTerminals => pre_mode(&["global"]),
+        ScreenId::Issues => issues_context(state),
+        ScreenId::PullRequests => prs_context(state),
+        ScreenId::Actions => actions_context(state),
+        ScreenId::Dashboard => pre_mode(&["dashboard", "global"]),
+        ScreenId::Repositories => pre_mode(&["split", "global"]),
+        ScreenId::Errors | ScreenId::Terminals => pre_mode(&["global"]),
     }
 }
 
@@ -91,10 +89,10 @@ fn modal_context(modal: &ModalState) -> Option<&'static str> {
     }
 }
 
-fn modal_stack(screen_mode: ScreenMode, modal: &str) -> Result<ActionContext, ContextStackError> {
+fn modal_stack(screen: ScreenId, modal: &str) -> Result<ActionContext, ContextStackError> {
     if matches!(
-        screen_mode,
-        ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
+        screen,
+        ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions
     ) {
         return action_context(
             &[modal, "dashboard.pre-mode", "global"],
