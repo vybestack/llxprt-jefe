@@ -823,7 +823,13 @@ fn resolve_pane(
     terminal_input_enabled: bool,
 ) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
     let layout = screen_layout_for(state, cols, rows);
-    pane_at(col, row, state.screen, terminal_input_enabled, &layout)
+    pane_at(
+        col,
+        row,
+        state.resolved_layout.as_ref(),
+        terminal_input_enabled,
+        &layout,
+    )
 }
 /// HelpModal title rows (title text + blank): not affected by scroll offset.
 const HELP_TITLE_ROWS: usize = 2;

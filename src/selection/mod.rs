@@ -30,11 +30,15 @@ mod dashboard_content;
 mod errors_content;
 mod form_content;
 pub(crate) mod generated_form_content;
-mod geometry;
+pub mod geometry;
 mod gesture;
 mod layout_descriptor;
 mod overlay_content;
 mod projection_context;
+mod resolved_panes;
+#[cfg(test)]
+#[path = "resolved_panes_tests.rs"]
+mod resolved_panes_tests;
 mod terminal_text;
 mod text;
 pub use content::{PaneContent, pane_content_lines, pane_content_lines_with_context};
@@ -43,6 +47,9 @@ pub use geometry::{PaneGeometry, pane_at};
 pub use gesture::{GestureAction, GestureEvent, GestureEventKind, GestureState, PtyReplay};
 pub use layout_descriptor::{OverlayPane, ScreenLayout};
 pub use projection_context::PaneContentContext;
+pub use resolved_panes::{
+    pane_at_resolved, pane_geometry, panel_to_selectable, selectable_to_panel,
+};
 pub use terminal_text::terminal_selection_text;
 pub use text::{
     HighlightRange, SelectablePane, SelectionPoint, TextSelection, normalize_selection,

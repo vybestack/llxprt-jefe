@@ -120,7 +120,7 @@ impl PaneGeometry {
 pub fn pane_at(
     col: u16,
     row: u16,
-    _screen: crate::state::ScreenId,
+    resolved: Option<&crate::workbench::ResolvedLayout>,
     terminal_input_enabled: bool,
     layout: &ScreenLayout,
 ) -> Option<(SelectablePane, PaneGeometry)> {
@@ -155,6 +155,15 @@ pub fn pane_at(
     }
     if row == render_rows.saturating_sub(1) {
         return Some(keybind_bar(render_cols, render_rows));
+    }
+
+    // The snapshot is the geometry authority: when the frame resolved one, the
+    // pane under a cell is whatever it says occupies that cell. The arithmetic
+    // below is the superseded mirror, kept only for callers that have no
+    // snapshot yet (the first frame, and unit tests that exercise the legacy
+    // path directly).
+    if let Some(resolved) = resolved {
+        return crate::selection::pane_at_resolved(col, row, resolved, terminal_input_enabled);
     }
 
     match layout.screen {
