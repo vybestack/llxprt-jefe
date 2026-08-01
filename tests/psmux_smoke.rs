@@ -6,6 +6,7 @@ use std::fs;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -781,11 +782,21 @@ fn namespace_or_panic(executable: PathBuf, label: &str, version: &str) -> PsmuxN
     }
 }
 
+/// Build a namespace unique across threads, processes, and clock ticks.
+///
+/// Uniqueness comes from the process id and a process-wide atomic counter.
+/// A timestamp alone is not sufficient: the Windows system clock has coarse
+/// resolution, so concurrent callers observe the same nanosecond value.
 fn unique_name(label: &str) -> String {
+    static NAMESPACE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let sequence = NAMESPACE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    format!("jefe-psmux-{label}-{}-{nanos:x}", std::process::id())
+    format!(
+        "jefe-psmux-{label}-{}-{nanos:x}-{sequence:x}",
+        std::process::id()
+    )
 }
 
 fn format_command(executable: &Path, namespace: &str, args: &[OsString]) -> String {
