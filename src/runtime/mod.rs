@@ -49,6 +49,8 @@ mod manager;
 mod manager_identity;
 mod manager_passthrough;
 mod multiplexer;
+mod multiplexer_conformance;
+mod multiplexer_conformance_io;
 mod multiplexer_contract;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
@@ -119,6 +121,11 @@ pub use multiplexer::{
     AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation,
     MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
 };
+pub use multiplexer_conformance::{
+    ConformanceFinding, ConformanceReport, ConformanceVerdict, ProbeOutcome, ProbePlan,
+    classify_contract_probe, probe_plan_for, summarize_conformance,
+};
+pub use multiplexer_conformance_io::qualify_multiplexer;
 pub use multiplexer_contract::{
     ContractCapability, ContractItem, ContractItemKind, ResponseShape, contract_item,
     contract_items,

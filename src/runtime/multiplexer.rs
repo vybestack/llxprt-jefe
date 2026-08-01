@@ -208,6 +208,18 @@ impl MultiplexerPlan {
         &self.executable
     }
 
+    /// Derive a plan for the same binary against different isolation.
+    ///
+    /// Contract conformance probing needs a namespace it owns outright, so that
+    /// verbs which would be destructive against live agents are exercised only
+    /// on sessions the prober created (issue #540).
+    pub fn with_isolation(
+        &self,
+        isolation: MultiplexerIsolation,
+    ) -> Result<Self, MultiplexerError> {
+        Self::for_platform(self.platform, self.executable.clone(), isolation)
+    }
+
     /// Return the platform-correct arguments prepended to every local command.
     #[must_use]
     pub fn base_args(&self) -> &[OsString] {
