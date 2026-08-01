@@ -9,9 +9,10 @@
 
 use jefe::runtime::{
     ConformanceVerdict, ContractItemKind, ProbeOutcome, ProbePlan, classify_contract_probe,
-    contract_item, contract_items, probe_plan_for, summarize_conformance,
+    contract_item, contract_items, probe_ordered_items, probe_plan_for, summarize_conformance,
 };
 
+const DISPOSABLE: &str = "jefe-conformance-disposable";
 const SCRATCH: &str = "jefe-conformance-scratch";
 
 fn probe(exit_code: i32, stdout: &str) -> ProbeOutcome {
@@ -171,20 +172,24 @@ fn a_build_violating_a_required_item_does_not_qualify() {
 }
 
 /// The runner owns a throwaway namespace, so every session-addressed probe must
-/// name that scratch session. A probe that omitted the target would be
-/// evaluated against whatever session the multiplexer considers current --
-/// which, in the caller's namespace, is a live agent.
+/// name a session the runner itself created. A probe that omitted the target
+/// would be evaluated against whatever session the multiplexer considers
+/// current -- which, in the caller's namespace, is a live agent.
+///
+/// Either runner-owned session is acceptable: the lifecycle verbs deliberately
+/// address the disposable one so that creating and destroying a session cannot
+/// disturb the standing session the other probes rely on.
 #[test]
-fn every_session_addressed_probe_names_the_scratch_session() {
+fn every_session_addressed_probe_names_a_runner_owned_session() {
     for item in contract_items() {
-        let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH) else {
+        let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH, DISPOSABLE) else {
             continue;
         };
         if let Some(index) = args.iter().position(|arg| arg == "-t") {
-            assert_eq!(
-                args.get(index + 1).map(String::as_str),
-                Some(SCRATCH),
-                "`{}` targets something other than the scratch session",
+            let target = args.get(index + 1).map(String::as_str);
+            assert!(
+                target == Some(SCRATCH) || target == Some(DISPOSABLE),
+                "`{}` targets {target:?}, which the runner does not own",
                 item.name,
             );
         }
@@ -198,7 +203,10 @@ fn attaching_is_not_probed_non_interactively() {
     let item = contract_item(ContractItemKind::Verb, "attach-session")
         .unwrap_or_else(|| panic!("attach-session must be declared"));
 
-    assert_eq!(probe_plan_for(item, SCRATCH), ProbePlan::RequiresTerminal);
+    assert_eq!(
+        probe_plan_for(item, SCRATCH, DISPOSABLE),
+        ProbePlan::RequiresTerminal
+    );
 }
 
 /// A format probe must ask for that format and nothing else, or a passing
@@ -208,9 +216,112 @@ fn a_format_probe_requests_exactly_that_format() {
     let item = contract_item(ContractItemKind::Format, "pane_pid")
         .unwrap_or_else(|| panic!("pane_pid must be declared"));
 
-    let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH) else {
+    let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH, DISPOSABLE) else {
         panic!("a format must be probed by command");
     };
 
     assert!(args.contains(&"#{pane_pid}".to_owned()), "got {args:?}");
+}
+
+// -- Probe safety against the runner's own environment (issue #540) --------
+
+/// `new-session` must not try to create the session the runner already brought
+/// up, or the very first probe fails with "duplicate session" and every later
+/// one inherits the wreckage.
+#[test]
+fn creating_a_session_does_not_collide_with_the_standing_one() {
+    let item = contract_item(ContractItemKind::Verb, "new-session")
+        .unwrap_or_else(|| panic!("new-session declared"));
+    let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH, DISPOSABLE) else {
+        panic!("new-session is probed by command");
+    };
+
+    assert!(args.contains(&DISPOSABLE.to_owned()), "{args:?}");
+    assert!(
+        !args.contains(&SCRATCH.to_owned()),
+        "probing new-session must not target the standing session: {args:?}"
+    );
+}
+
+/// `kill-session` must remove the disposable session, never the one the
+/// remaining probes still depend on.
+#[test]
+fn killing_a_session_spares_the_standing_one() {
+    let item = contract_item(ContractItemKind::Verb, "kill-session")
+        .unwrap_or_else(|| panic!("kill-session declared"));
+    let ProbePlan::Command { args } = probe_plan_for(item, SCRATCH, DISPOSABLE) else {
+        panic!("kill-session is probed by command");
+    };
+
+    assert!(args.contains(&DISPOSABLE.to_owned()), "{args:?}");
+    assert!(
+        !args.contains(&SCRATCH.to_owned()),
+        "probing kill-session must not destroy the standing session: {args:?}"
+    );
+}
+
+/// `kill-server` ends the namespace, so anything probed after it fails with
+/// "no server running". It must be last, and `kill-session` must follow the
+/// `new-session` whose session it removes.
+#[test]
+fn destructive_verbs_are_probed_after_everything_they_would_destroy() {
+    let order: Vec<&str> = probe_ordered_items().iter().map(|item| item.name).collect();
+
+    let position = |name: &str| {
+        order
+            .iter()
+            .position(|candidate| *candidate == name)
+            .unwrap_or_else(|| panic!("{name} is probed"))
+    };
+
+    assert_eq!(
+        position("kill-server"),
+        order.len() - 1,
+        "kill-server must be probed last: {order:?}"
+    );
+    assert!(
+        position("new-session") < position("kill-session"),
+        "kill-session must follow the new-session it removes: {order:?}"
+    );
+    assert!(
+        position("exit-empty") < position("kill-server"),
+        "every non-destructive item must be probed before the server dies: {order:?}"
+    );
+}
+
+/// A verb declared to produce no output is judged by its exit status. Demanding
+/// stdout from `kill-session` condemned every correct implementation.
+#[test]
+fn a_silent_verb_succeeds_on_exit_status_alone() {
+    let item = contract_item(ContractItemKind::Verb, "kill-session")
+        .unwrap_or_else(|| panic!("kill-session declared"));
+    let outcome = ProbeOutcome {
+        exit_code: Some(0),
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+
+    assert_eq!(
+        classify_contract_probe(item, &outcome),
+        ConformanceVerdict::Satisfied,
+        "a verb that declares no output must not be failed for producing none"
+    );
+}
+
+/// The same silence with a failing status is still a violation: the fix must
+/// not turn the check off.
+#[test]
+fn a_silent_verb_that_fails_is_still_violated() {
+    let item = contract_item(ContractItemKind::Verb, "kill-session")
+        .unwrap_or_else(|| panic!("kill-session declared"));
+    let outcome = ProbeOutcome {
+        exit_code: Some(1),
+        stdout: String::new(),
+        stderr: "no such session".to_owned(),
+    };
+
+    assert!(matches!(
+        classify_contract_probe(item, &outcome),
+        ConformanceVerdict::Violated { .. }
+    ));
 }

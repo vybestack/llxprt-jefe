@@ -2,16 +2,22 @@
 //! (issue #540).
 //!
 //! The runner owns a throwaway `-L` namespace for the duration of the check and
-//! destroys it afterwards. That isolation is what makes probing otherwise
-//! destructive verbs safe: `kill-session` and `kill-server` are exercised
-//! against sessions the runner created, never against the caller's agents.
+//! destroys it afterwards. That isolation keeps `kill-session` and `kill-server`
+//! away from the caller's agents.
+//!
+//! Isolation alone is not enough, and originally this module claimed it was.
+//! Those verbs are equally destructive to the run itself: `kill-server` ends the
+//! namespace every later probe depends on, and `new-session` collides with the
+//! session the runner has already brought up. Both are handled explicitly --
+//! lifecycle verbs address their own disposable session, and are probed last.
 
 use std::process::Stdio;
 
 use super::liveness::run_tmux_with_timeout;
 use super::multiplexer_conformance::{
     ConformanceReport, ConformanceVerdict, MultiplexerQualification, ProbeOutcome, ProbePlan,
-    classify_contract_probe, probe_plan_for, qualification_from_report, summarize_conformance,
+    classify_contract_probe, probe_ordered_items, probe_plan_for, qualification_from_report,
+    summarize_conformance,
 };
 use super::multiplexer_contract::{ContractItem, contract_items};
 use super::provenance::BinaryFingerprint;
@@ -20,15 +26,22 @@ use super::{MultiplexerIsolation, MultiplexerPlan};
 /// Session created inside the throwaway namespace for session-addressed probes.
 const SCRATCH_SESSION: &str = "jefe-conformance";
 
+/// The session the lifecycle verbs create and destroy.
+///
+/// Distinct from [`SCRATCH_SESSION`] so that probing `new-session` does not
+/// collide with the session the runner already brought up, and probing
+/// `kill-session` does not remove the one later probes still need.
+const DISPOSABLE_SESSION: &str = "jefe-conformance-disposable";
+
 /// Probe `plan`'s binary against the whole declared contract surface.
 ///
 /// `plan` must already address an isolated namespace reserved for this check;
 /// [`qualify_multiplexer`] is the entry point that arranges that.
 fn run_contract_probes(plan: &MultiplexerPlan) -> ConformanceReport {
-    let findings: Vec<(&'static ContractItem, ConformanceVerdict)> = contract_items()
-        .iter()
+    let findings: Vec<(&'static ContractItem, ConformanceVerdict)> = probe_ordered_items()
+        .into_iter()
         .map(|item| {
-            let verdict = match probe_plan_for(item, SCRATCH_SESSION) {
+            let verdict = match probe_plan_for(item, SCRATCH_SESSION, DISPOSABLE_SESSION) {
                 // Attaching needs a controlling terminal. Reporting it as
                 // satisfied would be a claim no probe supports, so it is
                 // recorded as unverified capability instead.
@@ -152,9 +165,15 @@ fn scratch_plan(plan: &MultiplexerPlan) -> Option<MultiplexerPlan> {
 /// Namespace name for the throwaway server.
 ///
 /// Includes this process's PID so two jefe processes qualifying at once cannot
-/// tear down each other's scratch server mid-probe.
+/// tear down each other's scratch server mid-probe, and a per-invocation
+/// counter so two qualifications *within* one process cannot either. The PID
+/// alone was not enough: the teardown of one run killed the server another was
+/// still probing, which reads as the binary failing rather than the runner
+/// colliding with itself.
 fn conformance_namespace() -> String {
-    format!("jefe-conformance-{}", std::process::id())
+    static INVOCATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let invocation = INVOCATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("jefe-conformance-{}-{invocation}", std::process::id())
 }
 
 /// Fingerprint the binary being qualified, so a later check can tell whether it

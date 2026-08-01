@@ -125,8 +125,8 @@ pub use multiplexer::{
 };
 pub use multiplexer_conformance::{
     ConformanceFinding, ConformanceReport, ConformanceVerdict, MultiplexerQualification,
-    ProbeOutcome, ProbePlan, classify_contract_probe, probe_plan_for, qualification_from_report,
-    summarize_conformance,
+    ProbeOutcome, ProbePlan, classify_contract_probe, probe_ordered_items, probe_plan_for,
+    probe_rank, qualification_from_report, summarize_conformance,
 };
 pub use multiplexer_conformance_io::{
     fingerprint_multiplexer, qualify_multiplexer, qualify_multiplexer_for_startup,

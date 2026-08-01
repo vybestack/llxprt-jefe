@@ -109,12 +109,21 @@ pub enum ProbePlan {
 
 /// Decide how to probe one item inside a throwaway namespace.
 ///
-/// Every returned command targets `scratch_session` explicitly. The runner
-/// creates and destroys its own namespace, so verbs that would be destructive
-/// against live agent state Ã¢â‚¬â€ `kill-session`, `kill-server`, `send-keys` Ã¢â‚¬â€ are
-/// safe here precisely because they never address the caller's namespace.
+/// Commands target `scratch_session`, the session the runner brings up and
+/// leaves standing for the duration of the check. The lifecycle verbs are the
+/// exception: `new-session` and `kill-session` address `disposable_session`
+/// instead, so creating one does not collide with the session already standing
+/// and destroying one does not pull the floor out from under later probes.
+///
+/// Namespace isolation keeps these verbs away from the caller's agents. It does
+/// not make them harmless to the run itself, which is a separate problem and
+/// was originally conflated with the first.
 #[must_use]
-pub fn probe_plan_for(item: &ContractItem, scratch_session: &str) -> ProbePlan {
+pub fn probe_plan_for(
+    item: &ContractItem,
+    scratch_session: &str,
+    disposable_session: &str,
+) -> ProbePlan {
     match item.kind {
         ContractItemKind::Format => ProbePlan::Command {
             args: vec![
@@ -132,11 +141,11 @@ pub fn probe_plan_for(item: &ContractItem, scratch_session: &str) -> ProbePlan {
                 item.name.to_owned(),
             ],
         },
-        ContractItemKind::Verb => verb_probe_plan(item.name, scratch_session),
+        ContractItemKind::Verb => verb_probe_plan(item.name, scratch_session, disposable_session),
     }
 }
 
-fn verb_probe_plan(name: &str, scratch_session: &str) -> ProbePlan {
+fn verb_probe_plan(name: &str, scratch_session: &str, disposable_session: &str) -> ProbePlan {
     let target = || vec!["-t".to_owned(), scratch_session.to_owned()];
     let with = |verb: &str, rest: Vec<String>| {
         let mut args = vec![verb.to_owned()];
@@ -183,15 +192,54 @@ fn verb_probe_plan(name: &str, scratch_session: &str) -> ProbePlan {
                 String::new(),
             ],
         ),
-        // Safe only because the runner owns this namespace outright.
-        "kill-session" => with("kill-session", target()),
+        // Kills the session `new-session` just made, never the one the rest of
+        // the probes depend on.
+        "kill-session" => with(
+            "kill-session",
+            vec!["-t".to_owned(), disposable_session.to_owned()],
+        ),
+        // Ends the namespace outright, so the runner probes it last.
         "kill-server" => with("kill-server", vec![]),
         "new-session" => with(
             "new-session",
-            vec!["-d".to_owned(), "-s".to_owned(), scratch_session.to_owned()],
+            vec![
+                "-d".to_owned(),
+                "-s".to_owned(),
+                disposable_session.to_owned(),
+            ],
         ),
         other => with(other, vec![]),
     }
+}
+
+/// When an item may be probed, relative to the others.
+///
+/// Probing is otherwise declaration-ordered. These verbs dismantle the very
+/// environment the remaining probes need, so running them in place made every
+/// later item fail with "no server running" and reported twenty violations for
+/// one ordering mistake.
+#[must_use]
+pub fn probe_rank(item: &ContractItem) -> u8 {
+    match item.name {
+        // Depends on the session `new-session` created.
+        "kill-session" => 1,
+        // Ends the namespace; nothing can be probed afterwards.
+        "kill-server" => 2,
+        _ => 0,
+    }
+}
+
+/// The contract surface in the order it is safe to probe.
+///
+/// A stable sort, so declaration order still governs everything that has no
+/// ordering constraint of its own.
+#[must_use]
+pub fn probe_ordered_items() -> Vec<&'static ContractItem> {
+    let mut items: Vec<&'static ContractItem> = super::multiplexer_contract::contract_items()
+        .iter()
+        .collect();
+    items.sort_by_key(|item| probe_rank(item));
+    items
 }
 
 /// Classify one probe against the item it was gathered for.
@@ -222,7 +270,28 @@ pub fn classify_contract_probe(item: &ContractItem, outcome: &ProbeOutcome) -> C
         // is a legitimate one. `has-session` returning non-zero means the
         // session is absent, not that the verb is unsupported.
         ResponseShape::ExitStatusOnly => ConformanceVerdict::Satisfied,
+        // A verb declared to produce no output is judged by whether it
+        // succeeded. Requiring stdout from `kill-session` or `new-window`
+        // condemns every correct implementation for behaving as declared.
+        ResponseShape::NoOutput => classify_silent(item, exit_code, outcome),
         _ => classify_output(item, exit_code, outcome),
+    }
+}
+
+fn classify_silent(
+    item: &ContractItem,
+    exit_code: i32,
+    outcome: &ProbeOutcome,
+) -> ConformanceVerdict {
+    if exit_code == 0 {
+        return ConformanceVerdict::Satisfied;
+    }
+    ConformanceVerdict::Violated {
+        detail: format!(
+            "probing `{}` exited {exit_code}: {}",
+            item.name,
+            describe_stderr(&outcome.stderr),
+        ),
     }
 }
 
