@@ -92,6 +92,11 @@ pub struct Issue {
     /// The GitHub-native close reason, if any (issue #204). `None` for open
     /// issues or closed issues whose reason is unknown/missing.
     pub state_reason: Option<IssueStateReason>,
+    /// PR numbers linked to this issue via `CROSS_REFERENCED_EVENT` timeline
+    /// items (issue #187). Empty when no linked PRs were returned (the legacy
+    /// `gh issue list` path cannot populate this). De-duplicated, first-seen
+    /// order.
+    pub linked_pr_numbers: Vec<u64>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

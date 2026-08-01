@@ -82,6 +82,7 @@ fn issue(n: u64) -> Issue {
         body: String::new(),
         state_reason: None,
         priority: None,
+        linked_pr_numbers: Vec::new(),
     }
 }
 

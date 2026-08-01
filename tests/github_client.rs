@@ -22,6 +22,8 @@ mod tests_actions_sort;
 mod tests_filters;
 #[path = "github_client/tests_issue_sort.rs"]
 mod tests_issue_sort;
+#[path = "github_client/tests_linked_prs.rs"]
+mod tests_linked_prs;
 #[path = "github_client/tests_pr.rs"]
 mod tests_pr;
 #[path = "github_client/tests_pr_detail.rs"]

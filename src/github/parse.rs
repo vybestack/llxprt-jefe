@@ -9,6 +9,7 @@
 
 use crate::domain::{Issue, IssueComment, IssueDetail, IssueState, IssueStateReason};
 use serde_json::Value;
+use std::collections::HashSet;
 
 use super::comment_pages::exhausted_comments;
 use super::issue_sort::{issue_priority_from_item, sort_issues};
@@ -154,6 +155,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
 
     let body = json_field_str(item, "body");
     let priority = issue_priority_from_item(item);
+    let linked_pr_numbers = parse_linked_pr_numbers(item);
 
     Ok(Issue {
         number,
@@ -174,7 +176,54 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         body,
         priority,
         state_reason,
+        linked_pr_numbers,
     })
+}
+
+/// Extract linked pull-request numbers from an issue node's `timelineItems`
+/// connection (issue #187).
+///
+/// GitHub surfaces linked PRs as `CROSS_REFERENCED_EVENT` timeline items whose
+/// `source` is a `PullRequest`. This walks `timelineItems.nodes`, keeps only
+/// events whose `source.__typename == "PullRequest"`, reads `source.number`,
+/// and de-duplicates while preserving first-seen order. A TOTAL function:
+/// missing/empty `timelineItems`, non-PR sources, and null `source` all yield
+/// an empty vec without panicking.
+fn parse_linked_pr_numbers(item: &Value) -> Vec<u64> {
+    let Some(nodes) = item
+        .get("timelineItems")
+        .and_then(|t| t.get("nodes"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+    for node in nodes {
+        let is_cross_ref = node
+            .get("__typename")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "CrossReferencedEvent");
+        if !is_cross_ref {
+            continue;
+        }
+        let Some(source) = node.get("source") else {
+            continue;
+        };
+        let is_pr = source
+            .get("__typename")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "PullRequest");
+        if !is_pr {
+            continue;
+        }
+        if let Some(number) = source.get("number").and_then(Value::as_u64)
+            && seen.insert(number)
+        {
+            result.push(number);
+        }
+    }
+    result
 }
 
 /// Read a top-level string field as `String`, defaulting to "".
@@ -542,4 +591,91 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
         edited_at: None,
         body,
     })
+}
+
+#[cfg(test)]
+mod linked_pr_parse_tests {
+    use super::parse_linked_pr_numbers;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_single_linked_pr_from_cross_referenced_event() {
+        let item = json!({
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "PullRequest", "number": 123}
+                    }
+                ]
+            }
+        });
+        assert_eq!(parse_linked_pr_numbers(&item), vec![123]);
+    }
+
+    #[test]
+    fn excludes_non_pull_request_cross_references() {
+        let item = json!({
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "PullRequest", "number": 7}
+                    },
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "Issue", "number": 99}
+                    }
+                ]
+            }
+        });
+        assert_eq!(parse_linked_pr_numbers(&item), vec![7]);
+    }
+
+    #[test]
+    fn deduplicates_repeated_pr_numbers_preserving_first_seen_order() {
+        let item = json!({
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "PullRequest", "number": 5}
+                    },
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "PullRequest", "number": 3}
+                    },
+                    {
+                        "__typename": "CrossReferencedEvent",
+                        "source": {"__typename": "PullRequest", "number": 5}
+                    }
+                ]
+            }
+        });
+        assert_eq!(parse_linked_pr_numbers(&item), vec![5, 3]);
+    }
+
+    #[test]
+    fn empty_when_timeline_items_absent() {
+        let item = json!({"number": 1});
+        assert!(parse_linked_pr_numbers(&item).is_empty());
+    }
+
+    #[test]
+    fn empty_when_nodes_empty() {
+        let item = json!({"timelineItems": {"nodes": []}});
+        assert!(parse_linked_pr_numbers(&item).is_empty());
+    }
+
+    #[test]
+    fn empty_when_source_is_null() {
+        let item = json!({
+            "timelineItems": {
+                "nodes": [
+                    {"__typename": "CrossReferencedEvent", "source": null}
+                ]
+            }
+        });
+        assert!(parse_linked_pr_numbers(&item).is_empty());
+    }
 }

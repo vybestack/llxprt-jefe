@@ -24,6 +24,7 @@ fn issue(number: u64, updated_at: &str) -> Issue {
         comment_count: 0,
         body: String::new(),
         priority: None,
+        linked_pr_numbers: Vec::new(),
         state_reason: None,
     }
 }

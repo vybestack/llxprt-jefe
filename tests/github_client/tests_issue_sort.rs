@@ -38,6 +38,7 @@ fn issue(number: u64, created_at: &str, updated_at: &str, priority: Option<&str>
         comment_count: 0,
         body: String::new(),
         priority: priority.map(str::to_string),
+        linked_pr_numbers: Vec::new(),
         state_reason: None,
     }
 }

@@ -19,6 +19,12 @@ const ISSUE_FIELDS_HEADER: &str = "GraphQL-Features: issue_fields";
 /// so parse_issue_from_item handles both uniformly. Includes `createdAt`
 /// (needed for the created-date sort) and `issueFieldValues` (needed for the
 /// priority sort) in addition to the pre-existing fields.
+///
+/// `timelineItems(first: 15, itemTypes: [CROSS_REFERENCED_EVENT])` (issue
+/// #187) bulk-fetches the linked-PR cross-references for every issue in the
+/// page — no per-issue round-trip. The bound of 15 keeps the list payload
+/// bounded; an issue referenced by more than 15 PRs still surfaces its first
+/// linked PRs (de-duplicated at parse time).
 fn issue_list_node_selection() -> &'static str {
     "id number title state stateReason author { login } createdAt updatedAt \
      assignees(first: 10) { nodes { login } } \
@@ -26,7 +32,9 @@ fn issue_list_node_selection() -> &'static str {
      issueType { name } milestone { title } comments { totalCount } \
      issueFieldValues(first: 10) { nodes { __typename \
        ... on IssueFieldSingleSelectValue { name \
-         field { ... on IssueFieldSingleSelect { name } } } } }"
+         field { ... on IssueFieldSingleSelect { name } } } } } \
+     timelineItems(first: 15, itemTypes: [CROSS_REFERENCED_EVENT]) { nodes { \
+       ... on CrossReferencedEvent { source { ... on PullRequest { number } } } } }"
 }
 
 /// Build the `gh issue list` CLI argument vector for the given repository and

@@ -38,6 +38,7 @@ pub(super) fn make_test_issue(number: u64) -> Issue {
         state_reason: None,
         created_at: String::new(),
         priority: None,
+        linked_pr_numbers: Vec::new(),
     }
 }
 
