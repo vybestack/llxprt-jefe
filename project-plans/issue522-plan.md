@@ -273,13 +273,23 @@ Two operational notes for anyone reproducing this:
 - The scenarios drive the New Agent form by a fixed number of `tab` steps, so
   adding or removing a form field invalidates them. The symptom is a timeout
   waiting for `> [Create enabled]` while the cursor rests on the last field.
-- Immediately after a dependency install or a full TypeScript rebuild, the
-  first native run can exceed the 30000 ms ceiling because the runtime
-  re-transpiles the whole workspace on that first start. This presents as
-  `Status: Stale` and clears once the cache is warm. It is a harness ceiling,
-  not a producer defect: the producer's registration was confirmed
-  independently against a raw listener on both the interactive and
-  non-interactive paths.
+- The native scenario is intermittent against the 30000 ms ceiling and has been
+  observed failing roughly half the time on this machine, including with warm
+  caches. The failure always presents the same way: `Status: Stale` with the
+  first todo already rendered, meaning registration and publication succeeded
+  and the run simply did not reach the committed reply inside the ceiling.
+
+  This was investigated rather than assumed. Real LLxprt reaches the committed
+  reply in about four seconds when run directly under a PTY, both with
+  observation disabled and with an unreachable broker configured, which also
+  confirms that a failing observation transport does not block the foreground
+  agent. Bisecting the producer commits did not isolate a breaking change: the
+  same commit both passes and fails across runs. The fixture scenario, which
+  removes the real agent from the loop, is stable.
+
+  Treat a single native failure as inconclusive and re-run. The scenario is not
+  part of continuous integration, so this does not gate the pull request, but
+  it should not be presented as a reliably green check either.
 
 
 ### Scope review
