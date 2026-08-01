@@ -15,24 +15,39 @@
 //!   stable [`ids::ScreenId`]s.
 
 pub mod allocate;
+pub mod compose;
 pub mod config;
 pub mod descriptor;
+pub mod diagnostics;
 pub mod geometry;
 pub mod ids;
 pub mod intern;
+pub mod lowering_error;
 pub mod migration;
+pub mod panel_types;
 pub mod relationship_propagation;
 pub mod relationships;
 pub mod resolve;
 pub mod screen_file;
 pub mod screen_file_bounds;
 pub mod screen_file_shape;
+pub mod screen_lowering;
+pub mod screen_lowering_layout;
+pub mod screen_lowering_values;
 pub mod screens;
 pub mod validate;
 
 #[cfg(test)]
 #[path = "screen_file_tests.rs"]
 mod screen_file_tests;
+
+#[cfg(test)]
+#[path = "compose_fixtures.rs"]
+mod compose_fixtures;
+
+#[cfg(test)]
+#[path = "compose_tests.rs"]
+mod compose_tests;
 
 #[cfg(test)]
 #[path = "relationship_fixtures.rs"]
@@ -118,11 +133,13 @@ pub fn screen_descriptor(id: ScreenId) -> Result<&'static ScreenDescriptor, Regi
 }
 
 pub use allocate::LayoutError;
+pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
 pub use config::panel_insets;
 pub use descriptor::{
     Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
     ScreenDescriptor, Size,
 };
+pub use diagnostics::{ScrCode, ScreenDiagnostic};
 pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
     CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
@@ -132,7 +149,9 @@ pub use ids::{
     ScreenInstanceId, VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
+pub use lowering_error::LoweringError;
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
+pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, resolve_panel_type};
 pub use relationship_propagation::{
     PortUpdate, PortValue, PropagationAbort, RelationshipState, RelationshipTransition,
     SourceIntent, propagate,
@@ -145,6 +164,9 @@ pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
 };
+pub use screen_file::{ScreenFile, parse_screen_file};
+pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
+pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_screen};
 pub use screens::{
     PTY_PANEL_TYPE, REPOSITORIES_PANEL, RegistryError, ScreenRegistry, builtin_screens,
 };
