@@ -85,14 +85,15 @@ fn atomic_install_leaves_no_partial_tree_after_failure_and_retries_cleanly() {
             .unwrap_or_else(|| panic!("managed candidate carries a package selection")),
     )
     .to_hex();
-    let orphaned = std::fs::read_dir(cache.path()).is_ok_and(|entries| {
-        entries.flatten().any(|entry| {
+    let orphaned = match std::fs::read_dir(cache.path()) {
+        Ok(entries) => entries.flatten().any(|entry| {
             entry
                 .file_name()
                 .to_string_lossy()
                 .starts_with(&format!(".{digest}.building-"))
-        })
-    });
+        }),
+        Err(error) => panic!("read cache dir: {error}"),
+    };
     assert!(
         !orphaned,
         "A3: a failed install cleans up its sibling building temp"
@@ -159,11 +160,12 @@ fn atomic_install_builds_in_a_sibling_temp_then_appears_complete() {
             .unwrap_or_else(|| panic!("managed candidate carries a package selection")),
     )
     .to_hex();
-    let leftover = std::fs::read_dir(cache.path()).is_ok_and(|entries| {
-        entries
+    let leftover = match std::fs::read_dir(cache.path()) {
+        Ok(entries) => entries
             .flatten()
-            .any(|entry| entry.file_name().to_string_lossy().starts_with(&format!(".{digest}.building-")))
-    });
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&format!(".{digest}.building-"))),
+        Err(error) => panic!("read cache dir: {error}"),
+    };
     assert!(
         !leftover,
         "A2: no sibling building temp remains after a successful swap"

@@ -26,7 +26,7 @@ impl LiveChild {
     fn pid(&self) -> u32 {
         self.0
             .as_ref()
-            .map_or_else(|| panic!("live child present"), std::process::Child::id)
+            .map_or_else(|| panic!("live child missing"), std::process::Child::id)
     }
 }
 
@@ -53,8 +53,15 @@ fn dead_pid() -> u32 {
 }
 
 fn plant_lock(dir: &TempDir, pid: u32) {
+    // Stamp the holder's real identity (pid + start discriminator) so the
+    // liveness classifier sees a live holder as alive and a dead/reused one as
+    // gone — matching how a real held lock is stamped by `link_exclusive`.
     let path = lock_path(dir);
-    let content = format!("{pid}\n0\n");
+    let identity = crate::runtime::process::capture_process_identity(pid)
+        .unwrap_or(crate::domain::ProcessIdentity { pid, started_at: None });
+    let started_line =
+        identity.started_at.map_or_else(String::new, |started| started.to_string());
+    let content = format!("{}\n{started_line}\n", identity.pid);
     std::fs::write(&path, content)
         .unwrap_or_else(|error| panic!("plant lock: {error}"));
 }
@@ -212,4 +219,28 @@ fn atomic_swap_replaces_a_stale_final_directory() {
         !final_dir.join("stale-artifact").exists(),
         "stale final content is fully replaced"
     );
+}
+
+/// A2: a leftover swap backup from a crashed previous swap, with no final tree,
+/// is restored before the next swap so a good cache is never lost to a crash.
+#[test]
+fn crashed_swap_restores_the_previous_tree() {
+    let dir = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let final_dir = dir.path().join("final");
+    let backup = super::swap_backup_path(&final_dir);
+    // Simulate a crashed previous swap: the last valid tree is parked in the
+    // backup and the final tree is gone.
+    std::fs::create_dir_all(&backup).unwrap_or_else(|error| panic!("mkdir backup: {error}"));
+    std::fs::write(backup.join(".jefe-installed"), "previous
+")
+        .unwrap_or_else(|error| panic!("previous marker: {error}"));
+
+    super::recover_crashed_swap(&final_dir, &backup)
+        .unwrap_or_else(|error| panic!("recover crashed swap: {error}"));
+
+    assert!(
+        final_dir.join(".jefe-installed").exists(),
+        "the previous valid tree is restored to the final path"
+    );
+    assert!(!backup.exists(), "the backup is consumed by the restore");
 }

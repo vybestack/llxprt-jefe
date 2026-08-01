@@ -403,7 +403,7 @@ fn install_dir_of(executable: &Path) -> &Path {
 fn witness_lines(install_dir: &Path) -> Vec<String> {
     let cache_root = install_dir
         .parent()
-        .unwrap_or_else(|| panic!("install dir has a cache-root parent: {}", install_dir.display()));
+        .unwrap_or_else(|| panic!("install dir is missing its cache-root parent: {}", install_dir.display()));
     let path = cache_root.join(".jefe-lock-witness");
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read install witness: {error}"))

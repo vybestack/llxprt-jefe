@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+#[cfg(windows)]
 use std::sync::Mutex;
 #[cfg(unix)]
 use std::time::Instant;
@@ -36,8 +37,6 @@ const INSTALL_MARKER: &str = ".jefe-installed";
 /// bounds staleness to about twelve hours without hitting the registry on every
 /// launch. Explicit (pinned) selectors are immutable and never expire.
 const VOLATILE_SELECTOR_TTL: Duration = Duration::from_secs(12 * 60 * 60);
-
-static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
 /// Local managed execution or remote structural execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,12 +396,6 @@ fn prepare_managed_npm(
     cache_root: &Path,
     now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
-    // The static guard remains the intra-process invariant; cross-process
-    // exclusion and the atomic install are layered on Unix (issue #556).
-    let _intra_process = match INSTALL_LOCK.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
     let install_dir = managed_install_dir(cache_root, selection);
     #[cfg(unix)]
     {
@@ -479,6 +472,14 @@ fn prepare_managed_npm_direct(
     install_dir: &Path,
     now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
+    // On Windows (the only non-Unix target) cross-process locking is tracked
+    // separately in the Windows sub-issue; the static guard preserves the
+    // existing intra-process invariant there until that lands (issue #556).
+    static INSTALL_LOCK: Mutex<()> = Mutex::new(());
+    let _intra_process = match INSTALL_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     let bin_dir = bin_dir_within(install_dir);
     let hit = cache_hit(install_dir, &bin_dir, selection, now);
     if !hit {
@@ -675,6 +676,7 @@ fn sweep_stale_build_dirs(cache_root: &Path, selection: &PackageSelection) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
+    tracing::debug!(target: "jefe::runtime::package_runtime", "swept stale build dirs for digest {}", digest_hex(selection));
 }
 
 #[derive(Serialize)]

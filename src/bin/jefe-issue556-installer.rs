@@ -52,6 +52,10 @@ fn run() -> Result<PathBuf, String> {
         vec![bin_dir],
         std::env::var_os("PATHEXT"),
     );
+    // The resolver takes a repository root used only to anchor non-package
+    // path candidates; this fixture resolves the shipped LLxprt *package*
+    // candidate, which derives its location from `bin_dir`, so the repository
+    // root is never consulted. `/repo` is an inert placeholder.
     let resolution = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
         .with_version_selector(selector)
         .resolve(&definition);

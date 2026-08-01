@@ -33,14 +33,21 @@ fn write_executable(path: &Path, bytes: &[u8]) {
         .unwrap_or_else(|error| panic!("chmod {}: {error}", path.display()));
 }
 
-/// A counting npm stub that sleeps briefly to guarantee two concurrent
-/// installers overlap, then materializes the managed binary. Each invocation
-/// appends a witness line to the cache root (the temp build dir's parent,
-/// surviving the atomic rebuild), so a single line proves the install ran once.
+/// A counting npm stub that uses a deterministic barrier instead of a fixed
+/// sleep: once it holds the install lock it records its witness line, signals
+/// `.jefe-lock-started`, then blocks on `.jefe-lock-release` before finishing.
+/// This lets the test guarantee two installers overlap (the second is spawned
+/// only after the first has the lock and is mid-install) without timing
+/// assumptions. Each invocation appends exactly one witness line at the shared
+/// cache root (the temp build dir's parent), surviving the atomic rebuild.
 const COUNTING_NPM: &str = "#!/bin/sh
 set -e
-echo install >> ../.jefe-lock-witness
-sleep 0.3
+cache=\"${JEFE_ISSUE556_CACHE:?cache root required}\"
+echo install >> \"$cache/.jefe-lock-witness\"
+touch \"$cache/.jefe-lock-started\"
+while [ ! -f \"$cache/.jefe-lock-release\" ]; do
+    sleep 0.02
+done
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt
 chmod 755 node_modules/.bin/llxprt
@@ -58,9 +65,17 @@ fn two_concurrent_installers_serialize_to_one_install() {
     fs::create_dir_all(&cache).unwrap_or_else(|error| panic!("mkdir cache: {error}"));
     write_executable(&bin_dir.join("npm"), COUNTING_NPM.as_bytes());
 
-    // Start both installers before waiting on either so they genuinely contend.
+    // Start the first installer; it acquires the lock and enters the npm stub,
+    // which records its witness line and blocks on the release marker. Wait for
+    // that started signal so the second installer is guaranteed to contend
+    // against a held lock rather than race on process startup.
     let first = spawn_installer(&cache, &bin_dir, "2.0.0");
+    wait_for_marker(&cache.join(".jefe-lock-started"));
     let second = spawn_installer(&cache, &bin_dir, "2.0.0");
+
+    // Release the held install: the first installer finishes, releases the
+    // lock, and the second installer observes a complete cache hit.
+    touch(&cache.join(".jefe-lock-release"));
 
     let first_output = first
         .wait_with_output()
@@ -94,6 +109,23 @@ fn two_concurrent_installers_serialize_to_one_install() {
         installs, 1,
         "exactly one of the two concurrent installers performs the install (got {witness:?})"
     );
+}
+
+/// Poll until `marker` exists, failing loudly after a bounded deadline so a
+/// misconfigured barrier surfaces immediately instead of hanging the test.
+fn wait_for_marker(marker: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if marker.exists() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("barrier marker never appeared: {}", marker.display());
+}
+
+fn touch(path: &Path) {
+    fs::write(path, b"").unwrap_or_else(|error| panic!("touch {}: {error}", path.display()));
 }
 
 fn stdout_path(stdout: &[u8], which: &str) -> String {
