@@ -49,6 +49,7 @@ mod manager;
 mod manager_identity;
 mod manager_passthrough;
 mod multiplexer;
+mod multiplexer_contract;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
@@ -117,6 +118,10 @@ pub use manager::{
 pub use multiplexer::{
     AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation,
     MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
+};
+pub use multiplexer_contract::{
+    ContractCapability, ContractItem, ContractItemKind, ResponseShape, contract_item,
+    contract_items,
 };
 pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 /// Descendant-process observation and validated orphan-tree reaping (issue #332).
