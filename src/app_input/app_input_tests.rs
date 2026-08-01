@@ -1,3 +1,4 @@
+use super::agent_runtime::BoundIdentities;
 use super::durable_save_request;
 use super::prs_orchestration::pr_send_info_from_state;
 use super::*;
@@ -101,8 +102,7 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         &agent_id,
         String::from("jefe-agent-1"),
         signature.clone(),
-        None,
-        None,
+        BoundIdentities::default(),
     );
 
     let binding = state
@@ -116,24 +116,32 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         assert_eq!(binding.session_name, String::from("jefe-agent-1"));
         assert_eq!(binding.launch_signature, signature);
         assert!(!binding.attached);
-        assert!(binding.pid.is_none());
+        assert!(binding.pane_identity.is_none());
+        assert!(binding.worker_identity.is_none());
     }
 }
 
 #[test]
-fn set_agent_runtime_binding_persists_pid() {
+fn set_agent_runtime_binding_persists_each_identity_in_its_own_role() {
     let agent_id = AgentId(String::from("agent-pid"));
     let mut state = AppState::default();
     state.agents.push(sample_agent(&agent_id));
 
+    // A Windows-shaped topology: the pane leader is the session host and the
+    // worker is a different process below it (issue #543).
+    let pane = jefe::domain::PaneProcessIdentity::new(12345, 67890);
+    let worker = jefe::domain::WorkerProcessIdentity::new(23456, 78901);
     let signature = sample_launch_signature();
     set_agent_runtime_binding(
         &mut state,
         &agent_id,
         String::from("jefe-agent-pid"),
         signature.clone(),
-        Some(12345),
-        Some(jefe::domain::ProcessIdentity::new(12345, 67890)),
+        BoundIdentities {
+            pane: Some(pane),
+            worker: Some(worker),
+            worker_identities: vec![worker],
+        },
     );
 
     let binding = state
@@ -142,13 +150,27 @@ fn set_agent_runtime_binding_persists_pid() {
         .find(|agent| agent.id == agent_id)
         .and_then(|agent| agent.runtime_binding.as_ref());
 
-    assert!(binding.is_some());
-    if let Some(binding) = binding {
-        assert_eq!(binding.session_name, String::from("jefe-agent-pid"));
-        assert_eq!(binding.launch_signature, signature);
-        assert!(!binding.attached);
-        assert_eq!(binding.pid, Some(12345));
-    }
+    let Some(binding) = binding else {
+        panic!("a launched agent must carry a runtime binding");
+    };
+    assert_eq!(binding.session_name, String::from("jefe-agent-pid"));
+    assert_eq!(binding.launch_signature, signature);
+    assert!(!binding.attached);
+    assert_eq!(
+        binding.pane_identity,
+        Some(pane),
+        "the pane leader must be persisted as the pane identity"
+    );
+    assert_eq!(
+        binding.worker_identity,
+        Some(worker),
+        "the agent process must be persisted as the worker identity, not the pane's"
+    );
+    assert_eq!(
+        binding.worker_identities,
+        vec![worker],
+        "the orphan-reaper anchors must survive persistence rather than being reset"
+    );
 }
 
 #[test]
@@ -162,8 +184,8 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_launch_signature(),
         attached: false,
         last_seen: None,
-        process_identity: None,
-        pid: None,
+        pane_identity: None,
+        worker_identity: None,
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });
@@ -174,8 +196,8 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
-        process_identity: None,
-        pid: None,
+        pane_identity: None,
+        worker_identity: None,
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });
@@ -211,8 +233,8 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         launch_signature: sample_launch_signature(),
         attached: true,
         last_seen: None,
-        process_identity: None,
-        pid: None,
+        pane_identity: None,
+        worker_identity: None,
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });

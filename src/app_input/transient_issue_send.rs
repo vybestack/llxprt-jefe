@@ -342,16 +342,10 @@ fn launch_transient_issue_agent(
     let launched =
         spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched_ok = launched.is_ok();
-    let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched_ok);
+    let identities = super::process_on_success(ctx, &agent_id, launched_ok);
     if launched_ok {
         let mut state = app_state.write();
-        persist_issue_agent_launch_success(
-            &mut state,
-            &agent_id,
-            launch_sig,
-            pid,
-            process_identity,
-        );
+        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, identities);
         let persisted = durable_save_request(&mut state);
         drop(state);
         schedule_durable_save(ctx, persisted);

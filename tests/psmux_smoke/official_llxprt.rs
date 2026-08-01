@@ -44,6 +44,30 @@ fn prepare_official_llxprt_fixture() -> OfficialLlxprtFixture {
     }
 }
 
+/// Build the pane command the production Windows path would build for the
+/// official LLxprt layout.
+fn official_pane_command(
+    plan: &MultiplexerPlan,
+    runtime: &Path,
+    script_args: &[OsString],
+    cwd: &Path,
+) -> Vec<OsString> {
+    plan.agent_pane_command_args_with_launcher(
+        &jefe::runtime::AgentPaneLaunch {
+            executable: (
+                runtime,
+                jefe::agent_candidate_path::AgentWrapperKind::Direct,
+            ),
+            args: script_args,
+            environment: &[],
+            cwd,
+            worker_report: None,
+        },
+        Path::new(JEFE),
+    )
+    .unwrap_or_else(|error| panic!("build official pane command: {error}"))
+}
+
 #[test]
 fn psmux_official_llxprt_launch_bypasses_cmd_and_delivers_full_prompt() {
     let Some((executable, version_text)) = qualified_psmux() else {
@@ -69,18 +93,12 @@ fn psmux_official_llxprt_launch_bypasses_cmd_and_delivers_full_prompt() {
     };
     let mut script_args = vec![script.entrypoint().as_os_str().to_owned()];
     script_args.extend(launch_args);
-    let pane = plan
-        .agent_pane_command_args_with_launcher(
-            (
-                script.runtime(),
-                jefe::agent_candidate_path::AgentWrapperKind::Direct,
-            ),
-            &script_args,
-            &[],
-            Path::new(JEFE),
-            fixture.work_dir.path(),
-        )
-        .unwrap_or_else(|error| panic!("build official pane command: {error}"));
+    let pane = official_pane_command(
+        &plan,
+        script.runtime(),
+        &script_args,
+        fixture.work_dir.path(),
+    );
     let mut command = vec![
         OsString::from("new-session"),
         OsString::from("-d"),

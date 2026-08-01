@@ -200,8 +200,8 @@ fn typed_kill_agent_clears_runtime_binding() {
         launch_signature: jefe::domain::LaunchSignatureV1::default(),
         attached: true,
         last_seen: None,
-        process_identity: None,
-        pid: None,
+        pane_identity: None,
+        worker_identity: None,
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });

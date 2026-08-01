@@ -2,14 +2,14 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentId, AgentStatus, ProcessIdentity};
+use jefe::domain::{AgentId, AgentStatus};
 use jefe::runtime::launch_compose::PreparedLaunch;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
 use tracing::warn;
 
 use super::agent_runtime::{
-    clear_agent_runtime_attachment, mark_agent_runtime_attached,
+    BoundIdentities, clear_agent_runtime_attachment, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
 };
 use super::{
@@ -20,8 +20,7 @@ use super::{
 pub(super) struct ServerLostRecoveryOutcome {
     pub agent_id: AgentId,
     pub result: Result<(), RuntimeError>,
-    pub pid: Option<u32>,
-    pub process_identity: Option<ProcessIdentity>,
+    pub identities: BoundIdentities,
 }
 
 pub(super) fn dispatch_relaunch_agent(
@@ -177,7 +176,7 @@ pub(super) fn attach_relaunched_session<R: RuntimeManager>(
 /// identity list, or one where no anchor is validated-alive, returns `false`.
 pub(super) fn relaunch_blocked_by_orphan(
     agent_id: &AgentId,
-    worker_identities: &[jefe::domain::ProcessIdentity],
+    worker_identities: &[jefe::domain::WorkerProcessIdentity],
 ) -> bool {
     use jefe::runtime::{descendant_still_matches_anchor, reap_orphan_tree};
     if worker_identities.is_empty() {
@@ -228,12 +227,11 @@ pub(super) fn dispatch_server_lost_recovery(
         if let Err(error) = &result {
             warn!(agent_id = %agent_id.0, error = %error, "psmux server-loss recovery failed");
         }
-        let (pid, process_identity) = process_on_success(ctx, &agent_id, result.is_ok());
+        let identities = process_on_success(ctx, &agent_id, result.is_ok());
         outcomes.push(ServerLostRecoveryOutcome {
             agent_id,
             result,
-            pid,
-            process_identity,
+            identities,
         });
     }
     persist_server_lost_recovery(app_state, ctx, outcomes);
@@ -314,8 +312,7 @@ pub(super) fn apply_server_lost_recovery_outcomes(
                 state,
                 &outcome.agent_id,
                 AppEvent::RelaunchAgent(outcome.agent_id.clone()),
-                outcome.pid,
-                outcome.process_identity,
+                outcome.identities,
             );
             successes = successes.saturating_add(1);
         } else {
@@ -358,11 +355,11 @@ fn persist_relaunch_result(
     result: Result<(), RuntimeError>,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    let (pid, process_identity) = process_on_success(ctx, &agent_id, result.is_ok());
+    let identities = process_on_success(ctx, &agent_id, result.is_ok());
     let mut state = app_state.write();
     match result {
         Ok(()) => {
-            persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid, process_identity);
+            persist_relaunch_success(&mut state, &agent_id, relaunch_event, identities);
         }
         Err(error) => persist_relaunch_failure(&mut state, &agent_id, relaunch_event, &error),
     }
@@ -375,8 +372,7 @@ fn persist_relaunch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     relaunch_event: AppEvent,
-    pid: Option<u32>,
-    process_identity: Option<ProcessIdentity>,
+    identities: BoundIdentities,
 ) {
     let agent_sig = agent_and_signature(state, agent_id);
     if let Some((agent, signature)) = agent_sig {
@@ -386,8 +382,7 @@ fn persist_relaunch_success(
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
             jefe::runtime::launch_compose::launch_signature_from_request(&signature)
                 .unwrap_or_default(),
-            pid,
-            process_identity,
+            identities,
         );
     }
     jefe::state::transition::commit_pure_site(state, (relaunch_event).into());

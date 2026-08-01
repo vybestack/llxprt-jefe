@@ -373,6 +373,16 @@ fn agent_record(
             session_id,
             invocation_generation,
             last_known: last_known_runtime(agent.status),
+            // Persist each role from its own slot so a restore never has to
+            // infer one identity from the other (issue #543).
+            pane_identity: agent
+                .runtime_binding
+                .as_ref()
+                .and_then(|binding| binding.pane_identity),
+            worker_identity: agent
+                .runtime_binding
+                .as_ref()
+                .and_then(|binding| binding.worker_identity),
         },
     })
 }

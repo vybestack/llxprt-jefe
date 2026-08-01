@@ -3,8 +3,8 @@
 use super::*;
 use crate::domain::canonical_values::{insert_json, typed_field};
 use crate::domain::{
-    Agent, AgentId, AgentStatus, AgentTypeId, LaunchSignatureV1, ProcessIdentity, Repository,
-    RepositoryId, RuntimeBinding, TypedValue,
+    Agent, AgentId, AgentStatus, AgentTypeId, LaunchSignatureV1, PaneProcessIdentity, Repository,
+    RepositoryId, RuntimeBinding, TypedValue, WorkerProcessIdentity,
 };
 
 fn set_string(agent: &mut Agent, field: &str, value: &str) {
@@ -57,10 +57,13 @@ fn bound_runtime_agent(repository_id: &RepositoryId, index: u32, type_id: AgentT
         launch_signature: LaunchSignatureV1::default(),
         attached: index == 0,
         last_seen: Some(1_000 + u64::from(index)),
-        pid: Some(10_000 + index),
-        process_identity: Some(ProcessIdentity::new(
+        pane_identity: Some(PaneProcessIdentity::new(
             10_000 + index,
             90_000 + u64::from(index),
+        )),
+        worker_identity: Some(WorkerProcessIdentity::new(
+            20_000 + index,
+            95_000 + u64::from(index),
         )),
         lifecycle_generation: 0,
         worker_identities: Vec::new(),

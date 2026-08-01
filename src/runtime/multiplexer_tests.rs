@@ -340,11 +340,14 @@ fn windows_agent_pane_command_uses_staged_session_host_when_provided() {
         PathBuf::from("C:/State/session-hosts/jefe-agent-1/<digest>/jefe-session-host.exe");
     let pane = plan
         .agent_pane_command_args_with_staged_host(
-            (executable.path(), executable.wrapper_kind()),
+            &crate::runtime::AgentPaneLaunch {
+                executable: (executable.path(), executable.wrapper_kind()),
+                args: &[OsString::from("--profile"), OsString::from("default")],
+                environment: &[(OsString::from("LLXPRT_DEBUG"), OsString::from("api"))],
+                cwd: Path::new("C:/Repos/my-agent"),
+                worker_report: None,
+            },
             &staged_host,
-            &[OsString::from("--profile"), OsString::from("default")],
-            &[(OsString::from("LLXPRT_DEBUG"), OsString::from("api"))],
-            Path::new("C:/Repos/my-agent"),
         )
         .unwrap_or_else(|error| panic!("staged pane command should build: {error}"));
     assert_eq!(pane.len(), 1);
@@ -369,11 +372,14 @@ fn unix_agent_pane_command_has_no_staged_host_path() {
     let (_directory, executable) = resolved_fixture(AgentExecutablePlatform::Unix);
     let staged = PathBuf::from("/state/session-hosts/jefe-agent/host/jefe-session-host.exe");
     let result = plan.agent_pane_command_args_with_staged_host(
-        (executable.path(), executable.wrapper_kind()),
+        &crate::runtime::AgentPaneLaunch {
+            executable: (executable.path(), executable.wrapper_kind()),
+            args: &[OsString::from("--profile")],
+            environment: &[],
+            cwd: Path::new("/repos/my-agent"),
+            worker_report: None,
+        },
         &staged,
-        &[OsString::from("--profile")],
-        &[],
-        Path::new("/repos/my-agent"),
     );
     assert!(
         matches!(result, Err(MultiplexerError::InvalidIsolation { .. })),

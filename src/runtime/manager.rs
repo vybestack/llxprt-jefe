@@ -10,7 +10,10 @@ use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::agent_definition::AgentLaunchPlan;
-use crate::domain::{AgentId, AgentLaunchRequest, RemoteRepositorySettings};
+use crate::domain::{
+    AgentId, AgentLaunchRequest, PaneProcessIdentity, PaneWorkerTopology, RemoteRepositorySettings,
+    WorkerProcessIdentity, worker_identity_from_pane,
+};
 use crate::runtime::agent_preflight::{AuthorizedLaunchPlan, ProcessSandboxInspector};
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
@@ -99,6 +102,13 @@ pub struct LivenessCheck {
     /// spawn/relaunch/kill/rebind. A mismatch means the agent was
     /// restarted/rebound after the liveness check was dispatched.
     pub lifecycle_generation: u64,
+    /// PID-reuse-safe anchors for the agent's worker processes (issue #543).
+    ///
+    /// A dead pane does not imply a dead worker: where the pane leader is the
+    /// session host rather than the agent, the worker can outlive the pane.
+    /// These anchors let the liveness pass say which of the two actually
+    /// happened instead of assuming they are the same event.
+    pub worker_identities: Vec<WorkerProcessIdentity>,
 }
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -389,6 +399,7 @@ impl TmuxRuntimeManager {
                 remote: session.remote.clone(),
                 binding_session_name: Some(session.session_name.clone()),
                 lifecycle_generation: session.lifecycle_generation,
+                worker_identities: session.worker_identities.clone(),
             })
             .collect()
     }
@@ -465,27 +476,6 @@ impl TmuxRuntimeManager {
         let session = self.sessions.get_mut(agent_id)?;
         session.lifecycle_generation = new_gen;
         Some(session.lifecycle_generation)
-    }
-
-    /// Return the stored worker PID (`llxprt` OS process) for an agent, if known.
-    ///
-    /// Bridges the runtime layer to the app/domain layer for the PID-based
-    /// liveness fallback. Returns `None` for untracked agents or sessions whose
-    /// PID was never captured (e.g. remote sessions, or pre-restored entries).
-    #[must_use]
-    pub fn worker_pid(&self, agent_id: &AgentId) -> Option<u32> {
-        self.sessions.get(agent_id).and_then(|s| s.pid)
-    }
-
-    /// Return the stable worker process identity for restart reconciliation.
-    #[must_use]
-    pub fn worker_process_identity(
-        &self,
-        agent_id: &AgentId,
-    ) -> Option<crate::domain::ProcessIdentity> {
-        self.sessions
-            .get(agent_id)
-            .and_then(|session| session.process_identity)
     }
 
     fn kill_before_fresh_spawn(
@@ -603,20 +593,22 @@ impl TmuxRuntimeManager {
             self.ensure_prefix_passthrough(&session_name);
         }
 
-        // Capture the worker PID for the PID-liveness fallback. `pane_pid`
-        // only returns the worker PID when the worker runs as the pane's
-        // *direct* command — jefe launches `llxprt` directly (no shell/wrapper
-        // in the pane), so the pane PID *is* the worker PID. It is
-        // local-only, so it is not queried for remote sessions. Captured for
-        // both the reattach and create branches so creation and revival stay
-        // symmetric.
+        // Capture the *pane leader* PID. `#{pane_pid}` reports whatever process
+        // the multiplexer put at the head of the pane, which is not the agent on
+        // every platform:
         //
-        // On the reattach path this is best-effort but valid: reattach only
-        // occurs after `check_session_alive` confirmed a non-dead pane, which
-        // means the pane's direct command (the llxprt worker) is still
-        // running, so `#{pane_pid}` is the worker PID. We capture it here so
-        // it persists into RuntimeBinding for the PID-liveness fallback.
-        let captured_pid = if remote.is_some() {
+        //   * Unix  — jefe launches the agent as the pane's direct command, so
+        //             the pane leader and the worker are the same process.
+        //   * Windows — the pane runs `pwsh`, which runs the session host, which
+        //             spawns the agent (issue #467). The pane leader is then two
+        //             hops above the worker.
+        //
+        // `PaneWorkerTopology` decides which of those holds; the worker identity
+        // is only derived from the pane where the platform actually guarantees
+        // it. Pane PID is local-only, so it is not queried for remote sessions.
+        // Captured on both the reattach and create branches so creation and
+        // revival stay symmetric (issue #543).
+        let captured_pane_pid = if remote.is_some() {
             None
         } else {
             commands::pane_pid(&session_name)
@@ -631,12 +623,18 @@ impl TmuxRuntimeManager {
             plan.clone(),
             remote.cloned(),
         );
-        session.pid = captured_pid;
-        session.process_identity =
-            captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
+        let pane_identity = captured_pane_pid
+            .and_then(|pid| super::process::capture_process_identity(pid).ok())
+            .map(PaneProcessIdentity::from_identity);
+        session.pane_identity = pane_identity;
+        // Only platforms where the pane leader *is* the agent may promote the
+        // pane identity to the worker role. Elsewhere the worker identity stays
+        // unknown until the session host reports it (issue #543).
+        session.worker_identity = pane_identity
+            .and_then(|pane| worker_identity_from_pane(PaneWorkerTopology::current(), pane));
         // Best-effort launch-tree enumeration so a dead-launcher orphan can be
         // reaped PID-reuse-safely later (issue #332).
-        session.worker_identities = super::orphan::capture_worker_identities(captured_pid);
+        session.worker_identities = super::orphan::capture_worker_identities(captured_pane_pid);
         session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 

@@ -28,6 +28,12 @@ struct AgentLaunchPayload {
     /// Serializes losslessly so paths with spaces and non-ASCII survive the
     /// private pane-host transport; a payload missing this field is malformed.
     cwd: PathBuf,
+    /// Where this host records the identity of the worker it spawns, so jefe
+    /// can tell the agent apart from the pane leader above it (issue #543).
+    /// Absent on platforms where the pane leader *is* the agent, and on plans
+    /// written before the report existed.
+    #[serde(default)]
+    worker_report: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,6 +66,7 @@ pub fn write_launch_plan(
     args: &[OsString],
     environment: &[(OsString, OsString)],
     cwd: &Path,
+    worker_report: Option<&Path>,
 ) -> Result<PathBuf, AgentLauncherError> {
     let payload = AgentLaunchPayload {
         path: executable.to_path_buf(),
@@ -68,6 +75,7 @@ pub fn write_launch_plan(
         args: args.to_vec(),
         environment: environment.to_vec(),
         cwd: cwd.to_path_buf(),
+        worker_report: worker_report.map(Path::to_path_buf),
     };
     let bytes =
         serde_json::to_vec(&payload).map_err(|_| AgentLauncherError::PlanSerializationFailed)?;
@@ -129,9 +137,25 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     #[cfg(windows)]
     let _containment = establish_worker_containment()?;
 
-    command
-        .status()
-        .map_err(|_| AgentLauncherError::LaunchFailed)
+    // Issue #543: spawn rather than `status()` so the worker's PID is observed
+    // at the only point it is knowable. jefe cannot derive it from the pane
+    // leader, which on Windows is `pwsh` running this host. The report is
+    // written before waiting; a failed write leaves the identity unknown, which
+    // is the correct answer, rather than letting the pane stand in for it.
+    let mut child = command
+        .spawn()
+        .map_err(|_| AgentLauncherError::LaunchFailed)?;
+    if let Some(report_path) = payload.worker_report.as_deref() {
+        let report = super::worker_report::WorkerReport {
+            host_pid: std::process::id(),
+            worker_pid: child.id(),
+            worker_started_at: super::process::capture_process_identity(child.id())
+                .ok()
+                .and_then(|identity| identity.started_at),
+        };
+        super::worker_report::write_report(report_path, &report);
+    }
+    child.wait().map_err(|_| AgentLauncherError::LaunchFailed)
 }
 
 #[cfg(windows)]
@@ -251,6 +275,7 @@ mod tests {
             args: vec![OsString::from("--version")],
             environment: Vec::new(),
             cwd: dir.path().to_path_buf(),
+            worker_report: None,
         };
 
         let command = command_for_payload(&payload);
@@ -262,13 +287,13 @@ mod tests {
         );
     }
 
-    // ── Issue #530: payload cwd projection and actual child cwd ──────────
+    // â”€â”€ Issue #530: payload cwd projection and actual child cwd â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     #[test]
     fn payload_cwd_round_trips_losslessly_through_serialization() {
         let workdir = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
-        let requested = workdir.path().join("repo with spaces Ω");
+        let requested = workdir.path().join("repo with spaces Î©");
         std::fs::create_dir_all(&requested)
             .unwrap_or_else(|error| panic!("could not create requested cwd fixture: {error}"));
         let payload = AgentLaunchPayload {
@@ -278,6 +303,7 @@ mod tests {
             args: vec![OsString::from("--version")],
             environment: Vec::new(),
             cwd: requested.clone(),
+            worker_report: None,
         };
         let bytes = serde_json::to_vec(&payload)
             .unwrap_or_else(|error| panic!("payload should serialize: {error}"));
@@ -308,6 +334,7 @@ mod tests {
                 args: vec![OsString::from("--version")],
                 environment: Vec::new(),
                 cwd: requested.clone(),
+                worker_report: None,
             };
             let command = command_for_payload(&payload);
             assert_eq!(
@@ -342,6 +369,7 @@ mod tests {
             args: Vec::new(),
             environment: Vec::new(),
             cwd: missing_cwd,
+            worker_report: None,
         };
         let bytes = serde_json::to_vec(&payload)
             .unwrap_or_else(|error| panic!("payload should serialize: {error}"));
@@ -376,6 +404,7 @@ mod tests {
             args: Vec::new(),
             environment: Vec::new(),
             cwd: file_cwd,
+            worker_report: None,
         };
         let bytes = serde_json::to_vec(&payload)
             .unwrap_or_else(|error| panic!("payload should serialize: {error}"));

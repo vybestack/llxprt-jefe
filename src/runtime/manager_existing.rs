@@ -3,13 +3,20 @@
 use std::path::Path;
 
 use super::{TmuxRuntimeManager, commands, liveness};
-use crate::domain::{AgentId, LaunchSignatureV1, ProcessIdentity, RuntimeBinding};
+use crate::domain::{
+    AgentId, LaunchSignatureV1, PaneProcessIdentity, PaneWorkerTopology, RuntimeBinding,
+    WorkerProcessIdentity, worker_identity_from_pane,
+};
 use crate::runtime::{RuntimeError, RuntimeSession};
 
 pub(super) struct ExistingLocalSessionObservation {
-    pub(super) pid: u32,
-    pub(super) process_identity: ProcessIdentity,
-    pub(super) worker_identities: Vec<ProcessIdentity>,
+    /// The pane leader, as reported by `#{pane_pid}`.
+    pub(super) pane_identity: PaneProcessIdentity,
+    /// The agent worker, when this platform's topology lets it be derived from
+    /// the pane leader. `None` on Windows, where the worker sits below the
+    /// session host and must be reported separately (issue #543).
+    pub(super) worker_identity: Option<WorkerProcessIdentity>,
+    pub(super) worker_identities: Vec<WorkerProcessIdentity>,
 }
 
 impl TmuxRuntimeManager {
@@ -38,18 +45,21 @@ impl TmuxRuntimeManager {
         }
         let pid = commands::pane_pid(&session_name).ok_or_else(|| {
             RuntimeError::CapabilityProbeFailed(format!(
-                "could not capture worker pid for existing session {session_name}"
+                "could not capture pane pid for existing session {session_name}"
             ))
         })?;
-        let process_identity =
-            super::super::process::capture_process_identity(pid).map_err(|error| {
-                RuntimeError::CapabilityProbeFailed(format!(
-                    "could not capture worker identity for existing session {session_name}: {error}"
-                ))
-            })?;
+        let identity = super::super::process::capture_process_identity(pid).map_err(|error| {
+            RuntimeError::CapabilityProbeFailed(format!(
+                "could not capture pane identity for existing session {session_name}: {error}"
+            ))
+        })?;
+        let pane_identity = PaneProcessIdentity::from_identity(identity);
         let observation = ExistingLocalSessionObservation {
-            pid,
-            process_identity,
+            pane_identity,
+            worker_identity: worker_identity_from_pane(
+                PaneWorkerTopology::current(),
+                pane_identity,
+            ),
             worker_identities: super::super::orphan::capture_worker_identities(Some(pid)),
         };
         self.ensure_prefix_passthrough(&session_name);
@@ -75,8 +85,8 @@ impl TmuxRuntimeManager {
             session_name.clone(),
             work_dir.to_path_buf(),
         );
-        session.pid = Some(observation.pid);
-        session.process_identity = Some(observation.process_identity);
+        session.pane_identity = Some(observation.pane_identity);
+        session.worker_identity = observation.worker_identity;
         session
             .worker_identities
             .clone_from(&observation.worker_identities);
@@ -90,8 +100,8 @@ impl TmuxRuntimeManager {
             launch_signature,
             attached: false,
             last_seen: None,
-            pid: Some(observation.pid),
-            process_identity: Some(observation.process_identity),
+            pane_identity: Some(observation.pane_identity),
+            worker_identity: observation.worker_identity,
             lifecycle_generation,
             worker_identities: observation.worker_identities,
         }
@@ -110,8 +120,8 @@ impl TmuxRuntimeManager {
             launch_signature: launch_signature.clone(),
             attached: session.attached,
             last_seen: None,
-            pid: session.pid,
-            process_identity: session.process_identity,
+            pane_identity: session.pane_identity,
+            worker_identity: session.worker_identity,
             lifecycle_generation: session.lifecycle_generation,
             worker_identities: session.worker_identities.clone(),
         })

@@ -521,6 +521,11 @@ fn migrate_agent_record(
             session_id,
             invocation_generation,
             last_known: last_known_runtime(source.status.as_ref()),
+            // Schema-1 documents predate the pane/worker split and recorded no
+            // process identities at all, so neither role can be reconstructed
+            // here; reconciliation re-observes them (issue #543).
+            pane_identity: None,
+            worker_identity: None,
         },
     })
 }

@@ -1,4 +1,7 @@
-use jefe::domain::{Agent, AgentId, AgentStatus, ProcessIdentity, RepositoryId};
+use jefe::domain::{
+    Agent, AgentId, AgentStatus, PaneProcessIdentity, RepositoryId, ServerProcessIdentity,
+    WorkerProcessIdentity,
+};
 use jefe::runtime::{
     MultiplexerVersion, ServerHealth, ServerIdentity, ServerLivenessEvidence,
     ServerLivenessObservation, classify_server_health, classify_server_liveness,
@@ -10,7 +13,7 @@ use std::path::PathBuf;
 
 fn identity(pid: u32, started_at: u64) -> ServerIdentity {
     ServerIdentity::new(
-        ProcessIdentity::new(pid, started_at),
+        ServerProcessIdentity::new(pid, started_at),
         MultiplexerVersion::new(3, 3, 7),
     )
 }
@@ -171,7 +174,7 @@ fn parse_identity_output_extracts_pid_and_version() {
     let parsed = parse_server_identity_output("100|3.3.7");
 
     let expected = ServerIdentity::new(
-        ProcessIdentity::new(100, 1),
+        ServerProcessIdentity::new(100, 1),
         MultiplexerVersion::new(3, 3, 7),
     );
     assert_eq!(parsed, Some(expected));
@@ -210,8 +213,8 @@ fn server_lost_preserves_runtime_binding_when_transitioned() {
         launch_signature: jefe::domain::LaunchSignatureV1::default(),
         attached: false,
         last_seen: None,
-        pid: Some(123),
-        process_identity: Some(ProcessIdentity::new(123, 1)),
+        pane_identity: Some(PaneProcessIdentity::new(123, 1)),
+        worker_identity: Some(WorkerProcessIdentity::new(123, 1)),
         lifecycle_generation: 0,
         worker_identities: vec![],
     });

@@ -79,8 +79,10 @@ fn observed_existing_session_returns_complete_authoritative_binding() {
     let agent_id = AgentId("existing-agent".to_owned());
     let mut manager = TmuxRuntimeManager::new(24, 80);
     let signature = crate::domain::LaunchSignatureV1::default();
-    let identity = crate::domain::ProcessIdentity::new(42, 900);
-    let worker = crate::domain::ProcessIdentity::new(43, 901);
+    // A Windows-shaped observation: the pane leader is the session host (42) and
+    // the agent worker is a distinct process below it (43) (issue #543).
+    let pane = crate::domain::PaneProcessIdentity::new(42, 900);
+    let worker = crate::domain::WorkerProcessIdentity::new(43, 901);
 
     let binding = manager.register_observed_local_session(
         &agent_id,
@@ -88,15 +90,23 @@ fn observed_existing_session_returns_complete_authoritative_binding() {
         signature.clone(),
         RuntimeSession::session_name_for(&agent_id),
         ExistingLocalSessionObservation {
-            pid: 42,
-            process_identity: identity,
+            pane_identity: pane,
+            worker_identity: Some(worker),
             worker_identities: vec![worker],
         },
     );
 
     assert_eq!(binding.launch_signature, signature);
-    assert_eq!(binding.pid, Some(42));
-    assert_eq!(binding.process_identity, Some(identity));
+    assert_eq!(
+        binding.pane_identity,
+        Some(pane),
+        "the observed pane leader must be recorded in the pane role"
+    );
+    assert_eq!(
+        binding.worker_identity,
+        Some(worker),
+        "the observed worker must be recorded in the worker role, not the pane's PID"
+    );
     assert_eq!(binding.worker_identities, vec![worker]);
     assert!(binding.lifecycle_generation > 0);
     let target = manager
@@ -229,4 +239,104 @@ fn session_host_root_is_readable_for_kill_path_authority() {
     let root = std::path::PathBuf::from("/state/session-hosts");
     let mgr = TmuxRuntimeManager::with_session_host_root(40, 120, root.clone());
     assert_eq!(mgr.session_host_root(), Some(root.as_path()));
+}
+
+/// A session whose worker cannot be derived from the pane leader adopts the
+/// identity the session host reported, and never falls back to the pane
+/// leader's own identity (issue #543).
+#[test]
+fn a_reported_worker_is_adopted_and_is_not_the_pane_leader() {
+    let agent_id = AgentId("reported-worker-agent".to_owned());
+    let mut manager = TmuxRuntimeManager::new(24, 80);
+    let session_name = RuntimeSession::session_name_for(&agent_id);
+    let pane = crate::domain::PaneProcessIdentity::new(4242, 900);
+
+    // Register the session the way a platform whose pane leader is *not* the
+    // agent does: pane identity known, worker identity still unknown.
+    let _ = manager.register_observed_local_session(
+        &agent_id,
+        Path::new("/tmp/reported"),
+        crate::domain::LaunchSignatureV1::default(),
+        session_name.clone(),
+        ExistingLocalSessionObservation {
+            pane_identity: pane,
+            worker_identity: None,
+            worker_identities: Vec::new(),
+        },
+    );
+    assert_eq!(
+        manager.worker_process_identity(&agent_id),
+        None,
+        "before the host reports, the worker must be unknown, not the pane"
+    );
+
+    let report_path = crate::runtime::worker_report::report_path_for_session(&session_name);
+    crate::runtime::worker_report::write_report(
+        &report_path,
+        &crate::runtime::worker_report::WorkerReport {
+            host_pid: pane.pid(),
+            worker_pid: 5353,
+            worker_started_at: Some(901),
+        },
+    );
+    let adopted = manager.adopt_reported_worker_identity(&agent_id);
+    crate::runtime::worker_report::remove_report(&report_path);
+
+    let Some(worker) = adopted else {
+        panic!("the host's report must resolve the worker identity");
+    };
+    assert_eq!(
+        worker.pid(),
+        5353,
+        "the reported worker, not the pane leader"
+    );
+    assert_ne!(
+        worker.pid(),
+        pane.pid(),
+        "adopting a report must never yield the pane leader's identity"
+    );
+    assert_eq!(
+        manager.worker_pid(&agent_id),
+        Some(5353),
+        "the adopted identity must be visible to the PID-liveness fallback"
+    );
+}
+
+/// A host report that names its own process as the worker is the conflation
+/// this issue removes, so it is refused rather than adopted (issue #543).
+#[test]
+fn a_report_naming_the_host_itself_is_refused() {
+    let agent_id = AgentId("self-reporting-agent".to_owned());
+    let mut manager = TmuxRuntimeManager::new(24, 80);
+    let session_name = RuntimeSession::session_name_for(&agent_id);
+    let pane = crate::domain::PaneProcessIdentity::new(6464, 900);
+
+    let _ = manager.register_observed_local_session(
+        &agent_id,
+        Path::new("/tmp/self-report"),
+        crate::domain::LaunchSignatureV1::default(),
+        session_name.clone(),
+        ExistingLocalSessionObservation {
+            pane_identity: pane,
+            worker_identity: None,
+            worker_identities: Vec::new(),
+        },
+    );
+
+    let report_path = crate::runtime::worker_report::report_path_for_session(&session_name);
+    crate::runtime::worker_report::write_report(
+        &report_path,
+        &crate::runtime::worker_report::WorkerReport {
+            host_pid: 6464,
+            worker_pid: 6464,
+            worker_started_at: Some(900),
+        },
+    );
+    let adopted = manager.adopt_reported_worker_identity(&agent_id);
+    crate::runtime::worker_report::remove_report(&report_path);
+
+    assert!(
+        adopted.is_none(),
+        "a host reporting itself is not evidence of a worker below it"
+    );
 }
