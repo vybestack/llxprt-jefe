@@ -362,7 +362,7 @@ pub fn parse_pull_request_detail_json(
     // uses, so superseded attempts are omitted from the rows and the list can
     // never disagree with its aggregate glyph (issue #514).
     let checks = effective_check_nodes(&rollup)
-        .iter()
+        .into_iter()
         .map(parse_pr_check)
         .collect();
 

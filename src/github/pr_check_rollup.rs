@@ -56,11 +56,13 @@ pub fn parse_check_status(raw_status: &str) -> PrCheckStatus {
 /// `StatusContext` entries are treated as independent identities (one per
 /// `context`), matching GitHub's status API semantics.
 #[must_use]
-pub fn effective_check_nodes(nodes: &[Value]) -> Vec<Value> {
+pub fn effective_check_nodes(nodes: &[Value]) -> Vec<&Value> {
     // `winners` maps identity → index of the latest winning node; `order`
     // records identities in first-occurrence order so the output stays stable.
-    let mut winners: HashMap<String, usize> = HashMap::new();
-    let mut order: Vec<String> = Vec::new();
+    // The identity is a borrowed tuple (Copy), so it keys the map without
+    // allocation and cannot collide the way string concatenation can.
+    let mut winners: HashMap<CheckIdentity<'_>, usize> = HashMap::new();
+    let mut order: Vec<CheckIdentity<'_>> = Vec::new();
     for (idx, node) in nodes.iter().enumerate() {
         let identity = effective_check_identity(node);
         if let Some(&incumbent) = winners.get(&identity) {
@@ -73,14 +75,14 @@ pub fn effective_check_nodes(nodes: &[Value]) -> Vec<Value> {
                 winners.insert(identity, idx);
             }
         } else {
-            winners.insert(identity.clone(), idx);
+            winners.insert(identity, idx);
             order.push(identity);
         }
     }
     order
         .iter()
         .filter_map(|identity| winners.get(identity).copied())
-        .map(|idx| nodes[idx].clone())
+        .map(|idx| &nodes[idx])
         .collect()
 }
 
@@ -98,7 +100,7 @@ pub fn parse_checks_rollup(nodes: &[Value]) -> PrCheckStatus {
     let mut has_failure = false;
     let mut has_pending = false;
     let mut all_success = true;
-    for node in &effective {
+    for node in effective {
         let status = node
             .get("conclusion")
             .or_else(|| node.get("state"))
@@ -123,8 +125,14 @@ pub fn parse_checks_rollup(nodes: &[Value]) -> PrCheckStatus {
     }
 }
 
+/// Collision-free identity for one effective check: typename, name/context,
+/// workflow name, app slug. A borrowed tuple is `Copy` (no allocation) and its
+/// components are compared independently, so a field value can never forge or
+/// collide with another identity the way string concatenation could.
+type CheckIdentity<'a> = (&'a str, &'a str, &'a str, &'a str);
+
 /// Stable identity key for one effective check. See [`effective_check_nodes`].
-fn effective_check_identity(node: &Value) -> String {
+fn effective_check_identity(node: &Value) -> CheckIdentity<'_> {
     let typename = node.get("__typename").and_then(Value::as_str).unwrap_or("");
     let name = node
         .get("name")
@@ -155,9 +163,7 @@ fn effective_check_identity(node: &Value) -> String {
         .and_then(|app| app.get("slug"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    // UNIT SEPARATOR delimits the components so a name containing the delimiter
-    // cannot forge a different identity.
-    format!("{typename}\u{1f}{name}\u{1f}{workflow}\u{1f}{app_slug}")
+    (typename, name, workflow, app_slug)
 }
 
 /// Latest-start ordering key: `startedAt`, falling back to `completedAt`.
