@@ -285,18 +285,32 @@ fn startup_classification_covers_required_lifecycle_states() {
     );
 }
 
+/// An unanswered session probe is held, not classified.
+///
+/// This previously asserted `Recoverable`, which kept the agent alive but was
+/// a *conclusion* drawn from evidence that never arrived, and was
+/// indistinguishable from the same conclusion reached from real evidence.
+/// `Held` is strictly more conservative and, unlike `Recoverable`, records
+/// that the question is still open so it can be asked again (issue #541).
 #[test]
-fn unavailable_runtime_probe_is_recoverable_not_phantom_dead() {
+fn an_unanswered_session_probe_is_held_not_classified() {
     for liveness in [ProcessLiveness::Dead, ProcessLiveness::ProbeFailure] {
+        let classification = classify_startup(
+            SessionEvidence::Unavailable,
+            BindingEvidence::Coherent,
+            false,
+            liveness,
+            jefe::runtime::OrphanClassification::NoOrphan,
+        );
         assert_eq!(
-            classify_startup(
-                SessionEvidence::Unavailable,
-                BindingEvidence::Coherent,
-                false,
-                liveness,
-                jefe::runtime::OrphanClassification::NoOrphan,
-            ),
-            StartupClassification::Recoverable
+            classification,
+            StartupClassification::Held,
+            "an unavailable session probe must not reach a verdict"
+        );
+        assert_ne!(
+            classification,
+            StartupClassification::Stopped,
+            "the original guarantee still holds: no phantom death"
         );
     }
 }
@@ -327,6 +341,8 @@ fn malformed_or_inaccessible_process_identity_is_classified_conservatively() {
         ),
         StartupClassification::Inconsistent
     );
+    // A process we are not permitted to inspect has not told us it is dead.
+    // That is an unanswered question, not a recoverable conclusion.
     assert_eq!(
         classify_startup(
             SessionEvidence::Missing,
@@ -335,8 +351,51 @@ fn malformed_or_inaccessible_process_identity_is_classified_conservatively() {
             ProcessLiveness::Inaccessible,
             jefe::runtime::OrphanClassification::NoOrphan,
         ),
-        StartupClassification::Recoverable
+        StartupClassification::Held
     );
+}
+
+/// The mirror hazard for #541: holding must not swallow real evidence.
+///
+/// A change that held on everything would satisfy the invariant and destroy
+/// the feature, so the answered paths are pinned alongside the held ones.
+#[test]
+fn answered_evidence_still_reaches_every_verdict() {
+    let answered = [
+        (
+            SessionEvidence::Alive,
+            ProcessLiveness::Alive,
+            StartupClassification::Running,
+        ),
+        (
+            SessionEvidence::Missing,
+            ProcessLiveness::Dead,
+            StartupClassification::Stopped,
+        ),
+        (
+            SessionEvidence::Missing,
+            ProcessLiveness::ReusedPid,
+            StartupClassification::Stale,
+        ),
+        (
+            SessionEvidence::Missing,
+            ProcessLiveness::MalformedIdentity,
+            StartupClassification::Inconsistent,
+        ),
+    ];
+    for (session, process, expected) in answered {
+        assert_eq!(
+            classify_startup(
+                session,
+                BindingEvidence::Coherent,
+                false,
+                process,
+                jefe::runtime::OrphanClassification::NoOrphan,
+            ),
+            expected,
+            "answered evidence must still produce a verdict"
+        );
+    }
 }
 
 /// PID reuse still overrides a live session. Removing the configuration

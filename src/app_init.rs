@@ -15,6 +15,7 @@ use self::signature_reconcile::{
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
+use jefe::domain::liveness_observation::{ProbeBoundary, Uncertainty};
 use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
@@ -438,6 +439,13 @@ enum RestoreOneOutcome {
     Dead,
     /// Agent should be left as-is (non-running, or local orphan kept Running).
     Skip,
+    /// A startup probe did not answer, so the agent keeps everything it was
+    /// persisted with and is re-probed later.
+    ///
+    /// Deliberately not `Skip`: both leave state untouched now, but only this
+    /// one records that the question is still open, which is what a deferred
+    /// re-probe and the operator-facing state need (issue #541).
+    Held(Uncertainty),
 }
 struct RevivedAgent {
     agent_id: AgentId,
@@ -470,6 +478,13 @@ fn restore_one_agent(
         | StartupClassification::Inconsistent
         | StartupClassification::Orphaned => RestoreOneOutcome::Dead,
         StartupClassification::Recoverable => RestoreOneOutcome::Skip,
+        StartupClassification::Held => RestoreOneOutcome::Held(Uncertainty::new(
+            ProbeBoundary::SessionExists,
+            format!(
+                "startup could not determine whether session {} is alive",
+                agent.id.0
+            ),
+        )),
         // A live local session means jefe is re-adopting a process it already
         // started. Adoption is proved by session name, liveness and process
         // identity, so it must not re-resolve a version selector or probe an
@@ -555,6 +570,17 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
             }
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
             RestoreOneOutcome::Skip => {}
+            // Left exactly as persisted, including its binding. The deferred
+            // re-probe that turns this into an eventual answer is issue #541's
+            // next slice; until then the hold is at least visible in the log
+            // rather than silently indistinguishable from a healthy skip.
+            RestoreOneOutcome::Held(reason) => {
+                warn!(
+                    agent_id = %agent.id.0,
+                    %reason,
+                    "startup held this agent: its state was not determined and was left untouched"
+                );
+            }
         }
     }
 
