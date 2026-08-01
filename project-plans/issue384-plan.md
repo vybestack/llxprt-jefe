@@ -412,16 +412,16 @@ it, which is an explicit non-goal.
 
 ### Remaining work
 
-- **S4 (rest):** `src/mouse_routing.rs`, `src/selection/geometry.rs`,
-  `src/selection/layout_descriptor.rs`, `src/detail_wrap_map.rs`, and
-  `src/ui/components/terminal_view.rs` still derive their own rectangles. Each
-  needs a `PanelId` to `SelectablePane` mapping and per-screen parity goldens
-  like the ones now in `src/screen_layout_parity_tests.rs`.
-- **S5:** the five renderers still declare their own flexbox proportions rather
-  than reading the snapshot, and the superseded helpers in `src/layout.rs`
-  (`compute_pty_layout`, `dashboard_middle_row_heights_inner`,
-  `split_layout_for_render_size`, `issues_pane_rows`, `prs_pane_rows`) are
-  deleted only once nothing reads them.
+- **S4 is done.** Terminal sizing, mouse hit-testing, and detail-text wrapping
+  all read the snapshot. `src/selection/geometry.rs` keeps its arithmetic only
+  as the fallback for callers with no snapshot; it is deleted in #567.
+- **S5 — tracked as issue #567.** The five renderers still declare their own
+  flexbox proportions rather than reading the snapshot, and the superseded
+  helpers in `src/layout.rs` (`compute_pty_layout`,
+  `dashboard_middle_row_heights_inner`, `split_layout_for_render_size`,
+  `issues_pane_rows`, `prs_pane_rows`, `actions_pane_rows`) come out only once
+  nothing reads them. The parity harnesses added here are the evidence that
+  makes those moves safe.
 
 ## 7. Scope ledger
 
