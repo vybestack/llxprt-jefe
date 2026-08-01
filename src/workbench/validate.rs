@@ -15,6 +15,7 @@ use super::ids::{
     IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_SPLIT_CHILDREN,
     MIN_SPLIT_CHILDREN, VersionedTypeId,
 };
+use super::relationships::{RelationshipError, validate_relationships};
 
 /// A violated descriptor invariant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +157,13 @@ pub enum DescriptorError {
         /// Repeated port identity.
         port: &'static str,
     },
+    /// The relationship graph violates one of its invariants.
+    Relationship {
+        /// Offending screen.
+        screen: &'static str,
+        /// The violated invariant.
+        reason: RelationshipError,
+    },
 }
 
 impl fmt::Display for DescriptorError {
@@ -277,6 +285,9 @@ impl DescriptorError {
                 formatter,
                 "screen {screen} panel {panel} declares port {port} twice"
             ),
+            Self::Relationship { screen, reason } => {
+                write!(formatter, "screen {screen} relationship: {reason}")
+            }
             _ => return None,
         })
     }
@@ -296,7 +307,9 @@ pub fn validate_descriptor(descriptor: &ScreenDescriptor) -> Result<(), Descript
     check_ports(descriptor, screen)?;
     check_layout_placement(descriptor, screen)?;
     check_focus(descriptor, screen)?;
-    check_layout_shape(&descriptor.layout, descriptor, screen, 1)
+    check_layout_shape(&descriptor.layout, descriptor, screen, 1)?;
+    validate_relationships(descriptor)
+        .map_err(|reason| DescriptorError::Relationship { screen, reason })
 }
 
 /// Check that every panel declares a bounded set of distinctly named ports.

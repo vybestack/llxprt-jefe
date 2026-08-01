@@ -21,6 +21,8 @@ pub mod geometry;
 pub mod ids;
 pub mod intern;
 pub mod migration;
+pub mod relationship_propagation;
+pub mod relationships;
 pub mod resolve;
 pub mod screen_file;
 pub mod screen_file_bounds;
@@ -31,6 +33,18 @@ pub mod validate;
 #[cfg(test)]
 #[path = "screen_file_tests.rs"]
 mod screen_file_tests;
+
+#[cfg(test)]
+#[path = "relationship_fixtures.rs"]
+mod relationship_fixtures;
+
+#[cfg(test)]
+#[path = "relationships_tests.rs"]
+mod relationships_tests;
+
+#[cfg(test)]
+#[path = "relationship_propagation_tests.rs"]
+mod relationship_propagation_tests;
 
 #[cfg(test)]
 #[path = "ids_tests.rs"]
@@ -119,6 +133,14 @@ pub use ids::{
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
+pub use relationship_propagation::{
+    PortUpdate, PortValue, PropagationAbort, RelationshipState, RelationshipTransition,
+    SourceIntent, propagate,
+};
+pub use relationships::{
+    ActivationMode, EmptyPolicy, Relationship, RelationshipError, RelationshipKind,
+    SessionEmptyPolicy, validate_relationships,
+};
 pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,

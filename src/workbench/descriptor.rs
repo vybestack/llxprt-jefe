@@ -14,6 +14,7 @@ use std::num::NonZeroU16;
 use crate::domain::TypedMap;
 
 use super::ids::{PanelId, PanelTypeId, PortId, RouteId, ScreenIdentity, VersionedTypeId};
+use super::relationships::Relationship;
 
 /// Axis along which a split node divides its rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -213,6 +214,12 @@ pub struct ScreenDescriptor {
     pub focus_order: Vec<PanelId>,
     /// Root of the layout tree.
     pub layout: LayoutNode,
+    /// Typed edges between this screen's ports, in declaration order.
+    ///
+    /// Declaration order is part of the contract: propagation applies edges in
+    /// this order within one transition, so two screens with the same edges in
+    /// different orders are two different screens.
+    pub relationships: Vec<Relationship>,
 }
 
 impl ScreenDescriptor {

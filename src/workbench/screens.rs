@@ -404,6 +404,7 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", "terminal"])?,
+        relationships: Vec::new(),
         layout: column(vec![
             band_child(leaf("search")?, SEARCH_ROW_ROWS, -100),
             required_child(
@@ -453,6 +454,7 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL])?,
+        relationships: Vec::new(),
         layout: column(vec![
             band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
             required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
@@ -519,6 +521,7 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
         ],
         initial_focus: PanelId::parse(spec.list)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
+        relationships: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
@@ -591,6 +594,7 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse("error-list")?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "error-list", "error-detail"])?,
+        relationships: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
@@ -630,6 +634,7 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse("shell-list")?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "shell-list", "shell-preview"])?,
+        relationships: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(

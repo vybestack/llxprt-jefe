@@ -67,6 +67,7 @@ fn valid_descriptor() -> ScreenDescriptor {
         ],
         initial_focus: panel_id("list"),
         focus_order: vec![panel_id("list"), panel_id("detail")],
+        relationships: Vec::new(),
         layout: LayoutNode::Split {
             axis: Axis::Vertical,
             gap: 1,
@@ -277,6 +278,7 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
             .collect(),
         initial_focus: panel_id(ids[0]),
         focus_order: ids.iter().copied().map(panel_id).collect(),
+        relationships: Vec::new(),
         layout: node,
     }
 }
