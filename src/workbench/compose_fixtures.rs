@@ -7,12 +7,22 @@ use std::path::PathBuf;
 use crate::domain::Id;
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
 
+/// The worked example, as it sits on disk.
+const REVIEW_SOURCE: &str = include_str!("testdata/local-review.screen.toml");
+
 /// A complete, valid `local.review` definition.
 ///
 /// It lives beside this file as real TOML rather than as a string literal, so
 /// the same bytes can be embedded here and written to disk by the startup
 /// tests, and so an author can read it as the worked example it is.
-pub const REVIEW_DEFINITION: &str = include_str!("testdata/local-review.screen.toml");
+///
+/// Line endings are normalized because tests build variants of it with literal
+/// multi-line search strings, and a checkout that converted them would turn
+/// every such edit into a silent no-op.
+#[must_use]
+pub fn review_definition() -> String {
+    REVIEW_SOURCE.replace("\r\n", "\n")
+}
 
 /// A candidate holding the given text under `<root>/<member>.screen.toml`.
 pub fn candidate(member: &str, text: &str) -> ScreenFileCandidate {

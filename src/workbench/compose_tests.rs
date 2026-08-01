@@ -7,7 +7,7 @@ use crate::persistence::diagnostic::{CfgCode, Severity};
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
 
 use super::compose::{ScreenComposition, compose_screens};
-use super::compose_fixtures::{REVIEW_DEFINITION, candidate, enabled, unreadable_candidate};
+use super::compose_fixtures::{candidate, enabled, review_definition, unreadable_candidate};
 use super::descriptor::PortRef;
 use super::diagnostics::ScrCode;
 use super::geometry::{Extent, Rect};
@@ -49,7 +49,7 @@ fn port(panel_value: &'static str, port_value: &'static str) -> PortRef {
 
 #[test]
 fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
 
     let identities: Vec<&str> = composition
         .registry
@@ -64,7 +64,7 @@ fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
 
 #[test]
 fn the_lowered_descriptor_copies_the_definition_without_inventing_anything() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition
         .registry
         .get_identity(review_identity())
@@ -101,7 +101,7 @@ fn the_lowered_descriptor_copies_the_definition_without_inventing_anything() {
 
 #[test]
 fn the_lowered_descriptor_carries_its_declared_ports_and_relationship() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition
         .registry
         .get_identity(review_identity())
@@ -127,8 +127,8 @@ fn the_lowered_descriptor_carries_its_declared_ports_and_relationship() {
 
 #[test]
 fn lowering_the_same_definition_twice_produces_the_same_descriptor() {
-    let first = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
-    let second = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let first = composed(&[candidate("review", &review_definition())], &["review"]);
+    let second = composed(&[candidate("review", &review_definition())], &["review"]);
 
     assert_eq!(
         first.registry.get_identity(review_identity()),
@@ -138,7 +138,7 @@ fn lowering_the_same_definition_twice_produces_the_same_descriptor() {
 
 #[test]
 fn a_lowered_relationship_propagates_through_the_shared_engine() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition
         .registry
         .get_identity(review_identity())
@@ -164,7 +164,7 @@ fn a_lowered_relationship_propagates_through_the_shared_engine() {
 
 #[test]
 fn a_tiny_lowered_screen_falls_back_through_the_standard_resolver() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition
         .registry
         .get_identity(review_identity())
@@ -214,13 +214,14 @@ fn an_invalid_dormant_definition_is_omitted_with_a_warning() {
     assert_eq!(composition.warnings[0].severity, Severity::Warning);
     assert_eq!(
         composition.warnings[0].path.as_str(),
-        "/definitions/broken.screen.toml"
+        candidate("broken", "").path.to_string_lossy(),
+        "a warning must name the file it is about"
     );
 }
 
 #[test]
 fn a_valid_dormant_definition_is_omitted_without_a_warning() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &[]);
+    let composition = composed(&[candidate("review", &review_definition())], &[]);
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
     assert!(composition.warnings.is_empty());
@@ -231,7 +232,7 @@ fn one_broken_dormant_definition_does_not_stop_an_enabled_one() {
     let composition = composed(
         &[
             candidate("broken", BROKEN_DEFINITION),
-            candidate("review", REVIEW_DEFINITION),
+            candidate("review", &review_definition()),
         ],
         &["review"],
     );
@@ -267,7 +268,8 @@ fn an_unparseable_enabled_definition_refuses_publication() {
     assert_eq!(refusal.configuration.code, CfgCode::E006);
     assert_eq!(
         refusal.screen.path.as_str(),
-        "/definitions/review.screen.toml"
+        candidate("review", "").path.to_string_lossy(),
+        "a refusal must name the file it is about"
     );
 }
 
@@ -290,7 +292,7 @@ fn an_unreadable_enabled_definition_refuses_publication() {
 
 #[test]
 fn a_definition_claiming_another_files_identity_refuses_publication_as_ownership() {
-    let refusal = refused(&REVIEW_DEFINITION.replace("local.review", "local.elsewhere"));
+    let refusal = refused(&review_definition().replace("local.review", "local.elsewhere"));
 
     assert_eq!(refusal.screen.code, ScrCode::E301);
     assert_eq!(
@@ -302,7 +304,8 @@ fn a_definition_claiming_another_files_identity_refuses_publication_as_ownership
 
 #[test]
 fn a_definition_naming_an_unknown_panel_type_refuses_publication_as_ownership() {
-    let refusal = refused(&REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"invented\""));
+    let refusal =
+        refused(&review_definition().replace("type = \"pr-list\"", "type = \"invented\""));
 
     assert_eq!(refusal.configuration.code, CfgCode::E005);
 }
@@ -310,7 +313,7 @@ fn a_definition_naming_an_unknown_panel_type_refuses_publication_as_ownership() 
 #[test]
 fn a_definition_may_not_request_a_pty_panel() {
     let refusal =
-        refused(&REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"pty-terminal\""));
+        refused(&review_definition().replace("type = \"pr-list\"", "type = \"pty-terminal\""));
 
     assert_eq!(refusal.configuration.code, CfgCode::E005);
     assert!(
@@ -323,7 +326,8 @@ fn a_definition_may_not_request_a_pty_panel() {
 #[test]
 fn a_definition_naming_an_unknown_action_refuses_publication_as_a_reference() {
     let text = format!(
-        "{REVIEW_DEFINITION}\n[[bindings]]\ncontext = \"global\"\naction = \"no-such-action\"\n"
+        "{}\n[[bindings]]\ncontext = \"global\"\naction = \"no-such-action\"\n",
+        review_definition()
     );
 
     let refusal = refused(&text);
@@ -333,7 +337,7 @@ fn a_definition_naming_an_unknown_action_refuses_publication_as_a_reference() {
 
 #[test]
 fn a_definition_whose_layout_omits_a_panel_refuses_publication() {
-    let text = REVIEW_DEFINITION.replace(
+    let text = review_definition().replace(
         "[[layout.children]]\nmin = 20\ncollapsible = true\ncollapse_priority = 0\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-detail\" }\n",
         "[[layout.children]]\nmin = 20\ncollapsible = true\ncollapse_priority = 0\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-list\" }\n",
     );
@@ -345,7 +349,7 @@ fn a_definition_whose_layout_omits_a_panel_refuses_publication() {
 
 #[test]
 fn a_definition_with_a_cyclic_relationship_refuses_publication() {
-    let text = REVIEW_DEFINITION.replace(
+    let text = review_definition().replace(
         "source = \"pr-list.selection\"\ntarget = \"pr-detail.subject\"",
         "source = \"pr-list.selection\"\ntarget = \"pr-list.selection\"",
     );
@@ -360,7 +364,7 @@ fn refusing_one_enabled_definition_publishes_nothing_at_all() {
     let outcome = compose_screens(
         &compiled(),
         &[
-            candidate("review", REVIEW_DEFINITION),
+            candidate("review", &review_definition()),
             candidate("broken", BROKEN_DEFINITION),
         ],
         &enabled(&["review", "broken"]),
@@ -390,7 +394,7 @@ fn an_enabled_member_with_no_file_is_simply_absent() {
 
 #[test]
 fn a_lowered_screen_is_not_resolvable_from_persisted_text() {
-    let composition = composed(&[candidate("review", REVIEW_DEFINITION)], &["review"]);
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
 
     assert_eq!(
         composition.registry.resolve("local.review"),
@@ -410,7 +414,7 @@ fn a_lowered_screen_is_not_resolvable_from_persisted_text() {
 fn composition_ignores_an_enabled_set_naming_something_that_is_not_a_screen() {
     let composition = compose_screens(
         &compiled(),
-        &[candidate("review", REVIEW_DEFINITION)],
+        &[candidate("review", &review_definition())],
         &BTreeSet::new(),
     )
     .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
@@ -425,7 +429,7 @@ fn a_dormant_definition_is_parsed_but_never_lowered() {
     // The panel type does not exist, which only lowering would notice. A
     // dormant file must not be lowered, so this parses and produces no
     // warning even though it could never be enabled as written.
-    let unlowerable = REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"invented\"");
+    let unlowerable = review_definition().replace("type = \"pr-list\"", "type = \"invented\"");
 
     let composition = composed(&[candidate("review", &unlowerable)], &[]);
 
@@ -438,7 +442,7 @@ fn a_dormant_definition_is_parsed_but_never_lowered() {
 
 #[test]
 fn the_same_definition_enabled_is_lowered_and_refused() {
-    let unlowerable = REVIEW_DEFINITION.replace("type = \"pr-list\"", "type = \"invented\"");
+    let unlowerable = review_definition().replace("type = \"pr-list\"", "type = \"invented\"");
 
     let refusal = refused(&unlowerable);
 
@@ -447,7 +451,7 @@ fn the_same_definition_enabled_is_lowered_and_refused() {
 
 #[test]
 fn a_refusal_names_the_rule_without_repeating_the_files_prose() {
-    let text = REVIEW_DEFINITION.replace("title = \"Review\"", "title = 7");
+    let text = review_definition().replace("title = \"Review\"", "title = 7");
 
     let refusal = refused(&text);
 
