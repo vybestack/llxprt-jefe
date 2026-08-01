@@ -69,19 +69,29 @@ pub fn report_path_for_session(session_name: &str) -> PathBuf {
 }
 
 /// Reduce a session name to characters that are safe in a filename on every
-/// supported platform. Distinct session names stay distinct because the
-/// substitution is injective over the retained alphabet.
+/// supported platform, without ever merging two names onto one file.
+///
+/// Collapsing every unsafe character to `_` would not be injective: `a/b` and
+/// `a_b` would share a report, letting one agent adopt the worker identity a
+/// different agent's host recorded. That is the misattribution issue #543
+/// exists to remove, so the escape is reversible instead: `_` doubles, and any
+/// other unsafe character becomes its code point between underscores. Distinct
+/// session names therefore always yield distinct paths.
 fn sanitize(session_name: &str) -> String {
-    session_name
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    use std::fmt::Write as _;
+
+    let mut sanitized = String::with_capacity(session_name.len());
+    for character in session_name.chars() {
+        if character.is_ascii_alphanumeric() || character == '-' {
+            sanitized.push(character);
+        } else if character == '_' {
+            sanitized.push_str("__");
+        } else {
+            // Ignoring the result is sound: writing into a String cannot fail.
+            let _ = write!(sanitized, "_{:x}_", character as u32);
+        }
+    }
+    sanitized
 }
 
 /// Record a host's worker observation. Best effort: a failure to write leaves
@@ -147,6 +157,21 @@ mod tests {
 
         assert_eq!(first, again, "the path must be derivable, not generated");
         assert_ne!(first, other, "distinct sessions must not share a report");
+    }
+
+    /// Sanitizing for the filesystem must not merge two different sessions onto
+    /// one report file. If it did, an agent could adopt the worker identity a
+    /// different agent's host recorded -- the same misattribution issue #543
+    /// exists to remove, reintroduced one layer down.
+    #[test]
+    fn sessions_that_sanitize_alike_still_get_separate_report_paths() {
+        let slashed = report_path_for_session("jefe/agent");
+        let underscored = report_path_for_session("jefe_agent");
+
+        assert_ne!(
+            slashed, underscored,
+            "distinct session names must not share a worker report file"
+        );
     }
 
     #[test]

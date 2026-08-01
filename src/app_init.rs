@@ -339,7 +339,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
                 // Dead pane with surviving validated worker descendants
                 // (issue #332): reap the orphan tree and remove the stale
                 // session before marking Dead. Best-effort, agent-scoped,
-                // warn-don't-fail â€” probe/kill failures never abort startup.
+                // warn-don't-fail — probe/kill failures never abort startup.
                 orphan_reconcile::reap_orphaned_agent(agent);
                 dead_ids.push(agent.id.clone());
             }

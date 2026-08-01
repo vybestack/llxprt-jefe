@@ -1,4 +1,4 @@
-﻿//! Descendant-process observation and validated orphan-tree reaping.
+//! Descendant-process observation and validated orphan-tree reaping.
 //!
 //! On native Windows with psmux, exiting/rebuilding the Jefe dashboard can kill
 //! the psmux pane leader (the intermediate `jefe.exe --jefe-internal-agent-launch`
@@ -26,7 +26,7 @@ use crate::domain::{ProcessIdentity, WorkerProcessIdentity};
 /// reap-then-Dead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrphanClassification {
-    /// Pane is alive (or unobservable) with no orphan condition â€” healthy,
+    /// Pane is alive (or unobservable) with no orphan condition — healthy,
     /// reattachable session. No reaping required.
     NoOrphan,
     /// Pane is dead and no validated worker descendants remain. The session is
@@ -45,7 +45,7 @@ pub enum OrphanClassification {
 /// `reap_orphan_tree`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservedDescendant {
-    /// Worker identity captured at spawn/attach time â€” the trusted anchor.
+    /// Worker identity captured at spawn/attach time — the trusted anchor.
     pub recorded: WorkerProcessIdentity,
     /// Fresh platform probe verdict for the recorded PID.
     pub liveness: ProcessLiveness,
@@ -76,7 +76,7 @@ pub enum PaneLiveness {
     Alive,
     /// `pane_dead=1` or session entirely missing.
     Dead,
-    /// Multiplexer server unavailable â€” cannot establish death.
+    /// Multiplexer server unavailable — cannot establish death.
     Unavailable,
 }
 
@@ -87,7 +87,7 @@ pub enum PaneLiveness {
 /// decides how the caller must treat the session.
 ///
 /// A live descendant under a dead pane is only treated as an orphan when its
-/// `ProcessIdentity` still matches the recorded anchor â€” PID reuse is rejected
+/// `ProcessIdentity` still matches the recorded anchor — PID reuse is rejected
 /// so a recycled PID is never reaped.
 #[must_use]
 pub fn classify_orphan_state(
@@ -100,7 +100,7 @@ pub fn classify_orphan_state(
         return OrphanClassification::NoOrphan;
     }
     // When the multiplexer server is unavailable we cannot establish that the
-    // pane is actually dead â€” reaping risks killing workers belonging to a
+    // pane is actually dead — reaping risks killing workers belonging to a
     // still-healthy session. Fail safe: do not treat as an orphan.
     if pane == PaneLiveness::Unavailable {
         return OrphanClassification::NoOrphan;

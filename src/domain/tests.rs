@@ -283,11 +283,12 @@ fn test_issue_base_prompt_serde_roundtrip() {
     assert_eq!(repo2.issue_base_prompt, "Prioritize diagnosis");
 }
 
-/// Regression for issue #121: a persisted `state.json` written before the
-/// `pid` field was added to `RuntimeBinding` must still deserialize, with
-/// `pid` defaulting to `None` (via `#[serde(default)]`).
+/// Regression for issue #121: a persisted `state.json` written before any
+/// process identity was recorded on `RuntimeBinding` must still deserialize.
+/// Since issue #543 split the roles, "absent" must leave *both* the pane and
+/// the worker unknown rather than populating either from the other.
 #[test]
-fn runtime_binding_deserializes_missing_pid_as_none() {
+fn runtime_binding_without_identities_deserializes_with_every_role_absent() {
     let value = json!({
         "session_name": "jefe-agent-1",
         "launch_signature": {
@@ -378,8 +379,10 @@ fn legacy_bare_pid_loads_as_pane_evidence_without_a_creation_token() {
     assert!(binding.worker_identity.is_none());
 }
 
+/// Every identity role survives a round trip in its own slot, so a restarted
+/// jefe recovers the pane leader and the worker as separate facts (issue #543).
 #[test]
-fn runtime_binding_roundtrips_pid_when_present() {
+fn runtime_binding_roundtrips_each_identity_role_separately() {
     let binding = RuntimeBinding {
         session_name: "jefe-agent-2".to_string(),
         launch_signature: LaunchSignatureV1::default(),
