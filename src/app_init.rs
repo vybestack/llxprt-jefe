@@ -175,6 +175,89 @@ fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
     false
 }
 
+/// Adopt an already-running local session under its launch signature.
+///
+/// Every failure here is reached *after* the session was observed alive, so
+/// none of them is evidence of death.
+fn adopt_running_local_agent(
+    agent: &Agent,
+    signature: &AgentLaunchRequest,
+    runtime: &mut TmuxRuntimeManager,
+) -> RestoreOneOutcome {
+    let launched_with = match signature_for_running_agent(
+        agent.persisted_launch_signature.clone(),
+        jefe::runtime::launch_compose::launch_signature_from_request(signature).ok(),
+    ) {
+        Ok(value) => value,
+        Err(reason) => return RestoreOneOutcome::Held(reason),
+    };
+    match runtime.register_existing_local_session(&agent.id, &agent.work_dir, launched_with) {
+        Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
+        // Failing to record a live session is our bookkeeping failing, not the
+        // agent dying.
+        Err(error) => {
+            warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
+            RestoreOneOutcome::Held(Uncertainty::new(
+                ProbeBoundary::SessionExists,
+                format!("could not register the live session: {error}"),
+            ))
+        }
+    }
+}
+
+/// Revive a running agent's session, holding rather than burying it when the
+/// revival succeeds but the bookkeeping around it does not.
+fn revive_running_agent(
+    agent: &Agent,
+    signature: &AgentLaunchRequest,
+    runtime: &mut TmuxRuntimeManager,
+    runtime_warning: Option<&String>,
+) -> RestoreOneOutcome {
+    match revive_agent_session(agent, signature, runtime, runtime_warning) {
+        ReviveOutcome::Revived => {
+            let launch_signature = match signature_for_running_agent(
+                None,
+                jefe::runtime::launch_compose::launch_signature_from_request(signature).ok(),
+            ) {
+                Ok(value) => value,
+                Err(reason) => return RestoreOneOutcome::Held(reason),
+            };
+            match runtime.runtime_binding(&agent.id, &launch_signature) {
+                Some(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
+                None => RestoreOneOutcome::Held(Uncertainty::new(
+                    ProbeBoundary::SessionExists,
+                    "revived session produced no binding".to_owned(),
+                )),
+            }
+        }
+        ReviveOutcome::Died => RestoreOneOutcome::Dead,
+    }
+}
+
+/// Choose the signature to adopt a *running* agent under.
+///
+/// Reached only once the session probe has said the agent is alive, which is
+/// what makes the failing case interesting: a signature that cannot be
+/// composed is a statement about the current configuration, and configuration
+/// says nothing about whether a process is running. #527 marked twenty live
+/// panes stopped because a hash changed; treating an uncomposable signature as
+/// death is the same move, so it yields a hold instead.
+///
+/// The persisted signature wins when present: it is the one the process was
+/// actually launched with, and what the configuration would produce *now* is a
+/// statement about the next launch (issue #583).
+fn signature_for_running_agent(
+    persisted: Option<jefe::domain::LaunchSignatureV1>,
+    composed: Option<jefe::domain::LaunchSignatureV1>,
+) -> Result<jefe::domain::LaunchSignatureV1, Uncertainty> {
+    persisted.or(composed).ok_or_else(|| {
+        Uncertainty::new(
+            ProbeBoundary::LaunchSignature,
+            "no persisted signature and the current configuration composes none".to_owned(),
+        )
+    })
+}
+
 /// Ask the session probe again before accepting that it cannot answer.
 ///
 /// #537 was a single transient subprocess failure at cold start that stranded
@@ -528,36 +611,10 @@ fn restore_one_agent(
         // The binding carries the signature the process was *launched* with,
         // not the one the current configuration would produce.
         StartupClassification::Running if !signature.remote.enabled => {
-            let Some(launched_with) = agent.persisted_launch_signature.clone().or_else(|| {
-                jefe::runtime::launch_compose::launch_signature_from_request(&signature).ok()
-            }) else {
-                return RestoreOneOutcome::Dead;
-            };
-            match runtime.register_existing_local_session(&agent.id, &agent.work_dir, launched_with)
-            {
-                Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
-                Err(error) => {
-                    warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
-                    RestoreOneOutcome::Dead
-                }
-            }
+            adopt_running_local_agent(agent, &signature, runtime)
         }
         StartupClassification::Running => {
-            match revive_agent_session(agent, &signature, runtime, runtime_warning) {
-                ReviveOutcome::Revived => {
-                    let Ok(launch_signature) =
-                        jefe::runtime::launch_compose::launch_signature_from_request(&signature)
-                    else {
-                        return RestoreOneOutcome::Dead;
-                    };
-                    runtime
-                        .runtime_binding(&agent.id, &launch_signature)
-                        .map_or(RestoreOneOutcome::Dead, |binding| {
-                            RestoreOneOutcome::Revived(Box::new(binding))
-                        })
-                }
-                ReviveOutcome::Died => RestoreOneOutcome::Dead,
-            }
+            revive_running_agent(agent, &signature, runtime, runtime_warning)
         }
     }
 }

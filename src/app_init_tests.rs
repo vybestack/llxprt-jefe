@@ -603,3 +603,41 @@ fn a_missing_session_is_not_retried() {
     assert_eq!(evidence, SessionEvidence::Missing);
     assert_eq!(calls, 1, "an answered probe is asked exactly once");
 }
+
+/// V3 / #527: twenty live panes were marked stopped because a hash changed.
+/// A signature that cannot be composed describes the configuration, not the
+/// process, so a live agent must be held rather than buried.
+#[test]
+fn a_live_agent_whose_signature_will_not_compose_is_held_not_dead() {
+    let outcome = signature_for_running_agent(None, None);
+
+    let reason = outcome
+        .err()
+        .unwrap_or_else(|| panic!("an uncomposable signature must not yield a signature"));
+    assert_eq!(reason.boundary(), ProbeBoundary::LaunchSignature);
+}
+
+/// The signature the process was actually launched with wins over whatever the
+/// current configuration would produce (issue #583).
+#[test]
+fn a_persisted_signature_beats_the_current_configuration() {
+    let persisted = jefe::domain::LaunchSignatureV1::default();
+    let composed = jefe::domain::LaunchSignatureV1::default();
+
+    let chosen = signature_for_running_agent(Some(persisted.clone()), Some(composed))
+        .unwrap_or_else(|reason| panic!("a persisted signature must be adopted: {reason}"));
+
+    assert_eq!(chosen, persisted);
+}
+
+/// The mirror hazard: when the configuration *can* compose a signature and
+/// nothing was persisted, adoption must still proceed rather than hold.
+#[test]
+fn a_composable_signature_is_still_adopted() {
+    let composed = jefe::domain::LaunchSignatureV1::default();
+
+    let chosen = signature_for_running_agent(None, Some(composed.clone()))
+        .unwrap_or_else(|reason| panic!("a composable signature must be adopted: {reason}"));
+
+    assert_eq!(chosen, composed);
+}

@@ -82,6 +82,12 @@ pub enum ProbeBoundary {
     ServerIdentity,
     /// Reading the durable state document.
     DurableRead,
+    /// Composing the launch signature an agent would be started with.
+    ///
+    /// Not a probe of the world but of our own configuration, and it belongs
+    /// here for the same reason: failing to derive it says nothing about
+    /// whether the process is running.
+    LaunchSignature,
     /// Querying an OS process identity.
     ProcessIdentity,
 }
@@ -95,6 +101,7 @@ impl fmt::Display for ProbeBoundary {
             Self::ServerIdentity => "display-message",
             Self::DurableRead => "durable state read",
             Self::ProcessIdentity => "process identity query",
+            Self::LaunchSignature => "launch signature composition",
         };
         f.write_str(name)
     }
