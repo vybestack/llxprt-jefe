@@ -44,7 +44,7 @@ fn the_pane_vocabulary_maps_in_both_directions() {
         SelectablePane::ErrorList,
         SelectablePane::ErrorDetail,
     ] {
-        let Some(panel) = selectable_to_panel(pane) else {
+        let Some(panel) = selectable_to_panel(pane, ScreenId::Dashboard) else {
             unreachable!("{pane:?} must map to a panel");
         };
         assert_eq!(
@@ -52,6 +52,40 @@ fn the_pane_vocabulary_maps_in_both_directions() {
             Some(pane),
             "{pane:?} must round-trip"
         );
+    }
+}
+
+#[test]
+fn the_terminal_pane_names_the_right_panel_on_each_screen() {
+    // One pane, two panel identities: resolving without the screen would miss
+    // the Terminal Manager's preview entirely.
+    assert_eq!(
+        selectable_to_panel(SelectablePane::TerminalView, ScreenId::Dashboard),
+        Some(PanelId::from_static("terminal"))
+    );
+    assert_eq!(
+        selectable_to_panel(SelectablePane::TerminalView, ScreenId::Terminals),
+        Some(PanelId::from_static("shell-preview"))
+    );
+}
+
+#[test]
+fn every_screens_panels_resolve_back_to_themselves() {
+    // The reverse mapping must name a panel that actually exists on the screen
+    // asked about, or a consumer holding a pane gets no geometry at all.
+    for screen in ScreenId::ALL {
+        let resolved = snapshot(screen, 120, 40);
+        for panel in resolved.visible_panels() {
+            let Some(pane) = panel_to_selectable(panel.id) else {
+                continue;
+            };
+            assert_eq!(
+                selectable_to_panel(pane, screen),
+                Some(panel.id),
+                "screen {screen} panel {} does not resolve back to itself",
+                panel.id
+            );
+        }
     }
 }
 
@@ -67,7 +101,11 @@ fn overlay_panes_map_to_no_descriptor_panel() {
         SelectablePane::StatusBar,
         SelectablePane::KeybindBar,
     ] {
-        assert_eq!(selectable_to_panel(pane), None, "{pane:?}");
+        assert_eq!(
+            selectable_to_panel(pane, ScreenId::Dashboard),
+            None,
+            "{pane:?}"
+        );
     }
 }
 
@@ -177,7 +215,7 @@ fn a_hidden_panel_owns_no_cell() {
             let Some((pane, _)) = hit else {
                 continue;
             };
-            let Some(panel) = selectable_to_panel(pane) else {
+            let Some(panel) = selectable_to_panel(pane, ScreenId::Issues) else {
                 continue;
             };
             assert_eq!(
@@ -197,7 +235,11 @@ fn the_snapshot_wrap_width_matches_the_width_the_renderer_wraps_at() {
         let issues = snapshot(ScreenId::Issues, cols, 40);
         let (render_cols, _) = crate::layout::effective_render_size(cols, 40);
         assert_eq!(
-            crate::selection::detail_wrap_width(&issues, SelectablePane::IssueDetail),
+            crate::selection::detail_wrap_width(
+                &issues,
+                SelectablePane::IssueDetail,
+                ScreenId::Issues
+            ),
             Some(usize::from(crate::layout::issues_detail_content_width(
                 render_cols
             ))),
@@ -206,7 +248,11 @@ fn the_snapshot_wrap_width_matches_the_width_the_renderer_wraps_at() {
 
         let prs = snapshot(ScreenId::PullRequests, cols, 40);
         assert_eq!(
-            crate::selection::detail_wrap_width(&prs, SelectablePane::PrDetail),
+            crate::selection::detail_wrap_width(
+                &prs,
+                SelectablePane::PrDetail,
+                ScreenId::PullRequests
+            ),
             Some(usize::from(crate::layout::prs_detail_content_width(
                 render_cols
             ))),
@@ -223,7 +269,7 @@ fn a_hidden_detail_pane_has_no_wrap_width() {
     let tiny = resolve_screen(&state, 30, 8)
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"));
     assert_eq!(
-        crate::selection::detail_wrap_width(&tiny, SelectablePane::IssueDetail),
+        crate::selection::detail_wrap_width(&tiny, SelectablePane::IssueDetail, ScreenId::Issues),
         None
     );
 }

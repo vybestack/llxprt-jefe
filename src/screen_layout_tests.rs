@@ -60,19 +60,16 @@ fn no_panel_overlaps_the_status_or_keybind_bar() {
 }
 
 #[test]
-fn one_frame_produces_one_snapshot_identity() {
-    // Every panel in a frame comes from the same resolution, so a consumer can
-    // prove it read the geometry the renderer used.
+fn each_resolution_is_a_distinct_snapshot_with_a_stable_panel_set() {
+    // The identity is what lets a consumer prove it read the geometry the
+    // renderer used rather than deriving its own, so two resolutions must never
+    // share one, while the geometry they produce for equal inputs is identical.
     let first = resolved(ScreenId::Issues, 120, 40);
     let second = resolved(ScreenId::Issues, 120, 40);
-    assert_ne!(
-        first.screen_instance, second.screen_instance,
-        "each resolution is a distinct snapshot"
-    );
+    assert_ne!(first.screen_instance, second.screen_instance);
     assert_eq!(
-        first.panels.len(),
-        second.panels.len(),
-        "the same inputs produce the same panel set"
+        first.panels, second.panels,
+        "the same inputs must produce the same panels"
     );
 }
 

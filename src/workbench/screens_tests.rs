@@ -26,16 +26,19 @@ fn collapse_order(descriptor: &ScreenDescriptor) -> Vec<String> {
     candidates.into_iter().map(|(_, _, id)| id).collect()
 }
 
+/// Walk the tree, recording each collapsible child with the leaf index its
+/// subtree starts at. The resolver breaks collapse-priority ties by that same
+/// index, so this mirrors it rather than inventing an ordering.
 fn collect_collapsible(
     node: &LayoutNode,
-    next_index: &mut usize,
+    next_leaf: &mut usize,
     collected: &mut Vec<(i32, usize, String)>,
 ) {
     match node {
-        LayoutNode::Leaf { .. } => *next_index += 1,
+        LayoutNode::Leaf { .. } => *next_leaf += 1,
         LayoutNode::Split { children, .. } => {
             for child in children {
-                let index = *next_index;
+                let index = *next_leaf;
                 if child.collapsible {
                     collected.push((
                         child.collapse_priority.unwrap_or(0),
@@ -47,7 +50,7 @@ fn collect_collapsible(
                             .map_or_else(String::new, |panel| panel.as_str().to_owned()),
                     ));
                 }
-                collect_collapsible(&child.node, next_index, collected);
+                collect_collapsible(&child.node, next_leaf, collected);
             }
         }
     }
@@ -309,11 +312,19 @@ fn compiled_screens_match_the_parity_golden() {
     }
 }
 
+/// Read a list of strings from the golden, failing loudly on schema drift.
+///
+/// Silently dropping a non-string would let a corrupted golden compare against
+/// a truncated list and pass.
 fn string_list<'value>(value: &'value Value, key: &str) -> Option<Vec<&'value str>> {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .map(|entries| entries.iter().filter_map(Value::as_str).collect())
+    let entries = value.get(key).and_then(Value::as_array)?;
+    let strings: Vec<&str> = entries.iter().filter_map(Value::as_str).collect();
+    assert_eq!(
+        strings.len(),
+        entries.len(),
+        "golden key {key} contains a non-string entry"
+    );
+    Some(strings)
 }
 
 #[test]

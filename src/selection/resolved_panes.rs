@@ -12,7 +12,7 @@
 
 use crate::selection::geometry::PaneGeometry;
 use crate::selection::text::SelectablePane;
-use crate::workbench::{PanelId, ResolvedLayout, ResolvedPanel};
+use crate::workbench::{PanelId, ResolvedLayout, ResolvedPanel, ScreenId};
 
 /// The selectable pane a descriptor panel corresponds to.
 ///
@@ -86,8 +86,12 @@ pub const DETAIL_INNER_RESERVED_COLS: u16 = 2;
 /// Returns `None` when the pane is not showing, in which case there is nothing
 /// to wrap.
 #[must_use]
-pub fn detail_wrap_width(layout: &ResolvedLayout, pane: SelectablePane) -> Option<usize> {
-    let panel = selectable_to_panel(pane)?;
+pub fn detail_wrap_width(
+    layout: &ResolvedLayout,
+    pane: SelectablePane,
+    screen: ScreenId,
+) -> Option<usize> {
+    let panel = selectable_to_panel(pane, screen)?;
     let resolved = layout.panel(&panel)?;
     if !resolved.visible {
         return None;
@@ -100,16 +104,24 @@ pub fn detail_wrap_width(layout: &ResolvedLayout, pane: SelectablePane) -> Optio
     ))
 }
 
-/// The panel identity a selectable pane corresponds to on a given screen.
+/// The panel identity a selectable pane corresponds to on a screen.
 ///
 /// The inverse of [`panel_to_selectable`], for consumers that hold a pane and
 /// need its rectangle from the snapshot.
+///
+/// The screen is a parameter because one pane can name different panels on
+/// different screens: the embedded terminal is `terminal` on the dashboard and
+/// `shell-preview` in the Terminal Manager. Resolving without the screen would
+/// silently miss the Terminal Manager's pane.
 #[must_use]
-pub fn selectable_to_panel(pane: SelectablePane) -> Option<PanelId> {
+pub fn selectable_to_panel(pane: SelectablePane, screen: ScreenId) -> Option<PanelId> {
     let id = match pane {
         SelectablePane::Sidebar => "repositories",
         SelectablePane::AgentList => "agents",
-        SelectablePane::TerminalView => "terminal",
+        SelectablePane::TerminalView => match screen {
+            ScreenId::Terminals => "shell-preview",
+            _ => "terminal",
+        },
         SelectablePane::Preview => "preview",
         SelectablePane::IssueList => "issue-list",
         SelectablePane::IssueDetail => "issue-detail",

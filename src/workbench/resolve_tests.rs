@@ -86,15 +86,33 @@ fn visible_panels_never_overlap_and_stay_inside_the_outer_rect() {
 
 #[test]
 fn a_hidden_panel_has_no_hit_content_or_chrome_region() {
+    // Hiding is driven explicitly rather than by picking a size that happens to
+    // collapse something, so every screen genuinely exercises the assertion.
+    let mut asserted = 0_u32;
     for descriptor in screens() {
-        // 30 columns by 8 rows forces collapses on every screen.
-        let layout = resolve(&descriptor, 30, 8);
-        for panel in layout.panels.iter().filter(|panel| !panel.visible) {
+        for optional in descriptor.panels.iter().filter(|panel| !panel.required) {
+            let state = PanelState::all_visible().hiding(&optional.id);
+            let layout = resolve_layout(
+                &descriptor,
+                ScreenInstanceId::next(),
+                Rect::new(0, 0, 120, 40),
+                &state,
+            )
+            .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"));
+            let Some(panel) = layout.panel(&optional.id) else {
+                unreachable!("every declared panel is in the snapshot");
+            };
+            assert!(!panel.visible, "screen {}", descriptor.id);
             assert_eq!(panel.hit_region, None, "screen {}", descriptor.id);
             assert!(panel.content.is_empty(), "screen {}", descriptor.id);
             assert!(panel.chrome.is_empty(), "screen {}", descriptor.id);
+            asserted += 1;
         }
     }
+    assert!(
+        asserted >= 10,
+        "expected a broad sweep, asserted {asserted}"
+    );
 }
 
 #[test]
@@ -258,26 +276,25 @@ fn every_resolved_panel_carries_the_snapshot_identity() {
 }
 
 #[test]
-fn an_application_hidden_panel_is_absent_from_the_snapshot() {
+fn any_application_hidden_panel_is_absent_from_the_snapshot() {
     for descriptor in screens() {
-        let Some(optional) = descriptor.panels.iter().find(|panel| !panel.required) else {
-            continue;
-        };
-        let state = PanelState::all_visible().hiding(&optional.id);
-        let layout = resolve_layout(
-            &descriptor,
-            ScreenInstanceId::next(),
-            Rect::new(0, 0, 120, 40),
-            &state,
-        )
-        .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"));
-        assert_eq!(
-            layout.panel(&optional.id).map(|panel| panel.visible),
-            Some(false),
-            "screen {} panel {}",
-            descriptor.id,
-            optional.id
-        );
+        for optional in descriptor.panels.iter().filter(|panel| !panel.required) {
+            let state = PanelState::all_visible().hiding(&optional.id);
+            let layout = resolve_layout(
+                &descriptor,
+                ScreenInstanceId::next(),
+                Rect::new(0, 0, 120, 40),
+                &state,
+            )
+            .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"));
+            assert_eq!(
+                layout.panel(&optional.id).map(|panel| panel.visible),
+                Some(false),
+                "screen {} panel {}",
+                descriptor.id,
+                optional.id
+            );
+        }
     }
 }
 

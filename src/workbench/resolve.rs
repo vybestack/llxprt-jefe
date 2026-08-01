@@ -463,11 +463,17 @@ fn too_small_layout(
         .enumerate()
         .map(|(index, panel)| {
             if Some(&panel.id) == survivor && !outer.is_empty() {
+                // The survivor still draws its own border and title inside the
+                // rectangle, so its content area is inset exactly as it would
+                // be on the normal path. Reporting the whole rectangle as
+                // content would tell a PTY consumer it has more cells than it
+                // can actually draw in.
+                let content = outer.inset(panel_insets(&panel.config));
                 ResolvedPanel {
                     id: panel.id,
                     visible: true,
                     chrome: outer,
-                    content: outer,
+                    content,
                     depth_first_index: index,
                     hit_region: Some(outer),
                 }

@@ -102,7 +102,7 @@ impl PaneGeometry {
 ///
 /// Returns `None` when the point falls outside any known pane (e.g. on a
 /// border line or in the gutter). The layout is computed from `term_cols` /
-/// `term_rows` and the active active screen (read from `layout.screen`),
+/// `term_rows` and the active screen (read from `layout.screen`),
 /// using the exact [`crate::layout`] constants the screens render with, so
 /// geometry can never drift from the rendered output.
 ///

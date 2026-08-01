@@ -29,6 +29,10 @@ pub mod validate;
 mod ids_tests;
 
 #[cfg(test)]
+#[path = "config_tests.rs"]
+mod config_tests;
+
+#[cfg(test)]
 #[path = "descriptor_tests.rs"]
 mod descriptor_tests;
 

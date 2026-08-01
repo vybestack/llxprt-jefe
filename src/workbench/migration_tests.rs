@@ -16,7 +16,14 @@ fn every_legacy_value_maps_to_its_specified_stable_identity() {
         ("DashboardIssues", "github.issues"),
         ("DashboardPullRequests", "github.pull-requests"),
         ("DashboardActions", "github.actions"),
+        ("DashboardErrors", "core.errors"),
+        ("DashboardTerminals", "core.terminals"),
     ];
+    assert_eq!(
+        expected.len(),
+        LEGACY_SCREEN_VALUES.len(),
+        "every legacy value must have an asserted target"
+    );
     for (legacy, stable) in expected {
         let outcome = migrate_persisted_screen_value(Some(legacy), &registry);
         assert!(

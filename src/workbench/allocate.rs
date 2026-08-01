@@ -144,7 +144,7 @@ fn next_collapse_victim(children: &[AxisChild], visible: &[bool]) -> Option<usiz
     children
         .iter()
         .enumerate()
-        .filter(|(index, child)| child.collapsible && visible.get(*index).copied().unwrap_or(false))
+        .filter(|(index, child)| child.collapsible && visible[*index])
         .min_by(|(_, left), (_, right)| {
             left.collapse_priority
                 .cmp(&right.collapse_priority)

@@ -32,7 +32,9 @@ fn unclamped_split(render_rows: u16) -> Option<(u16, u16)> {
     if content <= crate::layout::AGENT_PANE_MIN_ROWS + crate::layout::TERMINAL_PANE_MIN_ROWS {
         return None;
     }
-    let preferred = (content * 25 + 50) / 100;
+    // Widened so the helper stays correct if it is ever reused with a larger
+    // row count; `content * 25` overflows a u16 above 2621.
+    let preferred = u16::try_from((u32::from(content) * 25 + 50) / 100).unwrap_or(u16::MAX);
     let clamped = preferred.clamp(
         crate::layout::AGENT_PANE_MIN_ROWS,
         content - crate::layout::TERMINAL_PANE_MIN_ROWS,

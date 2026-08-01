@@ -20,14 +20,28 @@ use crate::workbench::{
 
 /// Resolve the active screen's geometry for a terminal size.
 ///
-/// Returns `None` only if the compiled descriptor table is malformed, which
-/// startup already rejects, or if the arithmetic would leave the checked range.
+/// Returns `None` only for conditions startup already rules out: a malformed
+/// compiled descriptor table, or allocation arithmetic leaving the checked
+/// range. Both are logged rather than swallowed, because a frame that silently
+/// falls back to no geometry is far harder to diagnose than one that says why.
 #[must_use]
 pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Option<ResolvedLayout> {
-    let descriptor = screen_descriptor(state.screen).ok()?;
+    let descriptor = match screen_descriptor(state.screen) {
+        Ok(descriptor) => descriptor,
+        Err(error) => {
+            tracing::error!(screen = %state.screen, %error, "no compiled descriptor for the active screen");
+            return None;
+        }
+    };
     let outer = screen_rect(term_cols, term_rows);
     let panel_state = hidden_panels(state);
-    resolve_layout(descriptor, ScreenInstanceId::next(), outer, &panel_state).ok()
+    match resolve_layout(descriptor, ScreenInstanceId::next(), outer, &panel_state) {
+        Ok(layout) => Some(layout),
+        Err(error) => {
+            tracing::error!(screen = %state.screen, %error, ?outer, "layout resolution failed");
+            None
+        }
+    }
 }
 
 /// The rectangle a screen may use, after the status bar and keybind bar.
@@ -79,7 +93,10 @@ fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         ScreenId::Issues => {
             push_band_state(
                 &mut hidden,
-                "issue-list",
+                WorkspaceBands {
+                    banner: PanelId::from_static("issue-list-banner"),
+                    filter: PanelId::from_static("issue-list-filter"),
+                },
                 state.error_message.is_some(),
                 state.issues_state.filter_ui.controls_open,
             );
@@ -87,7 +104,10 @@ fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         ScreenId::PullRequests => {
             push_band_state(
                 &mut hidden,
-                "pr-list",
+                WorkspaceBands {
+                    banner: PanelId::from_static("pr-list-banner"),
+                    filter: PanelId::from_static("pr-list-filter"),
+                },
                 state.error_message.is_some(),
                 state.prs_state.filter_ui.controls_open,
             );
@@ -95,7 +115,10 @@ fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         ScreenId::Actions => {
             push_band_state(
                 &mut hidden,
-                "action-list",
+                WorkspaceBands {
+                    banner: PanelId::from_static("action-list-banner"),
+                    filter: PanelId::from_static("action-list-filter"),
+                },
                 state.error_message.is_some(),
                 state.actions_state.ui.filter_ui_open,
             );
@@ -104,37 +127,29 @@ fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
     hidden
 }
 
+/// The two conditional bands a workspace screen declares.
+///
+/// The identities are passed in rather than derived from the list name: a
+/// derivation would need a fallback arm, and a fallback that guesses the wrong
+/// band is a silent rendering bug instead of a compile error.
+struct WorkspaceBands {
+    /// The notice-band panel.
+    banner: PanelId,
+    /// The filter-controls panel.
+    filter: PanelId,
+}
+
 /// Hide the notice banner and filter band unless the screen is showing them.
 fn push_band_state(
     hidden: &mut Vec<PanelId>,
-    list: &'static str,
+    bands: WorkspaceBands,
     banner_visible: bool,
     filter_open: bool,
 ) {
     if !banner_visible {
-        hidden.push(banner_panel(list));
+        hidden.push(bands.banner);
     }
     if !filter_open {
-        hidden.push(filter_panel(list));
-    }
-}
-
-/// The notice-band panel belonging to a workspace list.
-#[must_use]
-pub fn banner_panel(list: &'static str) -> PanelId {
-    match list {
-        "issue-list" => PanelId::from_static("issue-list-banner"),
-        "pr-list" => PanelId::from_static("pr-list-banner"),
-        _ => PanelId::from_static("action-list-banner"),
-    }
-}
-
-/// The filter-band panel belonging to a workspace list.
-#[must_use]
-pub fn filter_panel(list: &'static str) -> PanelId {
-    match list {
-        "issue-list" => PanelId::from_static("issue-list-filter"),
-        "pr-list" => PanelId::from_static("pr-list-filter"),
-        _ => PanelId::from_static("action-list-filter"),
+        hidden.push(bands.filter);
     }
 }

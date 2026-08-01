@@ -1,8 +1,12 @@
 //! Rectangles and extents used by the layout resolver (issue #384).
 //!
-//! All interior arithmetic is checked `u32`: a layout can never silently wrap
-//! or saturate its way into a wrong rectangle, and an out-of-range result is a
-//! typed error rather than a panic.
+//! These are value types with total operations: edge arithmetic widens to `u32`
+//! so a rectangle's right or bottom edge can never wrap, and [`Rect::inset`]
+//! clamps to an empty rectangle rather than underflowing when the chrome is
+//! wider than the box. An empty rectangle is a meaningful answer here — the
+//! resolver hides a panel whose content collapsed to nothing — so this layer
+//! returns no errors. The allocation arithmetic that *can* fail lives in
+//! [`super::allocate`], where overflow is a typed error.
 
 use std::fmt;
 
