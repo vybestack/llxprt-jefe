@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 
@@ -24,6 +24,15 @@ use super::command_capture::run_command_capture_with_timeout;
 
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 const INSTALL_MARKER: &str = ".jefe-installed";
+
+/// How long a volatile-selector install (a moving dist-tag such as `nightly`)
+/// is trusted before jefe re-resolves it against the registry (issue #554).
+///
+/// Nightlies publish roughly daily; trusting an install for ~half that cadence
+/// bounds staleness to about twelve hours without hitting the registry on every
+/// launch. Explicit (pinned) selectors are immutable and never expire.
+const VOLATILE_SELECTOR_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+
 static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
 /// Local managed execution or remote structural execution.
@@ -197,6 +206,18 @@ pub fn finalize_local_invocation(
     candidate: &ResolvedCandidate,
     cache_root: &Path,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
+    finalize_local_invocation_at(candidate, cache_root, SystemTime::now())
+}
+
+/// Time-injected core of [`finalize_local_invocation`] for deterministic tests.
+///
+/// `now` stamps the install marker and gates the volatile-selector freshness
+/// check (issue #554); production callers pass [`SystemTime::now`].
+pub fn finalize_local_invocation_at(
+    candidate: &ResolvedCandidate,
+    cache_root: &Path,
+    now: SystemTime,
+) -> Result<PackageInvocation, PackageRuntimeError> {
     let Some(selection) = candidate.package() else {
         return Ok(PackageInvocation {
             executable: candidate.executable().to_path_buf(),
@@ -206,7 +227,7 @@ pub fn finalize_local_invocation(
         });
     };
     if selection.runner() == PackageRunnerKind::Npm {
-        prepare_managed_npm(candidate, selection, cache_root)
+        prepare_managed_npm(candidate, selection, cache_root, now)
     } else {
         package_invocation(candidate, PackageExecutionTarget::Local, cache_root)?
             .ok_or(PackageRuntimeError::InvalidSelection)
@@ -276,22 +297,93 @@ fn managed_bin_dir(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
         .join(".bin")
 }
 
-fn marker_contents(selection: &PackageSelection) -> String {
-    format!(
+fn marker_contents(selection: &PackageSelection, now: SystemTime) -> String {
+    let effective = selection
+        .selector()
+        .effective(selection.runner())
+        .unwrap_or_default();
+    let base = format!(
         "{}\n{}\n{}\n",
         selection.package(),
         selection.binary(),
-        selection
-            .selector()
-            .effective(selection.runner())
-            .unwrap_or_default()
+        effective
+    );
+    // Issue #554: volatile selectors carry an install-time epoch on a 4th line so
+    // the cache can expire and re-resolve the moving dist-tag. Pinned selectors
+    // keep the legacy 3-line marker (a permanent hit — explicit versions never
+    // change).
+    if !selection.selector().is_volatile() {
+        return base;
+    }
+    let secs = now
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    format!("{base}{secs}\n")
+}
+
+/// Whether the stored marker identifies this selection AND, for volatile
+/// selectors, was installed within [`VOLATILE_SELECTOR_TTL`] of `now`.
+fn cache_hit(
+    install_dir: &Path,
+    bin_dir: &Path,
+    selection: &PackageSelection,
+    now: SystemTime,
+) -> bool {
+    let Ok(stored) = std::fs::read_to_string(install_dir.join(INSTALL_MARKER)) else {
+        return false;
+    };
+    if !marker_identity_matches(&stored, selection) {
+        return false;
+    }
+    if selection.selector().is_volatile() && !marker_install_is_fresh(&stored, now) {
+        return false;
+    }
+    PathSnapshot::for_platform(
+        AgentExecutablePlatform::current(),
+        vec![bin_dir.to_path_buf()],
+        std::env::var_os("PATHEXT"),
     )
+    .resolve_binary(selection.binary())
+    .is_some()
+}
+
+/// Whether the stored marker's package/binary/effective lines match `selection`.
+fn marker_identity_matches(stored: &str, selection: &PackageSelection) -> bool {
+    let effective = selection
+        .selector()
+        .effective(selection.runner())
+        .unwrap_or_default();
+    let mut lines = stored.split('\n');
+    lines.next() == Some(selection.package())
+        && lines.next() == Some(selection.binary())
+        && lines.next() == Some(effective)
+}
+
+/// Whether a volatile selector's marker install-time line is still within TTL.
+///
+/// A missing or unparseable 4th line (a legacy/stuck 3-line marker) is treated
+/// as expired so the install is rebuilt and auto-healed (issue #554).
+fn marker_install_is_fresh(stored: &str, now: SystemTime) -> bool {
+    let Some(secs_str) = stored.split('\n').nth(3) else {
+        return false;
+    };
+    let Ok(secs) = secs_str.parse::<u64>() else {
+        return false;
+    };
+    let Some(installed) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(secs)) else {
+        return false;
+    };
+    // A future-dated marker (clock skew) is treated as expired: re-resolve
+    // rather than trust an untrusted timestamp.
+    now.duration_since(installed)
+        .is_ok_and(|age| age < VOLATILE_SELECTOR_TTL)
 }
 
 fn prepare_managed_npm(
     candidate: &ResolvedCandidate,
     selection: &PackageSelection,
     cache_root: &Path,
+    now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
     let _guard = match INSTALL_LOCK.lock() {
         Ok(guard) => guard,
@@ -299,9 +391,26 @@ fn prepare_managed_npm(
     };
     let install_dir = managed_install_dir(cache_root, selection);
     let bin_dir = managed_bin_dir(cache_root, selection);
-    let cache_hit = cache_hit(&install_dir, &bin_dir, selection);
+    let cache_hit = cache_hit(&install_dir, &bin_dir, selection, now);
     if !cache_hit {
         write_package_json(&install_dir, selection)?;
+        // Issue #554: a stale lockfile makes `npm install` reuse the previously
+        // resolved dist-tag target. Drop it for volatile selectors so npm
+        // re-resolves `nightly`/`latest` against the registry. A real failure to
+        // remove an existing lockfile must surface — otherwise npm would silently
+        // reinstall the old target and the freshly stamped marker would freeze
+        // the stale build for another TTL window.
+        if selection.selector().is_volatile() {
+            match std::fs::remove_file(install_dir.join("package-lock.json")) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(PackageRuntimeError::InstallDirectory(format!(
+                        "failed to remove stale lockfile for re-resolve: {error}"
+                    )));
+                }
+            }
+        }
         run_npm_install(candidate, &install_dir)?;
     }
     let snapshot = PathSnapshot::for_platform(
@@ -315,8 +424,11 @@ fn prepare_managed_npm(
         });
     };
     if !cache_hit {
-        std::fs::write(install_dir.join(INSTALL_MARKER), marker_contents(selection))
-            .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
+        std::fs::write(
+            install_dir.join(INSTALL_MARKER),
+            marker_contents(selection, now),
+        )
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
     }
     let fingerprint = capture_candidate_fingerprint(&executable)
         .map_err(PackageRuntimeError::InstallDirectory)?;
@@ -326,18 +438,6 @@ fn prepare_managed_npm(
         prefix: Vec::new(),
         fingerprint: Some(fingerprint),
     })
-}
-
-fn cache_hit(install_dir: &Path, bin_dir: &Path, selection: &PackageSelection) -> bool {
-    std::fs::read_to_string(install_dir.join(INSTALL_MARKER))
-        .is_ok_and(|value| value == marker_contents(selection))
-        && PathSnapshot::for_platform(
-            AgentExecutablePlatform::current(),
-            vec![bin_dir.to_path_buf()],
-            std::env::var_os("PATHEXT"),
-        )
-        .resolve_binary(selection.binary())
-        .is_some()
 }
 
 #[derive(Serialize)]
