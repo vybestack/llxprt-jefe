@@ -121,13 +121,26 @@ subsystem, abstraction, dependency, tooling, or unrelated-test move is introduce
 ## Review counters
 
 - Local Open Code Review: 0/2.
-- Post-PR Open Code Review: 0/2.
+- Post-PR Open Code Review: 2/2 (CI budget reached; 1 finding raised, addressed).
 
 ## Verification evidence
 
 - Base: `issue187` created from `origin/main`.
-- (To be filled as slices complete.)
+- Head: `2f4e095f` (3 commits ahead of `origin/main`).
+- Local exact-head gates (all green):
+  - `cargo fmt --all --check` — clean.
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` — clean.
+  - `cargo build --workspace --all-features --locked` — clean.
+  - `cargo test --workspace --all-features --locked` — all suites pass, 0 failures.
+- PR #569 CI: all checks SUCCESS (format, clippy, all policy gates, build, test,
+  coverage, native Windows). Mergeable: CLEAN.
+- CodeRabbit: review completed (`@coderabbitai review`), no findings.
+- OCR: 1 inline finding (local-variable naming in `parse_linked_pr_numbers`),
+  addressed in `2f4e095f` and the review thread resolved.
 
 ## Review findings and deferred work
 
-- None yet.
+- OCR naming finding: addressed (ordered-output Vec renamed to `result`,
+  membership HashSet renamed to `seen`); thread resolved.
+- Detail-view surfacing of linked PRs: explicit non-goal / follow-up (REST path
+  lacks `timelineItems`).
