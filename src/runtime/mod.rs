@@ -131,6 +131,10 @@ pub use multiplexer_contract::{
     ContractCapability, ContractItem, ContractItemKind, ResponseShape, contract_item,
     contract_items,
 };
+pub use multiplexer_contract::{
+    Divergence, declared_divergences, divergence, exit_empty_remediation, page_up_root_unbind,
+    psmux_session_routing_vars,
+};
 pub use non_interactive::{NON_INTERACTIVE_TIMEOUT, run_non_interactive};
 /// Descendant-process observation and validated orphan-tree reaping (issue #332).
 pub use orphan::{

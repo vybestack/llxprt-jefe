@@ -305,3 +305,92 @@ pub fn contract_item(kind: ContractItemKind, name: &str) -> Option<&'static Cont
         .iter()
         .find(|item| item.kind == kind && item.name == name)
 }
+
+/// A behaviour where psmux differs from the tmux jefe was written against.
+///
+/// Each began as a patch at the point a symptom appeared. A patch records that
+/// something was wrong; it does not record what jefe requires, so the next
+/// divergence gets found the same way -- in production. Declaring them states
+/// the expectation, cites what discovered it, and gives the remediation one
+/// definition instead of a literal repeated wherever it was needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Divergence {
+    pub name: &'static str,
+    /// What jefe requires of the multiplexer.
+    pub expectation: &'static str,
+    /// What jefe does to obtain it.
+    pub remediation: &'static str,
+    /// The issue that discovered the divergence.
+    pub discovered_by: &'static str,
+}
+
+static DIVERGENCES: &[Divergence] = &[
+    Divergence {
+        name: "exit-empty",
+        expectation: "a namespace outlives its sessions: the server must not exit when its \
+                      last session closes, because losing it loses the namespace identity \
+                      bound to it",
+        remediation: "set-option -s exit-empty off, once per observed server identity",
+        discovered_by: "issue #493",
+    },
+    Divergence {
+        name: "root-page-up-binding",
+        expectation: "Page keys reach the child unintercepted; psmux ships a default \
+                      root-table PageUp binding that tmux does not, and it consumes the key \
+                      before the agent sees it",
+        remediation: "unbind-key -T root PageUp during session setup",
+        discovered_by: "issue #465",
+    },
+    Divergence {
+        name: "inherited-session-routing",
+        expectation: "jefe must not appear nested inside a parent session; psmux exports \
+                      session-routing variables that children inherit, and a jefe process \
+                      inheriting them addresses the wrong session",
+        remediation: "remove PSMUX_SESSION and PSMUX_TARGET_SESSION from every local command \
+                      environment",
+        discovered_by: "issue #260",
+    },
+];
+
+/// Session-routing variables that must never be inherited.
+///
+/// `PSMUX_CLAUDE_TEAMMATE_MODE` and `PSMUX_CONFIG_FILE` are deliberately absent:
+/// team mode is not session routing, and the plan's base args already carry
+/// their own config selection.
+pub const PSMUX_SESSION_ROUTING_VARS: [&str; 2] = ["PSMUX_SESSION", "PSMUX_TARGET_SESSION"];
+
+/// The `exit-empty` remediation, as issued.
+pub const EXIT_EMPTY_REMEDIATION: [&str; 4] = ["set-option", "-s", "exit-empty", "off"];
+
+/// The root-table `PageUp` unbind, as issued.
+pub const PAGE_UP_ROOT_UNBIND_COMMAND: [&str; 4] = ["unbind-key", "-T", "root", "PageUp"];
+
+/// Every declared divergence.
+#[must_use]
+pub fn declared_divergences() -> &'static [Divergence] {
+    DIVERGENCES
+}
+
+/// Look up one declared divergence.
+#[must_use]
+pub fn divergence(name: &str) -> Option<&'static Divergence> {
+    DIVERGENCES.iter().find(|entry| entry.name == name)
+}
+
+/// Session-routing variables that must be scrubbed.
+#[must_use]
+pub const fn psmux_session_routing_vars() -> [&'static str; 2] {
+    PSMUX_SESSION_ROUTING_VARS
+}
+
+/// The `exit-empty` remediation command.
+#[must_use]
+pub const fn exit_empty_remediation() -> [&'static str; 4] {
+    EXIT_EMPTY_REMEDIATION
+}
+
+/// The root-table `PageUp` unbind command.
+#[must_use]
+pub const fn page_up_root_unbind() -> [&'static str; 4] {
+    PAGE_UP_ROOT_UNBIND_COMMAND
+}

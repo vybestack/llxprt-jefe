@@ -24,7 +24,7 @@ const UNIX_INSTALL_GUIDANCE: &str =
 /// base args already carry `-f NUL`. `pub(super)` so the local attach command
 /// builder can share the exact same list instead of duplicating it.
 pub(super) const PSMUX_INHERITED_SESSION_VARS: [&str; 2] =
-    ["PSMUX_SESSION", "PSMUX_TARGET_SESSION"];
+    super::multiplexer_contract::PSMUX_SESSION_ROUTING_VARS;
 
 /// Local operating-system policy used to select a multiplexer implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -126,7 +126,7 @@ fn apply_exit_empty_if_new_identity(
         return;
     }
     let mut command = plan.command();
-    command.args(["set-option", "-s", "exit-empty", "off"]);
+    command.args(super::multiplexer_contract::EXIT_EMPTY_REMEDIATION);
     match run_tmux_with_timeout(&mut command) {
         Ok(output) if output.status.success() => *applied.borrow_mut() = current,
         Ok(output) => tracing::warn!(
