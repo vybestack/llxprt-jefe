@@ -427,6 +427,19 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
+    // The embedded shell overlay replaces the workspace wholesale and is not
+    // modelled by a descriptor, so it keeps its own geometry. Everything else
+    // reads the frame's snapshot: the terminal pane is sized by the resolver,
+    // which guarantees a nonzero content rectangle or hides the pane, so there
+    // is no `.max(1)` to apply here.
+    let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
+        let descriptor = jefe::workbench::screen_descriptor(snapshot.screen).ok()?;
+        jefe::workbench::pty_content_rect(
+            descriptor,
+            layout,
+            &jefe::workbench::PanelId::from_static("terminal"),
+        )
+    });
     let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen == ScreenId::Terminals {
         jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
     } else if snapshot.shell_overlay_active() {
@@ -434,6 +447,15 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     } else {
         compute_pty_layout(term_cols, term_rows)
     };
+    let (terminal_pane_rows, terminal_pane_cols) = terminal_rect.map_or_else(
+        || {
+            (
+                usize::from(pty_layout.pty_rows).max(1),
+                usize::from(pty_layout.pty_cols).max(1),
+            )
+        },
+        |rect| (usize::from(rect.height), usize::from(rect.width)),
+    );
     let screen_el = build_screen_element(
         &snapshot,
         &colors,
@@ -441,8 +463,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         TerminalRenderData {
             snapshot: terminal_snapshot,
             history_lines,
-            pane_rows: usize::from(pty_layout.pty_rows).max(1),
-            pane_cols: usize::from(pty_layout.pty_cols).max(1),
+            pane_rows: terminal_pane_rows,
+            pane_cols: terminal_pane_cols,
         },
     );
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
