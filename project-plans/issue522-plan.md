@@ -302,6 +302,32 @@ Two operational notes for anyone reproducing this:
 
   Verified with four consecutive passing runs.
 
+### X3 identity evidence
+
+Two instances launched from the same repository, branch and directory are
+indistinguishable by workspace, so identity has to come from the credential
+binding rather than from anything in the payload. A dying process can also still
+have publications in flight once its replacement has registered.
+
+Both failure modes are proven deterministically over the real loopback socket in
+`tests/jsp_two_instance_identity.rs`: two instances in one workspace keep
+separate observations carrying their own content; one instance cannot publish
+under the other's identity even holding a valid credential of its own; a revoked
+credential's delayed traffic cannot reach the replacement; and a superseded
+generation is refused even on the replacement's live credential. Every rejection
+asserts that canonical state was not mutated. These run in continuous
+integration.
+
+A two-real-instance tmux scenario was attempted and is *not* included. The first
+instance drives end to end correctly and its Preview asserts its own todo and
+reply with the other instance's marker absent, but the second New Agent form
+could not be driven: after the first agent is created the dashboard stops
+accepting the `a` accelerator, and returning focus with F12, with Escape, and
+with Escape plus Left all failed the same way. That is a TUI navigation problem
+in the harness rather than a protocol or identity gap, and the identity
+semantics it would have demonstrated are already covered above. Committing a
+red scenario would have been worse than recording this.
+
 ### Scope review
 - Every changed path maps to the accepted Jefe host, lifecycle, reducer/state, Preview, protocol, test, plan, or harness behavior.
 - The reducer and projection moved from compliance-only ownership to production ownership so compliance and the runtime share one state machine.
