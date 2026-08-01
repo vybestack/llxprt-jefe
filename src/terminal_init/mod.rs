@@ -150,27 +150,23 @@ fn prepare_console<P: ConsolePolicy>(mut policy: P) -> Option<PolicyGuard<P>> {
         return None;
     }
 
-    if needs_cp_change {
-        if let Err(error) = policy.set_output_code_page(UTF8_CODE_PAGE) {
-            tracing::warn!(
-                error = %error,
-                "failed to set console output code page to UTF-8; Unicode glyphs may render incorrectly"
-            );
-            return None;
-        }
+    if needs_cp_change && let Err(error) = policy.set_output_code_page(UTF8_CODE_PAGE) {
+        tracing::warn!(
+            error = %error,
+            "failed to set console output code page to UTF-8; Unicode glyphs may render incorrectly"
+        );
+        return None;
     }
 
-    if needs_vt_change {
-        if let Err(error) = policy.enable_virtual_terminal_processing() {
-            tracing::warn!(
-                error = %error,
-                "failed to enable virtual terminal processing; attempting code page rollback"
-            );
-            if needs_cp_change {
-                restore_code_page(&mut policy, original_cp);
-            }
-            return None;
+    if needs_vt_change && let Err(error) = policy.enable_virtual_terminal_processing() {
+        tracing::warn!(
+            error = %error,
+            "failed to enable virtual terminal processing; attempting code page rollback"
+        );
+        if needs_cp_change {
+            restore_code_page(&mut policy, original_cp);
         }
+        return None;
     }
 
     Some(PolicyGuard {

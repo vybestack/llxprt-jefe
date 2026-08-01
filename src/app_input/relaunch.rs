@@ -83,7 +83,7 @@ pub(super) fn recoverable_server_lost_ids(
                 .iter()
                 .find(|repository| repository.id == agent.repository_id)
                 .is_some_and(|repository| !repository.remote.enabled)
-                && requested.map_or(true, |ids| ids.contains(&agent.id))
+                && requested.is_none_or(|ids| ids.contains(&agent.id))
         })
         .map(|agent| agent.id.clone())
         .collect()

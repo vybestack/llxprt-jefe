@@ -236,10 +236,10 @@ fn reclaim_owned_temps(digest_directory: &Path, attempt_tag: &str) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
-            if name.contains(&expected_suffix) {
-                let _ = fs::remove_file(&path);
-            }
+        if let Some(name) = path.file_name().and_then(|value| value.to_str())
+            && name.contains(&expected_suffix)
+        {
+            let _ = fs::remove_file(&path);
         }
     }
 }

@@ -153,7 +153,7 @@ fn parse_windows_word(chars: &[char], mut index: usize) -> (String, usize) {
         }
         if chars.get(index) == Some(&'"') {
             push_backslashes(&mut word, backslashes / 2);
-            if backslashes % 2 == 0 {
+            if backslashes.is_multiple_of(2) {
                 quoted = !quoted;
             } else {
                 word.push('"');

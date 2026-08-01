@@ -85,10 +85,10 @@ impl AppState {
         // Clear the owned Changes error and any PR error propagated from it
         // (issue #376); an unrelated PR error is preserved by text comparison.
         let prev_changes_error = self.prs_state.changes.error.take();
-        if let Some(ref changes_err) = prev_changes_error {
-            if self.prs_state.error.as_deref() == Some(changes_err.as_str()) {
-                self.prs_state.error = None;
-            }
+        if let Some(ref changes_err) = prev_changes_error
+            && self.prs_state.error.as_deref() == Some(changes_err.as_str())
+        {
+            self.prs_state.error = None;
         }
         self.clear_pr_changes_blob_activity();
         true
@@ -325,10 +325,10 @@ impl AppState {
         let owned_error = self.prs_state.changes.error.take();
         // Clear only the PR error slot if it was set by this Changes failure
         // (issue #376); an unrelated PR error is preserved.
-        if let Some(ref err) = owned_error {
-            if self.prs_state.error.as_deref() == Some(err.as_str()) {
-                self.prs_state.error = None;
-            }
+        if let Some(ref err) = owned_error
+            && self.prs_state.error.as_deref() == Some(err.as_str())
+        {
+            self.prs_state.error = None;
         }
         self.prs_state.changes.pending = Some(PrChangesPending {
             scope_repo_id: identity.scope_repo_id,

@@ -43,16 +43,9 @@ fn compatible(generation: u64) -> Availability {
 }
 
 #[cfg(unix)]
-fn resolve_package(
-    definition: &AgentDefinition,
-    bin: &TempDir,
-    selector: &str,
-) -> ResolvedCandidate {
-    let snapshot = PathSnapshot::for_platform(
-        AgentExecutablePlatform::Unix,
-        vec![bin.path().to_path_buf()],
-        None,
-    );
+fn resolve_package(definition: &AgentDefinition, bin: &Path, selector: &str) -> ResolvedCandidate {
+    let snapshot =
+        PathSnapshot::for_platform(AgentExecutablePlatform::Unix, vec![bin.to_path_buf()], None);
     let selector =
         VersionSelector::normalize(selector).unwrap_or_else(|error| panic!("selector: {error}"));
     let resolution = AgentCandidateResolver::new(&snapshot, PathBuf::from("/repo"))
@@ -107,7 +100,7 @@ fn local_uvx_is_a_closed_structural_prefix() {
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     executable(&bin, "uvx", "#!/bin/sh\nexit 0\n");
     let definition = definition("Code Puppy");
-    let candidate = resolve_package(&definition, &bin, "0.0.634");
+    let candidate = resolve_package(&definition, bin.path(), "0.0.634");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let plan = local_base_plan(&definition, &candidate, 4, cache.path());
     assert_eq!(plan.executable, candidate.executable());
@@ -127,7 +120,7 @@ fn local_npm_uses_general_managed_exact_install_after_precheck() {
         "#!/bin/sh\nmkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt\nchmod 755 node_modules/.bin/llxprt\n",
     );
     let definition = definition("LLxprt");
-    let candidate = resolve_package(&definition, &bin, "2.0.0");
+    let candidate = resolve_package(&definition, bin.path(), "2.0.0");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let plan = local_base_plan(&definition, &candidate, 8, cache.path());
     assert!(
@@ -177,7 +170,7 @@ fn remote_npm_prefix_flows_through_the_audited_serializer() {
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     executable(&bin, "npm", "#!/bin/sh\nexit 0\n");
     let definition = definition("LLxprt");
-    let candidate = resolve_package(&definition, &bin, "latest nightly");
+    let candidate = resolve_package(&definition, bin.path(), "latest nightly");
     let values = LaunchFieldValues::new();
     let settings = remote_settings();
     let request = RemotePlanRequest {
@@ -246,7 +239,7 @@ fn package_probe_executes_the_selected_agent_not_the_runner_version() {
         "#!/bin/sh\nif [ \"$1\" != install ]; then echo runner-version-was-probed; exit 91; fi\nmkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nif [ \"$1\" = --version ]; then echo 1.2.3; else echo --prompt-interactive; fi\\n' > node_modules/.bin/llxprt\nchmod 755 node_modules/.bin/llxprt\n",
     );
     let definition = definition("LLxprt");
-    let candidate = resolve_package(&definition, &bin, "1.2.3");
+    let candidate = resolve_package(&definition, bin.path(), "1.2.3");
     let resolution = CandidateResolution::Resolved(candidate);
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let result = crate::runtime::run_local_agent_probe_with_cache(
@@ -275,7 +268,7 @@ fn structural_uvx_probe_executes_the_selected_agent_invocation() {
         "#!/bin/sh\nif [ \"$4\" = --version ]; then echo 0.0.634; else echo --interactive; fi\n",
     );
     let definition = definition("Code Puppy");
-    let candidate = resolve_package(&definition, &bin, "latest");
+    let candidate = resolve_package(&definition, bin.path(), "latest");
     let resolution = CandidateResolution::Resolved(candidate);
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
     let result = crate::runtime::run_local_agent_probe_with_cache(
@@ -300,7 +293,7 @@ fn shipped_unsupported_remote_cell_returns_exact_reason_without_package_effects(
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     executable(&bin, "uvx", "#!/bin/sh\nexit 99\n");
     let definition = definition("Code Puppy");
-    let candidate = resolve_package(&definition, &bin, "latest");
+    let candidate = resolve_package(&definition, bin.path(), "latest");
     let values = LaunchFieldValues::new();
     let settings = RemoteRepositorySettings {
         enabled: true,
@@ -347,21 +340,30 @@ fn shipped_unsupported_remote_cell_returns_exact_reason_without_package_effects(
 // re-resolves the dist-tag.
 
 #[cfg(unix)]
-fn counting_npm_stub(bin: &TempDir) {
+fn counting_npm_stub(bin: &TempDir, witness: &Path) {
     // Each invocation records one witness line: "present" if a package-lock.json
     // already existed when the stub started, otherwise "absent". Counting lines
     // therefore proves how many times `npm install` ran, and the content proves
-    // whether jefe removed a stale lockfile before re-installing.
+    // whether npm ever observed a prior lockfile.
+    //
+    // The witness path is absolute and outside the managed cache: installs are
+    // staged in a fresh directory and promoted by rename (issue #556), so a
+    // witness written into the install directory would not survive across
+    // installs and could not count them.
     executable(
         bin,
         "npm",
-        "#!/bin/sh
+        &format!(
+            "#!/bin/sh
 set -e
-if [ -f package-lock.json ]; then echo present >> .jefe-lock-witness; else echo absent >> .jefe-lock-witness; fi
+witness={witness}
+if [ -f package-lock.json ]; then echo present >> \"$witness\"; else echo absent >> \"$witness\"; fi
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\nexit 0\n' > node_modules/.bin/llxprt
 chmod 755 node_modules/.bin/llxprt
 ",
+            witness = crate::runtime::commands::shell_escape_single(&witness.to_string_lossy())
+        ),
     );
 }
 
@@ -390,19 +392,25 @@ fn install_dir_of(executable: &Path) -> &Path {
 }
 
 #[cfg(unix)]
-fn witness_lines(install_dir: &Path) -> Vec<String> {
-    let path = install_dir.join(".jefe-lock-witness");
-    std::fs::read_to_string(&path)
+fn witness_lines(witness: &Path) -> Vec<String> {
+    std::fs::read_to_string(witness)
         .unwrap_or_else(|error| panic!("read install witness: {error}"))
         .lines()
         .map(std::string::ToString::to_string)
         .collect()
 }
 
+/// Absolute witness path for [`counting_npm_stub`], kept outside the managed
+/// cache so staged-and-promoted installs cannot discard it.
+#[cfg(unix)]
+fn witness_path(dir: &TempDir) -> PathBuf {
+    dir.path().join("install-witness.log")
+}
+
 #[cfg(unix)]
 fn volatile_npm_candidate(bin: &TempDir, selector: &str) -> ResolvedCandidate {
     let definition = definition("LLxprt");
-    resolve_package(&definition, bin, selector)
+    resolve_package(&definition, bin.path(), selector)
 }
 
 /// A fixed base instant well after the Unix epoch so offsets stay representable.
@@ -416,7 +424,8 @@ fn base_now() -> std::time::SystemTime {
 fn volatile_cache_stays_fresh_within_ttl() {
     // AC2: a re-invocation inside the TTL is a cache hit — npm is not re-run.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
-    counting_npm_stub(&bin);
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
@@ -428,7 +437,7 @@ fn volatile_cache_stays_fresh_within_ttl() {
         .unwrap_or_else(|error| panic!("second invocation: {error}"));
 
     assert_eq!(
-        witness_lines(install_dir_of(first.executable())).len(),
+        witness_lines(&witness).len(),
         1,
         "within-TTL re-invocation must be a cache hit (npm not re-run)"
     );
@@ -445,18 +454,19 @@ fn volatile_cache_re_resolves_after_ttl() {
     // AC1: once the install age exceeds the TTL, the cache is a miss and npm
     // re-runs (re-resolving the moving dist-tag).
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
-    counting_npm_stub(&bin);
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_at(&candidate, cache.path(), base_now())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let expired = base_now() + super::VOLATILE_SELECTOR_TTL + std::time::Duration::from_secs(1);
     finalize_local_invocation_at(&candidate, cache.path(), expired)
         .unwrap_or_else(|error| panic!("expired re-resolve: {error}"));
 
     assert_eq!(
-        witness_lines(install_dir_of(first.executable())).len(),
+        witness_lines(&witness).len(),
         2,
         "past-TTL re-invocation must re-run npm to re-resolve the dist-tag"
     );
@@ -468,7 +478,8 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     // AC3: a legacy/stuck marker (3 lines, no timestamp) for a volatile selector
     // is treated as expired and re-installed, writing a fresh timestamped marker.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
-    counting_npm_stub(&bin);
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
@@ -492,7 +503,7 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     std::fs::write(install_dir.join(".jefe-installed"), legacy_marker)
         .unwrap_or_else(|error| panic!("write legacy marker: {error}"));
     assert_eq!(
-        witness_lines(&install_dir).len(),
+        witness_lines(&witness).len(),
         1,
         "setup: one install recorded so far"
     );
@@ -501,7 +512,7 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     finalize_local_invocation_at(&candidate, cache.path(), base_now())
         .unwrap_or_else(|error| panic!("legacy re-resolve: {error}"));
     assert_eq!(
-        witness_lines(&install_dir).len(),
+        witness_lines(&witness).len(),
         2,
         "a timestamp-less volatile marker must trigger a re-install (auto-heal)"
     );
@@ -529,7 +540,8 @@ fn pinned_cache_remains_permanent_hit() {
     // AC4: an explicit (pinned) version is immutable — the cache is a permanent
     // hit regardless of how much time has passed.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
-    counting_npm_stub(&bin);
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "0.10.0-nightly.260720.abc");
     assert!(
         !candidate
@@ -541,14 +553,14 @@ fn pinned_cache_remains_permanent_hit() {
     );
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_at(&candidate, cache.path(), base_now())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     // Far beyond any TTL: a pinned version must still be a cache hit.
     let far_future = base_now() + std::time::Duration::from_secs(365 * 24 * 60 * 60);
     finalize_local_invocation_at(&candidate, cache.path(), far_future)
         .unwrap_or_else(|error| panic!("pinned re-invocation: {error}"));
     assert_eq!(
-        witness_lines(install_dir_of(first.executable())).len(),
+        witness_lines(&witness).len(),
         1,
         "a pinned version must be a permanent cache hit"
     );
@@ -557,10 +569,15 @@ fn pinned_cache_remains_permanent_hit() {
 #[cfg(unix)]
 #[test]
 fn volatile_re_resolve_removes_stale_lockfile() {
-    // AC5: when a volatile cache expires, jefe removes the stale package-lock.json
-    // before re-running npm so the dist-tag is re-resolved instead of reused.
+    // AC5 (#554): when a volatile cache expires, `npm install` must not observe a
+    // prior package-lock.json, so the dist-tag is re-resolved instead of reused,
+    // and the stale lockfile must not survive into the refreshed cache entry.
+    // Since #556 this is guaranteed structurally: the re-install is built in a
+    // fresh staging directory and promoted by rename, so nothing from the
+    // previous entry can leak into it.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
-    counting_npm_stub(&bin);
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
@@ -575,15 +592,11 @@ fn volatile_re_resolve_removes_stale_lockfile() {
     finalize_local_invocation_at(&candidate, cache.path(), expired)
         .unwrap_or_else(|error| panic!("expired re-resolve: {error}"));
 
-    let lines = witness_lines(&install_dir);
-    assert_eq!(
-        lines.len(),
-        2,
-        "expired volatile cache must re-run npm"
-    );
+    let lines = witness_lines(&witness);
+    assert_eq!(lines.len(), 2, "expired volatile cache must re-run npm");
     assert_eq!(
         lines[1], "absent",
-        "the stale package-lock.json must be removed before npm re-resolves (got {lines:?})",
+        "npm must not see the stale package-lock.json when it re-resolves (got {lines:?})",
     );
     assert!(
         !install_dir.join("package-lock.json").exists(),

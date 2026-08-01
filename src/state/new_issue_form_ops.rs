@@ -440,24 +440,22 @@ impl AppState {
             // exists in the fresh list so the form never holds a stale
             // selection (type, labels, milestone, assignees). Build HashSets
             // for O(1) membership checks instead of O(n*m) nested scans.
-            if d.available_types != types {
-                if let Some(id) = d.type_id.as_ref() {
-                    if !types.iter().any(|t| t.id == *id) {
-                        d.type_id = None;
-                        d.type_name = None;
-                    }
-                }
+            if d.available_types != types
+                && let Some(id) = d.type_id.as_ref()
+                && !types.iter().any(|t| t.id == *id)
+            {
+                d.type_id = None;
+                d.type_name = None;
             }
             if d.available_labels != labels {
                 let label_set: HashSet<&str> = labels.iter().map(String::as_str).collect();
                 d.labels.retain(|l| label_set.contains(l.as_str()));
             }
-            if d.available_milestones != milestones {
-                if let Some(m) = d.milestone.as_ref() {
-                    if !milestones.iter().any(|a| a == m) {
-                        d.milestone = None;
-                    }
-                }
+            if d.available_milestones != milestones
+                && let Some(m) = d.milestone.as_ref()
+                && !milestones.iter().any(|a| a == m)
+            {
+                d.milestone = None;
             }
             if d.available_assignees != assignees {
                 let assignee_set: HashSet<&str> = assignees.iter().map(String::as_str).collect();

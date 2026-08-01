@@ -6,7 +6,7 @@ pub(super) fn custom_utf8_valid(root: &Value, schema: &Value, instance: &Value) 
     let reference_valid = schema
         .get("$ref")
         .and_then(Value::as_str)
-        .map_or(true, |reference| {
+        .is_none_or(|reference| {
             reference
                 .strip_prefix('#')
                 .and_then(|pointer| root.pointer(pointer))
@@ -29,7 +29,7 @@ pub(super) fn custom_utf8_valid(root: &Value, schema: &Value, instance: &Value) 
         (Some(properties), Some(object)) => object.iter().all(|(key, value)| {
             properties
                 .get(key)
-                .map_or(true, |child| custom_utf8_valid(root, child, value))
+                .is_none_or(|child| custom_utf8_valid(root, child, value))
         }),
         _ => true,
     };
@@ -42,7 +42,7 @@ pub(super) fn custom_utf8_valid(root: &Value, schema: &Value, instance: &Value) 
     let branches_valid = schema
         .get("oneOf")
         .and_then(Value::as_array)
-        .map_or(true, |branches| {
+        .is_none_or(|branches| {
             branches
                 .iter()
                 .filter(|branch| branch_matches_discriminator(branch, instance))
@@ -56,9 +56,9 @@ fn branch_matches_discriminator(branch: &Value, instance: &Value) -> bool {
         return true;
     };
     properties.iter().all(|(key, property)| {
-        property.get("const").map_or(true, |expected| {
-            instance.get(key).is_some_and(|actual| actual == expected)
-        })
+        property
+            .get("const")
+            .is_none_or(|expected| instance.get(key).is_some_and(|actual| actual == expected))
     })
 }
 

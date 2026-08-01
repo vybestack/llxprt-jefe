@@ -435,14 +435,14 @@ pub fn prepare_execution<'a>(
 
     // 4. Detect engine fingerprint change.
     let observed = engine_outcome.fingerprint();
-    if let Some(expected) = expected_engine_fingerprint {
-        if observed != expected {
-            return PreparationOutcome::Unavailable(UnavailableReason::EngineFingerprintChanged {
-                engine: engine.clone(),
-                expected: expected.to_owned(),
-                actual: observed.to_owned(),
-            });
-        }
+    if let Some(expected) = expected_engine_fingerprint
+        && observed != expected
+    {
+        return PreparationOutcome::Unavailable(UnavailableReason::EngineFingerprintChanged {
+            engine: engine.clone(),
+            expected: expected.to_owned(),
+            actual: observed.to_owned(),
+        });
     }
 
     // 5. Inspect image with fixed structural argv (never pull/build).

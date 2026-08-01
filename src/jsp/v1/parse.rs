@@ -66,19 +66,19 @@ pub(super) fn expect_kind(input: &[u8], expected: &str) -> Result<(), JspError> 
         // deserialization below with a precise location.
         return Ok(());
     };
-    if let Some(schema) = probe.schema {
-        if schema != ACCEPTED_SCHEMA {
-            return Err(JspError::unsupported_version(format!(
-                "document.schema: unsupported schema version (accepted: {ACCEPTED_SCHEMA})"
-            )));
-        }
+    if let Some(schema) = probe.schema
+        && schema != ACCEPTED_SCHEMA
+    {
+        return Err(JspError::unsupported_version(format!(
+            "document.schema: unsupported schema version (accepted: {ACCEPTED_SCHEMA})"
+        )));
     }
-    if let Some(kind) = probe.kind {
-        if kind != expected {
-            return Err(JspError::unsupported_version(format!(
-                "document.kind: unsupported kind (accepted: {expected})"
-            )));
-        }
+    if let Some(kind) = probe.kind
+        && kind != expected
+    {
+        return Err(JspError::unsupported_version(format!(
+            "document.kind: unsupported kind (accepted: {expected})"
+        )));
     }
     Ok(())
 }
