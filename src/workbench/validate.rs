@@ -11,103 +11,114 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use super::descriptor::{LayoutNode, ScreenDescriptor};
-use super::ids::{MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN};
+use super::ids::{
+    IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
+};
 
 /// A violated descriptor invariant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DescriptorError {
+    /// A declared identifier violates the closed identifier grammar.
+    MalformedIdentifier {
+        /// Offending screen.
+        screen: &'static str,
+        /// The offending identifier text.
+        identifier: &'static str,
+        /// Which rule it violated.
+        reason: IdError,
+    },
     /// The screen declares no panels.
     NoPanels {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
     },
     /// The screen declares more than [`MAX_PANELS_PER_SCREEN`] panels.
     TooManyPanels {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Declared panel count.
         count: usize,
     },
     /// Two panels share one identity.
     DuplicatePanel {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Repeated panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// A panel is declared but never placed in the layout tree.
     PanelNotInLayout {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Unplaced panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// The layout tree places a panel the screen does not declare.
     LayoutPanelNotDeclared {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Undeclared panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// The layout tree places one panel more than once.
     PanelPlacedTwice {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Repeated panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// A focusable panel is missing from the focus order.
     FocusOrderMissingPanel {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Panel absent from the focus order.
-        panel: String,
+        panel: &'static str,
     },
     /// The focus order names a panel more than once.
     FocusOrderDuplicate {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Repeated panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// The focus order names a panel that is not focusable or not declared.
     FocusOrderUnfocusablePanel {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Offending panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// The initial focus is not a focusable declared panel.
     InitialFocusNotFocusable {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Offending panel identity.
-        panel: String,
+        panel: &'static str,
     },
     /// No panel is both required and focusable, so the too-small fallback
     /// would have nothing to preserve.
     NoRequiredFocusablePanel {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
     },
     /// A split node declares a child count outside `[2, 8]`.
     SplitChildCount {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Declared child count.
         count: usize,
     },
     /// The layout tree nests deeper than [`MAX_LAYOUT_DEPTH`].
     LayoutTooDeep {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Measured depth.
         depth: usize,
     },
     /// A child declares a `max` below its `min`.
     ChildMaxBelowMin {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Declared minimum.
         min: u16,
         /// Declared maximum.
@@ -117,14 +128,14 @@ pub enum DescriptorError {
     /// would be ambiguous.
     CollapsiblePriorityMissing {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
     },
     /// A required panel sits under a collapsible child, so it could be hidden.
     RequiredPanelCollapsible {
         /// Offending screen.
-        screen: String,
+        screen: &'static str,
         /// Offending panel identity.
-        panel: String,
+        panel: &'static str,
     },
 }
 
@@ -141,6 +152,14 @@ impl DescriptorError {
     /// Render the panel-set and layout-placement violations, if this is one.
     fn fmt_panel_violation(&self, formatter: &mut fmt::Formatter<'_>) -> Option<fmt::Result> {
         Some(match self {
+            Self::MalformedIdentifier {
+                screen,
+                identifier,
+                reason,
+            } => write!(
+                formatter,
+                "screen {screen} declares identifier {identifier:?}: {reason}"
+            ),
             Self::NoPanels { screen } => write!(formatter, "screen {screen} declares no panels"),
             Self::TooManyPanels { screen, count } => write!(
                 formatter,
@@ -228,22 +247,59 @@ impl std::error::Error for DescriptorError {}
 ///
 /// Returns the first violated invariant, naming the screen and panel involved.
 pub fn validate_descriptor(descriptor: &ScreenDescriptor) -> Result<(), DescriptorError> {
-    let screen = descriptor.id.as_str().to_owned();
-    check_panel_set(descriptor, &screen)?;
-    check_layout_placement(descriptor, &screen)?;
-    check_focus(descriptor, &screen)?;
-    check_layout_shape(&descriptor.layout, descriptor, &screen, 1)
+    let screen = descriptor.id.as_str();
+    check_identifiers(descriptor, screen)?;
+    check_panel_set(descriptor, screen)?;
+    check_layout_placement(descriptor, screen)?;
+    check_focus(descriptor, screen)?;
+    check_layout_shape(&descriptor.layout, descriptor, screen, 1)
 }
 
-fn check_panel_set(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), DescriptorError> {
+/// Check every identifier the descriptor declares against the closed grammar.
+///
+/// Identifiers are declared as constants so they can be used in patterns, which
+/// means their grammar is not checked at construction. This is where that check
+/// happens, and it runs before publication and in tests.
+fn check_identifiers(
+    descriptor: &ScreenDescriptor,
+    screen: &'static str,
+) -> Result<(), DescriptorError> {
+    let bad = |error: IdError, identifier: &'static str| DescriptorError::MalformedIdentifier {
+        screen,
+        identifier,
+        reason: error,
+    };
+    descriptor
+        .id
+        .check()
+        .map_err(|error| bad(error, descriptor.id.as_str()))?;
+    descriptor
+        .route
+        .check()
+        .map_err(|error| bad(error, descriptor.route.as_str()))?;
+    for panel in &descriptor.panels {
+        panel
+            .id
+            .check()
+            .map_err(|error| bad(error, panel.id.as_str()))?;
+        panel
+            .panel_type
+            .check()
+            .map_err(|error| bad(error, panel.panel_type.as_str()))?;
+    }
+    Ok(())
+}
+
+fn check_panel_set(
+    descriptor: &ScreenDescriptor,
+    screen: &'static str,
+) -> Result<(), DescriptorError> {
     if descriptor.panels.is_empty() {
-        return Err(DescriptorError::NoPanels {
-            screen: screen.to_owned(),
-        });
+        return Err(DescriptorError::NoPanels { screen });
     }
     if descriptor.panels.len() > MAX_PANELS_PER_SCREEN {
         return Err(DescriptorError::TooManyPanels {
-            screen: screen.to_owned(),
+            screen,
             count: descriptor.panels.len(),
         });
     }
@@ -251,8 +307,8 @@ fn check_panel_set(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), De
     for panel in &descriptor.panels {
         if !seen.insert(panel.id.as_str()) {
             return Err(DescriptorError::DuplicatePanel {
-                screen: screen.to_owned(),
-                panel: panel.id.as_str().to_owned(),
+                screen,
+                panel: panel.id.as_str(),
             });
         }
     }
@@ -261,7 +317,7 @@ fn check_panel_set(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), De
 
 fn check_layout_placement(
     descriptor: &ScreenDescriptor,
-    screen: &str,
+    screen: &'static str,
 ) -> Result<(), DescriptorError> {
     let placed = descriptor.layout.panels_depth_first();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -270,40 +326,34 @@ fn check_layout_placement(
     }
     for (panel, count) in &counts {
         if *count > 1 {
-            return Err(DescriptorError::PanelPlacedTwice {
-                screen: screen.to_owned(),
-                panel: (*panel).to_owned(),
-            });
+            return Err(DescriptorError::PanelPlacedTwice { screen, panel });
         }
         if !descriptor
             .panels
             .iter()
             .any(|declared| declared.id.as_str() == *panel)
         {
-            return Err(DescriptorError::LayoutPanelNotDeclared {
-                screen: screen.to_owned(),
-                panel: (*panel).to_owned(),
-            });
+            return Err(DescriptorError::LayoutPanelNotDeclared { screen, panel });
         }
     }
     for panel in &descriptor.panels {
         if !counts.contains_key(panel.id.as_str()) {
             return Err(DescriptorError::PanelNotInLayout {
-                screen: screen.to_owned(),
-                panel: panel.id.as_str().to_owned(),
+                screen,
+                panel: panel.id.as_str(),
             });
         }
     }
     Ok(())
 }
 
-fn check_focus(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), DescriptorError> {
+fn check_focus(descriptor: &ScreenDescriptor, screen: &'static str) -> Result<(), DescriptorError> {
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     for id in &descriptor.focus_order {
         if !seen.insert(id.as_str()) {
             return Err(DescriptorError::FocusOrderDuplicate {
-                screen: screen.to_owned(),
-                panel: id.as_str().to_owned(),
+                screen,
+                panel: id.as_str(),
             });
         }
         if !descriptor
@@ -311,16 +361,16 @@ fn check_focus(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), Descri
             .is_some_and(|declared| declared.focusable)
         {
             return Err(DescriptorError::FocusOrderUnfocusablePanel {
-                screen: screen.to_owned(),
-                panel: id.as_str().to_owned(),
+                screen,
+                panel: id.as_str(),
             });
         }
     }
     for panel in &descriptor.panels {
         if panel.focusable && !seen.contains(panel.id.as_str()) {
             return Err(DescriptorError::FocusOrderMissingPanel {
-                screen: screen.to_owned(),
-                panel: panel.id.as_str().to_owned(),
+                screen,
+                panel: panel.id.as_str(),
             });
         }
     }
@@ -329,14 +379,12 @@ fn check_focus(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), Descri
         .is_some_and(|panel| panel.focusable)
     {
         return Err(DescriptorError::InitialFocusNotFocusable {
-            screen: screen.to_owned(),
-            panel: descriptor.initial_focus.as_str().to_owned(),
+            screen,
+            panel: descriptor.initial_focus.as_str(),
         });
     }
     if descriptor.first_required_focusable().is_none() {
-        return Err(DescriptorError::NoRequiredFocusablePanel {
-            screen: screen.to_owned(),
-        });
+        return Err(DescriptorError::NoRequiredFocusablePanel { screen });
     }
     Ok(())
 }
@@ -344,21 +392,18 @@ fn check_focus(descriptor: &ScreenDescriptor, screen: &str) -> Result<(), Descri
 fn check_layout_shape(
     node: &LayoutNode,
     descriptor: &ScreenDescriptor,
-    screen: &str,
+    screen: &'static str,
     depth: usize,
 ) -> Result<(), DescriptorError> {
     if depth > MAX_LAYOUT_DEPTH {
-        return Err(DescriptorError::LayoutTooDeep {
-            screen: screen.to_owned(),
-            depth,
-        });
+        return Err(DescriptorError::LayoutTooDeep { screen, depth });
     }
     let LayoutNode::Split { children, .. } = node else {
         return Ok(());
     };
     if children.len() < MIN_SPLIT_CHILDREN || children.len() > MAX_SPLIT_CHILDREN {
         return Err(DescriptorError::SplitChildCount {
-            screen: screen.to_owned(),
+            screen,
             count: children.len(),
         });
     }
@@ -367,16 +412,14 @@ fn check_layout_shape(
             && max < child.min
         {
             return Err(DescriptorError::ChildMaxBelowMin {
-                screen: screen.to_owned(),
+                screen,
                 min: child.min,
                 max,
             });
         }
         if child.collapsible {
             if child.collapse_priority.is_none() {
-                return Err(DescriptorError::CollapsiblePriorityMissing {
-                    screen: screen.to_owned(),
-                });
+                return Err(DescriptorError::CollapsiblePriorityMissing { screen });
             }
             for panel in child.node.panels_depth_first() {
                 if descriptor
@@ -384,8 +427,8 @@ fn check_layout_shape(
                     .is_some_and(|declared| declared.required)
                 {
                     return Err(DescriptorError::RequiredPanelCollapsible {
-                        screen: screen.to_owned(),
-                        panel: panel.as_str().to_owned(),
+                        screen,
+                        panel: panel.as_str(),
                     });
                 }
             }

@@ -1,9 +1,20 @@
 //! Validated identifier vocabulary for internal screen descriptors (issue #384).
 //!
-//! Every identifier in the descriptor registry is a parsed newtype: once a
-//! [`ScreenId`], [`PanelId`], [`RouteId`], or [`PanelTypeId`] exists, its bytes
-//! are already known to satisfy the closed grammar, so no consumer re-validates
-//! and no consumer can fabricate an unchecked identifier from a raw string.
+//! Every identifier in the descriptor registry is a newtype over a `'static`
+//! string. The registry is closed — there is no external screen syntax and no
+//! override source — so an identifier is always a compiled-in literal, never a
+//! value assembled at runtime. Two things follow from that, and both matter:
+//!
+//! - the types are [`Copy`] and allocation-free, so a resolved layout can be
+//!   built every frame without cloning strings;
+//! - the constants are usable in `match` patterns, so code that branches on
+//!   which screen is active reads as a closed match rather than a chain of
+//!   string comparisons.
+//!
+//! A value arriving from outside the program (a persisted screen value) is
+//! never parsed into an identifier directly. It is looked up in the registry
+//! via [`crate::workbench::ScreenRegistry::resolve`], so an unknown value
+//! cannot become a screen identity that no descriptor backs.
 //!
 //! The grammar is deliberately narrow so identifiers stay stable, comparable,
 //! and safe to embed in goldens and persisted state:
@@ -124,30 +135,50 @@ fn check_plain_grammar(value: &str) -> Result<(), IdError> {
 macro_rules! plain_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct $name(String);
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $name(&'static str);
 
         impl $name {
-            /// Parse and validate an identifier.
+            /// Declare a compiled-in identifier.
+            ///
+            /// The grammar is not checked here because a `const` cannot return
+            /// an error. Every declared identifier is checked by
+            /// [`Self::check`] in the descriptor validation path and in tests,
+            /// so a malformed literal fails before it can reach a renderer.
+            #[must_use]
+            pub const fn from_static(value: &'static str) -> Self {
+                Self(value)
+            }
+
+            /// Parse and validate a compiled-in identifier.
             ///
             /// # Errors
             ///
             /// Returns the specific [`IdError`] describing the violated rule.
-            pub fn parse(value: &str) -> Result<Self, IdError> {
+            pub fn parse(value: &'static str) -> Result<Self, IdError> {
                 check_plain_grammar(value)?;
-                Ok(Self(value.to_owned()))
+                Ok(Self(value))
             }
 
-            /// Borrow the validated identifier bytes.
+            /// Check that this identifier satisfies the grammar.
+            ///
+            /// # Errors
+            ///
+            /// Returns the specific [`IdError`] describing the violated rule.
+            pub fn check(self) -> Result<(), IdError> {
+                check_plain_grammar(self.0)
+            }
+
+            /// Borrow the identifier bytes.
             #[must_use]
-            pub fn as_str(&self) -> &str {
-                &self.0
+            pub const fn as_str(self) -> &'static str {
+                self.0
             }
         }
 
         impl fmt::Display for $name {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str(&self.0)
+                formatter.write_str(self.0)
             }
         }
     };
@@ -173,36 +204,56 @@ plain_id! {
 /// screen identity is partitioned between built-in application screens
 /// (`core.`), GitHub-backed screens (`github.`), and workspace-local screens
 /// (`local.`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ScreenId(String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ScreenId(&'static str);
 
 impl ScreenId {
-    /// Parse and validate a namespaced screen identifier.
+    /// Declare a compiled-in screen identity.
+    ///
+    /// Validated by [`Self::check`] during descriptor validation and in tests.
+    #[must_use]
+    pub const fn from_static(value: &'static str) -> Self {
+        Self(value)
+    }
+
+    /// Parse and validate a compiled-in namespaced screen identifier.
     ///
     /// # Errors
     ///
     /// Returns the specific [`IdError`] describing the violated rule.
-    pub fn parse(value: &str) -> Result<Self, IdError> {
-        check_plain_grammar(value)?;
-        if !SCREEN_NAMESPACES
-            .iter()
-            .any(|namespace| value.starts_with(namespace))
-        {
-            return Err(IdError::UnknownNamespace);
-        }
-        Ok(Self(value.to_owned()))
+    pub fn parse(value: &'static str) -> Result<Self, IdError> {
+        let id = Self(value);
+        id.check()?;
+        Ok(id)
     }
 
-    /// Borrow the validated identifier bytes.
+    /// Check that this identifier satisfies the grammar and namespacing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the specific [`IdError`] describing the violated rule.
+    pub fn check(self) -> Result<(), IdError> {
+        check_plain_grammar(self.0)?;
+        if SCREEN_NAMESPACES
+            .iter()
+            .any(|namespace| self.0.starts_with(namespace))
+        {
+            Ok(())
+        } else {
+            Err(IdError::UnknownNamespace)
+        }
+    }
+
+    /// Borrow the identifier bytes.
     #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
+    pub const fn as_str(self) -> &'static str {
+        self.0
     }
 }
 
 impl fmt::Display for ScreenId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(self.0)
     }
 }
 

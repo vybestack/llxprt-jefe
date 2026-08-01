@@ -47,6 +47,39 @@ pub const PTY_PANEL_TYPE: &str = "pty-terminal";
 /// Identity of the repository sidebar, which every workspace screen shares.
 pub const REPOSITORIES_PANEL: &str = "repositories";
 
+// ── Stable screen identities ───────────────────────────────────────────────
+//
+// These are the runtime screen vocabulary. They are constants rather than
+// enum variants so identity is the stable string that descriptors, goldens,
+// and persisted state all agree on, and they are usable in `match` patterns so
+// code that branches on the active screen still reads as a closed match.
+
+/// The dashboard: repositories, agents over the embedded terminal, preview.
+pub const DASHBOARD: ScreenId = ScreenId::from_static("core.dashboard");
+/// The split repository view.
+pub const REPOSITORIES: ScreenId = ScreenId::from_static("core.repositories");
+/// The GitHub issues screen.
+pub const ISSUES: ScreenId = ScreenId::from_static("github.issues");
+/// The GitHub pull-requests screen.
+pub const PULL_REQUESTS: ScreenId = ScreenId::from_static("github.pull-requests");
+/// The GitHub workflow-runs screen.
+pub const ACTIONS: ScreenId = ScreenId::from_static("github.actions");
+/// The errors screen.
+pub const ERRORS: ScreenId = ScreenId::from_static("core.errors");
+/// The Terminal Manager screen.
+pub const TERMINALS: ScreenId = ScreenId::from_static("core.terminals");
+
+/// Every shipped screen identity, in registry order.
+pub const ALL_SCREENS: [ScreenId; 7] = [
+    DASHBOARD,
+    REPOSITORIES,
+    ISSUES,
+    PULL_REQUESTS,
+    ACTIONS,
+    ERRORS,
+    TERMINALS,
+];
+
 // ── Shipped geometry constants ─────────────────────────────────────────────
 //
 // These mirror the widths and proportions the screens render today.
@@ -185,8 +218,21 @@ impl ScreenRegistry {
 
     /// Look up one descriptor by stable identity.
     #[must_use]
-    pub fn get(&self, id: &ScreenId) -> Option<&ScreenDescriptor> {
-        self.screens.iter().find(|screen| &screen.id == id)
+    pub fn get(&self, id: ScreenId) -> Option<&ScreenDescriptor> {
+        self.screens.iter().find(|screen| screen.id == id)
+    }
+
+    /// Resolve a screen identity from text that came from outside the program.
+    ///
+    /// This is the only way a persisted or otherwise external value becomes a
+    /// [`ScreenId`], so an unrecognised value can never become an identity no
+    /// descriptor backs.
+    #[must_use]
+    pub fn resolve(&self, value: &str) -> Option<ScreenId> {
+        self.screens
+            .iter()
+            .find(|screen| screen.id.as_str() == value)
+            .map(|screen| screen.id)
     }
 
     /// The screen selected when no valid prior screen is known.
@@ -233,8 +279,8 @@ fn fixed(value: u16) -> Size {
 }
 
 fn panel(
-    id: &str,
-    panel_type: &str,
+    id: &'static str,
+    panel_type: &'static str,
     focusable: bool,
     required: bool,
     chrome: Insets,
@@ -259,7 +305,7 @@ fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
     )
 }
 
-fn leaf(id: &str) -> Result<LayoutNode, IdError> {
+fn leaf(id: &'static str) -> Result<LayoutNode, IdError> {
     Ok(LayoutNode::Leaf {
         panel: PanelId::parse(id)?,
     })
@@ -338,8 +384,8 @@ fn row(children: Vec<LayoutChild>) -> LayoutNode {
     }
 }
 
-fn focus_order(ids: &[&str]) -> Result<Vec<PanelId>, IdError> {
-    ids.iter().map(|id| PanelId::parse(id)).collect()
+fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
+    ids.iter().copied().map(PanelId::parse).collect()
 }
 
 // ── Shipped screens ────────────────────────────────────────────────────────
@@ -350,7 +396,7 @@ fn focus_order(ids: &[&str]) -> Result<Vec<PanelId>, IdError> {
 /// active, so it is a band the application shows and hides.
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("core.dashboard")?,
+        id: DASHBOARD,
         title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: vec![
@@ -402,7 +448,7 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// band, occupying the full width.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("core.repositories")?,
+        id: REPOSITORIES,
         title: "Repositories".to_owned(),
         route: RouteId::parse("repositories")?,
         panels: vec![
@@ -422,10 +468,10 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// screens: an optional banner, an optional filter band, then a list over a
 /// detail pane in a three-to-seven split.
 fn workspace_column(
-    banner: &str,
-    filter: &str,
-    list: &str,
-    detail: &str,
+    banner: &'static str,
+    filter: &'static str,
+    list: &'static str,
+    detail: &'static str,
 ) -> Result<LayoutNode, IdError> {
     Ok(column(vec![
         band_child(leaf(banner)?, BANNER_ROWS, -100),
@@ -439,31 +485,39 @@ fn workspace_column(
 ///
 /// The three GitHub-backed screens differ only in their identity and their two
 /// content panels, so they are described rather than duplicated.
-struct WorkspaceSpec<'spec> {
+struct WorkspaceSpec {
     /// Stable screen identity.
-    id: &'spec str,
+    id: ScreenId,
     /// Screen title.
-    title: &'spec str,
+    title: &'static str,
     /// Navigation route.
-    route: &'spec str,
-    /// Identity and type of the list panel.
-    list: &'spec str,
-    /// Identity and type of the detail panel.
-    detail: &'spec str,
+    route: &'static str,
+    /// Identity of the list panel; also its panel type.
+    list: &'static str,
+    /// Identity of the detail panel; also its panel type.
+    detail: &'static str,
+    /// Identity of the conditional notice banner.
+    banner: &'static str,
+    /// Identity of the conditional filter-controls band.
+    filter: &'static str,
 }
 
 /// A workspace screen: the repository sidebar beside the shared column.
-fn workspace_screen(spec: &WorkspaceSpec<'_>) -> Result<ScreenDescriptor, RegistryError> {
-    let banner = format!("{}-banner", spec.list);
-    let filter = format!("{}-filter", spec.list);
+fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse(spec.id)?,
+        id: spec.id,
         title: spec.title.to_owned(),
         route: RouteId::parse(spec.route)?,
         panels: vec![
             sidebar_panel()?,
-            panel(&banner, "notice-band", false, false, BAND_CHROME)?,
-            panel(&filter, "filter-band", false, false, BORDERED_BAND_CHROME)?,
+            panel(spec.banner, "notice-band", false, false, BAND_CHROME)?,
+            panel(
+                spec.filter,
+                "filter-band",
+                false,
+                false,
+                BORDERED_BAND_CHROME,
+            )?,
             panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
             panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
         ],
@@ -472,7 +526,7 @@ fn workspace_screen(spec: &WorkspaceSpec<'_>) -> Result<ScreenDescriptor, Regist
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
-                workspace_column(&banner, &filter, spec.list, spec.detail)?,
+                workspace_column(spec.banner, spec.filter, spec.list, spec.detail)?,
                 weight(1),
                 FLEX_MIN_COLUMNS,
             ),
@@ -483,11 +537,13 @@ fn workspace_screen(spec: &WorkspaceSpec<'_>) -> Result<ScreenDescriptor, Regist
 /// `github.issues` — issue list over issue detail.
 fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
     workspace_screen(&WorkspaceSpec {
-        id: "github.issues",
+        id: ISSUES,
         title: "Issues",
         route: "issues",
         list: "issue-list",
         detail: "issue-detail",
+        banner: "issue-list-banner",
+        filter: "issue-list-filter",
     })
 }
 
@@ -495,22 +551,26 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// review threads, actions, and merge affordances.
 fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
     workspace_screen(&WorkspaceSpec {
-        id: "github.pull-requests",
+        id: PULL_REQUESTS,
         title: "Pull Requests",
         route: "pull-requests",
         list: "pr-list",
         detail: "pr-detail",
+        banner: "pr-list-banner",
+        filter: "pr-list-filter",
     })
 }
 
 /// `github.actions` — workflow-run list over run detail.
 fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
     workspace_screen(&WorkspaceSpec {
-        id: "github.actions",
+        id: ACTIONS,
         title: "Actions",
         route: "actions",
         list: "action-list",
         detail: "action-detail",
+        banner: "action-list-banner",
+        filter: "action-list-filter",
     })
 }
 
@@ -519,7 +579,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// Errors mode renders no banner and no filter band, so it declares neither.
 fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("core.errors")?,
+        id: ERRORS,
         title: "Errors".to_owned(),
         route: RouteId::parse("errors")?,
         panels: vec![
@@ -558,7 +618,7 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// throttled read-only preview of the selected one.
 fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::parse("core.terminals")?,
+        id: TERMINALS,
         title: "Terminals".to_owned(),
         route: RouteId::parse("terminals")?,
         panels: vec![

@@ -30,7 +30,7 @@ pub const LEGACY_SCREEN_VALUES: [(&str, &str); 7] = [
 ];
 
 /// Outcome of translating one legacy screen value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationOutcome {
     /// The legacy value was recognised and mapped.
     Mapped(ScreenId),
@@ -42,7 +42,7 @@ pub enum MigrationOutcome {
 impl MigrationOutcome {
     /// The screen identity to use, whichever path produced it.
     #[must_use]
-    pub const fn screen_id(&self) -> &ScreenId {
+    pub const fn screen_id(self) -> ScreenId {
         match self {
             Self::Mapped(id) | Self::FellBackToInitial(id) => id,
         }
@@ -59,17 +59,16 @@ pub fn migrate_legacy_screen_value(
     legacy: Option<&str>,
     registry: &ScreenRegistry,
 ) -> Option<MigrationOutcome> {
-    let mapped = legacy.and_then(|value| {
-        LEGACY_SCREEN_VALUES
-            .iter()
-            .find(|(legacy_value, _)| *legacy_value == value)
-            .map(|(_, stable)| *stable)
-    });
+    let mapped = legacy
+        .and_then(|value| {
+            LEGACY_SCREEN_VALUES
+                .iter()
+                .find(|(legacy_value, _)| *legacy_value == value)
+                .map(|(_, stable)| *stable)
+        })
+        .and_then(|stable| registry.resolve(stable));
 
-    if let Some(stable) = mapped
-        && let Ok(id) = ScreenId::parse(stable)
-        && registry.get(&id).is_some()
-    {
+    if let Some(id) = mapped {
         return Some(MigrationOutcome::Mapped(id));
     }
 
@@ -82,5 +81,5 @@ pub fn migrate_legacy_screen_value(
 
     registry
         .initial_screen()
-        .map(|screen| MigrationOutcome::FellBackToInitial(screen.id.clone()))
+        .map(|screen| MigrationOutcome::FellBackToInitial(screen.id))
 }

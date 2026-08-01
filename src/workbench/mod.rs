@@ -62,5 +62,8 @@ pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
 };
-pub use screens::{ScreenRegistry, builtin_screens};
+pub use screens::{
+    ACTIONS, ALL_SCREENS, DASHBOARD, ERRORS, ISSUES, PTY_PANEL_TYPE, PULL_REQUESTS, REPOSITORIES,
+    REPOSITORIES_PANEL, ScreenRegistry, TERMINALS, builtin_screens,
+};
 pub use validate::{DescriptorError, validate_descriptor};

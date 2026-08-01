@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::descriptor::{LayoutChild, LayoutNode, ScreenDescriptor};
 use super::ids::{MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
-use super::screens::{PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
+use super::screens::{ALL_SCREENS, DASHBOARD, PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
 use super::validate::validate_descriptor;
 
 const PARITY_GOLDEN: &str = include_str!("shipped-screen-definition-parity.json");
@@ -146,6 +146,30 @@ fn panel_identities_are_unique_within_each_screen() {
 }
 
 #[test]
+fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
+    // The constants are declared with `from_static`, which cannot validate in a
+    // const context, so this is where a malformed literal is caught.
+    for id in ALL_SCREENS {
+        assert_eq!(id.check(), Ok(()), "screen constant {id} is malformed");
+    }
+}
+
+#[test]
+fn the_declared_screen_constants_match_the_registry_exactly() {
+    let registry = registry();
+    let registered: Vec<ScreenId> = registry.screens().iter().map(|screen| screen.id).collect();
+    assert_eq!(registered, ALL_SCREENS.to_vec());
+}
+
+#[test]
+fn an_unregistered_value_does_not_resolve_to_a_screen_identity() {
+    let registry = registry();
+    assert_eq!(registry.resolve("core.nonesuch"), None);
+    assert_eq!(registry.resolve(""), None);
+    assert_eq!(registry.resolve("core.dashboard"), Some(DASHBOARD));
+}
+
+#[test]
 fn the_first_screen_is_the_compiled_initial_screen() {
     let registry = registry();
     assert_eq!(
@@ -160,7 +184,7 @@ fn lookup_by_stable_identity_finds_each_screen() {
     for screen in registry.screens() {
         let looked_up = ScreenId::parse(screen.id.as_str())
             .ok()
-            .and_then(|id| registry.get(&id));
+            .and_then(|id| registry.get(id));
         assert_eq!(looked_up.map(|found| &found.id), Some(&screen.id));
     }
 }
@@ -224,7 +248,7 @@ fn a_screen_opens_on_its_declared_initial_focus_not_the_head_of_its_focus_order(
     };
     assert_eq!(issues.initial_focus.as_str(), "issue-list");
     assert_eq!(
-        issues.focus_order.first().map(PanelId::as_str),
+        issues.focus_order.first().copied().map(PanelId::as_str),
         Some("repositories")
     );
 }
@@ -260,7 +284,12 @@ fn compiled_screens_match_the_parity_golden() {
             expected.get("initial_focus").and_then(Value::as_str)
         );
 
-        let focus: Vec<&str> = screen.focus_order.iter().map(PanelId::as_str).collect();
+        let focus: Vec<&str> = screen
+            .focus_order
+            .iter()
+            .copied()
+            .map(PanelId::as_str)
+            .collect();
         assert_eq!(Some(focus), string_list(expected, "focus_order"));
 
         let required: Vec<&str> = screen

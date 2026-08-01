@@ -47,18 +47,23 @@ fn screen_id_rejects_empty() {
     assert_eq!(ScreenId::parse(""), Err(IdError::Empty));
 }
 
+/// 129 bytes: `core.` plus 124 letters is exactly the limit, so one more
+/// letter is the first rejected length.
+const OVER_LIMIT_SCREEN_ID: &str = "core.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// 128 bytes: `core.` plus 123 letters.
+const AT_LIMIT_SCREEN_ID: &str = "core.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 #[test]
 fn screen_id_rejects_value_over_the_byte_limit() {
-    let oversized = format!("core.{}", "a".repeat(ID_BYTE_LIMIT));
-    assert_eq!(ScreenId::parse(&oversized), Err(IdError::TooLong));
+    assert_eq!(OVER_LIMIT_SCREEN_ID.len(), ID_BYTE_LIMIT + 1);
+    assert_eq!(ScreenId::parse(OVER_LIMIT_SCREEN_ID), Err(IdError::TooLong));
 }
 
 #[test]
 fn screen_id_accepts_value_exactly_at_the_byte_limit() {
-    let padding = ID_BYTE_LIMIT - "core.".len();
-    let exact = format!("core.{}", "a".repeat(padding));
-    assert_eq!(exact.len(), ID_BYTE_LIMIT);
-    assert!(ScreenId::parse(&exact).is_ok());
+    assert_eq!(AT_LIMIT_SCREEN_ID.len(), ID_BYTE_LIMIT);
+    assert!(ScreenId::parse(AT_LIMIT_SCREEN_ID).is_ok());
 }
 
 #[test]

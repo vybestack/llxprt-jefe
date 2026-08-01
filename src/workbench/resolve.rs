@@ -179,7 +179,7 @@ pub fn repair_focus(
         if let Some(candidate) = order.get(index)
             && is_visible(candidate)
         {
-            return Some(candidate.clone());
+            return Some(*candidate);
         }
     }
     None
@@ -224,7 +224,7 @@ fn index_panels(node: &LayoutNode, cursor: &mut usize, placements: &mut Vec<Plac
     match node {
         LayoutNode::Leaf { panel } => {
             placements.push(Placement {
-                panel: panel.clone(),
+                panel: *panel,
                 depth_first_index: *cursor,
                 rect: None,
             });
@@ -362,7 +362,7 @@ fn build_layout(
             let depth_first_index = placement.map_or(0, |found| found.depth_first_index);
             let rect = placement.and_then(|found| found.rect);
             resolved_panel(
-                &panel.id,
+                panel.id,
                 rect,
                 depth_first_index,
                 panel_insets(&panel.config),
@@ -378,14 +378,14 @@ fn build_layout(
 }
 
 fn resolved_panel(
-    id: &PanelId,
+    id: PanelId,
     rect: Option<Rect>,
     depth_first_index: usize,
     insets: super::geometry::Insets,
 ) -> ResolvedPanel {
     match rect.filter(|found| !found.is_empty()) {
         Some(chrome) => ResolvedPanel {
-            id: id.clone(),
+            id,
             visible: true,
             chrome,
             content: chrome.inset(insets),
@@ -396,9 +396,9 @@ fn resolved_panel(
     }
 }
 
-fn hidden_panel(id: &PanelId, depth_first_index: usize) -> ResolvedPanel {
+fn hidden_panel(id: PanelId, depth_first_index: usize) -> ResolvedPanel {
     ResolvedPanel {
-        id: id.clone(),
+        id,
         visible: false,
         chrome: Rect::default(),
         content: Rect::default(),
@@ -443,7 +443,7 @@ fn hide_degenerate_panels(
             }));
             continue;
         }
-        *resolved = hidden_panel(&resolved.id, resolved.depth_first_index);
+        *resolved = hidden_panel(resolved.id, resolved.depth_first_index);
     }
     required_failure
 }
@@ -464,7 +464,7 @@ fn too_small_layout(
         .map(|(index, panel)| {
             if Some(&panel.id) == survivor && !outer.is_empty() {
                 ResolvedPanel {
-                    id: panel.id.clone(),
+                    id: panel.id,
                     visible: true,
                     chrome: outer,
                     content: outer,
@@ -472,7 +472,7 @@ fn too_small_layout(
                     hit_region: Some(outer),
                 }
             } else {
-                hidden_panel(&panel.id, index)
+                hidden_panel(panel.id, index)
             }
         })
         .collect();

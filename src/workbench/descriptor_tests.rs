@@ -9,11 +9,17 @@ use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDe
 use super::ids::{PanelId, PanelTypeId, RouteId, ScreenId};
 use super::validate::{DescriptorError, validate_descriptor};
 
-fn panel_id(value: &str) -> PanelId {
+fn panel_id(value: &'static str) -> PanelId {
     PanelId::parse(value).unwrap_or_else(|_| unreachable!("fixture panel id {value} is valid"))
 }
 
-fn make_panel(id: &str, focusable: bool, required: bool) -> PanelDescriptor {
+/// Generated panel identities for the split-child and depth fixtures.
+const GENERATED_PANELS: [&str; 10] = [
+    "panel-0", "panel-1", "panel-2", "panel-3", "panel-4", "panel-5", "panel-6", "panel-7",
+    "panel-8", "panel-9",
+];
+
+fn make_panel(id: &'static str, focusable: bool, required: bool) -> PanelDescriptor {
     PanelDescriptor {
         id: panel_id(id),
         panel_type: PanelTypeId::parse("list")
@@ -28,7 +34,7 @@ fn weight(value: u16) -> Size {
     Size::Weight(NonZeroU16::new(value).unwrap_or(NonZeroU16::MIN))
 }
 
-fn child(id: &str, collapsible: bool, collapse_priority: Option<i32>) -> LayoutChild {
+fn child(id: &'static str, collapsible: bool, collapse_priority: Option<i32>) -> LayoutChild {
     LayoutChild {
         node: LayoutNode::Leaf {
             panel: panel_id(id),
@@ -206,14 +212,14 @@ fn a_split_with_fewer_than_two_children_is_rejected() {
 #[test]
 fn a_split_with_more_than_eight_children_is_rejected() {
     let mut descriptor = valid_descriptor();
-    let ids: Vec<String> = (0..9).map(|index| format!("panel-{index}")).collect();
+    let ids = &GENERATED_PANELS[..9];
     descriptor.panels = ids
         .iter()
         .enumerate()
         .map(|(index, id)| make_panel(id, true, index == 0))
         .collect();
-    descriptor.focus_order = ids.iter().map(|id| panel_id(id)).collect();
-    descriptor.initial_focus = panel_id(&ids[0]);
+    descriptor.focus_order = ids.iter().copied().map(panel_id).collect();
+    descriptor.initial_focus = panel_id(ids[0]);
     descriptor.layout = LayoutNode::Split {
         axis: Axis::Vertical,
         gap: 1,
@@ -232,9 +238,9 @@ fn a_split_with_more_than_eight_children_is_rejected() {
 /// Build a right-nested chain of splits `depth` levels deep, placing one leaf
 /// per level plus one at the bottom.
 fn nested_descriptor(depth: usize) -> ScreenDescriptor {
-    let ids: Vec<String> = (0..=depth).map(|index| format!("panel-{index}")).collect();
+    let ids = &GENERATED_PANELS[..=depth];
     let mut node = LayoutNode::Leaf {
-        panel: panel_id(&ids[depth]),
+        panel: panel_id(ids[depth]),
     };
     for id in ids[..depth].iter().rev() {
         node = LayoutNode::Split {
@@ -264,8 +270,8 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
             .enumerate()
             .map(|(index, id)| make_panel(id, true, index == 0))
             .collect(),
-        initial_focus: panel_id(&ids[0]),
-        focus_order: ids.iter().map(|id| panel_id(id)).collect(),
+        initial_focus: panel_id(ids[0]),
+        focus_order: ids.iter().copied().map(panel_id).collect(),
         layout: node,
     }
 }

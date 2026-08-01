@@ -341,7 +341,7 @@ fn focus_falls_back_to_the_initial_focus_when_no_prior_focus_exists() {
         let layout = resolve(&descriptor, 120, 40);
         assert_eq!(
             repair_focus(&descriptor, &layout, None),
-            Some(descriptor.initial_focus.clone()),
+            Some(descriptor.initial_focus),
             "screen {}",
             descriptor.id
         );
