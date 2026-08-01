@@ -73,6 +73,33 @@ pub fn pane_at_resolved(
     Some((pane, pane_geometry(panel)))
 }
 
+/// Columns a detail pane reserves *inside* its content rectangle for the
+/// scrollbar and the trailing safety margin.
+///
+/// This is renderer chrome, not pane geometry: it sits within the rectangle the
+/// resolver hands out, so the descriptor does not model it and the wrap width
+/// subtracts it here.
+pub const DETAIL_INNER_RESERVED_COLS: u16 = 2;
+
+/// The width detail text wraps at, taken from the snapshot.
+///
+/// Returns `None` when the pane is not showing, in which case there is nothing
+/// to wrap.
+#[must_use]
+pub fn detail_wrap_width(layout: &ResolvedLayout, pane: SelectablePane) -> Option<usize> {
+    let panel = selectable_to_panel(pane)?;
+    let resolved = layout.panel(&panel)?;
+    if !resolved.visible {
+        return None;
+    }
+    Some(usize::from(
+        resolved
+            .content
+            .width
+            .saturating_sub(DETAIL_INNER_RESERVED_COLS),
+    ))
+}
+
 /// The panel identity a selectable pane corresponds to on a given screen.
 ///
 /// The inverse of [`panel_to_selectable`], for consumers that hold a pane and

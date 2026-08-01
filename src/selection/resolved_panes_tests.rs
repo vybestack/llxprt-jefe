@@ -190,6 +190,45 @@ fn a_hidden_panel_owns_no_cell() {
 }
 
 #[test]
+fn the_snapshot_wrap_width_matches_the_width_the_renderer_wraps_at() {
+    // The reverse map must wrap at exactly the width the detail pane drew at,
+    // or a click on a wrapped subrow lands on the wrong content line.
+    for cols in [80_u16, 100, 120, 160, 200] {
+        let issues = snapshot(ScreenId::Issues, cols, 40);
+        let (render_cols, _) = crate::layout::effective_render_size(cols, 40);
+        assert_eq!(
+            crate::selection::detail_wrap_width(&issues, SelectablePane::IssueDetail),
+            Some(usize::from(crate::layout::issues_detail_content_width(
+                render_cols
+            ))),
+            "issue detail wrap width diverged at {cols} columns"
+        );
+
+        let prs = snapshot(ScreenId::PullRequests, cols, 40);
+        assert_eq!(
+            crate::selection::detail_wrap_width(&prs, SelectablePane::PrDetail),
+            Some(usize::from(crate::layout::prs_detail_content_width(
+                render_cols
+            ))),
+            "pr detail wrap width diverged at {cols} columns"
+        );
+    }
+}
+
+#[test]
+fn a_hidden_detail_pane_has_no_wrap_width() {
+    let mut state = state_on(ScreenId::Issues);
+    state.issues_state.filter_ui.controls_open = true;
+    // A terminal too small to seat the detail pane leaves nothing to wrap.
+    let tiny = resolve_screen(&state, 30, 8)
+        .unwrap_or_else(|| unreachable!("the shipped registry always resolves"));
+    assert_eq!(
+        crate::selection::detail_wrap_width(&tiny, SelectablePane::IssueDetail),
+        None
+    );
+}
+
+#[test]
 fn the_content_origin_sits_inside_the_pane_box() {
     for screen in ScreenId::ALL {
         let resolved = snapshot(screen, 120, 40);

@@ -48,7 +48,8 @@ pub use gesture::{GestureAction, GestureEvent, GestureEventKind, GestureState, P
 pub use layout_descriptor::{OverlayPane, ScreenLayout};
 pub use projection_context::PaneContentContext;
 pub use resolved_panes::{
-    pane_at_resolved, pane_geometry, panel_to_selectable, selectable_to_panel,
+    DETAIL_INNER_RESERVED_COLS, detail_wrap_width, pane_at_resolved, pane_geometry,
+    panel_to_selectable, selectable_to_panel,
 };
 pub use terminal_text::terminal_selection_text;
 pub use text::{
