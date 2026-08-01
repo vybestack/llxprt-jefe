@@ -488,11 +488,7 @@ pub(super) fn dispatch_issues_message(
         | IssuesMessage::NavigateEnd) => {
             dispatch_issues_navigation(app_state, ctx, message);
         }
-        message @ (IssuesMessage::EnterMode
-        | IssuesMessage::RefocusList
-        | IssuesMessage::ApplyFilter
-        | IssuesMessage::ClearFilter
-        | IssuesMessage::ApplySearch) => {
+        message if is_issues_list_reload_msg(&message) => {
             issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message);
         }
         IssuesMessage::Enter => {
@@ -538,6 +534,18 @@ pub(super) fn dispatch_issues_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+}
+
+/// Messages that require a fresh issue-list fetch: mode entry/refocus, a
+/// filter/search change, or a sort-config change (issue #573 — a sort change
+/// must refetch so the fetch `orderBy` matches the new display direction).
+///
+/// Delegates to [`is_fresh_issue_list_reload`] so the routing decision and the
+/// fresh-reload flag share one source of truth: if they drifted, a sort change
+/// could route here but skip the cursor reset, leaving a stale cursor for the
+/// old sort direction.
+fn is_issues_list_reload_msg(message: &IssuesMessage) -> bool {
+    issues_list_dispatch::is_fresh_issue_list_reload(message)
 }
 
 /// Route the direct-action messages (chooser confirm, inline submit,
@@ -634,7 +642,8 @@ pub(super) fn resume_issue_post_mutation_refresh(
 
 #[cfg(test)]
 mod tests {
-    use super::preview_body_from_list;
+    use super::{is_issues_list_reload_msg, preview_body_from_list};
+    use jefe::messages::IssuesMessage;
 
     #[test]
     fn empty_list_preview_body_prompts_for_detail_load() {
@@ -647,5 +656,23 @@ mod tests {
     #[test]
     fn populated_list_preview_body_is_preserved() {
         assert_eq!(preview_body_from_list("existing body"), "existing body");
+    }
+
+    #[test]
+    fn sort_messages_route_to_list_reload() {
+        // A sort-config change must route through the list-reload dispatch so
+        // the fetch orderBy follows the new display direction (issue #573).
+        assert!(is_issues_list_reload_msg(
+            &IssuesMessage::CycleIssueSortByNext
+        ));
+        assert!(is_issues_list_reload_msg(
+            &IssuesMessage::CycleIssueSortByPrev
+        ));
+        assert!(is_issues_list_reload_msg(
+            &IssuesMessage::ToggleIssueSortOrder
+        ));
+        assert!(is_issues_list_reload_msg(&IssuesMessage::ApplyFilter));
+        // Navigation must NOT be treated as a reload trigger.
+        assert!(!is_issues_list_reload_msg(&IssuesMessage::NavigateDown));
     }
 }

@@ -45,6 +45,9 @@ pub(super) fn is_fresh_issue_list_reload(message: &IssuesMessage) -> bool {
             | IssuesMessage::ApplyFilter
             | IssuesMessage::ClearFilter
             | IssuesMessage::ApplySearch
+            | IssuesMessage::CycleIssueSortByNext
+            | IssuesMessage::CycleIssueSortByPrev
+            | IssuesMessage::ToggleIssueSortOrder
     )
 }
 
@@ -130,6 +133,7 @@ struct IssueFetchParams {
     /// Malformed tracker override message (issue #266).
     malformed_message: Option<String>,
     filter: jefe::domain::IssueFilter,
+    sort: jefe::domain::IssueSortConfig,
     request_id: u64,
     cursor: Option<String>,
     page_size: u32,
@@ -239,6 +243,7 @@ fn issue_fetch_params(
         repo,
         malformed_message,
         filter: state.issues_state.committed_filter.clone(),
+        sort: state.issues_state.sort_config,
         request_id: 0,
         cursor,
         page_size: 30,
@@ -265,10 +270,14 @@ fn fetch_issue_list(
     params: &IssueFetchParams,
 ) -> Option<Result<jefe::github::IssueListResponse, jefe::github::GhError>> {
     let client = github_client(ctx)?;
+    let query = jefe::domain::IssueListQuery {
+        filter: params.filter.clone(),
+        sort: params.sort,
+    };
     Some(client.list_issues(
         &params.owner,
         &params.repo,
-        &params.filter,
+        &query,
         params.cursor.as_deref(),
         params.page_size,
     ))

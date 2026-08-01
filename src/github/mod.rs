@@ -4,7 +4,7 @@
 //! It depends only on `crate::domain` types for data transfer.
 
 use crate::domain::{
-    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrCheck, PrFilter, PrReview,
+    Issue, IssueComment, IssueDetail, IssueListQuery, IssueState, PrCheck, PrFilter, PrReview,
     PrReviewState, PrReviewThread, PrState, PullRequestDetail,
 };
 use std::process::Command;
@@ -50,12 +50,12 @@ pub use actions::{
     parse_jobs_json, parse_runs_json, parse_single_run_json, parse_workflows_json,
 };
 
+mod issue_pages;
 mod issue_query;
 mod issue_sort;
 mod parse;
 mod timestamp;
 use comment_pages::loaded_comments;
-use issue_query::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use issue_query::{build_issue_search_args, build_list_issues_args};
 pub use issue_sort::{compare_issues, issue_priority_rank, sort_issues};
 pub use parse::{
@@ -77,7 +77,7 @@ pub use parse_pr::{
 };
 pub use pr_check_rollup::{effective_check_nodes, parse_check_status, parse_checks_rollup};
 
-fn gh_command() -> Result<Command, GhError> {
+pub(super) fn gh_command() -> Result<Command, GhError> {
     crate::local_command::command(crate::local_command::LocalTool::Gh).map_err(
         |error| match error {
             crate::local_command::LocalToolError::NotFound { .. } => GhError::NotInstalled,
@@ -212,6 +212,9 @@ impl GhClient {
 
     /// List issues for a repository with filtering and pagination.
     ///
+    /// The fetch order follows `query.sort` (issue #573) so an ascending sort
+    /// returns the oldest issues on the first page.
+    ///
     /// @plan PLAN-20260329-ISSUES-MODE.P08
     /// @requirement REQ-ISS-006
     /// @pseudocode component-002 lines 09-25
@@ -219,11 +222,18 @@ impl GhClient {
         &self,
         owner: &str,
         repo: &str,
-        filter: &IssueFilter,
+        query: &IssueListQuery,
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<IssueListResponse, GhError> {
-        fetch_issue_search_page(owner, repo, filter, cursor, page_size)
+        issue_pages::fetch_issue_search_page(
+            owner,
+            repo,
+            &query.filter,
+            cursor,
+            page_size,
+            query.sort,
+        )
     }
 
     /// Get full issue detail.
@@ -909,91 +919,4 @@ fn summarize_pr_checks(checks: &[PrCheck]) -> Vec<String> {
         .iter()
         .map(|c| format!("{}: {}", c.name, c.conclusion))
         .collect()
-}
-
-fn fetch_issue_search_page(
-    owner: &str,
-    repo: &str,
-    filter: &IssueFilter,
-    cursor: Option<&str>,
-    page_size: u32,
-) -> Result<IssueListResponse, GhError> {
-    if active_issue_type_filter(filter).is_some() && issue_type_requires_search_filter(filter) {
-        return fetch_issue_search_filtered_pages(owner, repo, filter, cursor, page_size);
-    }
-    fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size)
-}
-
-fn fetch_issue_search_filtered_pages(
-    owner: &str,
-    repo: &str,
-    filter: &IssueFilter,
-    cursor: Option<&str>,
-    page_size: u32,
-) -> Result<IssueListResponse, GhError> {
-    let Some(issue_type) = active_issue_type_filter(filter) else {
-        return fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size);
-    };
-    let mut search_cursor = cursor.map(str::to_string);
-    let mut collected = Vec::new();
-    let mut response_cursor: Option<String>;
-    let mut response_has_more: bool;
-
-    loop {
-        let response =
-            fetch_issue_search_raw_page(owner, repo, filter, search_cursor.as_deref(), page_size)?;
-        response_cursor = response.cursor.clone();
-        response_has_more = response.has_more;
-        collected.extend(
-            response
-                .issues
-                .into_iter()
-                .filter(|issue| issue.issue_type.eq_ignore_ascii_case(issue_type)),
-        );
-        if collected.len() > page_size as usize {
-            response_has_more = true;
-            break;
-        }
-
-        if collected.len() >= page_size as usize || !response_has_more {
-            break;
-        }
-        if response.cursor == search_cursor {
-            response_has_more = false;
-            break;
-        }
-        search_cursor = response.cursor;
-    }
-
-    Ok(IssueListResponse {
-        issues: collected,
-        cursor: response_cursor,
-        has_more: response_has_more,
-    })
-}
-
-fn fetch_issue_search_raw_page(
-    owner: &str,
-    repo: &str,
-    filter: &IssueFilter,
-    cursor: Option<&str>,
-    page_size: u32,
-) -> Result<IssueListResponse, GhError> {
-    let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
-
-    let output = gh_command()?.args(&args).output().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            GhError::NotInstalled
-        } else {
-            GhError::NetworkError(e.to_string())
-        }
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_issue_search_json(&stdout)
 }
