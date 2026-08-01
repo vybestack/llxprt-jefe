@@ -76,6 +76,11 @@ fn observing_npm_stub(bin: &TempDir, witness: &Path, final_dir: &Path, settle: &
             "#!/bin/sh
 set -e
 final={final_dir}
+versions={versions}
+# A metadata-only resolve records no observation and installs nothing.
+if [ \"$1\" = view ]; then
+  if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
+fi
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt
 chmod 755 node_modules/.bin/llxprt
@@ -90,10 +95,24 @@ printf '%s\\t%s\\n' \"$(pwd -P)\" \"$state\" >> {witness}
 sleep {settle}
 ",
             final_dir = shell_quote(final_dir),
+            versions = shell_quote(&observed_version_path(witness)),
             witness = shell_quote(witness),
             settle = shell_escape_single(settle)
         ),
     );
+}
+
+/// File the observing stub reads to answer `npm view ... version`.
+#[cfg(unix)]
+fn observed_version_path(witness: &Path) -> PathBuf {
+    witness.with_file_name("published-version.txt")
+}
+
+/// Move the dist-tag so the next preparation re-resolves and reinstalls.
+#[cfg(unix)]
+fn publish_observed_version(witness: &Path, version: &str) {
+    std::fs::write(observed_version_path(witness), format!("{version}\n"))
+        .unwrap_or_else(|error| panic!("publish version: {error}"));
 }
 
 /// One `cwd\tstate` observation recorded by [`observing_npm_stub`].
@@ -138,6 +157,7 @@ fn observed_candidate(
     executable(bin, "npm", "#!/bin/sh\nexit 0\n");
     let probe = resolve_package(&definition, bin.path(), selector);
     let final_dir = final_install_dir(&probe, cache_root);
+    publish_observed_version(witness, "1.0.0");
     observing_npm_stub(bin, witness, &final_dir, settle);
     (resolve_package(&definition, bin.path(), selector), final_dir)
 }
@@ -174,7 +194,7 @@ fn managed_install_child_process() {
     std::fs::write(&ready, "ready").unwrap_or_else(|error| panic!("publish readiness: {error}"));
     await_barrier(&barrier.join(START_MARKER));
 
-    let report = match finalize_local_invocation_at(&candidate, Path::new(&cache), base_now()) {
+    let report = match finalize_local_invocation_inner(&candidate, Path::new(&cache)) {
         Ok(invocation) => format!("ok\t{}\n", invocation.executable().display()),
         Err(error) => format!("err\t{error}\n"),
     };
@@ -326,7 +346,7 @@ fn install_is_staged_outside_the_cache_entry_and_promoted_atomically() {
     let witness = scratch.path().join("install-observations.log");
     let (candidate, final_dir) = observed_candidate(&bin, cache.path(), &witness, "2.0.0", "0");
 
-    let invocation = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let invocation = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("install: {error}"));
 
     let observed = observations(&witness);
@@ -374,14 +394,18 @@ fn promotion_replaces_an_existing_entry_without_exposing_a_partial_tree() {
     let (candidate, final_dir) =
         observed_candidate(&bin, cache.path(), &witness, "latest nightly", "0");
 
-    finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
-    let expired = base_now() + super::VOLATILE_SELECTOR_TTL + std::time::Duration::from_secs(1);
-    finalize_local_invocation_at(&candidate, cache.path(), expired)
+    publish_observed_version(&witness, "2.0.0");
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("re-install: {error}"));
 
     let observed = observations(&witness);
-    assert_eq!(observed.len(), 2, "the expired entry must be reinstalled");
+    assert_eq!(
+        observed.len(),
+        2,
+        "a moved dist-tag must reinstall the published entry"
+    );
     assert_eq!(
         observed[1].1, "final-complete",
         "the previously published tree must stay complete while its replacement builds"
@@ -416,7 +440,7 @@ fn interrupted_install_leaves_no_cache_hit_and_retries_cleanly() {
     let candidate = resolve_package(&definition, bin.path(), "2.0.0");
     let final_dir = final_install_dir(&candidate, cache.path());
 
-    let failure = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let failure = finalize_local_invocation_inner(&candidate, cache.path())
         .err()
         .unwrap_or_else(|| panic!("a failing npm install must surface as an error"));
     assert!(
@@ -438,7 +462,7 @@ fn interrupted_install_leaves_no_cache_hit_and_retries_cleanly() {
         "#!/bin/sh\nmkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt\nchmod 755 node_modules/.bin/llxprt\n",
     );
     let candidate = resolve_package(&definition, bin.path(), "2.0.0");
-    let invocation = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let invocation = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("retry after interrupted install: {error}"));
     assert!(
         invocation.executable().starts_with(&final_dir),
@@ -494,7 +518,6 @@ fn a_live_installer_blocks_preparation_with_a_typed_redacted_error() {
         &candidate,
         selection,
         cache.path(),
-        base_now(),
         impatient_policy(),
     )
     .err()
@@ -592,7 +615,7 @@ fn a_promotion_interrupted_after_retiring_restores_the_previous_install() {
     let witness = scratch.path().join("install-observations.log");
     let (candidate, final_dir) = observed_candidate(&bin, cache.path(), &witness, "2.0.0", "0");
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let selection = candidate
         .package()
@@ -605,7 +628,7 @@ fn a_promotion_interrupted_after_retiring_restores_the_previous_install() {
         .unwrap_or_else(|error| panic!("simulate interrupted promotion: {error}"));
     assert!(!final_dir.exists(), "setup: the published path is absent");
 
-    let recovered = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let recovered = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("recovery after interrupted promotion: {error}"));
 
     assert_eq!(
@@ -637,13 +660,13 @@ fn a_completed_promotion_discards_a_leftover_retired_tree() {
     let witness = scratch.path().join("install-observations.log");
     let (candidate, final_dir) = observed_candidate(&bin, cache.path(), &witness, "2.0.0", "0");
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let retired = retired_path(&candidate, cache.path());
     std::fs::create_dir_all(retired.join("node_modules"))
         .unwrap_or_else(|error| panic!("seed leftover retired entry: {error}"));
 
-    let reconciled = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let reconciled = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("reconcile leftover retired tree: {error}"));
 
     assert_eq!(
@@ -675,7 +698,7 @@ fn an_unusable_published_install_is_replaced_by_the_retired_tree() {
     let witness = scratch.path().join("install-observations.log");
     let (candidate, final_dir) = observed_candidate(&bin, cache.path(), &witness, "2.0.0", "0");
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let retired = retired_path(&candidate, cache.path());
     // The complete tree is retired and the published path holds a directory
@@ -685,7 +708,7 @@ fn an_unusable_published_install_is_replaced_by_the_retired_tree() {
     std::fs::create_dir_all(final_dir.join("node_modules").join(".bin"))
         .unwrap_or_else(|error| panic!("seed unusable published entry: {error}"));
 
-    let recovered = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let recovered = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("recovery from an unusable published entry: {error}"));
 
     assert_eq!(
