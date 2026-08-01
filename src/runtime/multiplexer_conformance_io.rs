@@ -11,7 +11,7 @@
 //! session the runner has already brought up. Both are handled explicitly --
 //! lifecycle verbs address their own disposable session, and are probed last.
 
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
 use super::liveness::run_tmux_with_timeout;
 use super::multiplexer_conformance::{
@@ -58,12 +58,32 @@ fn run_contract_probes(plan: &MultiplexerPlan) -> ConformanceReport {
     summarize_conformance(findings)
 }
 
-fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
+/// Client variables a multiplexer uses to detect that it is being run from
+/// inside one of its own panes.
+///
+/// jefe scrubs these everywhere else it invokes the multiplexer (#171). The
+/// conformance runner did not, so when jefe itself started inside a pane the
+/// probes inherited them and the multiplexer refused to nest -- reporting the
+/// binary as non-conforming for correctly declining to create a session inside
+/// itself. Qualification must ask the same question jefe will ask later, in the
+/// same environment.
+const NESTING_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
+
+/// Build the command one probe runs, with the nesting variables scrubbed.
+fn probe_command(plan: &MultiplexerPlan, args: &[String]) -> Command {
     let mut command = plan.command();
     command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for variable in NESTING_VARS_TO_SCRUB {
+        command.env_remove(variable);
+    }
+    command
+}
+
+fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
+    let mut command = probe_command(plan, args);
 
     match run_tmux_with_timeout(&mut command) {
         Ok(output) => ProbeOutcome {
@@ -185,4 +205,29 @@ fn conformance_namespace() -> String {
 #[must_use]
 pub fn fingerprint_multiplexer(plan: &MultiplexerPlan) -> Option<BinaryFingerprint> {
     BinaryFingerprint::measure(plan.executable()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NESTING_VARS_TO_SCRUB, probe_command};
+    use crate::runtime::MultiplexerPlan;
+
+    /// jefe may itself be started from inside a multiplexer pane. A probe that
+    /// inherited the client variables would make the multiplexer refuse to
+    /// nest, and qualification would condemn a correct binary for correctly
+    /// declining to create a session inside itself (#171, #540).
+    #[test]
+    fn probes_do_not_inherit_the_pane_jefe_was_launched_from() {
+        let Ok(plan) = MultiplexerPlan::current() else {
+            return;
+        };
+        let command = probe_command(&plan, &["list-sessions".to_owned()]);
+
+        for variable in NESTING_VARS_TO_SCRUB {
+            let removed = command
+                .get_envs()
+                .any(|(key, value)| key == std::ffi::OsStr::new(variable) && value.is_none());
+            assert!(removed, "{variable} is not scrubbed from probe commands");
+        }
+    }
 }
