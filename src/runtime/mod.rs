@@ -45,6 +45,8 @@ pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod manager;
+/// Pane/worker/server identity accessors, split out of `manager.rs` (issue #543).
+mod manager_identity;
 mod manager_passthrough;
 mod multiplexer;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
