@@ -14,6 +14,7 @@ use super::multiplexer_conformance::{
     classify_contract_probe, probe_plan_for, qualification_from_report, summarize_conformance,
 };
 use super::multiplexer_contract::{ContractItem, contract_items};
+use super::provenance::BinaryFingerprint;
 use super::{MultiplexerIsolation, MultiplexerPlan};
 
 /// Session created inside the throwaway namespace for session-addressed probes.
@@ -154,4 +155,15 @@ fn scratch_plan(plan: &MultiplexerPlan) -> Option<MultiplexerPlan> {
 /// tear down each other's scratch server mid-probe.
 fn conformance_namespace() -> String {
     format!("jefe-conformance-{}", std::process::id())
+}
+
+/// Fingerprint the binary being qualified, so a later check can tell whether it
+/// changed underneath the running process (issue #540 V7).
+///
+/// A binary that cannot be read yields `None`; provenance then says nothing
+/// rather than inventing a digest, which is the same rule the rest of the
+/// qualification follows.
+#[must_use]
+pub fn fingerprint_multiplexer(plan: &MultiplexerPlan) -> Option<BinaryFingerprint> {
+    BinaryFingerprint::measure(plan.executable()).ok()
 }
