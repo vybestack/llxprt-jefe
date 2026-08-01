@@ -212,4 +212,57 @@ fn runner_mediated_capability_probe_uses_the_ordinary_probe_budget() {
 
     let reason = probe_error_reason(&fixture.run(3));
     assert!(reason.contains("timed out"), "reason {reason:?}");
+    assert!(
+        reason.contains("capability"),
+        "the capability phase owns this failure: {reason:?}"
+    );
+}
+/// A4: a timeout must identify the phase, the executable that was run, how long
+/// it actually took, and the budget it exceeded.
+#[test]
+fn probe_timeout_reason_names_phase_executable_elapsed_and_budget() {
+    let fixture = Fixture::direct();
+    fixture.delay("identity.sleep");
+
+    let reason = probe_error_reason(&fixture.run(4));
+    assert!(
+        reason.contains("identity"),
+        "reason names its phase: {reason:?}"
+    );
+    assert!(
+        reason.contains(&fixture.executable.display().to_string()),
+        "reason names the executable that was run: {reason:?}"
+    );
+    assert!(
+        reason.contains(&format!("budget {SHORT_PROBE_TIMEOUT_MS} ms")),
+        "reason names the budget it exceeded: {reason:?}"
+    );
+    assert!(
+        reason.contains("ms)") && reason.contains("after "),
+        "reason names how long the phase actually took: {reason:?}"
+    );
+}
+
+/// A5: non-timeout probe failures are equally attributable.
+#[test]
+fn probe_failure_reasons_name_their_phase_and_executable() {
+    let fixture = Fixture::direct();
+    write_file(
+        fixture
+            .executable
+            .parent()
+            .unwrap_or_else(|| panic!("fixture parent")),
+        "identity.stdout",
+        b"not a version at all\n",
+    );
+
+    let reason = probe_error_reason(&fixture.run(5));
+    assert!(
+        reason.contains("identity"),
+        "reason names its phase: {reason:?}"
+    );
+    assert!(
+        reason.contains(&fixture.executable.display().to_string()),
+        "reason names the executable that was run: {reason:?}"
+    );
 }

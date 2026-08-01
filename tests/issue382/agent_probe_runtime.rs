@@ -472,7 +472,9 @@ fn malformed_framing_and_identity_mismatch_are_probe_errors() {
     assert_probe_error(&malformed.run(13), "framing");
 
     let mismatch = FakeInstallation::new(shipped("core.codex"), b"different 1.2.3\n", b"");
-    assert_probe_error(&mismatch.run(14), "identity");
+    // Every AGT-E202 reason now names its phase (issue #553), so an identity
+    // mismatch must be asserted by its own wording rather than by the phase.
+    assert_probe_error(&mismatch.run(14), "unrecognized identity");
 }
 
 #[cfg(unix)]
