@@ -57,5 +57,5 @@
 
 ## Review counters
 
-- Local OCR: 0 / 2
+- Local OCR: 1 / 2 (run 1: 2 files, 0 comments — clean)
 - PR OCR: 0 / 2
