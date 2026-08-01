@@ -5,7 +5,6 @@
 //! tmux or the jefe binary are unavailable.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use jefe::harness::TmuxDriver;
 use jefe::harness::v1::parse_scenario_v1;
@@ -94,18 +93,6 @@ fn unique_session(label: &str) -> String {
     format!("jefe-reorder-{label}-{pid}-{nanos}")
 }
 
-struct TmuxSessionCleanup {
-    name: String,
-}
-
-impl Drop for TmuxSessionCleanup {
-    fn drop(&mut self) {
-        let _ = Command::new("tmux")
-            .args(["kill-session", "-t", &self.name])
-            .output();
-    }
-}
-
 #[test]
 fn guarded_dashboard_reorder_tui_scenario() {
     let tmux = TmuxDriver::new();
@@ -145,9 +132,6 @@ fn guarded_dashboard_reorder_tui_scenario() {
     .unwrap_or_else(|e| panic!("parse scenario: {e:?}"));
 
     let session_name = unique_session("scenario");
-    let _cleanup = TmuxSessionCleanup {
-        name: session_name.clone(),
-    };
 
     let request = TmuxRunRequest {
         session: session_name,
