@@ -810,3 +810,21 @@ fn bound_and_finished_agents_are_left_alone() {
         "only unbound Running agents are unresolved; a bound one is answered and a dead one is finished"
     );
 }
+
+/// A missing repository is jefe failing to find configuration, not the agent's
+/// process ending. Burying it was the last instance of the #527 collapse, and
+/// it matters more now that the periodic re-adoption pass reaches this code on
+/// every cycle rather than once at startup (issue #541 V3).
+#[test]
+fn an_agent_whose_repository_is_missing_is_held_not_buried() {
+    let (mut agent, _repo) = code_puppy_agent_and_repository();
+    agent.status = AgentStatus::Running;
+
+    let mut runtime = TmuxRuntimeManager::new(24, 80);
+    let outcome = restore_one_agent(&agent, &[], &mut runtime, None);
+
+    assert!(
+        matches!(outcome, RestoreOneOutcome::Held(_)),
+        "a repository we cannot find says nothing about whether the process is alive"
+    );
+}

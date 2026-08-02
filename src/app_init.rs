@@ -71,7 +71,7 @@ pub fn agents_awaiting_readoption(state: &AppState) -> Vec<AgentId> {
     state
         .agents
         .iter()
-        .filter(|agent| agent.status == AgentStatus::Running && agent.runtime_binding.is_none())
+        .filter(|agent| agent.state_is_unconfirmed())
         .map(|agent| agent.id.clone())
         .collect()
 }
@@ -701,7 +701,16 @@ fn restore_one_agent(
         .find(|repository| repository.id == agent.repository_id)
         .cloned()
     else {
-        return RestoreOneOutcome::Dead;
+        // Configuration we cannot find, not a process we observed ending. The
+        // periodic re-adoption pass reaches this on every cycle, so burying
+        // the agent here would kill a live one for a bookkeeping gap (#541).
+        return RestoreOneOutcome::Held(Uncertainty::new(
+            ProbeBoundary::LaunchSignature,
+            format!(
+                "repository {} is not in state, so the agent could not be checked",
+                agent.repository_id.0
+            ),
+        ));
     };
     let signature = launch_signature_for_agent(agent, &repository);
 

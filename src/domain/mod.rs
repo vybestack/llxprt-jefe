@@ -813,6 +813,19 @@ impl AgentLaunchRequest {
 }
 
 impl Agent {
+    /// Whether this agent's state is believed rather than observed.
+    ///
+    /// A `Running` agent with no runtime binding is one a probe could not
+    /// resolve: it keeps the status it was persisted with because nothing
+    /// disproved it, but jefe has not confirmed it and is not registered to
+    /// watch it. Callers that show or re-probe such agents must agree on what
+    /// counts as unconfirmed, so the rule lives here once rather than being
+    /// restated at each site (issue #541).
+    #[must_use]
+    pub const fn state_is_unconfirmed(&self) -> bool {
+        matches!(self.status, AgentStatus::Running) && self.runtime_binding.is_none()
+    }
+
     /// Create a new agent with default values.
     ///
     /// This domain constructor defaults to [`AgentStatus::Queued`] and is
