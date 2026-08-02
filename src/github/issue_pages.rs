@@ -51,12 +51,17 @@ fn fetch_issue_search_filtered_pages(
 /// Accumulate issue-type matches across raw pages until a page is ready
 /// (issue #579).
 ///
-/// A raw page is emitted whole or not at all, so the returned cursor is always
-/// the end cursor of the last page every match of which was emitted. Resuming
-/// from it therefore neither skips nor repeats an issue. A raw page is fetched
-/// with `first = page_size` and filtering only removes issues, so a single page
-/// can never contribute more than `page_size` matches: deferring a page always
-/// leaves at least one match emitted and the caller always makes progress.
+/// A raw page is emitted whole or deferred whole, so the returned cursor is
+/// always the end cursor of the last page every match of which was emitted.
+/// While the underlying search results are stable, resuming from that cursor
+/// therefore neither skips nor repeats an issue.
+///
+/// A raw page is fetched with `first = page_size` and filtering only removes
+/// issues, so one page can never contribute more than `page_size` matches, and
+/// deferring a page always leaves at least one match emitted. A response that
+/// breaks that bound would leave the caller holding an empty page and the very
+/// cursor it just used, so it is reported as an API error rather than an
+/// invitation to request the same page forever.
 ///
 /// The raw fetch is a parameter so the accumulation rules can be exercised
 /// directly against scripted page sequences.
@@ -81,6 +86,12 @@ where
             .filter(|issue| issue.issue_type.eq_ignore_ascii_case(issue_type))
             .collect::<Vec<Issue>>();
         if collected.len() + matches.len() > page_size {
+            if collected.is_empty() {
+                return Err(GhError::ApiError(format!(
+                    "issue search returned {} matching issues for a page of {page_size}",
+                    matches.len()
+                )));
+            }
             return Ok(IssueListResponse {
                 issues: collected,
                 cursor: search_cursor,
@@ -95,7 +106,10 @@ where
                 has_more: response.has_more,
             });
         }
-        if response.cursor == search_cursor {
+        // A page promising more results without handing back a usable next
+        // cursor cannot be followed: reusing the current cursor would refetch
+        // the same page, and dropping it would restart from the first page.
+        if response.cursor.is_none() || response.cursor == search_cursor {
             return Ok(IssueListResponse {
                 issues: collected,
                 cursor: response.cursor,
@@ -306,7 +320,7 @@ mod tests {
     fn a_page_filled_exactly_reports_its_own_cursor() {
         let script = ScriptedSearch {
             pages: vec![
-                page(&[(1, "Bug"), (2, "Feature"), (3, "Bug")], "cursor-a", true),
+                page(&[(1, "Bug"), (3, "Bug")], "cursor-a", true),
                 page(&[(4, "Bug")], "cursor-b", true),
             ],
         };
@@ -374,6 +388,92 @@ mod tests {
         assert!(
             !response.has_more,
             "a server that cannot advance must not invite another request"
+        );
+    }
+
+    #[test]
+    fn a_page_promising_more_without_a_cursor_stops_the_loop() {
+        let mut fetches = 0_u32;
+        let Ok(response) = collect_issue_type_matches("Bug", Some("cursor-a"), 5, |_| {
+            fetches += 1;
+            Ok(IssueListResponse {
+                issues: vec![issue(1, "Bug")],
+                cursor: None,
+                has_more: true,
+            })
+        }) else {
+            panic!("scripted search must not fail");
+        };
+        assert_eq!(
+            fetches, 1,
+            "a page without a next cursor must not restart pagination"
+        );
+        assert_eq!(numbers(&response), vec![1]);
+        assert!(!response.has_more);
+    }
+
+    #[test]
+    fn deferring_the_last_page_still_resumes_onto_it() {
+        let script = ScriptedSearch {
+            pages: vec![
+                page(&[(1, "Bug"), (2, "Bug"), (3, "Feature")], "cursor-a", true),
+                page(&[(4, "Bug"), (5, "Bug")], "cursor-b", false),
+            ],
+        };
+        let Ok(first) =
+            collect_issue_type_matches("Bug", None, 3, |cursor| Ok(script.page_for(cursor)))
+        else {
+            panic!("scripted search must not fail");
+        };
+        assert_eq!(numbers(&first), vec![1, 2]);
+        assert!(
+            first.has_more,
+            "the deferred final page still holds matching issues"
+        );
+        let Ok(second) = collect_issue_type_matches("Bug", first.cursor.as_deref(), 3, |cursor| {
+            Ok(script.page_for(cursor))
+        }) else {
+            panic!("scripted search must not fail");
+        };
+        assert_eq!(numbers(&second), vec![4, 5]);
+        assert!(!second.has_more);
+    }
+
+    #[test]
+    fn a_page_larger_than_requested_is_reported_instead_of_stalling() {
+        let error = collect_issue_type_matches("Bug", None, 1, |_| {
+            Ok(IssueListResponse {
+                issues: vec![issue(1, "Bug"), issue(2, "Bug")],
+                cursor: Some("cursor-a".to_string()),
+                has_more: true,
+            })
+        });
+        let Err(GhError::ApiError(message)) = error else {
+            panic!("a page that cannot be emitted or deferred must be an API error");
+        };
+        assert!(
+            message.contains("2 matching issues"),
+            "the error must name the oversized page: {message}"
+        );
+    }
+
+    #[test]
+    fn a_failed_fetch_is_reported_even_after_partial_accumulation() {
+        let mut fetches = 0_u32;
+        let result = collect_issue_type_matches("Bug", None, 5, |_| {
+            fetches += 1;
+            if fetches == 1 {
+                return Ok(IssueListResponse {
+                    issues: vec![issue(1, "Bug")],
+                    cursor: Some("cursor-a".to_string()),
+                    has_more: true,
+                });
+            }
+            Err(GhError::RateLimited)
+        });
+        assert!(
+            matches!(result, Err(GhError::RateLimited)),
+            "a mid-accumulation failure must not be reported as a short page"
         );
     }
 }

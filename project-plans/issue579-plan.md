@@ -3,10 +3,12 @@
 > When an issue-type filter has to be applied client-side,
 > `fetch_issue_search_filtered_pages` accumulates matches across several raw
 > search pages. It breaks once `collected.len() > page_size` without truncating,
-> so the caller receives more issues than it asked for, and it returns the end
-> cursor of the last raw page fetched even though the trailing matches of that
-> page were never emitted. Resuming from that cursor skips every issue between
-> the last emitted item and the cursor, leaving holes in the list.
+> so the caller receives more issues than it asked for. The continuation cursor
+> is the end cursor of the last raw page fetched, which stays consistent only
+> because nothing is truncated: capping the page without moving the cursor back
+> would silently drop every match between the last emitted issue and that
+> cursor. The page bound and the resume point therefore have to be fixed
+> together.
 
 ## Acceptance matrix
 
@@ -19,6 +21,9 @@
 | A5 | Same path | The server returns an unchanged end cursor (no forward progress) | All platforms | The loop stops and reports `has_more == false` instead of spinning | n/a | As above | unchanged | Unit test for the non-advancing cursor guard |
 | A6 | Same path | No matches at all in a page that still reports `has_more` | All platforms | The loop keeps fetching and does not return early with a stale cursor | n/a | As above | unchanged | Unit test for the skip-empty-page case |
 | A7 | `GhClient::list_issues` without a client-side issue-type filter | Any filter/sort | All platforms | Unchanged single raw-page behavior | Unchanged `GhError` mapping | Unchanged | unchanged | Existing `github_client` tests remain green |
+| A8 | Same filtered path | A raw page carries more matches than the whole requested page, so it can be neither emitted nor deferred | All platforms | n/a | `GhError::ApiError` naming the oversized page, instead of an empty page whose cursor invites the identical request forever | Only the raw fetches performed | unchanged | Unit test asserting the typed error |
+| A9 | Same filtered path | A raw page reports `has_more` but carries no end cursor | All platforms | The loop stops with what it has and `has_more == false` rather than restarting from the first page | n/a | As above | unchanged | Unit test asserting one fetch and no continuation |
+| A10 | Same filtered path | A raw fetch fails after earlier pages already contributed matches | All platforms | n/a | The underlying `GhError` propagates instead of being reported as a short page | Only the raw fetches performed | unchanged | Unit test asserting the propagated error |
 
 ## Non-goals
 
@@ -26,9 +31,16 @@
   so a page could resume mid-page. The available `pageInfo.endCursor` is
   page-granular, and page-granular resume is enough to satisfy A1/A2.
 - Changing the server-side sort, filter, or query construction (issue #573/#578).
-- Changing `IssueListResponse`, the reducer's page-append/dedup behavior, or any
+- Changing `IssueListResponse`, the reducer's page-append behavior
+  (`PaginatedList::accept_page` concatenates and does not de-duplicate), or any
   UI surface. This is a client-boundary fix with no rendered-output change, so no
   TUI harness scenario is added.
+- Introducing a page-size domain type (`NonZeroU32`) or otherwise changing the
+  `GhClient::list_issues` signature.
+- Tracking every cursor visited during an accumulation to detect a multi-step
+  cursor cycle. The loop refuses to follow a cursor it cannot advance past; a
+  server that hands back an already-consumed cursor several pages later
+  contradicts the connection contract and is out of this issue's scope.
 - Adding retry, caching, or prefetch behavior to the pagination loop.
 - Reworking `fetch_issue_search_raw_page` or its error mapping.
 
@@ -36,7 +48,7 @@
 
 ### Slice 1 — Bounded page and correct resume cursor
 
-- **Rows:** A1–A7.
+- **Rows:** A1–A10.
 - **Owner / boundary:** `src/github` GitHub-client boundary; the raw fetch stays
   the only side-effecting call.
 - **Allowed paths:** `src/github/issue_pages.rs` (production loop plus its
@@ -72,14 +84,28 @@ or unrelated refactor is authorized.
 | Return the resume cursor of the last fully emitted raw page | In scope | A2 |
 | Test seam: the loop takes the raw-page fetch as a parameter | In scope | Required to prove A1–A6 without a network or `gh` process; stays private to the module |
 | Preserve exhaustion / non-advancing-cursor / empty-page behavior | In scope | A4–A6 |
+| Typed error when a page can be neither emitted nor deferred | In scope | A8; without it the new deferral could return an empty page with an unchanged cursor |
+| Stop on a `has_more` page that carries no end cursor | In scope | A9; the same "cannot advance" guard the loop already applies to a repeated cursor |
 | Per-node search cursors for mid-page resume | Rejected | Explicit non-goal; query-shape change beyond the issue |
-| Reducer-level duplicate suppression | Rejected | Different ownership; the fix removes both gaps and duplicates at the source |
+| `NonZeroU32` page-size domain type | Rejected | Public client-signature change; A8 already removes the non-progress exit |
+| Visited-cursor cycle detection | Rejected | Pre-existing, contradicts the connection contract, and needs a new mechanism |
+| Reducer-level duplicate suppression | Rejected | Different ownership; the fix keeps a stable traversal free of gaps and duplicates at the source |
 
 ## Review and verification ledger
 
-- Local OCR: `0 / 2`
+- Local OCR: `1 / 2` — reviewed the committed range against the changed file; zero
+  findings.
 - PR OCR: `0 / 2`
-- rustreviewer / DeepThinker: pending
+- rustreviewer: one full review of the committed range; six findings triaged.
+  Fixed: the deferral could return an empty page with an unchanged cursor when a
+  raw page could be neither emitted nor deferred (now a typed `GhError::ApiError`,
+  A8); a `has_more` page with no end cursor restarted pagination (now stops, A9);
+  the doc comment overstated the no-gap guarantee (now scoped to stable results);
+  the exact-fill fixture returned more raw nodes than the requested page size
+  (now production-realistic); the plan's problem statement and its reducer
+  de-duplication claim were inaccurate (both corrected). Added tests for A8, A9,
+  A10, and for deferring the final page. Rejected: a `NonZeroU32` page-size
+  domain type and visited-cursor cycle detection, both recorded as non-goals.
 - RED evidence: with the pre-fix loop,
   `filtered_page_never_returns_more_issues_than_requested` failed with "a page of
   four must not carry 6 issues: [1, 3, 4, 5, 6, 8]",
