@@ -38,6 +38,26 @@ const MAX_LOADER_TRANSIENT_RETRIES: u32 = 3;
 /// Backoff between loader-transient retries.
 const LOADER_TRANSIENT_BACKOFF: Duration = Duration::from_millis(500);
 
+/// Maximum identity-probe attempts when the probe overruns its budget.
+///
+/// Deliberately smaller than [`MAX_LOADER_TRANSIENT_RETRIES`]: a cold shim is
+/// slow exactly once, so one retry recovers it, whereas a command that never
+/// answers would otherwise hold the user for three full budgets before saying
+/// so (issue #604).
+const MAX_TIMEOUT_ATTEMPTS: u32 = 2;
+
+/// Deadline for one probe attempt, measured from now.
+///
+/// Falls forward to a bounded far-future deadline when the budget cannot be
+/// represented, matching [`ProbePhase::deadline`] rather than collapsing into
+/// an instant timeout.
+fn attempt_deadline(budget: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_add(budget)
+        .or_else(|| now.checked_add(UNBOUNDED_PHASE_BUDGET))
+        .unwrap_or(now)
+}
+
 /// Budget for the one probe process that also materializes a package.
 const PACKAGE_MATERIALIZATION_TIMEOUT: Duration =
     Duration::from_millis(PACKAGE_MATERIALIZATION_TIMEOUT_MS);
@@ -370,7 +390,7 @@ fn execute_probe(
         }
         None => command_for_candidate(target.candidate, &arguments),
     };
-    let output = run_probe_with_loader_retry(&build_command, deadline)?;
+    let output = run_probe_with_loader_retry(&build_command, phase.budget)?;
     validate_process_output(output)
 }
 
@@ -383,11 +403,15 @@ fn execute_probe(
 /// perfectly functional.
 fn run_probe_with_loader_retry(
     build_command: &impl Fn() -> Command,
-    deadline: Instant,
+    budget: Duration,
 ) -> Result<ProbeProcessOutput, ProbeFailure> {
     let mut last_error = None;
     for attempt in 1..=MAX_LOADER_TRANSIENT_RETRIES {
         let command = build_command();
+        // Each attempt is given the budget afresh. A timeout has by definition
+        // already spent the previous one, so a shared deadline would leave the
+        // retry nothing to run in and make it a formality.
+        let deadline = attempt_deadline(budget);
         match run_probe_process(command, deadline) {
             Ok(output) => {
                 if !is_retryable_loader_transient(output.status) {
@@ -404,9 +428,25 @@ fn run_probe_with_loader_retry(
                     output_status = output.status
                 )));
             }
+            // A cold shim is slow once and prompt afterwards, which is the same
+            // transient this function already exists for -- it just arrives as
+            // slowness instead of as a loader status (issue #604). Retried once
+            // rather than three times: a command that is genuinely hung must not
+            // cost three full budgets before anyone is told.
+            Err(ProbeProcessError::Timeout) => {
+                if attempt >= MAX_TIMEOUT_ATTEMPTS {
+                    return Err(ProbeFailure::Timeout);
+                }
+                tracing::warn!(
+                    attempt,
+                    max_attempts = MAX_TIMEOUT_ATTEMPTS,
+                    "agent probe overran its budget; retrying once with a fresh budget"
+                );
+                last_error = Some(ProbeFailure::Timeout);
+            }
             Err(error) => return Err(ProbeFailure::Process(error)),
         }
-        if attempt < MAX_LOADER_TRANSIENT_RETRIES && Instant::now() < deadline {
+        if attempt < MAX_LOADER_TRANSIENT_RETRIES {
             std::thread::sleep(LOADER_TRANSIENT_BACKOFF);
         }
     }
@@ -568,6 +608,7 @@ impl ProbeFailure {
 mod tests {
     use std::ffi::OsString;
     use std::path::Path;
+    use std::time::Duration;
 
     use super::{AgentWrapperKind, command_for_path};
 
@@ -629,6 +670,98 @@ mod tests {
         );
     }
 
+    /// A shim that is slow only the first time must still yield an identity.
+    ///
+    /// This is the cold-DLL-cache case the module already documents, arriving
+    /// as slowness rather than as `STATUS_DLL_INIT_FAILED`. Measured on a real
+    /// machine, `llxprt.cmd --version` took 12.5s cold and 2.2s warm against a
+    /// 10s budget, so the first launch of jefe after a reboot reported
+    /// `AGT-E202` and left the agent unlaunchable until the user quit and
+    /// reopened (issue #604).
+    ///
+    /// The first attempt here overruns a deliberately tiny budget; the second
+    /// returns at once. Retrying must therefore succeed, and must do so by
+    /// giving the retry its own budget rather than the remains of a budget the
+    /// timeout already consumed.
+    #[test]
+    fn a_probe_that_overruns_its_budget_once_is_retried() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let attempts = AtomicU32::new(0);
+        let build = || {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                sleeping_command()
+            } else {
+                immediate_command()
+            }
+        };
+
+        let outcome = super::run_probe_with_loader_retry(&build, Duration::from_millis(300));
+
+        assert!(
+            outcome.is_ok(),
+            "a first attempt that merely ran long must not condemn the probe"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            2,
+            "the timeout must be retried exactly once, not abandoned and not repeated forever"
+        );
+    }
+
+    /// A command that never answers must still be given up on.
+    ///
+    /// The retry above must not become an unbounded wait: fail-slow is the
+    /// mirror of the bug it fixes.
+    #[test]
+    fn a_probe_that_always_overruns_is_eventually_abandoned() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let attempts = AtomicU32::new(0);
+        let build = || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            sleeping_command()
+        };
+
+        let outcome = super::run_probe_with_loader_retry(&build, Duration::from_millis(300));
+
+        assert!(
+            outcome.is_err(),
+            "a command that never answers must not be reported as an identity"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            2,
+            "one retry, then the verdict"
+        );
+    }
+
+    /// A command that outlives a short budget on every platform.
+    fn sleeping_command() -> std::process::Command {
+        if cfg!(windows) {
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/D", "/S", "/C", "ping -n 4 127.0.0.1"]);
+            command
+        } else {
+            let mut command = std::process::Command::new("sh");
+            command.args(["-c", "sleep 3"]);
+            command
+        }
+    }
+
+    /// A command that answers immediately on every platform.
+    fn immediate_command() -> std::process::Command {
+        if cfg!(windows) {
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/D", "/S", "/C", "exit 0"]);
+            command
+        } else {
+            let mut command = std::process::Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        }
+    }
+
     #[test]
     fn loader_transient_classification_matches_psmux_contract() {
         // STATUS_DLL_INIT_FAILED is the only retryable status. We verify the
@@ -667,8 +800,7 @@ mod tests {
             cmd
         };
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        let result = super::run_probe_with_loader_retry(&build, deadline);
+        let result = super::run_probe_with_loader_retry(&build, Duration::from_secs(30));
         let Some(output) = result.ok() else {
             panic!("retry must return Ok on success");
         };
