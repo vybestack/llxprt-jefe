@@ -90,17 +90,30 @@ impl VersionSelector {
         matches!(self, Self::Direct)
     }
 
-    /// Whether the selector resolves to a moving package-manager target whose
-    /// published version advances over time (a dist-tag or "latest" sentinel).
+    /// Whether the selector names a moving target whose published version
+    /// advances over time, rather than one immutable build.
     ///
-    /// `Latest` and `LatestNightly` are volatile: a fresh `npm install` may
-    /// resolve them to a newer build each time. `Direct` and `Explicit` are
-    /// not — an explicit version is an immutable pin. The managed install cache
-    /// uses this to re-resolve volatile selectors periodically (issue #554)
-    /// instead of caching the first resolution forever.
+    /// Decided by **shape**, not by a list of known names. A registry may
+    /// define any dist-tag it likes, so enumerating them cannot be exhaustive:
+    /// `glm52-vast`, `beta` and `next` move exactly as `latest` does, and a
+    /// range such as `^1.0.0` moves too. Only an exact version is a pin.
+    ///
+    /// This also fails in the safe direction. An unrecognized shape is
+    /// re-resolved, which costs a metadata query; treating it as a pin instead
+    /// would freeze the agent on whatever happened to be installed first, which
+    /// is the defect in issue #601. An exact version keeps the pinned path, so
+    /// pinned users never pay that query (issue #554).
     #[must_use]
-    pub const fn is_volatile(&self) -> bool {
-        matches!(self, Self::Latest | Self::LatestNightly)
+    pub fn is_volatile(&self) -> bool {
+        match self {
+            Self::Direct => false,
+            Self::Latest | Self::LatestNightly => true,
+            // A value that is not a usable npm spec at all can never be
+            // resolved, so asking the registry about it would spawn a process
+            // and wait, only to fail. Those keep the pinned path and fail at
+            // install exactly as they did before.
+            Self::Explicit(value) => is_resolvable_spec(value) && !is_exact_version(value),
+        }
     }
 
     /// Normalized persisted value; `None` means direct.
@@ -142,6 +155,79 @@ impl VersionSelector {
             }
         }
     }
+}
+
+/// Whether `value` could name something the registry can resolve.
+///
+/// npm dist-tags and ranges draw from a narrow character set. Anything with
+/// whitespace, a shell metacharacter, or other punctuation is not a spec npm
+/// would accept, so it cannot be a moving pointer and there is nothing to gain
+/// by querying it — only a process spawn and a wait before the same failure.
+///
+/// This keeps malformed and hostile values on the path they already took, which
+/// matters because it is the path their behaviour is pinned by tests.
+fn is_resolvable_spec(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'.' | b'-' | b'_' | b'^' | b'~' | b'>' | b'<' | b'=' | b'*' | b'+' | b'|'
+                )
+        })
+}
+
+/// Whether `value` is an exact semantic version, and therefore an immutable pin.
+///
+/// Accepts `MAJOR.MINOR.PATCH` with optional `-prerelease` and `+build`, which
+/// is the shape npm publishes and the shape `npm view <spec> version` returns.
+/// Everything else — a dist-tag, a range operator, a partial version, a
+/// `v`-prefixed string — is a pointer that can move.
+///
+/// Deliberately strict: a value this rejects is merely re-resolved, while a
+/// value it wrongly accepts is frozen forever (issue #601).
+fn is_exact_version(value: &str) -> bool {
+    // Split off build metadata, then prerelease, leaving the core triple.
+    let (without_build, build) = match value.split_once('+') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (value, None),
+    };
+    if build.is_some_and(|tail| !is_dot_separated_identifier(tail)) {
+        return false;
+    }
+    let (core, prerelease) = match without_build.split_once('-') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (without_build, None),
+    };
+    if prerelease.is_some_and(|tail| !is_dot_separated_identifier(tail)) {
+        return false;
+    }
+    let mut parts = core.split('.');
+    let triple = [parts.next(), parts.next(), parts.next()];
+    parts.next().is_none()
+        && triple
+            .iter()
+            .all(|part| part.is_some_and(is_numeric_identifier))
+}
+
+/// A non-empty run of ASCII digits with no leading zero beyond `0` itself.
+fn is_numeric_identifier(part: &str) -> bool {
+    !part.is_empty()
+        && part.bytes().all(|byte| byte.is_ascii_digit())
+        && (part == "0" || !part.starts_with('0'))
+}
+
+/// Dot-separated prerelease or build identifiers: alphanumerics and hyphens,
+/// each segment non-empty.
+fn is_dot_separated_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('.').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 /// Version-selector construction error.
