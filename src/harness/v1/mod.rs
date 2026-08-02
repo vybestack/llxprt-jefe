@@ -12,6 +12,10 @@ pub mod action_capture_sink;
 #[cfg(test)]
 #[path = "action_capture_tests.rs"]
 mod action_capture_tests;
+// Serves the Unix PTY runner only; gated with it so the Windows build does
+// not carry a module whose tests need the Unix-only workspace.
+#[cfg(unix)]
+pub mod app_socket;
 pub mod capture;
 pub mod contract;
 pub mod env;
