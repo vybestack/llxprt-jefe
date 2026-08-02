@@ -706,3 +706,48 @@ fn a_successful_durable_read_shows_nothing() {
     assert_eq!(state.warning_message, None);
     assert_eq!(state.durable_read_held, None);
 }
+
+/// A held agent is left exactly as persisted -- Running, with no binding. The
+/// liveness cycle builds its targets from the runtime's session map, so an
+/// agent that was never registered produces no target and is never probed
+/// again. Without a visible warning the operator sees a Running agent that
+/// cannot be attached to and is given no reason (issue #541 V4/V7).
+#[test]
+fn held_agents_are_reported_to_the_operator() {
+    let mut state = AppState::default();
+
+    surface_startup_holds(
+        &mut state,
+        &[
+            (
+                AgentId("agent-1".to_owned()),
+                "has-session did not answer: server unreachable".to_owned(),
+            ),
+            (
+                AgentId("agent-2".to_owned()),
+                "has-session did not answer: server unreachable".to_owned(),
+            ),
+        ],
+    );
+
+    let shown = state
+        .warning_message
+        .as_ref()
+        .unwrap_or_else(|| panic!("held agents must be reported, not only logged"));
+    assert!(
+        shown.contains('2'),
+        "the operator needs to know how many agents are affected: {shown}"
+    );
+    assert!(
+        shown.contains("server unreachable"),
+        "the operator needs the reason, not just a count: {shown}"
+    );
+}
+
+/// The mirror hazard: no holds must leave the status line alone.
+#[test]
+fn no_holds_reports_nothing() {
+    let mut state = AppState::default();
+    surface_startup_holds(&mut state, &[]);
+    assert_eq!(state.warning_message, None);
+}

@@ -59,6 +59,28 @@ fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
     state.durable_read_held = Some(reason);
 }
 
+/// Report agents whose state startup could not determine.
+///
+/// A held agent keeps its persisted `Running` status and its binding, which is
+/// the correct refusal to guess. But the liveness cycle builds its targets
+/// from the runtime's session map, and a held agent was never registered
+/// there, so nothing probes it again. Left silent that is a Running agent the
+/// operator cannot attach to and is given no reason for, so the hold has to be
+/// stated even though it is the safe outcome (issue #541).
+fn surface_startup_holds(state: &mut AppState, held: &[(AgentId, String)]) {
+    let Some((_, first_reason)) = held.first() else {
+        return;
+    };
+    append_warning(
+        state,
+        format!(
+            "{} agent(s) could not be checked at startup and were left untouched: {first_reason}. \
+             Their state is unknown, not confirmed.",
+            held.len()
+        ),
+    );
+}
+
 fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
     if let Some(warning) = warning {
         append_warning(state, warning);
@@ -664,6 +686,7 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
 
     let mut revived_running = Vec::new();
     let mut newly_dead = Vec::new();
+    let mut held: Vec<(AgentId, String)> = Vec::new();
     let runtime_warning: Option<String> = None;
 
     for agent in agents {
@@ -681,27 +704,28 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
             }
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
             RestoreOneOutcome::Skip => {}
-            // Left exactly as persisted, including its binding. The deferred
-            // re-probe that turns this into an eventual answer is issue #541's
-            // next slice; until then the hold is at least visible in the log
-            // rather than silently indistinguishable from a healthy skip.
+            // Left exactly as persisted, including its binding.
             RestoreOneOutcome::Held(reason) => {
                 warn!(
                     agent_id = %agent.id.0,
                     %reason,
                     "startup held this agent: its state was not determined and was left untouched"
                 );
+                held.push((agent.id.clone(), reason.to_string()));
             }
         }
     }
 
     drop(ctx_guard);
 
-    let state_changed =
-        !revived_running.is_empty() || !newly_dead.is_empty() || runtime_warning.is_some();
+    let state_changed = !revived_running.is_empty()
+        || !newly_dead.is_empty()
+        || runtime_warning.is_some()
+        || !held.is_empty();
     if state_changed {
         let mut state = app_state.write();
         apply_restored_state(&mut state, revived_running, newly_dead, runtime_warning);
+        surface_startup_holds(&mut state, &held);
     }
 
     if let Some(warning) = shell_reconcile::reconcile_shell_inventory(app_state, ctx) {
