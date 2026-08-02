@@ -5,6 +5,7 @@
 use crate::persistence::diagnostic::FOLLOW_UP_LIMIT;
 
 use super::descriptor::{PortDirection, ScreenDescriptor};
+use super::diagnostics::ScrCode;
 use super::relationship_fixtures::{SUBJECT_TYPE, list_detail, panel, port, port_ref, screen};
 use super::relationship_propagation::{
     PortUpdate, PortValue, PropagationAbort, RelationshipState, SourceIntent, propagate,
@@ -457,5 +458,27 @@ fn a_transition_one_past_the_follow_up_bound_aborts_without_partial_state() {
         before,
         RelationshipState::new(),
         "an aborted transition must leave the prior state exactly as it was"
+    );
+}
+
+#[test]
+fn an_abandoned_transition_reports_the_screen_refusal_code() {
+    let descriptor = over_wide_screen(FOLLOW_UP_LIMIT + 1);
+
+    let abort = propagate(
+        &descriptor,
+        &RelationshipState::new(),
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("42"),
+        },
+    )
+    .err()
+    .unwrap_or_else(|| unreachable!("the transition must be abandoned"));
+
+    assert_eq!(abort.code(), ScrCode::E301);
+    assert!(
+        abort.to_string().starts_with("SCR-E301"),
+        "an abandoned transition must name its code, got {abort}"
     );
 }

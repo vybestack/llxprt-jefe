@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 
 use crate::workbench::ids::MAX_SCREENS;
 
-use super::diagnostic::FILE_LIMIT;
+use super::diagnostic::{FILE_LIMIT, PATH_LIMIT};
 
 /// Suffix that marks a screen definition file.
 pub const SCREEN_FILE_SUFFIX: &str = ".screen.toml";
@@ -59,6 +59,11 @@ pub enum ScreenFileRejection {
     },
     /// What was opened is not the regular file that was enumerated.
     Replaced,
+    /// The path is longer than [`PATH_LIMIT`] bytes.
+    PathTooLong {
+        /// Measured byte length.
+        bytes: usize,
+    },
 }
 
 impl std::fmt::Display for ScreenFileRejection {
@@ -71,6 +76,9 @@ impl std::fmt::Display for ScreenFileRejection {
             Self::Unreadable { reason } => write!(formatter, "file could not be read: {reason}"),
             Self::Replaced => {
                 formatter.write_str("file was replaced between discovery and reading")
+            }
+            Self::PathTooLong { bytes } => {
+                write!(formatter, "path is {bytes} bytes (max {PATH_LIMIT})")
             }
         }
     }
@@ -196,6 +204,13 @@ fn candidate_member(path: &Path) -> Option<String> {
 
 /// Read at most [`FILE_LIMIT`] bytes of UTF-8 text from an already-named path.
 pub(super) fn read_bounded(path: &Path) -> Result<String, ScreenFileRejection> {
+    // The path is bounded before it is opened, because it travels into every
+    // diagnostic this file produces and a diagnostic nobody can read is not a
+    // diagnostic.
+    let encoded = path.as_os_str().as_encoded_bytes().len();
+    if encoded > PATH_LIMIT {
+        return Err(ScreenFileRejection::PathTooLong { bytes: encoded });
+    }
     let before = std::fs::symlink_metadata(path).map_err(unreadable_file)?;
     if !before.is_file() {
         return Err(ScreenFileRejection::Replaced);

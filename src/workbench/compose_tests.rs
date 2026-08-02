@@ -467,3 +467,34 @@ fn a_refusal_names_the_rule_without_repeating_the_files_prose() {
         refusal.screen.redacted_detail
     );
 }
+
+#[test]
+fn two_definitions_claiming_one_identity_cannot_both_be_composed() {
+    // A definition's identity is its file name, so the filesystem already makes
+    // two files with one identity impossible. The registry refuses the pair
+    // anyway, because that guarantee lives in discovery and the registry must
+    // not depend on it.
+    let review = composed(&[candidate("review", &review_definition())], &["review"])
+        .registry
+        .screens()
+        .to_vec();
+    let duplicated: Vec<_> = review
+        .iter()
+        .cloned()
+        .chain(std::iter::once(
+            review
+                .last()
+                .unwrap_or_else(|| unreachable!("the lowered screen must be present"))
+                .clone(),
+        ))
+        .collect();
+
+    let error = ScreenRegistry::new(duplicated)
+        .err()
+        .unwrap_or_else(|| unreachable!("a repeated identity must be refused"));
+
+    assert!(
+        error.to_string().contains("local.review"),
+        "the refusal must name the repeated identity, got {error}"
+    );
+}

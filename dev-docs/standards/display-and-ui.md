@@ -279,8 +279,9 @@ Propagation runs in declaration order inside one committed transition, never
 moves focus, and is computed in full before it is committed — a transition that
 would exceed the follow-up bound is abandoned with `SCR-E301` and no partial
 state. A follow-up is work an edge does, including staging a selection that
-moves no port; the publication that started the transition is not one. `immediate` edges move the target at once; `explicit` edges stage the
-selection until the declared activation action fires. When a source becomes
+moves no port; the publication that started the transition is not one.
+`immediate` edges move the target at once; `explicit` edges stage the selection
+until the declared activation action fires. When a source becomes
 absent, a target that did not declare `retained` clears regardless of policy,
 and a retained target follows its own: `show-none` clears, `show-all` sets the
 typed all-value, `retain` keeps the prior value, and `detach` clears the session

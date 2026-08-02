@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::diagnostic::FILE_LIMIT;
+use super::diagnostic::{FILE_LIMIT, PATH_LIMIT};
 use crate::workbench::ids::MAX_SCREENS;
 
 use super::screen_files::{
@@ -319,4 +319,40 @@ fn an_unchanged_file_passes_the_identity_check_it_is_read_through() {
 
     assert!(same_file(&before, &after));
     assert_eq!(read_bounded(&path), Ok("screen_schema = 1\n".to_owned()));
+}
+
+#[test]
+fn a_path_at_the_declared_limit_is_read_and_one_byte_over_is_rejected() {
+    // The path travels into every diagnostic the file produces, so it is
+    // bounded like every other declared limit.
+    let definitions = Definitions::new("path-limit");
+    let name = "review.screen.toml";
+    let root_len = definitions.path().as_os_str().as_encoded_bytes().len();
+    // Two separators and the file name are added to the root.
+    let head_room = PATH_LIMIT - root_len - name.len() - 2;
+
+    let at_limit = definitions.path().join("a".repeat(head_room)).join(name);
+    let over_limit = definitions
+        .path()
+        .join("a".repeat(head_room + 1))
+        .join(name);
+
+    assert_eq!(
+        at_limit.as_os_str().as_encoded_bytes().len(),
+        PATH_LIMIT,
+        "the fixture must sit exactly on the limit"
+    );
+    // Neither file exists, so the limit is what decides which error is
+    // reported: at the limit the read proceeds and fails on absence, one past
+    // it the path is refused before anything is opened.
+    assert!(matches!(
+        read_bounded(&at_limit),
+        Err(ScreenFileRejection::Unreadable { .. })
+    ));
+    assert_eq!(
+        read_bounded(&over_limit),
+        Err(ScreenFileRejection::PathTooLong {
+            bytes: PATH_LIMIT + 1
+        })
+    );
 }

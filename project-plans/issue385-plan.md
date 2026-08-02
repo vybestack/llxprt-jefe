@@ -218,6 +218,41 @@ clippy-allow policy, source-file size, architecture policy, complexity, coverage
 | Plan names tests and modules that do not exist | In-scope—Fix | The slice table and acceptance matrix name the files that exist. |
 | Test name promises two exit codes | Already fixed | Renamed in `bf2d1004`, before this review was posted. |
 
+### Self-audit against the issue, after the reviews
+
+Re-reading the issue's own requirement list found three gaps the reviews had not
+raised. All three are fixed:
+
+| Gap | Fix |
+|---|---|
+| The declared `paths 4,096` limit was never enforced anywhere on this path | Discovery bounds the candidate path before opening it, with an at-limit/+1 test. |
+| "Attempted follow-up 65 aborts the transition with `SCR-E301`" — the abort carried no code | `PropagationAbort::code()` returns `ScrCode::E301` and the rendered abort names it. |
+| "Duplicate IDs are fatal" had no test | The registry refuses a repeated identity, tested directly. Discovery already makes the case unreachable, because a definition's identity is its file name; the registry is tested anyway so it does not depend on that. |
+
+### Known limits of this delivery
+
+These are stated rather than claimed complete:
+
+- **CW05-09 is a partial cutover.** The declaration decides *whether* a screen
+  couples its list to its detail, and the propagation engine decides what the
+  detail input receives. The invalidation body — clearing the pending request,
+  the loading flags, the comment fetch, and the scroll offset — is still written
+  out in `issues_ops.rs` and `prs_nav_ops.rs`. Those five mutations are
+  issue-state and PR-state specific; a generic engine can say "the detail input
+  moved" but not what invalidating means for a particular panel's state. Fully
+  removing the duplication needs a panel-state contract, which is a subsystem
+  this issue's non-goals exclude.
+- **Activation fields and bindings are validated, then discarded.** A definition
+  that names an unknown action is refused, which is the observable behavior this
+  issue asks for; nothing consumes the resolved values because there is no
+  editor and no provider runtime here.
+- **Custom screens are not reachable or drawable.** The issue's non-goals
+  exclude a renderer and a navigation stack, while its UI-state sketches show a
+  rendered custom screen and list its key bindings. The explicit non-goal was
+  taken as authoritative, so the NORMAL/FOCUSED sketches and the key table are
+  not implemented. That is a judgment call on a contradiction inside the issue,
+  not an oversight.
+
 ### Deferred
 
 _(none)_

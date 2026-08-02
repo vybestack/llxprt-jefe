@@ -34,6 +34,7 @@ use std::collections::BTreeMap;
 use crate::persistence::diagnostic::FOLLOW_UP_LIMIT;
 
 use super::descriptor::{PortRef, ScreenDescriptor};
+use super::diagnostics::ScrCode;
 use super::relationships::{EmptyPolicy, Relationship, RelationshipKind, SessionEmptyPolicy};
 
 /// A value crossing a port.
@@ -142,12 +143,27 @@ pub enum PropagationAbort {
     },
 }
 
+impl PropagationAbort {
+    /// The operator-facing code an abandoned transition reports.
+    ///
+    /// An abandoned transition is a refused screen behavior, so it carries the
+    /// same code a refused screen registry does: whatever the user sees, the
+    /// answer is that the named screen did not do what it declared.
+    #[must_use]
+    pub const fn code(self) -> ScrCode {
+        match self {
+            Self::FollowUpLimit { .. } => ScrCode::E301,
+        }
+    }
+}
+
 impl std::fmt::Display for PropagationAbort {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::FollowUpLimit { attempted } => write!(
                 formatter,
-                "transition attempted {attempted} follow-ups (max {FOLLOW_UP_LIMIT})"
+                "{}: transition attempted {attempted} follow-ups (max {FOLLOW_UP_LIMIT})",
+                self.code()
             ),
         }
     }
