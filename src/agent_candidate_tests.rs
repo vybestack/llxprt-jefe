@@ -442,6 +442,7 @@ fn moving_selectors_are_volatile_whatever_they_are_called() {
         "~0.11.0",
         ">=1.2.0",
         "1.x",
+        "^1.0.0||^2.0.0",
         "0.11",
         "v0.11.0", // npm accepts it, but it is not an exact version string
     ] {
@@ -474,6 +475,7 @@ fn unresolvable_selectors_do_not_become_volatile() {
         "../../etc/passwd",
         "tag/../escape",
         "$HOME",
+        "1.0.0|rm",
     ] {
         assert!(
             !VersionSelector::normalize(hostile)

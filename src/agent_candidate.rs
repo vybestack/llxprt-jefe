@@ -176,6 +176,16 @@ fn is_resolvable_spec(value: &str) -> bool {
                     b'.' | b'-' | b'_' | b'^' | b'~' | b'>' | b'<' | b'=' | b'*' | b'+' | b'|'
                 )
         })
+        && pipes_are_doubled(value)
+}
+
+/// Whether every `|` in `value` belongs to a `||` pair.
+///
+/// npm's only use of the character is the range union `||`; a lone `|` is not
+/// syntax npm accepts, so a value carrying one cannot resolve and does not
+/// belong on the resolving path.
+fn pipes_are_doubled(value: &str) -> bool {
+    value.split("||").all(|segment| !segment.contains('|'))
 }
 
 /// Whether `value` is an exact semantic version, and therefore an immutable pin.
