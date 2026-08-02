@@ -111,3 +111,47 @@ fn a_workspace_relative_socket_fits_the_unix_socket_path_limit() {
         socket.display()
     );
 }
+
+/// A symlink inside the workspace pointing outside does not buy containment.
+///
+/// This is the reason containment is decided on canonicalized ancestors rather
+/// than on the path as written: a scenario could otherwise place a link in its
+/// own workspace and have the harness reap a server anywhere on the machine.
+#[cfg(unix)]
+#[test]
+fn a_symlink_escaping_the_workspace_is_not_reaped() {
+    let root = workspace();
+    let elsewhere = workspace();
+    let link = root.path().join("escape");
+    std::os::unix::fs::symlink(elsewhere.path(), &link)
+        .unwrap_or_else(|error| panic!("symlink fixture: {error}"));
+    let through_link = link.join("s");
+
+    assert_eq!(
+        socket_to_reap(&env_with(&through_link.to_string_lossy()), root.path()),
+        None,
+        "a socket reached through a symlink out of the workspace must not be reaped"
+    );
+}
+
+/// A sibling directory sharing a string prefix with the workspace is outside it.
+///
+/// `Path::starts_with` matches whole components, not raw string prefixes, so
+/// `<root>-extra` is correctly not contained by `<root>`. This test exists to
+/// keep that guarantee explicit: if containment were ever rewritten as a string
+/// comparison, a neighbouring directory would silently become reapable.
+#[test]
+fn a_sibling_sharing_a_name_prefix_is_not_reaped() {
+    let parent = workspace();
+    let root = parent.path().join("ws");
+    let sibling = parent.path().join("ws-extra");
+    std::fs::create_dir(&root).unwrap_or_else(|error| panic!("root fixture: {error}"));
+    std::fs::create_dir(&sibling).unwrap_or_else(|error| panic!("sibling fixture: {error}"));
+    let socket = sibling.join("s");
+
+    assert_eq!(
+        socket_to_reap(&env_with(&socket.to_string_lossy()), &root),
+        None,
+        "a sibling whose name merely starts with the workspace name is not inside it"
+    );
+}
