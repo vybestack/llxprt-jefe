@@ -404,23 +404,6 @@ fn check_nonexistent_session_returns_false() {
     assert!(!alive);
 }
 
-#[test]
-fn pid_alive_returns_true_for_current_process() {
-    // The current process always exists, so kill -0 must succeed.
-    let me = std::process::id();
-    assert!(pid_alive(me));
-}
-
-#[test]
-fn pid_alive_returns_false_for_nonexistent_pid() {
-    // 2_000_000_000 is within pid_t (i32) range but far above every
-    // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
-    // deterministically returns ESRCH (no such process). u32::MAX
-    // (4_294_967_295) overflows pid_t parsing on macOS, which is
-    // implementation-defined.
-    assert!(!pid_alive(2_000_000_000));
-}
-
 // --- run_child_with_timeout (issue #287 review: kill path must be verified) ---
 
 #[cfg(unix)]

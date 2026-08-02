@@ -23,7 +23,7 @@ use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
 use jefe::runtime::{
-    ProcessLiveness, RuntimeError, RuntimeManager, SessionLiveness, TmuxRuntimeManager, pid_alive,
+    ProcessLiveness, RuntimeError, RuntimeManager, SessionLiveness, TmuxRuntimeManager,
     platform_engine_diagnostic, process_liveness,
 };
 use jefe::state::AppState;
@@ -326,16 +326,13 @@ fn process_liveness_for_binding(worker: Option<WorkerProcessIdentity>) -> Proces
     let Some(worker) = worker else {
         return ProcessLiveness::MalformedIdentity;
     };
-    // A creation token lets the probe reject PID reuse; without one all we can
-    // do is ask whether the bare PID is live.
-    if worker.started_at().is_some() {
-        return process_liveness(Some(worker.identity()));
-    }
-    if pid_alive(worker.pid()) {
-        ProcessLiveness::Alive
-    } else {
-        ProcessLiveness::Dead
-    }
+    // A creation token lets the probe reject PID reuse. Without one the same
+    // probe still answers, it just cannot rule reuse out -- so there is no
+    // reason to ask a narrower question. Routing the token-less case through a
+    // `bool` used to launder `Inaccessible` and `ProbeFailure` into a positive
+    // `Alive`, which meant identical uncertainty was held when a token was
+    // present and asserted as liveness when it was not (issue #541).
+    process_liveness(Some(worker.identity()))
 }
 
 /// Load persisted state and settings into `app_state` exactly once.

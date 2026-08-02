@@ -232,6 +232,35 @@ fn legacy_pid_only_binding_uses_conservative_native_probe() {
     );
 }
 
+/// A token-less binding must report the probe's real answer. Collapsing it to
+/// a `bool` turned "could not look" into a positive claim of liveness, so the
+/// same uncertainty was held when a creation token happened to be present and
+/// asserted as alive when it was not (issue #541).
+#[test]
+fn a_token_less_binding_reports_uncertainty_rather_than_asserting_life() {
+    use jefe::runtime::{ProcessObservation, classify_process_observation};
+
+    let legacy = WorkerProcessIdentity::from_pid(4321).identity();
+
+    for (observation, expected) in [
+        (
+            ProcessObservation::Inaccessible,
+            ProcessLiveness::Inaccessible,
+        ),
+        (
+            ProcessObservation::ProbeFailed,
+            ProcessLiveness::ProbeFailure,
+        ),
+        (ProcessObservation::Exited, ProcessLiveness::Dead),
+    ] {
+        assert_eq!(
+            classify_process_observation(Some(legacy), observation),
+            expected,
+            "a token-less binding must not report {observation:?} as a verdict about life"
+        );
+    }
+}
+
 #[test]
 fn startup_classification_covers_required_lifecycle_states() {
     use jefe::runtime::OrphanClassification as Oc;

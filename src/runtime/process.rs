@@ -111,19 +111,6 @@ pub fn process_liveness(identity: Option<ProcessIdentity>) -> ProcessLiveness {
     classify_process_observation(Some(identity), probe_process(identity.pid))
 }
 
-/// Return whether a final process classification preserves liveness.
-///
-/// Uncertain access and probe failures fail open; confirmed exit, process
-/// reuse, and malformed expected identity do not establish the target process
-/// as alive.
-#[must_use]
-pub const fn process_liveness_indicates_alive(liveness: ProcessLiveness) -> bool {
-    matches!(
-        liveness,
-        ProcessLiveness::Alive | ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure
-    )
-}
-
 #[must_use]
 pub(super) fn pid_liveness(pid: u32) -> ProcessLiveness {
     match probe_process(pid) {

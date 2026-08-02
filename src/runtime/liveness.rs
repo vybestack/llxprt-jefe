@@ -21,25 +21,6 @@ use crate::runtime::manager::LivenessCheck;
 /// cannot stall the background liveness thread indefinitely (issue #287).
 const LOCAL_TMUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Check if a process with the given PID is alive.
-///
-/// This **complements**, not replaces, [`check_session_alive`]. When the jefe
-/// multiplexer server has died but the worker is still running,
-/// `check_session_alive` reports false while `pid_alive` reports true — letting
-/// jefe recognize the worker is recoverable rather than marking the agent Dead.
-///
-/// Uses the typed process observation service on every platform. Only a
-/// confirmed exit returns false; inaccessible and failed probes fail open.
-/// Local-only: remote agents stay on the tmux/SSH-only path.
-#[must_use]
-pub fn pid_alive(pid: u32) -> bool {
-    let liveness = super::process::pid_liveness(pid);
-    if liveness == super::process::ProcessLiveness::ProbeFailure {
-        tracing::warn!(pid, "PID liveness probe failed; assuming worker alive");
-    }
-    super::process::process_liveness_indicates_alive(liveness)
-}
-
 /// Result of probing one persistent multiplexer session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionLiveness {
