@@ -11,6 +11,7 @@
 //! session the runner has already brought up. Both are handled explicitly --
 //! lifecycle verbs address their own disposable session, and are probed last.
 
+use std::collections::BTreeMap;
 use std::process::Stdio;
 
 use super::liveness::run_tmux_with_timeout;
@@ -19,8 +20,7 @@ use super::multiplexer_conformance::{
     classify_contract_probe, probe_ordered_items, probe_plan_for, qualification_from_report,
     summarize_conformance,
 };
-use super::multiplexer_contract::{ContractItem, contract_items};
-use super::provenance::BinaryFingerprint;
+use super::multiplexer_contract::{ContractItem, ContractItemKind, contract_items};
 use super::{MultiplexerIsolation, MultiplexerPlan};
 
 /// Session created inside the throwaway namespace for session-addressed probes.
@@ -38,9 +38,15 @@ const DISPOSABLE_SESSION: &str = "jefe-conformance-disposable";
 /// `plan` must already address an isolated namespace reserved for this check;
 /// [`qualify_multiplexer`] is the entry point that arranges that.
 fn run_contract_probes(plan: &MultiplexerPlan) -> ConformanceReport {
-    let findings: Vec<(&'static ContractItem, ConformanceVerdict)> = probe_ordered_items()
+    let items = probe_ordered_items();
+    let batched = batched_format_outcomes(plan, &items);
+
+    let findings: Vec<(&'static ContractItem, ConformanceVerdict)> = items
         .into_iter()
         .map(|item| {
+            if let Some(outcome) = batched.get(item.name) {
+                return (item, classify_contract_probe(item, outcome));
+            }
             let verdict = match probe_plan_for(item, SCRATCH_SESSION, DISPOSABLE_SESSION) {
                 // Attaching needs a controlling terminal. Reporting it as
                 // satisfied would be a claim no probe supports, so it is
@@ -56,6 +62,81 @@ fn run_contract_probes(plan: &MultiplexerPlan) -> ConformanceReport {
         .collect();
 
     summarize_conformance(findings)
+}
+
+/// Separator between batched format values.
+///
+/// A format string passes literals through untouched, so this arrives back
+/// verbatim between the expanded values.
+const FORMAT_BATCH_SEPARATOR: &str = "@|@";
+
+/// Read every declared format in one call instead of one process per variable.
+///
+/// Startup previously spawned a process per format. On Windows a spawn is the
+/// expensive part -- far more than the work the multiplexer does once running --
+/// so a dozen of them delayed the first frame by seconds for a check whose
+/// result is only ever a warning.
+///
+/// Batching is only sound if it cannot weaken a verdict, so anything unexpected
+/// yields an empty map and every format is probed individually as before: a
+/// non-zero exit, or a reply that does not split into exactly the values asked
+/// for. An *unsupported* format is not unexpected -- it expands to nothing and
+/// arrives as an empty field, which is precisely what the individual probe
+/// would have seen, so it still classifies as a violation.
+fn batched_format_outcomes(
+    plan: &MultiplexerPlan,
+    items: &[&'static ContractItem],
+) -> BTreeMap<&'static str, ProbeOutcome> {
+    let formats: Vec<&'static ContractItem> = items
+        .iter()
+        .copied()
+        .filter(|item| matches!(item.kind, ContractItemKind::Format))
+        .collect();
+    // One format is already one call; batching would only add a parsing step.
+    if formats.len() < 2 {
+        return BTreeMap::new();
+    }
+
+    let combined = formats
+        .iter()
+        .map(|item| format!("#{{{}}}", item.name))
+        .collect::<Vec<_>>()
+        .join(FORMAT_BATCH_SEPARATOR);
+
+    let outcome = execute_probe(
+        plan,
+        &[
+            "display-message".to_owned(),
+            "-p".to_owned(),
+            "-t".to_owned(),
+            SCRATCH_SESSION.to_owned(),
+            combined,
+        ],
+    );
+
+    if outcome.exit_code != Some(0) {
+        return BTreeMap::new();
+    }
+    let reply = outcome.stdout.trim_end();
+    let values: Vec<&str> = reply.split(FORMAT_BATCH_SEPARATOR).collect();
+    if values.len() != formats.len() {
+        return BTreeMap::new();
+    }
+
+    formats
+        .iter()
+        .zip(values)
+        .map(|(item, value)| {
+            (
+                item.name,
+                ProbeOutcome {
+                    exit_code: outcome.exit_code,
+                    stdout: value.to_owned(),
+                    stderr: String::new(),
+                },
+            )
+        })
+        .collect()
 }
 
 fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
@@ -174,15 +255,4 @@ fn conformance_namespace() -> String {
     static INVOCATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let invocation = INVOCATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     format!("jefe-conformance-{}-{invocation}", std::process::id())
-}
-
-/// Fingerprint the binary being qualified, so a later check can tell whether it
-/// changed underneath the running process (issue #540 V7).
-///
-/// A binary that cannot be read yields `None`; provenance then says nothing
-/// rather than inventing a digest, which is the same rule the rest of the
-/// qualification follows.
-#[must_use]
-pub fn fingerprint_multiplexer(plan: &MultiplexerPlan) -> Option<BinaryFingerprint> {
-    BinaryFingerprint::measure(plan.executable()).ok()
 }

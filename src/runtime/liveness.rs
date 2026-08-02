@@ -33,12 +33,18 @@ pub enum SessionLiveness {
 }
 
 /// Probe whether a local session exists and contains a non-dead pane.
+///
+/// Both calls carry [`LOCAL_TMUX_COMMAND_TIMEOUT`] like the rest of this
+/// module. They ran unbounded, which on the startup path meant a wedged server
+/// did not merely delay this answer, it withheld the first frame indefinitely
+/// (issue #287).
 #[must_use]
 pub fn session_liveness(session_name: &str) -> SessionLiveness {
     let Ok(mut command) = tmux_command() else {
         return SessionLiveness::Unavailable;
     };
-    let Ok(output) = command.args(["has-session", "-t", session_name]).output() else {
+    let Ok(output) = run_tmux_with_timeout(command.args(["has-session", "-t", session_name]))
+    else {
         return SessionLiveness::Unavailable;
     };
     if !output.status.success() {
@@ -48,10 +54,13 @@ pub fn session_liveness(session_name: &str) -> SessionLiveness {
     let Ok(mut command) = tmux_command() else {
         return SessionLiveness::Unavailable;
     };
-    let Ok(output) = command
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
-        .output()
-    else {
+    let Ok(output) = run_tmux_with_timeout(command.args([
+        "list-panes",
+        "-t",
+        session_name,
+        "-F",
+        "#{pane_dead}",
+    ])) else {
         return SessionLiveness::Unavailable;
     };
     if !output.status.success() {

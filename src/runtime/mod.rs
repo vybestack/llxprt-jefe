@@ -66,8 +66,6 @@ pub mod package_runtime;
 mod pane_capture;
 mod preflight;
 mod process;
-/// SHA256 provenance verification for the multiplexer binary (issue #540).
-pub mod provenance;
 /// Pure server-health classification contract (issue #493 Slice 1).
 mod server_health;
 mod server_health_io;
@@ -133,9 +131,7 @@ pub use multiplexer_conformance::{
     ProbeOutcome, ProbePlan, classify_contract_probe, probe_ordered_items, probe_plan_for,
     probe_rank, qualification_from_report, summarize_conformance,
 };
-pub use multiplexer_conformance_io::{
-    fingerprint_multiplexer, qualify_multiplexer, qualify_multiplexer_for_startup,
-};
+pub use multiplexer_conformance_io::{qualify_multiplexer, qualify_multiplexer_for_startup};
 pub use multiplexer_contract::{
     BudgetSource, ContractCapability, ContractItem, ContractItemKind, PaneCommandBudget,
     ResponseShape, contract_item, contract_items, pane_command_budget,
@@ -159,10 +155,6 @@ pub use preflight::{
 pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
     classify_process_observation, process_liveness,
-};
-pub use provenance::{
-    BinaryFingerprint, PINNED_PSMUX_ARCHIVE_SHA256, ProvenanceManifest, ProvenanceVerdict,
-    sha256_hex,
 };
 pub use server_health::{
     ServerHealth, ServerIdentity, ServerInstanceToken, ServerLivenessEvidence,
