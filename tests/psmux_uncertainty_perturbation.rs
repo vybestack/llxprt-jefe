@@ -85,9 +85,12 @@ fn psmux_test_context() -> Option<(MultiplexerPlan, ServerCleanup)> {
 /// than reporting a false failure on a machine where the temporary directory
 /// is not writable.
 fn plan_whose_binary_disappears() -> Option<MultiplexerPlan> {
-    let source = psmux_executable();
-    let copy = std::env::temp_dir().join(format!("{}-psmux.exe", unique_namespace()));
-    std::fs::copy(&source, &copy).ok()?;
+    // Qualification requires the file to be named exactly `psmux.exe`, so the
+    // copy is uniquified by its directory rather than by its filename.
+    let directory = std::env::temp_dir().join(unique_namespace());
+    std::fs::create_dir_all(&directory).ok()?;
+    let copy = directory.join("psmux.exe");
+    std::fs::copy(resolved_psmux_path()?, &copy).ok()?;
 
     let plan = match MultiplexerPlan::for_platform(
         LocalPlatform::Windows,
@@ -101,6 +104,29 @@ fn plan_whose_binary_disappears() -> Option<MultiplexerPlan> {
     // The plan is now valid and points at nothing.
     std::fs::remove_file(&copy).ok()?;
     Some(plan)
+}
+
+/// Resolve psmux to a real file, following `PATH` when the configured value is
+/// a bare command name.
+///
+/// `psmux_executable` may legitimately return just `psmux`, which names a
+/// program but not a file. Copying it would fail, and because the copy helper
+/// reports failure by skipping, that silently turned this test into a no-op
+/// locally while it ran for real in CI. Resolving the path first is what makes
+/// the test actually execute wherever psmux exists.
+fn resolved_psmux_path() -> Option<PathBuf> {
+    let configured = psmux_executable();
+    if configured.components().count() > 1 {
+        return configured.exists().then_some(configured);
+    }
+    let output = Command::new("where").arg(&configured).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let first = listing.lines().next()?.trim();
+    let path = PathBuf::from(first);
+    path.exists().then_some(path)
 }
 
 fn unique_namespace() -> String {
@@ -183,9 +209,11 @@ fn a_multiplexer_that_vanished_yields_uncertainty_not_an_empty_answer() {
     if psmux_test_context().is_none() {
         return;
     }
-    let Some(plan) = plan_whose_binary_disappears() else {
-        return;
-    };
+    // Once psmux is known to exist, an unbuildable plan is a fault in this
+    // test rather than a reason to skip. Skipping here is how this case
+    // silently became a no-op locally while it ran for real in CI.
+    let plan = plan_whose_binary_disappears()
+        .unwrap_or_else(|| panic!("psmux is available, so the vanishing-binary plan must build"));
     let applied = RefCell::new(None);
 
     let observation = observe_server_liveness(&plan, None, &applied);
