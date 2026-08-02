@@ -751,3 +751,62 @@ fn no_holds_reports_nothing() {
     surface_startup_holds(&mut state, &[]);
     assert_eq!(state.warning_message, None);
 }
+
+/// A held agent keeps its Running status but has no binding, and the liveness
+/// cycle builds its targets from the runtime's session map -- so nothing
+/// probes it again. Selecting exactly these agents is what lets a later pass
+/// give them an eventual verdict instead of leaving them phantoms (#541 V4).
+#[test]
+fn agents_held_at_startup_are_selected_for_another_attempt() {
+    let (mut agent, _repo) = code_puppy_agent_and_repository();
+    agent.status = AgentStatus::Running;
+    agent.runtime_binding = None;
+
+    let expected = agent.id.clone();
+    let state = AppState {
+        agents: vec![agent],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        agents_awaiting_readoption(&state),
+        vec![expected],
+        "a Running agent with no binding is exactly the phantom that needs re-probing"
+    );
+}
+
+/// The mirror hazard, twice over: re-probing must not disturb an agent that is
+/// already bound, and must not resurrect one that was answered as dead.
+#[test]
+fn bound_and_finished_agents_are_left_alone() {
+    let (mut bound, repo) = code_puppy_agent_and_repository();
+    bound.status = AgentStatus::Running;
+    let request = AgentLaunchRequest::for_agent(&bound, &repo);
+    let launched_with = jefe::runtime::launch_compose::launch_signature_from_request(&request)
+        .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
+    bound.runtime_binding = Some(jefe::domain::RuntimeBinding {
+        session_name: RuntimeSession::session_name_for(&bound.id),
+        launch_signature: launched_with,
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: None,
+        lifecycle_generation: 0,
+        worker_identities: Vec::new(),
+    });
+
+    let (mut dead, _repo2) = code_puppy_agent_and_repository();
+    dead.id = AgentId("agent-2".to_owned());
+    dead.status = AgentStatus::Dead;
+    dead.runtime_binding = None;
+
+    let state = AppState {
+        agents: vec![bound, dead],
+        ..Default::default()
+    };
+
+    assert!(
+        agents_awaiting_readoption(&state).is_empty(),
+        "only unbound Running agents are unresolved; a bound one is answered and a dead one is finished"
+    );
+}

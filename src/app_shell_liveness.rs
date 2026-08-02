@@ -74,6 +74,11 @@ pub async fn run_local_liveness(mut app_state: AppStateHandle, ctx: SharedContex
             continue;
         };
 
+        // Agents held at startup were never registered with the runtime, so
+        // they produce no liveness target and would stay held forever. Ask
+        // again before deciding there is nothing to do (issue #541).
+        crate::app_init::reattempt_held_agents(&mut app_state, &ctx);
+
         // Collect local-only check targets for Running and ServerLost agents
         // under the lock, then release it before any subprocess work.
         let (running_targets, lost_targets) = collect_local_targets(&app_state, ctx_arc);

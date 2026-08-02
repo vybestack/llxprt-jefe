@@ -59,6 +59,80 @@ fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
     state.durable_read_held = Some(reason);
 }
 
+/// Select the agents still awaiting a verdict.
+///
+/// A `Running` agent with no runtime binding is one startup held: it kept the
+/// status it was persisted with because nothing disproved it, but it was never
+/// registered with the runtime. The liveness cycle builds its targets from the
+/// runtime's session map, so these agents are invisible to it and would stay
+/// held forever. Refusing to guess is only correct if the question is asked
+/// again (issue #541).
+pub fn agents_awaiting_readoption(state: &AppState) -> Vec<AgentId> {
+    state
+        .agents
+        .iter()
+        .filter(|agent| agent.status == AgentStatus::Running && agent.runtime_binding.is_none())
+        .map(|agent| agent.id.clone())
+        .collect()
+}
+
+/// Ask again about the agents startup could not determine.
+///
+/// Refusing to guess is only safe if the question gets asked again. These
+/// agents are invisible to the liveness cycle because they were never
+/// registered with the runtime, so the periodic pass calls this to re-attempt
+/// adoption -- which is the question they actually failed, rather than the
+/// liveness probe they were never eligible for.
+///
+/// A hold here is not an error: it means the answer is still unavailable and
+/// the agent keeps its persisted state until some later pass gets one.
+pub fn reattempt_held_agents(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
+    let Some(ctx_arc) = ctx else {
+        return;
+    };
+    let pending = agents_awaiting_readoption(&app_state.read());
+    if pending.is_empty() {
+        return;
+    }
+
+    let (agents, repositories) = {
+        let state = app_state.read();
+        (
+            state
+                .agents
+                .iter()
+                .filter(|agent| pending.contains(&agent.id))
+                .cloned()
+                .collect::<Vec<_>>(),
+            state.repositories.clone(),
+        )
+    };
+
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        return;
+    };
+    let mut revived_running = Vec::new();
+    let mut newly_dead = Vec::new();
+    for agent in agents {
+        match restore_one_agent(&agent, &repositories, &mut ctx_guard.runtime, None) {
+            RestoreOneOutcome::Revived(binding) => revived_running.push(RevivedAgent {
+                agent_id: agent.id.clone(),
+                binding,
+            }),
+            RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
+            // Still unanswered, or not ours to answer. Left as persisted.
+            RestoreOneOutcome::Skip | RestoreOneOutcome::Held(_) => {}
+        }
+    }
+    drop(ctx_guard);
+
+    if revived_running.is_empty() && newly_dead.is_empty() {
+        return;
+    }
+    let mut state = app_state.write();
+    apply_restored_state(&mut state, revived_running, newly_dead, None);
+}
+
 /// Report agents whose state startup could not determine.
 ///
 /// A held agent keeps its persisted `Running` status and its binding, which is
