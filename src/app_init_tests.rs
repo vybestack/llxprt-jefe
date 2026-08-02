@@ -670,3 +670,39 @@ fn a_composable_signature_is_still_adopted() {
 
     assert_eq!(chosen, composed);
 }
+
+/// A held durable read pauses saving. If that is not on screen the operator
+/// sees a working jefe that is quietly not persisting anything, which is worse
+/// than the crash it replaced: the failure is invisible until the work is
+/// already lost (issue #541 V7).
+#[test]
+fn a_held_durable_read_is_visible_to_the_operator() {
+    let mut state = AppState::default();
+
+    surface_durable_read_hold(&mut state, Some("state.json is not valid JSON".to_owned()));
+
+    let shown = state
+        .warning_message
+        .as_ref()
+        .unwrap_or_else(|| panic!("a held durable read must reach the operator, not just the log"));
+    assert!(
+        shown.contains("state.json is not valid JSON"),
+        "the operator needs the reason, not just that something is wrong: {shown}"
+    );
+    assert_eq!(
+        state.durable_read_held,
+        Some("state.json is not valid JSON".to_owned()),
+        "the hold itself must stay set so writes remain paused"
+    );
+}
+
+/// The mirror hazard: a readable document must leave no warning and no hold.
+#[test]
+fn a_successful_durable_read_shows_nothing() {
+    let mut state = AppState::default();
+
+    surface_durable_read_hold(&mut state, None);
+
+    assert_eq!(state.warning_message, None);
+    assert_eq!(state.durable_read_held, None);
+}

@@ -44,6 +44,21 @@ fn append_warning(state: &mut AppState, warning: String) {
         None => warning,
     });
 }
+/// Record a held durable read and put the reason where the operator will see
+/// it.
+///
+/// Holding writes without saying so leaves a jefe that looks healthy while
+/// persisting nothing, so the hold and its visible explanation are set
+/// together rather than by separate callers who might do only one of the two
+/// (issue #541).
+fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
+    let Some(reason) = held else {
+        return;
+    };
+    append_warning(state, reason.clone());
+    state.durable_read_held = Some(reason);
+}
+
 fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
     if let Some(warning) = warning {
         append_warning(state, warning);
@@ -435,7 +450,7 @@ pub fn init_app_state(
     };
 
     let mut state = app_state.write();
-    state.durable_read_held = durable_read_held;
+    surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
     state.override_agent_theme = settings.override_agent_theme;
