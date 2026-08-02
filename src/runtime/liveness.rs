@@ -516,7 +516,9 @@ fn run_child_with_timeout(
 }
 
 /// List all jefe-managed tmux sessions.
-#[allow(dead_code)]
+///
+/// Used by startup reclaim to observe sessions the durable document does not
+/// know about (issue #585).
 pub fn list_jefe_sessions() -> Vec<String> {
     let Ok(mut command) = tmux_command() else {
         return Vec::new();
