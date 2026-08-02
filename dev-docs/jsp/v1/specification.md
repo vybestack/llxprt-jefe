@@ -18,6 +18,15 @@ The canonical fixture corpus lives under `dev-docs/jsp/v1/fixtures/` and is
 language-neutral: external implementations must consume the exact same corpus
 and produce the same typed results as the Jefe reference oracle.
 
+### Schema byte-length keyword
+
+The executable schemas use JSON Schema Draft 2020-12 and the custom annotation
+`x-jsp-maxUtf8Bytes`. A conforming JSP validator **must** implement this keyword
+for every annotated string by measuring the number of bytes in the string's
+UTF-8 encoding. Draft 2020-12 `maxLength` counts Unicode code points and is not
+a substitute. Inputs that satisfy a character-count limit but exceed the
+annotated UTF-8 byte limit are invalid.
+
 ## 1. Envelope
 
 Every JSP/1 document is a closed JSON object with exactly these top-level
@@ -80,13 +89,15 @@ observation-health overlay owned by the Jefe transport layer. A producer that
 emits `stale` fails with `JSP-E005`.
 
 `known` with `value: null` is valid for optional-entity fields
-(`current_wait`, `source_terminal_state`) and means "known to be absent / not
-applicable". This is distinct from `unknown` (not yet observed). For every
-other field, `null` is not a valid known value: use `unsupported` or `unknown`.
+(`current_wait`, `current_turn`, `source_terminal_state`) and means "known to be
+absent / not applicable". This is distinct from `unknown` (not yet observed).
+For every other field, `null` is not a valid known value: use `unsupported` or
+`unknown`.
 
-`degraded` is not valid for the optional-entity fields `current_wait` and
-`source_terminal_state`, because a wait or terminal state is either explicitly
-observed or not observed. Supplying it fails with `JSP-E005`.
+`degraded` is not valid for the optional-entity fields `current_wait`,
+`current_turn`, and `source_terminal_state`, because a wait, turn, or terminal
+state is either explicitly observed or not observed. Supplying it fails with
+`JSP-E005`.
 
 ## 2. Identity and ordering
 
@@ -100,8 +111,8 @@ are descriptive and never participate in the key.
   generation; a Jefe relaunch invalidates the generation and requires a new
   source epoch.
 - Ordering authority is `(source_epoch, source_sequence)`. Snapshot cursor `C`
-  reflects all effects through `C`. Heartbeats carry `C` and do not consume a
-  sequence. Events consume exactly `C+1`. (J2 implements the stream state
+  reflects all effects through `C`. Heartbeats carry no sequence and do not
+  consume one. Events consume exactly `C+1`. (J2 implements the stream state
   machine.)
 
 ## 3. Native session
@@ -310,6 +321,22 @@ at ingress. The schema has no control operation.
 Forbidden fields include (non-exhaustive): `publisher_token`, `observer_token`,
 `raw_transcript`, `draft`, `control`, and any field not listed in §1.
 
+### 15.1 Embedded observer-host profile
+
+A Jefe-launched local producer may receive an owner-only bootstrap file whose
+closed fields are `schema`, `protocol`, `endpoint`, `registration_id`,
+`publisher_credential`, `agent_id`, and `lifecycle_generation`. The endpoint is
+IPv4 loopback HTTP and exposes `POST /jsp/1/register`, `/jsp/1/publish`, and
+`/jsp/1/heartbeat`. Every request supplies the credential as `Authorization:
+Bearer ...` and the matching opaque registration ID as `Jsp-Registration-Id`.
+Jefe binds both values to the authorized agent and positive generation before
+child creation. The route state is explicitly `reserved` until one successful
+`register`; registration is accepted exactly once. `publish` and `heartbeat`
+are rejected before registration. Missing, unknown, or mismatched authority
+never mutates current observation state. A registered producer renews a 15-second
+lease through accepted snapshots, events, or heartbeats; lease expiry changes
+observer health to `stale` without changing producer-owned native state.
+
 ## 16. Stream semantics
 
 JSP/1 answers "what is this agent doing now". It is a live status protocol, not
@@ -322,10 +349,13 @@ snapshot per source epoch and streams live events. It stores no event history.
 - Subsequent items are `event` documents (§18) and `heartbeat` documents (§19).
 - `source_sequence` increases by exactly one per event within an epoch. It
   exists for **gap detection only**.
-- On a detected gap, an epoch change, or a reconnect, the client discards its
-  observation state and reads a fresh stream, which begins with a new snapshot.
-  There is no replay, no resume-after-N request, and no `resync_required`
-  negotiation, because no history is retained to replay.
+- On a detected gap, the observer rejects the event's native mutation, preserves
+  the last accepted native state as historical context, changes observer health
+  to `stale`, and rejects subsequent events and heartbeats until a fresh snapshot
+  atomically replaces that state. An epoch change or reconnect likewise requires
+  registration and a fresh snapshot. There is no replay, no resume-after-N
+  request, and no `resync_required` negotiation, because no history is retained
+  to replay.
 
 Deliberately excluded: replay buffers, cursor negotiation, replay expiration,
 out-of-order event reordering, and event history. Stale status is refreshed by
@@ -430,6 +460,21 @@ source, not a state transition, and must not advance or gap the sequence.
 Heartbeats exist so a healthy-but-quiet source is distinguishable from a hung
 one. A missed heartbeat means observation health is `stale` — never that the
 agent is idle, ready, or dead.
+
+### 19.1 Heartbeat cadence and the observer lease
+
+An observer holds a **lease** of 15000 ms: it marks observation health `stale`
+once that much time passes with no accepted snapshot, event, or heartbeat.
+
+A producer MUST heartbeat at an interval no greater than one third of the
+lease, so two consecutive heartbeats can be lost before the observer declares
+the source stale.
+
+Choosing an interval equal to the lease is non-conforming even though it looks
+correct: expiry then races scheduling jitter and the observation flickers
+between `live` and `stale` for a source that is perfectly healthy. Both sides
+of this repository pair previously defaulted to 15000 ms independently, which
+is exactly that race.
 
 ## 20. Observation health is observer-owned
 

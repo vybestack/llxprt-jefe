@@ -21,6 +21,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 toml = "0.8"
 
+# Portable CSPRNG for local JSP publisher credentials and registration IDs.
+getrandom = "0.4"
+
 # Terminal UI
 iocraft = "0.5"
 crossterm = "0.28"
@@ -110,6 +113,11 @@ required-features = ["psmux-smoke"]
 [[bin]]
 name = "jefe-capture-shim"
 path = "src/bin/jefe-capture-shim.rs"
+
+[[bin]]
+name = "jefe-jsp-llxprt-fixture"
+path = "tests/fixtures/jsp_llxprt_fixture.rs"
+required-features = ["psmux-smoke"]
 
 [[bin]]
 name = "jefe-harness-probe"

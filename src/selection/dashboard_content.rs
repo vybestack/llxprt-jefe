@@ -71,8 +71,14 @@ pub fn preview_lines(state: &AppState, git_info: Option<&DashboardGitInfoSnapsho
     let content_width = usize::from(bordered_padded_content_width(
         crate::layout::RIGHT_COL_WIDTH,
     ));
+    let observation = agent.and_then(|agent| state.observations.get(&agent.id));
     PaneContent::new(
         SelectablePane::Preview,
-        preview_content_lines(agent, resolved.or(configured.as_ref()), content_width),
+        preview_content_lines(
+            agent,
+            resolved.or(configured.as_ref()),
+            observation,
+            content_width,
+        ),
     )
 }

@@ -6,8 +6,8 @@
 use iocraft::prelude::*;
 
 use crate::domain::Agent;
+use crate::domain::observation::AgentObservation;
 use crate::git_info::GitRepoInfo;
-use crate::list_viewport::fit_text_to_width;
 use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -21,6 +21,8 @@ pub struct PreviewProps {
     pub agent: Option<Agent>,
     /// Git display info (origin shortform + branch) for the selected agent.
     pub git_info: Option<GitRepoInfo>,
+    /// Runtime-only JSP observation for the selected agent.
+    pub observation: Option<AgentObservation>,
     /// Whether this pane is focused.
     pub focused: bool,
     /// Width of each physical content row after border and padding.
@@ -36,32 +38,10 @@ pub struct PreviewProps {
 pub fn preview_content_lines(
     agent: Option<&Agent>,
     git_info: Option<&GitRepoInfo>,
+    observation: Option<&AgentObservation>,
     content_width: usize,
 ) -> Vec<String> {
-    let lines = if let Some(agent) = agent {
-        let repository = git_info
-            .and_then(|info| info.origin_shortform.as_deref())
-            .unwrap_or("(unknown)");
-        let branch = git_info
-            .and_then(|info| info.branch.as_deref())
-            .unwrap_or("(unknown)");
-        vec![
-            format!("Name: {}", agent.name),
-            format!("Status: {:?}", agent.status),
-            format!("Repo: {repository}"),
-            format!("Branch: {branch}"),
-            format!("Dir: {}", agent.work_dir.display()),
-            String::new(),
-            "Todo:".to_string(),
-            "  (no tasks)".to_string(),
-        ]
-    } else {
-        vec!["No agent selected".to_string()]
-    };
-    lines
-        .into_iter()
-        .map(|line| fit_text_to_width(&line, content_width))
-        .collect()
+    crate::preview_view::build_preview_view(agent, git_info, observation, content_width).lines
 }
 
 /// Preview pane showing details of the selected agent.
@@ -77,6 +57,7 @@ pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
     let content_lines = preview_content_lines(
         props.agent.as_ref(),
         props.git_info.as_ref(),
+        props.observation.as_ref(),
         props.content_width,
     );
     let content_width = u32::try_from(props.content_width).unwrap_or(u32::MAX);

@@ -48,6 +48,10 @@ struct AppContext {
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
+    /// `None` when the local JSP host could not start. Observation is
+    /// optional telemetry, so Jefe still runs; agents simply launch
+    /// uninstrumented and report telemetry as unsupported.
+    jsp_host: Option<jefe::jsp_host::JspHostRuntime>,
     /// @plan PLAN-20260329-ISSUES-MODE.P09
     gh_client: jefe::github::GhClient,
     /// Root-owned delivery slot for background GitHub request results.
@@ -137,6 +141,14 @@ fn write_startup_error(
         config_dir.map_or_else(String::new, |path| format!(" --config {}", path.display()));
     let _ = writeln!(handle, "jefe config validate{suffix}");
     let _ = writeln!(handle, "jefe config migrate-state{suffix}");
+}
+fn write_jsp_startup_error(error: &jefe::jsp_host::JspHostError) {
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    let _ = writeln!(
+        handle,
+        "warning: local JSP host unavailable, agent telemetry disabled: {error}"
+    );
 }
 
 /// Run the read-only `jefe doctor` diagnostics, write the redacted report to
@@ -276,6 +288,28 @@ fn main() {
     validate_screen_registry_or_exit();
 
     let startup = build_startup_or_exit(cli_args.config_dir.as_deref());
+    run_tui(cli_args, startup);
+}
+
+/// Start the local JSP host beside the state file.
+///
+/// Returns `None` when the host cannot start. Observation is optional
+/// telemetry, so Jefe still runs and agents launch uninstrumented.
+fn start_jsp_host(state_path: &std::path::Path) -> Option<jefe::jsp_host::JspHostRuntime> {
+    let runtime_dir = state_path.parent().map_or_else(
+        || std::path::PathBuf::from("jsp"),
+        |parent| parent.join("jsp"),
+    );
+    match jefe::jsp_host::JspHostRuntime::start(runtime_dir) {
+        Ok(host) => Some(host),
+        Err(error) => {
+            write_jsp_startup_error(&error);
+            None
+        }
+    }
+}
+
+fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersistence) {
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
         state_path: startup.paths.state.path.clone(),
@@ -307,7 +341,11 @@ fn main() {
 
     let mut theme_manager = FileThemeManager::new();
     theme_manager.load_from_dir(&themes_dir);
-    let runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
+    let jsp_host = start_jsp_host(&startup.paths.state.path);
+    let mut runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
+    if let Some(host) = &jsp_host {
+        runtime.install_jsp_launches(host.coordinator());
+    }
 
     let persist_handle =
         jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));
@@ -323,6 +361,7 @@ fn main() {
         published_settings,
         theme_manager,
         runtime,
+        jsp_host,
         gh_client: jefe::github::GhClient::new(),
         gh_deliveries: app_input::GhDeliveryHandle::default(),
         persist_handle,

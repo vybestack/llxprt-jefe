@@ -5,6 +5,7 @@
 //! @pseudocode component-004 lines 46-50
 
 use crate::state::AppEvent;
+use crate::state::observation_events::ObservationEvent;
 
 use super::{
     ActionsMessage, AppMessage, ErrorsMessage, IssuesMessage, ModalMessage, PersistenceMessage,
@@ -196,6 +197,16 @@ impl AppMessage {
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
             AppEvent::AgentStatusChanged(id, status) => {
                 Self::Runtime(RuntimeMessage::AgentStatusChanged(id, status))
+            }
+            AppEvent::Observation(ObservationEvent::Updated(id, generation, observation)) => {
+                Self::Runtime(RuntimeMessage::ObservationUpdated(
+                    id,
+                    generation,
+                    observation,
+                ))
+            }
+            AppEvent::Observation(ObservationEvent::Cleared(id, generation)) => {
+                Self::Runtime(RuntimeMessage::ObservationCleared(id, generation))
             }
             AppEvent::PersistenceLoadSuccess => Self::Persistence(PersistenceMessage::LoadSuccess),
             AppEvent::PersistenceLoadFailed(error) => {
@@ -711,6 +722,12 @@ impl From<RuntimeMessage> for AppEvent {
             RuntimeMessage::RelaunchAgent(id) => Self::RelaunchAgent(id),
             RuntimeMessage::RestartAgent(id) => Self::RestartAgent(id),
             RuntimeMessage::AgentStatusChanged(id, status) => Self::AgentStatusChanged(id, status),
+            RuntimeMessage::ObservationUpdated(id, generation, observation) => {
+                Self::Observation(ObservationEvent::Updated(id, generation, observation))
+            }
+            RuntimeMessage::ObservationCleared(id, generation) => {
+                Self::Observation(ObservationEvent::Cleared(id, generation))
+            }
         }
     }
 }

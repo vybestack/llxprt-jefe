@@ -14,8 +14,8 @@ use jefe::theme::ThemeManager;
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, close_modal_and_persist,
-    durable_save_request, execute_agent_launch, launch_signature_for_agent, preflight_or_prompt,
-    repository_focus_toggles_checkbox, schedule_durable_save,
+    durable_save_request, execute_agent_launch, launch_signature_for_new_agent,
+    preflight_or_prompt, repository_focus_toggles_checkbox, schedule_durable_save,
 };
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -612,7 +612,7 @@ fn submit_form_and_snapshot_launch(
             state
                 .repository_by_id(&agent.repository_id)
                 .map(|repository| {
-                    let signature = launch_signature_for_agent(&agent, repository);
+                    let signature = launch_signature_for_new_agent(&agent, repository);
                     (agent.id.clone(), agent.work_dir.clone(), signature)
                 })
         })

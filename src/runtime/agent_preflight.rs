@@ -336,6 +336,37 @@ impl AuthorizedLaunchPlan {
         &self.plan
     }
 
+    /// Reseal one runtime-generated JSP bootstrap path before child creation.
+    pub(crate) fn with_jsp_bootstrap(
+        &self,
+        bootstrap_path: &std::path::Path,
+        inspector: &dyn SandboxInspector,
+    ) -> Result<Self, LaunchProofError> {
+        let mut plan = self.plan.clone();
+        if !crate::jsp_host::authorize_launch_environment_path(&mut plan, bootstrap_path) {
+            return Err(LaunchProofError::FinalPlanChanged);
+        }
+        let authorized = match authorize_execution(&plan, &self.evidence) {
+            AuthorizationResult::Authorized(authorized) => authorized,
+            AuthorizationResult::Rejected(error) => {
+                return Err(LaunchProofError::Authorization(error));
+            }
+        };
+        let cleared =
+            match prepare_execution(authorized, self.engine_fingerprint.as_deref(), inspector) {
+                PreparationOutcome::Cleared(cleared) => cleared,
+                PreparationOutcome::Unavailable(reason) => {
+                    return Err(LaunchProofError::Preflight(reason));
+                }
+            };
+        let engine_fingerprint = cleared.engine_fingerprint.clone();
+        Ok(Self {
+            plan,
+            evidence: self.evidence.clone(),
+            engine_fingerprint,
+        })
+    }
+
     /// Reauthorize and repeat preflight against the fingerprint captured by the
     /// first clearance. Runtime managers call this immediately before effects.
     pub fn prepare_current(

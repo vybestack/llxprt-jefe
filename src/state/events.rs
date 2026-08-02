@@ -1,7 +1,6 @@
 use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 use crate::domain::RepositoryId;
 use crate::list_viewport::PageItemCount;
-
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
@@ -93,6 +92,7 @@ pub enum AppEvent {
     /// if any step fails rather than silently dropping the agent (issue #117).
     RestartAgent(crate::domain::AgentId),
     AgentStatusChanged(crate::domain::AgentId, crate::domain::AgentStatus),
+    Observation(super::observation_events::ObservationEvent),
 
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),

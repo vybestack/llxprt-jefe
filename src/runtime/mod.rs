@@ -41,12 +41,14 @@ mod identity;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
+mod jsp_launch;
 pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod manager;
 /// Pane/worker/server identity accessors, split out of `manager.rs` (issue #543).
 mod manager_identity;
+mod manager_liveness;
 mod manager_passthrough;
 mod multiplexer;
 mod multiplexer_conformance;
@@ -215,6 +217,10 @@ mod session_host_tests;
 #[cfg(all(test, windows))]
 #[path = "job_object_tests.rs"]
 mod job_object_tests;
+
+#[cfg(test)]
+#[path = "jsp_launch_tests.rs"]
+mod jsp_launch_tests;
 
 /// Shared test support for sealing a fixture [`AgentLaunchPlan`] into an
 /// [`AuthorizedLaunchPlan`] through the real authorize + preflight proof chain.

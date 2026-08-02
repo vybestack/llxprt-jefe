@@ -59,6 +59,8 @@ pub mod pr_detail_content;
 pub mod pr_diff_content;
 #[cfg(test)]
 mod pr_diff_content_tests;
+/// Pure selected-agent Preview projection.
+pub mod preview_view;
 /// Provider-free configuration recovery command boundary.
 pub mod recovery;
 pub mod runtime;
@@ -123,3 +125,5 @@ pub mod harness;
 
 /// JSP (Jefe Stream Protocol) external wire boundary (issue #476).
 pub mod jsp;
+/// Authenticated loopback JSP publisher host and bootstrap boundary.
+pub mod jsp_host;

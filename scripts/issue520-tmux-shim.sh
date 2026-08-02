@@ -22,8 +22,22 @@ case " $* " in
         cd "${1:?missing cwd}"
       elif [ "$1" = "env" ]; then
         shift
-        while [ "${1:-}" = "-u" ]; do
-          shift 2
+        # Emulate env: drop `-u NAME` removals and apply `NAME=VALUE`
+        # assignments before exec'ing the command. Assignments must be applied
+        # rather than skipped so the launched agent still receives them.
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -u)
+              shift 2
+              ;;
+            *=*)
+              export "$1"
+              shift
+              ;;
+            *)
+              break
+              ;;
+          esac
         done
         exec "$@"
       fi

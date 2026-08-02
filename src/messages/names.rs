@@ -125,6 +125,8 @@ message_names!(RuntimeMessage {
     Self::RelaunchAgent(_) => "RelaunchAgent",
     Self::RestartAgent(_) => "RestartAgent",
     Self::AgentStatusChanged(_, _) => "AgentStatusChanged",
+    Self::ObservationUpdated(_, _, _) => "ObservationUpdated",
+    Self::ObservationCleared(_, _) => "ObservationCleared",
 });
 
 message_names!(PersistenceMessage {

@@ -12,7 +12,9 @@ use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
+use jefe::jsp_host::JspHostRuntime;
 use jefe::layout::{compute_pty_layout, effective_render_size};
+use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
@@ -26,6 +28,37 @@ use jefe::ui::orchestration::{
 use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
+fn drain_jsp_messages(
+    app_state: &mut crate::app_input::AppStateHandle,
+    ctx: &crate::app_input::SharedContext,
+) -> bool {
+    let Some(ctx_arc) = ctx else {
+        return false;
+    };
+    let messages = match ctx_arc.try_lock() {
+        Ok(context) => match context
+            .jsp_host
+            .as_ref()
+            .map(JspHostRuntime::drain_messages)
+        {
+            Some(Ok(messages)) => messages,
+            Some(Err(error)) => {
+                warn!(error = %error, "JSP observation delivery poisoned; draining aborted");
+                return false;
+            }
+            None => Vec::new(),
+        },
+        Err(_) => return false,
+    };
+    if messages.is_empty() {
+        return false;
+    }
+    let mut state = app_state.write();
+    for message in messages {
+        jefe::state::transition::commit_pure_site(&mut state, AppMessage::Runtime(message));
+    }
+    true
+}
 
 #[derive(Default, Props)]
 pub struct AppProps {
@@ -108,7 +141,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 };
 
                 let dirty = crate::app_shell_workers::is_pty_dirty(ctx.as_ref());
+                let jsp_dirty = drain_jsp_messages(&mut app_state, &ctx);
                 let should_render = elapsed_ms >= SAFETY_NET_MS
+                    || jsp_dirty
                     || (terminal_focused && dirty)
                     || (running_preview && elapsed_ms >= PREVIEW_THROTTLE_MS && dirty);
 

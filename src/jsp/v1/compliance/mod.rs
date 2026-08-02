@@ -31,8 +31,8 @@ mod dto;
 mod harness;
 pub mod profile;
 mod profile_challenge;
-pub mod projection;
-pub mod reducer;
+pub use crate::jsp::v1::projection;
+pub use crate::jsp::v1::reducer;
 #[cfg(test)]
 mod reducer_tests;
 pub mod reference_adapter;

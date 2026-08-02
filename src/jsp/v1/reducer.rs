@@ -22,18 +22,37 @@
 //!   preserves native state until a fresh snapshot arrives.
 
 use crate::domain::observation::{
-    Availability, EventRecord, FieldState, HeartbeatRecord, NativeActivityState, ObservationEvent,
-    ObservationIdentity, ProcessBinding, TodoList, ToolCallValue,
+    AgentObservation, Availability, CurrentTurn, EventRecord, FieldState, HeartbeatRecord,
+    NativeActivityState, NativeActivityValue, ObservationEvent, ObservationHealth,
+    ObservationIdentity, ProcessBinding, Provenance, TodoList, ToolCallValue, Wait,
 };
 use crate::jsp::Snapshot;
 
 use super::projection::{
     ActivityProjection, AvailabilityProjection, MessagePresence, NormalizedProjection,
-    ObservationHealth, ProjectionProvenance, TodoProjection, ToolPhaseProjection,
-    TurnOutcomeProjection, WaitProjection, project_activity, project_availability, project_message,
-    project_presence, project_provenance, project_source_terminal, project_todos, project_tool,
-    project_turn_active, project_wait,
+    ProjectionProvenance, TodoProjection, ToolPhaseProjection, TurnOutcomeProjection,
+    WaitProjection, project_activity, project_availability, project_message,
+    project_optional_availability, project_presence, project_provenance, project_source_terminal,
+    project_todos, project_tool, project_turn_active, project_wait,
 };
+
+fn observation_from_snapshot(snapshot: &Snapshot) -> AgentObservation {
+    AgentObservation {
+        identity: Some(snapshot.identity.clone()),
+        last_sequence: snapshot.cursor,
+        health: ObservationHealth::Live,
+        activity: snapshot.native_activity.clone(),
+        wait: snapshot.current_wait.clone(),
+        turn: snapshot.current_turn.clone(),
+        turn_observed_at: None,
+        todos: snapshot.todos.clone(),
+        last_message: snapshot.last_displayed_assistant_message.clone(),
+        tool: snapshot.last_created_tool_call.clone(),
+        terminal: snapshot.source_terminal_state.clone(),
+        error: snapshot.source_error_state.clone(),
+        session_ended: false,
+    }
+}
 
 /// A reducer error, coded for stable machine-readable reporting.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +171,7 @@ impl AgentProcessIdentity {
 struct ReducerState {
     identity: Option<ObservationIdentity>,
     last_sequence: u64,
+    observation: AgentObservation,
     activity: ActivityProjection,
     activity_provenance: ProjectionProvenance,
     wait: WaitProjection,
@@ -197,6 +217,7 @@ impl ReducerState {
         Self {
             identity: None,
             last_sequence: 0,
+            observation: AgentObservation::default(),
             activity: ActivityProjection::Unsupported,
             activity_provenance: ProjectionProvenance::Unsupported,
             wait: WaitProjection::Unsupported,
@@ -303,6 +324,12 @@ impl ReferenceReducer {
         self.state.project()
     }
 
+    /// The current payload-preserving runtime observation.
+    #[must_use]
+    pub fn observation(&self) -> AgentObservation {
+        self.state.observation.clone()
+    }
+
     /// Read-only probe of whether a heartbeat for `identity` would be rejected
     /// as requiring a fresh snapshot-first stream, **without** mutating the
     /// reducer. This lets a caller classify a request (e.g. a snapshot
@@ -345,12 +372,13 @@ impl ReferenceReducer {
         self.state.identity = Some(snapshot.identity.clone());
         self.state.agent_process_identity = Some(next_process_identity);
         self.state.last_sequence = snapshot.cursor;
+        self.state.observation = observation_from_snapshot(snapshot);
         self.state.activity = project_activity(&snapshot.native_activity);
         self.state.activity_provenance = project_provenance(&snapshot.native_activity);
         self.state.wait = project_wait(&snapshot.current_wait);
         self.state.wait_provenance = project_provenance(&snapshot.current_wait);
         self.state.turn_active = project_turn_active(&snapshot.current_turn);
-        self.state.turn_availability = project_availability(&snapshot.current_turn);
+        self.state.turn_availability = project_optional_availability(&snapshot.current_turn);
         self.state.turn_provenance = project_provenance(&snapshot.current_turn);
         self.state.todos = project_todos(&snapshot.todos);
         self.state.message = project_message(&snapshot.last_displayed_assistant_message);
@@ -393,6 +421,7 @@ impl ReferenceReducer {
             return Err(ReducerError::FreshSnapshotRequired);
         }
         self.state.health = ObservationHealth::Live;
+        self.state.observation.health = ObservationHealth::Live;
         Ok(())
     }
 
@@ -436,6 +465,7 @@ impl ReferenceReducer {
         if record.source_sequence > expected {
             // Gap: reject, mark stale, require fresh snapshot-first stream.
             self.state.health = ObservationHealth::Stale;
+            self.state.observation.health = ObservationHealth::Stale;
             self.state.stream_phase = StreamPhase::NeedsFreshSnapshot;
             return Err(ReducerError::Gap {
                 expected,
@@ -446,23 +476,34 @@ impl ReferenceReducer {
         self.validate_transition(&record.event)?;
         self.apply_transition(&record.event);
         self.state.last_sequence = record.source_sequence;
+        self.state.observation.last_sequence = record.source_sequence;
         Ok(())
     }
 
     /// Apply a transport disconnect: observation health degrades but native
     /// state is preserved until a fresh snapshot arrives.
     pub fn apply_disconnect(&mut self, permanent: bool) {
-        self.state.health = if permanent {
+        let health = if permanent {
             ObservationHealth::Disconnected
         } else {
             ObservationHealth::Stale
         };
+        self.state.health = health;
+        self.state.observation.health = health;
         self.state.stream_phase = StreamPhase::NeedsFreshSnapshot;
     }
 
     /// Mark observation health stale (e.g. missed lease).
     pub fn mark_observation_stale(&mut self) {
         self.state.health = ObservationHealth::Stale;
+        self.state.observation.health = ObservationHealth::Stale;
+    }
+
+    /// Mark a rejected, authenticated producer document as a protocol error.
+    /// Native state remains available as historical context.
+    pub fn mark_protocol_error(&mut self) {
+        self.state.health = ObservationHealth::ProtocolError;
+        self.state.observation.health = ObservationHealth::ProtocolError;
     }
 
     /// Apply observer-owned process liveness without erasing historical native state.
@@ -521,10 +562,13 @@ impl ReferenceReducer {
             ObservationEvent::WaitOpened { reason } => {
                 self.state.wait = WaitProjection::from_reason(*reason);
                 self.state.wait_provenance = ProjectionProvenance::Authoritative;
+                self.state.observation.wait =
+                    FieldState::known(Provenance::Authoritative, Some(Wait { reason: *reason }));
             }
             ObservationEvent::WaitResolved => {
                 self.state.wait = WaitProjection::NotWaiting;
                 self.state.wait_provenance = ProjectionProvenance::Authoritative;
+                self.state.observation.wait = FieldState::known(Provenance::Authoritative, None);
             }
             ObservationEvent::TurnStarted => self.apply_turn_started(),
             ObservationEvent::TurnEnded { outcome } => self.apply_turn_ended(*outcome),
@@ -537,20 +581,26 @@ impl ReferenceReducer {
             ObservationEvent::ToolCallPhaseChanged { tool } => {
                 self.apply_tool_phase_changed(tool);
             }
-            ObservationEvent::AssistantMessageDisplayed { .. } => {
+            ObservationEvent::AssistantMessageDisplayed { message } => {
                 self.state.message = MessagePresence::Present;
                 self.state.message_availability = AvailabilityProjection::Known;
                 self.state.message_provenance = ProjectionProvenance::Inferred;
+                self.state.observation.last_message =
+                    FieldState::known(Provenance::Inferred, message.clone());
             }
-            ObservationEvent::SourceError { .. } => {
+            ObservationEvent::SourceError { error } => {
                 self.state.source_error = MessagePresence::Present;
                 self.state.error_availability = AvailabilityProjection::Known;
                 self.state.source_error_provenance = ProjectionProvenance::Authoritative;
+                self.state.observation.error =
+                    FieldState::known(Provenance::Authoritative, error.clone());
             }
             ObservationEvent::SessionEnded => {
                 self.state.turn_active = false;
                 self.state.turn_availability = AvailabilityProjection::KnownAbsent;
                 self.state.turn_provenance = ProjectionProvenance::Authoritative;
+                self.state.observation.turn = FieldState::known(Provenance::Authoritative, None);
+                self.state.observation.session_ended = true;
                 self.state.session_lifecycle = NativeSessionLifecycle::Ended;
             }
         }
@@ -563,6 +613,8 @@ impl ReferenceReducer {
             NativeActivityState::Acting => ActivityProjection::Acting,
         };
         self.state.activity_provenance = ProjectionProvenance::Authoritative;
+        self.state.observation.activity =
+            FieldState::known(Provenance::Authoritative, NativeActivityValue { state });
     }
 
     fn apply_turn_started(&mut self) {
@@ -570,6 +622,10 @@ impl ReferenceReducer {
         self.state.turn_availability = AvailabilityProjection::Known;
         self.state.turn_provenance = ProjectionProvenance::Authoritative;
         self.state.turn_outcome = None;
+        self.state.observation.turn = FieldState::known(
+            Provenance::Authoritative,
+            Some(CurrentTurn { elapsed_ms: 0 }),
+        );
     }
 
     fn apply_turn_ended(&mut self, outcome: crate::domain::observation::TurnOutcome) {
@@ -581,6 +637,11 @@ impl ReferenceReducer {
             crate::domain::observation::TurnOutcome::Failed => TurnOutcomeProjection::Failed,
             crate::domain::observation::TurnOutcome::Cancelled => TurnOutcomeProjection::Cancelled,
         });
+        // Activity is authoritative from the producer and must not be inferred
+        // from the turn ending. A producer that goes idle sends its own
+        // `activity.changed`; synthesizing one here would report activity the
+        // source never claimed.
+        self.state.observation.turn = FieldState::known(Provenance::Authoritative, None);
     }
 
     /// Apply a full todo replacement with the strictly-increasing revision
@@ -602,6 +663,8 @@ impl ReferenceReducer {
                 Some(todos.revision),
                 todos.items.len(),
             );
+            self.state.observation.todos =
+                FieldState::known(Provenance::Authoritative, todos.clone());
         }
     }
 
@@ -614,6 +677,7 @@ impl ReferenceReducer {
         );
         self.state.tool_availability = AvailabilityProjection::Known;
         self.state.tool_provenance = ProjectionProvenance::Authoritative;
+        self.state.observation.tool = FieldState::known(Provenance::Authoritative, tool.clone());
     }
 
     /// Apply a tool phase change to the current (last-created) tool. An update
@@ -628,6 +692,8 @@ impl ReferenceReducer {
         if is_current {
             self.state.tool.1 = ToolPhaseProjection::from_phase(tool.phase);
             self.state.tool_provenance = ProjectionProvenance::Authoritative;
+            self.state.observation.tool =
+                FieldState::known(Provenance::Authoritative, tool.clone());
         }
     }
 }

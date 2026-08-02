@@ -17,13 +17,21 @@ use super::pty_passthrough::{
     ctrl_c_passthrough_may_forward, probe_attached_terminal,
 };
 
-fn minimal_test_ctx() -> CtxArc {
+/// Returns the context together with the temporary JSP directory guard. The
+/// guard must outlive the context: `JspHostRuntime::Drop` shuts the host down
+/// but does not remove its runtime directory, so dropping the guard last is
+/// what reclaims the path.
+fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
     let dir = std::env::temp_dir().join(format!("jefe_pty_ctx_{}", std::process::id()));
     let startup = jefe::startup::build_persistence(Some(&dir));
     let Ok(startup) = startup else {
         panic!("test keymap snapshot should compose, got {startup:?}");
     };
-    Arc::new(Mutex::new(AppContext {
+    let runtime_dir = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("temporary JSP directory should be created: {error}"));
+    let jsp_host = jefe::jsp_host::JspHostRuntime::start(runtime_dir.path().to_owned())
+        .unwrap_or_else(|error| panic!("test JSP host should start: {error}"));
+    let ctx = Arc::new(Mutex::new(AppContext {
         keymap_snapshot: Some(startup.keymap_snapshot),
         keymap_document: startup.keymap_document,
         keymap_expected_hash: startup.keymap_expected_hash,
@@ -33,13 +41,15 @@ fn minimal_test_ctx() -> CtxArc {
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),
         runtime: TmuxRuntimeManager::new(24, 80),
+        jsp_host: Some(jsp_host),
         gh_client: GhClient::new(),
         gh_deliveries: super::GhDeliveryHandle::default(),
         persist_handle: PersistHandle::new(Arc::new(|_, _, _| {
             Ok(jefe::services::persist_worker::PersistResult::Authoritative)
         })),
         capture_handle: CaptureHandle::new(),
-    }))
+    }));
+    (ctx, runtime_dir)
 }
 
 #[test]
@@ -75,7 +85,7 @@ fn ctrl_c_passthrough_forwards_on_attached_or_busy_only() {
 
 #[test]
 fn probe_attached_terminal_reports_busy_when_ctx_mutex_held() {
-    let ctx = minimal_test_ctx();
+    let (ctx, _runtime_dir) = minimal_test_ctx();
     let _guard = ctx.lock().unwrap_or_else(PoisonError::into_inner);
     assert_eq!(
         probe_attached_terminal(Some(&ctx)),
@@ -85,7 +95,7 @@ fn probe_attached_terminal_reports_busy_when_ctx_mutex_held() {
 
 #[test]
 fn probe_attached_terminal_reports_absent_when_unlocked_without_agent() {
-    let ctx = minimal_test_ctx();
+    let (ctx, _runtime_dir) = minimal_test_ctx();
     assert_eq!(
         probe_attached_terminal(Some(&ctx)),
         AttachedTerminalProbe::Absent
@@ -96,7 +106,7 @@ fn probe_attached_terminal_reports_absent_when_unlocked_without_agent() {
 fn probe_attached_terminal_reports_attached_when_unlocked_with_agent() {
     // The production probe only inspects `attached_agent()` after a successful
     // try_lock — no real AttachedViewer is required for the Attached path.
-    let ctx = minimal_test_ctx();
+    let (ctx, _runtime_dir) = minimal_test_ctx();
     {
         let mut guard = ctx.lock().unwrap_or_else(PoisonError::into_inner);
         guard
@@ -111,7 +121,7 @@ fn probe_attached_terminal_reports_attached_when_unlocked_with_agent() {
 
 #[test]
 fn ctrl_c_passthrough_gate_passes_under_mutex_contention() {
-    let ctx = minimal_test_ctx();
+    let (ctx, _runtime_dir) = minimal_test_ctx();
     let _guard = ctx.lock().unwrap_or_else(PoisonError::into_inner);
     assert!(
         ctrl_c_passthrough_may_forward(probe_attached_terminal(Some(&ctx))),

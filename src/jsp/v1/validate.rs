@@ -386,11 +386,11 @@ fn convert_current_turn(field: &FieldWire) -> Result<CurrentTurnField, JspError>
     };
     let provenance = convert_provenance(&state.provenance);
     let availability = build_availability("snapshot.current_turn", state, |slot, value| {
-        let payload: CurrentTurnPayload =
+        let payload: Option<CurrentTurnPayload> =
             parse_payload(&slot.root("snapshot.current_turn"), value)?;
-        Ok(CurrentTurn {
+        Ok(payload.map(|payload| CurrentTurn {
             elapsed_ms: payload.elapsed_ms,
-        })
+        }))
     })?;
     Ok(FieldState::Supported {
         provenance,

@@ -114,6 +114,11 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
         .map_or(&[][..], |snapshot| snapshot.agents.as_slice());
 
     let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
+    let selected_observation = state.and_then(|state| {
+        selected_agent_data
+            .as_ref()
+            .and_then(|agent| state.observations.get(&agent.id).cloned())
+    });
     let selected_agent_git_info = props
         .git_info
         .as_ref()
@@ -256,6 +261,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     Preview(
                         agent: selected_agent_data,
                         git_info: selected_agent_git_info,
+                        observation: selected_observation,
                         focused: false,
                         content_width: usize::from(
                             crate::list_viewport::bordered_padded_content_width(RIGHT_COL_WIDTH)

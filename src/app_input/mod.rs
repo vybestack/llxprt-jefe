@@ -273,6 +273,15 @@ fn launch_signature_for_agent(
     AgentLaunchRequest::for_agent(agent, repository)
 }
 
+fn launch_signature_for_new_agent(
+    agent: &jefe::domain::Agent,
+    repository: &Repository,
+) -> AgentLaunchRequest {
+    let mut request = AgentLaunchRequest::for_agent(agent, repository);
+    request.operation = jefe::domain::agent_definition::Operation::Normal;
+    request
+}
+
 pub fn launch_signature_for_transient(
     repository: &Repository,
     work_dir: &std::path::Path,

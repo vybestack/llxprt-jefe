@@ -14,44 +14,11 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::domain::observation::ObservationHealth;
 use crate::domain::observation::{
     Availability, CurrentTurnField, FieldState, LastMessageField, LastToolField,
     NativeActivityField, NativeActivityState, TodosField, ToolPhase, WaitReason,
 };
-
-/// Observer-owned observation health (specification §20). Never a wire field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ObservationHealth {
-    /// The field is unsupported by the producer/source.
-    Unsupported,
-    /// The observer is establishing the stream.
-    Connecting,
-    /// The stream is live and within lease.
-    #[default]
-    Live,
-    /// A heartbeat/lease was missed; telemetry may be stale.
-    Stale,
-    /// The transport disconnected; a fresh snapshot-first stream is required.
-    Disconnected,
-    /// A protocol-level error occurred.
-    ProtocolError,
-}
-
-impl ObservationHealth {
-    /// The stable wire label.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Unsupported => "unsupported",
-            Self::Connecting => "connecting",
-            Self::Live => "live",
-            Self::Stale => "stale",
-            Self::Disconnected => "disconnected",
-            Self::ProtocolError => "protocol_error",
-        }
-    }
-}
 
 /// A normalized projection of reduced client observation state.
 ///
@@ -299,7 +266,7 @@ pub(crate) fn project_turn_active(field: &CurrentTurnField) -> bool {
     matches!(
         field,
         FieldState::Supported {
-            availability: Availability::Known(_),
+            availability: Availability::Known(Some(_)),
             ..
         }
     )

@@ -374,6 +374,16 @@ pub struct AppState {
     /// Monotonic generation allocated by the state-owned availability boundary.
     pub agent_probe_generation: u64,
 
+    /// Payload-preserving JSP observations keyed by Jefe agent identity.
+    /// Runtime-only: never projected into persistence.
+    pub observations: std::collections::HashMap<
+        crate::domain::AgentId,
+        crate::domain::observation::AgentObservation,
+    >,
+    /// Highest JSP lifecycle generation accepted or explicitly cleared for
+    /// each agent. Retaining the tombstone rejects delayed queued messages.
+    pub observation_generations: std::collections::HashMap<crate::domain::AgentId, u64>,
+
     // Selection
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,

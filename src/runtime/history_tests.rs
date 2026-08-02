@@ -5,6 +5,7 @@
 //! private items (`HistoryCache`) the same way an inline `mod tests` block does.
 
 use super::*;
+use crate::domain::AgentLaunchRequest;
 use crate::runtime::stub_manager::StubRuntimeManager;
 
 // ── is_dirty (non-consuming dirty check) ────────────────────────────────
