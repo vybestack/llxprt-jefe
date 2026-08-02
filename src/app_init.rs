@@ -2,6 +2,10 @@
 
 #[path = "app_init_orphan_reconcile.rs"]
 mod orphan_reconcile;
+#[path = "app_init_reclaim.rs"]
+mod reclaim;
+#[path = "app_init_reclaim_io.rs"]
+mod reclaim_io;
 #[path = "app_init_shell_reconcile.rs"]
 mod shell_reconcile;
 #[path = "app_init_signature_reconcile.rs"]
@@ -811,10 +815,15 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         surface_startup_holds(&mut state, &held);
     }
 
+    // Reclaim runs after restore has settled so it sees the bindings restore
+    // actually established, and before shell reconciliation so an adopted
+    // session's shell window is normalized like any other (issue #585).
+    let reclaimed = reclaim_io::reclaim_unbound_sessions(app_state, ctx_arc);
+
     if let Some(warning) = shell_reconcile::reconcile_shell_inventory(app_state, ctx) {
         append_warning(&mut app_state.write(), warning);
     }
-    if state_changed {
+    if state_changed || reclaimed {
         let request = durable_save_request(&mut app_state.write());
         schedule_durable_save(ctx, request);
     }

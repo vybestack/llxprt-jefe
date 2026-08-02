@@ -583,14 +583,19 @@ pub(super) fn run_child_with_timeout(
 }
 
 /// List all jefe-managed tmux sessions.
-#[allow(dead_code)]
+///
+/// Used by startup reclaim to observe sessions the durable document does not
+/// know about (issue #585).
+///
+/// Bounded by [`LOCAL_TMUX_COMMAND_TIMEOUT`] like every other probe here: this
+/// runs on the startup path, so an unbounded wait on a wedged server does not
+/// merely delay reclaim, it withholds the first frame and the user sees no
+/// agents at all (issue #287).
 pub fn list_jefe_sessions() -> Vec<String> {
     let Ok(mut command) = tmux_command() else {
         return Vec::new();
     };
-    let output = command
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output();
+    let output = run_tmux_with_timeout(command.args(["list-sessions", "-F", "#{session_name}"]));
 
     match output {
         Ok(out) if out.status.success() => {
