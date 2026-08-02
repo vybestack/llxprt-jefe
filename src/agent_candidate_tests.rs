@@ -410,9 +410,11 @@ fn version_selector_blank_for_empty_string() {
 }
 
 #[test]
-fn version_selector_volatile_for_moving_sentinels_only() {
-    // Issue #554: only the moving dist-tag sentinels are volatile; an explicit
-    // version is an immutable pin even if its name contains "nightly".
+fn version_selector_volatile_unless_it_is_an_exact_version() {
+    // Volatility is decided by shape, not by a list of known names: a selector
+    // is a pin only when it is an exact version, because anything else is a
+    // pointer the registry may move (issue #601). An exact version is still a
+    // pin even when its prerelease says "nightly" (issue #554).
     assert!(VersionSelector::Latest.is_volatile());
     assert!(VersionSelector::LatestNightly.is_volatile());
     assert!(!VersionSelector::Direct.is_volatile());
@@ -422,6 +424,88 @@ fn version_selector_volatile_for_moving_sentinels_only() {
             .is_volatile(),
         "an explicit nightly version string is pinned, not volatile"
     );
+}
+
+/// Anything that is not an exact version is a pointer the registry can move.
+///
+/// A hard-coded list of sentinel names can never be exhaustive: a registry may
+/// define any dist-tag it likes. Deciding by shape covers custom tags and
+/// ranges alike, and it fails in the safe direction — an unrecognized shape is
+/// re-resolved rather than frozen (issue #601).
+#[test]
+fn moving_selectors_are_volatile_whatever_they_are_called() {
+    for moving in [
+        "glm52-vast", // a real custom dist-tag observed in a live cache
+        "beta",
+        "next",
+        "^1.0.0",
+        "~0.11.0",
+        ">=1.2.0",
+        "1.x",
+        "^1.0.0||^2.0.0",
+        "0.11",
+        "v0.11.0", // npm accepts it, but it is not an exact version string
+    ] {
+        assert!(
+            VersionSelector::normalize(moving)
+                .unwrap_or_else(|error| panic!("selector {moving:?}: {error}"))
+                .is_volatile(),
+            "{moving:?} is a moving pointer and must be re-resolved, not frozen at first install"
+        );
+    }
+}
+
+/// A value npm could never resolve must not become volatile.
+///
+/// Volatility decides whether jefe asks the registry about a selector. Asking
+/// about a value that is not a legal spec spawns a process and waits, only to
+/// fail the same way it would have anyway. Hostile input matters most here: it
+/// keeps shell-metacharacter selectors on the single argv-safe path whose
+/// behaviour is already pinned by the injection tests, instead of widening them
+/// to a second command (issue #601).
+#[test]
+fn unresolvable_selectors_do_not_become_volatile() {
+    // Whitespace is not represented here on purpose: normalization strips it
+    // before this decision is reached, so "0 9 0" arrives as "090", which is
+    // indistinguishable from a tag legitimately named "090".
+    for hostile in [
+        "1.0.0; rm -rf /",
+        "1.0;$(touch nope)",
+        "pkg@1.0.0",
+        "../../etc/passwd",
+        "tag/../escape",
+        "$HOME",
+        "1.0.0|rm",
+    ] {
+        assert!(
+            !VersionSelector::normalize(hostile)
+                .unwrap_or_else(|error| panic!("selector {hostile:?}: {error}"))
+                .is_volatile(),
+            "{hostile:?} is not a resolvable spec and must not trigger a registry query"
+        );
+    }
+}
+
+/// An exact version must stay pinned, or every pinned user pays a registry
+/// query per launch for something that cannot move.
+#[test]
+fn exact_versions_remain_pinned() {
+    for exact in [
+        "0.11.0",
+        "1.2.3",
+        "10.20.30",
+        "0.11.0-nightly.260801.19ac22acc",
+        "1.0.0-rc.1",
+        "1.0.0+build.5",
+        "1.0.0-alpha.1+build.5",
+    ] {
+        assert!(
+            !VersionSelector::normalize(exact)
+                .unwrap_or_else(|error| panic!("selector {exact:?}: {error}"))
+                .is_volatile(),
+            "{exact:?} is an exact version and must remain an immutable pin"
+        );
+    }
 }
 
 #[test]
