@@ -86,6 +86,15 @@ jobs:
       - name: Enforce architecture boundary policy
         run: cargo xtask check architecture
 
+  observation_coercion_policy:
+    name: Uncertain-observation coercion policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Enforce uncertain-observation coercion policy
+        run: cargo xtask check observation-coercion
+
   complexity:
     name: Complexity checks
     runs-on: ubuntu-latest

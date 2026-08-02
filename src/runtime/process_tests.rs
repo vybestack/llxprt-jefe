@@ -9,7 +9,7 @@ use super::process::classify_windows_error;
 use super::process::{
     ProcessLiveness, ProcessObservation, WindowsProbeFailure, WindowsProbeStage,
     capture_process_identity, classify_process_observation, classify_windows_failure,
-    process_liveness, process_liveness_indicates_alive,
+    process_liveness,
 };
 #[cfg(unix)]
 use super::process::{UnixProbeOutcome, classify_unix_probe, unix_probe_command_for};
@@ -49,33 +49,27 @@ fn classification_distinguishes_every_required_state() {
     );
 }
 
+/// An uncertain probe must stay uncertain all the way to the caller. It used
+/// to be squashed into a `bool` meaning "treat as alive", which reads a
+/// failure to look as a positive finding (issue #541).
 #[test]
-fn fail_open_policy_covers_every_final_liveness_state() {
-    for liveness in [
-        ProcessLiveness::Alive,
-        ProcessLiveness::Inaccessible,
-        ProcessLiveness::ProbeFailure,
-    ] {
-        assert!(process_liveness_indicates_alive(liveness));
-    }
-    for liveness in [
-        ProcessLiveness::Dead,
-        ProcessLiveness::ReusedPid,
-        ProcessLiveness::MalformedIdentity,
-    ] {
-        assert!(!process_liveness_indicates_alive(liveness));
-    }
-}
-
-#[test]
-fn uncertain_process_observations_remain_fail_open() {
+fn uncertain_process_observations_stay_uncertain() {
     let expected = ProcessIdentity::new(41, 900);
-    for observation in [
-        ProcessObservation::Inaccessible,
-        ProcessObservation::ProbeFailed,
+    for (observation, expected_liveness) in [
+        (
+            ProcessObservation::Inaccessible,
+            ProcessLiveness::Inaccessible,
+        ),
+        (
+            ProcessObservation::ProbeFailed,
+            ProcessLiveness::ProbeFailure,
+        ),
     ] {
-        let liveness = classify_process_observation(Some(expected), observation);
-        assert!(process_liveness_indicates_alive(liveness));
+        assert_eq!(
+            classify_process_observation(Some(expected), observation),
+            expected_liveness,
+            "{observation:?} is not a verdict about whether the process lives"
+        );
     }
 }
 

@@ -117,8 +117,8 @@ pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
     batch_liveness_check_with_identity, check_remote_session_alive, check_session_alive,
-    classify_worker_disposition, list_jefe_sessions, parse_alive_sessions, parse_pane_alive,
-    pid_alive, reconcile_dead_agents, reconcile_dead_agents_with_identity, session_liveness,
+    list_jefe_sessions, observe_worker_disposition, parse_alive_sessions, parse_pane_alive,
+    reconcile_dead_agents, reconcile_dead_agents_with_identity, session_liveness,
 };
 pub use manager::{
     AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,
@@ -158,7 +158,7 @@ pub use preflight::{
 };
 pub use process::{
     ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
-    classify_process_observation, process_liveness, process_liveness_indicates_alive,
+    classify_process_observation, process_liveness,
 };
 pub use provenance::{
     BinaryFingerprint, PINNED_PSMUX_ARCHIVE_SHA256, ProvenanceManifest, ProvenanceVerdict,
@@ -205,6 +205,10 @@ mod process_tests;
 #[cfg(test)]
 #[path = "orphan_tests.rs"]
 mod orphan_tests;
+
+#[cfg(test)]
+#[path = "liveness_tests.rs"]
+mod liveness_tests;
 
 #[cfg(test)]
 #[path = "multiplexer_tests.rs"]

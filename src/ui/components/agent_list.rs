@@ -53,8 +53,11 @@ pub struct AgentListView {
 /// Status glyph rendered before the agent name (single character).
 ///
 /// Matches the pre-refactor `AgentList` component's `status_icon` match arms.
-fn status_icon(status: AgentStatus) -> &'static str {
-    match status {
+fn status_icon(agent: &Agent) -> &'static str {
+    if agent.state_is_unconfirmed() {
+        return "~";
+    }
+    match agent.status {
         AgentStatus::Running => "*",
         AgentStatus::Completed => "+",
         AgentStatus::Dead => "x",
@@ -69,8 +72,11 @@ fn status_icon(status: AgentStatus) -> &'static str {
 ///
 /// Matches the pre-refactor `AgentList` component's `status_color` match arms;
 /// the generic [`SelectableList`] resolves the role against the theme.
-fn status_role(status: AgentStatus) -> SpanRole {
-    match status {
+fn status_role(agent: &Agent) -> SpanRole {
+    if agent.state_is_unconfirmed() {
+        return SpanRole::Yellow;
+    }
+    match agent.status {
         AgentStatus::Running | AgentStatus::Completed => SpanRole::Bright,
         AgentStatus::Dead | AgentStatus::Errored | AgentStatus::ServerLost => SpanRole::Red,
         AgentStatus::Waiting => SpanRole::Yellow,
@@ -113,8 +119,8 @@ fn to_selectable_row(
             color: SpanColor::Themed,
         },
         SelectableSpan {
-            text: status_icon(agent.status).to_string(),
-            color: SpanColor::Role(status_role(agent.status)),
+            text: status_icon(agent).to_string(),
+            color: SpanColor::Role(status_role(agent)),
         },
         SelectableSpan {
             text: format!(" {}{}", shortcut_label, agent.name),
@@ -261,5 +267,48 @@ mod tests {
         assert!(lines.last().is_some_and(|line| {
             line.text.contains("Agent 24") && line.text.contains("acme/widgets")
         }));
+    }
+
+    /// A Running agent with no binding is one whose state jefe could not
+    /// confirm. It is shown Running because nothing disproved that, but
+    /// rendering it identically to a confirmed agent tells the operator a
+    /// certainty jefe does not have -- and this is the row they will try to
+    /// attach to (issue #541 V7).
+    #[test]
+    fn an_unconfirmed_running_agent_is_not_shown_as_a_healthy_one() {
+        let mut agent = Agent::new(
+            AgentId(String::from("agent-held")),
+            RepositoryId(String::from("repo")),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
+            String::from("Held Agent"),
+            PathBuf::from("/tmp"),
+        );
+        agent.status = AgentStatus::Running;
+        agent.runtime_binding = None;
+
+        let mut confirmed = agent.clone();
+        confirmed.id = AgentId(String::from("agent-live"));
+        confirmed.runtime_binding = Some(crate::domain::RuntimeBinding {
+            session_name: String::from("jefe-agent-live"),
+            launch_signature: crate::domain::LaunchSignatureV1::default(),
+            attached: false,
+            last_seen: None,
+            pane_identity: None,
+            worker_identity: None,
+            lifecycle_generation: 0,
+            worker_identities: Vec::new(),
+        });
+
+        assert_ne!(
+            status_icon(&agent),
+            status_icon(&confirmed),
+            "an unconfirmed agent must be distinguishable from a confirmed one"
+        );
+        assert_ne!(
+            status_role(&agent),
+            status_role(&confirmed),
+            "the glyph colour must not claim health jefe has not observed"
+        );
     }
 }

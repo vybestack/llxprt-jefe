@@ -604,15 +604,22 @@ fn set_windows_owner_acl(path: &Path, directory: bool) -> Result<(), JspHostErro
     })?;
     let inheritance = if directory { "(OI)(CI)F" } else { "F" };
     let grant = format!("{account}:{inheritance}");
-    let status = std::process::Command::new("icacls.exe")
+    // `output` rather than `status`: `status` inherits this process's stdio, so
+    // icacls prints "Successfully processed 1 files" straight onto the terminal.
+    // This runs during startup of a full-screen TUI, so that text lands on top
+    // of the dashboard and the user sees tool output instead of their agents.
+    let output = std::process::Command::new("icacls.exe")
         .arg(path)
         .args(["/inheritance:r", "/grant:r"])
         .arg(grant)
-        .status()?;
-    if !status.success() {
-        return Err(JspHostError::Io(std::io::Error::other(
-            "owner-only Windows ACL application failed",
-        )));
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(JspHostError::Io(std::io::Error::other(format!(
+            "owner-only Windows ACL application failed: {}",
+            detail.trim()
+        ))));
     }
     Ok(())
 }

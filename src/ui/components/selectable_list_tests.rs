@@ -93,6 +93,18 @@ fn agent(name: &str, status: AgentStatus) -> Agent {
         std::path::PathBuf::from("/tmp"),
     );
     a.status = status;
+    // Bound, so these projections exercise the status-to-glyph mapping rather
+    // than the unconfirmed-state indicator (issue #541).
+    a.runtime_binding = Some(crate::domain::RuntimeBinding {
+        session_name: format!("jefe-{name}"),
+        launch_signature: crate::domain::LaunchSignatureV1::default(),
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: None,
+        lifecycle_generation: 0,
+        worker_identities: Vec::new(),
+    });
     a
 }
 

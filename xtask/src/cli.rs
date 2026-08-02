@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use crate::architecture;
 use crate::clippy_policy;
 use crate::multiplexer_surface;
+use crate::observation_coercion;
 use crate::process::{CommandFailed, CommandPlan, repo_path};
 use crate::source_size;
 use crate::toolchain;
@@ -295,7 +296,7 @@ fn run_windows_coverage() -> Result<(), CommandFailed> {
 fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
     let Some(target) = rest.first() else {
         eprintln!(
-            "usage: cargo xtask check <clippy-allows|source-size|architecture|multiplexer-surface>"
+            "usage: cargo xtask check <clippy-allows|source-size|architecture|multiplexer-surface|observation-coercion>"
         );
         return Err(usage_error("check", "missing policy name"));
     };
@@ -311,6 +312,7 @@ fn run_check(rest: &[String]) -> Result<(), CommandFailed> {
         "source-size" => source_size::run_repo_check(&root),
         "architecture" => architecture::run_repo_check(&root),
         "multiplexer-surface" => multiplexer_surface::run_repo_check(&root),
+        "observation-coercion" => observation_coercion::run_repo_check(&root),
         other => {
             eprintln!("error: unknown check target `{other}`");
             Err(usage_error("check", "unknown policy name"))

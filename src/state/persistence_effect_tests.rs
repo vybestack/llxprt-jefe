@@ -408,3 +408,31 @@ fn superseding_a_staged_save_discards_the_stale_candidate() {
         "the superseded candidate must be discarded, not left staged"
     );
 }
+
+/// #445: an unreadable state document became an empty one, because the empty
+/// fallback was projected straight back over the file. The bytes we failed to
+/// read are the only copy of whatever they contain, so nothing may replace
+/// them until they are understood.
+#[test]
+fn a_held_durable_read_writes_nothing() {
+    let mut state = state_with_one_agent();
+    state.durable_read_held = Some("state.json is not valid JSON".to_owned());
+
+    assert!(
+        state.take_durable_save_request().is_none(),
+        "an unreadable document must not be overwritten by what little was recovered"
+    );
+}
+
+/// The mirror hazard: holding writes while the read failed must not become
+/// never writing at all.
+#[test]
+fn a_successful_durable_read_still_writes() {
+    let mut state = state_with_one_agent();
+    assert_eq!(state.durable_read_held, None);
+
+    assert!(
+        state.take_durable_save_request().is_some(),
+        "a state loaded from a readable document must still persist"
+    );
+}

@@ -442,6 +442,14 @@ pub struct AppState {
     pub error_message: Option<String>,
     pub warning_message: Option<String>,
 
+    /// Why the durable document could not be read, when it could not be.
+    ///
+    /// Set only when the read *failed*; an absent file is an answer (there is
+    /// no prior state) and leaves this `None`. While it is set, durable saves
+    /// are held so an unreadable document is never replaced by one projected
+    /// from whatever little was recovered (issues #541, #445).
+    pub durable_read_held: Option<String>,
+
     // Issues mode state
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-001

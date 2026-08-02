@@ -4,6 +4,8 @@
 mod orphan_reconcile;
 #[path = "app_init_reclaim.rs"]
 mod reclaim;
+#[path = "app_init_reclaim_io.rs"]
+mod reclaim_io;
 #[path = "app_init_shell_reconcile.rs"]
 mod shell_reconcile;
 #[path = "app_init_signature_reconcile.rs"]
@@ -17,12 +19,15 @@ use self::signature_reconcile::{
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
+use jefe::domain::liveness_observation::{
+    Observed, ProbeBoundary, RetryPolicy, Uncertainty, retry_observation,
+};
 use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
 use jefe::runtime::{
-    ProcessLiveness, RuntimeError, RuntimeManager, TmuxRuntimeManager, pid_alive,
+    ProcessLiveness, RuntimeError, RuntimeManager, SessionLiveness, TmuxRuntimeManager,
     platform_engine_diagnostic, process_liveness,
 };
 use jefe::state::AppState;
@@ -43,6 +48,117 @@ fn append_warning(state: &mut AppState, warning: String) {
         None => warning,
     });
 }
+/// Record a held durable read and put the reason where the operator will see
+/// it.
+///
+/// Holding writes without saying so leaves a jefe that looks healthy while
+/// persisting nothing, so the hold and its visible explanation are set
+/// together rather than by separate callers who might do only one of the two
+/// (issue #541).
+fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
+    let Some(reason) = held else {
+        return;
+    };
+    append_warning(state, reason.clone());
+    state.durable_read_held = Some(reason);
+}
+
+/// Select the agents still awaiting a verdict.
+///
+/// A `Running` agent with no runtime binding is one startup held: it kept the
+/// status it was persisted with because nothing disproved it, but it was never
+/// registered with the runtime. The liveness cycle builds its targets from the
+/// runtime's session map, so these agents are invisible to it and would stay
+/// held forever. Refusing to guess is only correct if the question is asked
+/// again (issue #541).
+pub fn agents_awaiting_readoption(state: &AppState) -> Vec<AgentId> {
+    state
+        .agents
+        .iter()
+        .filter(|agent| agent.state_is_unconfirmed())
+        .map(|agent| agent.id.clone())
+        .collect()
+}
+
+/// Ask again about the agents startup could not determine.
+///
+/// Refusing to guess is only safe if the question gets asked again. These
+/// agents are invisible to the liveness cycle because they were never
+/// registered with the runtime, so the periodic pass calls this to re-attempt
+/// adoption -- which is the question they actually failed, rather than the
+/// liveness probe they were never eligible for.
+///
+/// A hold here is not an error: it means the answer is still unavailable and
+/// the agent keeps its persisted state until some later pass gets one.
+pub fn reattempt_held_agents(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
+    let Some(ctx_arc) = ctx else {
+        return;
+    };
+    let pending = agents_awaiting_readoption(&app_state.read());
+    if pending.is_empty() {
+        return;
+    }
+
+    let (agents, repositories) = {
+        let state = app_state.read();
+        (
+            state
+                .agents
+                .iter()
+                .filter(|agent| pending.contains(&agent.id))
+                .cloned()
+                .collect::<Vec<_>>(),
+            state.repositories.clone(),
+        )
+    };
+
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        return;
+    };
+    let mut revived_running = Vec::new();
+    let mut newly_dead = Vec::new();
+    for agent in agents {
+        match restore_one_agent(&agent, &repositories, &mut ctx_guard.runtime, None) {
+            RestoreOneOutcome::Revived(binding) => revived_running.push(RevivedAgent {
+                agent_id: agent.id.clone(),
+                binding,
+            }),
+            RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
+            // Still unanswered, or not ours to answer. Left as persisted.
+            RestoreOneOutcome::Skip | RestoreOneOutcome::Held(_) => {}
+        }
+    }
+    drop(ctx_guard);
+
+    if revived_running.is_empty() && newly_dead.is_empty() {
+        return;
+    }
+    let mut state = app_state.write();
+    apply_restored_state(&mut state, revived_running, newly_dead, None);
+}
+
+/// Report agents whose state startup could not determine.
+///
+/// A held agent keeps its persisted `Running` status and its binding, which is
+/// the correct refusal to guess. But the liveness cycle builds its targets
+/// from the runtime's session map, and a held agent was never registered
+/// there, so nothing probes it again. Left silent that is a Running agent the
+/// operator cannot attach to and is given no reason for, so the hold has to be
+/// stated even though it is the safe outcome (issue #541).
+fn surface_startup_holds(state: &mut AppState, held: &[(AgentId, String)]) {
+    let Some((_, first_reason)) = held.first() else {
+        return;
+    };
+    append_warning(
+        state,
+        format!(
+            "{} agent(s) could not be checked at startup and were left untouched: {first_reason}. \
+             Their state is unknown, not confirmed.",
+            held.len()
+        ),
+    );
+}
+
 fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
     if let Some(warning) = warning {
         append_warning(state, warning);
@@ -174,14 +290,128 @@ fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
     false
 }
 
+/// Adopt an already-running local session under its launch signature.
+///
+/// Every failure here is reached *after* the session was observed alive, so
+/// none of them is evidence of death.
+fn adopt_running_local_agent(
+    agent: &Agent,
+    signature: &AgentLaunchRequest,
+    runtime: &mut TmuxRuntimeManager,
+) -> RestoreOneOutcome {
+    let launched_with = match signature_for_running_agent(
+        agent.persisted_launch_signature.clone(),
+        jefe::runtime::launch_compose::launch_signature_from_request(signature).ok(),
+    ) {
+        Ok(value) => value,
+        Err(reason) => return RestoreOneOutcome::Held(reason),
+    };
+    match runtime.register_existing_local_session(&agent.id, &agent.work_dir, launched_with) {
+        Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
+        // Failing to record a live session is our bookkeeping failing, not the
+        // agent dying.
+        Err(error) => {
+            warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
+            RestoreOneOutcome::Held(Uncertainty::new(
+                ProbeBoundary::SessionExists,
+                format!("could not register the live session: {error}"),
+            ))
+        }
+    }
+}
+
+/// Revive a running agent's session, holding rather than burying it when the
+/// revival succeeds but the bookkeeping around it does not.
+fn revive_running_agent(
+    agent: &Agent,
+    signature: &AgentLaunchRequest,
+    runtime: &mut TmuxRuntimeManager,
+    runtime_warning: Option<&String>,
+) -> RestoreOneOutcome {
+    match revive_agent_session(agent, signature, runtime, runtime_warning) {
+        ReviveOutcome::Revived => {
+            let launch_signature = match signature_for_running_agent(
+                None,
+                jefe::runtime::launch_compose::launch_signature_from_request(signature).ok(),
+            ) {
+                Ok(value) => value,
+                Err(reason) => return RestoreOneOutcome::Held(reason),
+            };
+            match runtime.runtime_binding(&agent.id, &launch_signature) {
+                Some(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
+                None => RestoreOneOutcome::Held(Uncertainty::new(
+                    ProbeBoundary::SessionExists,
+                    "revived session produced no binding".to_owned(),
+                )),
+            }
+        }
+        ReviveOutcome::Died => RestoreOneOutcome::Dead,
+    }
+}
+
+/// Choose the signature to adopt a *running* agent under.
+///
+/// Reached only once the session probe has said the agent is alive, which is
+/// what makes the failing case interesting: a signature that cannot be
+/// composed is a statement about the current configuration, and configuration
+/// says nothing about whether a process is running. #527 marked twenty live
+/// panes stopped because a hash changed; treating an uncomposable signature as
+/// death is the same move, so it yields a hold instead.
+///
+/// The persisted signature wins when present: it is the one the process was
+/// actually launched with, and what the configuration would produce *now* is a
+/// statement about the next launch (issue #583).
+fn signature_for_running_agent(
+    persisted: Option<jefe::domain::LaunchSignatureV1>,
+    composed: Option<jefe::domain::LaunchSignatureV1>,
+) -> Result<jefe::domain::LaunchSignatureV1, Uncertainty> {
+    persisted.or(composed).ok_or_else(|| {
+        Uncertainty::new(
+            ProbeBoundary::LaunchSignature,
+            "no persisted signature and the current configuration composes none".to_owned(),
+        )
+    })
+}
+
+/// Ask the session probe again before accepting that it cannot answer.
+///
+/// #537 was a single transient subprocess failure at cold start that stranded
+/// a live agent. Holding instead of guessing stops that becoming a false
+/// death, but a hold is still the wrong answer when the probe would have
+/// succeeded a moment later, so `Unavailable` is retried before it is believed.
+///
+/// Only `Unavailable` is retried. `Missing` is an answer -- the session really
+/// is gone -- and re-asking a question that was already answered would delay
+/// every genuinely dead agent at startup for nothing.
+fn retry_session_evidence(
+    policy: RetryPolicy,
+    mut probe: impl FnMut() -> SessionLiveness,
+) -> SessionEvidence {
+    let observed = retry_observation(
+        policy,
+        || match probe() {
+            SessionLiveness::Unavailable => Observed::unknown(
+                ProbeBoundary::SessionExists,
+                "session probe did not answer".to_owned(),
+            ),
+            answered => Observed::Known(answered),
+        },
+        std::thread::sleep,
+    );
+    observed
+        .known()
+        .copied()
+        .map_or(SessionEvidence::Unavailable, SessionEvidence::from)
+}
+
 fn classify_agent_startup(
     agent: &Agent,
     signature: &AgentLaunchRequest,
     runtime: &TmuxRuntimeManager,
 ) -> StartupClassification {
-    let session = runtime
-        .session_liveness_for_signature(&agent.id, signature)
-        .into();
+    let session = retry_session_evidence(RetryPolicy::default(), || {
+        runtime.session_liveness_for_signature(&agent.id, signature)
+    });
     let binding = binding_evidence(agent.runtime_binding.as_ref(), &agent.id);
     let process = if signature.remote.enabled {
         ProcessLiveness::MalformedIdentity
@@ -211,16 +441,13 @@ fn process_liveness_for_binding(worker: Option<WorkerProcessIdentity>) -> Proces
     let Some(worker) = worker else {
         return ProcessLiveness::MalformedIdentity;
     };
-    // A creation token lets the probe reject PID reuse; without one all we can
-    // do is ask whether the bare PID is live.
-    if worker.started_at().is_some() {
-        return process_liveness(Some(worker.identity()));
-    }
-    if pid_alive(worker.pid()) {
-        ProcessLiveness::Alive
-    } else {
-        ProcessLiveness::Dead
-    }
+    // A creation token lets the probe reject PID reuse. Without one the same
+    // probe still answers, it just cannot rule reuse out -- so there is no
+    // reason to ask a narrower question. Routing the token-less case through a
+    // `bool` used to launder `Inaccessible` and `ProbeFailure` into a positive
+    // `Alive`, which meant identical uncertainty was held when a token was
+    // present and asserted as liveness when it was not (issue #541).
+    process_liveness(Some(worker.identity()))
 }
 
 /// Load persisted state and settings into `app_state` exactly once.
@@ -306,15 +533,24 @@ pub fn init_app_state(
         Settings::default_with_version()
     });
 
-    let persisted = ctx_guard
-        .persistence
-        .load_durable_state()
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "could not load state, using defaults");
-            jefe::state::durable_projection::RestoredState::default()
-        });
+    // A read that fails is not a read that found nothing. Defaulting here is
+    // what let #445 turn an unreadable document into an empty one, because the
+    // empty result was then projected straight back over the file.
+    let (persisted, durable_read_held) = match ctx_guard.persistence.load_durable_state() {
+        Ok(value) => (value, None),
+        Err(error) => {
+            warn!(error = %error, "could not read durable state; holding writes");
+            (
+                jefe::state::durable_projection::RestoredState::default(),
+                Some(format!(
+                    "Durable state could not be read ({error}). Agents shown may be incomplete and saving is paused so the existing file is not overwritten."
+                )),
+            )
+        }
+    };
 
     let mut state = app_state.write();
+    surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
     state.override_agent_theme = settings.override_agent_theme;
@@ -440,6 +676,13 @@ enum RestoreOneOutcome {
     Dead,
     /// Agent should be left as-is (non-running, or local orphan kept Running).
     Skip,
+    /// A startup probe did not answer, so the agent keeps everything it was
+    /// persisted with and is re-probed later.
+    ///
+    /// Deliberately not `Skip`: both leave state untouched now, but only this
+    /// one records that the question is still open, which is what a deferred
+    /// re-probe and the operator-facing state need (issue #541).
+    Held(Uncertainty),
 }
 struct RevivedAgent {
     agent_id: AgentId,
@@ -462,7 +705,16 @@ fn restore_one_agent(
         .find(|repository| repository.id == agent.repository_id)
         .cloned()
     else {
-        return RestoreOneOutcome::Dead;
+        // Configuration we cannot find, not a process we observed ending. The
+        // periodic re-adoption pass reaches this on every cycle, so burying
+        // the agent here would kill a live one for a bookkeeping gap (#541).
+        return RestoreOneOutcome::Held(Uncertainty::new(
+            ProbeBoundary::LaunchSignature,
+            format!(
+                "repository {} is not in state, so the agent could not be checked",
+                agent.repository_id.0
+            ),
+        ));
     };
     let signature = launch_signature_for_agent(agent, &repository);
 
@@ -472,6 +724,13 @@ fn restore_one_agent(
         | StartupClassification::Inconsistent
         | StartupClassification::Orphaned => RestoreOneOutcome::Dead,
         StartupClassification::Recoverable => RestoreOneOutcome::Skip,
+        StartupClassification::Held => RestoreOneOutcome::Held(Uncertainty::new(
+            ProbeBoundary::SessionExists,
+            format!(
+                "startup could not determine whether session {} is alive",
+                agent.id.0
+            ),
+        )),
         // A live local session means jefe is re-adopting a process it already
         // started. Adoption is proved by session name, liveness and process
         // identity, so it must not re-resolve a version selector or probe an
@@ -482,36 +741,10 @@ fn restore_one_agent(
         // The binding carries the signature the process was *launched* with,
         // not the one the current configuration would produce.
         StartupClassification::Running if !signature.remote.enabled => {
-            let Some(launched_with) = agent.persisted_launch_signature.clone().or_else(|| {
-                jefe::runtime::launch_compose::launch_signature_from_request(&signature).ok()
-            }) else {
-                return RestoreOneOutcome::Dead;
-            };
-            match runtime.register_existing_local_session(&agent.id, &agent.work_dir, launched_with)
-            {
-                Ok(binding) => RestoreOneOutcome::Revived(Box::new(binding)),
-                Err(error) => {
-                    warn!(agent_id = %agent.id.0, error = %error, "could not register existing session");
-                    RestoreOneOutcome::Dead
-                }
-            }
+            adopt_running_local_agent(agent, &signature, runtime)
         }
         StartupClassification::Running => {
-            match revive_agent_session(agent, &signature, runtime, runtime_warning) {
-                ReviveOutcome::Revived => {
-                    let Ok(launch_signature) =
-                        jefe::runtime::launch_compose::launch_signature_from_request(&signature)
-                    else {
-                        return RestoreOneOutcome::Dead;
-                    };
-                    runtime
-                        .runtime_binding(&agent.id, &launch_signature)
-                        .map_or(RestoreOneOutcome::Dead, |binding| {
-                            RestoreOneOutcome::Revived(Box::new(binding))
-                        })
-                }
-                ReviveOutcome::Died => RestoreOneOutcome::Dead,
-            }
+            revive_running_agent(agent, &signature, runtime, runtime_warning)
         }
     }
 }
@@ -540,6 +773,7 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
 
     let mut revived_running = Vec::new();
     let mut newly_dead = Vec::new();
+    let mut held: Vec<(AgentId, String)> = Vec::new();
     let runtime_warning: Option<String> = None;
 
     for agent in agents {
@@ -557,22 +791,34 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
             }
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
             RestoreOneOutcome::Skip => {}
+            // Left exactly as persisted, including its binding.
+            RestoreOneOutcome::Held(reason) => {
+                warn!(
+                    agent_id = %agent.id.0,
+                    %reason,
+                    "startup held this agent: its state was not determined and was left untouched"
+                );
+                held.push((agent.id.clone(), reason.to_string()));
+            }
         }
     }
 
     drop(ctx_guard);
 
-    let state_changed =
-        !revived_running.is_empty() || !newly_dead.is_empty() || runtime_warning.is_some();
+    let state_changed = !revived_running.is_empty()
+        || !newly_dead.is_empty()
+        || runtime_warning.is_some()
+        || !held.is_empty();
     if state_changed {
         let mut state = app_state.write();
         apply_restored_state(&mut state, revived_running, newly_dead, runtime_warning);
+        surface_startup_holds(&mut state, &held);
     }
 
     // Reclaim runs after restore has settled so it sees the bindings restore
     // actually established, and before shell reconciliation so an adopted
     // session's shell window is normalized like any other (issue #585).
-    let reclaimed = reclaim_unbound_sessions(app_state, ctx_arc);
+    let reclaimed = reclaim_io::reclaim_unbound_sessions(app_state, ctx_arc);
 
     if let Some(warning) = shell_reconcile::reconcile_shell_inventory(app_state, ctx) {
         append_warning(&mut app_state.write(), warning);
@@ -627,151 +873,6 @@ fn revive_agent_session(
             ReviveOutcome::Died
         }
     }
-}
-
-/// Re-bind live sessions whose records startup left unbound (issue #585).
-///
-/// Runs after the restore pass has settled, so it sees the bindings restore
-/// actually established rather than the ones the document claimed. A record is
-/// eligible only when it holds no binding at that point, which excludes both a
-/// healthy agent and one deliberately left alone as `Recoverable`.
-///
-/// Adoption goes through `register_existing_local_session`, so session
-/// liveness, pane and worker identity, and PID-reuse rejection all still apply:
-/// this pass widens *what may be reconsidered*, never what counts as proof.
-/// Nothing here launches, sends, kills, or mutates configuration.
-fn reclaim_unbound_sessions(
-    app_state: &mut HookState<AppState>,
-    ctx_arc: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
-) -> bool {
-    let candidates: Vec<(AgentId, String)> = {
-        let state = app_state.read();
-        state
-            .agents
-            .iter()
-            .filter(|agent| agent.runtime_binding.is_none())
-            .filter(|agent| {
-                state
-                    .repository_for_agent(&agent.id)
-                    .is_some_and(|repository| !repository.remote.enabled)
-            })
-            .map(|agent| (agent.id.clone(), reclaim::expected_session(&agent.id)))
-            .collect()
-    };
-
-    let observed = jefe::runtime::list_jefe_sessions();
-    if observed.is_empty() {
-        return false;
-    }
-
-    let decisions = reclaim::classify_reclaimable(&observed, &candidates);
-    let Some(outcome) = adopt_reclaimable(&*app_state, ctx_arc, decisions) else {
-        return false;
-    };
-    let ReclaimOutcome {
-        adopted,
-        ambiguous,
-        unowned,
-        revived,
-    } = outcome;
-
-    let report = reclaim::reclaim_report(&adopted, &ambiguous, &unowned);
-    if revived.is_empty() && report.is_none() {
-        return false;
-    }
-    let mut state = app_state.write();
-    apply_restored_state(&mut state, revived, Vec::new(), report);
-    true
-}
-
-/// What one reclaim pass established.
-struct ReclaimOutcome {
-    adopted: Vec<AgentId>,
-    ambiguous: Vec<String>,
-    unowned: Vec<String>,
-    revived: Vec<RevivedAgent>,
-}
-
-/// Drive the runtime for each classified session.
-///
-/// Returns `None` when the runtime lock is unusable, which is the one case
-/// where the pass declines entirely rather than reporting a partial result.
-fn adopt_reclaimable(
-    app_state: &HookState<AppState>,
-    ctx_arc: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
-    decisions: Vec<reclaim::ReclaimDecision>,
-) -> Option<ReclaimOutcome> {
-    // A poisoned runtime lock means an earlier panic left the runtime in an
-    // unknown state, so reclaim declines rather than adopting against it. Say
-    // so: skipping silently would make a live agent look abandoned for a reason
-    // the user could never see, which is the very failure this pass exists to
-    // end.
-    let mut ctx_guard = match ctx_arc.lock() {
-        Ok(guard) => guard,
-        Err(error) => {
-            warn!(error = %error, "runtime lock poisoned; skipping session reclaim this startup");
-            return None;
-        }
-    };
-    let mut outcome = ReclaimOutcome {
-        adopted: Vec::new(),
-        ambiguous: Vec::new(),
-        unowned: Vec::new(),
-        revived: Vec::new(),
-    };
-    for decision in decisions {
-        match decision {
-            reclaim::ReclaimDecision::Adopt(agent_id) => {
-                let Some((work_dir, signature)) = reclaim_inputs(app_state, &agent_id) else {
-                    continue;
-                };
-                match ctx_guard
-                    .runtime
-                    .register_existing_local_session(&agent_id, &work_dir, signature)
-                {
-                    Ok(binding) => {
-                        outcome.adopted.push(agent_id.clone());
-                        outcome.revived.push(RevivedAgent {
-                            agent_id,
-                            binding: Box::new(binding),
-                        });
-                    }
-                    Err(error) => {
-                        warn!(agent_id = %agent_id.0, error = %error, "could not reclaim live session");
-                    }
-                }
-            }
-            reclaim::ReclaimDecision::Ambiguous(session) => outcome.ambiguous.push(session),
-            reclaim::ReclaimDecision::Unowned(session) => outcome.unowned.push(session),
-        }
-    }
-    Some(outcome)
-}
-
-/// Work directory and launched-with signature for one reclaim candidate.
-///
-/// The binding carries the signature the process was *launched* with, taken
-/// from the persisted record; the current configuration is deliberately not
-/// consulted, because it describes the next launch rather than this process
-/// (issue #583).
-fn reclaim_inputs(
-    app_state: &HookState<AppState>,
-    agent_id: &AgentId,
-) -> Option<(std::path::PathBuf, jefe::domain::LaunchSignatureV1)> {
-    let state = app_state.read();
-    let inputs = {
-        let agent = state.agents.iter().find(|agent| agent.id == *agent_id)?;
-        let repository = state.repository_for_agent(agent_id)?;
-        let signature = agent.persisted_launch_signature.clone().or_else(|| {
-            jefe::runtime::launch_compose::launch_signature_from_request(
-                &launch_signature_for_agent(agent, repository),
-            )
-            .ok()
-        })?;
-        (agent.work_dir.clone(), signature)
-    };
-    drop(state);
-    Some(inputs)
 }
 
 /// Apply restored session results to app state and persist.

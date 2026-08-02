@@ -9,6 +9,7 @@ use std::hash::BuildHasher;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use crate::domain::liveness_observation::{Observed, ProbeBoundary};
 use crate::domain::{AgentId, RemoteRepositorySettings};
 use crate::runtime::commands::{
     remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
@@ -19,25 +20,6 @@ use crate::runtime::manager::LivenessCheck;
 /// Matches the `TMUX_TIMEOUT` used by the harness driver so a hung tmux server
 /// cannot stall the background liveness thread indefinitely (issue #287).
 const LOCAL_TMUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Check if a process with the given PID is alive.
-///
-/// This **complements**, not replaces, [`check_session_alive`]. When the jefe
-/// multiplexer server has died but the worker is still running,
-/// `check_session_alive` reports false while `pid_alive` reports true — letting
-/// jefe recognize the worker is recoverable rather than marking the agent Dead.
-///
-/// Uses the typed process observation service on every platform. Only a
-/// confirmed exit returns false; inaccessible and failed probes fail open.
-/// Local-only: remote agents stay on the tmux/SSH-only path.
-#[must_use]
-pub fn pid_alive(pid: u32) -> bool {
-    let liveness = super::process::pid_liveness(pid);
-    if liveness == super::process::ProcessLiveness::ProbeFailure {
-        tracing::warn!(pid, "PID liveness probe failed; assuming worker alive");
-    }
-    super::process::process_liveness_indicates_alive(liveness)
-}
 
 /// Result of probing one persistent multiplexer session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +60,7 @@ pub fn session_liveness(session_name: &str) -> SessionLiveness {
     parse_dead_pane_flags(&String::from_utf8_lossy(&output.stdout))
 }
 
-fn parse_dead_pane_flags(output: &str) -> SessionLiveness {
+pub(super) fn parse_dead_pane_flags(output: &str) -> SessionLiveness {
     let mut saw_dead = false;
     for flag in output
         .lines()
@@ -255,27 +237,6 @@ pub enum WorkerDisposition {
     Unknown,
 }
 
-/// Classify a worker's fate from freshly probed anchor evidence.
-///
-/// Only a confirmed-alive anchor that still matches its recorded creation token
-/// counts as survival, so a recycled PID can never make a dead agent look
-/// alive.
-#[must_use]
-pub fn classify_worker_disposition(
-    anchors: &[super::orphan::ObservedDescendant],
-) -> WorkerDisposition {
-    if anchors.is_empty() {
-        return WorkerDisposition::Unknown;
-    }
-    if anchors
-        .iter()
-        .any(|anchor| matches!(anchor.liveness, super::process::ProcessLiveness::Alive))
-    {
-        return WorkerDisposition::SurvivedPane;
-    }
-    WorkerDisposition::GoneWithPane
-}
-
 /// Reconcile dead agents and return identity triples (issue #301 Phase 4).
 ///
 /// Like [`reconcile_dead_agents`] but returns [`LivenessIdentity`] so the
@@ -308,27 +269,89 @@ pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
             binding_session_name: t.binding_session_name.clone(),
             lifecycle_generation: t.lifecycle_generation,
             // Probe the recorded anchors so a pane death is not reported as a
-            // worker death without evidence (issue #543).
-            worker: classify_worker_disposition(&probe_worker_anchors(&t.worker_identities)),
+            // worker death without evidence (issue #543). This must observe the
+            // anchors directly: routing them through a reaping predicate loses
+            // the difference between "gone" and "cannot tell" (issue #541).
+            worker: observe_worker_disposition(&t.worker_identities),
         })
         .collect()
 }
 
-/// Freshly probe each recorded worker anchor, rejecting PID reuse.
+/// Observe whether the workers recorded for one agent are still alive.
+///
+/// Answers "did *this agent's* worker survive?", which is what makes a
+/// server-level event judgeable per agent instead of globally. A replaced
+/// multiplexer server is one process; the workers beneath it are others, and
+/// whether they died with it is a question that has to be asked of each one
+/// (issues #541 V6, #543).
 #[must_use]
-fn probe_worker_anchors(
+pub fn observe_worker_disposition(
     anchors: &[crate::domain::WorkerProcessIdentity],
-) -> Vec<super::orphan::ObservedDescendant> {
-    anchors
-        .iter()
-        .map(|anchor| {
-            if super::orphan::descendant_still_matches_anchor(*anchor) {
-                super::orphan::ObservedDescendant::alive(*anchor)
-            } else {
-                super::orphan::ObservedDescendant::dead(*anchor)
+) -> WorkerDisposition {
+    if anchors.is_empty() {
+        return WorkerDisposition::Unknown;
+    }
+    let mut unverifiable = false;
+    let mut alive = false;
+    for anchor in anchors {
+        match observe_anchor(*anchor) {
+            AnchorObservation::Alive => alive = true,
+            AnchorObservation::Gone => {}
+            AnchorObservation::Unverifiable => unverifiable = true,
+        }
+    }
+    if alive {
+        WorkerDisposition::SurvivedPane
+    } else if unverifiable {
+        WorkerDisposition::Unknown
+    } else {
+        WorkerDisposition::GoneWithPane
+    }
+}
+
+/// What one recorded anchor turned out to be.
+///
+/// Deliberately three-valued. `descendant_still_matches_anchor` answers the
+/// same probe with a `bool`, but that `bool` means "safe to reap", so it
+/// returns `false` for a process that is dead, one whose PID was recycled,
+/// *and* one it simply could not verify. That is the right default for
+/// termination and the wrong one for liveness: read as a liveness answer it
+/// turns "cannot tell" into "dead", which is the conflation this issue exists
+/// to remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnchorObservation {
+    Alive,
+    Gone,
+    Unverifiable,
+}
+
+/// Observe one anchor without collapsing uncertainty into death.
+#[must_use]
+fn observe_anchor(anchor: crate::domain::WorkerProcessIdentity) -> AnchorObservation {
+    if anchor.pid() == 0 {
+        return AnchorObservation::Unverifiable;
+    }
+    match super::process::pid_liveness(anchor.pid()) {
+        super::process::ProcessLiveness::Dead | super::process::ProcessLiveness::ReusedPid => {
+            AnchorObservation::Gone
+        }
+        super::process::ProcessLiveness::Alive => {
+            // Something is running under that PID. Only a matching start token
+            // proves it is still *our* process; without one the PID may have
+            // been recycled, so the honest answer is that we cannot tell.
+            let observed = super::process::capture_process_identity(anchor.pid())
+                .ok()
+                .and_then(|identity| identity.started_at);
+            match (anchor.started_at(), observed) {
+                (Some(recorded), Some(current)) if recorded == current => AnchorObservation::Alive,
+                (Some(_), Some(_)) => AnchorObservation::Gone,
+                _ => AnchorObservation::Unverifiable,
             }
-        })
-        .collect()
+        }
+        super::process::ProcessLiveness::Inaccessible
+        | super::process::ProcessLiveness::MalformedIdentity
+        | super::process::ProcessLiveness::ProbeFailure => AnchorObservation::Unverifiable,
+    }
 }
 
 /// Query the tmux server once for all alive sessions, returning the set of
@@ -356,15 +379,13 @@ pub fn alive_session_set() -> Option<HashSet<String>> {
 /// Remote targets are excluded automatically. This is the single-call API
 /// for callers that want dead agent IDs without managing the intermediate sets.
 ///
-/// Returns an empty vector (no dead agents) when the tmux server is
-/// unavailable — infrastructure failure must not cause all agents to be
-/// falsely marked dead (issue #287 review).
+/// Yields [`Observed::Unknown`] when the multiplexer could not answer, so a
+/// caller can tell "no agents are dead" apart from "we could not find out".
+/// Collapsing those two is the fail-open defect issue #541 exists to remove.
 #[must_use]
-pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
+pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Observed<Vec<AgentId>> {
     batch_liveness_check_with_identity(targets)
-        .into_iter()
-        .map(|id| id.agent_id)
-        .collect()
+        .map(|ids| ids.into_iter().map(|id| id.agent_id).collect())
 }
 
 /// Batch liveness check returning identity triples (issue #301 Phase 4).
@@ -373,16 +394,62 @@ pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
 /// caller can verify the agent's current binding session name and lifecycle
 /// generation still match before applying the dead status.
 #[must_use]
-pub fn batch_liveness_check_with_identity(targets: &[LivenessCheck]) -> Vec<LivenessIdentity> {
-    let Some(existing) = list_all_sessions() else {
-        tracing::warn!("tmux list-sessions failed; skipping liveness cycle");
-        return Vec::new();
+pub fn batch_liveness_check_with_identity(
+    targets: &[LivenessCheck],
+) -> Observed<Vec<LivenessIdentity>> {
+    let existing = list_all_sessions().map_or_else(
+        || {
+            Observed::unknown(
+                ProbeBoundary::SessionList,
+                "the multiplexer did not answer list-sessions",
+            )
+        },
+        Observed::Known,
+    );
+    let alive_panes = list_alive_pane_sessions().map_or_else(
+        || {
+            Observed::unknown(
+                ProbeBoundary::PaneList,
+                "the multiplexer did not answer list-panes",
+            )
+        },
+        Observed::Known,
+    );
+    reconcile_observed(targets, existing, alive_panes)
+}
+
+/// Reconcile targets against probe results that may not have answered.
+///
+/// Pure, so each boundary can be driven to failure in a test without touching
+/// the environment. If either probe is unknown the whole reconciliation is
+/// unknown: a session set missing because `list-sessions` failed is
+/// indistinguishable from one missing because the sessions ended, and guessing
+/// between those is exactly how #527 marked twenty live panes stopped.
+#[must_use]
+pub fn reconcile_observed(
+    targets: &[LivenessCheck],
+    existing: Observed<HashSet<String>>,
+    alive_panes: Observed<HashSet<String>>,
+) -> Observed<Vec<LivenessIdentity>> {
+    let existing = match existing {
+        Observed::Known(sessions) => sessions,
+        Observed::Unknown(reason) => {
+            tracing::warn!(%reason, "liveness held: the session list is unknown");
+            return Observed::Unknown(reason);
+        }
     };
-    let Some(alive_panes) = list_alive_pane_sessions() else {
-        tracing::warn!("tmux list-panes failed; skipping liveness cycle");
-        return Vec::new();
+    let alive_panes = match alive_panes {
+        Observed::Known(panes) => panes,
+        Observed::Unknown(reason) => {
+            tracing::warn!(%reason, "liveness held: the pane list is unknown");
+            return Observed::Unknown(reason);
+        }
     };
-    reconcile_dead_agents_with_identity(targets, &existing, &alive_panes)
+    Observed::Known(reconcile_dead_agents_with_identity(
+        targets,
+        &existing,
+        &alive_panes,
+    ))
 }
 
 /// Query the tmux server for all session names (one subprocess).
@@ -483,7 +550,7 @@ pub fn run_tmux_with_timeout(
 /// it on timeout. Separated from [`run_tmux_with_timeout`] so the timeout
 /// behavior can be unit-tested with a plain `sleep` subprocess instead of a
 /// real tmux invocation (issue #287 review: kill path must be verified).
-fn run_child_with_timeout(
+pub(super) fn run_child_with_timeout(
     mut child: std::process::Child,
     deadline: Instant,
 ) -> Result<std::process::Output, ()> {
@@ -519,13 +586,16 @@ fn run_child_with_timeout(
 ///
 /// Used by startup reclaim to observe sessions the durable document does not
 /// know about (issue #585).
+///
+/// Bounded by [`LOCAL_TMUX_COMMAND_TIMEOUT`] like every other probe here: this
+/// runs on the startup path, so an unbounded wait on a wedged server does not
+/// merely delay reclaim, it withholds the first frame and the user sees no
+/// agents at all (issue #287).
 pub fn list_jefe_sessions() -> Vec<String> {
     let Ok(mut command) = tmux_command() else {
         return Vec::new();
     };
-    let output = command
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output();
+    let output = run_tmux_with_timeout(command.args(["list-sessions", "-F", "#{session_name}"]));
 
     match output {
         Ok(out) if out.status.success() => {
@@ -551,414 +621,5 @@ pub fn kill_session(session_name: &str) -> bool {
     match output {
         Ok(out) => out.status.success(),
         Err(_) => false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{AgentId, RemoteRepositorySettings};
-    use crate::runtime::manager::LivenessCheck;
-
-    fn make_liveness_check(agent_id: &str, session_name: &str, remote: bool) -> LivenessCheck {
-        LivenessCheck {
-            agent_id: AgentId(agent_id.to_string()),
-            session_name: session_name.to_string(),
-            remote: if remote {
-                Some(RemoteRepositorySettings::default())
-            } else {
-                None
-            },
-            binding_session_name: Some(session_name.to_string()),
-            lifecycle_generation: 0,
-            worker_identities: Vec::new(),
-        }
-    }
-
-    // --- parse_alive_sessions (pure) ---
-
-    #[test]
-    fn parse_alive_sessions_basic() {
-        let raw = "jefe-agent1
-jefe-agent2
-jefe-agent3
-";
-        let set = parse_alive_sessions(raw);
-        assert_eq!(set.len(), 3);
-        assert!(set.contains("jefe-agent1"));
-        assert!(set.contains("jefe-agent2"));
-        assert!(set.contains("jefe-agent3"));
-    }
-
-    #[test]
-    fn parse_alive_sessions_trims_whitespace() {
-        let raw = "  jefe-a  \n jefe-b \n\n";
-        let set = parse_alive_sessions(raw);
-        assert_eq!(set.len(), 2);
-        assert!(set.contains("jefe-a"));
-        assert!(set.contains("jefe-b"));
-    }
-
-    #[test]
-    fn parse_alive_sessions_empty_output() {
-        let set = parse_alive_sessions("");
-        assert!(set.is_empty());
-    }
-
-    #[test]
-    fn parse_alive_sessions_skips_empty_lines() {
-        let raw = "jefe-a
-
-
-jefe-b
-";
-        let set = parse_alive_sessions(raw);
-        assert_eq!(set.len(), 2);
-    }
-
-    #[test]
-    fn dead_pane_parser_preserves_tri_state() {
-        assert_eq!(parse_dead_pane_flags("0\n1\n"), SessionLiveness::Alive);
-        assert_eq!(parse_dead_pane_flags("1\ntrue\n"), SessionLiveness::Missing);
-        assert_eq!(parse_dead_pane_flags(""), SessionLiveness::Unavailable);
-        assert_eq!(
-            parse_dead_pane_flags("unexpected\n"),
-            SessionLiveness::Unavailable
-        );
-    }
-
-    // --- parse_pane_alive (pure) ---
-
-    #[test]
-    fn parse_pane_alive_identifies_live_agent_windows_only() {
-        let raw = "jefe-a:0:0
-jefe-b:0:1
-jefe-c:0:0
-jefe-b:1:0
-";
-        let set = parse_pane_alive(raw);
-        assert_eq!(set.len(), 2);
-        assert!(set.contains("jefe-a"));
-        assert!(set.contains("jefe-c"));
-        assert!(
-            !set.contains("jefe-b"),
-            "shell window must not mask dead agent"
-        );
-    }
-
-    #[test]
-    fn parse_pane_alive_only_numeric_flags() {
-        let raw = "jefe-a:0:0
-jefe-b:0:1
-jefe-c:0:false
-";
-        let set = parse_pane_alive(raw);
-        assert!(set.contains("jefe-a"));
-        assert!(!set.contains("jefe-b"));
-        assert!(!set.contains("jefe-c"), "non-numeric flags must not match");
-    }
-
-    #[test]
-    fn parse_pane_alive_empty_output() {
-        let set = parse_pane_alive("");
-        assert!(set.is_empty());
-    }
-
-    #[test]
-    fn parse_pane_alive_skips_malformed_lines() {
-        let raw = "jefe-a:0:0
-malformed
-jefe-b:0:0
-";
-        let set = parse_pane_alive(raw);
-        assert_eq!(set.len(), 2);
-        assert!(set.contains("jefe-a"));
-        assert!(set.contains("jefe-b"));
-    }
-
-    // --- reconcile_dead_agents (pure) ---
-
-    #[test]
-    fn reconcile_dead_agents_finds_missing_sessions() {
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-
-        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].0, "agent2");
-    }
-
-    #[test]
-    fn reconcile_dead_agents_finds_dead_panes() {
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let existing: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
-            .into_iter()
-            .collect();
-        // agent1 has alive panes, agent2 has only dead panes
-        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-
-        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].0, "agent2");
-    }
-
-    #[test]
-    fn reconcile_dead_agents_all_alive() {
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let existing: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
-            .into_iter()
-            .collect();
-        let alive_panes: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
-            .into_iter()
-            .collect();
-
-        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-        assert!(dead.is_empty());
-    }
-
-    #[test]
-    fn reconcile_dead_agents_excludes_remote_targets() {
-        let targets = vec![
-            make_liveness_check("local-agent", "jefe-local", false),
-            make_liveness_check("remote-agent", "jefe-remote", true),
-        ];
-        // No sessions exist
-        let existing: HashSet<String> = HashSet::new();
-        let alive_panes: HashSet<String> = HashSet::new();
-
-        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-        // Only local-agent is dead; remote-agent is excluded
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].0, "local-agent");
-    }
-
-    #[test]
-    fn reconcile_dead_agents_empty_targets() {
-        let dead = reconcile_dead_agents(&[], &HashSet::new(), &HashSet::new());
-        assert!(dead.is_empty());
-    }
-
-    // --- alive_session_set (integration, needs tmux) ---
-
-    #[test]
-    fn alive_session_set_does_not_panic_without_tmux_server() {
-        // On a system without tmux or with no sessions, this returns None.
-        // This test validates graceful failure, not the presence of tmux.
-        let set = alive_session_set();
-        // We don't assert the value because a tmux server might have sessions
-        // from other processes. We just verify it doesn't panic.
-        let _ = set;
-    }
-
-    #[test]
-    fn reconcile_dead_agents_marks_all_dead_when_no_sessions_exist() {
-        // When no tmux sessions exist, all local targets are dead.
-        // This tests the pure reconcile function with deterministic inputs
-        // (no tmux dependency).
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-
-        let existing: HashSet<String> = HashSet::new();
-        let alive_panes: HashSet<String> = HashSet::new();
-        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 2, "empty tmux state means all targets are dead");
-    }
-
-    #[test]
-    fn batch_liveness_check_does_not_panic() {
-        // Smoke test: batch_liveness_check must not panic regardless of
-        // whether a tmux server is available. The fail-open contract (returns
-        // empty Vec when tmux is unavailable) is verified by the pure
-        // reconcile_dead_agents test above.
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let _ = batch_liveness_check(&targets);
-    }
-
-    // --- reconcile_dead_agents_with_identity (issue #301 Phase 4) ---
-
-    #[test]
-    fn reconcile_with_identity_returns_identity_triples() {
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-
-        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].agent_id.0, "agent2");
-        assert_eq!(dead[0].binding_session_name.as_deref(), Some("jefe-agent2"));
-        assert_eq!(dead[0].lifecycle_generation, 0);
-    }
-
-    #[test]
-    fn reconcile_with_identity_excludes_remote() {
-        let targets = vec![
-            make_liveness_check("local", "jefe-local", false),
-            make_liveness_check("remote", "jefe-remote", true),
-        ];
-        let existing: HashSet<String> = HashSet::new();
-        let alive_panes: HashSet<String> = HashSet::new();
-
-        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].agent_id.0, "local");
-    }
-
-    #[test]
-    fn reconcile_with_identity_existing_but_not_alive() {
-        // Session exists in `list-sessions` but has only dead panes in
-        // `list-panes -a` — it must be reported dead.
-        let targets = vec![make_liveness_check("agent1", "jefe-agent1", false)];
-        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
-        let alive_panes: HashSet<String> = HashSet::new();
-
-        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
-        assert_eq!(dead.len(), 1);
-        assert_eq!(dead[0].agent_id.0, "agent1");
-    }
-
-    #[test]
-    fn batch_liveness_check_with_identity_does_not_panic() {
-        let targets = vec![
-            make_liveness_check("agent1", "jefe-agent1", false),
-            make_liveness_check("agent2", "jefe-agent2", false),
-        ];
-        let _ = batch_liveness_check_with_identity(&targets);
-    }
-
-    #[test]
-    fn batch_command_count_constant_with_agent_count() {
-        // Issue #301 Phase 4: batch_liveness_check uses exactly two tmux
-        // subprocesses regardless of N. The pure reconcile function
-        // processes N targets without any additional subprocesses.
-        for n in 1..=5 {
-            let targets: Vec<_> = (0..n)
-                .map(|i| {
-                    make_liveness_check(&format!("agent{i}"), &format!("jefe-agent{i}"), false)
-                })
-                .collect();
-            let existing: HashSet<String> =
-                targets.iter().map(|t| t.session_name.clone()).collect();
-            let alive_panes: HashSet<String> = existing.clone();
-            let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
-            assert!(dead.is_empty(), "all alive for n={n}");
-        }
-    }
-
-    // --- existing tests ---
-
-    #[test]
-    fn check_nonexistent_session_returns_false() {
-        // This session should not exist
-        let alive = check_session_alive("jefe-nonexistent-test-session-12345");
-        assert!(!alive);
-    }
-
-    #[test]
-    fn pid_alive_returns_true_for_current_process() {
-        // The current process always exists, so kill -0 must succeed.
-        let me = std::process::id();
-        assert!(pid_alive(me));
-    }
-
-    #[test]
-    fn pid_alive_returns_false_for_nonexistent_pid() {
-        // 2_000_000_000 is within pid_t (i32) range but far above every
-        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
-        // deterministically returns ESRCH (no such process). u32::MAX
-        // (4_294_967_295) overflows pid_t parsing on macOS, which is
-        // implementation-defined.
-        assert!(!pid_alive(2_000_000_000));
-    }
-
-    // --- run_child_with_timeout (issue #287 review: kill path must be verified) ---
-
-    #[cfg(unix)]
-    #[test]
-    fn run_child_with_timeout_kills_long_running_subprocess() {
-        // Spawn a `sleep 30` and verify run_child_with_timeout kills it after
-        // a 1-second deadline rather than blocking indefinitely.
-        use std::process::Command;
-        let child = Command::new("sleep")
-            .arg("30")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|_| panic!("spawn sleep"));
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let result = run_child_with_timeout(child, deadline);
-        assert!(result.is_err(), "timeout must produce Err");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn run_child_with_timeout_returns_output_for_fast_subprocess() {
-        use std::process::Command;
-        let child = Command::new("echo")
-            .arg("ok")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|_| panic!("spawn echo"));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let result = run_child_with_timeout(child, deadline);
-        assert!(result.is_ok(), "fast subprocess must succeed");
-        let output = result.unwrap_or_else(|()| panic!("checked ok"));
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("ok"), "output must contain echo result");
-    }
-    /// A dead pane whose recorded worker anchor is still alive is a surviving
-    /// worker, not a dead agent (issue #543).
-    #[test]
-    fn a_live_anchor_under_a_dead_pane_is_survival_not_death() {
-        let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
-        let observed = vec![crate::runtime::orphan::ObservedDescendant::alive(anchor)];
-
-        assert_eq!(
-            classify_worker_disposition(&observed),
-            WorkerDisposition::SurvivedPane,
-            "a validated live worker must never be reported as gone with its pane"
-        );
-    }
-
-    /// Every recorded anchor being dead is the only evidence that lets the pane's
-    /// death stand in for the agent's (issue #543).
-    #[test]
-    fn only_dead_anchors_confirm_the_worker_died_with_the_pane() {
-        let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
-        let observed = vec![crate::runtime::orphan::ObservedDescendant::dead(anchor)];
-
-        assert_eq!(
-            classify_worker_disposition(&observed),
-            WorkerDisposition::GoneWithPane
-        );
-    }
-
-    /// With no recorded anchors the pane's death is simply not evidence about
-    /// the worker, and must not be reported as if it were (issue #543).
-    #[test]
-    fn absent_anchors_leave_the_worker_fate_unknown() {
-        assert_eq!(
-            classify_worker_disposition(&[]),
-            WorkerDisposition::Unknown,
-            "no evidence must read as unknown, not as confirmed death"
-        );
     }
 }

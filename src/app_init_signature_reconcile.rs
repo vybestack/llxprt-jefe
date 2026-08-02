@@ -35,6 +35,13 @@ pub(super) enum StartupClassification {
     Recoverable,
     Inconsistent,
     Orphaned,
+    /// A probe did not answer, so startup has no basis for any classification.
+    ///
+    /// Distinct from [`Self::Recoverable`], which is a conclusion drawn from
+    /// evidence that did arrive. Held means the evidence never arrived, so the
+    /// agent must be left exactly as persisted and re-probed later rather than
+    /// classified now (issue #541).
+    Held,
 }
 
 /// Ownership evidence for one persisted binding.
@@ -100,7 +107,10 @@ pub(super) fn classify_startup(
     }
     match session {
         SessionEvidence::Alive => StartupClassification::Running,
-        SessionEvidence::Unavailable => StartupClassification::Recoverable,
+        // The session probe did not answer. Every classification below this
+        // point reads the *absence* of a session as meaningful, which it is
+        // not when the question was never answered (issue #541, #537).
+        SessionEvidence::Unavailable => StartupClassification::Held,
         SessionEvidence::Missing if remote => StartupClassification::Stopped,
         SessionEvidence::Missing => classify_missing_local_process(process),
     }
@@ -111,8 +121,11 @@ fn classify_missing_local_process(process: ProcessLiveness) -> StartupClassifica
         ProcessLiveness::Dead => StartupClassification::Stopped,
         ProcessLiveness::ReusedPid => StartupClassification::Stale,
         ProcessLiveness::MalformedIdentity => StartupClassification::Inconsistent,
-        ProcessLiveness::Alive | ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure => {
-            StartupClassification::Recoverable
+        // The process query itself failed or was refused, so liveness is
+        // unknown rather than recoverable.
+        ProcessLiveness::Inaccessible | ProcessLiveness::ProbeFailure => {
+            StartupClassification::Held
         }
+        ProcessLiveness::Alive => StartupClassification::Recoverable,
     }
 }
