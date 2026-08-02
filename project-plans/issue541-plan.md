@@ -133,3 +133,22 @@ The alternative is a separate non-persisted observation layer wrapping the durab
 I lean to the second — uncertainty is a property of an observation, not of an agent — but it is a
 domain-shape decision with persistence consequences, and S1 blocks on it. Proceeding with the
 second unless told otherwise, and will record the choice in the S1 commit.
+
+## V7 resolution: no manual re-probe keybinding
+
+The acceptance matrix asked for the unknown state to be visible *and*
+actionable. Delivered as:
+
+- visible: unconfirmed rows render a distinct glyph in yellow, and startup
+  reports how many agents it could not check and why;
+- actionable: the periodic pass re-attempts adoption every
+  `LIVENESS_POLL_INTERVAL`, which is 2 seconds.
+
+A bound "force re-probe" action was considered and rejected. It would add a
+`HandlerKey` variant, a published action id and owner, a default chord, keymap
+persistence and help text -- a published-surface change -- to trigger by hand
+something that already happens automatically every two seconds. The operator
+gains nothing they do not already have within one poll.
+
+If a manual trigger is ever wanted it belongs with a longer cadence or an
+explicit "check now" affordance across all probes, not bolted onto this issue.
