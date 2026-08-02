@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -35,13 +35,14 @@ const INSTALL_MARKER: &str = ".jefe-installed";
 const STAGING_PREFIX: &str = ".staging-";
 const RETIRED_PREFIX: &str = ".retired-";
 
-/// How long a volatile-selector install (a moving dist-tag such as `nightly`)
-/// is trusted before jefe re-resolves it against the registry (issue #554).
+/// Budget for the metadata-only query that resolves a moving dist-tag to a
+/// concrete version (issue #584).
 ///
-/// Nightlies publish roughly daily; trusting an install for ~half that cadence
-/// bounds staleness to about twelve hours without hitting the registry on every
-/// launch. Explicit (pinned) selectors are immutable and never expire.
-const VOLATILE_SELECTOR_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+/// This reads registry metadata and downloads no package content, so it is far
+/// cheaper than an install and is given a correspondingly small budget. When it
+/// is exceeded the cached install is used, so a slow registry delays a launch
+/// by at most this much rather than failing it.
+const VERSION_RESOLVE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Per-digest intra-process install guards (issue #382, narrowed by #556).
 ///
@@ -252,17 +253,16 @@ pub fn finalize_local_invocation(
     candidate: &ResolvedCandidate,
     cache_root: &Path,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
-    finalize_local_invocation_at(candidate, cache_root, SystemTime::now())
+    finalize_local_invocation_inner(candidate, cache_root)
 }
 
-/// Time-injected core of [`finalize_local_invocation`] for deterministic tests.
+/// Core of [`finalize_local_invocation`].
 ///
-/// `now` stamps the install marker and gates the volatile-selector freshness
-/// check (issue #554); production callers pass [`SystemTime::now`].
-pub fn finalize_local_invocation_at(
+/// Freshness of a volatile selector is decided by the version its dist-tag
+/// currently resolves to, not by a clock, so no time is injected (issue #584).
+pub fn finalize_local_invocation_inner(
     candidate: &ResolvedCandidate,
     cache_root: &Path,
-    now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
     let Some(selection) = candidate.package() else {
         return Ok(PackageInvocation {
@@ -273,7 +273,7 @@ pub fn finalize_local_invocation_at(
         });
     };
     if selection.runner() == PackageRunnerKind::Npm {
-        prepare_managed_npm(candidate, selection, cache_root, now)
+        prepare_managed_npm(candidate, selection, cache_root)
     } else {
         package_invocation(candidate, PackageExecutionTarget::Local, cache_root)?
             .ok_or(PackageRuntimeError::InvalidSelection)
@@ -346,7 +346,18 @@ fn bin_dir_of(install_dir: &Path) -> PathBuf {
     install_dir.join("node_modules").join(".bin")
 }
 
-fn marker_contents(selection: &PackageSelection, now: SystemTime) -> String {
+/// Contents of the install marker for a completed install.
+///
+/// A volatile selector records the concrete version the tag resolved to on a
+/// fourth line, so a later preparation can tell "the tag still points here"
+/// from "the tag has moved" without consulting a clock (issue #584). A pinned
+/// selector keeps the three-line form: an explicit version never moves, so its
+/// cache entry is permanent.
+///
+/// `resolved` is `None` only when the registry could not be reached during an
+/// install, which leaves the marker in the three-line form and makes the next
+/// preparation re-resolve rather than trust an unverified tree.
+fn marker_contents(selection: &PackageSelection, resolved: Option<&str>) -> String {
     let effective = selection
         .selector()
         .effective(selection.runner())
@@ -357,26 +368,24 @@ fn marker_contents(selection: &PackageSelection, now: SystemTime) -> String {
         selection.binary(),
         effective
     );
-    // Issue #554: volatile selectors carry an install-time epoch on a 4th line so
-    // the cache can expire and re-resolve the moving dist-tag. Pinned selectors
-    // keep the legacy 3-line marker (a permanent hit — explicit versions never
-    // change).
     if !selection.selector().is_volatile() {
         return base;
     }
-    let secs = now
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs());
-    format!("{base}{secs}\n")
+    resolved.map_or_else(|| base.clone(), |version| format!("{base}{version}\n"))
 }
 
-/// Whether the stored marker identifies this selection AND, for volatile
-/// selectors, was installed within [`VOLATILE_SELECTOR_TTL`] of `now`.
+/// Whether the cached install satisfies this selection.
+///
+/// Identity must always match. For a volatile selector the cached install must
+/// additionally be the version the tag currently points at: `resolved` carries
+/// that version when the registry answered, and is `None` when it did not. A
+/// `None` therefore keeps the cached install rather than failing the launch —
+/// offline is a condition to ride out, not an error to raise (issue #584).
 fn cache_hit(
     install_dir: &Path,
     bin_dir: &Path,
     selection: &PackageSelection,
-    now: SystemTime,
+    resolved: Option<&str>,
 ) -> bool {
     let Ok(stored) = std::fs::read_to_string(install_dir.join(INSTALL_MARKER)) else {
         return false;
@@ -384,7 +393,10 @@ fn cache_hit(
     if !marker_identity_matches(&stored, selection) {
         return false;
     }
-    if selection.selector().is_volatile() && !marker_install_is_fresh(&stored, now) {
+    if selection.selector().is_volatile()
+        && let Some(resolved) = resolved
+        && stored.split('\n').nth(3) != Some(resolved)
+    {
         return false;
     }
     PathSnapshot::for_platform(
@@ -394,6 +406,64 @@ fn cache_hit(
     )
     .resolve_binary(selection.binary())
     .is_some()
+}
+
+/// Resolve a moving dist-tag to the concrete version it currently points at.
+///
+/// Returns `None` when the registry cannot be reached or answers unusably. That
+/// is deliberate and is the offline path: the caller keeps the cached install
+/// instead of failing, because a user without a network should still be able to
+/// launch the build they already have (issue #584).
+///
+/// Only the resolve is performed here; no package content is downloaded.
+fn resolve_volatile_version(
+    candidate: &ResolvedCandidate,
+    selection: &PackageSelection,
+) -> Option<String> {
+    let spec = selection
+        .selector()
+        .package_spec(selection.runner(), selection.package())?;
+    let arguments = [
+        OsString::from("view"),
+        OsString::from(spec),
+        OsString::from("version"),
+    ];
+    let mut command =
+        command_for_path(candidate.executable(), candidate.wrapper_kind(), &arguments);
+    command.stdin(Stdio::null());
+    let output =
+        run_command_capture_with_timeout(command, VERSION_RESOLVE_TIMEOUT, "jefe package resolve")
+            .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    is_plausible_version(&version).then_some(version)
+}
+
+/// Whether a registry answer is shaped like a version this code may act on.
+///
+/// The answer is the one input here that jefe does not control, so it is
+/// validated rather than trusted. It is written verbatim into a newline
+/// delimited marker and compared against a later answer, so anything carrying
+/// whitespace, a control character, or unbounded length is rejected outright
+/// instead of being allowed to corrupt the marker.
+///
+/// `is_ascii_graphic` admits exactly printable non-space ASCII, which excludes
+/// every control character, NUL, and the newline that delimits the marker.
+///
+/// This deliberately does not enforce semver: npm dist-tags legitimately point
+/// at prerelease and build-metadata forms, and rejecting an unfamiliar but
+/// harmless shape would break a launch for no safety gain.
+fn is_plausible_version(version: &str) -> bool {
+    /// Generous next to any real version, small enough to bound a marker line.
+    const MAX_VERSION_LEN: usize = 256;
+
+    !version.is_empty()
+        && version.len() <= MAX_VERSION_LEN
+        && version
+            .chars()
+            .all(|character| character.is_ascii_graphic())
 }
 
 /// Whether the stored marker's package/binary/effective lines match `selection`.
@@ -407,40 +477,12 @@ fn marker_identity_matches(stored: &str, selection: &PackageSelection) -> bool {
         && lines.next() == Some(selection.binary())
         && lines.next() == Some(effective)
 }
-
-/// Whether a volatile selector's marker install-time line is still within TTL.
-///
-/// A missing or unparseable 4th line (a legacy/stuck 3-line marker) is treated
-/// as expired so the install is rebuilt and auto-healed (issue #554).
-fn marker_install_is_fresh(stored: &str, now: SystemTime) -> bool {
-    let Some(secs_str) = stored.split('\n').nth(3) else {
-        return false;
-    };
-    let Ok(secs) = secs_str.parse::<u64>() else {
-        return false;
-    };
-    let Some(installed) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(secs)) else {
-        return false;
-    };
-    // A future-dated marker (clock skew) is treated as expired: re-resolve
-    // rather than trust an untrusted timestamp.
-    now.duration_since(installed)
-        .is_ok_and(|age| age < VOLATILE_SELECTOR_TTL)
-}
-
 fn prepare_managed_npm(
     candidate: &ResolvedCandidate,
     selection: &PackageSelection,
     cache_root: &Path,
-    now: SystemTime,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
-    prepare_managed_npm_with_lock_policy(
-        candidate,
-        selection,
-        cache_root,
-        now,
-        LockPolicy::production(),
-    )
+    prepare_managed_npm_with_lock_policy(candidate, selection, cache_root, LockPolicy::production())
 }
 
 /// Lock-policy-injected core of [`prepare_managed_npm`].
@@ -452,7 +494,6 @@ fn prepare_managed_npm_with_lock_policy(
     candidate: &ResolvedCandidate,
     selection: &PackageSelection,
     cache_root: &Path,
-    now: SystemTime,
     policy: LockPolicy,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
     let digest = selection_digest(selection).to_hex();
@@ -480,9 +521,25 @@ fn prepare_managed_npm_with_lock_policy(
         package_install_lock::acquire(&install_lock_path(cache_root, &digest), &digest, policy)?;
     reconcile_interrupted_promotion(&install_dir, &retired, selection, &digest)?;
 
-    if !cache_hit(&install_dir, &bin_dir, selection, now) {
+    // Resolve before consulting the cache: for a volatile selector the cached
+    // tree is only a hit when it holds the version the tag points at *now*. A
+    // pinned selector never moves, so it is never resolved and never reaches
+    // the registry.
+    let resolved = selection
+        .selector()
+        .is_volatile()
+        .then(|| resolve_volatile_version(candidate, selection))
+        .flatten();
+    if selection.selector().is_volatile() && resolved.is_none() {
+        tracing::warn!(
+            package = selection.package(),
+            "could not resolve dist-tag against the registry; using the cached install if present"
+        );
+    }
+
+    if !cache_hit(&install_dir, &bin_dir, selection, resolved.as_deref()) {
         let staging = cache_root.join(format!("{STAGING_PREFIX}{digest}"));
-        build_staged_install(candidate, selection, &staging, now)?;
+        build_staged_install(candidate, selection, &staging, resolved.as_deref())?;
         promote_staged_install(&staging, &install_dir, &retired, &digest)?;
     }
 
@@ -527,7 +584,7 @@ fn build_staged_install(
     candidate: &ResolvedCandidate,
     selection: &PackageSelection,
     staging: &Path,
-    now: SystemTime,
+    resolved: Option<&str>,
 ) -> Result<(), PackageRuntimeError> {
     remove_tree(staging).map_err(|error| {
         PackageRuntimeError::InstallDirectory(format!("failed to reset staging: {error}"))
@@ -548,7 +605,7 @@ fn build_staged_install(
     }
     std::fs::write(
         staging.join(INSTALL_MARKER),
-        marker_contents(selection, now),
+        marker_contents(selection, resolved),
     )
     .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))
 }

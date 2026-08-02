@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 use super::{
-    PackageExecutionTarget, finalize_local_invocation, finalize_local_invocation_at,
+    PackageExecutionTarget, finalize_local_invocation, finalize_local_invocation_inner,
     package_invocation,
 };
 use crate::agent_candidate::{AgentCandidateResolver, CandidateResolution, VersionSelector};
@@ -350,6 +350,15 @@ fn counting_npm_stub(bin: &TempDir, witness: &Path) {
     // staged in a fresh directory and promoted by rename (issue #556), so a
     // witness written into the install directory would not survive across
     // installs and could not count them.
+    // `npm view <spec> version` answers from a version file the test controls,
+    // so a test can move the dist-tag without a registry (issue #584). Only a
+    // real `npm install` records a witness line, so counting lines still counts
+    // installs and never counts resolves.
+    let version_file = version_path_for(witness);
+    if std::fs::read_to_string(&version_file).is_err() {
+        std::fs::write(&version_file, "1.0.0\n")
+            .unwrap_or_else(|error| panic!("seed version file: {error}"));
+    }
     executable(
         bin,
         "npm",
@@ -357,14 +366,43 @@ fn counting_npm_stub(bin: &TempDir, witness: &Path) {
             "#!/bin/sh
 set -e
 witness={witness}
+versions={versions}
+if [ \"$1\" = view ]; then
+  if [ \"$#\" -ne 3 ] || [ \"$3\" != version ]; then
+    echo \"unexpected npm view invocation: $*\" >&2
+    exit 64
+  fi
+  if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
+fi
 if [ -f package-lock.json ]; then echo present >> \"$witness\"; else echo absent >> \"$witness\"; fi
 mkdir -p node_modules/.bin
 printf '#!/bin/sh\nexit 0\n' > node_modules/.bin/llxprt
 chmod 755 node_modules/.bin/llxprt
 ",
-            witness = crate::runtime::commands::shell_escape_single(&witness.to_string_lossy())
+            witness = crate::runtime::commands::shell_escape_single(&witness.to_string_lossy()),
+            versions =
+                crate::runtime::commands::shell_escape_single(&version_file.to_string_lossy())
         ),
     );
+}
+
+/// Path of the file the npm stub reads to answer `npm view ... version`.
+#[cfg(unix)]
+fn version_path_for(witness: &Path) -> PathBuf {
+    witness.with_file_name("published-version.txt")
+}
+
+/// Move the dist-tag: the next `npm view` reports `version`.
+#[cfg(unix)]
+fn publish_version(witness: &Path, version: &str) {
+    std::fs::write(version_path_for(witness), format!("{version}\n"))
+        .unwrap_or_else(|error| panic!("publish version: {error}"));
+}
+
+/// Make the registry unreachable: `npm view` exits non-zero.
+#[cfg(unix)]
+fn make_registry_unreachable(witness: &Path) {
+    let _ = std::fs::remove_file(version_path_for(witness));
 }
 
 /// Install directory owning a managed executable.
@@ -413,33 +451,71 @@ fn volatile_npm_candidate(bin: &TempDir, selector: &str) -> ResolvedCandidate {
     resolve_package(&definition, bin.path(), selector)
 }
 
-/// A fixed base instant well after the Unix epoch so offsets stay representable.
-#[cfg(unix)]
-fn base_now() -> std::time::SystemTime {
-    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000)
+/// The registry answer is the one input here jefe does not control, so it is
+/// validated rather than trusted before it reaches the marker (issue #584).
+#[test]
+fn a_registry_version_answer_is_validated_before_it_is_trusted() {
+    use super::is_plausible_version;
+
+    for accepted in [
+        "1.0.0",
+        "0.11.0-nightly.260801.19ac22acc",
+        "2.0.0-rc.1+build.5",
+    ] {
+        assert!(
+            is_plausible_version(accepted),
+            "a legitimate dist-tag answer must be accepted: {accepted:?}"
+        );
+    }
+
+    // Production trims the registry answer before validating, so a *trailing*
+    // newline never reaches the validator; it is included here to pin that the
+    // validator would reject it anyway. An *embedded* newline is the case that
+    // matters, because it would forge an extra marker line. The rest are
+    // control, whitespace or unbounded answers.
+    for rejected in [
+        "",
+        "1.0.0\n2.0.0",
+        "1.0.0\n",
+        "1.0.0 2.0.0",
+        "1.0.0\u{0}",
+        "1.0.0\t",
+        "1.0.0\u{7f}",
+    ] {
+        assert!(
+            !is_plausible_version(rejected),
+            "a malformed registry answer must be rejected: {rejected:?}"
+        );
+    }
+
+    assert!(
+        !is_plausible_version(&"9".repeat(257)),
+        "an unbounded registry answer must be rejected"
+    );
 }
 
 #[cfg(unix)]
 #[test]
-fn volatile_cache_stays_fresh_within_ttl() {
-    // AC2: a re-invocation inside the TTL is a cache hit — npm is not re-run.
+fn volatile_cache_hits_while_the_tag_has_not_moved() {
+    // The dist-tag still resolves to the installed version, so preparation is a
+    // cache hit however much time has passed: freshness is decided by what the
+    // tag points at, not by a clock (issue #584).
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
-    let within_ttl =
-        base_now() + super::VOLATILE_SELECTOR_TTL - std::time::Duration::from_secs(1);
-    let second = finalize_local_invocation_at(&candidate, cache.path(), within_ttl)
+    let second = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("second invocation: {error}"));
 
     assert_eq!(
         witness_lines(&witness).len(),
         1,
-        "within-TTL re-invocation must be a cache hit (npm not re-run)"
+        "an unmoved dist-tag must be a cache hit; npm install must not re-run"
     );
     assert_eq!(
         first.executable(),
@@ -450,44 +526,76 @@ fn volatile_cache_stays_fresh_within_ttl() {
 
 #[cfg(unix)]
 #[test]
-fn volatile_cache_re_resolves_after_ttl() {
-    // AC1: once the install age exceeds the TTL, the cache is a miss and npm
-    // re-runs (re-resolving the moving dist-tag).
+fn volatile_cache_reinstalls_as_soon_as_the_tag_moves() {
+    // A newly published nightly is picked up on the very next launch, with no
+    // timer to wait out (issue #584).
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
-    let expired = base_now() + super::VOLATILE_SELECTOR_TTL + std::time::Duration::from_secs(1);
-    finalize_local_invocation_at(&candidate, cache.path(), expired)
-        .unwrap_or_else(|error| panic!("expired re-resolve: {error}"));
+    publish_version(&witness, "0.11.0-nightly.2");
+    finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("re-resolve after tag moved: {error}"));
 
     assert_eq!(
         witness_lines(&witness).len(),
         2,
-        "past-TTL re-invocation must re-run npm to re-resolve the dist-tag"
+        "a moved dist-tag must re-install immediately, without waiting out a TTL"
     );
 }
 
 #[cfg(unix)]
 #[test]
-fn volatile_old_marker_without_timestamp_re_installs() {
+fn volatile_selector_uses_the_cached_install_when_the_registry_is_unreachable() {
+    // Offline is a condition to ride out, not an error to raise: the build the
+    // user already has must still launch (issue #584).
+    let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
+    let candidate = volatile_npm_candidate(&bin, "latest nightly");
+    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
+
+    let online = finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("first install: {error}"));
+    make_registry_unreachable(&witness);
+    let offline = finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("offline preparation must still succeed: {error}"));
+
+    assert_eq!(
+        witness_lines(&witness).len(),
+        1,
+        "an unreachable registry must not trigger a reinstall"
+    );
+    assert_eq!(
+        online.executable(),
+        offline.executable(),
+        "offline preparation must reuse the cached managed executable"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn volatile_marker_without_a_resolved_version_re_installs() {
     // AC3: a legacy/stuck marker (3 lines, no timestamp) for a volatile selector
-    // is treated as expired and re-installed, writing a fresh timestamped marker.
+    // is treated as stale and re-installed, writing a marker that records the
+// version the dist-tag resolved to.
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let install_dir = install_dir_of(first.executable()).to_path_buf();
     // Simulate a stuck/legacy cache: overwrite the marker with the old 3-line
-    // form (no install-time line) while keeping the binary present.
+    // form (no resolved-version line) while keeping the binary present.
     let selection = candidate
         .package()
         .unwrap_or_else(|| panic!("volatile candidate carries a package selection"));
@@ -509,7 +617,7 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     );
 
     // Any `now` should treat the timestamp-less marker as expired.
-    finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("legacy re-resolve: {error}"));
     assert_eq!(
         witness_lines(&witness).len(),
@@ -521,15 +629,15 @@ fn volatile_old_marker_without_timestamp_re_installs() {
     let lines: Vec<&str> = refreshed.lines().collect();
     assert!(
         lines.len() >= 4,
-        "refreshed volatile marker must carry an install-time line: {refreshed:?}"
+        "refreshed volatile marker must carry a resolved-version line: {refreshed:?}"
     );
     // The identity lines must be preserved across the refresh (no corruption).
     assert_eq!(lines[0], selection.package(), "package line preserved");
     assert_eq!(lines[1], selection.binary(), "binary line preserved");
     assert_eq!(lines[2], effective, "effective-selector line preserved");
-    assert!(
-        lines[3].parse::<u64>().is_ok(),
-        "the 4th line must be a valid install-time epoch, got {:?}",
+    assert_eq!(
+        lines[3], "1.0.0",
+        "the 4th line must record the version the dist-tag resolved to, got {:?}",
         lines[3]
     );
 }
@@ -553,11 +661,11 @@ fn pinned_cache_remains_permanent_hit() {
     );
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
-    // Far beyond any TTL: a pinned version must still be a cache hit.
-    let far_future = base_now() + std::time::Duration::from_secs(365 * 24 * 60 * 60);
-    finalize_local_invocation_at(&candidate, cache.path(), far_future)
+    // A pinned version never moves, so it is never re-resolved and is a
+    // permanent cache hit.
+    finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("pinned re-invocation: {error}"));
     assert_eq!(
         witness_lines(&witness).len(),
@@ -581,19 +689,19 @@ fn volatile_re_resolve_removes_stale_lockfile() {
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
-    let first = finalize_local_invocation_at(&candidate, cache.path(), base_now())
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let install_dir = install_dir_of(first.executable()).to_path_buf();
     // Plant a stale lockfile exactly where npm would leave it.
     std::fs::write(install_dir.join("package-lock.json"), "stale-lockfile")
         .unwrap_or_else(|error| panic!("plant stale lockfile: {error}"));
 
-    let expired = base_now() + super::VOLATILE_SELECTOR_TTL + std::time::Duration::from_secs(1);
-    finalize_local_invocation_at(&candidate, cache.path(), expired)
-        .unwrap_or_else(|error| panic!("expired re-resolve: {error}"));
+    publish_version(&witness, "0.11.0-nightly.2");
+    finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("re-resolve after tag moved: {error}"));
 
     let lines = witness_lines(&witness);
-    assert_eq!(lines.len(), 2, "expired volatile cache must re-run npm");
+    assert_eq!(lines.len(), 2, "a moved dist-tag must re-run npm");
     assert_eq!(
         lines[1], "absent",
         "npm must not see the stale package-lock.json when it re-resolves (got {lines:?})",
