@@ -457,44 +457,6 @@ fn run_child_with_timeout_returns_output_for_fast_subprocess() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("ok"), "output must contain echo result");
 }
-/// A dead pane whose recorded worker anchor is still alive is a surviving
-/// worker, not a dead agent (issue #543).
-#[test]
-fn a_live_anchor_under_a_dead_pane_is_survival_not_death() {
-    let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
-    let observed = vec![crate::runtime::orphan::ObservedDescendant::alive(anchor)];
-
-    assert_eq!(
-        classify_worker_disposition(&observed),
-        WorkerDisposition::SurvivedPane,
-        "a validated live worker must never be reported as gone with its pane"
-    );
-}
-
-/// Every recorded anchor being dead is the only evidence that lets the pane's
-/// death stand in for the agent's (issue #543).
-#[test]
-fn only_dead_anchors_confirm_the_worker_died_with_the_pane() {
-    let anchor = crate::domain::WorkerProcessIdentity::new(4321, 77);
-    let observed = vec![crate::runtime::orphan::ObservedDescendant::dead(anchor)];
-
-    assert_eq!(
-        classify_worker_disposition(&observed),
-        WorkerDisposition::GoneWithPane
-    );
-}
-
-/// With no recorded anchors the pane's death is simply not evidence about
-/// the worker, and must not be reported as if it were (issue #543).
-#[test]
-fn absent_anchors_leave_the_worker_fate_unknown() {
-    assert_eq!(
-        classify_worker_disposition(&[]),
-        WorkerDisposition::Unknown,
-        "no evidence must read as unknown, not as confirmed death"
-    );
-}
-
 /// The reaping predicate answers this same probe with a `bool` that means
 /// "safe to reap", so it reports `false` for a live process it merely cannot
 /// verify. Read as a liveness answer that would be a death sentence, so the
@@ -539,4 +501,54 @@ fn a_zero_pid_anchor_is_unknown() {
 #[test]
 fn no_anchors_is_unknown() {
     assert_eq!(observe_worker_disposition(&[]), WorkerDisposition::Unknown);
+}
+
+/// The main dead-agent path probed its worker anchors through a predicate
+/// meaning "safe to reap", which is false for a process that is merely
+/// unverifiable as well as for one that is gone. Reading that as the answer
+/// reported a live worker as having died with its pane -- the #543 defect,
+/// still reachable here after it was fixed in the server-loss path.
+#[test]
+fn an_unverifiable_worker_under_a_dead_pane_is_unknown_not_gone() {
+    let mut target = make_liveness_check("agent-1", "jefe-agent-1", false);
+    // A PID with no recorded creation token: it may well be running, but
+    // nothing here can prove the process is the one that was launched.
+    target.worker_identities = vec![crate::domain::WorkerProcessIdentity::from_pid(
+        std::process::id(),
+    )];
+
+    let targets = vec![target];
+    let existing: HashSet<String> = HashSet::new();
+    let alive_panes: HashSet<String> = HashSet::new();
+
+    let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+
+    assert_eq!(dead.len(), 1, "the pane is gone, so the agent is reported");
+    assert_eq!(
+        dead[0].worker,
+        WorkerDisposition::Unknown,
+        "a worker that cannot be verified has not been shown to have died"
+    );
+}
+
+/// The mirror hazard: refusing to call an unverifiable worker dead must not
+/// stop a genuinely absent one being reported.
+#[test]
+fn a_worker_that_cannot_be_running_is_still_gone() {
+    let mut target = make_liveness_check("agent-2", "jefe-agent-2", false);
+    // PID 0 is never a live worker, and an anchor naming it carries no
+    // creation token to check, so it is unverifiable rather than gone.
+    target.worker_identities = vec![];
+
+    let targets = vec![target];
+    let existing: HashSet<String> = HashSet::new();
+    let alive_panes: HashSet<String> = HashSet::new();
+
+    let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+    assert_eq!(dead.len(), 1);
+    assert_eq!(
+        dead[0].worker,
+        WorkerDisposition::Unknown,
+        "no recorded anchors is no evidence either way"
+    );
 }

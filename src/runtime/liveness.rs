@@ -256,27 +256,6 @@ pub enum WorkerDisposition {
     Unknown,
 }
 
-/// Classify a worker's fate from freshly probed anchor evidence.
-///
-/// Only a confirmed-alive anchor that still matches its recorded creation token
-/// counts as survival, so a recycled PID can never make a dead agent look
-/// alive.
-#[must_use]
-pub fn classify_worker_disposition(
-    anchors: &[super::orphan::ObservedDescendant],
-) -> WorkerDisposition {
-    if anchors.is_empty() {
-        return WorkerDisposition::Unknown;
-    }
-    if anchors
-        .iter()
-        .any(|anchor| matches!(anchor.liveness, super::process::ProcessLiveness::Alive))
-    {
-        return WorkerDisposition::SurvivedPane;
-    }
-    WorkerDisposition::GoneWithPane
-}
-
 /// Reconcile dead agents and return identity triples (issue #301 Phase 4).
 ///
 /// Like [`reconcile_dead_agents`] but returns [`LivenessIdentity`] so the
@@ -309,8 +288,10 @@ pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
             binding_session_name: t.binding_session_name.clone(),
             lifecycle_generation: t.lifecycle_generation,
             // Probe the recorded anchors so a pane death is not reported as a
-            // worker death without evidence (issue #543).
-            worker: classify_worker_disposition(&probe_worker_anchors(&t.worker_identities)),
+            // worker death without evidence (issue #543). This must observe the
+            // anchors directly: routing them through a reaping predicate loses
+            // the difference between "gone" and "cannot tell" (issue #541).
+            worker: observe_worker_disposition(&t.worker_identities),
         })
         .collect()
 }
@@ -390,23 +371,6 @@ fn observe_anchor(anchor: crate::domain::WorkerProcessIdentity) -> AnchorObserva
         | super::process::ProcessLiveness::MalformedIdentity
         | super::process::ProcessLiveness::ProbeFailure => AnchorObservation::Unverifiable,
     }
-}
-
-/// Freshly probe each recorded worker anchor, rejecting PID reuse.
-#[must_use]
-fn probe_worker_anchors(
-    anchors: &[crate::domain::WorkerProcessIdentity],
-) -> Vec<super::orphan::ObservedDescendant> {
-    anchors
-        .iter()
-        .map(|anchor| {
-            if super::orphan::descendant_still_matches_anchor(*anchor) {
-                super::orphan::ObservedDescendant::alive(*anchor)
-            } else {
-                super::orphan::ObservedDescendant::dead(*anchor)
-            }
-        })
-        .collect()
 }
 
 /// Query the tmux server once for all alive sessions, returning the set of
