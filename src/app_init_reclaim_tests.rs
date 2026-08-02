@@ -1,4 +1,4 @@
-//! Behavioural tests for startup reclaim classification.
+//! Behavioral tests for startup reclaim classification.
 
 use super::*;
 
