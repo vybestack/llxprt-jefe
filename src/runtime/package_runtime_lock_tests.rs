@@ -44,13 +44,30 @@ const CHILD_TEST_PATH: &str = "runtime::package_runtime::tests::managed_install_
 
 use crate::runtime::commands::shell_escape_single;
 
+/// Version the observing stub reports for a volatile fixture unless a test
+/// moves the tag. The install directory is keyed on the resolved version
+/// (issue #588), so fixtures must derive paths from it.
+#[cfg(unix)]
+const SEEDED_VERSION: &str = "1.0.0";
+
+/// Resolved version a fixture's install will be keyed on: the seeded version
+/// for a moving dist-tag, and `None` for a pinned selector, which is already a
+/// concrete version and keys on itself.
+#[cfg(unix)]
+fn fixture_resolved(candidate: &ResolvedCandidate) -> Option<&'static str> {
+    candidate
+        .package()
+        .is_some_and(|selection| selection.selector().is_volatile())
+        .then_some(SEEDED_VERSION)
+}
+
 /// Published install directory for a resolved managed candidate.
 #[cfg(unix)]
 fn final_install_dir(candidate: &ResolvedCandidate, cache_root: &Path) -> PathBuf {
     let selection = candidate
         .package()
         .unwrap_or_else(|| panic!("candidate carries a package selection"));
-    super::managed_install_dir(cache_root, selection)
+    super::managed_install_dir(cache_root, selection, fixture_resolved(candidate))
 }
 
 /// Shell-safe single-quoted form of a path, so a stub script cannot be broken
@@ -161,7 +178,7 @@ fn observed_candidate(
     executable(bin, "npm", "#!/bin/sh\nexit 0\n");
     let probe = resolve_package(&definition, bin.path(), selector);
     let final_dir = final_install_dir(&probe, cache_root);
-    publish_observed_version(witness, "1.0.0");
+    publish_observed_version(witness, SEEDED_VERSION);
     observing_npm_stub(bin, witness, &final_dir, settle);
     (resolve_package(&definition, bin.path(), selector), final_dir)
 }
@@ -508,7 +525,7 @@ fn a_live_installer_blocks_preparation_with_a_typed_redacted_error() {
     let selection = candidate
         .package()
         .unwrap_or_else(|| panic!("candidate carries a package selection"));
-    let digest = super::selection_digest(selection).to_hex();
+    let digest = super::selection_digest(selection, fixture_resolved(&candidate)).to_hex();
     let final_dir = final_install_dir(&candidate, cache.path());
 
     let _held = crate::runtime::package_install_lock::acquire(
@@ -624,7 +641,7 @@ fn a_promotion_interrupted_after_retiring_restores_the_previous_install() {
     let selection = candidate
         .package()
         .unwrap_or_else(|| panic!("candidate carries a package selection"));
-    let digest = super::selection_digest(selection).to_hex();
+    let digest = super::selection_digest(selection, fixture_resolved(&candidate)).to_hex();
     let retired = cache.path().join(format!(".retired-{digest}"));
     // Reproduce the crash state exactly: published entry retired, nothing
     // published, staging never renamed into place.
@@ -739,6 +756,6 @@ fn retired_path(candidate: &ResolvedCandidate, cache_root: &Path) -> PathBuf {
         .unwrap_or_else(|| panic!("candidate carries a package selection"));
     cache_root.join(format!(
         ".retired-{}",
-        super::selection_digest(selection).to_hex()
+        super::selection_digest(selection, fixture_resolved(candidate)).to_hex()
     ))
 }
