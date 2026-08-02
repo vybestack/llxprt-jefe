@@ -6,9 +6,48 @@
 //!
 //! Run ordering (issue #208) is committed by the Actions state reducer before
 //! projection so navigation indices match the reverse-chronological display.
+//!
+//! [`status_glyph`] is shared by every Actions surface (run list, job detail)
+//! so the screens cannot drift apart.
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
+
+/// Status indicator for a workflow run, job, or step.
+///
+/// Single-codepoint textual symbols only — no pictographic emoji and no
+/// bracketed tags — so every Actions surface renders one terminal cell of
+/// status. Shared by the run list and the job-detail pane.
+#[must_use]
+pub fn status_glyph(
+    status: WorkflowRunStatus,
+    conclusion: Option<WorkflowRunConclusion>,
+) -> &'static str {
+    match status {
+        WorkflowRunStatus::Completed => match conclusion {
+            Some(WorkflowRunConclusion::Success) => "\u{2713}",
+            Some(
+                WorkflowRunConclusion::Failure
+                | WorkflowRunConclusion::TimedOut
+                | WorkflowRunConclusion::ActionRequired
+                | WorkflowRunConclusion::StartupFailure,
+            ) => "\u{2717}",
+            Some(
+                WorkflowRunConclusion::Cancelled
+                | WorkflowRunConclusion::Skipped
+                | WorkflowRunConclusion::Stale
+                | WorkflowRunConclusion::Neutral,
+            ) => "\u{2298}",
+            Some(WorkflowRunConclusion::Unknown) | None => "?",
+        },
+        WorkflowRunStatus::InProgress => "~",
+        WorkflowRunStatus::Queued
+        | WorkflowRunStatus::Requested
+        | WorkflowRunStatus::Waiting
+        | WorkflowRunStatus::Pending => ".",
+        WorkflowRunStatus::Unknown => "?",
+    }
+}
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +188,49 @@ mod tests {
 
         assert_eq!(view.first_visible_run_index, 1);
         assert!(view.visible_runs.iter().all(|run| !run.is_selected));
+    }
+
+    #[test]
+    fn status_glyph_maps_every_status_and_conclusion_to_a_bare_symbol() {
+        use WorkflowRunConclusion as C;
+        assert_eq!(
+            status_glyph(WorkflowRunStatus::Completed, Some(C::Success)),
+            "\u{2713}"
+        );
+        for failed in [
+            C::Failure,
+            C::TimedOut,
+            C::ActionRequired,
+            C::StartupFailure,
+        ] {
+            assert_eq!(
+                status_glyph(WorkflowRunStatus::Completed, Some(failed)),
+                "\u{2717}",
+                "{failed:?} is a failure"
+            );
+        }
+        for inconclusive in [C::Cancelled, C::Skipped, C::Stale, C::Neutral] {
+            assert_eq!(
+                status_glyph(WorkflowRunStatus::Completed, Some(inconclusive)),
+                "\u{2298}",
+                "{inconclusive:?} is inconclusive"
+            );
+        }
+        assert_eq!(
+            status_glyph(WorkflowRunStatus::Completed, Some(C::Unknown)),
+            "?"
+        );
+        assert_eq!(status_glyph(WorkflowRunStatus::Completed, None), "?");
+        assert_eq!(status_glyph(WorkflowRunStatus::InProgress, None), "~");
+        for waiting in [
+            WorkflowRunStatus::Queued,
+            WorkflowRunStatus::Requested,
+            WorkflowRunStatus::Waiting,
+            WorkflowRunStatus::Pending,
+        ] {
+            assert_eq!(status_glyph(waiting, None), ".", "{waiting:?} is waiting");
+        }
+        assert_eq!(status_glyph(WorkflowRunStatus::Unknown, None), "?");
     }
 
     #[test]
