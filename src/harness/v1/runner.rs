@@ -74,6 +74,7 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         config,
         workspace,
         session: None,
+        app_socket: None,
         capture_names: Vec::new(),
         report: Report::new(&scenario.name, &root),
     };
@@ -102,6 +103,9 @@ struct RunState<'a> {
     config: &'a RunnerConfig,
     workspace: Workspace,
     session: Option<PtySession>,
+    /// Multiplexer socket the application under test owns, when this run is
+    /// responsible for reaping it (issue #586).
+    app_socket: Option<std::path::PathBuf>,
     capture_names: Vec<String>,
     report: Report,
 }
@@ -134,6 +138,7 @@ impl RunState<'_> {
             });
             if let Err(err) = result {
                 self.cleanup_after_failure();
+                self.reap_app_socket();
                 return Some(err);
             }
         }
@@ -219,10 +224,35 @@ impl RunState<'_> {
         }
         let argv = interpolate_argv(argv, &root)?;
         let resolved = resolve_program(&argv, &environment)?;
+        // A tmux server the application starts daemonizes out of the launched
+        // process group, so killing that group at teardown never reaches it.
+        // Remember the socket now, while the resolved environment is in hand,
+        // so teardown can reap it (issue #586).
+        self.app_socket = super::app_socket::socket_to_reap(&environment, self.workspace.root());
         let session =
             PtySession::launch(&resolved, &environment, &cwd_abs, self.scenario.terminal)?;
         self.session = Some(session);
         Ok(())
+    }
+
+    /// Kill the multiplexer server the application owned, if this run is
+    /// responsible for one.
+    ///
+    /// Best effort by design: the server may already be gone, may never have
+    /// started, or tmux may be absent. None of those is a scenario failure, and
+    /// a teardown that could fail the run would turn a leak into a flake.
+    fn reap_app_socket(&mut self) {
+        let Some(socket) = self.app_socket.take() else {
+            return;
+        };
+        let _ = std::process::Command::new("tmux")
+            .arg("-S")
+            .arg(&socket)
+            .arg("kill-server")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 
     fn send_key(&mut self, key: &str, modifiers: &[Modifier]) -> Result<(), HarnessError> {
@@ -378,10 +408,12 @@ impl RunState<'_> {
     /// Finish: graceful stop then escalation, always reaping the group.
     fn finish(&mut self) -> Result<(), HarnessError> {
         let Some(mut session) = self.session.take() else {
+            self.reap_app_socket();
             return Ok(());
         };
         let exit = self.stop_session(&mut session)?;
         self.record_exit(exit);
+        self.reap_app_socket();
         Ok(())
     }
 

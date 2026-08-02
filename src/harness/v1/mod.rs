@@ -12,6 +12,7 @@ pub mod action_capture_sink;
 #[cfg(test)]
 #[path = "action_capture_tests.rs"]
 mod action_capture_tests;
+pub mod app_socket;
 pub mod capture;
 pub mod contract;
 pub mod env;
