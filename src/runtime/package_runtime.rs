@@ -194,11 +194,20 @@ pub fn managed_package_cache_root() -> PathBuf {
         .join("package-versions")
 }
 
-/// Collision-resistant install location based on declared package, binary, and
-/// effective selector.
+/// Collision-resistant install location for one concrete installed version.
+///
+/// `resolved` is the version a moving dist-tag currently points at. Keying on
+/// it rather than on the tag is what makes a tag advance create a *new*
+/// directory instead of rewriting the one live agents are executing from
+/// (issue #588). A pinned selector is already a concrete version, so it passes
+/// `None` and keys on itself.
 #[must_use]
-pub fn managed_install_dir(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
-    cache_root.join(selection_digest(selection).to_hex())
+pub fn managed_install_dir(
+    cache_root: &Path,
+    selection: &PackageSelection,
+    resolved: Option<&str>,
+) -> PathBuf {
+    cache_root.join(selection_digest(selection, resolved).to_hex())
 }
 
 /// Build the exact no-effect package invocation for a resolved candidate.
@@ -214,9 +223,14 @@ pub fn package_invocation(
     let Some(selection) = candidate.package() else {
         return Ok(None);
     };
+    // This predicts a path without installing, so it cannot resolve a moving tag
+    // itself. It uses the version the tag last resolved to when one is
+    // recorded, which is the directory a prepared install would occupy.
+    let remembered = remembered_version(cache_root, selection);
     let invocation = match (target, selection.runner()) {
         (PackageExecutionTarget::Local, PackageRunnerKind::Npm) => PackageInvocation {
-            executable: managed_bin_dir(cache_root, selection).join(selection.binary()),
+            executable: managed_bin_dir(cache_root, selection, remembered.as_deref())
+                .join(selection.binary()),
             wrapper_kind: AgentWrapperKind::Direct,
             prefix: Vec::new(),
             fingerprint: None,
@@ -317,19 +331,52 @@ fn uvx_prefix(selection: &PackageSelection) -> Result<Vec<OsString>, PackageRunt
     ])
 }
 
-fn selection_digest(selection: &PackageSelection) -> DefinitionSha256 {
+/// Digest identifying one immutable installed tree.
+///
+/// The third part is the concrete version when one is known, and the declared
+/// selector otherwise. For a pinned selector those are the same string, so its
+/// cache entry is unchanged. For a moving dist-tag they differ, which is the
+/// whole point: two nightlies get two directories, and installing the newer one
+/// cannot touch the tree an already-running agent is executing (issue #588).
+fn selection_digest(selection: &PackageSelection, resolved: Option<&str>) -> DefinitionSha256 {
+    let declared = selection
+        .selector()
+        .effective(selection.runner())
+        .unwrap_or_default();
     let mut bytes = Vec::new();
     append_digest_part(&mut bytes, selection.package().as_bytes());
     append_digest_part(&mut bytes, selection.binary().as_bytes());
-    append_digest_part(
-        &mut bytes,
-        selection
-            .selector()
-            .effective(selection.runner())
-            .unwrap_or_default()
-            .as_bytes(),
-    );
+    append_digest_part(&mut bytes, resolved.unwrap_or(declared).as_bytes());
     DefinitionSha256::digest(&bytes)
+}
+
+/// File recording the version a moving dist-tag last resolved to.
+///
+/// Keyed on the tag, so it survives the version changing. It exists for the
+/// offline path: without a registry answer the version-keyed directory cannot
+/// be derived, and a user with no network should still launch the build they
+/// already have (issue #588 change 4, issue #584 offline behavior).
+fn tag_pointer_path(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
+    cache_root.join(format!(
+        "{}.version",
+        selection_digest(selection, None).to_hex()
+    ))
+}
+
+/// Version this tag last resolved to, if it has ever been installed here.
+fn remembered_version(cache_root: &Path, selection: &PackageSelection) -> Option<String> {
+    let stored = std::fs::read_to_string(tag_pointer_path(cache_root, selection)).ok()?;
+    let version = stored.trim().to_owned();
+    is_plausible_version(&version).then_some(version)
+}
+
+/// Record the version this tag now resolves to, so the offline path can find it.
+fn remember_version(cache_root: &Path, selection: &PackageSelection, version: &str) {
+    // Advisory only: losing this costs an offline launch, never a live agent.
+    let _ = std::fs::write(
+        tag_pointer_path(cache_root, selection),
+        format!("{version}\n"),
+    );
 }
 
 fn append_digest_part(bytes: &mut Vec<u8>, part: &[u8]) {
@@ -337,8 +384,12 @@ fn append_digest_part(bytes: &mut Vec<u8>, part: &[u8]) {
     bytes.extend_from_slice(part);
 }
 
-fn managed_bin_dir(cache_root: &Path, selection: &PackageSelection) -> PathBuf {
-    bin_dir_of(&managed_install_dir(cache_root, selection))
+fn managed_bin_dir(
+    cache_root: &Path,
+    selection: &PackageSelection,
+    resolved: Option<&str>,
+) -> PathBuf {
+    bin_dir_of(&managed_install_dir(cache_root, selection, resolved))
 }
 
 /// Executable directory inside a managed install tree, published or staged.
@@ -381,22 +432,11 @@ fn marker_contents(selection: &PackageSelection, resolved: Option<&str>) -> Stri
 /// that version when the registry answered, and is `None` when it did not. A
 /// `None` therefore keeps the cached install rather than failing the launch —
 /// offline is a condition to ride out, not an error to raise (issue #584).
-fn cache_hit(
-    install_dir: &Path,
-    bin_dir: &Path,
-    selection: &PackageSelection,
-    resolved: Option<&str>,
-) -> bool {
+fn cache_hit(install_dir: &Path, bin_dir: &Path, selection: &PackageSelection) -> bool {
     let Ok(stored) = std::fs::read_to_string(install_dir.join(INSTALL_MARKER)) else {
         return false;
     };
     if !marker_identity_matches(&stored, selection) {
-        return false;
-    }
-    if selection.selector().is_volatile()
-        && let Some(resolved) = resolved
-        && stored.split('\n').nth(3) != Some(resolved)
-    {
         return false;
     }
     PathSnapshot::for_platform(
@@ -496,7 +536,33 @@ fn prepare_managed_npm_with_lock_policy(
     cache_root: &Path,
     policy: LockPolicy,
 ) -> Result<PackageInvocation, PackageRuntimeError> {
-    let digest = selection_digest(selection).to_hex();
+    std::fs::create_dir_all(cache_root)
+        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
+
+    // Resolve before anything is keyed, because for a moving dist-tag the
+    // resolved version *is* the cache key. A pinned selector is already a
+    // concrete version and never reaches the registry.
+    //
+    // Resolving outside the lock is deliberate: it is a read-only metadata
+    // query, and the lock is keyed on the result.
+    let resolved = if selection.selector().is_volatile() {
+        resolve_volatile_version(candidate, selection).or_else(|| {
+            // Offline: fall back to the version this tag last resolved to, so
+            // the build the user already has still launches (issue #584).
+            let remembered = remembered_version(cache_root, selection);
+            tracing::warn!(
+                package = selection.package(),
+                recovered = remembered.is_some(),
+                "could not resolve dist-tag against the registry; using the last known version if present"
+            );
+            remembered
+        })
+    } else {
+        None
+    };
+    let resolved_ref = resolved.as_deref();
+
+    let digest = selection_digest(selection, resolved_ref).to_hex();
     // Ordering is always the intra-process digest guard, then the cross-process
     // lock. `digest_guard` outlives `_guard`, and `_guard` outlives `_lock`,
     // so both are released in the reverse order.
@@ -505,10 +571,8 @@ fn prepare_managed_npm_with_lock_policy(
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    std::fs::create_dir_all(cache_root)
-        .map_err(|error| PackageRuntimeError::InstallDirectory(error.to_string()))?;
-    let install_dir = managed_install_dir(cache_root, selection);
-    let bin_dir = managed_bin_dir(cache_root, selection);
+    let install_dir = managed_install_dir(cache_root, selection, resolved_ref);
+    let bin_dir = managed_bin_dir(cache_root, selection, resolved_ref);
     let retired = cache_root.join(format!("{RETIRED_PREFIX}{digest}"));
     // Held from before the cache-hit check through the fingerprint capture, so
     // no other process can rewrite the tree under a reader that has already
@@ -521,26 +585,15 @@ fn prepare_managed_npm_with_lock_policy(
         package_install_lock::acquire(&install_lock_path(cache_root, &digest), &digest, policy)?;
     reconcile_interrupted_promotion(&install_dir, &retired, selection, &digest)?;
 
-    // Resolve before consulting the cache: for a volatile selector the cached
-    // tree is only a hit when it holds the version the tag points at *now*. A
-    // pinned selector never moves, so it is never resolved and never reaches
-    // the registry.
-    let resolved = selection
-        .selector()
-        .is_volatile()
-        .then(|| resolve_volatile_version(candidate, selection))
-        .flatten();
-    if selection.selector().is_volatile() && resolved.is_none() {
-        tracing::warn!(
-            package = selection.package(),
-            "could not resolve dist-tag against the registry; using the cached install if present"
-        );
-    }
-
-    if !cache_hit(&install_dir, &bin_dir, selection, resolved.as_deref()) {
+    // The directory is now the version, so a hit needs only identity and a
+    // usable binary; there is no separate freshness question left to ask.
+    if !cache_hit(&install_dir, &bin_dir, selection) {
         let staging = cache_root.join(format!("{STAGING_PREFIX}{digest}"));
-        build_staged_install(candidate, selection, &staging, resolved.as_deref())?;
+        build_staged_install(candidate, selection, &staging, resolved_ref)?;
         promote_staged_install(&staging, &install_dir, &retired, &digest)?;
+    }
+    if let Some(version) = resolved_ref {
+        remember_version(cache_root, selection, version);
     }
 
     let snapshot = PathSnapshot::for_platform(

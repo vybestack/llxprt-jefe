@@ -494,6 +494,49 @@ fn a_registry_version_answer_is_validated_before_it_is_trusted() {
     );
 }
 
+/// Advancing a dist-tag must not destroy the tree a live agent is executing.
+///
+/// The cache is keyed on the tag rather than the resolved version, so every
+/// nightly shares one directory and a refresh reinstalls into the directory
+/// running processes are executing out of, then deletes the tree they came
+/// from. On macOS that deletion makes the running executable's vnode nameless,
+/// so `proc_pidpath` fails, securityd can no longer reconstruct the process's
+/// code identity, and every Keychain operation degrades to a password prompt
+/// that "Always Allow" cannot satisfy (issue #588).
+///
+/// Keying on the resolved version makes an advance create a *new* directory and
+/// leaves the old one untouched, which is what keeps already-running agents
+/// intact.
+#[cfg(unix)]
+#[test]
+fn advancing_a_tag_leaves_the_previous_install_intact() {
+    let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
+    let candidate = volatile_npm_candidate(&bin, "latest nightly");
+    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
+
+    let first = finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("first install: {error}"));
+    let first_executable = first.executable().to_path_buf();
+
+    publish_version(&witness, "0.11.0-nightly.2");
+    let second = finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("advanced install: {error}"));
+
+    assert_ne!(
+        first_executable,
+        second.executable(),
+        "a new resolved version must install to its own path, not overwrite the old one"
+    );
+    assert!(
+        first_executable.exists(),
+        "the tree a live agent is executing from must survive the tag advancing; \
+         deleting it is what strands the process and triggers the Keychain storm"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn volatile_cache_hits_while_the_tag_has_not_moved() {
@@ -581,64 +624,34 @@ fn volatile_selector_uses_the_cached_install_when_the_registry_is_unreachable() 
 
 #[cfg(unix)]
 #[test]
-fn volatile_marker_without_a_resolved_version_re_installs() {
-    // AC3: a legacy/stuck marker (3 lines, no timestamp) for a volatile selector
-    // is treated as stale and re-installed, writing a marker that records the
-// version the dist-tag resolved to.
+fn a_marker_for_a_different_selection_forces_a_reinstall() {
+    // Identity still gates the cache: a directory whose marker describes a
+    // different package or binary is not this selection's install, whatever the
+    // path suggests. The resolved-version line is no longer consulted here,
+    // because the directory is now keyed on that version (issue #588).
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
     let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
     let install_dir = install_dir_of(first.executable()).to_path_buf();
-    // Simulate a stuck/legacy cache: overwrite the marker with the old 3-line
-    // form (no resolved-version line) while keeping the binary present.
-    let selection = candidate
-        .package()
-        .unwrap_or_else(|| panic!("volatile candidate carries a package selection"));
-    let effective = selection
-        .selector()
-        .effective(selection.runner())
-        .unwrap_or_default();
-    let legacy_marker =
-        format!("{}
-{}
-{}
-", selection.package(), selection.binary(), effective);
-    std::fs::write(install_dir.join(".jefe-installed"), legacy_marker)
-        .unwrap_or_else(|error| panic!("write legacy marker: {error}"));
-    assert_eq!(
-        witness_lines(&witness).len(),
-        1,
-        "setup: one install recorded so far"
-    );
+    std::fs::write(
+        install_dir.join(".jefe-installed"),
+        "some-other-package\nsome-other-binary\nnightly\n",
+    )
+    .unwrap_or_else(|error| panic!("overwrite marker: {error}"));
 
-    // Any `now` should treat the timestamp-less marker as expired.
     finalize_local_invocation_inner(&candidate, cache.path())
-        .unwrap_or_else(|error| panic!("legacy re-resolve: {error}"));
+        .unwrap_or_else(|error| panic!("reinstall after identity mismatch: {error}"));
+
     assert_eq!(
         witness_lines(&witness).len(),
         2,
-        "a timestamp-less volatile marker must trigger a re-install (auto-heal)"
-    );
-    let refreshed = std::fs::read_to_string(install_dir.join(".jefe-installed"))
-        .unwrap_or_else(|error| panic!("read refreshed marker: {error}"));
-    let lines: Vec<&str> = refreshed.lines().collect();
-    assert!(
-        lines.len() >= 4,
-        "refreshed volatile marker must carry a resolved-version line: {refreshed:?}"
-    );
-    // The identity lines must be preserved across the refresh (no corruption).
-    assert_eq!(lines[0], selection.package(), "package line preserved");
-    assert_eq!(lines[1], selection.binary(), "binary line preserved");
-    assert_eq!(lines[2], effective, "effective-selector line preserved");
-    assert_eq!(
-        lines[3], "1.0.0",
-        "the 4th line must record the version the dist-tag resolved to, got {:?}",
-        lines[3]
+        "a marker describing a different selection must force a reinstall"
     );
 }
 
@@ -676,38 +689,45 @@ fn pinned_cache_remains_permanent_hit() {
 
 #[cfg(unix)]
 #[test]
-fn volatile_re_resolve_removes_stale_lockfile() {
-    // AC5 (#554): when a volatile cache expires, `npm install` must not observe a
-    // prior package-lock.json, so the dist-tag is re-resolved instead of reused,
-    // and the stale lockfile must not survive into the refreshed cache entry.
-    // Since #556 this is guaranteed structurally: the re-install is built in a
-    // fresh staging directory and promoted by rename, so nothing from the
-    // previous entry can leak into it.
+fn advancing_a_tag_never_writes_into_the_previous_version_directory() {
+    // A moving dist-tag used to be re-resolved by reinstalling over the same
+    // directory, which is why a stale package-lock.json there mattered. Keying
+    // the cache on the resolved version means an advance builds a *new*
+    // directory and the previous one is never opened again, so nothing a live
+    // agent is executing can be rewritten under it (issue #588).
     let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let witness = witness_path(&bin);
     counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0-nightly.1");
     let candidate = volatile_npm_candidate(&bin, "latest nightly");
     let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
 
     let first = finalize_local_invocation_inner(&candidate, cache.path())
         .unwrap_or_else(|error| panic!("first install: {error}"));
-    let install_dir = install_dir_of(first.executable()).to_path_buf();
-    // Plant a stale lockfile exactly where npm would leave it.
-    std::fs::write(install_dir.join("package-lock.json"), "stale-lockfile")
-        .unwrap_or_else(|error| panic!("plant stale lockfile: {error}"));
+    let first_dir = install_dir_of(first.executable()).to_path_buf();
+    // Anything at all in the previous directory: if the new install reached
+    // into it, this would be disturbed.
+    std::fs::write(first_dir.join("package-lock.json"), "in-use-by-a-live-agent")
+        .unwrap_or_else(|error| panic!("plant marker file: {error}"));
 
     publish_version(&witness, "0.11.0-nightly.2");
-    finalize_local_invocation_inner(&candidate, cache.path())
-        .unwrap_or_else(|error| panic!("re-resolve after tag moved: {error}"));
+    let second = finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("advanced install: {error}"));
+    let second_dir = install_dir_of(second.executable()).to_path_buf();
 
-    let lines = witness_lines(&witness);
-    assert_eq!(lines.len(), 2, "a moved dist-tag must re-run npm");
+    assert_ne!(first_dir, second_dir, "an advance must build a new directory");
     assert_eq!(
-        lines[1], "absent",
-        "npm must not see the stale package-lock.json when it re-resolves (got {lines:?})",
+        std::fs::read_to_string(first_dir.join("package-lock.json"))
+            .unwrap_or_else(|error| panic!("previous directory must be intact: {error}")),
+        "in-use-by-a-live-agent",
+        "the previous version directory must not be written to or rebuilt"
     );
-    assert!(
-        !install_dir.join("package-lock.json").exists(),
-        "the stale lockfile must remain absent after the re-resolve completes"
+    // The fresh install still starts from an empty staging directory, so npm
+    // never observes a prior lockfile.
+    let observations = witness_lines(&witness);
+    assert_eq!(observations.len(), 2, "the advance must install once more");
+    assert_eq!(
+        observations[1], "absent",
+        "the new install must not observe a package-lock.json (got {observations:?})"
     );
 }
