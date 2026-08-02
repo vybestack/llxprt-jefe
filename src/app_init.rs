@@ -664,15 +664,62 @@ fn reclaim_unbound_sessions(
         return false;
     }
 
-    let mut adopted = Vec::new();
-    let mut ambiguous = Vec::new();
-    let mut unowned = Vec::new();
-    let mut revived = Vec::new();
-
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+    let decisions = reclaim::classify_reclaimable(&observed, &candidates);
+    let Some(outcome) = adopt_reclaimable(&*app_state, ctx_arc, decisions) else {
         return false;
     };
-    for decision in reclaim::classify_reclaimable(&observed, &candidates) {
+    let ReclaimOutcome {
+        adopted,
+        ambiguous,
+        unowned,
+        revived,
+    } = outcome;
+
+    let report = reclaim::reclaim_report(&adopted, &ambiguous, &unowned);
+    if revived.is_empty() && report.is_none() {
+        return false;
+    }
+    let mut state = app_state.write();
+    apply_restored_state(&mut state, revived, Vec::new(), report);
+    true
+}
+
+/// What one reclaim pass established.
+struct ReclaimOutcome {
+    adopted: Vec<AgentId>,
+    ambiguous: Vec<String>,
+    unowned: Vec<String>,
+    revived: Vec<RevivedAgent>,
+}
+
+/// Drive the runtime for each classified session.
+///
+/// Returns `None` when the runtime lock is unusable, which is the one case
+/// where the pass declines entirely rather than reporting a partial result.
+fn adopt_reclaimable(
+    app_state: &HookState<AppState>,
+    ctx_arc: &std::sync::Arc<std::sync::Mutex<crate::AppContext>>,
+    decisions: Vec<reclaim::ReclaimDecision>,
+) -> Option<ReclaimOutcome> {
+    // A poisoned runtime lock means an earlier panic left the runtime in an
+    // unknown state, so reclaim declines rather than adopting against it. Say
+    // so: skipping silently would make a live agent look abandoned for a reason
+    // the user could never see, which is the very failure this pass exists to
+    // end.
+    let mut ctx_guard = match ctx_arc.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            warn!(error = %error, "runtime lock poisoned; skipping session reclaim this startup");
+            return None;
+        }
+    };
+    let mut outcome = ReclaimOutcome {
+        adopted: Vec::new(),
+        ambiguous: Vec::new(),
+        unowned: Vec::new(),
+        revived: Vec::new(),
+    };
+    for decision in decisions {
         match decision {
             reclaim::ReclaimDecision::Adopt(agent_id) => {
                 let Some((work_dir, signature)) = reclaim_inputs(app_state, &agent_id) else {
@@ -683,8 +730,8 @@ fn reclaim_unbound_sessions(
                     .register_existing_local_session(&agent_id, &work_dir, signature)
                 {
                     Ok(binding) => {
-                        adopted.push(agent_id.clone());
-                        revived.push(RevivedAgent {
+                        outcome.adopted.push(agent_id.clone());
+                        outcome.revived.push(RevivedAgent {
                             agent_id,
                             binding: Box::new(binding),
                         });
@@ -694,19 +741,11 @@ fn reclaim_unbound_sessions(
                     }
                 }
             }
-            reclaim::ReclaimDecision::Ambiguous(session) => ambiguous.push(session),
-            reclaim::ReclaimDecision::Unowned(session) => unowned.push(session),
+            reclaim::ReclaimDecision::Ambiguous(session) => outcome.ambiguous.push(session),
+            reclaim::ReclaimDecision::Unowned(session) => outcome.unowned.push(session),
         }
     }
-    drop(ctx_guard);
-
-    let report = reclaim::reclaim_report(&adopted, &ambiguous, &unowned);
-    if revived.is_empty() && report.is_none() {
-        return false;
-    }
-    let mut state = app_state.write();
-    apply_restored_state(&mut state, revived, Vec::new(), report);
-    true
+    Some(outcome)
 }
 
 /// Work directory and launched-with signature for one reclaim candidate.
