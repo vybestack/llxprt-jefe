@@ -366,8 +366,19 @@ fn local_candidate_with_snapshot(
     )
     .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
     let probe = run_local_agent_probe(definition, &resolution, generation);
-    let invocation = finalize_local_invocation(candidate, &managed_package_cache_root())
-        .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+    // Execute exactly what the probe measured. Preparing again here would
+    // resolve a moving selector a second time, and the two answers can differ,
+    // which is how availability from one version came to be paired with the
+    // executable and fingerprint of another (issue #571).
+    //
+    // The fallback runs only when the probe prepared nothing: a candidate with
+    // no package runner, which `finalize_local_invocation` answers from the
+    // candidate itself without touching the registry or the cache.
+    let invocation = match probe.prepared_invocation() {
+        Some(prepared) => prepared.clone(),
+        None => finalize_local_invocation(candidate, &managed_package_cache_root())
+            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?,
+    };
     Ok(CandidateEvidence {
         executable: invocation.executable().to_path_buf(),
         fingerprint: invocation

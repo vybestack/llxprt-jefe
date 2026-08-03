@@ -98,6 +98,7 @@ pub struct AgentProbeResult {
     executable_fingerprint: Option<CandidateFingerprint>,
     candidate_generation_key: Option<CandidateGenerationKey>,
     definition_sha256: DefinitionSha256,
+    prepared_invocation: Option<super::package_runtime::PackageInvocation>,
 }
 
 impl AgentProbeResult {
@@ -105,6 +106,21 @@ impl AgentProbeResult {
     #[must_use]
     pub const fn availability(&self) -> &Availability {
         &self.availability
+    }
+
+    /// The package invocation this probe prepared and measured.
+    ///
+    /// Launch must execute *this* invocation rather than preparing its own.
+    /// Preparing twice means resolving a moving selector twice, and two
+    /// resolutions can disagree — which composed availability measured from one
+    /// version with the executable and fingerprint of another (issue #571).
+    ///
+    /// `None` when the agent is not reached through a package runner, and when
+    /// preparation failed; in both cases there is no measured invocation to
+    /// carry.
+    #[must_use]
+    pub const fn prepared_invocation(&self) -> Option<&super::package_runtime::PackageInvocation> {
+        self.prepared_invocation.as_ref()
     }
 
     /// Physical executable fingerprint, absent only for NotFound.
@@ -163,6 +179,7 @@ pub fn run_local_agent_probe_with_cache(
             executable_fingerprint: None,
             candidate_generation_key: None,
             definition_sha256,
+            prepared_invocation: None,
         };
     };
     let candidate_generation_key = candidate.generation_key(definition);
@@ -174,17 +191,23 @@ pub fn run_local_agent_probe_with_cache(
         .and_then(|invocation| invocation.fingerprint())
         .cloned()
         .unwrap_or_else(|| candidate.fingerprint().clone());
-    let availability = match prepared {
-        Ok(invocation) => probe_resolved(
-            definition,
-            candidate,
-            invocation.as_ref(),
-            requested_generation,
+    let (availability, prepared_invocation) = match prepared {
+        Ok(invocation) => (
+            probe_resolved(
+                definition,
+                candidate,
+                invocation.as_ref(),
+                requested_generation,
+            ),
+            invocation,
         ),
-        Err(error) => probe_error(
-            ProbeErrorCode::Agte202,
-            error.to_string(),
-            requested_generation,
+        Err(error) => (
+            probe_error(
+                ProbeErrorCode::Agte202,
+                error.to_string(),
+                requested_generation,
+            ),
+            None,
         ),
     };
     AgentProbeResult {
@@ -192,6 +215,7 @@ pub fn run_local_agent_probe_with_cache(
         executable_fingerprint: Some(fingerprint),
         candidate_generation_key: Some(candidate_generation_key),
         definition_sha256,
+        prepared_invocation,
     }
 }
 
