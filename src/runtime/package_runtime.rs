@@ -399,30 +399,48 @@ fn bin_dir_of(install_dir: &Path) -> PathBuf {
 
 /// Contents of the install marker for a completed install.
 ///
-/// A volatile selector records the concrete version the tag resolved to on a
-/// fourth line, so a later preparation can tell "the tag still points here"
-/// from "the tag has moved" without consulting a clock (issue #584). A pinned
-/// selector keeps the three-line form: an explicit version never moves, so its
-/// cache entry is permanent.
+/// Always three lines — package, binary, and the identity version from
+/// [`marker_identity_version`] — whatever kind of selector asked for it. The
+/// selector no longer appears, because two selectors naming one version are the
+/// same install and must recognise each other's marker (issue #610).
+///
+/// Whether the tag has moved is no longer a question the marker answers: a
+/// different version is a different directory, so a moved tag simply looks
+/// elsewhere (issue #588). What used to be a fourth line recording the resolved
+/// version is now the third.
 ///
 /// `resolved` is `None` only when the registry could not be reached during an
-/// install, which leaves the marker in the three-line form and makes the next
-/// preparation re-resolve rather than trust an unverified tree.
+/// install. The third line then falls back to the declared selector, so the
+/// entry is not mistaken for a resolved one and the next preparation re-resolves
+/// rather than trusting an unverified tree (issue #584).
 fn marker_contents(selection: &PackageSelection, resolved: Option<&str>) -> String {
-    let effective = selection
-        .selector()
-        .effective(selection.runner())
-        .unwrap_or_default();
-    let base = format!(
+    format!(
         "{}\n{}\n{}\n",
         selection.package(),
         selection.binary(),
-        effective
-    );
-    if !selection.selector().is_volatile() {
-        return base;
-    }
-    resolved.map_or_else(|| base.clone(), |version| format!("{base}{version}\n"))
+        marker_identity_version(selection, resolved)
+    )
+}
+
+/// The third marker line: what this directory *holds*, not what was typed.
+///
+/// It must be the same value [`selection_digest`] keyed the directory on, or
+/// identity and location disagree. They did: the digest used the resolved
+/// version while the marker used the declared selector, so a tag resolving to
+/// 1.2.3 and an exact 1.2.3 shared one directory and each rejected the other's
+/// marker. The loser reinstalled and republished over a tree the winner could
+/// be executing from, which is precisely what keying on the version was meant
+/// to stop (issues #588, #571).
+fn marker_identity_version<'selection>(
+    selection: &'selection PackageSelection,
+    resolved: Option<&'selection str>,
+) -> &'selection str {
+    resolved.unwrap_or_else(|| {
+        selection
+            .selector()
+            .effective(selection.runner())
+            .unwrap_or_default()
+    })
 }
 
 /// Whether the cached install satisfies this selection.
@@ -432,11 +450,16 @@ fn marker_contents(selection: &PackageSelection, resolved: Option<&str>) -> Stri
 /// that version when the registry answered, and is `None` when it did not. A
 /// `None` therefore keeps the cached install rather than failing the launch —
 /// offline is a condition to ride out, not an error to raise (issue #584).
-fn cache_hit(install_dir: &Path, bin_dir: &Path, selection: &PackageSelection) -> bool {
+fn cache_hit(
+    install_dir: &Path,
+    bin_dir: &Path,
+    selection: &PackageSelection,
+    resolved: Option<&str>,
+) -> bool {
     let Ok(stored) = std::fs::read_to_string(install_dir.join(INSTALL_MARKER)) else {
         return false;
     };
-    if !marker_identity_matches(&stored, selection) {
+    if !marker_identity_matches(&stored, selection, resolved) {
         return false;
     }
     PathSnapshot::for_platform(
@@ -507,15 +530,16 @@ fn is_plausible_version(version: &str) -> bool {
 }
 
 /// Whether the stored marker's package/binary/effective lines match `selection`.
-fn marker_identity_matches(stored: &str, selection: &PackageSelection) -> bool {
-    let effective = selection
-        .selector()
-        .effective(selection.runner())
-        .unwrap_or_default();
+fn marker_identity_matches(
+    stored: &str,
+    selection: &PackageSelection,
+    resolved: Option<&str>,
+) -> bool {
+    let identity = marker_identity_version(selection, resolved);
     let mut lines = stored.split('\n');
     lines.next() == Some(selection.package())
         && lines.next() == Some(selection.binary())
-        && lines.next() == Some(effective)
+        && lines.next() == Some(identity)
 }
 fn prepare_managed_npm(
     candidate: &ResolvedCandidate,
@@ -587,7 +611,7 @@ fn prepare_managed_npm_with_lock_policy(
 
     // The directory is now the version, so a hit needs only identity and a
     // usable binary; there is no separate freshness question left to ask.
-    if !cache_hit(&install_dir, &bin_dir, selection) {
+    if !cache_hit(&install_dir, &bin_dir, selection, resolved_ref) {
         let staging = cache_root.join(format!("{STAGING_PREFIX}{digest}"));
         build_staged_install(candidate, selection, &staging, resolved_ref)?;
         promote_staged_install(&staging, &install_dir, &retired, &digest)?;

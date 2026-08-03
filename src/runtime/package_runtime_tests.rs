@@ -537,6 +537,55 @@ fn advancing_a_tag_leaves_the_previous_install_intact() {
     );
 }
 
+/// Two selectors naming the same version must share one install, not fight
+/// over it.
+///
+/// Since the cache is keyed on the resolved version (issue #588), a tag that
+/// resolves to 0.11.0 and an exact 0.11.0 address the *same* directory. If
+/// identity is judged by the selector the user typed rather than by the version
+/// that was installed, each rejects the other's marker, and the loser republishes
+/// over a tree the winner may be executing from — the exact destruction that
+/// version-keying was introduced to prevent (issue #571).
+#[cfg(unix)]
+#[test]
+fn a_tag_and_an_exact_pin_at_the_same_version_share_one_install() {
+    let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0");
+    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
+
+    let tagged = volatile_npm_candidate(&bin, "latest nightly");
+    let first = finalize_local_invocation_inner(&tagged, cache.path())
+        .unwrap_or_else(|error| panic!("tag install: {error}"));
+    let tagged_executable = first.executable().to_path_buf();
+    assert_eq!(
+        witness_lines(&witness).len(),
+        1,
+        "the tag must install once"
+    );
+
+    // The same version, named exactly. Nothing about the tree needs to change.
+    let pinned = volatile_npm_candidate(&bin, "0.11.0");
+    let second = finalize_local_invocation_inner(&pinned, cache.path())
+        .unwrap_or_else(|error| panic!("pinned install: {error}"));
+
+    assert_eq!(
+        tagged_executable,
+        second.executable(),
+        "the same version must resolve to the same install path"
+    );
+    assert_eq!(
+        witness_lines(&witness).len(),
+        1,
+        "naming the installed version exactly must be a cache hit, not a reinstall"
+    );
+    assert!(
+        tagged_executable.exists(),
+        "the tree the tagged agent is executing from must survive another selector          arriving at the same version"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn volatile_cache_hits_while_the_tag_has_not_moved() {
