@@ -1,25 +1,32 @@
-//! Terminal-model event sink for a hosted agent PTY.
+//! Terminal-model event sink for a hosted multiplexer client.
 //!
 //! Extracted from `attach.rs` to keep that file inside the source-file size
 //! limit. The listener is how the embedded terminal model talks back: clipboard
-//! stores go to the host clipboard boundary, and identity/mode query replies go
-//! onto the hosted child's own input stream.
+//! stores go to the host clipboard boundary, and identity/mode query replies
+//! are queued for the hosted client's own input stream.
 
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::term::Config as TermConfig;
 use tracing::{debug, trace, warn};
 
+/// Terminal-query replies waiting to be written to the hosted client.
+pub(super) type PendingReplies = Arc<Mutex<Vec<u8>>>;
+
 /// Runtime event listener for alacritty_terminal.
 ///
 /// Handles OSC52 clipboard-store events so an agent's copy propagates to the
-/// host clipboard when running inside jefe's embedded PTY, and answers the
-/// child's terminal queries on the child's own input.
+/// host clipboard when running inside jefe's embedded PTY, and queues the
+/// terminal-query replies the model produces.
+///
+/// The listener runs inside the terminal parser, which holds the terminal-model
+/// lock, so it performs no PTY I/O of its own: a child that has stopped reading
+/// its input would otherwise block the reader thread mid-parse and stall every
+/// render behind the model lock. Replies are queued here and written once the
+/// parser has released the model (issue #627).
 pub struct RuntimeListener {
-    /// Write end of the hosted child's PTY.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pending: PendingReplies,
 }
 
 impl std::fmt::Debug for RuntimeListener {
@@ -29,27 +36,23 @@ impl std::fmt::Debug for RuntimeListener {
 }
 
 impl RuntimeListener {
-    /// Build a listener that can answer the hosted child on its own input.
+    /// Build a listener that queues query replies into `pending`.
     #[must_use]
-    pub fn new(writer: Arc<Mutex<Box<dyn Write + Send>>>) -> Self {
-        Self { writer }
+    pub fn new(pending: PendingReplies) -> Self {
+        Self { pending }
     }
 }
 
-/// Terminal-model configuration for a hosted agent PTY.
+/// Terminal-model configuration for a hosted multiplexer client.
 ///
-/// The kitty keyboard protocol is switched on so the model answers the child's
-/// `CSI ? u` query and tracks the modes it pushes. Without it the model
-/// silently ignores every keyboard-protocol control sequence, the child
-/// concludes the terminal cannot disambiguate key chords, and chords such as
-/// `Ctrl+Enter` become indistinguishable from their legacy control-byte
-/// aliases (issue #627).
+/// Jefe does not implement the kitty keyboard protocol, so the model is left
+/// with alacritty's default configuration rather than advertising a protocol
+/// whose flags jefe would not honour. Modified key chords survive the
+/// multiplexer hop through the multiplexer's own extended-key support instead
+/// (issue #627).
 #[must_use]
 pub fn embedded_term_config() -> TermConfig {
-    TermConfig {
-        kitty_keyboard: true,
-        ..TermConfig::default()
-    }
+    TermConfig::default()
 }
 
 // ClipboardStore uses the same OSC 52 boundary as Jefe selections. This keeps
@@ -64,20 +67,19 @@ where
     writer(text)
 }
 
-/// Write a terminal query reply back onto the hosted child's input stream.
+/// Queue a terminal query reply for the hosted client's input stream.
 ///
-/// The embedded terminal model answers identity and mode queries (DA1, kitty
-/// keyboard flags, XTVERSION, `modifyOtherKeys`, DSR) by emitting
-/// `TermEvent::PtyWrite`. Those replies are input for the child, not output for
-/// the host: a child that never receives them concludes the terminal supports
-/// nothing it asked about, and many block their raw-mode setup until the
-/// device-attributes reply arrives (issue #627).
-fn forward_pty_write(writer: &Mutex<Box<dyn Write + Send>>, text: &str) -> std::io::Result<()> {
-    let mut writer = writer
-        .lock()
-        .map_err(|_| std::io::Error::other("pty writer lock poisoned"))?;
-    writer.write_all(text.as_bytes())?;
-    writer.flush()
+/// The embedded terminal model answers identity and mode queries (device
+/// attributes, XTVERSION, cursor position, ...) by emitting
+/// `TermEvent::PtyWrite`. Those replies are input for the hosted client, not
+/// output for the host: a client that never receives them keeps identifying its
+/// terminal until its own timeouts expire (issue #627).
+pub(super) fn queue_pty_write(pending: &Mutex<Vec<u8>>, text: &str) {
+    if let Ok(mut pending) = pending.lock() {
+        pending.extend_from_slice(text.as_bytes());
+    } else {
+        warn!("dropping terminal query reply: pending-reply lock poisoned");
+    }
 }
 
 impl EventListener for RuntimeListener {
@@ -90,10 +92,8 @@ impl EventListener for RuntimeListener {
                 }
             }
             TermEvent::PtyWrite(text) => {
-                trace!(len = text.len(), "answering terminal query on child input");
-                if let Err(error) = forward_pty_write(&self.writer, &text) {
-                    warn!(%error, "failed to answer terminal query on child input");
-                }
+                trace!(len = text.len(), "queueing terminal query reply");
+                queue_pty_write(&self.pending, &text);
             }
             _ => {}
         }

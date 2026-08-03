@@ -11,7 +11,7 @@ use iocraft::prelude::KeyEvent;
 use tracing::{debug, trace, warn};
 
 use crate::pty_encoding::{
-    PasteEnterSuppression, PtyKeyEncoding, key_to_bytes, should_arm_paste_enter_suppression,
+    PasteEnterSuppression, key_to_bytes, should_arm_paste_enter_suppression,
     should_disarm_paste_enter_suppression, should_suppress_synthetic_enter,
 };
 use jefe::input::{InputMode, is_bare_ctrl_c};
@@ -70,20 +70,6 @@ fn trace_encoded_key(key_event: &KeyEvent, encoded: Option<&Vec<u8>>) {
     }
 }
 
-/// The key encoding the attached child has negotiated.
-///
-/// Falls back to the legacy encoding whenever there is no runtime to ask, which
-/// is also what a child that negotiated nothing gets.
-fn negotiated_key_encoding(ctx: Option<&CtxArc>) -> PtyKeyEncoding {
-    let Some(ctx_arc) = ctx else {
-        return PtyKeyEncoding::Legacy;
-    };
-    let Ok(ctx_guard) = ctx_arc.lock() else {
-        return PtyKeyEncoding::Legacy;
-    };
-    PtyKeyEncoding::for_child(ctx_guard.runtime.kitty_keyboard_active())
-}
-
 /// Classify a key for the PTY write path.
 ///
 /// Enter is the only chord downstream agents reclassify from arrival timing, so
@@ -103,7 +89,7 @@ pub fn forward_key_to_pty(
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: &KeyEvent,
 ) {
-    let encoded = key_to_bytes(key_event, negotiated_key_encoding(ctx));
+    let encoded = key_to_bytes(key_event);
     trace_encoded_key(key_event, encoded.as_ref());
 
     let Some(bytes) = encoded else {

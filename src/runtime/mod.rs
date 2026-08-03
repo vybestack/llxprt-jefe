@@ -124,7 +124,7 @@ pub use external_terminal::{
     spawn_external_terminal,
 };
 pub use gh_auth::{AuthRunResult, run_device_auth};
-pub use key_pacing::{ENTER_INPUT_GAP, KeyWritePacing, PtyInputKind};
+pub use key_pacing::{ENTER_INPUT_GAP, KeyWritePacing, PacedPtyInput, PtyInputKind};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
     batch_liveness_check_with_identity, list_jefe_sessions, observe_worker_disposition,

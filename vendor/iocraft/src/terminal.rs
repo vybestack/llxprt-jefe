@@ -276,10 +276,17 @@ impl StdTerminal {
         if raw_mode_enabled != self.raw_mode_enabled {
             if raw_mode_enabled {
                 if terminal::supports_keyboard_enhancement()? {
+                    // NOTE: jefe adds DISAMBIGUATE_ESCAPE_CODES to iocraft's
+                    // upstream REPORT_EVENT_TYPES. Without disambiguation the
+                    // host terminal reports Ctrl+Enter, Shift+Enter and
+                    // Alt+Enter with the same legacy bytes as a bare Enter (or
+                    // as Ctrl+J), so jefe never receives the chord at all and
+                    // cannot forward it to the hosted agent (issue #627).
                     execute!(
                         self.dest,
                         event::PushKeyboardEnhancementFlags(
                             event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                                | event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                         )
                     )?;
                     self.enabled_keyboard_enhancement = true;

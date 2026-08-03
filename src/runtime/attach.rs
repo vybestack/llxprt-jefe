@@ -4,7 +4,7 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 07-14
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -21,9 +21,10 @@ use portable_pty::{
 };
 use tracing::{debug, trace, warn};
 
+use super::attach_listener::PendingReplies;
 use super::attach_listener::{RuntimeListener, embedded_term_config};
 use super::errors::RuntimeError;
-use super::key_pacing::{KeyWritePacing, PtyInputKind};
+use super::key_pacing::{PacedPtyInput, PtyInputKind};
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
 /// Simple dimensions struct for terminal sizing.
@@ -50,8 +51,9 @@ impl Dimensions for TermDimensions {
 pub struct AttachedViewer {
     /// PTY master handle for resize.
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
-    /// Write end for sending input.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// The single writing end of the child's PTY input, with the pacing state
+    /// that keeps an Enter chord out of the preceding write's burst (#627).
+    input: Arc<Mutex<PacedPtyInput>>,
     /// Terminal state model.
     term: Arc<Mutex<Term<RuntimeListener>>>,
     /// Liveness flag.
@@ -66,9 +68,6 @@ pub struct AttachedViewer {
     child: Arc<Mutex<Box<dyn PtyChild + Send + Sync>>>,
     /// Reader thread handle.
     _reader_thread: JoinHandle<()>,
-    /// When jefe last wrote input to this child, so an Enter chord can be kept
-    /// out of the preceding keystroke's burst (issue #627).
-    key_pacing: Mutex<KeyWritePacing>,
     /// Last-applied terminal dimensions (issue #296 mode-recovery nudge).
     rows: u16,
     cols: u16,
@@ -575,7 +574,8 @@ impl AttachedViewer {
             .map_err(|e| RuntimeError::SpawnFailed(format!("take writer: {e}")))?;
 
         let master = Arc::new(Mutex::new(pty_pair.master));
-        let writer = Arc::new(Mutex::new(writer));
+        let input = Arc::new(Mutex::new(PacedPtyInput::new(writer)));
+        let pending_replies: PendingReplies = Arc::new(Mutex::new(Vec::new()));
 
         // Create terminal model
         let config = embedded_term_config();
@@ -586,7 +586,7 @@ impl AttachedViewer {
         let term = Term::new(
             config,
             &term_size,
-            RuntimeListener::new(Arc::clone(&writer)),
+            RuntimeListener::new(Arc::clone(&pending_replies)),
         );
         let term = Arc::new(Mutex::new(term));
 
@@ -594,23 +594,26 @@ impl AttachedViewer {
         let dirty = Arc::new(AtomicBool::new(false));
 
         // Spawn reader thread
-        let term_clone = Arc::clone(&term);
-        let alive_clone = Arc::clone(&alive);
-        let dirty_clone = Arc::clone(&dirty);
+        let reader_context = ReaderContext {
+            term: Arc::clone(&term),
+            alive: Arc::clone(&alive),
+            dirty: Arc::clone(&dirty),
+            input: Arc::clone(&input),
+            pending_replies,
+        };
         let reader_thread = thread::spawn(move || {
-            reader_loop(reader, term_clone, alive_clone, dirty_clone);
+            reader_loop(reader, &reader_context);
         });
 
         debug!(session_name = %session_name, "AttachedViewer::spawn ready");
         Ok(Self {
             master,
-            writer,
+            input,
             term,
             alive,
             dirty,
             child,
             _reader_thread: reader_thread,
-            key_pacing: Mutex::new(KeyWritePacing::new()),
             rows,
             cols,
         })
@@ -651,50 +654,24 @@ impl AttachedViewer {
 
     /// Write input bytes to the PTY, separating an Enter chord from whatever
     /// jefe wrote just before it (issue #627).
+    ///
+    /// The pacing state lives behind the same lock as the writer, so no other
+    /// input source — keystroke, mouse report, paste, or terminal-query reply —
+    /// can slip a byte in between the moment the separation is computed and the
+    /// moment these bytes reach the child.
     pub fn write_input_kind(&self, bytes: &[u8], kind: PtyInputKind) -> Result<(), RuntimeError> {
         if !self.is_alive() {
             return Err(RuntimeError::WriteFailed("viewer not alive".into()));
         }
 
-        self.wait_for_input_gap(kind);
-
-        let mut writer = self
-            .writer
+        let mut input = self
+            .input
             .lock()
             .map_err(|_| RuntimeError::WriteFailed("lock poisoned".into()))?;
 
-        writer
-            .write_all(bytes)
-            .map_err(|e| RuntimeError::WriteFailed(e.to_string()))?;
-
-        writer
-            .flush()
-            .map_err(|e| RuntimeError::WriteFailed(format!("flush: {e}")))?;
-        drop(writer);
-
-        self.mark_input_written();
-
-        Ok(())
-    }
-
-    /// Hold an Enter back until the child has seen a gap since the previous
-    /// write. Bounded by [`ENTER_INPUT_GAP`], and zero for every other input.
-    fn wait_for_input_gap(&self, kind: PtyInputKind) {
-        let delay = self.key_pacing.lock().map_or(Duration::ZERO, |pacing| {
-            pacing.delay_before(kind, Instant::now())
-        });
-        if !delay.is_zero() {
-            trace!(?delay, "separating Enter from the preceding PTY write");
-            thread::sleep(delay);
-        }
-    }
-
-    /// Record when bytes reached the child, so the next Enter can measure its
-    /// separation from this write.
-    fn mark_input_written(&self) {
-        if let Ok(mut pacing) = self.key_pacing.lock() {
-            pacing.record(Instant::now());
-        }
+        input
+            .write(bytes, kind)
+            .map_err(|error| RuntimeError::WriteFailed(error.to_string()))
     }
 
     /// Resize the terminal.
@@ -800,22 +777,6 @@ impl AttachedViewer {
 
         term.mode().contains(TermMode::BRACKETED_PASTE)
     }
-
-    /// Whether the attached application has asked for kitty escape-code
-    /// disambiguation.
-    ///
-    /// A child that pushed the kitty keyboard flags expects modified keys in
-    /// CSI-u form. Reporting the mode lets the key encoder produce chords the
-    /// child can actually tell apart, instead of the ambiguous control bytes
-    /// that are all a legacy terminal can offer (issue #627).
-    #[must_use]
-    pub fn kitty_keyboard_active(&self) -> bool {
-        let Ok(term) = self.term.lock() else {
-            return false;
-        };
-
-        term.mode().contains(TermMode::DISAMBIGUATE_ESC_CODES)
-    }
 }
 
 fn terminate_child_with_timeout(child: &mut dyn PtyChild, timeout: Duration) {
@@ -863,16 +824,20 @@ impl Drop for AttachedViewer {
     }
 }
 
+/// Everything the reader thread needs to service one attached PTY.
+struct ReaderContext {
+    term: Arc<Mutex<Term<RuntimeListener>>>,
+    alive: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
+    input: Arc<Mutex<PacedPtyInput>>,
+    pending_replies: PendingReplies,
+}
+
 /// Reader loop that feeds PTY output into the terminal model.
 ///
 /// On every successful read, the `dirty` flag is set so the render loop knows
 /// new terminal data is available and should trigger a re-render.
-fn reader_loop(
-    mut reader: Box<dyn Read + Send>,
-    term: Arc<Mutex<Term<RuntimeListener>>>,
-    alive: Arc<AtomicBool>,
-    dirty: Arc<AtomicBool>,
-) {
+fn reader_loop(mut reader: Box<dyn Read + Send>, context: &ReaderContext) {
     let mut buf = [0u8; 4096];
     let mut parser: Processor<StdSyncHandler> = Processor::new();
 
@@ -880,18 +845,43 @@ fn reader_loop(
         match reader.read(&mut buf) {
             Ok(0) => {
                 // EOF - viewer died
-                alive.store(false, Ordering::Relaxed);
+                context.alive.store(false, Ordering::Relaxed);
                 break;
             }
             Ok(n) => {
-                process_pty_read(&buf[..n], &mut parser, &term, &dirty);
+                process_pty_read(&buf[..n], &mut parser, &context.term, &context.dirty);
+                flush_pending_replies(&context.pending_replies, &context.input);
             }
             Err(_) => {
                 // Reader error - mark viewer as dead
-                alive.store(false, Ordering::Relaxed);
+                context.alive.store(false, Ordering::Relaxed);
                 break;
             }
         }
+    }
+}
+
+/// Write the terminal-query replies the parser queued.
+///
+/// Runs after `process_pty_read` has released the terminal model, so a child
+/// that has stopped reading its input can never block the reader thread while
+/// it holds the lock every render needs.
+fn flush_pending_replies(pending: &PendingReplies, input: &Mutex<PacedPtyInput>) {
+    let Ok(mut pending) = pending.lock() else {
+        warn!("pending-reply lock poisoned; dropping terminal query replies");
+        return;
+    };
+    let replies = std::mem::take(&mut *pending);
+    drop(pending);
+    if replies.is_empty() {
+        return;
+    }
+    let Ok(mut input) = input.lock() else {
+        warn!("pty input lock poisoned; dropping terminal query replies");
+        return;
+    };
+    if let Err(error) = input.write(&replies, PtyInputKind::Other) {
+        warn!(%error, "failed to answer terminal query on client input");
     }
 }
 
@@ -948,5 +938,5 @@ fn mouse_reporting_bits(mode: TermMode) -> (bool, bool, bool) {
 mod tests;
 
 #[cfg(test)]
-#[path = "attach_keyboard_tests.rs"]
-mod keyboard_tests;
+#[path = "attach_query_tests.rs"]
+mod query_tests;

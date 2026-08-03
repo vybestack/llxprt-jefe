@@ -4,8 +4,8 @@
 #[cfg(test)]
 mod key_tests {
     use crate::pty_encoding::{
-        PASTE_ENTER_SUPPRESSION_WINDOW, PasteEnterSuppression, PtyKeyEncoding, ctrl_char_to_byte,
-        key_to_bytes, should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
+        PASTE_ENTER_SUPPRESSION_WINDOW, PasteEnterSuppression, ctrl_char_to_byte, key_to_bytes,
+        should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
         should_suppress_synthetic_enter,
     };
     use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -21,19 +21,13 @@ mod key_tests {
     #[test]
     fn plain_enter_maps_to_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::Legacy),
-            Some(vec![b'\r'])
-        );
+        assert_eq!(key_to_bytes(&key), Some(vec![b'\r']));
     }
 
     #[test]
     fn shift_enter_maps_to_backslash_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::Legacy),
-            Some(b"\\\r".to_vec())
-        );
+        assert_eq!(key_to_bytes(&key), Some(b"\\\r".to_vec()));
     }
 
     #[test]
@@ -248,44 +242,32 @@ mod key_tests {
     #[test]
     fn legacy_alt_enter_prefixes_escape_before_cr() {
         let alt_enter = key_event(KeyCode::Enter, KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&alt_enter, PtyKeyEncoding::Legacy),
-            Some(vec![0x1b, b'\r'])
-        );
+        assert_eq!(key_to_bytes(&alt_enter), Some(vec![0x1b, b'\r']));
     }
 
     #[test]
     fn alt_char_prefixes_escape() {
         let alt_x = key_event(KeyCode::Char('x'), KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&alt_x, PtyKeyEncoding::Legacy),
-            Some(b"\x1bx".to_vec())
-        );
+        assert_eq!(key_to_bytes(&alt_x), Some(b"\x1bx".to_vec()));
     }
 
     #[test]
     fn alt_shift_enter_does_not_double_prefix_escape() {
         let key = key_event(KeyCode::Enter, KeyModifiers::ALT | KeyModifiers::SHIFT);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::Legacy),
-            Some(b"\\\x1b\r".to_vec())
-        );
+        assert_eq!(key_to_bytes(&key), Some(b"\\\x1b\r".to_vec()));
     }
 
     #[test]
     fn shift_alt_enter_maps_to_backslash_esc_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::Legacy),
-            Some(b"\\\x1b\r".to_vec())
-        );
+        assert_eq!(key_to_bytes(&key), Some(b"\\\x1b\r".to_vec()));
     }
 
     #[test]
     fn ctrl_backslash_maps_to_fs() {
         let key = key_event(KeyCode::Char('\\'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('\\'), Some(0x1c));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x1c]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x1c]));
     }
 
     // ── Control-chord passthrough bytes (issue #200) ───────────────────────
@@ -298,28 +280,28 @@ mod key_tests {
     fn ctrl_x_maps_to_can_byte() {
         let key = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('x'), Some(0x18));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x18]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x18]));
     }
 
     #[test]
     fn ctrl_b_maps_to_stx_byte() {
         let key = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('b'), Some(0x02));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x02]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x02]));
     }
 
     #[test]
     fn ctrl_c_maps_to_etx_byte() {
         let key = key_event(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('c'), Some(0x03));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x03]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x03]));
     }
 
     #[test]
     fn ctrl_caps_c_maps_to_etx_byte() {
         let key = key_event(KeyCode::Char('C'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('C'), Some(0x03));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x03]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x03]));
     }
 
     /// A Ctrl-X Ctrl-B chord encodes to the two raw bytes `0x18 0x02` in
@@ -328,8 +310,8 @@ mod key_tests {
     fn ctrl_x_ctrl_b_chord_encodes_to_ordered_bytes() {
         let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
         let b = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
-        let x_bytes = key_to_bytes(&x, PtyKeyEncoding::Legacy);
-        let b_bytes = key_to_bytes(&b, PtyKeyEncoding::Legacy);
+        let x_bytes = key_to_bytes(&x);
+        let b_bytes = key_to_bytes(&b);
         assert!(x_bytes.is_some(), "Ctrl-X must encode");
         assert!(b_bytes.is_some(), "Ctrl-B must encode");
         let mut encoded = Vec::<u8>::new();
@@ -342,7 +324,7 @@ mod key_tests {
     #[test]
     fn ctrl_x_ctrl_x_chord_encodes_to_ordered_bytes() {
         let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
-        let x_bytes = key_to_bytes(&x, PtyKeyEncoding::Legacy);
+        let x_bytes = key_to_bytes(&x);
         assert!(x_bytes.is_some(), "Ctrl-X must encode");
         let bytes = x_bytes.unwrap_or_default();
         let mut encoded = Vec::<u8>::new();
@@ -355,144 +337,105 @@ mod key_tests {
     fn ctrl_underscore_maps_to_us() {
         let key = key_event(KeyCode::Char('_'), KeyModifiers::CONTROL);
         assert_eq!(ctrl_char_to_byte('_'), Some(0x1f));
-        assert_eq!(key_to_bytes(&key, PtyKeyEncoding::Legacy), Some(vec![0x1f]));
+        assert_eq!(key_to_bytes(&key), Some(vec![0x1f]));
     }
 
-    #[test]
-    fn ctrl_enter_maps_to_lf() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::Legacy),
-            Some(vec![b'\n'])
-        );
-    }
-
-    // ── Enter chords under kitty escape-code disambiguation (issue #627) ────
+    // ── Enter chords through the multiplexer (issue #627) ──────────────────
     //
-    // `LF` is also `Ctrl+J` and a bare `CR` carries no modifier at all, so a
-    // child that negotiated disambiguation cannot tell a steer chord from a
-    // newline unless the Enter family is reported in CSI-u form.
+    // `LF` is byte-identical to `Ctrl+J`, so while Jefe sent it there was no
+    // byte sequence that could express `Ctrl+Enter` at all. It is now sent in
+    // CSI-u form, which the multiplexer parses as a modified Enter and then
+    // delivers to each pane child in the form that child negotiated.
 
-    /// A1/A4: `Ctrl+Enter` is reported as `CSI 13 ; 5 u`, which is what makes
-    /// it addressable at all. The legacy `LF` it replaces is byte-identical to
-    /// `Ctrl+J`.
+    /// `Ctrl+Enter` is expressible at all, and is not the `Ctrl+J` alias that
+    /// made agents insert a newline instead of steering.
     #[test]
-    fn kitty_ctrl_enter_is_reported_as_csi_u_not_line_feed() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
+    fn ctrl_enter_is_distinguishable_from_ctrl_j() {
+        let ctrl_enter = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
         let ctrl_j = key_event(KeyCode::Char('j'), KeyModifiers::CONTROL);
 
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            Some(b"\x1b[13;5u".to_vec())
-        );
+        assert_eq!(key_to_bytes(&ctrl_enter), Some(b"\x1b[13;5u".to_vec()));
         assert_ne!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            key_to_bytes(&ctrl_j, PtyKeyEncoding::for_child(true)),
-            "Ctrl+Enter must be distinguishable from Ctrl+J"
+            key_to_bytes(&ctrl_enter),
+            key_to_bytes(&ctrl_j),
+            "Ctrl+Enter must not collapse onto Ctrl+J"
         );
-    }
-
-    /// A5: `Shift+Enter` is reported as `CSI 13 ; 2 u`.
-    #[test]
-    fn kitty_shift_enter_is_reported_as_csi_u() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
         assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            Some(b"\x1b[13;2u".to_vec())
+            key_to_bytes(&ctrl_j),
+            Some(vec![b'\n']),
+            "Ctrl+J itself keeps its control byte"
         );
     }
 
-    /// A6: `Alt+Enter` is reported as `CSI 13 ; 3 u`, with the Alt bit carried
-    /// in the parameter rather than as an extra ESC prefix.
+    /// Combined modifiers accumulate into the one CSI-u parameter.
     #[test]
-    fn kitty_alt_enter_carries_alt_in_the_parameter_only() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            Some(b"\x1b[13;3u".to_vec())
-        );
+    fn ctrl_alt_enter_combines_modifier_bits_in_one_parameter() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::ALT);
+        assert_eq!(key_to_bytes(&key), Some(b"\x1b[13;7u".to_vec()));
     }
 
-    /// A6: combined modifiers accumulate into one parameter.
+    /// Unmodified Enter stays a bare CR: "submit" means CR everywhere, and the
+    /// multiplexer passes it through untouched whatever the pane negotiated.
     #[test]
-    fn kitty_ctrl_shift_enter_combines_modifier_bits() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            Some(b"\x1b[13;6u".to_vec())
-        );
-    }
-
-    /// A7: unmodified Enter stays a bare CR under flag-1 disambiguation, so
-    /// "submit" keeps working exactly as before.
-    #[test]
-    fn kitty_plain_enter_stays_carriage_return() {
+    fn plain_enter_stays_carriage_return() {
         let key = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(
-            key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-            Some(vec![b'\r'])
-        );
+        assert_eq!(key_to_bytes(&key), Some(vec![b'\r']));
     }
 
-    /// A8: a child that negotiated nothing sees the historical bytes, so the
-    /// change cannot regress children that do not speak the protocol.
+    /// The `Shift+Enter` compatibility form (issue #1) is untouched, so agents
+    /// relying on it keep working.
     #[test]
-    fn without_negotiation_enter_chords_keep_their_legacy_bytes() {
-        let plain = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let ctrl = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
+    fn shift_enter_keeps_its_compatibility_form() {
         let shift = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
         let shift_alt = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
 
-        assert_eq!(
-            key_to_bytes(&plain, PtyKeyEncoding::for_child(false)),
-            Some(vec![b'\r'])
-        );
-        assert_eq!(
-            key_to_bytes(&ctrl, PtyKeyEncoding::for_child(false)),
-            Some(vec![b'\n'])
-        );
-        assert_eq!(
-            key_to_bytes(&shift, PtyKeyEncoding::for_child(false)),
-            Some(b"\\\r".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&shift_alt, PtyKeyEncoding::for_child(false)),
-            Some(b"\\\x1b\r".to_vec())
-        );
+        assert_eq!(key_to_bytes(&shift), Some(b"\\\r".to_vec()));
+        assert_eq!(key_to_bytes(&shift_alt), Some(b"\\\x1b\r".to_vec()));
     }
 
-    /// A8: only the Enter family changes. Everything else keeps the encoding it
-    /// had, negotiated or not.
+    /// Only `Ctrl+Enter` changes. Every other key keeps the bytes it had, so
+    /// no hosted agent that never asked for anything can regress.
     #[test]
-    fn negotiation_does_not_change_non_enter_keys() {
-        for key in [
-            key_event(KeyCode::Char('x'), KeyModifiers::CONTROL),
-            key_event(KeyCode::Char('a'), KeyModifiers::NONE),
-            key_event(KeyCode::Tab, KeyModifiers::NONE),
-            key_event(KeyCode::Backspace, KeyModifiers::NONE),
-            key_event(KeyCode::Esc, KeyModifiers::NONE),
-            key_event(KeyCode::Up, KeyModifiers::CONTROL),
-            key_event(KeyCode::F(5), KeyModifiers::ALT),
-        ] {
+    fn no_other_key_encoding_changes() {
+        let cases: [(KeyEvent, Vec<u8>); 9] = [
+            (key_event(KeyCode::Enter, KeyModifiers::NONE), vec![b'\r']),
+            (
+                key_event(KeyCode::Enter, KeyModifiers::ALT),
+                vec![0x1b, b'\r'],
+            ),
+            (
+                key_event(KeyCode::Char('x'), KeyModifiers::CONTROL),
+                vec![0x18],
+            ),
+            (
+                key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+                b"a".to_vec(),
+            ),
+            (key_event(KeyCode::Tab, KeyModifiers::NONE), vec![b'\t']),
+            (
+                key_event(KeyCode::Backspace, KeyModifiers::NONE),
+                vec![0x7f],
+            ),
+            (key_event(KeyCode::Esc, KeyModifiers::NONE), vec![0x1b]),
+            (
+                key_event(KeyCode::Up, KeyModifiers::CONTROL),
+                b"\x1b[1;5A".to_vec(),
+            ),
+            (
+                key_event(KeyCode::F(5), KeyModifiers::ALT),
+                b"\x1b[15;3~".to_vec(),
+            ),
+        ];
+
+        for (key, expected) in cases {
             assert_eq!(
-                key_to_bytes(&key, PtyKeyEncoding::for_child(true)),
-                key_to_bytes(&key, PtyKeyEncoding::Legacy),
-                "{:?} must encode identically with and without negotiation",
-                key.code
+                key_to_bytes(&key),
+                Some(expected),
+                "{:?} with {:?} must keep its encoding",
+                key.code,
+                key.modifiers
             );
         }
-    }
-
-    /// A9: `PtyKeyEncoding::for_child` is the only way an encoding is chosen,
-    /// and it agrees with the two named variants.
-    #[test]
-    fn for_child_selects_the_negotiated_encoding() {
-        assert_eq!(
-            PtyKeyEncoding::for_child(true),
-            PtyKeyEncoding::KittyDisambiguated
-        );
-        assert_eq!(PtyKeyEncoding::for_child(false), PtyKeyEncoding::Legacy);
-        assert_eq!(PtyKeyEncoding::default(), PtyKeyEncoding::Legacy);
     }
 
     #[test]
@@ -502,22 +445,10 @@ mod key_tests {
         let f12 = key_event(KeyCode::F(12), KeyModifiers::NONE);
         let insert = key_event(KeyCode::Insert, KeyModifiers::NONE);
 
-        assert_eq!(
-            key_to_bytes(&f1, PtyKeyEncoding::Legacy),
-            Some(b"\x1bOP".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&f2, PtyKeyEncoding::Legacy),
-            Some(b"\x1bOQ".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&f12, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[24~".to_vec())
-        );
-        assert_ne!(
-            key_to_bytes(&f2, PtyKeyEncoding::Legacy),
-            key_to_bytes(&insert, PtyKeyEncoding::Legacy)
-        );
+        assert_eq!(key_to_bytes(&f1), Some(b"\x1bOP".to_vec()));
+        assert_eq!(key_to_bytes(&f2), Some(b"\x1bOQ".to_vec()));
+        assert_eq!(key_to_bytes(&f12), Some(b"\x1b[24~".to_vec()));
+        assert_ne!(key_to_bytes(&f2), key_to_bytes(&insert));
     }
 
     #[test]
@@ -528,25 +459,13 @@ mod key_tests {
         let ctrl_alt_left = key_event(KeyCode::Left, KeyModifiers::CONTROL | KeyModifiers::ALT);
 
         // ctrl parameter = 5
-        assert_eq!(
-            key_to_bytes(&ctrl_up, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;5A".to_vec())
-        );
+        assert_eq!(key_to_bytes(&ctrl_up), Some(b"\x1b[1;5A".to_vec()));
         // alt parameter = 3
-        assert_eq!(
-            key_to_bytes(&alt_down, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;3B".to_vec())
-        );
+        assert_eq!(key_to_bytes(&alt_down), Some(b"\x1b[1;3B".to_vec()));
         // shift parameter = 2
-        assert_eq!(
-            key_to_bytes(&shift_right, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;2C".to_vec())
-        );
+        assert_eq!(key_to_bytes(&shift_right), Some(b"\x1b[1;2C".to_vec()));
         // ctrl + alt parameter = 7
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_left, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;7D".to_vec())
-        );
+        assert_eq!(key_to_bytes(&ctrl_alt_left), Some(b"\x1b[1;7D".to_vec()));
     }
 
     #[test]
@@ -558,30 +477,12 @@ mod key_tests {
         let shift_home = key_event(KeyCode::Home, KeyModifiers::SHIFT);
         let ctrl_end = key_event(KeyCode::End, KeyModifiers::CONTROL);
 
-        assert_eq!(
-            key_to_bytes(&ctrl_pageup, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[5;5~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&alt_pagedown, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[6;3~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&shift_delete, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[3;2~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_insert, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[2;7~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&shift_home, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;2H".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&ctrl_end, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;5F".to_vec())
-        );
+        assert_eq!(key_to_bytes(&ctrl_pageup), Some(b"\x1b[5;5~".to_vec()));
+        assert_eq!(key_to_bytes(&alt_pagedown), Some(b"\x1b[6;3~".to_vec()));
+        assert_eq!(key_to_bytes(&shift_delete), Some(b"\x1b[3;2~".to_vec()));
+        assert_eq!(key_to_bytes(&ctrl_alt_insert), Some(b"\x1b[2;7~".to_vec()));
+        assert_eq!(key_to_bytes(&shift_home), Some(b"\x1b[1;2H".to_vec()));
+        assert_eq!(key_to_bytes(&ctrl_end), Some(b"\x1b[1;5F".to_vec()));
     }
 
     #[test]
@@ -590,35 +491,20 @@ mod key_tests {
         let alt_f5 = key_event(KeyCode::F(5), KeyModifiers::ALT);
         let ctrl_alt_f12 = key_event(KeyCode::F(12), KeyModifiers::CONTROL | KeyModifiers::ALT);
 
-        assert_eq!(
-            key_to_bytes(&ctrl_f1, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;5P".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&alt_f5, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[15;3~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_f12, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[24;7~".to_vec())
-        );
+        assert_eq!(key_to_bytes(&ctrl_f1), Some(b"\x1b[1;5P".to_vec()));
+        assert_eq!(key_to_bytes(&alt_f5), Some(b"\x1b[15;3~".to_vec()));
+        assert_eq!(key_to_bytes(&ctrl_alt_f12), Some(b"\x1b[24;7~".to_vec()));
     }
 
     #[test]
     fn alt_encoding_is_consistent_and_not_double_encoded() {
         // Alt-up modified should be \x1b[1;3A, not double ESC-prefixed (e.g. not \x1b\x1b[1;3A)
         let alt_up = key_event(KeyCode::Up, KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&alt_up, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;3A".to_vec())
-        );
+        assert_eq!(key_to_bytes(&alt_up), Some(b"\x1b[1;3A".to_vec()));
 
         // Alt-F1 modified should be \x1b[1;3P, not \x1b\x1b[1;3P
         let alt_f1 = key_event(KeyCode::F(1), KeyModifiers::ALT);
-        assert_eq!(
-            key_to_bytes(&alt_f1, PtyKeyEncoding::Legacy),
-            Some(b"\x1b[1;3P".to_vec())
-        );
+        assert_eq!(key_to_bytes(&alt_f1), Some(b"\x1b[1;3P".to_vec()));
     }
 }
 

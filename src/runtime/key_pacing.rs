@@ -18,6 +18,8 @@
 //! separation: an Enter is held back until the guard interval has passed since
 //! the last byte jefe wrote to that child.
 
+use std::io::Write;
+use std::thread;
 use std::time::{Duration, Instant};
 
 /// Minimum separation jefe guarantees between the previous byte written to a
@@ -75,6 +77,48 @@ impl KeyWritePacing {
     /// Record that bytes reached the child at `now`.
     pub fn record(&mut self, now: Instant) {
         self.last_write = Some(now);
+    }
+}
+
+/// The single writing end of a child's PTY input, with its pacing state.
+///
+/// Every byte jefe sends the child — keystrokes, mouse reports, pastes and the
+/// terminal-query replies the embedded model produces — goes through one of
+/// these. Owning the writer and the pacing state together is what makes the
+/// separation guarantee exact: a caller holds the whole thing for the duration
+/// of a write, so nothing can slip a byte in between the moment the wait is
+/// computed and the moment the bytes are written.
+pub struct PacedPtyInput {
+    writer: Box<dyn Write + Send>,
+    pacing: KeyWritePacing,
+}
+
+impl PacedPtyInput {
+    /// Wrap a PTY write end.
+    #[must_use]
+    pub fn new(writer: Box<dyn Write + Send>) -> Self {
+        Self {
+            writer,
+            pacing: KeyWritePacing::new(),
+        }
+    }
+
+    /// Write `bytes` to the child, first waiting out any separation it needs.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the underlying write or flush failure.
+    pub fn write(&mut self, bytes: &[u8], kind: PtyInputKind) -> std::io::Result<()> {
+        let delay = self.pacing.delay_before(kind, Instant::now());
+        if !delay.is_zero() {
+            thread::sleep(delay);
+        }
+        let written = self.writer.write_all(bytes);
+        // Bytes that reached the PTY count even if the flush that follows
+        // fails, so the next Enter measures its separation from them.
+        self.pacing.record(Instant::now());
+        written?;
+        self.writer.flush()
     }
 }
 

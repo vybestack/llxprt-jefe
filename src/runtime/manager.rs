@@ -193,10 +193,6 @@ pub trait RuntimeManager: Send {
     /// Whether the attached application currently has bracketed paste enabled.
     fn bracketed_paste_active(&self) -> bool;
 
-    /// Whether the attached application has enabled kitty escape-code
-    /// disambiguation, and therefore expects modified keys in CSI-u form.
-    fn kitty_keyboard_active(&self) -> bool;
-
     /// Atomically read and clear the dirty flag on the attached viewer.
     ///
     /// Returns `true` when new PTY data has arrived since the last call,
@@ -895,12 +891,6 @@ impl RuntimeManager for TmuxRuntimeManager {
         self.viewer
             .as_ref()
             .is_some_and(AttachedViewer::bracketed_paste_active)
-    }
-
-    fn kitty_keyboard_active(&self) -> bool {
-        self.viewer
-            .as_ref()
-            .is_some_and(AttachedViewer::kitty_keyboard_active)
     }
 
     fn take_dirty(&self) -> bool {

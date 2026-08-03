@@ -90,49 +90,22 @@ fn function_key_to_bytes(n: u8, modifier: Option<u8>) -> Option<Vec<u8>> {
     }
 }
 
-/// How Enter chords must be encoded for the child on the other end of the PTY.
+/// Encode an Enter chord for the multiplexer client on the other end.
 ///
-/// Enter is the one chord family whose legacy encodings are ambiguous: `LF` is
-/// also `Ctrl+J`, and a bare `CR` carries no modifier information at all. Which
-/// encoding is correct therefore depends on what the child negotiated, so the
-/// encoder is told rather than left to guess (issue #627).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum PtyKeyEncoding {
-    /// The child negotiated nothing, so Enter chords keep the historical
-    /// control-byte and backslash-CR forms every legacy terminal emits.
-    #[default]
-    Legacy,
-    /// The child enabled kitty escape-code disambiguation, so modified Enter
-    /// chords are reported in CSI-u form.
-    KittyDisambiguated,
-}
-
-impl PtyKeyEncoding {
-    /// The encoding for a child that has (or has not) enabled kitty
-    /// escape-code disambiguation.
-    #[must_use]
-    pub const fn for_child(kitty_keyboard: bool) -> Self {
-        if kitty_keyboard {
-            Self::KittyDisambiguated
-        } else {
-            Self::Legacy
-        }
-    }
-}
-
-/// Encode an Enter chord.
+/// `Ctrl+Enter` used to be a bare `LF`, which is byte-identical to `Ctrl+J`;
+/// there was no byte sequence that could express the chord, so agents that bind
+/// `Ctrl+Enter` could never see it. It is now sent in CSI-u form
+/// (`CSI 13 ; <mods> u`), which the multiplexer parses as a modified Enter and
+/// then delivers to the pane child in whatever form that child negotiated —
+/// the extended form for a child that asked for extended keys, and a plain `CR`
+/// for one that did not. Jefe therefore does not have to guess what the child
+/// understands (issue #627).
 ///
-/// Under kitty disambiguation a *modified* Enter becomes `CSI 13 ; <mods> u`;
-/// unmodified Enter stays `CR`, which is what flag 1 prescribes and what every
-/// composer expects for "submit". Without disambiguation the historical forms
-/// are kept so children that negotiate nothing are unaffected.
-fn enter_bytes(modifiers: KeyModifiers, encoding: PtyKeyEncoding) -> (Vec<u8>, bool) {
-    if encoding == PtyKeyEncoding::KittyDisambiguated {
-        return match modifiers_to_param(modifiers) {
-            Some(param) => (format!("\x1b[13;{param}u").into_bytes(), true),
-            None => (vec![b'\r'], false),
-        };
-    }
+/// The other chords keep their existing encodings: unmodified Enter is `CR`
+/// because that is what "submit" means everywhere, and `Shift+Enter` keeps the
+/// backslash-CR form that made it distinguishable before extended keys were
+/// available (issue #1).
+fn enter_bytes(modifiers: KeyModifiers) -> (Vec<u8>, bool) {
     if modifiers.contains(KeyModifiers::SHIFT) {
         if modifiers.contains(KeyModifiers::ALT) {
             (b"\\\x1b\r".to_vec(), true)
@@ -140,18 +113,17 @@ fn enter_bytes(modifiers: KeyModifiers, encoding: PtyKeyEncoding) -> (Vec<u8>, b
             (b"\\\r".to_vec(), false)
         }
     } else if modifiers.contains(KeyModifiers::CONTROL) {
-        (vec![b'\n'], false)
+        match modifiers_to_param(modifiers) {
+            Some(param) => (format!("\x1b[13;{param}u").into_bytes(), true),
+            None => (vec![b'\r'], false),
+        }
     } else {
         (vec![b'\r'], false)
     }
 }
 
 /// Convert a key event to raw bytes for PTY input.
-fn basic_key_bytes(
-    code: KeyCode,
-    modifiers: KeyModifiers,
-    encoding: PtyKeyEncoding,
-) -> Option<(Vec<u8>, bool)> {
+fn basic_key_bytes(code: KeyCode, modifiers: KeyModifiers) -> Option<(Vec<u8>, bool)> {
     let ctrl = modifiers.contains(KeyModifiers::CONTROL);
 
     match code {
@@ -164,7 +136,7 @@ fn basic_key_bytes(
             let s = c.encode_utf8(&mut buf);
             Some((s.as_bytes().to_vec(), false))
         }
-        KeyCode::Enter => Some(enter_bytes(modifiers, encoding)),
+        KeyCode::Enter => Some(enter_bytes(modifiers)),
         KeyCode::Backspace => Some((vec![0x7f], false)),
         KeyCode::Tab => Some((vec![b'\t'], false)),
         KeyCode::Esc => Some((vec![0x1b], false)),
@@ -205,10 +177,10 @@ fn fkey_bytes(n: u8, modifiers: KeyModifiers) -> Option<(Vec<u8>, bool)> {
     Some((function_key_to_bytes(n, param)?, param.is_some()))
 }
 
-pub fn key_to_bytes(key: &KeyEvent, encoding: PtyKeyEncoding) -> Option<Vec<u8>> {
+pub fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
     let modifiers = key.modifiers;
 
-    let (mut out, alt_encoded) = basic_key_bytes(key.code, modifiers, encoding)
+    let (mut out, alt_encoded) = basic_key_bytes(key.code, modifiers)
         .or_else(|| nav_key_bytes(key.code, modifiers))
         .or_else(|| match key.code {
             KeyCode::F(n) => fkey_bytes(n, modifiers),

@@ -1,177 +1,157 @@
 # Issue #627 — Enter submits as a newline and Ctrl+Enter steering is unreachable in the embedded agent terminal
 
-> jefe's embedded agent terminal is a terminal emulator, and it currently
-> violates two parts of that contract. It never answers the child's identity and
-> mode queries, so a child can never negotiate the kitty keyboard protocol and
-> can never see a distinguishable `Ctrl+Enter`; and it flushes a whole batch of
-> queued key events into the PTY in one instant, so the child sees a submit
-> `Enter` arrive in the same burst as the character before it. Agent TUIs use a
-> short burst window to tell a pasted CR from a pressed Enter, so both defects
-> land on the same user-visible symptom: Enter inserts a newline and steering
-> never fires.
+> A keystroke reaches a hosted agent through four hops: the host terminal, jefe,
+> the multiplexer, and finally the agent's pane. `Ctrl+Enter` was lost at three
+> of them, and a submit `Enter` was corrupted at the fourth. Fixing only one hop
+> proves nothing, so each hop is established by measurement rather than by
+> assumption.
 
-## Root cause summary
+## Measured behavior of the transport
 
-| Defect | Location | Effect |
-|---|---|---|
-| `TermEvent::PtyWrite` replies dropped | `src/runtime/attach.rs` `RuntimeListener` | Child capability queries (DA1, kitty flags, XTVERSION, `modifyOtherKeys`, DSR) are never answered; children stall on detection and fall back to legacy key encoding |
-| `Ctrl+Enter` encoded as bare LF | `src/pty_encoding.rs` | `0x0A` is indistinguishable from `Ctrl+J`; readline-style parsers report `Ctrl+J`, which agent TUIs bind to "insert newline", so the steer chord is unaddressable |
-| Batched key events written with no separation | `src/app_input/pty_passthrough.rs` -> `AttachedViewer::write_input`, driven by iocraft's drain-all `poll_change` | The submit Enter lands in the same instant as the preceding keystroke and is reclassified as pasted content |
+Recorded against tmux 3.7b with an isolated configuration (`-f /dev/null`), in
+jefe's own topology — an outer PTY running `tmux attach-session`, with the agent
+in the pane. Reproduction scripts are throwaway probes, and the results they
+established are:
+
+| Question | Measured answer |
+|---|---|
+| Does the multiplexer forward a modified Enter to the pane? | Only when `extended-keys` is on. Its default is `off`, and then **every** modified Enter reaches the pane as a bare `CR` |
+| Does it honour a pane's kitty keyboard request (`CSI > 1 u`)? | No. It is ignored entirely |
+| Does it honour a pane's `modifyOtherKeys` request (`CSI > 4 ; 2 m`)? | Yes, when `extended-keys` is on |
+| What does the pane then receive for `Ctrl+Enter`? | `CSI 27 ; 5 ; 13 ~` |
+| Does the multiplexer parse `CSI 13 ; 5 u` from its own terminal as `Ctrl+Enter`? | Yes |
+| What reaches a pane that asked for nothing? | `CR` — the multiplexer downgrades per pane |
+| Does the multiplexer ask its own terminal to enable extended keys? | No. There is no signal jefe can observe |
+| Which queries does the multiplexer answer for its pane? | XTVERSION and DA1 only; not the kitty query, not `modifyOtherKeys` |
+| Which queries does the multiplexer send to its own terminal? | DA1, DA2, XTVERSION, OSC 10, OSC 11 — none of which jefe answered |
+
+The last row explains the startup stall, and the "no observable signal" row is
+why the encoding cannot be gated on anything jefe can see.
+
+## Root causes
+
+| # | Defect | Location | Effect |
+|---|---|---|---|
+| 1 | The host terminal is never asked to disambiguate key chords | `vendor/iocraft/src/terminal.rs` pushed only `REPORT_EVENT_TYPES` | `Ctrl+Enter` arrives at jefe as a bare `Enter`, or as `Ctrl+J`. Jefe cannot forward a chord it never receives |
+| 2 | `Ctrl+Enter` was encoded as a bare `LF` | `src/pty_encoding.rs` | `LF` is byte-identical to `Ctrl+J`, which agent TUIs bind to "insert newline". There was no byte sequence that could express the chord |
+| 3 | Extended-key reporting was left at the multiplexer's default | `src/runtime/commands_root_keys.rs` | The multiplexer collapsed every modified Enter to `CR` before the pane saw it, whatever jefe sent |
+| 4 | Terminal query replies were discarded | `src/runtime/attach.rs` `RuntimeListener` | The multiplexer client's DA1/DA2/XTVERSION/OSC queries went unanswered, so it identified its terminal by timeout |
+| 5 | Batched key events are written with no separation | `src/app_input/pty_passthrough.rs` -> `AttachedViewer`, driven by iocraft's drain-all `poll_change` | The submit Enter lands in the same instant as the preceding keystroke and is reclassified downstream as pasted content |
 
 ## Acceptance matrix
 
 | # | Actor / launch path | Input / boundary | Targets | Observable success | Observable failure / diagnostic | Side effects before failure | Persistence / compatibility | Proof |
 |---|---|---|---|---|---|---|---|---|
-| A1 | Attached agent child writes a terminal query (`CSI c`, `CSI ? u`, `CSI > q`, `CSI > 4 ; ? m`, DSR) into the embedded terminal model | Any query `alacritty_terminal` answers with `Event::PtyWrite` | All platforms | The reply bytes are written to that child's PTY input, unchanged and in order | Write failure is logged at `warn` with the error; the session keeps running | None beyond the attempted write | No stored state; wire behavior only | Unit test feeding query bytes through the terminal parser and asserting the exact reply bytes reach a capture writer |
-| A2 | Same path | `TermEvent::ClipboardStore` (OSC 52) | All platforms | Still forwarded to the host clipboard boundary exactly as today, never to the child's input | Unchanged `warn` diagnostic | Unchanged | Unchanged | Existing injected-boundary clipboard tests stay green; the clipboard and query-reply paths remain distinct functions with distinct sinks. The OSC 52 host boundary opens `/dev/tty`, so no test drives a real clipboard event through the parser |
-| A3 | Same path | Any other `TermEvent` (bell, title, wakeup, ...) | All platforms | Nothing is written into the child's PTY input | n/a | None | Unchanged | Unit test asserting the capture writer stays empty |
-| A4 | User presses `Ctrl+Enter` with the agent terminal focused, child has pushed kitty keyboard flags (`CSI > 1 u`) | `KeyCode::Enter` + `CONTROL` | All platforms | The child receives `ESC [ 13 ; 5 u` | n/a | None | Legacy encodings untouched for children that never enable the protocol | Encoder unit test plus a `TermMode` test proving the pushed flags are observable |
-| A5 | Same, `Shift+Enter` | `Enter` + `SHIFT` | All platforms | The child receives `ESC [ 13 ; 2 u` | n/a | None | The backslash-CR compatibility form remains for non-protocol children | Encoder unit test for both modes |
-| A6 | Same, `Alt+Enter` | `Enter` + `ALT` | All platforms | The child receives `ESC [ 13 ; 3 u` (no extra `ESC` prefix) | n/a | None | as above | Encoder unit test asserting no double escape |
-| A7 | Same, plain `Enter` | `Enter`, no modifiers | All platforms | The child receives `CR` (`0x0D`), because flag 1 disambiguation leaves unmodified Enter legacy | n/a | None | Unchanged from today | Encoder unit test |
-| A8 | Any key with the agent terminal focused, child has **not** enabled the kitty keyboard protocol | Every key currently encoded | All platforms | Byte-for-byte identical to today, including `Ctrl+Enter` -> `LF` and `Shift+Enter` -> `\` + `CR` | n/a | None | Full backward compatibility for children that do not negotiate | Existing encoder tests stay green unchanged |
-| A9 | Any caller of the encoder | Choosing an encoding | All platforms | The encoding is chosen only from the observed child state, with `Legacy` as the default, so no caller can silently pick a third behavior | n/a | None | Unchanged | Unit test over `PtyKeyEncoding::for_child` and its default |
-| A10 | User presses `Enter` (any modifiers) after another keystroke was written to the same child less than the guard interval earlier | Batched key drain, worst case zero elapsed time | All platforms | jefe delays the Enter write so the child observes at least `SUBMIT_GAP` between the previous input byte and the Enter | n/a | The preceding keys are already written; only the Enter is held | No stored state | Pure-function tests over the pacing state, plus a runtime test proving an Enter write is separated from the previous write |
-| A11 | Same, when the previous write to that child was already older than the guard interval | Typing at human speed | All platforms | No delay at all is added | n/a | None | Unchanged | Pure-function test asserting a zero delay |
-| A12 | Any non-Enter write (characters, navigation, mouse reports, pastes, query replies) | Any | All platforms | Never delayed, and every write updates the "last input byte" instant used by A10 | n/a | None | Unchanged | Pure-function tests covering the record/observe contract |
-| A13 | Runtime with no attached viewer | Any key | All platforms | Protocol interrogation reports "not enabled" and the write path behaves exactly as today | Existing `RuntimeError::WriteFailed` path unchanged | None | Unchanged | Stub-manager test |
+| A1 | User presses `Ctrl+Enter` with the agent terminal focused | `KeyCode::Enter` + `CONTROL` | All platforms | The multiplexer client receives `ESC [ 13 ; 5 u`, which it parses as a modified Enter | n/a | None | Children that ask for nothing still receive `CR` from the multiplexer | Encoder unit test, plus the measured multiplexer behavior above |
+| A2 | Same | Any combination of `CONTROL` with other modifiers | All platforms | The modifiers accumulate into the one CSI-u parameter | n/a | None | as above | Encoder unit test |
+| A3 | Same, plain `Enter` | `Enter`, no modifiers | All platforms | `CR`, unchanged | n/a | None | Unchanged | Encoder unit test |
+| A4 | Same, `Shift+Enter` / `Alt+Enter` | `Enter` + `SHIFT` or `ALT` | All platforms | Byte-for-byte unchanged from today, so the issue #1 contract holds | n/a | None | Unchanged | Encoder unit test |
+| A5 | Every other key | Any | All platforms | Byte-for-byte unchanged | n/a | None | Unchanged | Encoder unit test over the whole key families |
+| A6 | jefe attaches to its own multiplexer server | Session setup | All platforms | Extended-key reporting is enabled, scoped to jefe's own server, so a pane that asks for extended keys receives the modified chord | Setup failure surfaces exactly as the existing prefix-configuration failures do | The other session options already applied | A pane that asks for nothing is unaffected | Unit tests over the emitted configuration commands |
+| A7 | jefe's own terminal | Raw-mode setup | All platforms with a terminal that supports it | Escape-code disambiguation is requested, so modified Enter chords are delivered to jefe at all | Terminals without support are untouched, exactly as before | None | Terminals without keyboard-enhancement support behave as today | Vendored-iocraft change; the flag is only pushed when the terminal advertises support |
+| A8 | Hosted client writes a terminal query | DA1, DA2, DSR, and anything else the model answers | All platforms | The reply reaches the client's PTY input, in order | Write failure is logged at `warn`; the session keeps running | None beyond the attempted write | No stored state | Unit tests feeding queries through the parser |
+| A9 | Same | The parser is mid-parse, holding the terminal model | All platforms | The reply is queued, not written, and goes out only once the model is released | Queue-lock failure is logged at `warn` | None | n/a | Unit test asserting nothing is written during parsing |
+| A10 | Same | `TermEvent::ClipboardStore` | All platforms | Still routed to the host clipboard boundary, never to the client's input | Unchanged `warn` | Unchanged | Unchanged | Existing injected-boundary tests; the two paths have distinct sinks |
+| A11 | Same | Any other terminal event | All platforms | Nothing is written to the client | n/a | None | Unchanged | Unit test asserting the sink stays empty |
+| A12 | User presses `Enter` (any modifiers) after another byte was written to the same child more recently than the guard interval | Batched key drain, worst case zero elapsed time | All platforms | The child observes at least `ENTER_INPUT_GAP` between the previous byte and the Enter | n/a | The preceding bytes are already written | No stored state | Pure pacing tests plus a writer-level test measuring the real separation |
+| A13 | Same, previous write already older than the guard | Typing at human speed | All platforms | No delay is added | n/a | None | Unchanged | Pure pacing test and a writer-level test |
+| A14 | Any non-Enter write — characters, navigation, mouse reports, pastes, query replies | Any | All platforms | Never delayed, and every one of them updates the mark the next Enter measures against | n/a | None | Unchanged | Pure pacing tests plus a writer-level test where a query reply lands between two keystrokes |
+| A15 | Runtime with no attached viewer | Any key | All platforms | Unchanged `RuntimeError::NoAttachedViewer` behavior | Unchanged | None | Unchanged | Stub-manager path unchanged |
 
 ## Non-goals
 
-- Changing any agent's client-side heuristics. jefe owns the emulator contract;
-  the child is not modified and is not required to change.
-- Full kitty keyboard protocol coverage. Only the Enter chord family is switched
-  to CSI-u, because that is the chord family this issue's behavior depends on.
-  Letters, navigation keys, and function keys keep their current encodings even
-  when the protocol is active.
-- Honouring individual kitty flag bits beyond "disambiguation is on". jefe does
-  not implement `REPORT_EVENT_TYPES`, `REPORT_ALTERNATE_KEYS`,
-  `REPORT_ALL_KEYS_AS_ESC`, or `REPORT_ASSOCIATED_TEXT`.
-- Replacing iocraft's drain-all event delivery or introducing a dedicated PTY
-  writer thread/queue subsystem. The guard is applied at the existing write
-  boundary.
+- Implementing the kitty keyboard protocol. The multiplexer ignores it, so jefe
+  neither advertises nor implements it; the terminal model keeps alacritty's
+  default configuration rather than claiming a protocol it would not honour.
+- Extending CSI-u encoding beyond `Ctrl+Enter`. That is the one chord whose
+  legacy encoding was ambiguous; every other key keeps its bytes.
+- Removing the `Shift+Enter` backslash-CR compatibility form (issue #1).
+- Replacing iocraft's drain-all event delivery or adding a PTY writer thread.
 - Guaranteeing the child *parses* the Enter in a separate read. If the child's
   own event loop is blocked longer than the guard interval it can still coalesce
-  two separated writes into one read. jefe's obligation, and what is tested
-  here, is that jefe stops destroying the separation it was given.
-- Answering queries `alacritty_terminal` does not answer, or adding new query
-  support to the terminal model.
-- Any UI, keymap, action-registry, or settings change. No jefe-owned keybinding
-  changes, so no keybind-bar or keymap projection updates.
+  two separated writes into one read. Jefe's obligation, and what is tested here,
+  is that it stops destroying the separation it was given.
+- Wiring up `src/runtime/commands_tests.rs`, which is orphaned (see deferred
+  findings).
 
 ## Vertical slices
 
-### Slice 1 — Answer the child's terminal queries (A1–A3)
+### Slice 1 — Answer the hosted client's terminal queries (A8–A11)
 
-- **Owner / boundary:** `src/runtime` PTY-attachment boundary. The listener is
-  the only new writer into the child's input, and it reuses the viewer's
-  existing writer handle.
-- **Allowed paths:** `src/runtime/attach.rs`, a new
-  `src/runtime/attach_listener_tests.rs` if the in-file tests would push the
-  file past the source-size gate, `project-plans/issue627-plan.md`.
-- **RED:** a test drives `CSI ? u` and `CSI c` through a `Term<RuntimeListener>`
-  built over a capture writer and asserts the reply bytes were written. Fails
-  today because `RuntimeListener` discards everything but `ClipboardStore`.
-- **GREEN:** `RuntimeListener` carries the viewer's writer and forwards
-  `TermEvent::PtyWrite` payloads to it, logging write failures at `warn`.
-  `ClipboardStore` handling is unchanged; all other events are still dropped.
-- **Verification:** `cargo test --lib runtime::attach`, `cargo xtask quick`.
-- **Stop for approval:** any need to change the reader thread, spawn sequencing,
-  or the `RuntimeManager` trait shape beyond this slice.
+- **Owner / boundary:** `src/runtime` PTY-attachment boundary.
+- **GREEN:** the terminal-model listener queues `TermEvent::PtyWrite` payloads;
+  the reader thread writes them once it has released the model.
+- **Verification:** `cargo test --lib runtime::attach`.
 
-### Slice 2 — CSI-u Enter encoding when the child negotiated the protocol (A4–A9, A13)
+### Slice 2 — Express `Ctrl+Enter` at all (A1–A5)
 
-- **Owner / boundary:** `src/pty_encoding.rs` owns byte encoding;
-  `src/runtime` owns the observed terminal mode; `src/app_input` joins them.
-- **Allowed paths:** `src/pty_encoding.rs`, `src/pty_encoding_tests.rs` (test
-  module extracted to keep the file inside the source-size gate),
-  `src/app_input/pty_passthrough.rs`, `src/action_capture_emit.rs`,
-  `src/runtime/attach.rs`, `src/runtime/manager.rs`,
-  `src/runtime/stub_manager.rs`.
-- **RED:** encoder tests assert `ESC [ 13 ; 5 u` / `; 2 u` / `; 3 u` for
-  Ctrl/Shift/Alt Enter under an active protocol and `CR` for plain Enter; a
-  runtime test asserts the pushed flags are observable after the child writes
-  `CSI > 1 u`.
-- **GREEN:** `key_to_bytes` takes a `PtyKeyEncoding` describing passthrough and
-  protocol state instead of a bare `bool`; the Enter arm emits CSI-u only when
-  the protocol is active and passthrough is off. `AttachedViewer` exposes the
-  observed mode the same way it already exposes bracketed paste, and
-  `forward_key_to_pty` reads it before encoding.
-- **Verification:** `cargo test --lib pty_encoding runtime`, `cargo xtask quick`.
-- **Stop for approval:** any request to extend CSI-u beyond the Enter family.
+- **Owner / boundary:** `src/pty_encoding.rs` owns byte encoding.
+- **GREEN:** `Ctrl+Enter` is `ESC [ 13 ; <mods> u`; every other key is unchanged.
+- **Verification:** `cargo test --bin jefe pty_encoding`.
 
-### Slice 3 — Keep the submit Enter out of the preceding keystroke's burst (A10–A12)
+### Slice 3 — Keep the submit Enter out of the preceding write's burst (A12–A14)
 
-- **Owner / boundary:** `src/runtime` write boundary owns the pacing state
-  (per attached PTY, no UI state, so it cannot itself trigger re-renders);
-  `src/app_input` classifies the key.
-- **Allowed paths:** `src/runtime/key_pacing.rs` (+ tests),
-  `src/runtime/mod.rs`, `src/runtime/attach.rs`, `src/runtime/manager.rs`,
-  `src/runtime/stub_manager.rs`, `src/app_input/pty_passthrough.rs`.
-- **RED:** pure tests over the pacing state assert a full guard delay when the
-  previous write was simultaneous, a partial delay part-way through the window,
-  and no delay once the window has elapsed; a runtime-level test asserts an
-  Enter write is separated from an immediately preceding write.
-- **GREEN:** every PTY input write records its instant; an Enter write first
-  waits out the remainder of the guard interval. The delay is bounded by the
-  guard interval and is only ever paid once per Enter press.
-- **Verification:** `cargo test --lib runtime::key_pacing`, `cargo xtask quick`.
-- **Stop for approval:** any need for a writer thread, async timer, or event-loop
-  restructure.
+- **Owner / boundary:** `src/runtime` write boundary owns the pacing state,
+  behind the same lock as the writer; `src/app_input` classifies the key.
+- **GREEN:** every PTY input write records its instant; an Enter waits out the
+  remainder of the guard interval first.
+- **Verification:** `cargo test --lib runtime::key_pacing runtime::attach`.
+
+### Slice 4 — Carry the chord across the remaining two hops (A6, A7)
+
+- **Owner / boundary:** `src/runtime/commands_root_keys.rs` owns multiplexer
+  session configuration; `vendor/iocraft` owns jefe's own terminal setup.
+- **GREEN:** extended-key reporting is enabled on jefe's own multiplexer server,
+  and jefe asks its host terminal for escape-code disambiguation.
+- **Verification:** `cargo test --lib commands_root_keys`, plus the measured
+  transport behavior recorded above.
 
 ## Expected paths / architectural layers
 
-- `src/runtime/attach.rs` — listener query replies, observed keyboard mode,
-  paced writes.
-- `src/runtime/key_pacing.rs` — pure pacing state and its tests.
+- `src/runtime/attach.rs`, `src/runtime/attach_listener.rs` — query replies and
+  the single paced write path.
+- `src/runtime/key_pacing.rs` — pacing state and the paced PTY writer.
+- `src/runtime/commands_root_keys.rs` — multiplexer extended-key configuration.
 - `src/runtime/manager.rs`, `src/runtime/stub_manager.rs`, `src/runtime/mod.rs` —
-  runtime boundary plumbing for the two new observations.
-- `src/pty_encoding.rs`, `src/pty_encoding_tests.rs` — Enter chord encoding.
-- `src/app_input/pty_passthrough.rs` — reads the negotiated mode, classifies the
-  Enter write.
-- `src/action_capture_emit.rs` — call-site update for the encoder signature.
+  runtime boundary plumbing.
+- `src/pty_encoding.rs` — Enter chord encoding.
+- `src/app_input/pty_passthrough.rs` — classifies the Enter write.
+- `vendor/iocraft/src/terminal.rs` — host-terminal keyboard enhancement flags.
 - `project-plans/issue627-plan.md` — this plan.
-
-No new subsystem, dependency, workflow change, or quality-tool change is
-authorized.
 
 ## Scope ledger
 
 | Entry | Reason | Status |
 |---|---|---|
-| Extract `pty_encoding`'s test module into `src/pty_encoding_tests.rs` | The file is already above the 750-line recommended limit; slice 2 adds production code and tests to it, and the hard limit is 1000 | Accepted — required to keep the source-size gate green, same-file tests only |
-| `RuntimeListener` becomes a struct with a writer handle instead of a unit struct | Required by A1; it is a private-to-runtime construction detail of `AttachedViewer` | Accepted — inside slice 1's boundary |
-| `key_to_bytes` second parameter becomes `PtyKeyEncoding` instead of `bool` | Two independent booleans at one call site is exactly the primitive obsession the standards forbid | Accepted — mechanical call-site update, no behavior change when the protocol is off |
-| The `passthrough_enter` encoder flag is removed with its two tests | It had no production caller: every call site passed `false`. Keeping an unreachable third way to encode Enter next to the new negotiated one reintroduces exactly the ambiguity this issue is about, and the dead-code gate rejects an unreachable variant. Its only unique coverage (legacy `Alt+Enter` keeping its ESC prefix) is preserved by a new legacy test | Accepted — inside slice 2's file and contract |
-| `domain::keymap::pty_bytes_for_chord` doc updated | It named the removed `passthrough_enter` parameter | Accepted — one stale doc line. Deduplicating that second encoder against `pty_encoding` is recorded as a deferred finding, not done here |
-| The terminal-model event sink moves to `src/runtime/attach_listener.rs`, with its clipboard tests | Slice 3 pushed `attach.rs` past the 1000-line hard limit. The sink is exactly the code slices 1 and 3 changed, so it is the natural cut, and it takes its own tests with it rather than leaving them orphaned | Accepted — required to keep the source-size gate green |
+| Extract `pty_encoding`'s test module into `src/pty_encoding_tests.rs` | The file was already above the recommended limit and the slice adds to it | Accepted — same-file tests only |
+| Extract the terminal-model event sink into `src/runtime/attach_listener.rs` with its clipboard tests | `attach.rs` crossed the 1000-line hard limit; the sink is exactly the code these slices changed | Accepted |
+| The unreachable `passthrough_enter` encoder flag is removed | It had no production caller: every call site passed `false`. Its only unique coverage is preserved by a new legacy `Alt+Enter` test | Accepted |
+| `vendor/iocraft` keyboard-enhancement flags | A6/A7 cannot be met without it, and the vendored copy already carries jefe-specific input-policy changes | Accepted — one flag added, gated on the terminal advertising support |
+| `domain::keymap::pty_bytes_for_chord` doc updated | It named the removed `passthrough_enter` parameter | Accepted — one stale doc line |
 
 ## Review counters
 
 - Open Code Review before PR: 0 of 2 used.
 - Open Code Review after PR: 0 of 2 used.
-- Subagent design/code review cycles: 0 of 2 used.
+- Subagent design/code review cycles: 1 of 2 used.
+
+## Deferred findings
+
+- `src/runtime/commands_tests.rs` — 883 lines of tests — is not declared by any
+  module and is therefore never compiled or run. Wiring it in is a separate
+  change with its own risk of surfacing long-dormant failures.
+- `domain::keymap::pty_bytes_for_chord` is a second implementation of the PTY
+  key encoding with no production caller. It now disagrees with `pty_encoding`
+  for `Ctrl+Enter`. Deduplicating or deleting it is a separate change.
+- `harness/v1/pty.rs` documents that it forwards kitty keyboard-protocol replies
+  but builds its terminal model with the protocol disabled, so that part of the
+  claim is unreachable. The harness hosts jefe itself, which does not negotiate
+  the protocol, so nothing observable depends on it.
+- The residual newline case: if the child's event loop stalls longer than the
+  guard interval, two separated writes can still be read together. The complete
+  remedy is for the child to distinguish pasted text by provenance rather than
+  by arrival timing.
 
 ## Verification evidence
 
 To be filled at the green checkpoint.
-
-## Deferred findings
-
-- `domain::keymap::pty_bytes_for_chord` is a second, independent implementation
-  of the legacy PTY key encoding with no production caller (only its own tests).
-  It now silently disagrees with `pty_encoding` for a negotiated child.
-  Deduplicating or deleting it is a separate change.
-- `harness/v1/pty.rs` documents that it forwards kitty keyboard-protocol replies
-  but builds its terminal model with `TermConfig::default()`, where alacritty
-  gates the protocol off. The claim is currently unreachable. The harness hosts
-  jefe itself, which does not negotiate the protocol, so nothing observable
-  depends on it today.
-
-## TUI scenario note
-
-No jefe-rendered output changes, so no automated tmux scenario asserts a new
-frame. The PTY key transport is proven by the manual chord-passthrough family
-already documented in `dev-docs/testing/tmux-harness.md`, which requires a live
-agent; this issue extends that documented manual procedure rather than adding a
-frame assertion that could not observe child-side key interpretation.
