@@ -220,7 +220,7 @@ fn route_app_owned(
 }
 
 fn record_unavailable(state: &mut AppState, reason: String) {
-    state.warning_message = Some(reason);
+    state.record_unavailable_action(reason);
 }
 
 fn rapid_quit_eligible(input_mode: InputMode) -> bool {
