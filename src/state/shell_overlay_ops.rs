@@ -76,7 +76,7 @@ impl AppState {
         self.dashboard_grab = None;
         let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
         if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
-            self.screen = crate::state::ScreenId::Terminals;
+            let _ = self.enter_screen(crate::state::ScreenId::Terminals);
             self.terminal_manager.active = true;
             self.pane_focus = crate::state::PaneFocus::Agents;
         } else {
@@ -228,7 +228,7 @@ mod tests {
 
         state.hide_shell_overlay();
 
-        assert_eq!(state.screen, crate::state::ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
         assert!(state.terminal_manager.active);
         assert_eq!(state.shell_overlay.previous_pane_focus, None);
         assert_eq!(
@@ -302,14 +302,14 @@ mod tests {
     #[test]
     fn manager_shell_hide_returns_to_manager_and_clears_return_target() {
         let mut state = AppState::default();
-        state.screen = crate::state::ScreenId::Terminals;
+        let _ = state.enter_screen(crate::state::ScreenId::Terminals);
         state.terminal_manager.active = true;
         state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
         state.resume_shell_overlay(AgentId("agent-1".into()));
 
         state.hide_shell_overlay();
 
-        assert_eq!(state.screen, crate::state::ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
         assert!(state.terminal_manager.active);
         assert!(!state.shell_overlay_active());
         assert_eq!(

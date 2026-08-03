@@ -17,10 +17,7 @@ fn registry() -> &'static ScreenRegistry {
 }
 
 fn rooted(screen: ScreenId) -> NavState {
-    match NavState::rooted(registry(), screen) {
-        Ok(state) => state,
-        Err(refusal) => unreachable!("a compiled screen must root a session: {refusal}"),
-    }
+    NavState::rooted(screen)
 }
 
 fn push_to(state: &NavState, screen: ScreenId) -> NavIntent {

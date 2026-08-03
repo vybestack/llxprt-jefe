@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn split_page_capacity_uses_the_actual_sidebar_pane() {
         let state = AppState {
-            screen: ScreenId::Repositories,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
             ..AppState::default()
         };
         let layout = jefe::layout::split_layout_for_render_size(100, 25);

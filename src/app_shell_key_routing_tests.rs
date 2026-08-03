@@ -86,7 +86,7 @@ fn dashboard_and_split_use_registry_handlers() {
         HandlerKey::NavigateDown,
     );
     let split = AppState {
-        screen: ScreenId::Repositories,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
         ..AppState::default()
     };
     assert_handler(
@@ -104,7 +104,7 @@ fn dashboard_and_split_use_registry_handlers() {
 #[test]
 fn errors_reverse_cycle_and_detail_scroll_use_registry_handlers() {
     let mut state = AppState {
-        screen: ScreenId::Errors,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Errors),
         ..AppState::default()
     };
     assert_handler(&state, &key(KeyCode::Left), HandlerKey::ErrorsCyclePane);
@@ -125,7 +125,7 @@ fn terminal_and_actions_pre_mode_use_registry_handlers() {
         HandlerKey::TerminalScrollTail,
     );
     let actions = AppState {
-        screen: ScreenId::Actions,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Actions),
         ..AppState::default()
     };
     assert_handler(
@@ -161,7 +161,7 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
         ScreenId::Actions,
     ] {
         let state = AppState {
-            screen,
+            nav: jefe::state::navigation::NavState::rooted(screen),
             ..modal.clone()
         };
         assert_handler(
@@ -176,7 +176,7 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
     }
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
         let state = AppState {
-            screen,
+            nav: jefe::state::navigation::NavState::rooted(screen),
             ..modal.clone()
         };
         assert!(matches!(
@@ -189,7 +189,7 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
 #[test]
 fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
     let mut state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,
@@ -231,7 +231,7 @@ fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
 #[test]
 fn new_issue_submit_override_uses_state_derived_production_context() {
     let state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,
@@ -253,7 +253,7 @@ fn new_issue_submit_override_uses_state_derived_production_context() {
 #[test]
 fn issue_inline_submit_override_uses_state_derived_production_context() {
     let state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,
@@ -274,7 +274,7 @@ fn issue_inline_submit_override_uses_state_derived_production_context() {
 #[test]
 fn pr_inline_submit_override_uses_state_derived_production_context() {
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             inline_state: InlineState::Composer {

@@ -168,7 +168,7 @@ fn search_no_match_shows_empty() {
 #[test]
 fn search_works_in_dashboard_mode() {
     let mut state = create_search_test_state();
-    state.screen = ScreenId::Dashboard;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 
@@ -178,7 +178,7 @@ fn search_works_in_dashboard_mode() {
 #[test]
 fn search_works_in_split_mode() {
     let mut state = create_search_test_state();
-    state.screen = ScreenId::Repositories;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 

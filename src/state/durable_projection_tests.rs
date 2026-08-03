@@ -208,7 +208,8 @@ fn forward_maps_selection_indices_to_ids() {
 #[test]
 fn forward_writes_the_active_screen_as_its_stable_identity() {
     let mut state = sample_state();
-    state.screen = crate::workbench::ScreenId::PullRequests;
+    state.nav =
+        crate::state::navigation::NavState::rooted(crate::workbench::ScreenId::PullRequests);
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
     assert_eq!(
         projected.selection.screen_id.as_ref().map(Id::as_str),
@@ -221,7 +222,7 @@ fn forward_writes_the_active_screen_as_its_stable_identity() {
 fn the_active_screen_round_trips_through_the_durable_document() {
     for screen in crate::workbench::ScreenId::ALL {
         let mut state = sample_state();
-        state.screen = screen;
+        state.nav = crate::state::navigation::NavState::rooted(screen);
         let projected = to_durable_state(&state).value_or_panic("projection succeeds");
         let restored = crate::state::durable_restore::from_durable_state(&projected)
             .value_or_panic("restore succeeds");

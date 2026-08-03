@@ -12,7 +12,7 @@ use crate::state::transition::TransitionExt;
 
 pub(super) fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }
@@ -49,22 +49,22 @@ pub(super) fn make_test_issue(number: u64) -> Issue {
 #[test]
 fn test_keybind_bar_issues_mode() {
     let dashboard_state = AppState::default();
-    assert_eq!(dashboard_state.screen, ScreenId::Dashboard);
+    assert_eq!(dashboard_state.screen(), ScreenId::Dashboard);
 
     let issues_state = AppState::default()
         .apply(AppEvent::EnterIssuesMode)
         .committed_pure();
-    assert_eq!(issues_state.screen, ScreenId::Issues);
+    assert_eq!(issues_state.screen(), ScreenId::Issues);
 
     // Modes are distinguishable — keybind bar can branch on this
-    assert_ne!(dashboard_state.screen, issues_state.screen);
+    assert_ne!(dashboard_state.screen(), issues_state.screen());
 
     // And exit returns to Dashboard
     let exited = issues_state
         .apply(AppEvent::ExitIssuesMode)
         .committed_pure();
-    assert_eq!(exited.screen, ScreenId::Dashboard);
-    assert_ne!(exited.screen, ScreenId::Issues);
+    assert_eq!(exited.screen(), ScreenId::Dashboard);
+    assert_ne!(exited.screen(), ScreenId::Issues);
 }
 
 // =========================================================================
@@ -217,7 +217,7 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 fn test_mode_lifecycle_enter_browse_exit() {
     // Enter issues mode
     let mut state = issues_mode_state_with_repo("repo-1");
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
     assert!(state.issues_state.active);
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
@@ -244,7 +244,7 @@ fn test_mode_lifecycle_enter_browse_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert!(!state.issues_state.active);
 }
 
@@ -306,7 +306,7 @@ fn test_mode_lifecycle_enter_interact_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert!(!state.issues_state.active);
 }
 
@@ -398,7 +398,7 @@ fn test_key_routing_suppression_comprehensive() {
             state.issues_state.issue_focus, domain,
             "issues focus changed unexpectedly in domain {domain:?}"
         );
-        assert_eq!(state.screen, ScreenId::Issues);
+        assert_eq!(state.screen(), ScreenId::Issues);
         assert!(state.issues_state.active);
     }
 
@@ -508,7 +508,7 @@ fn test_error_handling_auth_failure_blocks_ops() {
     assert!(err.contains("authentication") || err.contains("token"));
     // Mode remains active
     assert!(state.issues_state.active);
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
     // List loading is cleared
     assert!(!state.issues_state.list_loading());
 }
@@ -540,7 +540,7 @@ fn test_error_handling_network_error_stable_mode() {
     assert_eq!(state.issues_state.issue_focus, focus_before);
     // Mode stable
     assert!(state.issues_state.active);
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
 }
 
 /// P15 Test 8: Load issues with has_more=true — has_more_issues flag set.

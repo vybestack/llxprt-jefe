@@ -29,7 +29,7 @@ use std::fmt;
 use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{
     ActivationError, ActivationValues, NavCode, PanelId, RouteId, ScreenId, ScreenIdentity,
-    ScreenInstanceId, ScreenRegistry, route_declaration,
+    ScreenInstanceId, ScreenRegistry, initial_focus, route_declaration, route_of,
 };
 
 use super::navigation_dirty::{
@@ -133,31 +133,37 @@ pub struct NavState {
     next_activation_generation: u64,
 }
 
+impl Default for NavState {
+    /// A session on the default screen, which is what a run with no restored
+    /// state opens on.
+    fn default() -> Self {
+        Self::rooted(ScreenId::default())
+    }
+}
+
 impl NavState {
-    /// The state a session starts in: one clean instance, no stack.
+    /// The state a session starts in: one clean instance on `screen`, no stack.
     ///
-    /// # Errors
-    ///
-    /// Returns [`NavRefusal::MissingDescriptor`] when `screen` has no compiled
-    /// descriptor, which is a malformed compiled table rather than anything a
-    /// user did.
-    pub fn rooted(registry: &ScreenRegistry, screen: ScreenId) -> Result<Self, NavRefusal> {
-        let Some(descriptor) = registry.get(screen) else {
-            return Err(NavRefusal::MissingDescriptor { screen });
-        };
+    /// Rooting is total. Both the route and the initial focus come from
+    /// compiled tables rather than a registry lookup, so starting a session
+    /// has no failure mode to handle at the moment it is needed — a screen
+    /// that has drifted from its descriptor is a build-time test failure, not
+    /// a runtime branch.
+    #[must_use]
+    pub fn rooted(screen: ScreenId) -> Self {
         let id = ScreenInstanceId::next();
-        Ok(Self {
+        Self {
             current: ScreenInstance {
                 id,
                 screen,
                 activation: Activation {
-                    route: descriptor.route,
+                    route: route_of(screen),
                     values: ActivationValues::empty(),
                     // The root instance was activated by nothing but itself.
                     source_instance: id,
                     activation_generation: 1,
                 },
-                panel_focus: descriptor.initial_focus,
+                panel_focus: initial_focus(screen),
                 generation: 1,
                 dirty: DirtyState::Clean,
             },
@@ -165,7 +171,7 @@ impl NavState {
             guard: None,
             next_generation: 2,
             next_activation_generation: 2,
-        })
+        }
     }
 
     /// The instance the session is on.
@@ -256,9 +262,6 @@ impl NavState {
                 route: activation.route,
             });
         };
-        let Some(descriptor) = registry.get(screen) else {
-            return Err(NavRefusal::MissingDescriptor { screen });
-        };
         if self.next_generation.checked_add(1).is_none()
             || self.next_activation_generation.checked_add(1).is_none()
         {
@@ -273,7 +276,7 @@ impl NavState {
                 source_instance: activation.source_instance,
                 activation_generation: self.next_activation_generation,
             },
-            panel_focus: descriptor.initial_focus,
+            panel_focus: initial_focus(screen),
             generation: self.next_generation,
             dirty: DirtyState::Clean,
         })

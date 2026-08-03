@@ -392,7 +392,15 @@ pub struct AppState {
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state
-    pub screen: ScreenId,
+    /// Where the session is, and where it has been.
+    ///
+    /// The sole runtime authority for screen identity (issue #386). Nothing
+    /// assigns a screen directly any more: every screen change goes through
+    /// `crate::state::navigation::reduce_navigation`, so the stack, the
+    /// generations that decide which answers are still wanted, and the dirty
+    /// guard cannot disagree with what is on screen. Runtime-only — the
+    /// durable document remembers a screen, never a stack.
+    pub nav: super::navigation::NavState,
     pub pane_focus: PaneFocus,
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,

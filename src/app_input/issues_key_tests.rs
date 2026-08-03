@@ -30,7 +30,7 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 fn issues_base_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -42,7 +42,7 @@ fn issues_base_state() -> AppState {
 
 fn issues_state_with_focus(focus: IssueFocus) -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: focus,
@@ -54,7 +54,7 @@ fn issues_state_with_focus(focus: IssueFocus) -> AppState {
 
 fn issues_state_with_inline(inline: InlineState) -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -67,7 +67,7 @@ fn issues_state_with_inline(inline: InlineState) -> AppState {
 
 fn issues_state_with_chooser() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,
@@ -91,7 +91,7 @@ fn issues_state_with_chooser() -> AppState {
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

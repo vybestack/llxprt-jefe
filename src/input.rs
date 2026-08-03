@@ -148,7 +148,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
     // @plan PLAN-20260329-ISSUES-MODE.P03
     // @requirement REQ-ISS-002
     // @pseudocode component-003 lines 01-02
-    if state.screen == ScreenId::Issues {
+    if state.screen() == ScreenId::Issues {
         if state.issues_state.inline_state != InlineState::None {
             return InputMode::IssuesInline;
         }
@@ -170,7 +170,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
     // @requirement REQ-PR-002
     // @requirement REQ-PR-004
     // @pseudocode component-003 lines 07,51
-    if state.screen == ScreenId::PullRequests {
+    if state.screen() == ScreenId::PullRequests {
         if state.prs_state.inline_state != InlineState::None {
             return InputMode::PrsInline;
         }
@@ -187,7 +187,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
     }
 
     // Actions mode detection
-    if state.screen == ScreenId::Actions {
+    if state.screen() == ScreenId::Actions {
         if state.actions_state.ui.search_input_focused {
             return InputMode::ActionsSearch;
         }

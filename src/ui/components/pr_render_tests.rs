@@ -36,7 +36,7 @@ use crate::ui::components::pr_list::{pr_list_status_message, pr_list_visible_row
 /// @pseudocode component-001 lines 1-12
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

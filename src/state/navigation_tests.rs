@@ -23,10 +23,7 @@ fn route_of(screen: ScreenId) -> RouteId {
 }
 
 fn rooted(screen: ScreenId) -> NavState {
-    match NavState::rooted(registry(), screen) {
-        Ok(state) => state,
-        Err(refusal) => unreachable!("a compiled screen must root a session: {refusal}"),
-    }
+    NavState::rooted(screen)
 }
 
 /// An activation for `screen`, computed from `state`'s live current instance.

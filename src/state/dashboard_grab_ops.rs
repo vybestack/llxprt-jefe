@@ -12,7 +12,7 @@ impl AppState {
     /// grabbed repository was deleted, or the visible-index/local-index is out
     /// of bounds after a visibility or data change.
     pub(super) fn validate_dashboard_grab(&mut self) {
-        if self.screen != ScreenId::Dashboard {
+        if self.screen() != ScreenId::Dashboard {
             self.dashboard_grab = None;
             return;
         }

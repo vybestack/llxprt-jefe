@@ -38,9 +38,9 @@ pub fn derive_action_context(
         );
     }
     if let Some(modal) = modal_context(&state.modal) {
-        return modal_stack(state.screen, modal);
+        return modal_stack(state.screen(), modal);
     }
-    match state.screen {
+    match state.screen() {
         ScreenId::Dashboard if input_mode == InputMode::DashboardSearch => action_context(
             &["dashboard.search", "dashboard.pre-mode", "global"],
             false,

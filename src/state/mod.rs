@@ -110,6 +110,8 @@ pub mod navigation_dirty;
 #[cfg(test)]
 #[path = "navigation_dirty_tests.rs"]
 mod navigation_dirty_tests;
+/// How the rest of the reducer asks to change screen (issue #386).
+mod navigation_ops;
 #[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;
@@ -528,7 +530,7 @@ impl AppState {
                 dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
-                self.screen = ScreenId::Repositories;
+                let _ = self.enter_screen(ScreenId::Repositories);
                 self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
@@ -601,7 +603,7 @@ impl AppState {
     }
 
     fn exit_split_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.split_filter = None;
         self.split_grab_index = None;
     }

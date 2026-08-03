@@ -526,12 +526,12 @@ fn it_exit_restores_prior_dashboard_focus() {
     // Enter PR mode (saves prior focus).
     state.apply_in_place(AppEvent::EnterPrsMode);
     assert!(state.prs_state.active);
-    assert_eq!(state.screen, ScreenId::PullRequests);
+    assert_eq!(state.screen(), ScreenId::PullRequests);
 
     // Exit restores prior focus.
     state.apply_in_place(AppEvent::ExitPrsMode);
     assert!(!state.prs_state.active);
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert_eq!(
         state.pane_focus,
         PaneFocus::Agents,
@@ -717,7 +717,7 @@ fn it_empty_pr_list_shows_empty_state() {
 fn it_dashboard_and_issues_modes_unaffected() {
     let state = AppState::default();
     assert_eq!(
-        state.screen,
+        state.screen(),
         ScreenId::Dashboard,
         "default must be Dashboard"
     );
@@ -725,10 +725,10 @@ fn it_dashboard_and_issues_modes_unaffected() {
     // Issues mode regression.
     let state2 = dashboard_state();
     let entered = state2.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(entered.screen, ScreenId::Issues);
+    assert_eq!(entered.screen(), ScreenId::Issues);
     assert!(entered.issues_state.active);
     let exited = entered.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(exited.screen, ScreenId::Dashboard);
+    assert_eq!(exited.screen(), ScreenId::Dashboard);
     assert!(!exited.issues_state.active);
 
     // PR mode does not interfere.

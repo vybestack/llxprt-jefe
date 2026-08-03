@@ -288,7 +288,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let mut state = AppState {
-            screen: ScreenId::PullRequests,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
             prs_state,
             ..AppState::default()
         };
@@ -345,7 +345,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let state = AppState {
-            screen: ScreenId::PullRequests,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
             prs_state,
             ..AppState::default()
         };
@@ -379,7 +379,7 @@ mod tests {
             ..PullRequestsState::default()
         };
         let mut state = AppState {
-            screen: ScreenId::PullRequests,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
             prs_state,
             ..AppState::default()
         };

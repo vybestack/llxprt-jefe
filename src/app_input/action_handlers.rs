@@ -61,12 +61,12 @@ pub fn pre_mode_owned(
     match handler {
         HandlerKey::JumpAgent(_) => true,
         HandlerKey::ToggleTerminalFocus | HandlerKey::LeaveTerminal => matches!(
-            state.screen,
+            state.screen(),
             ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions
         ),
         HandlerKey::OpenEmbeddedShell | HandlerKey::OpenExternalTerminal => {
             input_mode == jefe::input::InputMode::Normal
-                && state.screen == ScreenId::Dashboard
+                && state.screen() == ScreenId::Dashboard
                 && !state.terminal_focused
         }
         HandlerKey::EmergencyExit => matches!(
@@ -282,10 +282,10 @@ macro_rules! handler_execution {
             H::NavigateDown => E::Event(AppEvent::NavigateDown),
             H::NavigatePageUp => E::Event(AppEvent::NavigatePageUp(page_items)),
             H::NavigatePageDown => E::Event(AppEvent::NavigatePageDown(page_items)),
-            H::NavigateHome if state.screen == ScreenId::Errors => {
+            H::NavigateHome if state.screen() == ScreenId::Errors => {
                 E::Event(AppEvent::ErrorsNavigateHome)
             }
-            H::NavigateEnd if state.screen == ScreenId::Errors => {
+            H::NavigateEnd if state.screen() == ScreenId::Errors => {
                 E::Event(AppEvent::ErrorsNavigateEnd)
             }
             H::NavigateHome => E::Event(AppEvent::NavigateHome),
@@ -309,7 +309,7 @@ macro_rules! handler_execution {
             H::EnterErrors => E::Event(AppEvent::EnterErrorsMode),
             H::EnterSplit => E::Event(AppEvent::EnterSplitMode),
             H::EnterTerminalManager => E::Event(AppEvent::EnterTerminalManagerMode),
-            H::FocusDashboardSearch if state.screen == ScreenId::Dashboard => {
+            H::FocusDashboardSearch if state.screen() == ScreenId::Dashboard => {
                 E::Event(AppEvent::FocusDashboardSearch)
             }
             H::FocusDashboardSearch => E::Event(AppEvent::OpenSearch),

@@ -64,7 +64,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen = ScreenId::Terminals;
+        let _ = self.enter_screen(ScreenId::Terminals);
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -76,7 +76,7 @@ impl AppState {
 
     /// Exit terminal-manager mode, restoring prior focus state.
     fn exit_terminal_manager_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.terminal_manager.active = false;
         self.terminal_manager.clear_pending_focus();
         self.terminal_manager.preview = super::ShellPreview::default();
@@ -166,12 +166,12 @@ impl AppState {
         match pending.origin {
             ShellFocusOrigin::DashboardF10 => {
                 self.terminal_manager.active = false;
-                self.screen = ScreenId::Dashboard;
+                let _ = self.leave_screen();
                 self.shell_return_target = ShellReturnTarget::Dashboard;
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                self.screen = ScreenId::Terminals;
+                let _ = self.enter_screen(ScreenId::Terminals);
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }
@@ -420,7 +420,7 @@ mod tests {
             AgentId("agent-1".into()),
         ));
         assert!(ok);
-        assert_eq!(state.screen, ScreenId::Terminals);
+        assert_eq!(state.screen(), ScreenId::Terminals);
         assert!(state.terminal_manager.active);
         assert!(state.shell_overlay_active());
         assert!(state.terminal_focused);

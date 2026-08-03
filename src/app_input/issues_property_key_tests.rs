@@ -16,7 +16,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueDetail,

@@ -15,7 +15,7 @@ use jefe::state::{AppState, IssueFilterUiState, IssuesState, PullRequestsState, 
 #[test]
 fn notice_only_banner_shifts_issues_workspace_for_mouse_routing() {
     let state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             draft_notice: Some("No agents available".to_string()),
             ..IssuesState::default()
@@ -49,7 +49,7 @@ fn notice_only_banner_shifts_issues_workspace_for_mouse_routing() {
 #[test]
 fn no_banner_keeps_issues_workspace_at_row_one_for_mouse_routing() {
     let state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     };
 
@@ -138,7 +138,7 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
 fn issues_draft_notice_does_not_shift_pr_mode_geometry() {
     // State with Issues draft_notice but screen = DashboardPullRequests.
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         issues_state: IssuesState {
             draft_notice: Some("No agents available".to_string()),
             ..IssuesState::default()
@@ -163,7 +163,7 @@ fn issues_draft_notice_does_not_shift_pr_mode_geometry() {
 #[test]
 fn issues_error_does_not_shift_pr_mode_geometry() {
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         issues_state: IssuesState {
             error: Some("load failed".to_string()),
             ..IssuesState::default()
@@ -187,7 +187,7 @@ fn issues_error_does_not_shift_pr_mode_geometry() {
 #[test]
 fn pr_error_does_not_shift_issues_mode_geometry() {
     let state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         prs_state: PullRequestsState {
             error: Some("PR load failed".to_string()),
             ..PullRequestsState::default()
@@ -210,7 +210,7 @@ fn pr_error_does_not_shift_issues_mode_geometry() {
 #[test]
 fn pr_error_in_pr_mode_shifts_pr_geometry() {
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             error: Some("PR load failed".to_string()),
             ..PullRequestsState::default()
@@ -239,7 +239,7 @@ fn pr_error_in_pr_mode_shifts_pr_geometry() {
 #[test]
 fn issues_filter_open_does_not_shift_pr_mode_geometry() {
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         issues_state: IssuesState {
             filter_ui: IssueFilterUiState {
                 controls_open: true,
