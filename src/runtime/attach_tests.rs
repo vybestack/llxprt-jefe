@@ -11,53 +11,10 @@ fn test_term() -> Arc<Mutex<Term<RuntimeListener>>> {
     let size = TermDimensions { cols: 80, rows: 24 };
     let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(Box::new(Vec::new())));
     Arc::new(Mutex::new(Term::new(
-        TermConfig::default(),
+        embedded_term_config(),
         &size,
         RuntimeListener::new(writer),
     )))
-}
-
-/// Embedded OSC 52 events must use the project clipboard boundary.
-#[test]
-fn clipboard_store_uses_injected_project_boundary() {
-    let mut observed = String::new();
-    let result = forward_clipboard_store("Ω clipboard", |text| {
-        observed.push_str(text);
-        Ok(())
-    });
-
-    assert!(
-        result.is_ok(),
-        "clipboard boundary should succeed: {result:?}"
-    );
-    assert_eq!(observed, "Ω clipboard");
-}
-
-#[test]
-fn clipboard_store_provider_failure_is_recoverable() {
-    let result = forward_clipboard_store("copy", |_| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotConnected,
-            "provider unavailable",
-        ))
-    });
-
-    assert!(
-        result.is_err(),
-        "provider failure must be surfaced without panicking"
-    );
-}
-
-#[test]
-fn clipboard_store_ignores_empty_payload() {
-    let mut called = false;
-    let result = forward_clipboard_store("", |_| {
-        called = true;
-        Ok(())
-    });
-
-    assert!(result.is_ok());
-    assert!(!called, "empty OSC 52 stores must not invoke the provider");
 }
 
 /// Processing a batch of PTY bytes must set the dirty flag — this is the

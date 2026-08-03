@@ -25,6 +25,8 @@ pub mod agent_remote_plan;
 mod agent_remote_probe;
 mod async_attach;
 mod attach;
+/// Terminal-model event sink for a hosted agent PTY (issue #627).
+mod attach_listener;
 mod attach_mode_recovery;
 mod attach_scheduler;
 mod capabilities;
@@ -42,6 +44,8 @@ mod identity;
 #[cfg(windows)]
 mod job_object;
 mod jsp_launch;
+/// Enter separation in the PTY input path (issue #627).
+mod key_pacing;
 pub mod launch_compose;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
@@ -120,6 +124,7 @@ pub use external_terminal::{
     spawn_external_terminal,
 };
 pub use gh_auth::{AuthRunResult, run_device_auth};
+pub use key_pacing::{ENTER_INPUT_GAP, KeyWritePacing, PtyInputKind};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
     batch_liveness_check_with_identity, list_jefe_sessions, observe_worker_disposition,

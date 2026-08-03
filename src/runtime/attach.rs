@@ -10,10 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::grid::{Dimensions, Indexed};
 use alacritty_terminal::selection::SelectionRange;
-use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::{RenderableCursor, Term, TermMode};
@@ -23,7 +21,9 @@ use portable_pty::{
 };
 use tracing::{debug, trace, warn};
 
+use super::attach_listener::{RuntimeListener, embedded_term_config};
 use super::errors::RuntimeError;
+use super::key_pacing::{KeyWritePacing, PtyInputKind};
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
 /// Simple dimensions struct for terminal sizing.
@@ -43,93 +43,6 @@ impl Dimensions for TermDimensions {
 
     fn total_lines(&self) -> usize {
         self.rows
-    }
-}
-
-/// Runtime event listener for alacritty_terminal.
-///
-/// Handles OSC52 clipboard-store events so an agent's copy propagates to the
-/// host clipboard when running inside jefe's embedded PTY.
-pub struct RuntimeListener {
-    /// Write end of the hosted child's PTY.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
-}
-
-impl std::fmt::Debug for RuntimeListener {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("RuntimeListener").finish()
-    }
-}
-
-impl RuntimeListener {
-    /// Build a listener that can answer the hosted child on its own input.
-    #[must_use]
-    pub fn new(writer: Arc<Mutex<Box<dyn Write + Send>>>) -> Self {
-        Self { writer }
-    }
-}
-
-/// Terminal-model configuration for a hosted agent PTY.
-///
-/// The kitty keyboard protocol is switched on so the model answers the child's
-/// `CSI ? u` query and tracks the modes it pushes. Without it the model
-/// silently ignores every keyboard-protocol control sequence, the child
-/// concludes the terminal cannot disambiguate key chords, and chords such as
-/// `Ctrl+Enter` become indistinguishable from their legacy control-byte
-/// aliases (issue #627).
-#[must_use]
-pub fn embedded_term_config() -> TermConfig {
-    TermConfig {
-        kitty_keyboard: true,
-        ..TermConfig::default()
-    }
-}
-
-// ClipboardStore uses the same OSC 52 boundary as Jefe selections. This keeps
-// provider policy centralized; unsupported outer terminals may ignore OSC 52.
-fn forward_clipboard_store<F>(text: &str, mut writer: F) -> std::io::Result<()>
-where
-    F: FnMut(&str) -> std::io::Result<()>,
-{
-    if text.is_empty() {
-        return Ok(());
-    }
-    writer(text)
-}
-
-/// Write a terminal query reply back onto the hosted child's input stream.
-///
-/// The embedded terminal model answers identity and mode queries (DA1, kitty
-/// keyboard flags, XTVERSION, `modifyOtherKeys`, DSR) by emitting
-/// `TermEvent::PtyWrite`. Those replies are input for the child, not output for
-/// the host: a child that never receives them concludes the terminal supports
-/// nothing it asked about, and many block their raw-mode setup until the
-/// device-attributes reply arrives (issue #627).
-fn forward_pty_write(writer: &Mutex<Box<dyn Write + Send>>, text: &str) -> std::io::Result<()> {
-    let mut writer = writer
-        .lock()
-        .map_err(|_| std::io::Error::other("pty writer lock poisoned"))?;
-    writer.write_all(text.as_bytes())?;
-    writer.flush()
-}
-
-impl EventListener for RuntimeListener {
-    fn send_event(&self, event: TermEvent) {
-        match event {
-            TermEvent::ClipboardStore(_, text) => {
-                debug!(len = text.len(), "received OSC52 ClipboardStore event");
-                if let Err(error) = forward_clipboard_store(&text, crate::clipboard::write_osc52) {
-                    warn!(%error, "failed to forward OSC52 clipboard store");
-                }
-            }
-            TermEvent::PtyWrite(text) => {
-                trace!(len = text.len(), "answering terminal query on child input");
-                if let Err(error) = forward_pty_write(&self.writer, &text) {
-                    warn!(%error, "failed to answer terminal query on child input");
-                }
-            }
-            _ => {}
-        }
     }
 }
 
@@ -153,6 +66,9 @@ pub struct AttachedViewer {
     child: Arc<Mutex<Box<dyn PtyChild + Send + Sync>>>,
     /// Reader thread handle.
     _reader_thread: JoinHandle<()>,
+    /// When jefe last wrote input to this child, so an Enter chord can be kept
+    /// out of the preceding keystroke's burst (issue #627).
+    key_pacing: Mutex<KeyWritePacing>,
     /// Last-applied terminal dimensions (issue #296 mode-recovery nudge).
     rows: u16,
     cols: u16,
@@ -694,6 +610,7 @@ impl AttachedViewer {
             dirty,
             child,
             _reader_thread: reader_thread,
+            key_pacing: Mutex::new(KeyWritePacing::new()),
             rows,
             cols,
         })
@@ -729,9 +646,17 @@ impl AttachedViewer {
     ///
     /// @pseudocode component-002 lines 18-20
     pub fn write_input(&self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        self.write_input_kind(bytes, PtyInputKind::Other)
+    }
+
+    /// Write input bytes to the PTY, separating an Enter chord from whatever
+    /// jefe wrote just before it (issue #627).
+    pub fn write_input_kind(&self, bytes: &[u8], kind: PtyInputKind) -> Result<(), RuntimeError> {
         if !self.is_alive() {
             return Err(RuntimeError::WriteFailed("viewer not alive".into()));
         }
+
+        self.wait_for_input_gap(kind);
 
         let mut writer = self
             .writer
@@ -747,7 +672,29 @@ impl AttachedViewer {
             .map_err(|e| RuntimeError::WriteFailed(format!("flush: {e}")))?;
         drop(writer);
 
+        self.mark_input_written();
+
         Ok(())
+    }
+
+    /// Hold an Enter back until the child has seen a gap since the previous
+    /// write. Bounded by [`ENTER_INPUT_GAP`], and zero for every other input.
+    fn wait_for_input_gap(&self, kind: PtyInputKind) {
+        let delay = self.key_pacing.lock().map_or(Duration::ZERO, |pacing| {
+            pacing.delay_before(kind, Instant::now())
+        });
+        if !delay.is_zero() {
+            trace!(?delay, "separating Enter from the preceding PTY write");
+            thread::sleep(delay);
+        }
+    }
+
+    /// Record when bytes reached the child, so the next Enter can measure its
+    /// separation from this write.
+    fn mark_input_written(&self) {
+        if let Ok(mut pacing) = self.key_pacing.lock() {
+            pacing.record(Instant::now());
+        }
     }
 
     /// Resize the terminal.

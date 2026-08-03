@@ -15,7 +15,7 @@ use crate::pty_encoding::{
     should_disarm_paste_enter_suppression, should_suppress_synthetic_enter,
 };
 use jefe::input::{InputMode, is_bare_ctrl_c};
-use jefe::runtime::{RuntimeError, RuntimeManager};
+use jefe::runtime::{PtyInputKind, RuntimeError, RuntimeManager};
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -84,6 +84,20 @@ fn negotiated_key_encoding(ctx: Option<&CtxArc>) -> PtyKeyEncoding {
     PtyKeyEncoding::for_child(ctx_guard.runtime.kitty_keyboard_active())
 }
 
+/// Classify a key for the PTY write path.
+///
+/// Enter is the only chord downstream agents reclassify from arrival timing, so
+/// it is the only one that has to be separated from the write before it
+/// (issue #627).
+#[must_use]
+pub fn pty_input_kind(key_event: &KeyEvent) -> PtyInputKind {
+    if key_event.code == iocraft::prelude::KeyCode::Enter {
+        PtyInputKind::Enter
+    } else {
+        PtyInputKind::Other
+    }
+}
+
 pub fn forward_key_to_pty(
     ctx: Option<&CtxArc>,
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
@@ -100,7 +114,9 @@ pub fn forward_key_to_pty(
 
     if let Some(ctx_arc) = ctx
         && let Ok(mut ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.runtime.write_input(&bytes)
+        && let Err(e) = ctx_guard
+            .runtime
+            .write_input_kind(&bytes, pty_input_kind(key_event))
         && !matches!(e, RuntimeError::WriteFailed(_))
     {
         warn!(error = %e, "runtime.write_input failed");

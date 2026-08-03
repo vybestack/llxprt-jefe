@@ -144,6 +144,7 @@ authorized.
 | `key_to_bytes` second parameter becomes `PtyKeyEncoding` instead of `bool` | Two independent booleans at one call site is exactly the primitive obsession the standards forbid | Accepted — mechanical call-site update, no behavior change when the protocol is off |
 | The `passthrough_enter` encoder flag is removed with its two tests | It had no production caller: every call site passed `false`. Keeping an unreachable third way to encode Enter next to the new negotiated one reintroduces exactly the ambiguity this issue is about, and the dead-code gate rejects an unreachable variant. Its only unique coverage (legacy `Alt+Enter` keeping its ESC prefix) is preserved by a new legacy test | Accepted — inside slice 2's file and contract |
 | `domain::keymap::pty_bytes_for_chord` doc updated | It named the removed `passthrough_enter` parameter | Accepted — one stale doc line. Deduplicating that second encoder against `pty_encoding` is recorded as a deferred finding, not done here |
+| The terminal-model event sink moves to `src/runtime/attach_listener.rs`, with its clipboard tests | Slice 3 pushed `attach.rs` past the 1000-line hard limit. The sink is exactly the code slices 1 and 3 changed, so it is the natural cut, and it takes its own tests with it rather than leaving them orphaned | Accepted — required to keep the source-size gate green |
 
 ## Review counters
 
