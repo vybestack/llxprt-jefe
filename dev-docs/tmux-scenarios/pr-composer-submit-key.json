@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "name": "issues-new-issue-typing",
+  "name": "pr-composer-submit-key",
   "platform": "macos",
   "terminal": {
     "cols": 120,
-    "rows": 40
+    "rows": 36
   },
   "workspace": {
     "mode": 448,
@@ -22,7 +22,7 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n[keymap.\"issues.new-form\"]\n\"issues.new-submit\" = [\"F8\"]\n"
+          "utf8": "settings_schema = 2\n[keymap.\"prs.inline\"]\n\"prs.inline-submit\" = [\"F9\"]\n"
         },
         "mode": 384
       }
@@ -48,36 +48,41 @@
     },
     {
       "op": "key",
-      "key": "i",
+      "key": "p",
       "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "No issues found",
+      "literal": "Add newest-first review sorting",
       "timeout_ms": 15000
     },
     {
       "op": "key",
-      "key": "n",
+      "key": "enter",
       "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "New Issue",
+      "literal": "Reviews",
       "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "F8 submit",
+      "literal": "F9 submit",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "F8 submit"
+        "F9 submit"
       ],
       "absent": [
         "Alt+Enter submit"
@@ -85,29 +90,7 @@
     },
     {
       "op": "text",
-      "text": "HelloTitle"
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "HelloTitle",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
-        "HelloTitle"
-      ],
-      "absent": []
-    },
-    {
-      "op": "key",
-      "key": "tab",
-      "modifiers": []
-    },
-    {
-      "op": "text",
-      "text": "Body line one"
+      "text": "PR body line one"
     },
     {
       "op": "key",
@@ -116,31 +99,25 @@
     },
     {
       "op": "text",
-      "text": "Body line two"
+      "text": "PR body line two"
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Body line two",
+      "literal": "PR body line two",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Body line one"
-      ],
-      "absent": []
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
-        "Body line two"
+        "PR body line one",
+        "PR body line two"
       ],
       "absent": []
     },
     {
       "op": "key",
-      "key": "backspace",
+      "key": "escape",
       "modifiers": []
     },
     {
@@ -149,15 +126,11 @@
       "modifiers": []
     },
     {
-      "op": "wait",
-      "source": "frame",
-      "literal": "No issue selected",
-      "timeout_ms": 15000
-    },
-    {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

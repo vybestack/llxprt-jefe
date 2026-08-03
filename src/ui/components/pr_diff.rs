@@ -179,13 +179,13 @@ struct ChangesHintCtx {
 /// Build the contextual hint line for the Changes footer.
 ///
 /// Hints are contextual (issue #376 acceptance A11):
-/// - While composing: only the composer submit/cancel shortcuts.
+/// - While composing: a stable local status; the generated keybind bar owns shortcuts.
 /// - File-list focus: file-list navigation + view toggle.
 /// - Content focus with no selected file: a placeholder hint.
 /// - Blob failure (when full file is needed): retry hint.
 fn changes_hints(ctx: ChangesHintCtx) -> String {
     if ctx.composing {
-        return "Alt+Enter submit | Esc cancel".to_string();
+        return "Composer active".to_string();
     }
     let view_hint = match ctx.mode {
         PrDiffViewMode::DeltasOnly => "v full file",
@@ -290,7 +290,7 @@ mod tests {
             no_selected_file: false,
             blob: BlobHintState::Idle,
         });
-        assert_eq!(hint, "Alt+Enter submit | Esc cancel");
+        assert_eq!(hint, "Composer active");
     }
 
     #[test]

@@ -19,7 +19,7 @@ use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 169-176
-pub(crate) const PR_REPLY_ANCHOR: &str = "    [Reply]";
+pub(crate) const PR_REPLY_ANCHOR: &str = "    [Composer input]";
 
 /// Count the rendered scrollable lines for a PR detail.
 ///
@@ -659,9 +659,7 @@ fn build_single_comment(
         && *comment_index == idx
     {
         builder.lines.push(PR_REPLY_ANCHOR.to_string());
-        builder
-            .lines
-            .push("    Alt+Enter save | Esc cancel".to_string());
+        builder.lines.push(String::new());
     }
 
     builder.lines.push(String::new());
@@ -698,9 +696,7 @@ fn build_new_comment_section(
             // Stable anchor: the composer text/cursor is rendered by the
             // embedded TextBox component, NOT flattened here. Emit a hint so
             // the line count stays stable while typing.
-            builder
-                .lines
-                .push("  Alt+Enter submit | Esc cancel".to_string());
+            builder.lines.push("  [Composer input]".to_string());
         }
         _ => {
             builder.lines.push("  Press c to add a comment".to_string());

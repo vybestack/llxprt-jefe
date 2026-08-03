@@ -6,6 +6,7 @@
 
 use iocraft::prelude::*;
 
+use crate::domain::default_action_inventory::display::FooterMode;
 use crate::state::{AppState, PaneFocus, PrFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -102,6 +103,8 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let pr_detail = state.and_then(|s| s.prs_state.pr_detail.clone());
     let detail_subfocus = state.map_or_else(Default::default, |s| s.prs_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.prs_state.inline_state.clone());
+    let footer_mode = matches!(inline_state, crate::state::InlineState::Composer { .. })
+        .then_some(FooterMode::PullRequestsInlineComposer);
     let comments_loading = state.is_some_and(|s| s.prs_state.loading.comments);
     let detail_loading = state.is_some_and(|s| s.prs_state.loading.detail);
     let detail_scroll_offset = state.map_or(0, |s| s.prs_state.detail_scroll_offset);
@@ -461,7 +464,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
             // active: Changes owns its own contextual footer hint, and the generic
             // PR bar advertises keys (merge/labels/assignees) that do not apply
             // (issue #376 acceptance A11).
-            #(if changes_active {
+            #(if changes_active && footer_mode.is_none() {
                 vec![element! {
                     Box(height: 1u32, width: 100pct, background_color: rc.bg) {}
                 }]
@@ -473,6 +476,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                             terminal_focused: state.is_some_and(|s| s.terminal_focused),
                             actions_focus: None,
+                            mode_override: footer_mode,
                             identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                             colors: colors.clone(),
                         )
