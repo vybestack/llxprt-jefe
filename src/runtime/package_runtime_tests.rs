@@ -258,6 +258,84 @@ fn package_probe_executes_the_selected_agent_not_the_runner_version() {
     );
 }
 
+/// Launch must execute the invocation the probe measured.
+///
+/// Preparation resolves a moving selector, so preparing twice in one launch
+/// asks the registry twice, and the two answers can differ. That is how a
+/// launch came to pair availability measured from one version with the
+/// executable and fingerprint of another — probing V1 and running an unprobed
+/// V2 (issue #571).
+///
+/// The tag is moved here between the probe and the point launch would have
+/// prepared again, which is exactly the interleaving that produced the mismatch.
+#[cfg(unix)]
+#[test]
+fn launch_executes_the_invocation_the_probe_measured() {
+    let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0");
+    let definition = definition("LLxprt");
+    let candidate_for_replay = resolve_package(&definition, bin.path(), "latest nightly");
+    let resolution = CandidateResolution::Resolved(resolve_package(
+        &definition,
+        bin.path(),
+        "latest nightly",
+    ));
+    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
+
+    let probe =
+        crate::runtime::run_local_agent_probe_with_cache(&definition, &resolution, 7, cache.path());
+
+    let Some(measured) = probe.prepared_invocation() else {
+        panic!("a managed package probe must hand back the invocation it measured");
+    };
+    let probed_executable = measured.executable().to_path_buf();
+    assert_eq!(
+        resolve_count(&witness),
+        1,
+        "the probe must resolve the tag once"
+    );
+
+    // The tag moves while the launch is still in flight.
+    publish_version(&witness, "0.11.1");
+
+    // What launch composition now does: use what was measured, not a fresh
+    // preparation. Nothing may reach the registry a second time, and the
+    // executable must still be the one whose availability was established.
+    assert_eq!(
+        probe
+            .prepared_invocation()
+            .map(|invocation| invocation.executable().to_path_buf()),
+        Some(probed_executable.clone()),
+        "launch must run the probed version, not whatever the tag points at now"
+    );
+    assert_eq!(
+        resolve_count(&witness),
+        1,
+        "one launch must ask the registry once; a second resolution is what lets \
+         availability and executable come from different versions"
+    );
+
+    // Show the hazard is real rather than hypothetical: the second preparation
+    // launch used to perform, run here explicitly, lands on a different version
+    // than the one just probed. Pairing that executable with the availability
+    // above is the defect; the assertions above are what now prevents it.
+    let second_preparation = finalize_local_invocation_inner(&candidate_for_replay, cache.path())
+        .unwrap_or_else(|error| panic!("second preparation: {error}"));
+    assert_ne!(
+        second_preparation.executable(),
+        probed_executable.as_path(),
+        "preparing a second time reaches a different version — which is precisely \
+         why launch must not do it"
+    );
+    assert_eq!(
+        resolve_count(&witness),
+        2,
+        "that second preparation is the extra registry call this change removes"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn structural_uvx_probe_executes_the_selected_agent_invocation() {
@@ -367,11 +445,13 @@ fn counting_npm_stub(bin: &TempDir, witness: &Path) {
 set -e
 witness={witness}
 versions={versions}
+resolves={resolves}
 if [ \"$1\" = view ]; then
   if [ \"$#\" -ne 3 ] || [ \"$3\" != version ]; then
     echo \"unexpected npm view invocation: $*\" >&2
     exit 64
   fi
+  echo resolve >> \"$resolves\"
   if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
 fi
 if [ -f package-lock.json ]; then echo present >> \"$witness\"; else echo absent >> \"$witness\"; fi
@@ -381,9 +461,30 @@ chmod 755 node_modules/.bin/llxprt
 ",
             witness = crate::runtime::commands::shell_escape_single(&witness.to_string_lossy()),
             versions =
-                crate::runtime::commands::shell_escape_single(&version_file.to_string_lossy())
+                crate::runtime::commands::shell_escape_single(&version_file.to_string_lossy()),
+            resolves = crate::runtime::commands::shell_escape_single(
+                &resolve_path_for(witness).to_string_lossy()
+            )
         ),
     );
+}
+
+/// Path the npm stub appends to on every `npm view`.
+///
+/// Installs are counted by the witness; resolutions are counted here, because
+/// "how many times did we ask the registry?" is a separate question from "how
+/// many times did we install?" and issue #571 turns on the former.
+#[cfg(unix)]
+fn resolve_path_for(witness: &Path) -> PathBuf {
+    witness.with_file_name("resolve-witness.log")
+}
+
+/// How many times the stub answered `npm view ... version`.
+#[cfg(unix)]
+fn resolve_count(witness: &Path) -> usize {
+    std::fs::read_to_string(resolve_path_for(witness))
+        .map(|contents| contents.lines().count())
+        .unwrap_or_default()
 }
 
 /// Path of the file the npm stub reads to answer `npm view ... version`.
