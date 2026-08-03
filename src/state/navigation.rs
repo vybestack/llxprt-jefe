@@ -33,7 +33,7 @@ use crate::workbench::{
 };
 
 use super::navigation_dirty::{
-    DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, SaveIntent,
+    DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, GuardPhase, SaveIntent,
 };
 
 /// Maximum number of suspended instances the navigation stack may hold.
@@ -282,6 +282,27 @@ impl NavState {
         })
     }
 
+    /// Why `intent` would be refused, without performing it.
+    ///
+    /// The dirty guard needs this: raising a guard over a navigation that
+    /// cannot commit would ask the user about their unsaved work and then
+    /// refuse to move whatever they answered.
+    fn preflight(&self, registry: &ScreenRegistry, intent: &NavIntent) -> Option<NavRefusal> {
+        match intent {
+            NavIntent::Push(activation) => {
+                if self.stack.len() >= MAX_NAVIGATION_STACK {
+                    return Some(NavRefusal::StackDepth {
+                        limit: MAX_NAVIGATION_STACK,
+                    });
+                }
+                self.construct(registry, activation).err()
+            }
+            NavIntent::Replace(activation) => self.construct(registry, activation).err(),
+            // Back consumes only what is already held, so it cannot be refused.
+            NavIntent::Back => None,
+        }
+    }
+
     /// Advance the monotonic counters past the instance just entered.
     fn advance(&mut self) {
         self.next_generation = self.next_generation.saturating_add(1);
@@ -401,6 +422,12 @@ fn navigate(mut state: NavState, registry: &ScreenRegistry, intent: NavIntent) -
         return NavTransition::plain(state, NavOutcome::GuardRaised);
     }
     if state.current.dirty.is_dirty() {
+        // Refuse before asking. A guard over a navigation that cannot commit
+        // would ask about unsaved work and then decline to move whatever the
+        // user answered.
+        if let Some(refusal) = state.preflight(registry, &intent) {
+            return refused(state, refusal);
+        }
         let focus = state.current.panel_focus;
         state.guard = Some(DirtyGuard::raised(intent, focus));
         return NavTransition::plain(state, NavOutcome::GuardRaised);
@@ -417,11 +444,27 @@ fn commit(state: NavState, registry: &ScreenRegistry, intent: NavIntent) -> NavT
 }
 
 fn mark_dirty(mut state: NavState, draft: DraftToken, save: SaveIntent) -> NavTransition {
+    if state
+        .guard
+        .as_ref()
+        .is_some_and(|guard| matches!(guard.phase(), GuardPhase::Saving { .. }))
+    {
+        // The owner is saving the draft the guard is holding. Replacing it now
+        // would let the running save's completion clear work it never saw.
+        return NavTransition::plain(state, NavOutcome::GuardRaised);
+    }
     state.current.dirty = DirtyState::Dirty { draft, save };
     NavTransition::plain(state, NavOutcome::Unchanged)
 }
 
 fn mark_clean(mut state: NavState) -> NavTransition {
+    if state
+        .guard
+        .as_ref()
+        .is_some_and(|guard| matches!(guard.phase(), GuardPhase::Saving { .. }))
+    {
+        return NavTransition::plain(state, NavOutcome::GuardRaised);
+    }
     state.current.dirty = DirtyState::Clean;
     NavTransition::plain(state, NavOutcome::Unchanged)
 }
@@ -436,6 +479,12 @@ fn resolve_dirty(
     };
     match choice {
         DirtyChoice::Save => {
+            if matches!(guard.phase(), GuardPhase::Saving { .. }) {
+                // A save is already running. Asking for a second one would run
+                // the owner's write twice and leave two completions racing for
+                // one guard.
+                return NavTransition::plain(state, NavOutcome::GuardRaised);
+            }
             let DirtyState::Dirty { save, .. } = &state.current.dirty else {
                 // Nothing is held any more, so there is nothing to save and the
                 // navigation the guard was holding can proceed.
@@ -458,8 +507,17 @@ fn resolve_dirty(
         }
         DirtyChoice::Discard => {
             let pending = guard.pending().clone();
+            // Refuse before abandoning anything. Clearing the draft first and
+            // only then discovering that the navigation it was holding back
+            // cannot commit would leave the user on the same screen with their
+            // work already gone.
+            if let Some(refusal) = state.preflight(registry, &pending) {
+                return refused(state, refusal);
+            }
             let abandoned = state.current.dirty.draft();
             state.guard = None;
+            // Cleared before the move, so the instance that goes onto the stack
+            // does not carry a draft that no longer exists.
             state.current.dirty = DirtyState::Clean;
             let mut transition = commit(state, registry, pending);
             if let Some(draft) = abandoned {
@@ -582,11 +640,6 @@ pub enum NavRefusal {
         /// The route whose target has no renderer.
         route: RouteId,
     },
-    /// The screen has no compiled descriptor.
-    MissingDescriptor {
-        /// The screen with no descriptor.
-        screen: ScreenId,
-    },
     /// The stack already holds its maximum number of suspended instances.
     StackDepth {
         /// The maximum the stack holds.
@@ -623,11 +676,6 @@ impl fmt::Display for NavRefusal {
             Self::NotRoutable { route } => write!(
                 formatter,
                 "{}: route '{route}' does not reach a screen this session can open",
-                self.code()
-            ),
-            Self::MissingDescriptor { screen } => write!(
-                formatter,
-                "{}: screen '{screen}' has no descriptor",
                 self.code()
             ),
             Self::StackDepth { limit } => write!(

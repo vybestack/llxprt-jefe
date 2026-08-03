@@ -16,7 +16,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        let _ = self.enter_screen(ScreenId::Errors);
+        let _ = self.show_screen(ScreenId::Errors);
         self.errors_state.active = true;
         self.errors_state.focus = ErrorsFocus::ErrorList;
         // Ensure selection is valid (newest error after any recent push).

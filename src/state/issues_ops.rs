@@ -58,7 +58,7 @@ impl AppState {
         let _ = if from_sibling_list_mode {
             self.switch_screen(ScreenId::Issues)
         } else {
-            self.enter_screen(ScreenId::Issues)
+            self.show_screen(ScreenId::Issues)
         };
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;

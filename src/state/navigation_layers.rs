@@ -78,35 +78,57 @@ impl AppState {
     }
 
     /// A chooser or property editor is taking the keys.
+    ///
+    /// Only the current screen's own state is consulted. A mode the user left
+    /// may still be holding a chooser or a half-typed filter, and that must not
+    /// change what Back does on the screen they are actually looking at.
     fn chooser_open(&self) -> bool {
-        self.issues_state.agent_chooser.is_some()
-            || self.issues_state.property_editor.is_some()
-            || self.issues_state.close_reason_chooser.is_some()
-            || self.prs_state.agent_chooser.is_some()
-            || self.prs_state.property_editor.is_some()
-            || self.prs_state.merge_chooser.is_some()
+        match self.screen() {
+            ScreenId::Issues => {
+                self.issues_state.agent_chooser.is_some()
+                    || self.issues_state.property_editor.is_some()
+                    || self.issues_state.close_reason_chooser.is_some()
+            }
+            ScreenId::PullRequests => {
+                self.prs_state.agent_chooser.is_some()
+                    || self.prs_state.property_editor.is_some()
+                    || self.prs_state.merge_chooser.is_some()
+            }
+            _ => false,
+        }
     }
 
     /// Text is being composed or edited in place.
     fn editor_open(&self) -> bool {
-        self.issues_state.inline_state != InlineState::None
-            || self.prs_state.inline_state != InlineState::None
-            || self.issues_state.new_issue_form.is_some()
+        match self.screen() {
+            ScreenId::Issues => {
+                self.issues_state.inline_state != InlineState::None
+                    || self.issues_state.new_issue_form.is_some()
+            }
+            ScreenId::PullRequests => self.prs_state.inline_state != InlineState::None,
+            _ => false,
+        }
     }
 
     /// A search input holds the keys.
     fn search_focused(&self) -> bool {
-        self.issues_state.search_input_focused
-            || self.prs_state.search_input_focused
-            || self.actions_state.ui.search_input_focused
-            || self.dashboard_search.input_focused
+        match self.screen() {
+            ScreenId::Issues => self.issues_state.search_input_focused,
+            ScreenId::PullRequests => self.prs_state.search_input_focused,
+            ScreenId::Actions => self.actions_state.ui.search_input_focused,
+            ScreenId::Dashboard | ScreenId::Repositories => self.dashboard_search.input_focused,
+            _ => false,
+        }
     }
 
     /// Filter controls are open.
     fn filter_open(&self) -> bool {
-        self.issues_state.filter_ui.controls_open
-            || self.prs_state.filter_ui.controls_open
-            || self.actions_state.ui.filter_ui_open
+        match self.screen() {
+            ScreenId::Issues => self.issues_state.filter_ui.controls_open,
+            ScreenId::PullRequests => self.prs_state.filter_ui.controls_open,
+            ScreenId::Actions => self.actions_state.ui.filter_ui_open,
+            _ => false,
+        }
     }
 
     /// An overlay with nothing unsaved behind it is open.

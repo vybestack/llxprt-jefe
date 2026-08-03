@@ -25,7 +25,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        let _ = self.enter_screen(ScreenId::Actions);
+        let _ = self.show_screen(ScreenId::Actions);
         self.actions_state.active = true;
         self.actions_state.focus = ActionsFocus::RunList;
         self.actions_state.list.clear();

@@ -67,7 +67,7 @@ impl AppState {
         let _ = if from_sibling_list_mode {
             self.switch_screen(ScreenId::PullRequests)
         } else {
-            self.enter_screen(ScreenId::PullRequests)
+            self.show_screen(ScreenId::PullRequests)
         };
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;

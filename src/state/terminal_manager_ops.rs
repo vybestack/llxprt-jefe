@@ -64,7 +64,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        let _ = self.enter_screen(ScreenId::Terminals);
+        let _ = self.show_screen(ScreenId::Terminals);
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -166,12 +166,12 @@ impl AppState {
         match pending.origin {
             ShellFocusOrigin::DashboardF10 => {
                 self.terminal_manager.active = false;
-                let _ = self.leave_screen();
+                let _ = self.show_screen(ScreenId::Dashboard);
                 self.shell_return_target = ShellReturnTarget::Dashboard;
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                let _ = self.enter_screen(ScreenId::Terminals);
+                let _ = self.show_screen(ScreenId::Terminals);
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }

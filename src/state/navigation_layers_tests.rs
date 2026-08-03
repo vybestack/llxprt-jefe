@@ -174,6 +174,25 @@ fn a_dirty_screen_with_no_guard_up_still_leaves_normally() {
 }
 
 #[test]
+fn a_mode_the_user_left_cannot_change_what_back_does_here() {
+    // Issues keeps its composer, chooser, search, and filter state after the
+    // user moves on. None of it belongs to the screen they are now looking at.
+    let mut state = on(ScreenId::PullRequests);
+    state.issues_state.active = true;
+    composing(&mut state);
+    state.issues_state.agent_chooser = Some(AgentChooserState::default());
+    state.issues_state.search_input_focused = true;
+    state.issues_state.filter_ui.controls_open = true;
+
+    assert!(
+        state.open_back_layers().is_empty(),
+        "stale issues state leaked into pull requests: {:?}",
+        state.open_back_layers()
+    );
+    assert_eq!(state.back_resolution(), BackResolution::Leave);
+}
+
+#[test]
 fn every_layer_is_reachable_from_some_real_screen_state() {
     // A layer nothing can open is a layer the precedence cannot be trusted
     // about, so each one has to be produced by an actual state.

@@ -503,6 +503,85 @@ fn marking_clean_lets_the_next_navigation_through() {
 }
 
 #[test]
+fn a_navigation_that_cannot_commit_never_raises_the_guard() {
+    // Asking about unsaved work and then declining to move whatever the user
+    // answered would be worse than refusing outright.
+    let state = savable();
+    let Ok(unknown) = crate::workbench::RouteId::parse("nonesuch") else {
+        unreachable!("test route id is valid");
+    };
+    let intent = NavIntent::Push(Activation::from_source(
+        unknown,
+        ActivationValues::empty(),
+        state.current(),
+    ));
+    let held = state.current().dirty.clone();
+
+    let transition = send(state, NavMessage::Navigate(intent));
+
+    assert!(matches!(transition.outcome, NavOutcome::Refused(_)));
+    assert!(transition.state.guard().is_none());
+    assert_eq!(transition.state.current().dirty, held);
+}
+
+#[test]
+fn asking_to_save_again_while_a_save_is_running_does_not_run_it_twice() {
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+
+    let transition = send(saving, NavMessage::ResolveDirty(DirtyChoice::Save));
+
+    assert_eq!(
+        transition.draft,
+        DraftAction::None,
+        "a second Save must not ask the owner to write again"
+    );
+    assert!(matches!(
+        transition
+            .state
+            .guard()
+            .map(super::navigation_dirty::DirtyGuard::phase),
+        Some(GuardPhase::Saving { .. })
+    ));
+}
+
+#[test]
+fn a_draft_cannot_be_replaced_while_the_guard_is_saving_it() {
+    // The running save's completion would otherwise clear a draft it never saw.
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let held = saving.current().dirty.clone();
+
+    let transition = send(
+        saving,
+        NavMessage::MarkDirty {
+            draft: DraftToken::next(),
+            save: SaveIntent::Unavailable { reason: "nowhere" },
+        },
+    );
+
+    assert_eq!(transition.state.current().dirty, held);
+}
+
+#[test]
+fn the_instance_left_behind_does_not_carry_a_draft_that_was_abandoned() {
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+
+    let after = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Discard)).state;
+
+    let Some(suspended) = after.suspended().first() else {
+        panic!("the previous instance was suspended");
+    };
+    assert_eq!(suspended.instance().dirty, DirtyState::Clean);
+}
+
+#[test]
 fn every_draft_identity_is_distinct() {
     let first = DraftToken::next();
     let second = DraftToken::next();

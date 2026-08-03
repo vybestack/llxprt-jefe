@@ -76,7 +76,7 @@ impl AppState {
         self.dashboard_grab = None;
         let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
         if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
-            let _ = self.enter_screen(crate::state::ScreenId::Terminals);
+            let _ = self.show_screen(crate::state::ScreenId::Terminals);
             self.terminal_manager.active = true;
             self.pane_focus = crate::state::PaneFocus::Agents;
         } else {

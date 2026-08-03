@@ -40,6 +40,20 @@ impl AppState {
         self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
     }
 
+    /// Ensure the session is on `screen`, without stacking a second copy of it.
+    ///
+    /// Some transitions state where the session should end up rather than that
+    /// it should move — hiding a shell returns to the terminal manager whether
+    /// or not the manager is already the current screen. Pushing in that case
+    /// would stack a second instance of the screen the user is already looking
+    /// at, and repeating it would fill the stack.
+    pub fn show_screen(&mut self, screen: ScreenId) -> DraftAction {
+        if self.nav.screen() == screen {
+            return DraftAction::None;
+        }
+        self.enter_screen(screen)
+    }
+
     /// Move to `screen` in place of the current one.
     pub fn switch_screen(&mut self, screen: ScreenId) -> DraftAction {
         let activation = self.activation_for(screen);
