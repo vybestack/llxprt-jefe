@@ -80,6 +80,8 @@ pub mod startup;
 #[path = "startup_screens.rs"]
 pub mod startup_screens;
 pub mod state;
+/// Shared nine-level agent status precedence (extracted from preview_view, #626).
+pub mod status_precedence;
 /// Pure multiline text-box viewport projection (iocraft-free).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -94,6 +96,11 @@ pub mod theme;
 pub mod ui;
 /// I/O-free screen descriptors and the sole executable layout resolver.
 pub mod workbench;
+/// Pure, iocraft-free multi-agent status workbench projection (issue #626).
+pub mod workbench_view;
+#[cfg(test)]
+#[path = "workbench_view_tests.rs"]
+mod workbench_view_tests;
 
 /// Cached git repository info (origin shortform + branch) for agent display.
 pub mod git_info;
