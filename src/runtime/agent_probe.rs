@@ -99,6 +99,7 @@ pub struct AgentProbeResult {
     candidate_generation_key: Option<CandidateGenerationKey>,
     definition_sha256: DefinitionSha256,
     prepared_invocation: Option<super::package_runtime::PackageInvocation>,
+    preparation_error: Option<String>,
 }
 
 impl AgentProbeResult {
@@ -121,6 +122,18 @@ impl AgentProbeResult {
     #[must_use]
     pub const fn prepared_invocation(&self) -> Option<&super::package_runtime::PackageInvocation> {
         self.prepared_invocation.as_ref()
+    }
+
+    /// Why preparation failed, when it was attempted and did not succeed.
+    ///
+    /// This is what tells an absent [`Self::prepared_invocation`] apart from a
+    /// candidate that simply has no package runner to prepare. Without the
+    /// distinction a caller cannot know whether falling back is safe, and
+    /// retrying a failed preparation would resolve a moving selector a second
+    /// time — the very thing binding the probe to the plan removes (issue #571).
+    #[must_use]
+    pub fn preparation_error(&self) -> Option<&str> {
+        self.preparation_error.as_deref()
     }
 
     /// Physical executable fingerprint, absent only for NotFound.
@@ -180,6 +193,7 @@ pub fn run_local_agent_probe_with_cache(
             candidate_generation_key: None,
             definition_sha256,
             prepared_invocation: None,
+            preparation_error: None,
         };
     };
     let candidate_generation_key = candidate.generation_key(definition);
@@ -191,7 +205,7 @@ pub fn run_local_agent_probe_with_cache(
         .and_then(|invocation| invocation.fingerprint())
         .cloned()
         .unwrap_or_else(|| candidate.fingerprint().clone());
-    let (availability, prepared_invocation) = match prepared {
+    let (availability, prepared_invocation, preparation_error) = match prepared {
         Ok(invocation) => (
             probe_resolved(
                 definition,
@@ -200,15 +214,20 @@ pub fn run_local_agent_probe_with_cache(
                 requested_generation,
             ),
             invocation,
-        ),
-        Err(error) => (
-            probe_error(
-                ProbeErrorCode::Agte202,
-                error.to_string(),
-                requested_generation,
-            ),
             None,
         ),
+        Err(error) => {
+            let detail = error.to_string();
+            (
+                probe_error(
+                    ProbeErrorCode::Agte202,
+                    detail.clone(),
+                    requested_generation,
+                ),
+                None,
+                Some(detail),
+            )
+        }
     };
     AgentProbeResult {
         availability,
@@ -216,6 +235,7 @@ pub fn run_local_agent_probe_with_cache(
         candidate_generation_key: Some(candidate_generation_key),
         definition_sha256,
         prepared_invocation,
+        preparation_error,
     }
 }
 
