@@ -192,6 +192,13 @@ impl PullRequestsMessage {
             Self::OpenMergeChooser => PrLifecycleEvent::OpenMergeChooser,
             Self::MergeNavigate(NavDir::Up | NavDir::Prev) => PrLifecycleEvent::MergeNavigateUp,
             Self::MergeNavigate(NavDir::Down | NavDir::Next) => PrLifecycleEvent::MergeNavigateDown,
+            // The merge chooser is a short fixed list with no paging, so any
+            // other direction is a programming error. Naming it here keeps the
+            // diagnostic accurate instead of surfacing it two hops later as a
+            // composer message.
+            Self::MergeNavigate(direction) => {
+                unreachable!("the merge chooser does not navigate by {direction:?}")
+            }
             Self::MergeConfirm => PrLifecycleEvent::MergeConfirm,
             Self::MergeCancel => PrLifecycleEvent::MergeCancel,
             Self::Merged {

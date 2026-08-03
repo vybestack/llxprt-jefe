@@ -251,3 +251,23 @@ fn a_create_response_without_a_number_is_a_parse_error() {
         Err(GhError::ParseError(_))
     ));
 }
+
+#[test]
+fn a_refused_create_reports_githubs_own_explanation() {
+    let json = r#"{"message":"No commits between main and topic","documentation_url":"x"}"#;
+    match parse_created_pr_number(json) {
+        Err(GhError::ApiError(message)) => {
+            assert_eq!(message, "No commits between main and topic");
+        }
+        other => panic!("expected the explanation to be surfaced, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_created_pull_request_wins_over_any_accompanying_message() {
+    let json = r#"{"number":7,"message":"ignored"}"#;
+    match parse_created_pr_number(json) {
+        Ok(number) => assert_eq!(number, 7),
+        Err(error) => panic!("a create that returned a number must succeed: {error}"),
+    }
+}

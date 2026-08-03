@@ -78,11 +78,13 @@ mod tests {
     }
 
     #[test]
-    fn a_body_that_is_not_json_is_a_parse_error() {
-        assert!(matches!(
-            reject_mutation_errors("{ not valid", "deleteRef"),
-            Err(GhError::ParseError(_))
-        ));
+    fn a_body_that_is_not_json_is_a_parse_error_that_names_the_mutation() {
+        match reject_mutation_errors("{ not valid", "deleteRef") {
+            Err(GhError::ParseError(message)) => {
+                assert!(message.contains("deleteRef"), "got: {message}");
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
     }
 
     #[test]

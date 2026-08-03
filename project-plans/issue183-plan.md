@@ -131,7 +131,7 @@ and the composer.
 ## Review counters
 
 - Local OCR runs: 1 of 2.
-- PR OCR runs: 0 of 2.
+- PR OCR runs: 1 of 2.
 
 ## Verification evidence
 
@@ -173,6 +173,17 @@ Local Open Code Review, run 1: eleven findings.
 | `dev-docs/tmux-scenarios/pr-delete-confirm.json` asserted the overlay was absent right after asking for it, so it passed whatever happened | Blocker—Fix | Deleted. The overlay cannot open without a live pull request, so the scenario could only ever be a tautology; the overlay is covered by `pr_delete_confirm` render tests, the reducer tests, and the key tests |
 | The State editor "will never open from the list" because `pr_detail` is cleared on list load | Reject | The list-load dispatch previews the selected row immediately afterwards (`prs_list_dispatch` line 347), so `pr_detail` is populated; the no-preview case is already covered by `no_editor_opens_when_no_pull_request_is_previewed` |
 | `flag_value` uses an empty prefix for `--method` | Reject | The finding itself concludes no change is needed |
+
+Open Code Review on the pull-request head, run 1: six findings.
+
+| Finding | Disposition | Action |
+|---|---|---|
+| `MergeNavigate` with a paging or home/end direction fell through two converters to an `unreachable!` that blamed the composer | In-scope—Fix | The merge converter now names the unsupported direction itself |
+| A create response carrying GitHub's own refusal ("No commits between main and topic") was reported as "carried no PR number" | In-scope—Fix | The REST `message` is surfaced as an `ApiError`, with tests for both that and the number-wins case |
+| `parse_default_branch_name` could not tell a malformed body from a repository with no default branch | In-scope—Fix | The page is parsed (and so validated) first, and the contract now says so |
+| The whitespace-title test asserted no request but not the reason | In-scope—Fix | Asserts the composer error too |
+| The malformed-body test asserted the error variant but not the mutation name | In-scope—Fix | Asserts the mutation name |
+| Reordering two clones in `handle_pr_branches_load` | Reject | The suggested order clones exactly as many times; there is no allocation to remove |
 
 ## Deferred findings
 

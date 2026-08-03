@@ -383,6 +383,14 @@ fn a_whitespace_title_is_refused_too() {
     let state = lifecycle(titled_composer("   "), PrLifecycleEvent::NewFormSubmit);
 
     assert!(state.prs_state.create_mutation_pending.is_none());
+    assert!(
+        form(&state)
+            .error
+            .as_deref()
+            .is_some_and(|e| e.to_lowercase().contains("title")),
+        "got: {:?}",
+        form(&state).error
+    );
 }
 
 #[test]

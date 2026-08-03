@@ -88,10 +88,13 @@ impl GhClient {
         let mut cursor: Option<String> = None;
         for page in 0..MAX_BRANCH_PAGES {
             let stdout = Self::run_gh(&build_branches_query_args(owner, name, cursor.as_deref()))?;
+            // Parse the page first: it rejects a malformed body, so reading the
+            // default branch afterwards cannot mistake a corrupt answer for a
+            // repository that simply has no default branch.
+            let (mut page_names, next) = parse_branches_page(&stdout)?;
             if page == 0 {
                 default_branch = parse_default_branch_name(&stdout);
             }
-            let (mut page_names, next) = parse_branches_page(&stdout)?;
             names.append(&mut page_names);
             match next {
                 Some(next_cursor) if !next_cursor.is_empty() => cursor = Some(next_cursor),
@@ -250,6 +253,10 @@ pub fn parse_branches_page(json: &str) -> Result<(Vec<String>, Option<String>), 
 }
 
 /// Read the repository's default branch from a branch page, when it has one.
+///
+/// `None` means the repository has no default branch. Call this only on a body
+/// [`parse_branches_page`] has already accepted, so a malformed answer has
+/// been rejected before it can be mistaken for an absent default branch.
 #[must_use]
 pub fn parse_default_branch_name(json: &str) -> Option<String> {
     let value: Value = serde_json::from_str(json.trim()).ok()?;
@@ -304,15 +311,25 @@ pub fn build_create_pr_args(
 
 /// Read the new pull request's number out of the create response.
 ///
+/// A REST body that carries a `message` instead of a number is GitHub
+/// explaining a refusal — "No commits between main and topic", say — and that
+/// sentence is far more useful than "carried no PR number", so it is surfaced.
+///
 /// # Errors
+/// [`GhError::ApiError`] when GitHub explained a refusal, and
 /// [`GhError::ParseError`] when the body is not JSON or carries no number.
 pub fn parse_created_pr_number(json: &str) -> Result<u64, GhError> {
     let value: Value = serde_json::from_str(json.trim())
         .map_err(|e| GhError::ParseError(format!("invalid JSON creating pull request: {e}")))?;
-    value
-        .get("number")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| GhError::ParseError("create response carried no PR number".to_string()))
+    if let Some(number) = value.get("number").and_then(Value::as_u64) {
+        return Ok(number);
+    }
+    match value.get("message").and_then(Value::as_str) {
+        Some(message) if !message.is_empty() => Err(GhError::ApiError(message.to_string())),
+        _ => Err(GhError::ParseError(
+            "create response carried no PR number".to_string(),
+        )),
+    }
 }
 
 #[cfg(test)]
