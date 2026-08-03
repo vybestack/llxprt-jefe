@@ -169,6 +169,7 @@ mod tests {
     use super::*;
     use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
     use crate::theme::ThemeColors;
+    use unicode_width::UnicodeWidthStr;
 
     fn make_run(
         id: u64,
@@ -266,36 +267,6 @@ mod tests {
         );
     }
 
-    /// Every status/conclusion pair an Actions surface can be asked to render.
-    fn every_status_and_conclusion()
-    -> impl Iterator<Item = (WorkflowRunStatus, Option<WorkflowRunConclusion>)> {
-        const STATUSES: [WorkflowRunStatus; 7] = [
-            WorkflowRunStatus::Completed,
-            WorkflowRunStatus::InProgress,
-            WorkflowRunStatus::Queued,
-            WorkflowRunStatus::Requested,
-            WorkflowRunStatus::Waiting,
-            WorkflowRunStatus::Pending,
-            WorkflowRunStatus::Unknown,
-        ];
-        const CONCLUSIONS: [Option<WorkflowRunConclusion>; 11] = [
-            None,
-            Some(WorkflowRunConclusion::Success),
-            Some(WorkflowRunConclusion::Failure),
-            Some(WorkflowRunConclusion::Cancelled),
-            Some(WorkflowRunConclusion::Skipped),
-            Some(WorkflowRunConclusion::TimedOut),
-            Some(WorkflowRunConclusion::ActionRequired),
-            Some(WorkflowRunConclusion::Stale),
-            Some(WorkflowRunConclusion::Neutral),
-            Some(WorkflowRunConclusion::StartupFailure),
-            Some(WorkflowRunConclusion::Unknown),
-        ];
-        STATUSES
-            .into_iter()
-            .flat_map(|status| CONCLUSIONS.into_iter().map(move |c| (status, c)))
-    }
-
     /// Title line the run list renders for a single run in this state.
     fn run_list_title_line(
         status: WorkflowRunStatus,
@@ -350,7 +321,7 @@ mod tests {
     /// again. Exercised across every status/conclusion pair.
     #[test]
     fn run_list_and_job_detail_render_the_shared_status_glyph() {
-        use crate::actions_view::status_glyph;
+        use crate::actions_view::{every_status_and_conclusion, status_glyph};
 
         for (status, conclusion) in every_status_and_conclusion() {
             let expected = status_glyph(status, conclusion);
@@ -369,6 +340,53 @@ mod tests {
                 "detail heading for {status:?}/{conclusion:?}: {content}"
             );
         }
+    }
+
+    /// The bare glyph costs three columns less than the old bracketed tag, so
+    /// truncation must reserve only prefix + glyph + separator and hand those
+    /// three columns back to the run name.
+    #[test]
+    fn title_truncation_reserves_only_prefix_glyph_and_separator() {
+        let mut run = make_run(
+            1,
+            WorkflowRunStatus::Completed,
+            Some(WorkflowRunConclusion::Success),
+        );
+        run.name = "abcdefghijklmnopqrstuvwxyz".to_string();
+        let window = ActionsListWindow {
+            selected_index: Some(0),
+            list_pane_rows: 10,
+            available_width: Some(20),
+            layout: ActionsListLayout::Compact,
+        };
+        let props = actions_list_props(&[run], window, true, None, ThemeColors::default(), None);
+        let title = props.rows[0].spans[0].text.as_str();
+        // 20 columns - 4 chrome = 16-cell name budget = 15 chars + ellipsis.
+        assert_eq!(title, "> \u{2713} abcdefghijklmno\u{2026}");
+        assert_eq!(UnicodeWidthStr::width(title), 20);
+    }
+
+    /// Wide (double-cell) run names are still budgeted in terminal cells, so a
+    /// truncated CJK title never overflows the pane.
+    #[test]
+    fn wide_run_names_stay_within_the_available_width() {
+        let mut run = make_run(
+            1,
+            WorkflowRunStatus::Completed,
+            Some(WorkflowRunConclusion::Failure),
+        );
+        run.name = "构建甲乙丙丁戊己庚辛".to_string();
+        let window = ActionsListWindow {
+            selected_index: Some(0),
+            list_pane_rows: 10,
+            available_width: Some(20),
+            layout: ActionsListLayout::Compact,
+        };
+        let props = actions_list_props(&[run], window, true, None, ThemeColors::default(), None);
+        let title = props.rows[0].spans[0].text.as_str();
+        // 16-cell budget = 7 double-width chars (14 cells) + ellipsis.
+        assert_eq!(title, "> \u{2717} 构建甲乙丙丁戊\u{2026}");
+        assert!(UnicodeWidthStr::width(title) <= 20);
     }
 
     #[test]

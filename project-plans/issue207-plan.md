@@ -68,9 +68,31 @@ other single-codepoint textual symbols; only pictographic emoji are banned.
 
 ## Behavioral verification
 
-- `cargo test --workspace --all-features --locked`
-- `make ci-check`
-- `scripts/issue194-run-scenario.sh` (drives `actions-mode.json` end to end).
+- `cargo xtask ci` (the full local CI-equivalent gate).
+- `scripts/issue194-run-scenario.sh`, which drives `actions-mode.json`.
+
+### Scenario evidence
+
+The committed scenario runner cannot complete on this workstation: 16 unrelated
+live `jefe` sessions make the app print a `WARN: … live jefe session(s) match no
+agent` banner over the title row, so the scenario's first wait for `LLxprt Jefe`
+never matches. Re-running with that first wait anchored on `Repositories`
+instead reaches the run list and captures the accepted behavior:
+
+```
+Workflow Runs
+> ✗ Inspectable Actions fixture
+  ✗ Interleaved Actions fixture run
+  ✓ Oldest Actions fixture run
+```
+
+Both changed run-list literals (`> ✗ Inspectable Actions fixture` and
+`> ✗ Interleaved Actions fixture run`) pass. The run then stops later, inside
+the unchanged job-detail step-collapse sequence, with `frame must not contain
+'Checkout fixture source'`. Rebuilding the same runner against unmodified `main`
+fails at that identical step, so the residual failure is pre-existing and
+environmental, not a regression from this change. Fixing the harness/session
+hygiene is out of scope for #207.
 
 ## Scope ledger
 
@@ -78,5 +100,17 @@ other single-codepoint textual symbols; only pictographic emoji are banned.
 
 ## Review counters
 
-- Local OCR: 0 / 2
+- Local OCR: 1 / 2 (4 files, 1 comment — test enum-iteration staleness, Defer)
 - PR OCR: 0 / 2
+
+## Review triage
+
+| Finding | Source | Class | Action |
+|---------|--------|-------|--------|
+| A10 truncation budget unproven | rustreviewer | In-scope-Fix | Added exact-title truncation tests (ASCII + wide-char) |
+| Non-completed statuses only tested with absent conclusion | rustreviewer | In-scope-Fix | Added `unfinished_runs_ignore_any_conclusion_they_carry` |
+| Glyph one-cell invariant untested | rustreviewer | In-scope-Fix | Added `every_status_glyph_occupies_one_terminal_cell` |
+| Stale `actions_detail` module header | rustreviewer | In-scope-Fix | Header now points at `actions_detail_view` |
+| Plan cited a non-existent `make ci-check` | rustreviewer | In-scope-Fix | Plan cites `cargo xtask ci` |
+| TUI scenario never reached the glyph assertions | rustreviewer | Reject | Pre-existing environmental failure, reproduced identically on `main`; evidence above |
+| Test enum arrays can go stale (`strum::EnumIter` / `ALL` consts) | rustreviewer + OCR | Defer | Needs a new dependency or a domain public-API change; production matches are wildcard-free so a new variant fails to compile first. Enumeration is now single-sourced and documents the obligation |
