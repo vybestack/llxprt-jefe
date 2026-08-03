@@ -451,7 +451,7 @@ if [ \"$1\" = view ]; then
     echo \"unexpected npm view invocation: $*\" >&2
     exit 64
   fi
-  echo resolve >> \"$resolves\"
+  pwd >> \"$resolves\"
   if [ -f \"$versions\" ]; then cat \"$versions\"; exit 0; else exit 1; fi
 fi
 if [ -f package-lock.json ]; then echo present >> \"$witness\"; else echo absent >> \"$witness\"; fi
@@ -477,6 +477,14 @@ chmod 755 node_modules/.bin/llxprt
 #[cfg(unix)]
 fn resolve_path_for(witness: &Path) -> PathBuf {
     witness.with_file_name("resolve-witness.log")
+}
+
+/// Working directories the stub was run in, one per `npm view`.
+#[cfg(unix)]
+fn resolve_directories(witness: &Path) -> Vec<String> {
+    std::fs::read_to_string(resolve_path_for(witness))
+        .map(|contents| contents.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 /// How many times the stub answered `npm view ... version`.
@@ -636,6 +644,43 @@ fn advancing_a_tag_leaves_the_previous_install_intact() {
         "the tree a live agent is executing from must survive the tag advancing; \
          deleting it is what strands the process and triggers the Keychain storm"
     );
+}
+
+/// Resolving a version must not run in whatever directory jefe was started in.
+///
+/// The resolve spawns a package manager, and a package manager is entitled to
+/// read and write around its working directory. With none of its own it
+/// inherits the user's project directory. The install beside it has always
+/// named its directory; the resolve did not, which let a test fixture create
+/// `node_modules/` in the repository it was run from.
+#[cfg(unix)]
+#[test]
+fn resolving_a_version_runs_in_the_cache_not_the_current_directory() {
+    let bin = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let witness = witness_path(&bin);
+    counting_npm_stub(&bin, &witness);
+    publish_version(&witness, "0.11.0");
+    let candidate = volatile_npm_candidate(&bin, "latest nightly");
+    let cache = tempfile::tempdir().unwrap_or_else(|error| panic!("cache: {error}"));
+
+    finalize_local_invocation_inner(&candidate, cache.path())
+        .unwrap_or_else(|error| panic!("install: {error}"));
+
+    let directories = resolve_directories(&witness);
+    assert!(
+        !directories.is_empty(),
+        "the volatile selector must have been resolved at least once"
+    );
+    let expected = std::fs::canonicalize(cache.path())
+        .unwrap_or_else(|error| panic!("canonicalize cache: {error}"));
+    for directory in directories {
+        let actual = std::fs::canonicalize(&directory)
+            .unwrap_or_else(|error| panic!("canonicalize {directory}: {error}"));
+        assert_eq!(
+            actual, expected,
+            "the resolve must run inside the managed cache, not wherever jefe happens to be"
+        );
+    }
 }
 
 /// Two selectors naming the same version must share one install, not fight
