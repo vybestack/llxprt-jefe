@@ -58,6 +58,7 @@ struct HostMarker {
 
 /// Issue #542 marker: the `HostMarker` fields plus the owner chain that was
 /// captured before the worker was spawned.
+#[cfg(windows)]
 #[derive(Serialize)]
 struct OwnedHostMarker {
     host_pid: u32,
@@ -67,6 +68,7 @@ struct OwnedHostMarker {
     started_at: Option<u64>,
 }
 
+#[cfg(windows)]
 #[derive(Serialize)]
 struct OwnerLinkRecord {
     role: String,

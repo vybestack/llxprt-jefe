@@ -60,6 +60,10 @@ mod orphan;
 /// Owner-lifetime anchor for the Windows session process tree (issue #542).
 ///
 /// Model: `dev-docs/standards/windows-session-ownership.md`.
+///
+/// The anchor describes the Windows `psmux server -> pane -> host -> worker`
+/// topology, so the module is compiled only there, matching `job_object`.
+#[cfg(windows)]
 mod owner_anchor;
 /// Cross-process advisory lock over the managed package install cache
 /// (issue #556).
@@ -211,7 +215,7 @@ mod process_tests;
 #[path = "orphan_tests.rs"]
 mod orphan_tests;
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "owner_anchor_tests.rs"]
 mod owner_anchor_tests;
 
