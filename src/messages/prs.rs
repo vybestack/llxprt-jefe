@@ -227,11 +227,13 @@ pub enum PullRequestsMessage {
         branch: String,
         closed: bool,
     },
-    /// The close or the branch removal failed.
+    /// The close or the branch removal failed. `closed` reports whether the
+    /// close had already succeeded.
     DeleteFailed {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         mutation_id: u64,
+        closed: bool,
         error: String,
     },
     // New PR composer (issue #183)

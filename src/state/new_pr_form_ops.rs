@@ -125,6 +125,9 @@ impl AppState {
             || self.prs_state.property_editor.is_some()
             || self.prs_state.delete_confirm.is_some()
             || self.prs_state.new_pr_form.is_some()
+            || self.prs_state.mutation_pending.is_some()
+            || self.prs_state.merge_mutation_pending.is_some()
+            || self.prs_state.property_mutation_pending.is_some()
             || self.prs_state.delete_mutation_pending.is_some()
             || self.prs_state.create_mutation_pending.is_some()
     }
@@ -149,16 +152,16 @@ impl AppState {
         form.branches = branches.to_vec();
         form.branches_loading = false;
         form.error = None;
-        form.base_index = default_branch
+        let base_index = default_branch
             .and_then(|name| branches.iter().position(|branch| branch == name))
             .unwrap_or(0);
+        form.base_index = base_index;
         // Opening a branch against itself is never what was meant, so the head
         // starts on the first branch that is not the base. A repository with a
         // single branch has no other choice, and the submit refuses it.
-        form.head_index = branches
-            .iter()
-            .position(|branch| Some(branch.as_str()) != default_branch)
-            .unwrap_or(form.base_index);
+        form.head_index = (0..branches.len())
+            .find(|index| *index != base_index)
+            .unwrap_or(base_index);
     }
 
     /// Report a branch-load failure inside the composer.

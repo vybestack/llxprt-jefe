@@ -132,12 +132,34 @@ fn the_default_branch_is_the_base_and_something_else_is_the_head() {
 }
 
 #[test]
-fn a_repository_without_a_default_branch_still_offers_its_branches() {
+fn a_repository_without_a_default_branch_still_offers_two_different_branches() {
     let state = composer_with_branches(&["alpha", "beta"], None);
 
     let form = form(&state);
     assert_eq!(form.branches.len(), 2);
     assert!(form.error.is_none());
+    assert_ne!(
+        form.head_index, form.base_index,
+        "with more than one branch the composer must not open head against head"
+    );
+}
+
+#[test]
+fn the_composer_does_not_open_while_a_merge_is_still_in_flight() {
+    let mut state = list_focused();
+    state.prs_state.merge_mutation_pending = Some(crate::state::PrMergeMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        pr_number: 42,
+        method: crate::domain::MergeMethod::Merge,
+    });
+
+    let state = lifecycle(state, PrLifecycleEvent::OpenNewForm);
+
+    assert!(
+        state.prs_state.new_pr_form.is_none(),
+        "a merge with no overlay left on screen still owns the pull request"
+    );
 }
 
 #[test]

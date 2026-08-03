@@ -124,16 +124,56 @@ and the composer.
 |---|---|---|
 | Moving the PR merge lifecycle events into `PrLifecycleEvent` | `events.rs` and `prs_conversion.rs` are both at the hard source-size cap; the family cannot grow without this, and leaving merge behind would be a half-finished cutover | Accepted, required by the gate |
 | Relaxing the property editor's focus precondition | A1 requires closing from the list, and #175 forbids a second close path | Accepted |
+| Showing `prs_state.draft_notice` in the PR banner | A4 and A15 require observable success. PR mode recorded notices and rendered none, so a completed delete or create was silent. The viewport arithmetic reads the same predicate as the render, so the banner row cannot be double-counted | Accepted, required by acceptance |
+| Sharing the GraphQL error-envelope check (`graphql_errors`) | Every new GraphQL call needs the check `closeIssue` already had; duplicating it three more times was the alternative | Accepted |
+| Ordering the new footer hints next to `merge` | The PR footer is already wider than a 200-column terminal; placing the lifecycle hints ahead of the long property hint keeps them reachable | Accepted |
 
 ## Review counters
 
-- Local OCR runs: 0 of 2.
+- Local OCR runs: 1 of 2.
 - PR OCR runs: 0 of 2.
 
 ## Verification evidence
 
-Recorded at the green checkpoint.
+Run on the candidate head (`issue183`):
+
+| Gate | Result |
+|---|---|
+| `cargo xtask fmt` | pass |
+| `cargo xtask check clippy-allows` | pass |
+| `cargo xtask check source-size` | pass (`events.rs` 976, `prs_conversion.rs` 881 — both back under the cap) |
+| `cargo xtask check architecture` | pass |
+| `cargo xtask check multiplexer-surface` | pass |
+| `cargo xtask lint` | pass |
+| `cargo xtask complexity` | pass |
+| `cargo xtask build` | pass |
+| `cargo xtask test` | pass (whole workspace, all features) |
+| TUI `pr-new-composer.json` | pass (13 steps) |
+
+`cargo xtask coverage` aborted locally on
+`harness_v1_fixtures::llxprt_continue_field_fixture_sends_one_exact_issue_prompt`.
+That fixture drives a real multiplexer and fails the same way on `origin/main`
+in this working environment (verified in a clean worktree at `1aa6ba0c`), and it
+passes in the workspace test run above, so it is environmental flake rather than
+a regression. CI runs coverage on a clean runner.
+
+## Review triage
+
+Local Open Code Review, run 1: eleven findings.
+
+| Finding | Disposition | Action |
+|---|---|---|
+| The delete success callback was reused, under its delete name, for create | In-scope—Fix | Renamed to `apply_mutation_outcome`; both paths now read as what they are |
+| A delete whose close succeeded but whose branch removal failed left the row showing "open" | Blocker—Fix | `DeleteFailed` now carries `closed`, the reducer applies the close and requests the reconciling refresh, and `execute_pr_delete` returns a typed outcome rather than a flat `Result` |
+| The delete-confirm and New PR overlays could both be open, stacked at the same coordinates | Blocker—Fix | `pr_delete_blocked` now also refuses while the composer is open, with a test |
+| `new_pr_form_blocked` ignored an in-flight merge | In-scope—Fix | Now refuses while any PR mutation is in flight, with a test |
+| With no default branch, head and base both landed on the first branch | In-scope—Fix | The head now starts on the first index that is not the base, with a test |
+| `mark_pull_request_closed` cloned the whole list to change one row | In-scope—Fix | Uses `PaginatedList::iter_mut` |
+| The branch-list collapse test asserted on indentation | In-scope—Fix | Asserts the branch names are absent instead |
+| `dev-docs/tmux-scenarios/pr-delete-confirm.json` asserted the overlay was absent right after asking for it, so it passed whatever happened | Blocker—Fix | Deleted. The overlay cannot open without a live pull request, so the scenario could only ever be a tautology; the overlay is covered by `pr_delete_confirm` render tests, the reducer tests, and the key tests |
+| The State editor "will never open from the list" because `pr_detail` is cleared on list load | Reject | The list-load dispatch previews the selected row immediately afterwards (`prs_list_dispatch` line 347), so `pr_detail` is populated; the no-preview case is already covered by `no_editor_opens_when_no_pull_request_is_previewed` |
+| `flag_value` uses an empty prefix for `--method` | Reject | The finding itself concludes no change is needed |
 
 ## Deferred findings
 
-Recorded during review triage.
+None.

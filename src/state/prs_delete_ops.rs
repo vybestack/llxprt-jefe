@@ -42,9 +42,16 @@ impl AppState {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
+                closed,
                 error,
             } => {
-                self.apply_pr_delete_failed(scope_repo_id, *pr_number, *mutation_id, error);
+                self.apply_pr_delete_failed(
+                    scope_repo_id,
+                    *pr_number,
+                    *mutation_id,
+                    *closed,
+                    error,
+                );
                 true
             }
             _ => false,
@@ -80,6 +87,8 @@ impl AppState {
             || self.prs_state.merge_chooser.is_some()
             || self.prs_state.property_editor.is_some()
             || self.prs_state.delete_confirm.is_some()
+            // The composer renders where this overlay would; two at once stack.
+            || self.prs_state.new_pr_form.is_some()
             || self.prs_state.mutation_pending.is_some()
             || self.prs_state.merge_mutation_pending.is_some()
             || self.prs_state.property_mutation_pending.is_some()
@@ -151,17 +160,27 @@ impl AppState {
     }
 
     /// Apply a failed delete: retire the pending and surface the reason.
+    ///
+    /// A delete is two calls, so it can fail halfway. When the close already
+    /// succeeded, the pull request is closed on GitHub whatever happened to its
+    /// branch, and the screen reflects that rather than leaving a stale open
+    /// row behind an error message.
     fn apply_pr_delete_failed(
         &mut self,
         scope_repo_id: &RepositoryId,
         pr_number: u64,
         mutation_id: u64,
+        closed: bool,
         error: &str,
     ) {
         if !self.pr_delete_pending_matches(scope_repo_id, pr_number, mutation_id) {
             return;
         }
         self.prs_state.delete_mutation_pending = None;
+        if closed {
+            self.mark_pull_request_closed(pr_number);
+            self.prs_state.post_mutation_refresh.request();
+        }
         self.prs_state.error = Some(format!("Failed to delete PR #{pr_number}: {error}"));
     }
 
@@ -184,13 +203,11 @@ impl AppState {
 
     /// Reflect a close optimistically in both the list row and the detail.
     fn mark_pull_request_closed(&mut self, pr_number: u64) {
-        let mut rows = self.prs_state.list.items().to_vec();
-        for row in &mut rows {
+        for row in &mut self.prs_state.list {
             if row.number == pr_number {
                 row.state = PrState::Closed;
             }
         }
-        self.prs_state.list.replace_items(rows);
         if let Some(detail) = self.prs_state.pr_detail.as_mut()
             && detail.number == pr_number
         {

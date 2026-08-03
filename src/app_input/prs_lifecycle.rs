@@ -33,7 +33,7 @@ pub(super) fn handle_pr_delete_confirm(app_state: &mut AppStateHandle, ctx: &Sha
         Ok(Some(task)) => task,
         Ok(None) => return,
         Err((identity, message)) => {
-            apply_and_persist(app_state, ctx, delete_failed(&identity, message));
+            apply_and_persist(app_state, ctx, delete_failed(&identity, false, message));
             return;
         }
     };
@@ -49,15 +49,15 @@ pub(super) fn handle_pr_delete_confirm(app_state: &mut AppStateHandle, ctx: &Sha
         &deliveries,
         ctx,
         move |ctx| pr_delete_event(ctx, &work_task),
-        apply_delete_outcome,
+        apply_mutation_outcome,
         abandoned(abandoned_identity),
     );
 }
 
-/// Apply the delete result, then let the coalesced refresh reconcile with
-/// GitHub. The reducer already reflected the close optimistically, so the
-/// refresh confirms rather than reveals it.
-fn apply_delete_outcome(app_state: &mut AppStateHandle, ctx: &SharedContext, event: AppEvent) {
+/// Apply a lifecycle-mutation result, then let the coalesced refresh reconcile
+/// with GitHub. The reducer has already applied whatever it can optimistically,
+/// so the refresh confirms rather than reveals it.
+fn apply_mutation_outcome(app_state: &mut AppStateHandle, ctx: &SharedContext, event: AppEvent) {
     apply_and_persist(app_state, ctx, event);
     super::prs_orchestration::resume_pr_post_mutation_refresh(app_state, ctx);
 }
@@ -78,11 +78,12 @@ fn delete_identity(task: &PrDeleteTask) -> PrDeleteIdentity {
     }
 }
 
-fn delete_failed(identity: &PrDeleteIdentity, error: String) -> AppEvent {
+fn delete_failed(identity: &PrDeleteIdentity, closed: bool, error: String) -> AppEvent {
     PrLifecycleEvent::DeleteFailed {
         scope_repo_id: identity.scope_repo_id.clone(),
         pr_number: identity.pr_number,
         mutation_id: identity.mutation_id,
+        closed,
         error,
     }
     .into()
@@ -96,7 +97,11 @@ fn abandoned(
         apply_and_persist(
             app_state,
             ctx,
-            delete_failed(&identity, format!("GitHub delete abandoned: {message}")),
+            delete_failed(
+                &identity,
+                false,
+                format!("GitHub delete abandoned: {message}"),
+            ),
         );
     }
 }
@@ -144,11 +149,12 @@ fn pr_delete_event(ctx: &SharedContext, task: &PrDeleteTask) -> AppEvent {
     let Some(client) = github_client(ctx) else {
         return delete_failed(
             &identity,
+            false,
             "GitHub client unavailable from application context".to_string(),
         );
     };
     match execute_pr_delete(client, task) {
-        Ok(()) => PrLifecycleEvent::Deleted {
+        PrDeleteOutcome::Done => PrLifecycleEvent::Deleted {
             scope_repo_id: task.scope_repo_id.clone(),
             pr_number: task.pr_number,
             mutation_id: task.mutation_id,
@@ -156,26 +162,51 @@ fn pr_delete_event(ctx: &SharedContext, task: &PrDeleteTask) -> AppEvent {
             closed: task.close_first,
         }
         .into(),
-        Err(error) => delete_failed(&identity, error),
+        PrDeleteOutcome::Failed { closed, error } => delete_failed(&identity, closed, error),
     }
+}
+
+/// What a delete attempt actually accomplished.
+///
+/// A delete is two calls, so failure is not all-or-nothing: `closed` records
+/// whether the pull request was already closed on GitHub when the branch
+/// removal failed, which the reducer needs so the screen does not contradict
+/// the server.
+enum PrDeleteOutcome {
+    Done,
+    Failed { closed: bool, error: String },
 }
 
 /// Close the pull request when it is still open, then remove its head branch.
 ///
 /// The close comes first: a branch removed while the pull request is open would
 /// leave it open with no head, which is a worse state than either end.
-fn execute_pr_delete(client: GhClient, task: &PrDeleteTask) -> Result<(), String> {
-    if task.close_first {
-        client
-            .close_item(&task.owner, &task.repo, task.pr_number, true)
-            .map_err(|error| format!("could not close the pull request: {error}"))?;
+fn execute_pr_delete(client: GhClient, task: &PrDeleteTask) -> PrDeleteOutcome {
+    if task.close_first
+        && let Err(error) = client.close_item(&task.owner, &task.repo, task.pr_number, true)
+    {
+        return PrDeleteOutcome::Failed {
+            closed: false,
+            error: format!("could not close the pull request: {error}"),
+        };
     }
-    let ref_id = client
-        .resolve_branch_ref_id(&task.owner, &task.repo, &task.head_ref)
-        .map_err(|error| format!("could not resolve branch {}: {error}", task.head_ref))?;
-    client
-        .delete_branch_ref(&ref_id)
-        .map_err(|error| format!("could not delete branch {}: {error}", task.head_ref))
+    let closed = task.close_first;
+    let ref_id = match client.resolve_branch_ref_id(&task.owner, &task.repo, &task.head_ref) {
+        Ok(ref_id) => ref_id,
+        Err(error) => {
+            return PrDeleteOutcome::Failed {
+                closed,
+                error: format!("could not resolve branch {}: {error}", task.head_ref),
+            };
+        }
+    };
+    match client.delete_branch_ref(&ref_id) {
+        Ok(()) => PrDeleteOutcome::Done,
+        Err(error) => PrDeleteOutcome::Failed {
+            closed,
+            error: format!("could not delete branch {}: {error}", task.head_ref),
+        },
+    }
 }
 
 // ── New PR composer ────────────────────────────────────────────────────────
@@ -338,7 +369,7 @@ pub(super) fn handle_pr_create(app_state: &mut AppStateHandle, ctx: &SharedConte
         &deliveries,
         ctx,
         move |ctx| create_event(ctx, &work_task),
-        apply_delete_outcome,
+        apply_mutation_outcome,
         create_abandoned(task),
     );
 }

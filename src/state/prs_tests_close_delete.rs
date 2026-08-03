@@ -178,6 +178,16 @@ fn no_overlay_opens_while_another_overlay_owns_the_screen() {
     assert!(state.prs_state.delete_confirm.is_none());
 }
 
+#[test]
+fn no_overlay_opens_behind_the_new_pr_composer() {
+    // Both overlays render at the same place, so two open at once would stack.
+    let state = lifecycle(list_focused(42), PrLifecycleEvent::OpenNewForm);
+    let state = lifecycle(state, PrLifecycleEvent::OpenDeleteConfirm);
+
+    assert!(state.prs_state.new_pr_form.is_some());
+    assert!(state.prs_state.delete_confirm.is_none());
+}
+
 // ── Confirming the delete (A4, A5) ─────────────────────────────────────────
 
 #[test]
@@ -361,6 +371,7 @@ fn a_failed_delete_clears_the_pending_and_names_the_pull_request() {
             scope_repo_id: RepositoryId("repo-1".to_string()),
             pr_number: 42,
             mutation_id,
+            closed: false,
             error: "Ref not found".to_string(),
         },
     );
@@ -374,6 +385,36 @@ fn a_failed_delete_clears_the_pending_and_names_the_pull_request() {
             .is_some_and(|e| e.contains("42") && e.contains("Ref not found")),
         "got: {:?}",
         state.prs_state.error
+    );
+    assert_eq!(
+        state.prs_state.pr_detail.as_ref().map(|d| d.state),
+        Some(PrState::Open),
+        "a delete that never closed the pull request leaves it open"
+    );
+}
+
+#[test]
+fn a_delete_that_closed_before_it_failed_still_shows_the_pull_request_closed() {
+    let (state, mutation_id) = in_flight_delete();
+    let state = lifecycle(
+        state,
+        PrLifecycleEvent::DeleteFailed {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            mutation_id,
+            closed: true,
+            error: "could not delete branch feature".to_string(),
+        },
+    );
+
+    assert_eq!(
+        state.prs_state.pr_detail.as_ref().map(|d| d.state),
+        Some(PrState::Closed),
+        "the close already happened on GitHub, so the screen must not claim otherwise"
+    );
+    assert_eq!(
+        state.prs_state.pull_requests().first().map(|pr| pr.state),
+        Some(PrState::Closed)
     );
 }
 

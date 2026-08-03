@@ -257,7 +257,9 @@ mod tests {
         let mut typing = loaded_form();
         typing.focus = NewPrFormFocus::Body;
         assert!(
-            !row_texts(&typing).iter().any(|t| t.starts_with("   ")),
+            !row_texts(&typing)
+                .iter()
+                .any(|t| t.contains("feature/logout")),
             "the list collapses while the body is edited"
         );
     }

@@ -68,10 +68,15 @@ pub enum PrLifecycleEvent {
         closed: bool,
     },
     /// The close or the branch removal failed.
+    ///
+    /// `closed` reports whether the close had already succeeded when the branch
+    /// removal failed, so the screen never claims a pull request is open that
+    /// GitHub has already closed.
     DeleteFailed {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         mutation_id: u64,
+        closed: bool,
         error: String,
     },
     /// Open the New PR composer.
