@@ -245,7 +245,11 @@ fn authorize_and_preflight(
             return Err(refused(LaunchGate::SandboxPreflight, &reason));
         }
     };
-    let final_plan = assemble_final_plan(&cleared)?;
+    // Backstop attribution. Today's callers tag their own closure, but nothing in
+    // the signature forces that, and an untagged closure would reopen exactly the
+    // blind spot this change exists to close. `attributed_to` only relabels an
+    // unattributed refusal, so tagging here cannot overwrite a caller's gate.
+    let final_plan = assemble_final_plan(&cleared).map_err(at(LaunchGate::PromptAssembly))?;
     AuthorizedLaunchPlan::from_cleared(cleared, final_plan, evidence.clone())
         .map_err(|error| refused(LaunchGate::ExecutionAuthorization, &error))
 }

@@ -589,7 +589,17 @@ fn format_executable_error(
             "multiplexer '{}' version {version} lacks required capability {capability:?}",
             path.display()
         ),
-        _ => formatter.write_str("unrelated multiplexer error"),
+        // Listed rather than caught by `_` so adding a variant fails to compile
+        // here instead of silently degrading to the text below (issue #544).
+        MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::InvalidNamespace { .. }
+        | MultiplexerError::NonUnicodeArgument { .. }
+        | MultiplexerError::InvalidEnvironmentVariable { .. }
+        | MultiplexerError::CurrentExecutableUnavailable
+        | MultiplexerError::AgentLaunchPlan(_)
+        | MultiplexerError::PaneCommandOverBudget { .. } => {
+            formatter.write_str("unrelated multiplexer error")
+        }
     }
 }
 
@@ -621,7 +631,20 @@ fn format_agent_launch_error(
             formatter,
             "Windows agent launch plan preparation failed: {source}"
         ),
-        _ => formatter.write_str("unrelated multiplexer error"),
+        // Listed rather than caught by `_` for the same reason as above.
+        MultiplexerError::MissingExecutable { .. }
+        | MultiplexerError::RejectedExecutable { .. }
+        | MultiplexerError::LaunchFailed { .. }
+        | MultiplexerError::MalformedVersion { .. }
+        | MultiplexerError::UnsupportedVersion { .. }
+        | MultiplexerError::RequiredCapabilityUnavailable { .. }
+        | MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::InvalidNamespace { .. }
+        | MultiplexerError::NonUnicodeArgument { .. }
+        | MultiplexerError::InvalidEnvironmentVariable { .. }
+        | MultiplexerError::PaneCommandOverBudget { .. } => {
+            formatter.write_str("unrelated multiplexer error")
+        }
     }
 }
 
