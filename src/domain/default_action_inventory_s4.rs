@@ -487,6 +487,19 @@ pub(super) const SPECS: &[Spec] = &[
     ),
     spec!(
         "prs.list",
+        "prs.list-close",
+        H::PullRequestsEdit,
+        ["Shift+W"]
+    ),
+    spec!(
+        "prs.list",
+        "prs.list-delete",
+        H::PullRequestsEdit,
+        ["Shift+D"]
+    ),
+    spec!("prs.list", "prs.new", H::PullRequestsEdit, ["n", "Shift+N"]),
+    spec!(
+        "prs.list",
         "prs.list-cycle-pane",
         H::PullRequestsCyclePane,
         ["Left", "Right", "Tab", "BackTab"]
@@ -552,6 +565,12 @@ pub(super) const SPECS: &[Spec] = &[
         ["m"]
     ),
     spec!("prs.detail", "prs.open-changes", H::PullRequestsEdit, ["d"]),
+    spec!(
+        "prs.detail",
+        "prs.detail-delete",
+        H::PullRequestsEdit,
+        ["Shift+D"]
+    ),
     spec!(
         "prs.detail",
         "prs.open-property",
@@ -663,6 +682,44 @@ pub(super) const SPECS: &[Spec] = &[
         ["Enter"]
     ),
     spec!(protected "prs.property", "prs.property-cancel", H::PullRequestsChooserCancel, ["Esc"]),
+    spec!(protected "prs.new-form", "prs.new-cancel", H::PullRequestsCancelInline, ["Esc"]),
+    spec!(
+        "prs.new-form",
+        "prs.new-submit",
+        H::PullRequestsSubmitInline,
+        ["Alt+Enter", "Ctrl+Enter"]
+    ),
+    spec!("prs.new-form", "prs.new-next", H::FormNextField, ["Tab"]),
+    spec!(
+        "prs.new-form",
+        "prs.new-previous",
+        H::FormPreviousField,
+        ["BackTab"]
+    ),
+    spec!(
+        "prs.new-form",
+        "prs.new-branch-up",
+        H::PullRequestsChooserPrevious,
+        ["Up"]
+    ),
+    spec!(
+        "prs.new-form",
+        "prs.new-branch-down",
+        H::PullRequestsChooserNext,
+        ["Down"]
+    ),
+    spec!(
+        "prs.delete-confirm",
+        "prs.delete-confirm",
+        H::PullRequestsChooserConfirm,
+        ["Enter"]
+    ),
+    spec!(protected
+        "prs.delete-confirm",
+        "prs.delete-cancel",
+        H::PullRequestsChooserCancel,
+        ["Esc"]
+    ),
     spec!("prs.search", "prs.search-apply", H::SearchApply, ["Enter"]),
     spec!(protected "prs.search", "prs.search-cancel", H::SearchCancel, ["Esc"]),
     spec!("prs.filter", "prs.filter-apply", H::FilterApply, ["Enter"]),
@@ -881,6 +938,8 @@ pub(super) const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
     (&["prs.agent-chooser", "global"], false),
     (&["prs.merge-chooser", "global"], false),
     (&["prs.property", "global"], false),
+    (&["prs.delete-confirm", "global"], false),
+    (&["prs.new-form", "global"], false),
     (&["prs.search", "global"], false),
     (&["prs.filter", "global"], false),
     (&["actions.repo-list", "actions", "global"], false),

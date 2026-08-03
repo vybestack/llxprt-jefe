@@ -62,6 +62,9 @@ impl AppState {
                 pr_number,
                 error,
             } => self.apply_pr_merge_methods_load_failed(scope_repo_id, *pr_number, error),
+            // Delete and create events belong to `prs_delete_ops` and
+            // `new_pr_form_ops`, which the caller tries next.
+            _ => false,
         }
     }
 

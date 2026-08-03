@@ -106,6 +106,19 @@ pub const HELP_DISPLAY_LINES: &[HelpDisplayLine] = &[
         "Open pull request in browser",
     ),
     help(2, 7, &["prs.open-merge"], "Merge pull request"),
+    help(2, 13, &["prs.new"], "Open a new pull request from a branch"),
+    help(
+        2,
+        14,
+        &["prs.list-close"],
+        "Close or reopen the selected pull request",
+    ),
+    help(
+        2,
+        15,
+        &["prs.list-delete", "prs.detail-delete"],
+        "Close the pull request and delete its head branch",
+    ),
     static_line(2, 8, "  Focus a review thread before resolving or replying"),
     blank(2, 9),
     help(
@@ -379,6 +392,7 @@ pub enum FooterMode {
     IssuesInlineComposer,
     PullRequests,
     PullRequestsInlineComposer,
+    PullRequestsNewComposer,
     Actions,
     Errors,
     Terminals,
@@ -623,14 +637,19 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
             hint("comment", &["prs.comment"], 10),
             hint("open", &["prs.list-browser", "prs.open-browser"], 11),
             hint("merge", &["prs.open-merge"], 12),
+            // The lifecycle actions sit next to merge, ahead of the long
+            // property hint, so a narrow footer still advertises them.
+            hint("new PR", &["prs.new"], 13),
+            hint("close / reopen", &["prs.list-close"], 14),
+            hint("delete", &["prs.list-delete", "prs.detail-delete"], 15),
             hint(
                 "labels / assignees / milestone / title / state",
                 &["prs.open-property"],
-                13,
+                16,
             ),
-            hint("list", &["prs.refocus-list"], 14),
-            hint("exit", &["prs.exit"], 15),
-            hint("back / exit", &["prs.back"], 16),
+            hint("list", &["prs.refocus-list"], 17),
+            hint("exit", &["prs.exit"], 18),
+            hint("back / exit", &["prs.back"], 19),
         ],
     },
     FooterModeGroup {
@@ -638,6 +657,15 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
         hints: &[
             hint("submit", &["prs.inline-submit"], 1),
             hint("cancel", &["prs.inline-cancel"], 2),
+        ],
+    },
+    FooterModeGroup {
+        mode: FooterMode::PullRequestsNewComposer,
+        hints: &[
+            hint("field", &["prs.new-next", "prs.new-previous"], 1),
+            hint("branch", &["prs.new-branch-up", "prs.new-branch-down"], 2),
+            hint("submit", &["prs.new-submit"], 3),
+            hint("cancel", &["prs.new-cancel"], 4),
         ],
     },
     FooterModeGroup {

@@ -330,8 +330,10 @@ fn prs_execution(
                 AppEvent::PrCycleFocus
             })
         }
-        HandlerKey::PullRequestsSubmitInline => Some(AppEvent::PrInlineSubmit),
-        HandlerKey::PullRequestsCancelInline => Some(AppEvent::PrInlineCancelOrEsc),
+        HandlerKey::PullRequestsSubmitInline => Some(pr_submit(state)),
+        HandlerKey::PullRequestsCancelInline => Some(pr_cancel(state)),
+        HandlerKey::FormNextField => Some(PrLifecycleEvent::NewFormFocusNext.into()),
+        HandlerKey::FormPreviousField => Some(PrLifecycleEvent::NewFormFocusPrevious.into()),
         HandlerKey::PullRequestsChooserPrevious => pr_chooser(state, true, chord),
         HandlerKey::PullRequestsChooserNext => pr_chooser(state, false, chord),
         HandlerKey::PullRequestsChooserConfirm => pr_chooser_confirm(state),
@@ -349,6 +351,24 @@ fn prs_execution(
         _ => return None,
     };
     Some(event.map_or(Noop, Event))
+}
+
+/// The New PR composer owns submit while it is open (issue #183).
+fn pr_submit(state: &AppState) -> AppEvent {
+    if state.prs_state.new_pr_form.is_some() {
+        PrLifecycleEvent::NewFormSubmit.into()
+    } else {
+        AppEvent::PrInlineSubmit
+    }
+}
+
+/// The New PR composer owns cancel while it is open (issue #183).
+fn pr_cancel(state: &AppState) -> AppEvent {
+    if state.prs_state.new_pr_form.is_some() {
+        PrLifecycleEvent::NewFormCancel.into()
+    } else {
+        AppEvent::PrInlineCancelOrEsc
+    }
 }
 
 fn pr_search_event(state: &AppState) -> AppEvent {
@@ -427,13 +447,29 @@ fn pr_edit(state: &AppState, chord: Chord) -> Option<AppEvent> {
         Key::Char('M') => pr_property(state, PrPropertyKind::Milestone),
         Key::Char('T') => pr_property(state, PrPropertyKind::Title),
         Key::Char('W') => pr_property(state, PrPropertyKind::State),
+        Key::Char('D') => {
+            pr_addresses_pull_request(state).then(|| PrLifecycleEvent::OpenDeleteConfirm.into())
+        }
+        Key::Char('n' | 'N') => Some(PrLifecycleEvent::OpenNewForm.into()),
         _ => None,
     }
 }
 
+/// Plan a property-editor open.
+///
+/// In the detail view the editor belongs to the body subfocus, so a property
+/// key pressed while a review, check, or comment is focused is not an edit of
+/// the pull request. The list has no subfocus: a selected row is the whole
+/// target, which is what makes closing from the list possible (issue #183).
 fn pr_property(state: &AppState, kind: PrPropertyKind) -> Option<AppEvent> {
-    (state.prs_state.detail_subfocus == PrDetailSubfocus::Body)
-        .then_some(AppEvent::PrOpenPropertyEditor { kind })
+    pr_addresses_pull_request(state).then_some(AppEvent::PrOpenPropertyEditor { kind })
+}
+
+/// Whether the focused thing is the pull request itself rather than one of the
+/// items inside its detail view.
+fn pr_addresses_pull_request(state: &AppState) -> bool {
+    state.prs_state.pr_focus == PrFocus::PrList
+        || state.prs_state.detail_subfocus == PrDetailSubfocus::Body
 }
 
 fn pr_changes_edit(state: &AppState, chord: Chord) -> Option<AppEvent> {
@@ -477,6 +513,13 @@ fn pr_target_present(state: &AppState) -> bool {
 }
 
 fn pr_chooser(state: &AppState, previous: bool, chord: Chord) -> Option<AppEvent> {
+    if state.prs_state.new_pr_form.is_some() {
+        return Some(if previous {
+            PrLifecycleEvent::NewFormBranchUp.into()
+        } else {
+            PrLifecycleEvent::NewFormBranchDown.into()
+        });
+    }
     if state.prs_state.property_editor.is_some() {
         if matches!(chord.key, Key::Char(' ')) {
             return Some(AppEvent::PrPropertyEditorToggle);
@@ -504,7 +547,9 @@ fn pr_chooser(state: &AppState, previous: bool, chord: Chord) -> Option<AppEvent
 }
 
 fn pr_chooser_confirm(state: &AppState) -> Option<AppEvent> {
-    if state.prs_state.property_editor.is_some() {
+    if state.prs_state.delete_confirm.is_some() {
+        Some(PrLifecycleEvent::DeleteConfirm.into())
+    } else if state.prs_state.property_editor.is_some() {
         Some(AppEvent::PrPropertyEditorConfirm)
     } else if state.prs_state.merge_chooser.is_some() {
         Some(PrLifecycleEvent::MergeConfirm.into())
@@ -518,7 +563,9 @@ fn pr_chooser_confirm(state: &AppState) -> Option<AppEvent> {
 }
 
 fn pr_chooser_cancel(state: &AppState) -> Option<AppEvent> {
-    if state.prs_state.property_editor.is_some() {
+    if state.prs_state.delete_confirm.is_some() {
+        Some(PrLifecycleEvent::DeleteCancel.into())
+    } else if state.prs_state.property_editor.is_some() {
         Some(AppEvent::PrPropertyEditorCancel)
     } else if state.prs_state.merge_chooser.is_some() {
         Some(PrLifecycleEvent::MergeCancel.into())

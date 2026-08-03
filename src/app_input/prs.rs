@@ -11,6 +11,9 @@ use jefe::state::{
 
 #[must_use]
 pub(super) fn resolve_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.prs_state.new_pr_form.is_some() {
+        return resolve_new_pr_form_text(key_event);
+    }
     if state.prs_state.inline_state != InlineState::None {
         return resolve_inline_text(key_event);
     }
@@ -24,6 +27,29 @@ pub(super) fn resolve_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<
         return super::prs_filter::resolve_raw_key(state, key_event);
     }
     None
+}
+
+/// Text and cursor input for the New PR composer (issue #183).
+///
+/// The composer's branch fields ignore these events in the reducer, so this
+/// only has to decide what a keystroke means, not where it lands.
+fn resolve_new_pr_form_text(key_event: &KeyEvent) -> Option<AppEvent> {
+    let event = match key_event.code {
+        KeyCode::Enter if key_event.modifiers.is_empty() => PrLifecycleEvent::NewFormNewline,
+        KeyCode::Char(character)
+            if super::raw_key_mutations::text_modifiers(key_event.modifiers) =>
+        {
+            PrLifecycleEvent::NewFormChar(character)
+        }
+        KeyCode::Backspace => PrLifecycleEvent::NewFormBackspace,
+        KeyCode::Delete => PrLifecycleEvent::NewFormDelete,
+        KeyCode::Left => PrLifecycleEvent::NewFormCursorLeft,
+        KeyCode::Right => PrLifecycleEvent::NewFormCursorRight,
+        KeyCode::Home => PrLifecycleEvent::NewFormCursorHome,
+        KeyCode::End => PrLifecycleEvent::NewFormCursorEnd,
+        _ => return None,
+    };
+    Some(event.into())
 }
 
 fn resolve_inline_text(key_event: &KeyEvent) -> Option<AppEvent> {
@@ -212,6 +238,10 @@ mod tests;
 #[cfg(test)]
 #[path = "prs_property_key_tests.rs"]
 mod prs_property_key_tests;
+
+#[cfg(test)]
+#[path = "prs_lifecycle_key_tests.rs"]
+mod prs_lifecycle_key_tests;
 
 #[cfg(test)]
 #[path = "prs_diff_key_tests.rs"]

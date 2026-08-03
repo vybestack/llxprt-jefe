@@ -610,7 +610,11 @@ impl AppState {
     /// Unwrap the boxed PR lifecycle-mutation family and apply it (issue #183).
     fn apply_pr_lifecycle_mutation_wrapper(&mut self, event: &AppEvent) -> bool {
         match event {
-            AppEvent::PrLifecycle(inner) => self.apply_pr_lifecycle_mutation(inner),
+            AppEvent::PrLifecycle(inner) => {
+                self.apply_pr_lifecycle_mutation(inner)
+                    || self.apply_pr_delete_event(inner)
+                    || self.apply_new_pr_form_event(inner)
+            }
             _ => false,
         }
     }

@@ -27,7 +27,7 @@ impl PullRequestsMessage {
         }
     }
 
-    /// One lifecycle event becomes its flat message variant.
+    /// Merge events become their flat message variants.
     fn from_pr_lifecycle(event: PrLifecycleEvent) -> Self {
         match event {
             PrLifecycleEvent::OpenMergeChooser => Self::OpenMergeChooser,
@@ -73,6 +73,103 @@ impl PullRequestsMessage {
                 pr_number,
                 error,
             },
+            delete_or_composer => Self::from_pr_delete(delete_or_composer),
+        }
+    }
+
+    /// Delete events become their flat message variants.
+    fn from_pr_delete(event: PrLifecycleEvent) -> Self {
+        match event {
+            PrLifecycleEvent::OpenDeleteConfirm => Self::OpenDeleteConfirm,
+            PrLifecycleEvent::DeleteConfirm => Self::DeleteConfirm,
+            PrLifecycleEvent::DeleteCancel => Self::DeleteCancel,
+            PrLifecycleEvent::Deleted {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                branch,
+                closed,
+            } => Self::Deleted {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                branch,
+                closed,
+            },
+            PrLifecycleEvent::DeleteFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            } => Self::DeleteFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            },
+            composer => Self::from_pr_composer(composer),
+        }
+    }
+
+    /// New PR composer events (issue #183).
+    fn from_pr_composer(event: PrLifecycleEvent) -> Self {
+        match event {
+            PrLifecycleEvent::OpenNewForm => Self::OpenNewForm,
+            PrLifecycleEvent::NewFormCancel => Self::NewFormCancel,
+            PrLifecycleEvent::NewFormFocusNext => Self::NewFormFocusNext,
+            PrLifecycleEvent::NewFormFocusPrevious => Self::NewFormFocusPrevious,
+            PrLifecycleEvent::NewFormBranchUp => Self::NewFormBranchUp,
+            PrLifecycleEvent::NewFormBranchDown => Self::NewFormBranchDown,
+            PrLifecycleEvent::NewFormChar(character) => Self::NewFormChar(character),
+            PrLifecycleEvent::NewFormNewline => Self::NewFormNewline,
+            PrLifecycleEvent::NewFormBackspace => Self::NewFormBackspace,
+            PrLifecycleEvent::NewFormDelete => Self::NewFormDelete,
+            PrLifecycleEvent::NewFormCursorLeft => Self::NewFormCursorLeft,
+            PrLifecycleEvent::NewFormCursorRight => Self::NewFormCursorRight,
+            PrLifecycleEvent::NewFormCursorHome => Self::NewFormCursorHome,
+            PrLifecycleEvent::NewFormCursorEnd => Self::NewFormCursorEnd,
+            PrLifecycleEvent::NewFormSubmit => Self::NewFormSubmit,
+            PrLifecycleEvent::BranchesLoaded {
+                scope_repo_id,
+                request_id,
+                branches,
+                default_branch,
+            } => Self::BranchesLoaded {
+                scope_repo_id,
+                request_id,
+                branches,
+                default_branch,
+            },
+            PrLifecycleEvent::BranchesFailed {
+                scope_repo_id,
+                request_id,
+                error,
+            } => Self::BranchesFailed {
+                scope_repo_id,
+                request_id,
+                error,
+            },
+            PrLifecycleEvent::Created {
+                scope_repo_id,
+                mutation_id,
+                pr_number,
+            } => Self::Created {
+                scope_repo_id,
+                mutation_id,
+                pr_number,
+            },
+            PrLifecycleEvent::CreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            } => Self::CreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            },
+            // `from_pr_lifecycle` matches every merge and delete variant before
+            // delegating here, so nothing else can arrive.
+            other => unreachable!("{other:?} is not a New PR composer event"),
         }
     }
 
@@ -133,7 +230,101 @@ impl PullRequestsMessage {
                 pr_number,
                 error,
             },
-            _ => unreachable!("unrouted PullRequestsMessage variant reached lifecycle converter"),
+            delete_or_composer => delete_or_composer.into_pr_delete(),
+        }
+    }
+
+    /// Delete messages become their lifecycle events.
+    fn into_pr_delete(self) -> PrLifecycleEvent {
+        match self {
+            Self::OpenDeleteConfirm => PrLifecycleEvent::OpenDeleteConfirm,
+            Self::DeleteConfirm => PrLifecycleEvent::DeleteConfirm,
+            Self::DeleteCancel => PrLifecycleEvent::DeleteCancel,
+            Self::Deleted {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                branch,
+                closed,
+            } => PrLifecycleEvent::Deleted {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                branch,
+                closed,
+            },
+            Self::DeleteFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            } => PrLifecycleEvent::DeleteFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            },
+            composer => composer.into_pr_composer(),
+        }
+    }
+
+    /// New PR composer messages (issue #183).
+    fn into_pr_composer(self) -> PrLifecycleEvent {
+        match self {
+            Self::OpenNewForm => PrLifecycleEvent::OpenNewForm,
+            Self::NewFormCancel => PrLifecycleEvent::NewFormCancel,
+            Self::NewFormFocusNext => PrLifecycleEvent::NewFormFocusNext,
+            Self::NewFormFocusPrevious => PrLifecycleEvent::NewFormFocusPrevious,
+            Self::NewFormBranchUp => PrLifecycleEvent::NewFormBranchUp,
+            Self::NewFormBranchDown => PrLifecycleEvent::NewFormBranchDown,
+            Self::NewFormChar(character) => PrLifecycleEvent::NewFormChar(character),
+            Self::NewFormNewline => PrLifecycleEvent::NewFormNewline,
+            Self::NewFormBackspace => PrLifecycleEvent::NewFormBackspace,
+            Self::NewFormDelete => PrLifecycleEvent::NewFormDelete,
+            Self::NewFormCursorLeft => PrLifecycleEvent::NewFormCursorLeft,
+            Self::NewFormCursorRight => PrLifecycleEvent::NewFormCursorRight,
+            Self::NewFormCursorHome => PrLifecycleEvent::NewFormCursorHome,
+            Self::NewFormCursorEnd => PrLifecycleEvent::NewFormCursorEnd,
+            Self::NewFormSubmit => PrLifecycleEvent::NewFormSubmit,
+            Self::BranchesLoaded {
+                scope_repo_id,
+                request_id,
+                branches,
+                default_branch,
+            } => PrLifecycleEvent::BranchesLoaded {
+                scope_repo_id,
+                request_id,
+                branches,
+                default_branch,
+            },
+            Self::BranchesFailed {
+                scope_repo_id,
+                request_id,
+                error,
+            } => PrLifecycleEvent::BranchesFailed {
+                scope_repo_id,
+                request_id,
+                error,
+            },
+            Self::Created {
+                scope_repo_id,
+                mutation_id,
+                pr_number,
+            } => PrLifecycleEvent::Created {
+                scope_repo_id,
+                mutation_id,
+                pr_number,
+            },
+            Self::CreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            } => PrLifecycleEvent::CreateFailed {
+                scope_repo_id,
+                mutation_id,
+                error,
+            },
+            other => unreachable!("{other:?} is not a PR lifecycle message"),
         }
     }
 }

@@ -50,6 +50,7 @@ mod issues_property_ops;
 mod list_navigation_ops;
 mod modal_ops;
 mod new_issue_form_ops;
+mod new_pr_form_ops;
 pub mod observation_events;
 pub mod pagination; // `PaginatedList<T, I>` generic deterministic pagination state container
 pub mod post_mutation_refresh; // Coalesced post-mutation refresh scheduling state
@@ -58,6 +59,7 @@ mod post_mutation_refresh_tests;
 mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
+mod prs_delete_ops;
 mod prs_diff_ops;
 #[cfg(test)]
 mod prs_diff_ops_tests;
@@ -924,6 +926,9 @@ mod prs_tests_bodyless_review_nav;
 #[path = "prs_tests_chooser_security.rs"]
 mod prs_tests_chooser_security;
 #[cfg(test)]
+#[path = "prs_tests_close_delete.rs"]
+mod prs_tests_close_delete;
+#[cfg(test)]
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
 #[cfg(test)]
@@ -944,6 +949,9 @@ mod prs_tests_filter;
 #[cfg(test)]
 #[path = "prs_tests_merge.rs"]
 mod prs_tests_merge;
+#[cfg(test)]
+#[path = "prs_tests_new_form.rs"]
+mod prs_tests_new_form;
 #[cfg(test)]
 #[path = "prs_tests_pagination.rs"]
 mod prs_tests_pagination;

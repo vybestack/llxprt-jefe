@@ -785,6 +785,26 @@ pub fn pr_error_banner_line(error: Option<&str>) -> Option<String> {
     error.map(pr_error_banner_text)
 }
 
+/// The single PR-mode banner line: an error, or else a notice (issue #183).
+///
+/// PR mode records notices — "Merged PR #12", "Closed PR #12 and deleted
+/// branch topic" — but had nowhere to show them, so a completed mutation was
+/// silent. Errors keep precedence and keep their `Error:` prefix; a notice is
+/// shown as written.
+#[must_use]
+pub fn pr_banner_line(error: Option<&str>, notice: Option<&str>) -> Option<String> {
+    pr_error_banner_line(error).or_else(|| notice.map(str::to_owned))
+}
+
+/// Whether the single PR-mode banner occupies a row (issue #183).
+///
+/// The render and the viewport row arithmetic both read this, so they cannot
+/// disagree about whether the banner row exists.
+#[must_use]
+pub fn pr_banner_visible(error: Option<&str>, notice: Option<&str>) -> bool {
+    error.is_some() || notice.is_some()
+}
+
 /// PR-mode main-row column geometry: fixed sidebar width + remaining workspace width.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
