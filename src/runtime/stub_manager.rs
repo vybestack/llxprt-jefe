@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use iocraft::Color;
 
 use super::errors::RuntimeError;
+use super::key_pacing::PtyInputKind;
 use super::manager::RuntimeManager;
 use super::session::{RuntimeSession, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, RemoteRepositorySettings};
@@ -172,7 +173,7 @@ impl RuntimeManager for StubRuntimeManager {
         })
     }
 
-    fn write_input(&mut self, _bytes: &[u8]) -> Result<(), RuntimeError> {
+    fn write_input_kind(&mut self, _bytes: &[u8], _kind: PtyInputKind) -> Result<(), RuntimeError> {
         if self.attached_index.is_some() {
             Ok(())
         } else {

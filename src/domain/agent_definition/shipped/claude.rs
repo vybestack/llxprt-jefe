@@ -29,10 +29,10 @@ pub fn build() -> AgentDefinition {
         ),
         &[],
     );
-    let operations = super::common::unsupported_only_operations(
-        "Claude fresh-issue prompt is not fixture-verified",
-        "Claude fresh-PR prompt is not fixture-verified",
-    );
+    // `help.stdout` in the fixture declares `claude [options] [command] [prompt]`
+    // with `prompt  Your prompt`, and an interactive session by default, so the
+    // prompt shape below is fixture-proven for every prompt-bearing operation.
+    let operations = super::common::positional_prompt_operations();
     assemble(DefinitionParts {
         id: "core.claude-code",
         display_name: "Claude Code",

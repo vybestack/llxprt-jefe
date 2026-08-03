@@ -50,17 +50,23 @@
       "contains": [
         "Claude Code",
         "> Resume: Unsupported: installed Claude Code lacks required capability `resume`",
-        "Fresh Issue: Unsupported: Claude fresh-issue prompt is not fixture-verified",
+        "Fresh Issue:",
         "Remote: Unsupported: Claude remote/setup is not fixture-verified",
         "Model: []  disabled: installed Claude Code lacks required capability `model`",
         "Prompt",
         "[Create disabled]",
         "[Back]"
       ],
-      "absent": ["[Create enabled]", "Agent Runtime", "Mode Flags", "Sandbox Engine"]
+      "absent": [
+        "[Create enabled]",
+        "Fresh Issue: Unsupported",
+        "Agent Runtime",
+        "Mode Flags",
+        "Sandbox Engine"
+      ]
     },
     { "op": "key", "key": "tab", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "> Fresh Issue: Unsupported", "timeout_ms": 5000 },
+    { "op": "wait", "source": "frame", "literal": "> Fresh Issue:", "timeout_ms": 5000 },
     { "op": "key", "key": "up", "modifiers": [] },
     { "op": "wait", "source": "frame", "literal": "> Resume: Unsupported", "timeout_ms": 5000 },
     { "op": "key", "key": "enter", "modifiers": [] },

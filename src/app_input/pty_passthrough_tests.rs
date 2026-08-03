@@ -12,9 +12,12 @@ use jefe::services::capture_worker::CaptureHandle;
 use jefe::services::persist_worker::PersistHandle;
 use jefe::theme::FileThemeManager;
 
+use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use jefe::runtime::PtyInputKind;
+
 use super::pty_passthrough::{
     AttachedTerminalProbe, CtxArc, attached_terminal_probe_from_lock,
-    ctrl_c_passthrough_may_forward, probe_attached_terminal,
+    ctrl_c_passthrough_may_forward, probe_attached_terminal, pty_input_kind,
 };
 
 /// Returns the context together with the temporary JSP directory guard. The
@@ -127,4 +130,52 @@ fn ctrl_c_passthrough_gate_passes_under_mutex_contention() {
         ctrl_c_passthrough_may_forward(probe_attached_terminal(Some(&ctx))),
         "Ctrl-C must not be dropped when try_lock fails (issue #333)"
     );
+}
+
+// ── Enter separation classification (issue #627) ─────────────────────────
+
+fn pty_key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    let mut event = KeyEvent::new(KeyEventKind::Press, code);
+    event.modifiers = modifiers;
+    event
+}
+
+/// A10: every Enter chord is separated, not just the bare submit. A modified
+/// Enter is reclassified by the same burst heuristics, so a steer chord
+/// delivered inside a batch would be read as a newline too.
+#[test]
+fn every_enter_chord_is_classified_for_separation() {
+    for modifiers in [
+        KeyModifiers::NONE,
+        KeyModifiers::CONTROL,
+        KeyModifiers::SHIFT,
+        KeyModifiers::ALT,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ] {
+        assert_eq!(
+            pty_input_kind(&pty_key(KeyCode::Enter, modifiers)),
+            PtyInputKind::Enter,
+            "Enter with {modifiers:?} must be separated"
+        );
+    }
+}
+
+/// A12: ordinary typing is never held back.
+#[test]
+fn other_keys_are_not_classified_for_separation() {
+    for code in [
+        KeyCode::Char('a'),
+        KeyCode::Char('j'),
+        KeyCode::Tab,
+        KeyCode::Backspace,
+        KeyCode::Esc,
+        KeyCode::Up,
+        KeyCode::F(5),
+    ] {
+        assert_eq!(
+            pty_input_kind(&pty_key(code, KeyModifiers::NONE)),
+            PtyInputKind::Other,
+            "{code:?} must not be delayed"
+        );
+    }
 }
