@@ -7,7 +7,7 @@ use crate::workbench::{
 };
 
 use super::navigation::{
-    Activation, MAX_NAVIGATION_STACK, NavIntent, NavOutcome, NavRefusal, NavState,
+    Activation, MAX_NAVIGATION_STACK, NavIntent, NavMessage, NavOutcome, NavRefusal, NavState,
     SuspendedInstance, reduce_navigation,
 };
 
@@ -35,7 +35,7 @@ fn request(state: &NavState, screen: ScreenId) -> Activation {
 }
 
 fn apply(state: NavState, intent: NavIntent) -> (NavState, NavOutcome) {
-    let transition = reduce_navigation(state, registry(), intent);
+    let transition = reduce_navigation(state, registry(), NavMessage::Navigate(intent));
     (transition.state, transition.outcome)
 }
 

@@ -105,6 +105,11 @@ pub use keys_editor::{
 mod keys_editor_tests;
 /// The sole owner of route, stack, and dirty transitions (issue #386).
 pub mod navigation;
+/// The host dirty guard the navigation reducer raises (issue #386).
+pub mod navigation_dirty;
+#[cfg(test)]
+#[path = "navigation_dirty_tests.rs"]
+mod navigation_dirty_tests;
 #[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;

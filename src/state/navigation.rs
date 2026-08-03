@@ -26,9 +26,14 @@
 
 use std::fmt;
 
+use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{
     ActivationError, ActivationValues, NavCode, PanelId, RouteId, ScreenId, ScreenIdentity,
     ScreenInstanceId, ScreenRegistry, route_declaration,
+};
+
+use super::navigation_dirty::{
+    DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, SaveIntent,
 };
 
 /// Maximum number of suspended instances the navigation stack may hold.
@@ -86,6 +91,8 @@ pub struct ScreenInstance {
     pub panel_focus: PanelId,
     /// Screen generation; a completion naming an older one is stale.
     pub generation: u64,
+    /// Whether this instance holds unsaved work.
+    pub dirty: DirtyState,
 }
 
 /// An instance whose subscriptions are suspended while it waits on the stack.
@@ -106,7 +113,7 @@ impl SuspendedInstance {
 }
 
 /// What the session is asking navigation to do.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NavIntent {
     /// Suspend the current instance and enter the activation's target.
     Push(Activation),
@@ -121,6 +128,7 @@ pub enum NavIntent {
 pub struct NavState {
     current: ScreenInstance,
     stack: Vec<SuspendedInstance>,
+    guard: Option<DirtyGuard>,
     next_generation: u64,
     next_activation_generation: u64,
 }
@@ -151,8 +159,10 @@ impl NavState {
                 },
                 panel_focus: descriptor.initial_focus,
                 generation: 1,
+                dirty: DirtyState::Clean,
             },
             stack: Vec::new(),
+            guard: None,
             next_generation: 2,
             next_activation_generation: 2,
         })
@@ -173,6 +183,12 @@ impl NavState {
     #[must_use]
     pub fn suspended(&self) -> &[SuspendedInstance] {
         &self.stack
+    }
+
+    /// The dirty guard currently holding a screen change back, if one is up.
+    #[must_use]
+    pub const fn guard(&self) -> Option<&DirtyGuard> {
+        self.guard.as_ref()
     }
 
     /// How many instances are suspended beneath the current one.
@@ -259,6 +275,7 @@ impl NavState {
             },
             panel_focus: descriptor.initial_focus,
             generation: self.next_generation,
+            dirty: DirtyState::Clean,
         })
     }
 
@@ -295,8 +312,39 @@ pub enum NavOutcome {
     },
     /// There was nothing to do; nothing changed.
     Unchanged,
+    /// The current instance holds unsaved work; the guard is up and nothing moved.
+    GuardRaised,
+    /// The owner's save failed; the draft, the focus, and the screen are intact.
+    SaveFailed,
+    /// The guard was dismissed; the draft and the interrupted focus were kept.
+    Cancelled,
     /// The request was refused; nothing changed and the refusal must be shown.
     Refused(NavRefusal),
+}
+
+/// Everything the navigation domain can be asked to do.
+#[derive(Debug, Clone)]
+pub enum NavMessage {
+    /// Change screen, subject to the dirty guard.
+    Navigate(NavIntent),
+    /// Record that the current instance now holds unsaved work.
+    MarkDirty {
+        /// The draft the owner is holding.
+        draft: DraftToken,
+        /// What this owner's Save does.
+        save: SaveIntent,
+    },
+    /// Record that the current instance no longer holds unsaved work.
+    MarkClean,
+    /// Answer the dirty guard.
+    ResolveDirty(DirtyChoice),
+    /// Report the outcome of the owner's declared save.
+    SaveCompleted {
+        /// The exact identity of the completed work.
+        correlation: Correlation,
+        /// Whether the owner's save succeeded.
+        result: Result<(), EffectError>,
+    },
 }
 
 /// One committed navigation step.
@@ -306,9 +354,21 @@ pub struct NavTransition {
     pub state: NavState,
     /// What the step did, or why it did nothing.
     pub outcome: NavOutcome,
+    /// What the draft's owner must do as a result.
+    pub draft: DraftAction,
 }
 
-/// Apply one navigation intent.
+impl NavTransition {
+    fn plain(state: NavState, outcome: NavOutcome) -> Self {
+        Self {
+            state,
+            outcome,
+            draft: DraftAction::None,
+        }
+    }
+}
+
+/// Apply one navigation message.
 ///
 /// Returns the state unchanged, paired with a refusal, whenever the request
 /// cannot be satisfied — there is no partially applied navigation.
@@ -316,12 +376,132 @@ pub struct NavTransition {
 pub fn reduce_navigation(
     state: NavState,
     registry: &ScreenRegistry,
-    intent: NavIntent,
+    message: NavMessage,
 ) -> NavTransition {
+    match message {
+        NavMessage::Navigate(intent) => navigate(state, registry, intent),
+        NavMessage::MarkDirty { draft, save } => mark_dirty(state, draft, save),
+        NavMessage::MarkClean => mark_clean(state),
+        NavMessage::ResolveDirty(choice) => resolve_dirty(state, registry, choice),
+        NavMessage::SaveCompleted {
+            correlation,
+            result,
+        } => save_completed(state, registry, &correlation, result),
+    }
+}
+
+/// Change screen unless the current instance is holding unsaved work.
+fn navigate(mut state: NavState, registry: &ScreenRegistry, intent: NavIntent) -> NavTransition {
+    if state.guard.is_some() {
+        // A guard is already up; a second request must not stack another one or
+        // silently replace the navigation the user is being asked about.
+        return NavTransition::plain(state, NavOutcome::GuardRaised);
+    }
+    if state.current.dirty.is_dirty() {
+        let focus = state.current.panel_focus;
+        state.guard = Some(DirtyGuard::raised(intent, focus));
+        return NavTransition::plain(state, NavOutcome::GuardRaised);
+    }
+    commit(state, registry, intent)
+}
+
+fn commit(state: NavState, registry: &ScreenRegistry, intent: NavIntent) -> NavTransition {
     match intent {
         NavIntent::Push(activation) => push(state, registry, &activation),
         NavIntent::Replace(activation) => replace(state, registry, &activation),
         NavIntent::Back => back(state),
+    }
+}
+
+fn mark_dirty(mut state: NavState, draft: DraftToken, save: SaveIntent) -> NavTransition {
+    state.current.dirty = DirtyState::Dirty { draft, save };
+    NavTransition::plain(state, NavOutcome::Unchanged)
+}
+
+fn mark_clean(mut state: NavState) -> NavTransition {
+    state.current.dirty = DirtyState::Clean;
+    NavTransition::plain(state, NavOutcome::Unchanged)
+}
+
+fn resolve_dirty(
+    mut state: NavState,
+    registry: &ScreenRegistry,
+    choice: DirtyChoice,
+) -> NavTransition {
+    let Some(guard) = state.guard.as_mut() else {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    };
+    match choice {
+        DirtyChoice::Save => {
+            let DirtyState::Dirty { save, .. } = &state.current.dirty else {
+                // Nothing is held any more, so there is nothing to save and the
+                // navigation the guard was holding can proceed.
+                let pending = guard.pending().clone();
+                state.guard = None;
+                return commit(state, registry, pending);
+            };
+            let SaveIntent::Owner { semantic_key } = save else {
+                // Save is not offered for this draft; the guard stays up so the
+                // user can still choose Discard or Cancel.
+                return NavTransition::plain(state, NavOutcome::GuardRaised);
+            };
+            let semantic_key = semantic_key.clone();
+            guard.saving(semantic_key.clone());
+            NavTransition {
+                state,
+                outcome: NavOutcome::GuardRaised,
+                draft: DraftAction::Save { semantic_key },
+            }
+        }
+        DirtyChoice::Discard => {
+            let pending = guard.pending().clone();
+            let abandoned = state.current.dirty.draft();
+            state.guard = None;
+            state.current.dirty = DirtyState::Clean;
+            let mut transition = commit(state, registry, pending);
+            if let Some(draft) = abandoned {
+                transition.draft = DraftAction::RestoreBase { draft };
+            }
+            transition
+        }
+        DirtyChoice::Cancel => {
+            let focus = guard.restore_focus();
+            state.guard = None;
+            state.current.panel_focus = focus;
+            NavTransition::plain(state, NavOutcome::Cancelled)
+        }
+    }
+}
+
+fn save_completed(
+    mut state: NavState,
+    registry: &ScreenRegistry,
+    correlation: &Correlation,
+    result: Result<(), EffectError>,
+) -> NavTransition {
+    if !state.answers_live_work(
+        correlation.screen_generation,
+        correlation.activation_generation,
+    ) {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    }
+    let Some(guard) = state.guard.as_mut() else {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    };
+    if guard.awaited_key() != Some(&correlation.semantic_key) {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    }
+    match result {
+        Ok(()) => {
+            let pending = guard.pending().clone();
+            state.guard = None;
+            state.current.dirty = DirtyState::Clean;
+            commit(state, registry, pending)
+        }
+        Err(error) => {
+            guard.failed(error.redacted_detail.clone());
+            NavTransition::plain(state, NavOutcome::SaveFailed)
+        }
     }
 }
 
@@ -345,7 +525,7 @@ fn push(mut state: NavState, registry: &ScreenRegistry, activation: &Activation)
     let suspended = std::mem::replace(&mut state.current, entered);
     state.stack.push(SuspendedInstance(suspended));
     state.advance();
-    NavTransition { state, outcome }
+    NavTransition::plain(state, outcome)
 }
 
 fn replace(
@@ -363,29 +543,23 @@ fn replace(
     };
     state.current = entered;
     state.advance();
-    NavTransition { state, outcome }
+    NavTransition::plain(state, outcome)
 }
 
 fn back(mut state: NavState) -> NavTransition {
     let Some(SuspendedInstance(restored)) = state.stack.pop() else {
-        return NavTransition {
-            state,
-            outcome: NavOutcome::Unchanged,
-        };
+        return NavTransition::plain(state, NavOutcome::Unchanged);
     };
     let outcome = NavOutcome::Restored {
         disposed: state.current.id,
         restored: restored.id,
     };
     state.current = restored;
-    NavTransition { state, outcome }
+    NavTransition::plain(state, outcome)
 }
 
 fn refused(state: NavState, refusal: NavRefusal) -> NavTransition {
-    NavTransition {
-        state,
-        outcome: NavOutcome::Refused(refusal),
-    }
+    NavTransition::plain(state, NavOutcome::Refused(refusal))
 }
 
 /// Why a navigation request was refused.
