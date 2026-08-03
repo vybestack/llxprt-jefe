@@ -297,16 +297,19 @@ pub fn resolve_compiled_registry_key(
     state: &AppState,
     key_event: &KeyEvent,
 ) -> ResolvedRegistryKey {
-    let dir = std::env::temp_dir().join(format!("jefe_s3_route_{}", std::process::id()));
-    let result = jefe::startup::build_persistence(Some(&dir));
-    let Ok(startup) = result else {
-        panic!("compiled S3 snapshot should compose, got {result:?}");
-    };
+    let snapshot = state.action_registry_snapshot.clone().unwrap_or_else(|| {
+        let dir = std::env::temp_dir().join(format!("jefe_s3_route_{}", std::process::id()));
+        let result = jefe::startup::build_persistence(Some(&dir));
+        let Ok(startup) = result else {
+            panic!("compiled S3 snapshot should compose, got {result:?}");
+        };
+        startup.keymap_snapshot
+    });
     let context = derive_action_context(state, input_mode_for_state(state));
     let Ok(context) = context else {
         panic!("S3 context should derive, got {context:?}");
     };
-    let result = resolve_in_context(&startup.keymap_snapshot, context, key_event);
+    let result = resolve_in_context(&snapshot, context, key_event);
     let Ok(resolved) = result else {
         panic!("S3 key should resolve, got {result:?}");
     };

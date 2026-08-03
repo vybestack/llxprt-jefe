@@ -70,6 +70,7 @@ pub struct FooterProjectionInput {
     pub shell_overlay_active: bool,
     pub shell_resume_available: bool,
     pub actions_focus: Option<ActionsFocus>,
+    pub mode_override: Option<FooterMode>,
 }
 
 // ── Availability lookup from snapshot ──────────────────────────────────────
@@ -316,12 +317,15 @@ fn sorted_help_lines() -> Vec<crate::domain::default_action_inventory::display::
 
 #[must_use]
 pub fn project_footer(snapshot: &ActionRegistrySnapshot, input: FooterProjectionInput) -> String {
+    let mode = input
+        .mode_override
+        .unwrap_or_else(|| footer_mode(input.screen));
     let hints = if input.shell_overlay_active {
         sorted_hints(SHELL_OVERLAY_HINTS)
     } else if input.terminal_focused {
         sorted_hints(TERMINAL_FOCUSED_HINTS)
     } else {
-        footer_hints(footer_mode(input.screen), input.actions_focus)
+        footer_hints(mode, input.actions_focus)
     };
     let mut parts = annotate_hints_with_status(
         snapshot,
@@ -329,7 +333,7 @@ pub fn project_footer(snapshot: &ActionRegistrySnapshot, input: FooterProjection
         input.shell_resume_available && !input.shell_overlay_active,
     );
     if !input.shell_overlay_active && !input.terminal_focused {
-        append_unlisted_unavailable_statuses(snapshot, input.screen, &mut parts);
+        append_unlisted_unavailable_statuses(snapshot, mode, &mut parts);
     }
     parts.join(" | ")
 }
@@ -403,10 +407,10 @@ fn render_footer_hint(
 
 fn append_unlisted_unavailable_statuses(
     snapshot: &ActionRegistrySnapshot,
-    screen: ScreenId,
+    mode: FooterMode,
     parts: &mut Vec<String>,
 ) {
-    let mode_contexts = footer_contexts(screen);
+    let mode_contexts = footer_contexts(mode);
     let rows = project_action_rows(snapshot);
     for row in rows.iter().filter(|row| {
         row.reason().is_some()
@@ -430,15 +434,18 @@ fn footer_hints_for_mode(mode: FooterMode) -> &'static [FooterDisplayHint] {
         .map_or(&[], |group| group.hints)
 }
 
-fn footer_contexts(mode: ScreenId) -> &'static [&'static str] {
+fn footer_contexts(mode: FooterMode) -> &'static [&'static str] {
     match mode {
-        ScreenId::Dashboard => &["dashboard"],
-        ScreenId::Repositories => &["split"],
-        ScreenId::Issues => &["issues.list", "issues.detail"],
-        ScreenId::PullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
-        ScreenId::Actions => &["actions"],
-        ScreenId::Errors => &["errors"],
-        ScreenId::Terminals => &["terminal-manager"],
+        FooterMode::Dashboard => &["dashboard"],
+        FooterMode::Split => &["split"],
+        FooterMode::Issues => &["issues.list", "issues.detail"],
+        FooterMode::IssuesNewComposer => &["issues.new-form"],
+        FooterMode::IssuesInlineComposer => &["issues.inline"],
+        FooterMode::PullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
+        FooterMode::PullRequestsInlineComposer => &["prs.inline"],
+        FooterMode::Actions => &["actions"],
+        FooterMode::Errors => &["errors"],
+        FooterMode::Terminals => &["terminal-manager"],
     }
 }
 
@@ -455,6 +462,10 @@ pub fn test_snapshot() -> ActionRegistrySnapshot {
     };
     composed.snapshot().clone()
 }
+
+#[cfg(test)]
+#[path = "action_projection_composer_tests.rs"]
+mod composer_tests;
 
 #[cfg(test)]
 mod tests {
@@ -530,6 +541,7 @@ mod tests {
             shell_overlay_active: false,
             shell_resume_available: false,
             actions_focus: None,
+            mode_override: None,
         }
     }
 
@@ -596,6 +608,7 @@ mod tests {
                     shell_overlay_active: false,
                     shell_resume_available: false,
                     actions_focus: Some(ActionsFocus::RunList),
+                    mode_override: None,
                 },
             ),
             "^/k/v/j select | g/G grab | m move | Esc back | ?/h/H/F1 help | Ctrl-q quit | qqq quit"
@@ -635,6 +648,7 @@ mod tests {
                 shell_overlay_active: false,
                 shell_resume_available: false,
                 actions_focus: None,
+                mode_override: None,
             },
         );
 

@@ -8,6 +8,7 @@ use iocraft::prelude::*;
 
 use crate::action_projection::{FooterProjectionInput, project_footer};
 use crate::domain::action_registry::ActionRegistrySnapshot;
+use crate::domain::default_action_inventory::display::FooterMode;
 use crate::state::{ActionsFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -27,6 +28,7 @@ pub struct KeybindBarProps {
     /// Immutable action/binding/availability authority for this render.
     pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
     pub actions_focus: Option<ActionsFocus>,
+    pub mode_override: Option<FooterMode>,
     /// Process-identity label (pid + commit) shown in the lower-right corner
     /// (issue #223).
     pub identity_label: String,
@@ -50,6 +52,7 @@ pub fn keybind_hints_for(
             shell_overlay_active: false,
             shell_resume_available: false,
             actions_focus,
+            mode_override: None,
         },
     )
 }
@@ -71,6 +74,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
                     shell_overlay_active: props.shell_overlay_active,
                     shell_resume_available: props.shell_resume_available,
                     actions_focus: props.actions_focus,
+                    mode_override: props.mode_override,
                 },
             )
         });
