@@ -60,11 +60,18 @@ impl OwnerRole {
         }
     }
 
-    const fn at_depth(depth: usize) -> Self {
-        if depth == 0 {
-            Self::PaneProcess
-        } else {
-            Self::SessionServer
+    /// The role held at `depth` steps above the session host, if the model
+    /// names one.
+    ///
+    /// This returns `None` rather than a default beyond the deepest named role
+    /// so that raising [`OWNER_CHAIN_DEPTH`] cannot silently attribute a
+    /// great-grandparent to the psmux server. A new level requires naming the
+    /// role that occupies it.
+    const fn at_depth(depth: usize) -> Option<Self> {
+        match depth {
+            0 => Some(Self::PaneProcess),
+            1 => Some(Self::SessionServer),
+            _ => None,
         }
     }
 }
@@ -247,11 +254,10 @@ where
     Tick: FnMut() -> bool,
 {
     loop {
-        let statuses: Vec<(OwnerRole, OwnerStatus)> = anchor
+        let statuses = anchor
             .links()
             .iter()
-            .map(|link| (link.role, observe(*link)))
-            .collect();
+            .map(|link| (link.role, observe(*link)));
         if let OwnerWatchDecision::ReleaseTree(role) = decide_owner_watch(statuses) {
             return OwnerWatchDecision::ReleaseTree(role);
         }
@@ -316,10 +322,10 @@ fn capture_owner_anchor_from(start_pid: u32) -> Result<OwnerAnchor, OwnerAnchorE
             }
             break;
         };
-        links.push(OwnerLink {
-            role: OwnerRole::at_depth(depth),
-            identity,
-        });
+        let Some(role) = OwnerRole::at_depth(depth) else {
+            break;
+        };
+        links.push(OwnerLink { role, identity });
         current = identity;
     }
     OwnerAnchor::from_links(links)

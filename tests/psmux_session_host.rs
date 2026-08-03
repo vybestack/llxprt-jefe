@@ -439,7 +439,10 @@ fn force_kill(pid: u32) -> Result<(), RegressionFailure> {
         .args(["/F", "/PID", &pid.to_string()])
         .output()
         .map_err(|error| fail("spawn taskkill", error))?;
-    if output.status.success() {
+    if output.status.success() || !process_alive(pid) {
+        // The owner exiting on its own between the liveness check and the kill
+        // is the same end state this call is asking for, and taskkill reports
+        // "process not found" for it. Only a live survivor is a real failure.
         Ok(())
     } else {
         Err(RegressionFailure {

@@ -102,8 +102,9 @@ No dependency, agent-memory, or quality-tooling change. `.llxprt/` and
 - OCR before PR: 0 / 2 (the `rustreviewer` subagent hit its 900s ceiling and
   returned nothing; substituted a direct line-by-line audit of the seven
   `owner_anchor` invariants, which found no blockers)
-- OCR after PR: 1 / 2 — seven findings, five fixed in `b75c433a`, two rejected.
-  Triage recorded on PR #622 and summarised below.
+- OCR after PR: 2 / 2 (cap reached) — round one: seven findings, five fixed in
+  `b75c433a`, two rejected. Round two: seven findings, four fixed, three
+  rejected. Both triages recorded on PR #622 and summarised below.
 
 | # | Finding | Disposition |
 |---|---|---|
@@ -120,6 +121,24 @@ process on panic would let an unrelated bug terminate a healthy agent, which
 inverts the rule in §4 that only *confirmed* ownership loss may release a tree.
 A panic is now classified as the strongest form of `Unverified`: the pass
 holds, the reason is logged, and the watchdog survives to retry.
+
+Second post-PR OCR run — seven findings, four fixed, three rejected. The cap of
+two post-PR runs is now spent; no further run will be solicited.
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | `owner_loss_has_a_distinguishable_exit_code` asserts only `!= 0` and `!= 1` | In-scope — Fix (asserts the exact value) |
+| 2 | `watch_owner_anchor` allocates a `Vec` every pass | In-scope — Fix (`decide_owner_watch` already takes `IntoIterator`) |
+| 3 | `OwnerRole::at_depth` maps any `depth >= 1` to `SessionServer` | In-scope — Fix (returns `Option`, so a deeper chain must name its role) |
+| 4 | The renamed staging test no longer asserts the first artifact's fate | Reject — pruning is covered by `staging_prunes_superseded_generations_that_no_process_holds`; this test owns the distinct-content contract |
+| 5 | The kill regression is not `#[cfg(windows)]` | Reject — the file carries `#![cfg(all(windows, feature = "psmux-smoke"))]` |
+| 6 | `OWNER_LOSS_TIMEOUT` of 20s is brittle | Reject — measured reap is 3.55s, over 5x headroom; an env knob adds configuration surface for a failure never observed |
+| 7 | Race between `process_alive` and `force_kill` masks the desired end state | In-scope — Fix |
+
+Finding 3 was fixed by making the mapping total rather than by inlining it.
+Inlining moves the hazard without removing it; returning `Option` makes raising
+`OWNER_CHAIN_DEPTH` stop the chain instead of silently attributing a
+great-grandparent to the psmux server.
 
 ## 8. Verification evidence
 

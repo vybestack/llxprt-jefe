@@ -306,8 +306,7 @@ fn an_anchor_preserves_its_chain_in_order() {
 /// finishing or by an unrelated crash.
 #[test]
 fn owner_loss_has_a_distinguishable_exit_code() {
-    assert_ne!(OWNER_LOST_EXIT_CODE, 0);
-    assert_ne!(OWNER_LOST_EXIT_CODE, 1);
+    assert_eq!(OWNER_LOST_EXIT_CODE, 75);
 }
 
 #[test]
