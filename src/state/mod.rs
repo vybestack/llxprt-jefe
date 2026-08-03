@@ -536,7 +536,11 @@ impl AppState {
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
             UiNavigationMessage::ToggleWorkbenchStatusBucket(_)
             | UiNavigationMessage::WorkbenchNextPage
-            | UiNavigationMessage::WorkbenchPrevPage => self.apply_workbench_navigation(message),
+            | UiNavigationMessage::WorkbenchPrevPage
+            | UiNavigationMessage::WorkbenchFilterCursorPrev
+            | UiNavigationMessage::WorkbenchFilterCursorNext => {
+                self.apply_workbench_navigation(message);
+            }
             UiNavigationMessage::TerminalScrollUp
             | UiNavigationMessage::TerminalScrollDown
             | UiNavigationMessage::TerminalScrollPageUp

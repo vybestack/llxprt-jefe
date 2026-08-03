@@ -6,11 +6,12 @@
 use super::{H, Spec};
 
 pub(super) const SPECS: &[Spec] = &[
-    spec!("split", "split.page-up", H::NavigatePageUp, ["PageUp"]),
+    // On the workbench, a page is a page of agent cards (issue #626).
+    spec!("split", "split.page-up", H::WorkbenchPrevPage, ["PageUp"]),
     spec!(
         "split",
         "split.page-down",
-        H::NavigatePageDown,
+        H::WorkbenchNextPage,
         ["PageDown"]
     ),
     spec!("split", "split.home", H::NavigateHome, ["Home"]),

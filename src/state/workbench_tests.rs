@@ -99,6 +99,65 @@ fn projection_clamps_a_page_beyond_the_last() {
     );
 }
 
+/// The filter cursor keys must actually resolve in the workbench context. This
+/// pins the binding itself, which a projection test cannot see and which a
+/// terminal scenario can only observe indirectly.
+#[test]
+fn filter_cursor_keys_resolve_in_the_workbench_context() {
+    use crate::domain::default_action_inventory::compiled_inventory;
+    use crate::domain::keymap::Chord;
+
+    let Ok(inventory) = compiled_inventory() else {
+        panic!("the default action inventory must compile");
+    };
+
+    let action_for = |text: &str| {
+        let Ok(chord) = Chord::parse(text) else {
+            panic!("chord {text:?} must parse");
+        };
+        inventory
+            .bindings
+            .iter()
+            .find(|b| b.context.as_str() == "split" && b.chords.contains(&chord))
+            .map(|b| b.action.as_str().to_owned())
+    };
+
+    assert_eq!(action_for("Down").as_deref(), Some("split.navigate-down"));
+    assert_eq!(action_for("Up").as_deref(), Some("split.navigate-up"));
+    assert_eq!(
+        action_for(" ").as_deref(),
+        Some("split.toggle-status-filter")
+    );
+}
+
+/// Moving the cursor and toggling must change the mask for the bucket the
+/// cursor landed on, not the one it started on.
+#[test]
+fn cursor_move_then_toggle_affects_the_second_bucket() {
+    let state = AppState::default();
+    let after = state
+        .apply(AppEvent::WorkbenchFilterCursorNext)
+        .committed_pure();
+    assert_eq!(after.workbench_filter_cursor, 1);
+    assert_eq!(
+        after.workbench_filter_cursor_bucket(),
+        crate::workbench_view::StatusBucket::Working
+    );
+
+    let toggled = after
+        .apply(AppEvent::ToggleWorkbenchStatusBucket(
+            crate::workbench_view::StatusBucket::Working,
+        ))
+        .committed_pure();
+    assert!(
+        !toggled
+            .workbench_status_filter
+            .mask()
+            .allows(crate::workbench_view::StatusBucket::Working),
+        "Working must be filtered out after toggling it at the cursor"
+    );
+}
+
 #[test]
 fn prev_page_clamps_at_zero() {
     let state = AppState::default();

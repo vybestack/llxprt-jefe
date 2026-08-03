@@ -325,6 +325,13 @@ macro_rules! handler_execution {
             H::DashboardGrabDown => E::Event(AppEvent::DashboardGrabMoveDown),
             H::ExitSplit => E::Event(AppEvent::ExitSplitMode),
             H::EnterSplitGrab => E::Event(AppEvent::EnterGrabMode),
+            H::WorkbenchToggleFilter => E::Event(AppEvent::ToggleWorkbenchStatusBucket(
+                state.workbench_filter_cursor_bucket(),
+            )),
+            H::WorkbenchFilterPrev => E::Event(AppEvent::WorkbenchFilterCursorPrev),
+            H::WorkbenchFilterNext => E::Event(AppEvent::WorkbenchFilterCursorNext),
+            H::WorkbenchPrevPage => E::Event(AppEvent::WorkbenchPrevPage),
+            H::WorkbenchNextPage => E::Event(AppEvent::WorkbenchNextPage),
             H::ErrorsBack => errors_back(state),
             H::ErrorsUp => errors_vertical(state, chord, true),
             H::ErrorsDown => errors_vertical(state, chord, false),

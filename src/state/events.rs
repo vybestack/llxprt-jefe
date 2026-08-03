@@ -992,4 +992,8 @@ pub enum AppEvent {
     WorkbenchNextPage,
     /// Return to the previous workbench page (clamped at page 0).
     WorkbenchPrevPage,
+    /// Move the workbench status-filter cursor to the previous bucket.
+    WorkbenchFilterCursorPrev,
+    /// Move the workbench status-filter cursor to the next bucket.
+    WorkbenchFilterCursorNext,
 }

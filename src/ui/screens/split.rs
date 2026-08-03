@@ -95,6 +95,11 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
         s.workbench_status_filter.mask()
     });
 
+    let cursor_bucket = state.map_or(
+        StatusBucket::NeedsYou,
+        AppState::workbench_filter_cursor_bucket,
+    );
+
     let sidebar_width = u32::from(crate::layout::LEFT_COL_WIDTH);
     let card_area_width = render_cols.saturating_sub(crate::layout::LEFT_COL_WIDTH);
     let card_area_width_u32 = u32::from(card_area_width);
@@ -166,7 +171,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                     }
 
                     // STATUS block — four buckets with checkboxes and live counts
-                    #(status_block_elements(&view, status_filter, &rc))
+                    #(status_block_elements(&view, status_filter, cursor_bucket, &rc))
                 }
 
                 // Card grid / empty state
@@ -239,6 +244,7 @@ fn build_workbench_view_from_state(
 fn status_block_elements(
     view: &WorkbenchView,
     filter: StatusFilterMask,
+    cursor_bucket: StatusBucket,
     rc: &ResolvedColors,
 ) -> Vec<AnyElement<'static>> {
     let buckets = [
@@ -264,7 +270,8 @@ fn status_block_elements(
         let checked = filter.allows(bucket);
         let mark = if checked { "[x]" } else { "[ ]" };
         let count = view.bucket_counts[bucket.as_index()];
-        let line = format!("{mark} {label} ({count})");
+        let cursor = if bucket == cursor_bucket { ">" } else { " " };
+        let line = format!("{cursor}{mark} {label} ({count})");
         elements.push(
             element! {
                 Box(height: 1u32, padding_left: 1u32, background_color: rc.bg) {

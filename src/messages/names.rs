@@ -65,6 +65,8 @@ message_names!(UiNavigationMessage {
     Self::ToggleWorkbenchStatusBucket(_) => "ToggleWorkbenchStatusBucket",
     Self::WorkbenchNextPage => "WorkbenchNextPage",
     Self::WorkbenchPrevPage => "WorkbenchPrevPage",
+    Self::WorkbenchFilterCursorPrev => "WorkbenchFilterCursorPrev",
+    Self::WorkbenchFilterCursorNext => "WorkbenchFilterCursorNext",
 });
 
 message_names!(KeysEditorMessage {

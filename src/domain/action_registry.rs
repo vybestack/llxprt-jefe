@@ -110,6 +110,12 @@ pub enum HandlerKey {
     DashboardGrabDown,
     ExitSplit,
     EnterSplitGrab,
+    // Multi-agent workbench: filter cursor, bucket toggle and card paging.
+    WorkbenchToggleFilter,
+    WorkbenchFilterPrev,
+    WorkbenchFilterNext,
+    WorkbenchPrevPage,
+    WorkbenchNextPage,
     ErrorsBack,
     ErrorsUp,
     ErrorsDown,

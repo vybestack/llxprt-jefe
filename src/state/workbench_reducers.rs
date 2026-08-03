@@ -9,7 +9,21 @@ use super::workbench_filter::WorkbenchStatusFilter;
 use crate::messages::UiNavigationMessage;
 use crate::workbench_view::StatusBucket;
 
+/// The filter rail lists the buckets in this order, top to bottom.
+const FILTER_ORDER: [StatusBucket; 4] = [
+    StatusBucket::NeedsYou,
+    StatusBucket::Working,
+    StatusBucket::Ready,
+    StatusBucket::Stale,
+];
+
 impl AppState {
+    /// The bucket the filter cursor currently sits on.
+    #[must_use]
+    pub fn workbench_filter_cursor_bucket(&self) -> StatusBucket {
+        FILTER_ORDER[self.workbench_filter_cursor.min(FILTER_ORDER.len() - 1)]
+    }
+
     /// Handle multi-agent workbench navigation messages.
     ///
     /// Paging deliberately has no upper bound here. The number of pages depends
@@ -26,6 +40,13 @@ impl AppState {
             }
             UiNavigationMessage::WorkbenchPrevPage => {
                 self.workbench_page = self.workbench_page.saturating_sub(1);
+            }
+            UiNavigationMessage::WorkbenchFilterCursorPrev => {
+                self.workbench_filter_cursor = self.workbench_filter_cursor.saturating_sub(1);
+            }
+            UiNavigationMessage::WorkbenchFilterCursorNext => {
+                self.workbench_filter_cursor =
+                    (self.workbench_filter_cursor + 1).min(FILTER_ORDER.len() - 1);
             }
             _ => unreachable!("non-workbench message routed to apply_workbench_navigation"),
         }

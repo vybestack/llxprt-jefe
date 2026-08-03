@@ -159,16 +159,16 @@ Destructive actions (delete agent, delete repository, kill agent) require explic
 
 | Key        | Action                                        |
 |------------|-----------------------------------------------|
-| `↑` / `↓` / `←` / `→` | Move the selection across the pane grid |
-| `Enter`    | Attach to the selected agent                  |
-| `1`-`9`    | Jump to the agent holding that shortcut slot  |
-| `space`    | Toggle the focused status filter              |
+| `↑` / `↓` | Move the status-filter cursor in the left rail  |
+| `space`    | Toggle the status bucket under the cursor      |
 | `PgDn` / `PgUp` | Page through agents when more exist than fit |
-| `r`        | Focus repository filter sidebar               |
-| `m`        | Return to dashboard with terminal focused     |
-| `Esc`      | Return to dashboard without terminal focus    |
+| `r`        | Focus repository filter sidebar                |
+| `m`        | Return to dashboard with terminal focused      |
+| `Esc`      | Return to dashboard without terminal focus     |
 
 Reordering is not available here; it lives on the dashboard, where `space` grabs an entry, arrows move it, and `space` or `Enter` drops it.
+
+Attaching to an agent from the workbench, and jumping to one by its shortcut slot, are not wired yet — use the dashboard for both.
 
 ### Forms
 

@@ -403,6 +403,8 @@ pub struct AppState {
     pub workbench_status_filter: WorkbenchStatusFilter,
     /// Workbench page, zero-based and clamped by the reducer. Runtime-only.
     pub workbench_page: usize,
+    /// Which status bucket the workbench filter cursor sits on (issue #626).
+    pub workbench_filter_cursor: usize,
 
     /// Dashboard "search lite" state for repositories and agents (issue #405).
     ///

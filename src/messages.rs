@@ -116,6 +116,8 @@ pub enum UiNavigationMessage {
     WorkbenchNextPage,
     /// Return to the previous workbench page (clamped, issue #626).
     WorkbenchPrevPage,
+    WorkbenchFilterCursorPrev,
+    WorkbenchFilterCursorNext,
 }
 #[derive(Debug, Clone)]
 pub enum ModalMessage {
