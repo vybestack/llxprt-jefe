@@ -28,6 +28,7 @@ use super::agent_preflight::{
 use super::agent_probe::run_local_agent_probe;
 use super::agent_remote_plan::{RemotePlanOutcome, RemotePlanRequest, plan_remote_launch};
 use super::agent_remote_probe::run_remote_agent_probe;
+use super::launch_gates::LaunchGate;
 use super::package_runtime::{finalize_local_invocation, managed_package_cache_root};
 
 /// Current state-owned evidence from which one launch attempt is derived.
@@ -111,6 +112,21 @@ struct ImmutablePlanInputs<'a> {
     preflight: Preflight,
 }
 
+/// Tag a stage's failure with the gate that stage represents.
+///
+/// Returns a closure so call sites read `.map_err(at(LaunchGate::X))?`, keeping
+/// the attribution beside the call it describes instead of in a wrapper that
+/// hides which stage is which.
+fn at(gate: LaunchGate) -> impl Fn(RuntimeError) -> RuntimeError {
+    move |error| error.attributed_to(gate)
+}
+
+/// Build a gate-attributed refusal from a stage rejection that is not itself a
+/// [`RuntimeError`].
+fn refused(gate: LaunchGate, cause: &impl std::fmt::Display) -> RuntimeError {
+    RuntimeError::LaunchGateRefused(gate.refused(cause.to_string()))
+}
+
 /// Validate support, capture target-specific probe evidence, build one immutable
 /// plan, authorize it, run preflight, and seal the runtime proof.
 pub fn prepare_launch(
@@ -126,18 +142,24 @@ fn prepare_launch_with_snapshot(
     state_evidence: &LaunchStateEvidence,
     local_snapshot: &PathSnapshot,
 ) -> Result<PreparedLaunch, RuntimeError> {
-    let definition = definition_for(configuration)?;
-    validate_support_before_effects(&definition, configuration)?;
-    let selector = version_selector(&configuration.values)?;
-    let target = launch_target(configuration)?;
-    let values = launch_values(&definition, &configuration.values, configuration.operation)?;
+    // Each stage is tagged with the gate it represents as it is called. The
+    // helpers below stay ignorant of their position in the pipeline; this is the
+    // only place that knows the order, so it is the only place that can name it.
+    let definition = definition_for(configuration).map_err(at(LaunchGate::LaunchComposition))?;
+    validate_support_before_effects(&definition, configuration)
+        .map_err(at(LaunchGate::CapabilitySupport))?;
+    let selector =
+        version_selector(&configuration.values).map_err(at(LaunchGate::LaunchComposition))?;
+    let target = launch_target(configuration).map_err(at(LaunchGate::LaunchComposition))?;
+    let values = launch_values(&definition, &configuration.values, configuration.operation)
+        .map_err(at(LaunchGate::LaunchComposition))?;
     let candidate = if configuration.remote.enabled {
         remote_candidate(
             &definition,
             configuration,
             &selector,
             state_evidence.probe_generation,
-        )?
+        )
     } else {
         local_candidate_with_snapshot(
             &definition,
@@ -145,9 +167,11 @@ fn prepare_launch_with_snapshot(
             &selector,
             state_evidence,
             local_snapshot,
-        )?
-    };
-    let preflight = preflight_contract(&definition, &configuration.values)?;
+        )
+    }
+    .map_err(|error| error.attributed_to(LaunchGate::IdentityProbe))?;
+    let preflight = preflight_contract(&definition, &configuration.values)
+        .map_err(at(LaunchGate::LaunchComposition))?;
     let plan = immutable_plan(ImmutablePlanInputs {
         definition: &definition,
         configuration,
@@ -156,13 +180,14 @@ fn prepare_launch_with_snapshot(
         candidate: &candidate,
         state_evidence,
         preflight,
-    })?;
+    })
+    .map_err(at(LaunchGate::LaunchComposition))?;
     let evidence = execution_evidence(&definition, &candidate, state_evidence);
     let final_plan = if configuration.operation.is_fresh() {
-        let prompt = fresh_prompt(&configuration.values)?;
+        let prompt = fresh_prompt(&configuration.values).map_err(at(LaunchGate::PromptAssembly))?;
         authorize_and_preflight(&plan, &evidence, state_evidence, |cleared| {
             prepare_fresh_send(&definition, cleared.clone(), prompt)
-                .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))
+                .map_err(|error| refused(LaunchGate::PromptAssembly, &error))
                 .map(|send| send.plan().clone())
         })?
     } else {
@@ -207,7 +232,7 @@ fn authorize_and_preflight(
     let authorized = match authorize_execution(plan, evidence) {
         AuthorizationResult::Authorized(authorized) => authorized,
         AuthorizationResult::Rejected(error) => {
-            return Err(RuntimeError::SpawnFailed(error.to_string()));
+            return Err(refused(LaunchGate::ExecutionAuthorization, &error));
         }
     };
     let cleared = match prepare_execution(
@@ -217,12 +242,12 @@ fn authorize_and_preflight(
     ) {
         PreparationOutcome::Cleared(cleared) => cleared,
         PreparationOutcome::Unavailable(reason) => {
-            return Err(RuntimeError::SpawnFailed(reason.to_string()));
+            return Err(refused(LaunchGate::SandboxPreflight, &reason));
         }
     };
     let final_plan = assemble_final_plan(&cleared)?;
     AuthorizedLaunchPlan::from_cleared(cleared, final_plan, evidence.clone())
-        .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))
+        .map_err(|error| refused(LaunchGate::ExecutionAuthorization, &error))
 }
 /// Reject an unlaunchable request without probing, installing, or executing.
 ///
@@ -236,15 +261,20 @@ fn authorize_and_preflight(
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::SpawnFailed`] with the same message the equivalent
-/// [`prepare_launch`] rejection would produce.
+/// Returns [`RuntimeError::LaunchGateRefused`] naming the same gate the
+/// equivalent [`prepare_launch`] rejection would name, so a request refused
+/// before any side effect reads identically to one refused during launch.
 pub fn validate_launch(configuration: &AgentLaunchRequest) -> Result<(), RuntimeError> {
-    let definition = definition_for(configuration)?;
-    validate_support_before_effects(&definition, configuration)?;
-    let selector = version_selector(&configuration.values)?;
-    launch_target(configuration)?;
-    launch_values(&definition, &configuration.values, configuration.operation)?;
-    preflight_contract(&definition, &configuration.values)?;
+    let definition = definition_for(configuration).map_err(at(LaunchGate::LaunchComposition))?;
+    validate_support_before_effects(&definition, configuration)
+        .map_err(at(LaunchGate::CapabilitySupport))?;
+    let selector =
+        version_selector(&configuration.values).map_err(at(LaunchGate::LaunchComposition))?;
+    launch_target(configuration).map_err(at(LaunchGate::LaunchComposition))?;
+    launch_values(&definition, &configuration.values, configuration.operation)
+        .map_err(at(LaunchGate::LaunchComposition))?;
+    preflight_contract(&definition, &configuration.values)
+        .map_err(at(LaunchGate::LaunchComposition))?;
     if configuration.remote.enabled {
         // Remote candidate resolution is authoritative on the remote host and
         // is owned by the remote probe adapter.
@@ -254,7 +284,9 @@ pub fn validate_launch(configuration: &AgentLaunchRequest) -> Result<(), Runtime
     let resolution = AgentCandidateResolver::new(&snapshot, configuration.work_dir.clone())
         .with_version_selector(selector)
         .resolve(&definition);
-    resolved_candidate(&resolution).map(|_| ())
+    resolved_candidate(&resolution)
+        .map(|_| ())
+        .map_err(at(LaunchGate::ExecutableDiscovery))
 }
 
 /// Establish an isolated launch-state root for production routes that do not
@@ -357,14 +389,14 @@ fn local_candidate_with_snapshot(
     let resolution = AgentCandidateResolver::new(snapshot, configuration.work_dir.clone())
         .with_version_selector(selector.clone())
         .resolve(definition);
-    let candidate = resolved_candidate(&resolution)?;
+    let candidate = resolved_candidate(&resolution).map_err(at(LaunchGate::ExecutableDiscovery))?;
     let current_key = candidate.generation_key(definition);
     let generation = next_probe_generation(
         state_evidence.candidate_generation_key.as_ref(),
         &current_key,
         state_evidence.probe_generation,
     )
-    .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?;
+    .map_err(|error| refused(LaunchGate::IdentityProbe, &error))?;
     let probe = run_local_agent_probe(definition, &resolution, generation);
     // Execute exactly what the probe measured. Preparing again here would
     // resolve a moving selector a second time, and the two answers can differ,
@@ -381,13 +413,13 @@ fn local_candidate_with_snapshot(
         // with the failed availability just recorded, so the probe's own error
         // is what surfaces.
         (None, Some(detail)) => {
-            return Err(RuntimeError::SpawnFailed(detail.to_string()));
+            return Err(refused(LaunchGate::ManagedPackageInstall, &detail));
         }
         // Nothing was prepared because there is nothing to prepare: a candidate
         // reached without a package runner. This answer comes from the candidate
         // itself and touches neither the registry nor the cache.
         (None, None) => finalize_local_invocation(candidate, &managed_package_cache_root())
-            .map_err(|error| RuntimeError::SpawnFailed(error.to_string()))?,
+            .map_err(|error| refused(LaunchGate::ExecutableStrategy, &error))?,
     };
     Ok(CandidateEvidence {
         executable: invocation.executable().to_path_buf(),
