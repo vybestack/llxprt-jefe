@@ -91,7 +91,7 @@ env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" \
   --config "$CONFIG" --out-dir "$ARTIFACT" --session "$SESSION"
 
 [[ -s "$AUDIT" ]] || { echo "FATAL: gh shim was not invoked" >&2; exit 1; }
-if grep -q REJECTED "$AUDIT"; then cat "$AUDIT" >&2; exit 1; fi
+if grep -q '^REJECTED ' "$AUDIT"; then cat "$AUDIT" >&2; exit 1; fi
 if grep '^ACCEPTED ' "$AUDIT" | grep -qvE '^ACCEPTED (auth-status|pr-search|review-threads|pr-comments|pr-view-detail) -- gh '; then
   echo "FATAL: unexpected accepted operation in gh audit:" >&2
   cat "$AUDIT" >&2
