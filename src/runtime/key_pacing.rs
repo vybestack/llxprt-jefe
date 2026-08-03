@@ -88,6 +88,13 @@ impl KeyWritePacing {
 /// separation guarantee exact: a caller holds the whole thing for the duration
 /// of a write, so nothing can slip a byte in between the moment the wait is
 /// computed and the moment the bytes are written.
+///
+/// This type is deliberately not `Sync`. Several threads do write to one child
+/// — the UI thread for input and the PTY reader thread for query replies — so
+/// every holder shares it as a `Mutex<PacedPtyInput>`, which both serializes
+/// the writes and is what the guarantee above depends on. A caller that wanted
+/// concurrent access would have to defeat that mutex, and the separation would
+/// stop being meaningful long before any memory-safety question arose.
 pub struct PacedPtyInput {
     writer: Box<dyn Write + Send>,
     pacing: KeyWritePacing,

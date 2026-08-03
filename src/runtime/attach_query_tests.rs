@@ -8,10 +8,20 @@
 use super::*;
 
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
-use super::super::key_pacing::ENTER_INPUT_GAP;
+use crate::runtime::key_pacing::ENTER_INPUT_GAP;
+
+/// Read a shared buffer, keeping a poisoned lock visible rather than reporting
+/// an empty buffer: several assertions below are satisfied by emptiness, so
+/// swallowing poison would turn a panicking sibling test into a vacuous pass.
+fn snapshot(buffer: &Mutex<Vec<u8>>) -> Vec<u8> {
+    buffer
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
 
 /// A `Write` sink that records everything written to it.
 struct CaptureWriter {
@@ -20,9 +30,10 @@ struct CaptureWriter {
 
 impl Write for CaptureWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if let Ok(mut written) = self.written.lock() {
-            written.extend_from_slice(buf);
-        }
+        self.written
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -76,17 +87,11 @@ impl ListenerHarness {
     }
 
     fn queued(&self) -> Vec<u8> {
-        self.pending
-            .lock()
-            .map(|pending| pending.clone())
-            .unwrap_or_default()
+        snapshot(&self.pending)
     }
 
     fn written(&self) -> Vec<u8> {
-        self.written
-            .lock()
-            .map(|written| written.clone())
-            .unwrap_or_default()
+        snapshot(&self.written)
     }
 }
 
@@ -238,8 +243,8 @@ fn an_enter_write_is_separated_from_the_write_before_it() {
         "the Enter must be held back by the guard interval, total was {total_elapsed:?}"
     );
     assert_eq!(
-        written.lock().map(|written| written.clone()).ok(),
-        Some(b"x\r".to_vec()),
+        snapshot(&written),
+        b"x\r".to_vec(),
         "both writes must reach the child, in order"
     );
 }

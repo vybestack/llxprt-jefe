@@ -153,7 +153,8 @@ mod key_tests {
             base + Duration::from_millis(5)
         ));
 
-        // After suppression consumed the synthetic Enter, it is disarmed.
+        // Production disarms after swallowing that synthetic Enter, so the
+        // state the next Enter is judged against is a fresh, unarmed one.
         suppression = PasteEnterSuppression::new();
 
         // A later real Enter is forwarded.
