@@ -12,6 +12,7 @@ use super::descriptor::PortRef;
 use super::diagnostics::ScrCode;
 use super::geometry::{Extent, Rect};
 use super::ids::{CustomScreenId, PanelId, PortId, ScreenId, ScreenIdentity};
+use super::panel_types::DEFINABLE_PANEL_TYPES;
 use super::relationship_propagation::{PortValue, RelationshipState, SourceIntent, propagate};
 use super::relationships::{ActivationMode, EmptyPolicy, RelationshipKind};
 use super::resolve::{PanelState, resolve_layout};
@@ -497,4 +498,23 @@ fn two_definitions_claiming_one_identity_cannot_both_be_composed() {
         error.to_string().contains("local.review"),
         "the refusal must name the repeated identity, got {error}"
     );
+}
+
+#[test]
+fn an_unknown_panel_type_names_the_ones_a_definition_may_use() {
+    let refusal =
+        refused(&review_definition().replace("type = \"pr-list\"", "type = \"invented\""));
+
+    assert!(
+        refusal.screen.redacted_detail.contains("available:"),
+        "an author who named a type that does not exist needs to see what does, got {:?}",
+        refusal.screen.redacted_detail
+    );
+    for declared in DEFINABLE_PANEL_TYPES {
+        assert!(
+            refusal.screen.redacted_detail.contains(declared),
+            "the refusal must list {declared}, got {:?}",
+            refusal.screen.redacted_detail
+        );
+    }
 }

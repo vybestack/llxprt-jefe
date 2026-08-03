@@ -59,12 +59,11 @@ pub enum PanelTypeError {
 impl std::fmt::Display for PanelTypeError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unknown { declared } => {
-                write!(
-                    formatter,
-                    "panel type {declared:?} has no compiled renderer"
-                )
-            }
+            Self::Unknown { declared } => write!(
+                formatter,
+                "panel type {declared:?} has no compiled renderer (available: {})",
+                DEFINABLE_PANEL_TYPES.join(", ")
+            ),
             Self::Forbidden { declared } => write!(
                 formatter,
                 "panel type {declared:?} may not be requested by a screen definition"
