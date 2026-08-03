@@ -38,6 +38,36 @@ fn drain_at_least(
     collected
 }
 
+/// Drain until `wanted` matches a delivered message, or the deadline expires.
+/// Returns every message drained along the way.
+///
+/// Delivery keeps one pending slot per agent, and the host worker writes the
+/// HTTP response before it publishes the resulting message. A caller that has
+/// just read a 200 can therefore drain a *stale* message — such as the
+/// `ObservationCleared` that `commit` publishes — before the update it is
+/// waiting for has been queued at all. Waiting for the specific message removes
+/// that ordering assumption instead of assuming the worker was scheduled
+/// promptly (issue #609).
+fn drain_until(
+    runtime: &jefe::jsp_host::JspHostRuntime,
+    wanted: impl Fn(&RuntimeMessage) -> bool,
+) -> Vec<RuntimeMessage> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut collected = Vec::new();
+    loop {
+        collected.extend(
+            runtime
+                .drain_messages()
+                .unwrap_or_else(|error| panic!("JSP delivery drain failed: {error}")),
+        );
+        if collected.iter().any(|message| wanted(message)) || std::time::Instant::now() >= deadline
+        {
+            return collected;
+        }
+        thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 fn reservation() -> PublisherReservation {
     PublisherReservation {
         agent_id: AgentId("agent-alex".to_string()),
@@ -718,13 +748,35 @@ fn production_host_generates_unique_credentials_delivers_and_revokes() {
         include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json"),
     );
     assert!(response.starts_with("HTTP/1.1 200"));
-    assert!(matches!(
-        drain_at_least(&runtime, 1).as_slice(),
-        [RuntimeMessage::ObservationUpdated(delivered_agent, 7, _)] if delivered_agent == &agent_id
-    ));
+    let delivered = drain_until(
+        &runtime,
+        |message| matches!(message, RuntimeMessage::ObservationUpdated(agent, 7, _) if agent == &agent_id),
+    );
+    assert!(
+        delivered.iter().any(|message| matches!(
+            message,
+            RuntimeMessage::ObservationUpdated(agent, 7, _) if agent == &agent_id
+        )),
+        "register must deliver a generation-7 update for {agent_id:?}, got {delivered:?}"
+    );
+    // Anything drained alongside it must be this launch's own lifecycle clear,
+    // never an update for another agent or generation.
+    assert!(
+        delivered.iter().all(|message| matches!(
+            message,
+            RuntimeMessage::ObservationUpdated(agent, 7, _)
+                | RuntimeMessage::ObservationCleared(agent, 7) if agent == &agent_id
+        )),
+        "unexpected delivery alongside the register update: {delivered:?}"
+    );
     publish_repeated_snapshots(&runtime, &credential, &registration_id);
     // Repeated snapshots coalesce into exactly one delivered update.
-    assert_eq!(drain_at_least(&runtime, 1).len(), 1);
+    let coalesced = drain_at_least(&runtime, 1);
+    assert_eq!(
+        coalesced.len(),
+        1,
+        "repeated snapshots must coalesce into one update, got {coalesced:?}"
+    );
 
     coordinator
         .revoke(&agent_id)
