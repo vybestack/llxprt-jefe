@@ -12,8 +12,10 @@ use std::fmt;
 
 use super::descriptor::{LayoutNode, ScreenDescriptor};
 use super::ids::{
-    IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
+    IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_SPLIT_CHILDREN,
+    MIN_SPLIT_CHILDREN, VersionedTypeId,
 };
+use super::relationships::{RelationshipError, validate_relationships};
 
 /// A violated descriptor invariant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +139,31 @@ pub enum DescriptorError {
         /// Offending panel identity.
         panel: &'static str,
     },
+    /// A panel declares more than [`MAX_PORTS_PER_PANEL`] ports.
+    TooManyPorts {
+        /// Offending screen.
+        screen: &'static str,
+        /// Offending panel identity.
+        panel: &'static str,
+        /// Declared port count.
+        count: usize,
+    },
+    /// One panel declares two ports with the same identity.
+    DuplicatePort {
+        /// Offending screen.
+        screen: &'static str,
+        /// Offending panel identity.
+        panel: &'static str,
+        /// Repeated port identity.
+        port: &'static str,
+    },
+    /// The relationship graph violates one of its invariants.
+    Relationship {
+        /// Offending screen.
+        screen: &'static str,
+        /// The violated invariant.
+        reason: RelationshipError,
+    },
 }
 
 impl fmt::Display for DescriptorError {
@@ -144,6 +171,7 @@ impl fmt::Display for DescriptorError {
         self.fmt_panel_violation(formatter)
             .or_else(|| self.fmt_focus_violation(formatter))
             .or_else(|| self.fmt_layout_violation(formatter))
+            .or_else(|| self.fmt_port_violation(formatter))
             .unwrap_or(Ok(()))
     }
 }
@@ -237,6 +265,32 @@ impl DescriptorError {
             _ => return None,
         })
     }
+
+    /// Render the port-declaration violations, if this is one.
+    fn fmt_port_violation(&self, formatter: &mut fmt::Formatter<'_>) -> Option<fmt::Result> {
+        Some(match self {
+            Self::TooManyPorts {
+                screen,
+                panel,
+                count,
+            } => write!(
+                formatter,
+                "screen {screen} panel {panel} declares {count} ports (max {MAX_PORTS_PER_PANEL})"
+            ),
+            Self::DuplicatePort {
+                screen,
+                panel,
+                port,
+            } => write!(
+                formatter,
+                "screen {screen} panel {panel} declares port {port} twice"
+            ),
+            Self::Relationship { screen, reason } => {
+                write!(formatter, "screen {screen} relationship: {reason}")
+            }
+            _ => return None,
+        })
+    }
 }
 
 impl std::error::Error for DescriptorError {}
@@ -250,9 +304,36 @@ pub fn validate_descriptor(descriptor: &ScreenDescriptor) -> Result<(), Descript
     let screen = descriptor.id.as_str();
     check_identifiers(descriptor, screen)?;
     check_panel_set(descriptor, screen)?;
+    check_ports(descriptor, screen)?;
     check_layout_placement(descriptor, screen)?;
     check_focus(descriptor, screen)?;
-    check_layout_shape(&descriptor.layout, descriptor, screen, 1)
+    check_layout_shape(&descriptor.layout, descriptor, screen, 1)?;
+    validate_relationships(descriptor)
+        .map_err(|reason| DescriptorError::Relationship { screen, reason })
+}
+
+/// Check that every panel declares a bounded set of distinctly named ports.
+fn check_ports(descriptor: &ScreenDescriptor, screen: &'static str) -> Result<(), DescriptorError> {
+    for panel in &descriptor.panels {
+        if panel.ports.len() > MAX_PORTS_PER_PANEL {
+            return Err(DescriptorError::TooManyPorts {
+                screen,
+                panel: panel.id.as_str(),
+                count: panel.ports.len(),
+            });
+        }
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        for port in &panel.ports {
+            if !seen.insert(port.id.as_str()) {
+                return Err(DescriptorError::DuplicatePort {
+                    screen,
+                    panel: panel.id.as_str(),
+                    port: port.id.as_str(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Check every identifier the descriptor declares against the closed grammar.
@@ -286,6 +367,13 @@ fn check_identifiers(
             .panel_type
             .check()
             .map_err(|error| bad(error, panel.panel_type.as_str()))?;
+        for port in &panel.ports {
+            port.id
+                .check()
+                .map_err(|error| bad(error, port.id.as_str()))?;
+            VersionedTypeId::parse(port.type_id.as_str())
+                .map_err(|error| bad(error, port.type_id.as_str()))?;
+        }
     }
     Ok(())
 }

@@ -8,11 +8,14 @@
 //! Sizing uses `NonZeroU16` so "a fixed size of zero" and "a weight of zero"
 //! are unrepresentable rather than special-cased at every allocation step.
 
+use std::fmt;
 use std::num::NonZeroU16;
 
 use crate::domain::TypedMap;
 
-use super::ids::{PanelId, PanelTypeId, RouteId, ScreenId};
+use super::activation::{ActivationField, ScreenBinding};
+use super::ids::{PanelId, PanelTypeId, PortId, RouteId, ScreenIdentity, VersionedTypeId};
+use super::relationships::Relationship;
 
 /// Axis along which a split node divides its rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -111,6 +114,62 @@ impl LayoutNode {
     }
 }
 
+/// Which way a value crosses a port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PortDirection {
+    /// The panel consumes a value here.
+    Input,
+    /// The panel publishes a value here.
+    Output,
+}
+
+impl PortDirection {
+    /// The stable text used in diagnostics and the external syntax.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Input => "input",
+            Self::Output => "output",
+        }
+    }
+}
+
+/// One typed connection point on a panel.
+///
+/// Ports are the only surface a relationship may join, which is what keeps
+/// panels from reaching into each other: a panel declares what it publishes and
+/// what it consumes, and the screen declares which publications feed which
+/// consumptions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortDescriptor {
+    /// Identity of the port within its panel.
+    pub id: PortId,
+    /// Which way values cross this port.
+    pub direction: PortDirection,
+    /// Identity and version of the value the port carries.
+    pub type_id: VersionedTypeId,
+    /// Whether the panel needs a value here to function.
+    pub required: bool,
+    /// Whether the port keeps its last value when its source becomes absent,
+    /// instead of clearing.
+    pub retained: bool,
+}
+
+/// A reference to one port on one panel of the same screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PortRef {
+    /// The panel that owns the port.
+    pub panel: PanelId,
+    /// The port on that panel.
+    pub port: PortId,
+}
+
+impl fmt::Display for PortRef {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}", self.panel, self.port)
+    }
+}
+
 /// One panel within a screen: its identity, kind, configuration, and role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PanelDescriptor {
@@ -126,13 +185,23 @@ pub struct PanelDescriptor {
     /// Required panels are never collapsed; when they cannot fit the resolver
     /// falls back to the too-small layout.
     pub required: bool,
+    /// Typed connection points, in declaration order.
+    pub ports: Vec<PortDescriptor>,
+}
+
+impl PanelDescriptor {
+    /// Find a port by identity.
+    #[must_use]
+    pub fn port(&self, id: &PortId) -> Option<&PortDescriptor> {
+        self.ports.iter().find(|port| &port.id == id)
+    }
 }
 
 /// The sole definition of one screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenDescriptor {
-    /// Stable identity of the screen.
-    pub id: ScreenId,
+    /// Stable identity of the screen, compiled or lowered.
+    pub id: ScreenIdentity,
     /// Human-readable screen title.
     pub title: String,
     /// Navigation route the screen is reachable through.
@@ -146,6 +215,20 @@ pub struct ScreenDescriptor {
     pub focus_order: Vec<PanelId>,
     /// Root of the layout tree.
     pub layout: LayoutNode,
+    /// Typed edges between this screen's ports, in declaration order.
+    ///
+    /// Declaration order is part of the contract: propagation applies edges in
+    /// this order within one transition, so two screens with the same edges in
+    /// different orders are two different screens.
+    pub relationships: Vec<Relationship>,
+    /// What this screen's route accepts when something navigates to it.
+    ///
+    /// Compiled screens declare none today; navigation validates an activation
+    /// against this schema, so it lives beside the route rather than beside the
+    /// syntax that happened to describe it.
+    pub activation: Vec<ActivationField>,
+    /// Actions this screen asks to be reachable while it is focused.
+    pub bindings: Vec<ScreenBinding>,
 }
 
 impl ScreenDescriptor {
@@ -153,6 +236,16 @@ impl ScreenDescriptor {
     #[must_use]
     pub fn panel(&self, id: &PanelId) -> Option<&PanelDescriptor> {
         self.panels.iter().find(|panel| &panel.id == id)
+    }
+
+    /// Resolve a `<panel>.<port>` reference against this screen.
+    ///
+    /// Returns `None` when either half names something the screen does not
+    /// declare, which is how a relationship referring outside its own screen is
+    /// detected.
+    #[must_use]
+    pub fn port(&self, reference: &PortRef) -> Option<&PortDescriptor> {
+        self.panel(&reference.panel)?.port(&reference.port)
     }
 
     /// The first required focusable panel in focus order.
