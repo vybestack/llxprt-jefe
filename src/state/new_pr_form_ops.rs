@@ -189,6 +189,9 @@ impl AppState {
         if self.prs_state.create_mutation_pending.is_some() {
             return;
         }
+        // The structural prerequisite comes first: telling someone their title
+        // is empty when the real problem is that no repository is selected
+        // sends them to fix the wrong thing.
         let scope_repo_id = self
             .selected_repository_index
             .and_then(|index| self.repositories.get(index))
@@ -196,14 +199,14 @@ impl AppState {
         let Some(form) = self.prs_state.new_pr_form.as_mut() else {
             return;
         };
-        if let Err(reason) = new_pr_submit_refusal(form) {
-            form.error = Some(reason);
-            return;
-        }
         let Some(scope_repo_id) = scope_repo_id else {
             form.error = Some("Select a repository before opening a pull request.".to_string());
             return;
         };
+        if let Err(reason) = new_pr_submit_refusal(form) {
+            form.error = Some(reason);
+            return;
+        }
         form.error = None;
         self.prs_state.next_mutation_id = self.prs_state.next_mutation_id.saturating_add(1);
         self.prs_state.create_mutation_pending = Some(PrCreateMutationPending {

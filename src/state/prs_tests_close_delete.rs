@@ -391,6 +391,11 @@ fn a_failed_delete_clears_the_pending_and_names_the_pull_request() {
         Some(PrState::Open),
         "a delete that never closed the pull request leaves it open"
     );
+    assert!(
+        state.prs_state.post_mutation_refresh.is_ready(false, false),
+        "a failed delete asks the server what the truth is, because the failure \
+         may be that someone else already changed the pull request"
+    );
 }
 
 #[test]

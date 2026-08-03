@@ -179,8 +179,12 @@ impl AppState {
         self.prs_state.delete_mutation_pending = None;
         if closed {
             self.mark_pull_request_closed(pr_number);
-            self.prs_state.post_mutation_refresh.request();
         }
+        // Refresh whatever happened. A delete can fail after it changed
+        // something, and it can fail *because* the pull request already changed
+        // under us — someone else closed it — so the server, not a guess at what
+        // the error text meant, decides what the screen shows next.
+        self.prs_state.post_mutation_refresh.request();
         self.prs_state.error = Some(format!("Failed to delete PR #{pr_number}: {error}"));
     }
 

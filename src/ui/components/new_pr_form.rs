@@ -134,15 +134,18 @@ pub fn new_pr_form_hint(form: &NewPrFormState) -> String {
 /// New PR composer overlay.
 #[component]
 pub fn NewPrForm(props: &NewPrFormProps) -> impl Into<AnyElement<'static>> {
-    let Some(form) = props.form.clone().filter(|_| props.visible) else {
+    // Check visibility before touching the form: a hidden composer is rendered
+    // on every PR-screen frame, and cloning its branch list each time would be
+    // an allocation for nothing.
+    let Some(form) = props.form.as_ref().filter(|_| props.visible) else {
         return element! {
             Box(width: 0u32, height: 0u32) {}
         };
     };
 
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let rows = new_pr_form_rows(&form);
-    let hint = new_pr_form_hint(&form);
+    let rows = new_pr_form_rows(form);
+    let hint = new_pr_form_hint(form);
     let hint_color = if form.error.is_some() {
         rc.bright
     } else {

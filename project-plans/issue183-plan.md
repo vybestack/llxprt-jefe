@@ -131,7 +131,7 @@ and the composer.
 ## Review counters
 
 - Local OCR runs: 1 of 2.
-- PR OCR runs: 1 of 2.
+- PR OCR runs: 2 of 2 (one local against the PR head, one in CI).
 
 ## Verification evidence
 
@@ -185,6 +185,24 @@ Open Code Review on the pull-request head, run 1: six findings.
 | The malformed-body test asserted the error variant but not the mutation name | In-scope—Fix | Asserts the mutation name |
 | Reordering two clones in `handle_pr_branches_load` | Reject | The suggested order clones exactly as many times; there is no allocation to remove |
 
+Open Code Review in CI, run 2: eighteen inline threads.
+
+| Finding | Disposition | Action |
+|---|---|---|
+| A `close_item` that fails *because* someone else already closed the pull request reports `closed: false`, so the screen contradicts the server | Blocker—Fix | A failed delete now always requests the reconciling refresh, whatever the cause, rather than guessing at the error prose |
+| Submit validated the draft before checking that a repository is selected, so a missing repository was reported as an empty title | In-scope—Fix | The structural prerequisite is checked first, with a test |
+| `NewPrForm` cloned the whole draft, branch list included, before checking visibility (two threads) | In-scope—Fix | Visibility is checked first and the form is borrowed |
+| `prs.detail` has no `Shift+W` binding | Reject | It does — `prs.open-property` carries `Shift+W` among its chords, which is how #175 shipped it |
+| `BackTab` is unreliable across terminals | Reject | Every previous-field binding in this inventory uses `BackTab`; a different chord here would be the inconsistency, and this is a keymap-wide question |
+| A test name should contain an apostrophe | Reject | Rust identifiers cannot |
+| `is_pr_property_app_event` / `is_pr_property_message` need not be `pub(super)` (two threads) | Reject | Both are called from `prs_lifecycle_conversion`, which is why the visibility widened |
+| The catch-all arm in `apply_new_pr_form_event` hides future variants | Reject | The reducer is a chain of responsibility, so every link must pass on what it does not own; an unhandled event returns `false` and changes nothing, exactly as in `prs_merge_ops` and `prs_delete_ops` |
+| Tests match on refusal wording (two threads) | Reject | Which refusal the user is told about is the behaviour under test; asserting only that an error exists could not tell the two refusals apart |
+| Replace `error: String` with a typed lifecycle error (five threads) | Defer | Every failure event in the codebase carries `String`; typing only the five new ones would split the family this change just unified. Left unresolved for a scope decision |
+
 ## Deferred findings
 
-None.
+- A typed error for mutation-failure events, replacing `error: String` across
+  `PrMergeFailed`, `PrPropertyEditFailed`, `PrThreadResolveFailed`,
+  `MutationFailed`, `IssueRewriteFailed` and the five new lifecycle variants.
+  Worth doing as one change, not as an exception for the newest events.

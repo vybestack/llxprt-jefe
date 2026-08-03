@@ -411,6 +411,24 @@ fn a_head_that_equals_the_base_is_refused() {
 }
 
 #[test]
+fn a_lost_repository_is_reported_before_anything_about_the_draft() {
+    let mut state = titled_composer("Add login");
+    state.selected_repository_index = None;
+
+    let state = lifecycle(state, PrLifecycleEvent::NewFormSubmit);
+
+    assert!(state.prs_state.create_mutation_pending.is_none());
+    assert!(
+        form(&state)
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("repository")),
+        "the structural problem, not a field, must be what the composer says: {:?}",
+        form(&state).error
+    );
+}
+
+#[test]
 fn a_composer_still_loading_its_branches_cannot_submit() {
     let state = lifecycle(list_focused(), PrLifecycleEvent::OpenNewForm);
     let state = lifecycle(state, PrLifecycleEvent::NewFormSubmit);
