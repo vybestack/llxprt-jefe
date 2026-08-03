@@ -99,11 +99,47 @@ Facts verified in the tree (not assumed):
 8. **S8 — Evidence and docs**: `tests/core/navigation_contracts.rs`, six tmux
    scenarios, and the three standards documents.
 
+## 4a. Slice progress
+
+| Slice | State | Evidence |
+|---|---|---|
+| S1 route/activation contract | **done** — `d3f7eec3` | `src/workbench/route_tests.rs`, 15 tests green (A1–A3) |
+| S2 navigation reducer core | **done** — `44c4d62b` | `src/state/navigation_tests.rs`, 20 tests green (B1–B5) |
+| S3 generations / stale completions | **done** — `fa9fa698` | same file, 7 further tests green (B6) |
+| S4 message bus + `AppState` cutover | not started | — |
+| S5 local unwind precedence | not started | — |
+| S6 dirty lifecycle | **blocked** — awaiting the Save-semantics decision | — |
+| S7 migration | not started | — |
+| S8 evidence + docs | not started | — |
+
+Each committed slice passed `cargo fmt --all` and
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+
+### Design decisions taken while implementing S1–S3
+
+- Route/activation value types live in `src/workbench/route.rs`, not `src/domain/`,
+  because they reference `RouteId` / `ScreenIdentity` / `ActivationKind` and
+  `domain` must not depend on `workbench`.
+- `reduce_navigation` is pure and stages **no** effect of its own. Suspension and
+  disposal are state facts, not effects, so CW-01's closed `Effect` family
+  inventory does not have to grow for Push/Replace/Back. The only effect CW-06
+  emits is the dirty save (S6).
+- `SuspendedInstance` is a newtype rather than a flag, so a stacked instance
+  cannot be read as the current one by accident.
+- Staleness is one comparison — `NavState::answers_live_work` — against the live
+  instance's `(screen_generation, activation_generation)`. Suspended instances
+  are not live, restoring one makes its work live again (this *is* "Back restores
+  subscriptions"), and a disposed instance's generations never return because
+  generations only move forward.
+- `Activation.source_instance` / `activation_generation` identify the snapshot a
+  request was computed from, so a request produced against a screen that has
+  since been replaced is refused (`NavRefusal::StaleSource`) rather than acted on.
+
 ## 5. Scope ledger
 
 | Entry | Status |
 |---|---|
-| (none yet) | — |
+| (none — every changed file maps to an acceptance row) | — |
 
 ## 6. Review counters
 
