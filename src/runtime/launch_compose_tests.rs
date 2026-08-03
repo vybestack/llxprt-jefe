@@ -407,5 +407,5 @@ fn post_evidence_replacement_is_rejected_before_stub_session_effects() {
         panic!("fingerprint mismatch must be a spawn failure");
     };
     assert!(reason.contains("AGT-E203"), "{reason}");
-    assert!(!manager.session_exists(&agent_id));
+    assert!(!manager.has_session_record(&agent_id));
 }

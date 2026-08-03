@@ -40,6 +40,19 @@ impl StubRuntimeManager {
         }
     }
 
+    /// Whether this stub is still holding a session record for `agent_id`.
+    ///
+    /// Named for what it actually answers. The trait used to carry
+    /// `is_alive`/`session_exists` returning `bool`, which read as liveness
+    /// predicates while really reporting the stub's own bookkeeping -- and a
+    /// real implementation cannot answer liveness in two values, because
+    /// "the session is gone" and "the multiplexer could not be asked" are
+    /// different facts (issue #597).
+    #[must_use]
+    pub fn has_session_record(&self, agent_id: &AgentId) -> bool {
+        self.sessions.iter().any(|s| &s.agent_id == agent_id)
+    }
+
     /// Construct a deterministic manager whose attach boundary returns `error`.
     #[must_use]
     pub fn with_attach_failure(error: RuntimeError) -> Self {
@@ -140,14 +153,6 @@ impl RuntimeManager for StubRuntimeManager {
             return Err(RuntimeError::NotRunning(agent_id.clone()));
         }
         self.spawn_session(agent_id, launch, remote)
-    }
-
-    fn is_alive(&self, agent_id: &AgentId) -> bool {
-        self.sessions.iter().any(|s| &s.agent_id == agent_id)
-    }
-
-    fn session_exists(&self, agent_id: &AgentId) -> bool {
-        self.sessions.iter().any(|s| &s.agent_id == agent_id)
     }
 
     fn snapshot(&self) -> Option<TerminalSnapshot> {

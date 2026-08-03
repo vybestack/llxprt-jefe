@@ -87,7 +87,7 @@ fn kill_session_effect_kills_the_runtime_session_and_reports_killed() {
         other => panic!("expected Killed response, got {other:?}"),
     }
     assert!(
-        !manager.session_exists(&agent_id),
+        !manager.has_session_record(&agent_id),
         "session must be removed by the kill effect"
     );
 }
