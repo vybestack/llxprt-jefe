@@ -103,6 +103,11 @@ pub use keys_editor::{
 #[cfg(test)]
 #[path = "keys_editor_tests.rs"]
 mod keys_editor_tests;
+/// The sole owner of route, stack, and dirty transitions (issue #386).
+pub mod navigation;
+#[cfg(test)]
+#[path = "navigation_tests.rs"]
+mod navigation_tests;
 /// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]
