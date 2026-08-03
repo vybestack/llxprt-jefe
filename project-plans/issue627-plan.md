@@ -154,4 +154,19 @@ why the encoding cannot be gated on anything jefe can see.
 
 ## Verification evidence
 
-To be filled at the green checkpoint.
+- `cargo xtask ci` on the candidate head: fmt, check-clippy-allows,
+  check-source-size, check-architecture, check-multiplexer-surface, lint,
+  complexity, coverage and build all pass.
+- `cargo test --workspace --all-features --locked` on the candidate head: all 81
+  test targets pass.
+- `tests/jsp_host_socket.rs::production_host_generates_unique_credentials_delivers_and_revokes`
+  failed in two runs that overlapped with other heavy work on the machine, and
+  passed on an idle machine on both this branch and `main`. The test drives 100
+  rapid requests at a single-threaded unix-socket worker and its own source
+  documents the accept-backlog contention that produces exactly this
+  "connection reset by peer". It shares no code with this change, which touches
+  only the PTY input path. Treated as a pre-existing load-sensitive flake, not
+  as a regression.
+- Transport behavior measured directly against tmux 3.7b with an isolated
+  configuration, in jefe's own attach topology; results recorded in the
+  measured-behavior table above.
