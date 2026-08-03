@@ -67,7 +67,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "> [X] Inspectable Actions fixture"
+        "> \u2717 Inspectable Actions fixture"
       ],
       "absent": []
     },
@@ -97,7 +97,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> [X] Interleaved Actions fixture run",
+      "literal": "> \u2717 Interleaved Actions fixture run",
       "timeout_ms": 15000
     },
     {
@@ -108,7 +108,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> [X] Inspectable Actions fixture",
+      "literal": "> \u2717 Inspectable Actions fixture",
       "timeout_ms": 15000
     },
     {

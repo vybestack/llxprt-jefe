@@ -1,12 +1,14 @@
 //! Pure Actions job-detail geometry and wrapped display-row projection.
 //!
 //! This module is the single iocraft-free source of truth for job focus
-//! normalization, status text, wrapping, scroll bounds, and focus reveal.
+//! normalization, wrapping, scroll bounds, and focus reveal. Status indicators
+//! come from the Actions-wide [`crate::actions_view::status_glyph`].
 
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
-use crate::domain::{WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunStatus};
+use crate::actions_view::status_glyph;
+use crate::domain::WorkflowRunDetail;
 use crate::layout::ActionsDetailGeometry;
 use crate::text_wrap::wrap_text;
 
@@ -146,40 +148,12 @@ fn push_wrapped_row(
     );
 }
 
-fn status_glyph(
-    status: WorkflowRunStatus,
-    conclusion: Option<WorkflowRunConclusion>,
-) -> &'static str {
-    match status {
-        WorkflowRunStatus::Completed => match conclusion {
-            Some(WorkflowRunConclusion::Success) => "\u{2713}",
-            Some(
-                WorkflowRunConclusion::Failure
-                | WorkflowRunConclusion::TimedOut
-                | WorkflowRunConclusion::ActionRequired
-                | WorkflowRunConclusion::StartupFailure,
-            ) => "\u{2717}",
-            Some(
-                WorkflowRunConclusion::Cancelled
-                | WorkflowRunConclusion::Skipped
-                | WorkflowRunConclusion::Stale
-                | WorkflowRunConclusion::Neutral,
-            ) => "\u{2298}",
-            Some(WorkflowRunConclusion::Unknown) | None => "?",
-        },
-        WorkflowRunStatus::InProgress => "~",
-        WorkflowRunStatus::Queued
-        | WorkflowRunStatus::Requested
-        | WorkflowRunStatus::Waiting
-        | WorkflowRunStatus::Pending => ".",
-        WorkflowRunStatus::Unknown => "?",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{WorkflowRun, WorkflowRunJob, WorkflowRunStep};
+    use crate::domain::{
+        WorkflowRun, WorkflowRunConclusion, WorkflowRunJob, WorkflowRunStatus, WorkflowRunStep,
+    };
     use unicode_width::UnicodeWidthStr;
 
     fn run() -> WorkflowRun {

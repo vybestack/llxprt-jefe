@@ -8,7 +8,7 @@
 //! component owns border rendering, scroll windowing, width clamping, and
 //! selection highlighting.
 
-use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
+use crate::domain::WorkflowRun;
 use crate::list_viewport::{ListGeometry, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
@@ -52,30 +52,6 @@ pub struct ActionsListWindow {
     pub layout: ActionsListLayout,
 }
 
-/// Build the ASCII status glyph for a run.
-///
-/// Returns a short bracketed tag (`[OK]`, `[X]`, `[~]`, `[.]`, etc.). Uses
-/// ASCII glyphs only — no pictographic emoji — for terminal-width stability.
-fn run_status_glyph(
-    status: WorkflowRunStatus,
-    conclusion: Option<WorkflowRunConclusion>,
-) -> &'static str {
-    match status {
-        WorkflowRunStatus::Completed => match conclusion {
-            Some(WorkflowRunConclusion::Success) => "[OK]",
-            Some(WorkflowRunConclusion::Failure) => "[X]",
-            Some(WorkflowRunConclusion::Cancelled) => "[/]",
-            _ => "[?]",
-        },
-        WorkflowRunStatus::InProgress => "[~]",
-        WorkflowRunStatus::Queued
-        | WorkflowRunStatus::Requested
-        | WorkflowRunStatus::Waiting
-        | WorkflowRunStatus::Pending => "[.]",
-        WorkflowRunStatus::Unknown => "[?]",
-    }
-}
-
 /// Map already-windowed [`ProjectedRun`](crate::actions_view::ProjectedRun)s
 /// into [`SelectableRow`]s for the generic [`SelectableList`]. Each run becomes
 /// a two-line row: a title line (selection prefix + status glyph + run name)
@@ -86,14 +62,14 @@ fn to_selectable_rows(
     compact: bool,
     available_width: Option<u16>,
 ) -> Vec<SelectableRow> {
-    // Prefix ("> "/"  ") + space + glyph (4 chars) + space = 7 chars of chrome
-    // before the run name. Reserve that much before truncating the title.
-    const TITLE_CHROME: usize = 7;
+    // Prefix ("> "/"  ") + glyph (1 cell) + space = 4 columns of chrome before
+    // the run name. Reserve that much before truncating the title.
+    const TITLE_CHROME: usize = 4;
     view.visible_runs
         .iter()
         .map(|run| {
             let prefix = if run.is_selected { "> " } else { "  " };
-            let glyph = run_status_glyph(run.status, run.conclusion);
+            let glyph = crate::actions_view::status_glyph(run.status, run.conclusion);
             let name = if let Some(width) = available_width {
                 let budget = (usize::from(width)).saturating_sub(TITLE_CHROME).max(1);
                 crate::ui::util::truncate_with_ellipsis(&run.name, budget)
@@ -193,6 +169,7 @@ mod tests {
     use super::*;
     use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
     use crate::theme::ThemeColors;
+    use unicode_width::UnicodeWidthStr;
 
     fn make_run(
         id: u64,
@@ -262,10 +239,23 @@ mod tests {
         assert_eq!(props.rows.len(), 2);
         // First run is selected → prefix "> "
         assert!(props.rows[0].spans[0].text.starts_with("> "));
-        assert!(props.rows[0].spans[0].text.contains("[OK]"));
+        assert!(props.rows[0].spans[0].text.contains('\u{2713}'));
         // Second run is not selected → prefix "  "
         assert!(props.rows[1].spans[0].text.starts_with("  "));
-        assert!(props.rows[1].spans[0].text.contains("[X]"));
+        assert!(props.rows[1].spans[0].text.contains('\u{2717}'));
+        // Brackets are gone: the status indicator is a bare glyph.
+        assert!(
+            props
+                .rows
+                .iter()
+                .all(|row| !row.spans[0].text.contains('[') && !row.spans[0].text.contains(']')),
+            "run-list title lines must not bracket the status glyph, rows: {:?}",
+            props
+                .rows
+                .iter()
+                .map(|r| &r.spans[0].text)
+                .collect::<Vec<_>>()
+        );
         // Meta line present (non-empty in Full mode)
         assert!(props.rows[0].meta_line.is_some());
         assert!(
@@ -275,6 +265,128 @@ mod tests {
                 .unwrap_or("")
                 .contains("#1")
         );
+    }
+
+    /// Title line the run list renders for a single run in this state.
+    fn run_list_title_line(
+        status: WorkflowRunStatus,
+        conclusion: Option<WorkflowRunConclusion>,
+    ) -> String {
+        let window = ActionsListWindow {
+            selected_index: Some(0),
+            list_pane_rows: 10,
+            available_width: None,
+            layout: ActionsListLayout::Compact,
+        };
+        let props = actions_list_props(
+            &[make_run(1, status, conclusion)],
+            window,
+            true,
+            None,
+            ThemeColors::default(),
+            None,
+        );
+        props.rows[0].spans[0].text.clone()
+    }
+
+    /// Job-detail document for a single job in this state.
+    fn job_detail_content(
+        status: WorkflowRunStatus,
+        conclusion: Option<WorkflowRunConclusion>,
+    ) -> String {
+        let detail = crate::domain::WorkflowRunDetail {
+            run: make_run(1, status, conclusion),
+            jobs: vec![crate::domain::WorkflowRunJob {
+                id: 1,
+                name: "job".to_string(),
+                status,
+                conclusion,
+                steps: Vec::new(),
+            }],
+        };
+        crate::actions_detail_view::project_actions_detail(
+            &detail,
+            &std::collections::HashSet::new(),
+            Some(0),
+            crate::layout::ActionsDetailGeometry {
+                viewport_rows: 10,
+                content_width: 80,
+            },
+        )
+        .content()
+    }
+
+    /// Both Actions screens must project their status indicator from the one
+    /// shared helper, so the run list can never drift from the detail pane
+    /// again. Exercised across every status/conclusion pair.
+    #[test]
+    fn run_list_and_job_detail_render_the_shared_status_glyph() {
+        use crate::actions_view::{every_status_and_conclusion, status_glyph};
+
+        for (status, conclusion) in every_status_and_conclusion() {
+            let expected = status_glyph(status, conclusion);
+            assert!(
+                !expected.contains('[') && !expected.contains(']'),
+                "shared status glyph must not be bracketed: {expected}"
+            );
+            assert_eq!(
+                run_list_title_line(status, conclusion),
+                format!("> {expected} Run 1"),
+                "run-list row for {status:?}/{conclusion:?}"
+            );
+            let content = job_detail_content(status, conclusion);
+            assert!(
+                content.contains(&format!("> \u{25B8} {expected} job")),
+                "detail heading for {status:?}/{conclusion:?}: {content}"
+            );
+        }
+    }
+
+    /// The bare glyph costs three columns less than the old bracketed tag, so
+    /// truncation must reserve only prefix + glyph + separator and hand those
+    /// three columns back to the run name.
+    #[test]
+    fn title_truncation_reserves_only_prefix_glyph_and_separator() {
+        let mut run = make_run(
+            1,
+            WorkflowRunStatus::Completed,
+            Some(WorkflowRunConclusion::Success),
+        );
+        run.name = "abcdefghijklmnopqrstuvwxyz".to_string();
+        let window = ActionsListWindow {
+            selected_index: Some(0),
+            list_pane_rows: 10,
+            available_width: Some(20),
+            layout: ActionsListLayout::Compact,
+        };
+        let props = actions_list_props(&[run], window, true, None, ThemeColors::default(), None);
+        let title = props.rows[0].spans[0].text.as_str();
+        // 20 columns - 4 chrome = 16-cell name budget = 15 chars + ellipsis.
+        assert_eq!(title, "> \u{2713} abcdefghijklmno\u{2026}");
+        assert_eq!(UnicodeWidthStr::width(title), 20);
+    }
+
+    /// Wide (double-cell) run names are still budgeted in terminal cells, so a
+    /// truncated CJK title never overflows the pane.
+    #[test]
+    fn wide_run_names_stay_within_the_available_width() {
+        let mut run = make_run(
+            1,
+            WorkflowRunStatus::Completed,
+            Some(WorkflowRunConclusion::Failure),
+        );
+        run.name = "构建甲乙丙丁戊己庚辛".to_string();
+        let window = ActionsListWindow {
+            selected_index: Some(0),
+            list_pane_rows: 10,
+            available_width: Some(20),
+            layout: ActionsListLayout::Compact,
+        };
+        let props = actions_list_props(&[run], window, true, None, ThemeColors::default(), None);
+        let title = props.rows[0].spans[0].text.as_str();
+        // 16-cell budget = 7 double-width chars (14 cells) + ellipsis.
+        assert_eq!(title, "> \u{2717} 构建甲乙丙丁戊\u{2026}");
+        assert!(UnicodeWidthStr::width(title) <= 20);
     }
 
     #[test]

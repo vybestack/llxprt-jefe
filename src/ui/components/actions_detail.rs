@@ -3,8 +3,8 @@
 //! Mirrors [`crate::ui::components::pr_detail`]: this module builds a
 //! [`DetailPaneProps`] from the workflow run detail and delegates rendering to
 //! the generic [`DetailPane`] via [`detail_pane_element`]. The heavy projection
-//! (windowing, line building) lives in [`crate::actions_view`]; this module
-//! handles the header-rows + content-string + viewport-math glue.
+//! (windowing, line building) lives in [`crate::actions_detail_view`]; this
+//! module handles the header-rows + content-string + viewport-math glue.
 
 use crate::actions_detail_view::project_actions_detail;
 use crate::domain::WorkflowRunDetail;

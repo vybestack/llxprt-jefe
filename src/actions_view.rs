@@ -6,9 +6,83 @@
 //!
 //! Run ordering (issue #208) is committed by the Actions state reducer before
 //! projection so navigation indices match the reverse-chronological display.
+//!
+//! [`status_glyph`] is shared by every Actions surface (run list, job detail)
+//! so the screens cannot drift apart.
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
+
+/// Status indicator for a workflow run, job, or step.
+///
+/// Single-codepoint textual symbols only — no pictographic emoji and no
+/// bracketed tags — so every Actions surface renders one terminal cell of
+/// status. Shared by the run list and the job-detail pane.
+#[must_use]
+pub fn status_glyph(
+    status: WorkflowRunStatus,
+    conclusion: Option<WorkflowRunConclusion>,
+) -> &'static str {
+    match status {
+        WorkflowRunStatus::Completed => match conclusion {
+            Some(WorkflowRunConclusion::Success) => "\u{2713}",
+            Some(
+                WorkflowRunConclusion::Failure
+                | WorkflowRunConclusion::TimedOut
+                | WorkflowRunConclusion::ActionRequired
+                | WorkflowRunConclusion::StartupFailure,
+            ) => "\u{2717}",
+            Some(
+                WorkflowRunConclusion::Cancelled
+                | WorkflowRunConclusion::Skipped
+                | WorkflowRunConclusion::Stale
+                | WorkflowRunConclusion::Neutral,
+            ) => "\u{2298}",
+            Some(WorkflowRunConclusion::Unknown) | None => "?",
+        },
+        WorkflowRunStatus::InProgress => "~",
+        WorkflowRunStatus::Queued
+        | WorkflowRunStatus::Requested
+        | WorkflowRunStatus::Waiting
+        | WorkflowRunStatus::Pending => ".",
+        WorkflowRunStatus::Unknown => "?",
+    }
+}
+
+/// Every status/conclusion pair an Actions surface can be asked to render.
+///
+/// Hand-maintained: extend the arrays when a [`WorkflowRunStatus`] or
+/// [`WorkflowRunConclusion`] variant is added. Production glyph mapping is
+/// wildcard-free, so a new variant stops compiling there first.
+#[cfg(test)]
+pub(crate) fn every_status_and_conclusion()
+-> impl Iterator<Item = (WorkflowRunStatus, Option<WorkflowRunConclusion>)> {
+    const STATUSES: [WorkflowRunStatus; 7] = [
+        WorkflowRunStatus::Completed,
+        WorkflowRunStatus::InProgress,
+        WorkflowRunStatus::Queued,
+        WorkflowRunStatus::Requested,
+        WorkflowRunStatus::Waiting,
+        WorkflowRunStatus::Pending,
+        WorkflowRunStatus::Unknown,
+    ];
+    const CONCLUSIONS: [Option<WorkflowRunConclusion>; 11] = [
+        None,
+        Some(WorkflowRunConclusion::Success),
+        Some(WorkflowRunConclusion::Failure),
+        Some(WorkflowRunConclusion::Cancelled),
+        Some(WorkflowRunConclusion::Skipped),
+        Some(WorkflowRunConclusion::TimedOut),
+        Some(WorkflowRunConclusion::ActionRequired),
+        Some(WorkflowRunConclusion::Stale),
+        Some(WorkflowRunConclusion::Neutral),
+        Some(WorkflowRunConclusion::StartupFailure),
+        Some(WorkflowRunConclusion::Unknown),
+    ];
+    STATUSES
+        .into_iter()
+        .flat_map(|status| CONCLUSIONS.into_iter().map(move |c| (status, c)))
+}
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +223,87 @@ mod tests {
 
         assert_eq!(view.first_visible_run_index, 1);
         assert!(view.visible_runs.iter().all(|run| !run.is_selected));
+    }
+
+    #[test]
+    fn completed_runs_map_their_conclusion_to_check_cross_or_circled_slash() {
+        use WorkflowRunConclusion as C;
+        const COMPLETED: WorkflowRunStatus = WorkflowRunStatus::Completed;
+        assert_eq!(status_glyph(COMPLETED, Some(C::Success)), "\u{2713}");
+        for failed in [
+            C::Failure,
+            C::TimedOut,
+            C::ActionRequired,
+            C::StartupFailure,
+        ] {
+            assert_eq!(
+                status_glyph(COMPLETED, Some(failed)),
+                "\u{2717}",
+                "{failed:?} is a failure"
+            );
+        }
+        for inconclusive in [C::Cancelled, C::Skipped, C::Stale, C::Neutral] {
+            assert_eq!(
+                status_glyph(COMPLETED, Some(inconclusive)),
+                "\u{2298}",
+                "{inconclusive:?} is inconclusive"
+            );
+        }
+        assert_eq!(status_glyph(COMPLETED, Some(C::Unknown)), "?");
+        assert_eq!(status_glyph(COMPLETED, None), "?");
+    }
+
+    /// GitHub reports status and conclusion independently, so a run can arrive
+    /// still running while carrying a conclusion from an earlier attempt. The
+    /// status decides the glyph until the run completes.
+    #[test]
+    fn unfinished_runs_ignore_any_conclusion_they_carry() {
+        use WorkflowRunConclusion as C;
+        let carried = [
+            None,
+            Some(C::Success),
+            Some(C::Failure),
+            Some(C::Cancelled),
+            Some(C::Unknown),
+        ];
+        for conclusion in carried {
+            assert_eq!(
+                status_glyph(WorkflowRunStatus::InProgress, conclusion),
+                "~",
+                "in-progress with {conclusion:?}"
+            );
+            for waiting in [
+                WorkflowRunStatus::Queued,
+                WorkflowRunStatus::Requested,
+                WorkflowRunStatus::Waiting,
+                WorkflowRunStatus::Pending,
+            ] {
+                assert_eq!(
+                    status_glyph(waiting, conclusion),
+                    ".",
+                    "{waiting:?} with {conclusion:?}"
+                );
+            }
+            assert_eq!(
+                status_glyph(WorkflowRunStatus::Unknown, conclusion),
+                "?",
+                "unknown status with {conclusion:?}"
+            );
+        }
+    }
+
+    /// The run list budgets exactly one column for the status indicator, so
+    /// every glyph must measure one terminal cell.
+    #[test]
+    fn every_status_glyph_occupies_one_terminal_cell() {
+        for (status, conclusion) in every_status_and_conclusion() {
+            let glyph = status_glyph(status, conclusion);
+            assert_eq!(
+                unicode_width::UnicodeWidthStr::width(glyph),
+                1,
+                "{glyph} for {status:?}/{conclusion:?} must be one cell wide"
+            );
+        }
     }
 
     #[test]
