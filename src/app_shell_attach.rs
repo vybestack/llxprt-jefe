@@ -60,8 +60,15 @@ pub fn perform_async_attach(
     let viewer = match TmuxRuntimeManager::build_viewer(inputs) {
         Ok(v) => v,
         Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "background: build_viewer failed");
-            mark_dead_or_log(&ctx, &agent_id);
+            // Building a viewer is jefe-side work. It can fail for reasons the
+            // agent knows nothing about, so it is not evidence the session or
+            // worker died, and the binding is left for liveness to judge
+            // (issue #306).
+            warn!(
+                agent_id = %agent_id.0,
+                error = %error,
+                "background: build_viewer failed; leaving the binding for liveness to judge"
+            );
             return AsyncAttachOutcome::Failed(agent_id);
         }
     };
@@ -87,10 +94,25 @@ pub fn perform_async_attach(
     match ctx_guard.runtime.apply_attach_result(&agent_id, viewer) {
         Ok(()) => AsyncAttachOutcome::Attached(agent_id),
         Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "background: apply_attach_result failed");
-            if !ctx_guard.runtime.mark_session_dead(&agent_id) {
-                warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after apply_attach_result failure");
-            }
+            // Attaching is a viewer operation. Failing it says nothing about
+            // the session or the worker, both of which may be running
+            // perfectly well, so the binding is preserved and the agent is
+            // left as it was (issue #306).
+            //
+            // Marking it dead here removed the runtime mapping while the
+            // session and worker kept running, which is how a live agent
+            // became untracked: the row said Dead, nothing owned the tree, and
+            // nothing reaped it either.
+            //
+            // Liveness is the only thing entitled to conclude death, and it
+            // re-probes every `LIVENESS_POLL_INTERVAL`, so a session that
+            // really has gone is still resolved -- just by evidence rather
+            // than by a failed attach.
+            warn!(
+                agent_id = %agent_id.0,
+                error = %error,
+                "background: apply_attach_result failed; leaving the binding for liveness to judge"
+            );
             AsyncAttachOutcome::Failed(agent_id)
         }
     }
@@ -107,17 +129,6 @@ fn perform_async_detach(ctx: &Arc<std::sync::Mutex<AppContext>>) -> AsyncAttachO
         warn!(error = %e, "background: detach failed");
     }
     AsyncAttachOutcome::Detached
-}
-
-/// Mark `agent_id` dead, logging if the session was already gone.
-fn mark_dead_or_log(ctx: &Arc<std::sync::Mutex<AppContext>>, agent_id: &AgentId) {
-    let Ok(mut ctx_guard) = ctx.lock() else {
-        warn!(agent_id = %agent_id.0, "background: ctx mutex poisoned; cannot mark session dead");
-        return;
-    };
-    if !ctx_guard.runtime.mark_session_dead(agent_id) {
-        warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after build_viewer failure");
-    }
 }
 
 /// Drop an `AttachedViewer` on a background thread to avoid blocking during
