@@ -385,3 +385,99 @@ fn a_suspended_instance_is_not_the_live_one() {
             .any(|entry| entry.instance().id == live)
     );
 }
+
+// ── CW06-08: only the live instance's work is answered ──────────────────────
+
+#[test]
+fn the_live_generations_are_the_current_instances_own() {
+    let state = rooted(ScreenId::Dashboard);
+    let current = state.current();
+    assert_eq!(
+        state.live_generations(),
+        (current.generation, current.activation.activation_generation)
+    );
+    assert!(state.answers_live_work(current.generation, current.activation.activation_generation));
+}
+
+#[test]
+fn a_suspended_instances_work_is_not_answered_while_it_waits() {
+    let before = rooted(ScreenId::Dashboard);
+    let (suspended_screen, suspended_activation) = before.live_generations();
+
+    let (after, _) = push(before, ScreenId::Issues);
+
+    assert!(
+        !after.answers_live_work(suspended_screen, suspended_activation),
+        "a suspended instance's answers must be ignored while it waits"
+    );
+}
+
+#[test]
+fn restoring_an_instance_makes_its_work_answerable_again() {
+    let before = rooted(ScreenId::Dashboard);
+    let (suspended_screen, suspended_activation) = before.live_generations();
+    let (pushed, _) = push(before, ScreenId::Issues);
+
+    let (after, _) = apply(pushed, NavIntent::Back);
+
+    assert!(
+        after.answers_live_work(suspended_screen, suspended_activation),
+        "back restores the instance's subscriptions along with the instance"
+    );
+}
+
+#[test]
+fn a_disposed_instances_work_is_never_answered_again() {
+    let before = rooted(ScreenId::Dashboard);
+    let (pushed, _) = push(before, ScreenId::Issues);
+    let (disposed_screen, disposed_activation) = pushed.live_generations();
+
+    let (after, _) = apply(pushed, NavIntent::Back);
+
+    assert!(
+        !after.answers_live_work(disposed_screen, disposed_activation),
+        "the instance back disposed must never receive an answer"
+    );
+}
+
+#[test]
+fn a_replaced_instances_work_is_never_answered_again() {
+    let before = rooted(ScreenId::Dashboard);
+    let (disposed_screen, disposed_activation) = before.live_generations();
+
+    let (after, _) = replace(before, ScreenId::Actions);
+
+    assert!(!after.answers_live_work(disposed_screen, disposed_activation));
+}
+
+#[test]
+fn generations_only_ever_move_forward() {
+    let mut state = rooted(ScreenId::Dashboard);
+    let mut previous = state.live_generations();
+    for screen in [ScreenId::Issues, ScreenId::PullRequests, ScreenId::Actions] {
+        state = push(state, screen).0;
+        let current = state.live_generations();
+        assert!(
+            current.0 > previous.0 && current.1 > previous.1,
+            "generations must advance: {previous:?} -> {current:?}"
+        );
+        previous = current;
+    }
+}
+
+#[test]
+fn a_refused_navigation_does_not_advance_generations() {
+    let mut state = rooted(ScreenId::Dashboard);
+    for _ in 0..MAX_NAVIGATION_STACK {
+        state = push(state, ScreenId::Issues).0;
+    }
+    let before = state.live_generations();
+
+    let (after, _) = push(state, ScreenId::Issues);
+
+    assert_eq!(
+        after.live_generations(),
+        before,
+        "a refusal must not invalidate the live instance's in-flight work"
+    );
+}

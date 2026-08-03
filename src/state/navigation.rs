@@ -187,6 +187,38 @@ impl NavState {
         self.current.screen
     }
 
+    /// The generations work must name to still be answerable.
+    ///
+    /// This pair is what a pending effect's correlation is registered with, and
+    /// what its completion is checked against.
+    #[must_use]
+    pub const fn live_generations(&self) -> (u64, u64) {
+        (
+            self.current.generation,
+            self.current.activation.activation_generation,
+        )
+    }
+
+    /// Whether work correlated at these generations belongs to the live instance.
+    ///
+    /// This is the whole staleness rule, and it needs no bookkeeping beyond the
+    /// generations themselves. A suspended instance's generations are not the
+    /// live ones, so its answers are ignored while it waits; restoring it makes
+    /// them live again, which is what "Back restores the instance's
+    /// subscriptions" means in practice. A disposed instance's generations
+    /// never become live again, because generations only ever move forward and
+    /// a disposed instance is never restored — so its answers are ignored
+    /// permanently rather than applied to whatever took its place.
+    #[must_use]
+    pub const fn answers_live_work(
+        &self,
+        screen_generation: u64,
+        activation_generation: u64,
+    ) -> bool {
+        let (live_screen, live_activation) = self.live_generations();
+        screen_generation == live_screen && activation_generation == live_activation
+    }
+
     /// Build the instance an activation names, without disturbing this state.
     fn construct(
         &self,
