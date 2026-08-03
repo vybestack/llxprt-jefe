@@ -9,10 +9,11 @@ use std::ffi::OsStr;
 /// Build a minimal terminal model for testing `process_pty_read`.
 fn test_term() -> Arc<Mutex<Term<RuntimeListener>>> {
     let size = TermDimensions { cols: 80, rows: 24 };
+    let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(Box::new(Vec::new())));
     Arc::new(Mutex::new(Term::new(
         TermConfig::default(),
         &size,
-        RuntimeListener,
+        RuntimeListener::new(writer),
     )))
 }
 
