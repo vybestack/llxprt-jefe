@@ -47,6 +47,14 @@ use serde::Serialize;
 /// Host hold time: keeps the pane alive until the test kills it.
 const HOST_HOLD: Duration = Duration::new(3600, 0);
 
+/// `CREATE_NEW_PROCESS_GROUP` (0x00000200) | `DETACHED_PROCESS` (0x00000008).
+///
+/// Both children are launched with their own console-free process group so
+/// that a console-close event on the parent cannot cascade into them. That is
+/// what makes the regression measure Jefe's anchor instead of ConPTY teardown.
+#[cfg(windows)]
+const DETACHED_PROCESS_GROUP: u32 = 0x0000_0208;
+
 #[derive(Serialize)]
 struct HostMarker {
     host_pid: u32,
@@ -227,24 +235,32 @@ fn run_owned_session_host(
 /// host is reachable but unowned, and only the anchor can reap it.
 ///
 /// The launcher then blocks, so it is a stable, killable owner for the test.
+#[cfg(windows)]
 fn run_pane_launcher(marker_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::windows::process::CommandExt;
+
     let current_exe = std::env::current_exe()?;
     let mut child = std::process::Command::new(&current_exe);
     child.arg("--owned-session-host").arg(marker_path);
     child.stdin(std::process::Stdio::null());
     child.stdout(std::process::Stdio::null());
     child.stderr(std::process::Stdio::null());
-    // CREATE_NEW_PROCESS_GROUP (0x00000200) | DETACHED_PROCESS (0x00000008).
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        child.creation_flags(0x0000_0208);
-    }
+    child.creation_flags(DETACHED_PROCESS_GROUP);
     let mut child = child.spawn()?;
-    let _ = child.try_wait();
+    // The host is meant to outlive this call. If it has already exited, the
+    // launch failed; blocking here would strand the test in a timeout and
+    // throw away the only evidence of why.
+    if let Some(status) = child.try_wait()? {
+        return Err(format!("owned session host exited immediately with {status}").into());
+    }
     loop {
         thread::sleep(HOST_HOLD);
     }
+}
+
+#[cfg(not(windows))]
+fn run_pane_launcher(_marker_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    Err("--pane-launcher is a Windows-only mode".into())
 }
 
 /// Spawn the long-lived worker child that the host's Job contains.
@@ -257,18 +273,15 @@ fn spawn_contained_worker(
     child.stdin(std::process::Stdio::null());
     child.stdout(std::process::Stdio::null());
     child.stderr(std::process::Stdio::null());
-    // CREATE_NEW_PROCESS_GROUP (0x00000200) | DETACHED_PROCESS (0x00000008):
-    // detach the worker from this host's console so a console-close event does
+    // Detach the worker from this host's console so a console-close event does
     // not cascade-kill it. The Job is the only containment boundary under test.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        child.creation_flags(0x0000_0208);
+        child.creation_flags(DETACHED_PROCESS_GROUP);
     }
-    let mut child = child.spawn()?;
-    let worker_pid = child.id();
-    let _ = child.try_wait();
-    Ok(worker_pid)
+    let child = child.spawn()?;
+    Ok(child.id())
 }
 
 /// Worker mode: record own PID into the marker's worker-pid slot (overwriting

@@ -338,7 +338,24 @@ pub fn spawn_owner_watchdog(anchor: OwnerAnchor) {
     let _ = std::thread::Builder::new()
         .name("jefe-owner-watchdog".to_owned())
         .spawn(move || {
-            let decision = watch_owner_anchor(&anchor, observe_owner_link, || {
+            // A panic inside a single observation must not kill the watchdog
+            // thread: a dead watchdog is a silently unanchored tree, which is
+            // the defect this mechanism exists to prevent. Treat it as what it
+            // is -- an unusable observation -- and hold, consistent with the
+            // fail-open rule applied to every other kind of uncertainty.
+            let observe = |link: OwnerLink| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    observe_owner_link(link)
+                }))
+                .unwrap_or_else(|_| {
+                    tracing::warn!(
+                        role = %link.role,
+                        "owner observation panicked; holding the tree"
+                    );
+                    OwnerStatus::Unverified
+                })
+            };
+            let decision = watch_owner_anchor(&anchor, observe, || {
                 std::thread::sleep(OWNER_WATCH_INTERVAL);
                 true
             });
