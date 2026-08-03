@@ -253,6 +253,54 @@ or a validated `local.*` identity — while screen *routing* stays the closed
 `ScreenId` enum, so every routable screen still has a compiled renderer and an
 exhaustive match.
 
+## Route and navigation ownership
+
+`state::navigation::NavState` is the sole runtime authority for which screen the
+session is on. There is no screen field anywhere else, and nothing assigns a
+screen: every change goes through `state::navigation::reduce_navigation`, which
+is pure — it takes the navigation state, the registry, and one message, and
+returns the next state plus what the caller must do about the instances that
+entered or left. It performs no I/O and stages no effect of its own.
+
+Three verbs on `AppState` are the only way in, and each is one call into the
+reducer:
+
+| Verb | Meaning |
+|---|---|
+| `enter_screen` | Open a screen, suspending the current one so Back returns to it. |
+| `switch_screen` | Take the place of the current screen without stacking on it. |
+| `leave_screen` | Go back if there is somewhere to go back to, otherwise go home. |
+
+The following are normative:
+
+- **A target is constructed before anything is suspended or disposed.** A
+  refused navigation returns the state it was given; there is no partially
+  applied navigation and no half-mutated stack.
+- **Routes are declared, not asserted.** A `RouteDeclaration` is derived from a
+  screen descriptor's `route` and `activation` (`workbench::route`), so a route
+  and the screen it reaches cannot drift apart, and a route no descriptor
+  declares cannot be navigated to.
+- **Activations are closed and non-secret.** `ActivationValue` mirrors
+  `ActivationKind` exactly; there is no secret variant, no nested map, and no
+  generic payload. Field count, serialized size, and identifier length are
+  enforced at construction, so an over-large activation cannot be held at all.
+  Every refusal is `NAV-E001` and names only identifiers the program declared —
+  never a value the caller supplied.
+- **Instance identity is never reused.** Two visits to one screen are two
+  instances, so the second never inherits the first's pending answers. A request
+  computed against an instance that is no longer current is refused as stale
+  rather than acted on.
+- **Generations decide what is still wanted.** Work is answered only when its
+  correlation names the live instance's screen and activation generations
+  (`NavState::answers_live_work`). A suspended instance's generations are not
+  live, restoring it makes them live again, and a disposed instance's
+  generations never return because generations only move forward.
+- **The stack is bounded at 32 and is never persisted.**
+- **Rooting a session is total.** Both the route and the initial focus come from
+  compiled tables (`workbench::screens::route_of`, `::initial_focus`), so
+  starting a session has no failure mode at the moment it is needed. Tests hold
+  those tables to the descriptors, so a screen that drifts fails the build.
+
 ## The Pure-Views Pattern
 
 This is the most important architectural discipline in Jefe, and historically it

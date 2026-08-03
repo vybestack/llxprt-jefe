@@ -315,6 +315,77 @@ authored paths run the same engine.
 
 ---
 
+## Back Precedence and the Dirty Guard
+
+Back means the same thing on every screen. One press unwinds exactly one layer,
+and the order is stated once, in `state::navigation_unwind::BackLayer::PRECEDENCE`:
+
+1. host confirmation modal
+2. dirty guard
+3. chooser
+4. editor or composer
+5. search input
+6. filter controls
+7. non-dirty overlay
+8. focused panel transient
+9. navigation stack
+
+A screen reports which of those it has open (`AppState::open_back_layers`) and
+the shared resolver decides (`AppState::back_resolution`); no screen contains the
+order. Only when nothing local is open does Back reach navigation — leaving to
+the screen beneath, or home when there is nothing beneath, or doing nothing when
+it is already home.
+
+`Ctrl-Q` is the protected exit. It is never an alias for Back, it is never
+consumed by a layer, and it stays visible at every geometry — including inside
+the dirty guard.
+
+### Dirty guard
+
+Leaving a screen that holds unsaved work raises the host guard rather than
+navigating. The guard traps focus and restores it:
+
+- `Tab` cycles Save, Discard, Cancel; `Esc` is Cancel.
+- **Save** runs the owner's declared save and navigates only on a matching
+  successful completion. The guard never saves anything itself; the screen
+  holding the draft declares what saving means.
+- **Discard** abandons the draft, tells the owner to restore its base, and then
+  performs the navigation that was held back.
+- **Cancel** keeps the draft, drops the pending navigation, and restores the
+  exact focus the guard interrupted.
+- A failed save keeps the user with their work: the draft, the screen, and the
+  pending navigation all survive, and the guard re-offers Retry, Discard, and
+  Cancel with the redacted reason shown.
+- When a draft has nowhere to save to, Save is shown disabled with its reason
+  and only Discard and Cancel act. The reason is text, never colour alone.
+
+At reduced geometry the guard stacks its choices one per line and keeps the
+protected exit visible:
+
+```text
+DIRTY                          RECOVERY
++ Unsaved changes ----------+ + Save failed -------------+
+|>>Save  Discard  Cancel    | | draft retained           |
+| Tab moves; Esc cancels    | |>>Retry  Discard  Cancel  |
++---------------------------+ +---------------------------+
+```
+
+```text
+SMALL
++Unsaved?-------+
+|>>Save         |
+| Discard       |
+| Cancel        |
+| Ctrl-Q Exit   |
++---------------+
+```
+
+A refused navigation leaves the current screen exactly as it was and reports
+`NAV-E001`; the reason names the rule that was broken, never the value that
+broke it.
+
+---
+
 ## Keybind Footer Convention
 
 The bottom `KeybindBar` (`src/ui/components/keybind_bar.rs`) shows

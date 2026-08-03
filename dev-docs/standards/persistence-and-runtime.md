@@ -125,6 +125,13 @@ remote transport settings and does not reinterpret agent type identity.
   actual tmux liveness. The hint still matters: an agent last known to be
   running is the one startup must check for an orphaned session, so discarding
   it silently strands live sessions.
+- Navigation is not persisted. The document records which screen the session was
+  last on and nothing else: the navigation stack, screen instances and their
+  generations, drafts and their dirty guard, subscriptions, and modal state are
+  all runtime-only. A restored session therefore comes back as exactly one clean
+  instance on the migrated screen, with an empty stack and no guard — a restored
+  stack would point at screens whose data is long gone, and a restored guard
+  would ask about a draft that no longer exists.
 - No background task scheduler state, no network server state.
 
 ---
