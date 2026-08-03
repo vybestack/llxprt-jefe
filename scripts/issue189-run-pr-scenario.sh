@@ -92,8 +92,8 @@ env PATH="$SHIM_BIN:$PATH" GH_SHIM_AUDIT="$AUDIT" \
 
 [[ -s "$AUDIT" ]] || { echo "FATAL: gh shim was not invoked" >&2; exit 1; }
 if grep -q REJECTED "$AUDIT"; then cat "$AUDIT" >&2; exit 1; fi
-if grep -qE 'ACCEPTED (pr-merge|pr-close|pr-update|comment-create|pr-review|pr-ready|issue-create|issue-update|issue-close)' "$AUDIT"; then
-  echo "FATAL: unexpected write operation in gh audit:" >&2
+if grep '^ACCEPTED ' "$AUDIT" | grep -qvE '^ACCEPTED (auth-status|pr-search|review-threads|pr-comments|pr-view-detail) -- gh '; then
+  echo "FATAL: unexpected accepted operation in gh audit:" >&2
   cat "$AUDIT" >&2
   exit 1
 fi
