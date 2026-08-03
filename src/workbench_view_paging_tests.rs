@@ -382,11 +382,12 @@ fn no_observation_lands_in_stale_bucket() {
 
 #[test]
 fn todo_window_first_open_centers_correctly() {
-    // List of 8, first open at index 5. start = min(5-1, 8-3) = min(4, 5) = 4.
+    // List of 8, first open at index 5.
     let items: Vec<(bool, &str)> = (0..8).map(|i| (i < 5, "x")).collect();
     let obs = todo_observation(&items);
     let agent = agent_with(AgentStatus::Running, "a", "r");
-    // Force a small window so the math is deterministic: use W_MIN=3.
+    // A 20-row terminal is tall enough for a 6-line window here; the exact
+    // value is asserted below rather than assumed.
     let view = project(vec![(agent, Some(git("r")), Some(obs))], 200, 20);
     let card = &view.cards[0];
     let TodoRender::Known(window) = &card.todos else {
@@ -398,10 +399,32 @@ fn todo_window_first_open_centers_correctly() {
     let Some(current_visible) = window.current else {
         panic!("expected a current index");
     };
-    // Reconstruct: the visible slice should contain the current item.
     assert!(window.visible[current_visible].is_current);
-    // And there should be a preceding completed item visible (global index 4).
-    let _ = w;
+    // A 20-row terminal yields W=6 for this list, not W_MIN. Pinning the real
+    // value keeps the arithmetic below honest: with 8 items and W=6 the window
+    // start is min(current-1, total-W) = min(4, 2) = 2, so the current item
+    // (global index 5) lands at visible index 3.
+    assert_eq!(w, 6, "a 20-row terminal should yield a 6-line window");
+    assert_eq!(window.visible.len(), w);
+    assert_eq!(
+        current_visible, 3,
+        "current item should sit at visible index 3 for start=2"
+    );
+    // Anchoring backs up for context, so the current item is never the first
+    // line while earlier items exist.
+    assert!(
+        current_visible >= 1,
+        "a preceding item must stay visible for context"
+    );
+    // Exactly one line may claim to be current.
+    assert_eq!(
+        window.visible.iter().filter(|l| l.is_current).count(),
+        1,
+        "exactly one visible line may be marked current"
+    );
+    // The counter is computed from the whole list, not the window.
+    assert_eq!(window.total, 8);
+    assert_eq!(window.done, 5);
 }
 
 #[test]
@@ -440,13 +463,17 @@ fn turn_elapsed_label_rendered_for_active_turn() {
             elapsed_ms: 252_000,
         }),
     );
-    // Anchor in the past so local elapsed is deterministic: 0 local.
+    // Anchor the observation now, so the locally-measured component is ~0 and
+    // the label is dominated by the producer's 252s anchor. Asserting a prefix
+    // rather than the whole string keeps this from being flaky on the seconds
+    // component while still pinning that the anchor is actually used: if the
+    // producer value were ignored the label would read "0s" or "—".
     obs.turn_observed_at = Some(Instant::now());
     let view = project(vec![(agent, Some(git("r")), Some(obs))], 200, 52);
     let elapsed = &view.cards[0].header.elapsed;
     assert!(
-        elapsed.contains("4m") || elapsed.contains("252"),
-        "elapsed must reflect the turn anchor, got {elapsed}"
+        elapsed.starts_with("4m"),
+        "elapsed must be driven by the 252s turn anchor, got {elapsed}"
     );
 }
 

@@ -62,6 +62,43 @@ fn next_page_advances_page() {
     assert_eq!(after.workbench_page, 1);
 }
 
+/// The reducer deliberately does not know the page count. It cannot: the number
+/// of pages depends on terminal size, which is a render-time fact and is not
+/// part of `AppState`. So `WorkbenchNextPage` only ever increments (saturating
+/// at the integer bound), and the projection clamps the requested page against
+/// the real page count when it builds the view. This test pins that split so a
+/// future reader does not mistake the missing upper bound for an oversight.
+#[test]
+fn next_page_increments_without_an_upper_bound_and_saturates() {
+    let state = AppState {
+        workbench_page: usize::MAX,
+        ..AppState::default()
+    };
+    let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
+    assert_eq!(
+        after.workbench_page,
+        usize::MAX,
+        "next page must saturate rather than overflow"
+    );
+}
+
+/// An out-of-range page is clamped by the projection, not the reducer.
+#[test]
+fn projection_clamps_a_page_beyond_the_last() {
+    let view = crate::workbench_view::build_workbench_view_ref(
+        &[],
+        crate::workbench_view::StatusFilterMask::all_on(),
+        None,
+        200,
+        40,
+        99,
+    );
+    assert_eq!(
+        view.layout.page, 0,
+        "a page past the end must clamp to the last page"
+    );
+}
+
 #[test]
 fn prev_page_clamps_at_zero() {
     let state = AppState::default();

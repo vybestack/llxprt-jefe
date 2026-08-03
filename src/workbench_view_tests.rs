@@ -231,16 +231,23 @@ fn horizontal_layout_across_many_widths() {
         (81 + 22 + 1, 2, 40), // width=104
         // Cap at max width 52: usable large enough that card hits 52.
         // 1 col: usable >= 52 -> width >= 75; card = min(52, usable) = 52
-        (200, 4, 46), // usable=177; (177+1)/41=4; card=min(52,(177-3)/4)=min(52,43)=43? recompute
+        // usable = 200-22-1 = 177; cols = (177+1)/41 = 4;
+        // card = min(52, (177-3)/4) = min(52, 43) = 43.
+        (200, 4, 43),
     ];
 
-    for &(width, exp_cols, _exp_card) in cases {
+    for &(width, exp_cols, exp_card) in cases {
         let view = project(vec![], width, 40);
         let layout = view.layout;
         assert_eq!(
             layout.columns, exp_cols,
             "columns at width {width}: got {}, want {exp_cols}",
             layout.columns
+        );
+        assert_eq!(
+            layout.card_width, exp_card,
+            "card_width at width {width}: got {}, want {exp_card}",
+            layout.card_width
         );
         assert!(
             layout.card_width >= 40,
@@ -351,18 +358,30 @@ fn window_capped_at_longest_visible_list() {
     // Tall terminal with short lists: W must equal the longest list, not W_MAX.
     let agents = four_column_agents(2, &[(false, "a"), (false, "b")]);
     let view = project(agents, 200, 80);
-    // longest list = 2 items, so W = min(grown, 2) clamped to [3, 8] => 3 (floor).
-    // The rule: W never exceeds the longest visible list. With 2 items and
-    // W_MIN=3, the floor wins, but W must not exceed W_MAX and must not produce
-    // more non-blank lines than items exist.
-    assert!(view.layout.todo_window >= 3);
+    // The cap says W never exceeds the longest visible list; the floor says W is
+    // never below W_MIN. With a 2-item longest list on a tall terminal the two
+    // rules collide and the floor wins, so W is exactly W_MIN rather than 2.
+    // That is deliberate: a card shorter than W_MIN would make the grid ragged,
+    // which is the flaw this layout exists to avoid. The cap still does its job
+    // by stopping growth well below what an 80-row terminal would otherwise
+    // allow.
+    assert_eq!(
+        view.layout.todo_window, 3,
+        "floor should win over the cap for a short list"
+    );
     for card in &view.cards {
         if let TodoRender::Known(window) = &card.todos {
             let non_blank = window.visible.iter().filter(|l| !l.is_blank).count();
-            assert!(
-                non_blank <= window.total,
-                "window shows more items ({non_blank}) than the list ({})",
-                window.total
+            // The window is padded to W, but only real items may be non-blank,
+            // so the non-blank count is exactly the list length here.
+            assert_eq!(
+                non_blank, window.total,
+                "every list item should be visible when W exceeds the list"
+            );
+            assert_eq!(
+                window.visible.len(),
+                view.layout.todo_window,
+                "every card must be exactly W lines tall"
             );
         }
     }

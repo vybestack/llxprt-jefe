@@ -18,6 +18,7 @@ use crate::domain::{Agent, AgentId};
 use crate::git_info::GitRepoInfo;
 use crate::list_viewport::fit_text_to_width;
 use crate::status_precedence::{ResolvedStatus, resolve_status};
+use unicode_width::UnicodeWidthStr;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -659,13 +660,16 @@ fn activity_line(observation: Option<&AgentObservation>) -> String {
 fn bucket_for(resolved: ResolvedStatus) -> StatusBucket {
     match resolved {
         ResolvedStatus::Waiting(_) => StatusBucket::NeedsYou,
-        ResolvedStatus::Working | ResolvedStatus::Failed | ResolvedStatus::Ended => {
-            StatusBucket::Working
-        }
+        ResolvedStatus::Working => StatusBucket::Working,
         ResolvedStatus::Ready => StatusBucket::Ready,
-        // Everything else — Stale, Disconnected, Dead, Connecting, Starting,
-        // ProcessWaiting, ProcessPaused, TelemetryUnsupported, ProtocolError,
-        // Unknown — lands in Stale so it never folds into Ready.
+        // Everything else — the terminal states Failed and Ended, plus Stale,
+        // Disconnected, Dead, Connecting, Starting, ProcessWaiting,
+        // ProcessPaused, TelemetryUnsupported, ProtocolError and Unknown.
+        //
+        // Failed and Ended in particular must NOT sit in Working: a finished or
+        // broken agent is not doing anything, and counting it as Working both
+        // inflates that bucket and buries it among agents that really are busy.
+        // They land here so they never fold into Ready either.
         _ => StatusBucket::Stale,
     }
 }
@@ -825,9 +829,12 @@ fn name_budget(interior: usize, slot: Option<&str>, status_label: &str) -> usize
     // Header layout: "<STATUS> [slot] repo/name  elapsed"
     // Fixed overhead: status word, a space, optional "[slot] " (4 + slot len),
     // two spaces before elapsed.
-    let mut used = status_label.chars().count() + 1; // status + space
+    // Measure in terminal cells, not scalar values: `fit_text_to_width` clips
+    // by display width, so counting chars here would over-credit the budget for
+    // wide glyphs (CJK, emoji) and let the header overflow its card.
+    let mut used = UnicodeWidthStr::width(status_label) + 1; // status + space
     if let Some(slot) = slot {
-        used += 2 + slot.len() + 1; // "[N] "
+        used += 2 + UnicodeWidthStr::width(slot) + 1; // "[N] "
     }
     used += 2; // separator before elapsed (we reserve room for "  …")
     interior.saturating_sub(used)

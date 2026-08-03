@@ -151,7 +151,15 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                             focused: true,
                             grabbed: grabbed,
                             pane_rows: split_layout.sidebar_rows,
-                            content_width: split_layout.sidebar_content_cols,
+                            // Derive the rail's content width from the rail
+                            // itself. `split_layout.sidebar_content_cols` is
+                            // computed from nearly the full render width, which
+                            // was right when this screen was a full-width
+                            // repository list but would now over-report by the
+                            // whole card area and mis-elide repository names.
+                            content_width: crate::list_viewport::bordered_padded_content_width(
+                                crate::layout::LEFT_COL_WIDTH,
+                            ),
                             colors: colors.clone(),
                             selection: selection,
                         )
