@@ -215,3 +215,54 @@ fn unavailable_action_sets_the_issues_banner_notice() {
          the key press is not silently swallowed"
     );
 }
+
+#[test]
+fn unavailable_action_sets_the_pull_requests_banner_notice() {
+    let mut state = state_with_unprobed_agent();
+    state.screen = crate::workbench::ScreenId::PullRequests;
+
+    state.record_unavailable_action("No agents available");
+
+    assert_eq!(
+        state.prs_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "the PR screen owns its own notice band and must show the refusal there"
+    );
+    assert_eq!(
+        state.issues_state.draft_notice, None,
+        "a refusal on the PR screen must not leak into the Issues banner"
+    );
+}
+
+#[test]
+fn unavailable_action_on_other_screens_only_warns() {
+    // Screens without a notice band still surface the refusal in the status
+    // bar, and must not write a notice into a screen state they are not
+    // showing — a notice written there would appear later, out of context.
+    for screen in [
+        crate::workbench::ScreenId::Dashboard,
+        crate::workbench::ScreenId::Repositories,
+        crate::workbench::ScreenId::Actions,
+        crate::workbench::ScreenId::Errors,
+        crate::workbench::ScreenId::Terminals,
+    ] {
+        let mut state = state_with_unprobed_agent();
+        state.screen = screen;
+
+        state.record_unavailable_action("Nothing to do here");
+
+        assert_eq!(
+            state.warning_message.as_deref(),
+            Some("Nothing to do here"),
+            "{screen:?} must still surface the refusal in the status bar"
+        );
+        assert_eq!(
+            state.issues_state.draft_notice, None,
+            "{screen:?} must not write an Issues notice"
+        );
+        assert_eq!(
+            state.prs_state.draft_notice, None,
+            "{screen:?} must not write a PR notice"
+        );
+    }
+}
