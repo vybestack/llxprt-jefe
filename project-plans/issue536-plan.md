@@ -124,11 +124,18 @@ workflow, quality-tool change, or unrelated refactor is authorized.
   failed once on scrollback delivery and passed on immediate re-run. It exercises psmux/ConPTY
   input delivery (issues #438, #546) and touches no launcher code.
 - Local OCR: `0 / 2`
-- PR OCR: `0 / 2`
-- RED evidence: pending
-- Fast verification: pending
-- Exact-head verification: pending
-- Native Windows CI: pending
+- PR OCR: `1 / 2` — automatic run on head `8f06292a` (merge base `fc2d4f19`),
+  open-code-review v1.7.9, phase `review`, exit `0`, coverage
+  `complete_best_effort`: **no findings**.
+- RED evidence: recorded above.
+- Fast verification: recorded above.
+- Exact-head verification: PR #619, head `8f06292a`. Format, Lint (clippy),
+  Clippy allow policy, Complexity, Source file length, Architecture boundary
+  policy, Uncertain-observation coercion policy, Coverage gate, Build and
+  Mergeability gate all green.
+- Native Windows CI: green — `Native Windows (MSVC + psmux)`, `Windows Clippy
+  (cfg(windows) lint gap)` and `Windows coverage floors` all pass on head
+  `8f06292a`, which is the platform the defect reproduces on.
 - Deferred findings: see scope ledger
 
 ## Completion contract
