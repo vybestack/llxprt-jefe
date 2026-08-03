@@ -29,6 +29,7 @@ pub mod panel_types;
 pub mod relationship_propagation;
 pub mod relationships;
 pub mod resolve;
+pub mod route;
 pub mod screen_file;
 pub mod screen_file_bounds;
 pub mod screen_file_shape;
@@ -106,6 +107,10 @@ mod allocate_tests;
 #[cfg(test)]
 #[path = "resolve_tests.rs"]
 mod resolve_tests;
+
+#[cfg(test)]
+#[path = "route_tests.rs"]
+mod route_tests;
 
 use std::sync::OnceLock;
 
@@ -205,6 +210,10 @@ pub use relationships::{
 pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
+};
+pub use route::{
+    ActivationError, ActivationValue, ActivationValues, MAX_ACTIVATION_BYTES, NavCode,
+    RouteDeclaration, route_declaration,
 };
 pub use screen_file::{ScreenFile, parse_screen_file};
 pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
