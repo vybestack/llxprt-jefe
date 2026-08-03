@@ -45,11 +45,26 @@ const SCOPING_MARKERS: [&str; 6] = [
 #[test]
 fn tests_never_drive_the_multiplexer_without_scoping_it_to_a_private_server() {
     let mut offenders = Vec::new();
+    let regions = test_regions();
 
-    for file in test_sources() {
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            continue;
-        };
+    // A contract that scans nothing passes for the wrong reason. If the layout
+    // moves under it, this fires instead of quietly blessing the whole tree.
+    assert!(
+        regions.len() > 50,
+        "only {} test regions were scanned, which is too few to be real -- the \
+         scanner has lost track of the source layout and would pass vacuously",
+        regions.len()
+    );
+    assert!(
+        regions
+            .iter()
+            .any(|region| region.origin.contains("psmux_attach.rs")),
+        "the known psmux tests were not scanned, so this contract is not \
+         looking where the hazard lives"
+    );
+
+    for region in regions {
+        let TestRegion { origin, text } = region;
         if !text.lines().any(is_verb_line) {
             continue;
         }
@@ -65,7 +80,7 @@ fn tests_never_drive_the_multiplexer_without_scoping_it_to_a_private_server() {
             .lines()
             .position(is_verb_line)
             .map_or(0, |index| index + 1);
-        offenders.push(format!("{} line {line}", display_path(&file)));
+        offenders.push(format!("{origin} (line {line} of the scanned region)"));
     }
 
     assert!(
@@ -90,29 +105,110 @@ fn is_verb_line(line: &str) -> bool {
         .any(|verb| line.contains(&format!("\"{verb}\"")))
 }
 
-/// Every Rust source that is compiled only for tests: the `tests/` tree, plus
-/// in-crate modules whose names mark them as test-only.
-fn test_sources() -> Vec<PathBuf> {
+/// A stretch of source compiled only under `cfg(test)`, with a label good
+/// enough to find it by hand.
+struct TestRegion {
+    origin: String,
+    text: String,
+}
+
+/// Everything that only exists when testing: the whole `tests/` tree, in-crate
+/// files named `*_tests.rs`, and -- because a test can just as easily be written
+/// inline -- each `#[cfg(test)]` block inside an ordinary source file.
+///
+/// Ordinary source is deliberately scanned *only* inside those blocks.
+/// Production code legitimately drives the multiplexer (`multiplexer.rs` builds
+/// the very commands this contract asks for), so scanning it whole would flag
+/// the implementation for implementing the thing.
+fn test_regions() -> Vec<TestRegion> {
     let root = repo_root();
-    let mut found = Vec::new();
-    collect(&root.join("tests"), &mut found, &|_| true);
-    collect(&root.join("src"), &mut found, &|path| {
-        path.file_name()
+    let mut regions = Vec::new();
+
+    for file in rust_files(&root.join("tests")) {
+        push_whole_file(&file, &mut regions);
+    }
+
+    for file in rust_files(&root.join("src")) {
+        let is_test_file = file
+            .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with("_tests.rs"))
-    });
+            .is_some_and(|name| name.ends_with("_tests.rs"));
+        if is_test_file {
+            push_whole_file(&file, &mut regions);
+        } else {
+            push_cfg_test_blocks(&file, &mut regions);
+        }
+    }
+
+    regions
+}
+
+fn push_whole_file(file: &Path, regions: &mut Vec<TestRegion>) {
+    if let Ok(text) = std::fs::read_to_string(file) {
+        regions.push(TestRegion {
+            origin: display_path(file),
+            text,
+        });
+    }
+}
+
+fn push_cfg_test_blocks(file: &Path, regions: &mut Vec<TestRegion>) {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return;
+    };
+    let mut search_from = 0;
+    while let Some(found) = text[search_from..].find("#[cfg(test)]") {
+        let marker = search_from + found;
+        let Some(block) = brace_block(&text[marker..]) else {
+            break;
+        };
+        regions.push(TestRegion {
+            origin: format!("{} (#[cfg(test)] block)", display_path(file)),
+            text: block.to_owned(),
+        });
+        search_from = marker + block.len().max(1);
+    }
+}
+
+/// The brace-balanced body following an attribute, or `None` if there is no
+/// brace after it (a `#[cfg(test)] mod name;` declaration, for instance).
+fn brace_block(text: &str) -> Option<&str> {
+    let open = text.find('{')?;
+    let mut depth = 0_usize;
+    for (offset, character) in text[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[open..=open + offset]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn rust_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    collect(dir, &mut found);
     found
 }
 
-fn collect(dir: &Path, found: &mut Vec<PathBuf>, accept: &dyn Fn(&Path) -> bool) {
+fn collect(dir: &Path, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
+        // Unreadable directories are not reported here on purpose: a warning
+        // printed by a passing test is not read by anyone. The non-vacuity
+        // assertions in the test body are what actually catch a scan that has
+        // stopped seeing the tree.
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect(&path, found, accept);
-        } else if path.extension().is_some_and(|ext| ext == "rs") && accept(&path) {
+            collect(&path, found);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
             found.push(path);
         }
     }
