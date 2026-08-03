@@ -106,11 +106,22 @@ Facts verified in the tree (not assumed):
 | S1 route/activation contract | **done** — `d3f7eec3` | `src/workbench/route_tests.rs`, 15 tests green (A1–A3) |
 | S2 navigation reducer core | **done** — `44c4d62b` | `src/state/navigation_tests.rs`, 20 tests green (B1–B5) |
 | S3 generations / stale completions | **done** — `fa9fa698` | same file, 7 further tests green (B6) |
-| S4 message bus + `AppState` cutover | not started | — |
-| S5 local unwind precedence | not started | — |
-| S6 dirty lifecycle | **blocked** — awaiting the Save-semantics decision | — |
-| S7 migration | not started | — |
-| S8 evidence + docs | not started | — |
+| S6 dirty guard reducer | **done** — `93b2f2e9` | `src/state/navigation_dirty_tests.rs`, 21 tests green (D1–D3) |
+| S5a Back-precedence resolver | **done** — `17cd2c87` | `src/state/navigation_unwind_tests.rs`, 11 tests green (C1) |
+| S4 `AppState` cutover | **done** — `5c379c41` | `AppState.screen` deleted; 101 files; full suite green (F1, C3) |
+| S5b layer projection | **done** — `617f09fe` | `src/state/navigation_layers_tests.rs`, 13 tests green (C1) |
+| S7 migration | **done** — `617f09fe` | migration matrix in `navigation_tests.rs` (E1, E2) |
+| S8 docs + scenarios | **done** — `6f48b7e9` + follow-up | three standards docs; two tmux scenarios |
+
+### Dirty-Save semantics: resolved from the adjacent capability, not guessed
+
+`08-settings-shell.md` settles it. Its own source inventory assigns
+"own Back dirty confirmation and focus restoration" to the **navigation
+reducer**, while `src/state/settings.rs::reduce_settings` owns
+`DraftStatus{Clean,Dirty,Saving}`, the writer, the base hash, and the save
+completion. CW-06 therefore owns the *guard*; the screen holding the draft
+declares what its Save is (`SaveIntent`). CW-07 supplies the first savable
+owner. No new `Effect` family was needed and no product behaviour was invented.
 
 Each committed slice passed `cargo fmt --all` and
 `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
@@ -135,11 +146,32 @@ Each committed slice passed `cargo fmt --all` and
   request was computed from, so a request produced against a screen that has
   since been replaced is refused (`NavRefusal::StaleSource`) rather than acted on.
 
+## 4b. Deferred with reason
+
+- **DIRTY / RECOVERY / SMALL harness scenarios (part of G1).** No shipped screen
+  declares a savable draft yet, so the guard has no reachable UI to drive from
+  the harness. The lifecycle is proven at the reducer (21 behavioural tests
+  covering Save-pending, matching/stale/failed completion, Retry, Discard,
+  Cancel, and focus restoration) and specified in `display-and-ui.md`. The
+  harness scenarios land with CW-07, which supplies the first owner.
+- **`navigation-depth-limit` harness scenario (part of B4).** Depth 33 is not
+  reachable through the shipped key map; the bound is proven by the depth 32/33
+  reducer property test.
+- **Routing the per-mode Esc arms through `back_resolution`.** The precedence is
+  now stated once and projected from real state, and the resolver is production
+  code with behavioural coverage. Rewriting each mode's existing raw-key
+  pre-empt chain to consume it is a behaviour-preserving refactor that would
+  touch the whole `app_input` surface; it is recorded here rather than bundled
+  in, since the existing chains are already proven to agree with the stated
+  order.
+
 ## 5. Scope ledger
 
 | Entry | Status |
 |---|---|
-| (none — every changed file maps to an acceptance row) | — |
+| `src/workbench/screens.rs` compiled `route_of` / `initial_focus` tables | In scope: rooting a session must be total, which F1 requires. Held to the descriptors by two tests. |
+| `src/state/navigation_layers.rs` projection | In scope: C1 needs a real answer to "what is open", not a resolver nothing calls. |
+| Everything else | Maps to an acceptance row. |
 
 ## 6. Review counters
 
