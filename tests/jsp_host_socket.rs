@@ -60,12 +60,44 @@ fn drain_until(
                 .drain_messages()
                 .unwrap_or_else(|error| panic!("JSP delivery drain failed: {error}")),
         );
-        if collected.iter().any(|message| wanted(message)) || std::time::Instant::now() >= deadline
-        {
+        if collected.iter().any(&wanted) || std::time::Instant::now() >= deadline {
             return collected;
         }
         thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+/// Assert that `register` delivered the observation update for `generation`.
+///
+/// The lifecycle clear published by `commit` is accepted alongside it, because
+/// it targets the same agent and generation and may still be sitting in the
+/// delivery slot. An update for any other agent or generation is not.
+fn expect_register_update(
+    runtime: &jefe::jsp_host::JspHostRuntime,
+    agent_id: &AgentId,
+    generation: u64,
+) {
+    let delivered = drain_until(runtime, |message| {
+        matches!(message, RuntimeMessage::ObservationUpdated(agent, delivered, _)
+            if agent == agent_id && *delivered == generation)
+    });
+    assert!(
+        delivered.iter().any(|message| matches!(
+            message,
+            RuntimeMessage::ObservationUpdated(agent, delivered, _)
+                if agent == agent_id && *delivered == generation
+        )),
+        "register must deliver a generation-{generation} update for {agent_id:?}, got {delivered:?}"
+    );
+    assert!(
+        delivered.iter().all(|message| matches!(
+            message,
+            RuntimeMessage::ObservationUpdated(agent, delivered, _)
+                | RuntimeMessage::ObservationCleared(agent, delivered)
+                if agent == agent_id && *delivered == generation
+        )),
+        "unexpected delivery alongside the register update: {delivered:?}"
+    );
 }
 
 fn reservation() -> PublisherReservation {
@@ -710,23 +742,30 @@ fn publish_repeated_snapshots(
     }
 }
 
+fn local_llxprt_plan(
+    canonical_cwd: &std::path::Path,
+) -> jefe::domain::agent_definition::AgentLaunchPlan {
+    use jefe::domain::agent_definition::{AgentLaunchPlan, AgentTypeId, Target};
+
+    AgentLaunchPlan {
+        type_id: AgentTypeId::parse("core.llxprt")
+            .unwrap_or_else(|error| panic!("type id: {error}")),
+        target: Target::Local {
+            canonical_cwd: canonical_cwd.to_path_buf(),
+        },
+        ..AgentLaunchPlan::default()
+    }
+}
+
 #[test]
 fn production_host_generates_unique_credentials_delivers_and_revokes() {
-    use jefe::domain::agent_definition::{AgentLaunchPlan, AgentTypeId, Target};
     use jefe::jsp_host::JspHostRuntime;
 
     let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let runtime = JspHostRuntime::start(temp.path().join("jsp"))
         .unwrap_or_else(|error| panic!("start JSP runtime: {error}"));
     let agent_id = AgentId("agent-alex".to_owned());
-    let plan = AgentLaunchPlan {
-        type_id: AgentTypeId::parse("core.llxprt")
-            .unwrap_or_else(|error| panic!("type id: {error}")),
-        target: Target::Local {
-            canonical_cwd: temp.path().to_path_buf(),
-        },
-        ..AgentLaunchPlan::default()
-    };
+    let plan = local_llxprt_plan(temp.path());
     let coordinator = runtime.coordinator();
     let prepared = coordinator
         .prepare_launch(&agent_id, 7, &plan)
@@ -748,27 +787,7 @@ fn production_host_generates_unique_credentials_delivers_and_revokes() {
         include_bytes!("../dev-docs/jsp/v1/fixtures/snapshot_full.json"),
     );
     assert!(response.starts_with("HTTP/1.1 200"));
-    let delivered = drain_until(
-        &runtime,
-        |message| matches!(message, RuntimeMessage::ObservationUpdated(agent, 7, _) if agent == &agent_id),
-    );
-    assert!(
-        delivered.iter().any(|message| matches!(
-            message,
-            RuntimeMessage::ObservationUpdated(agent, 7, _) if agent == &agent_id
-        )),
-        "register must deliver a generation-7 update for {agent_id:?}, got {delivered:?}"
-    );
-    // Anything drained alongside it must be this launch's own lifecycle clear,
-    // never an update for another agent or generation.
-    assert!(
-        delivered.iter().all(|message| matches!(
-            message,
-            RuntimeMessage::ObservationUpdated(agent, 7, _)
-                | RuntimeMessage::ObservationCleared(agent, 7) if agent == &agent_id
-        )),
-        "unexpected delivery alongside the register update: {delivered:?}"
-    );
+    expect_register_update(&runtime, &agent_id, 7);
     publish_repeated_snapshots(&runtime, &credential, &registration_id);
     // Repeated snapshots coalesce into exactly one delivered update.
     let coalesced = drain_at_least(&runtime, 1);
