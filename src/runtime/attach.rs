@@ -853,6 +853,22 @@ impl AttachedViewer {
 
         term.mode().contains(TermMode::BRACKETED_PASTE)
     }
+
+    /// Whether the attached application has asked for kitty escape-code
+    /// disambiguation.
+    ///
+    /// A child that pushed the kitty keyboard flags expects modified keys in
+    /// CSI-u form. Reporting the mode lets the key encoder produce chords the
+    /// child can actually tell apart, instead of the ambiguous control bytes
+    /// that are all a legacy terminal can offer (issue #627).
+    #[must_use]
+    pub fn kitty_keyboard_active(&self) -> bool {
+        let Ok(term) = self.term.lock() else {
+            return false;
+        };
+
+        term.mode().contains(TermMode::DISAMBIGUATE_ESC_CODES)
+    }
 }
 
 fn terminate_child_with_timeout(child: &mut dyn PtyChild, timeout: Duration) {

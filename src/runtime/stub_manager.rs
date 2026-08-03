@@ -201,6 +201,10 @@ impl RuntimeManager for StubRuntimeManager {
         false
     }
 
+    fn kitty_keyboard_active(&self) -> bool {
+        false
+    }
+
     fn take_dirty(&self) -> bool {
         false
     }

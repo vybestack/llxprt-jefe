@@ -30,7 +30,7 @@
 | A6 | Same, `Alt+Enter` | `Enter` + `ALT` | All platforms | The child receives `ESC [ 13 ; 3 u` (no extra `ESC` prefix) | n/a | None | as above | Encoder unit test asserting no double escape |
 | A7 | Same, plain `Enter` | `Enter`, no modifiers | All platforms | The child receives `CR` (`0x0D`), because flag 1 disambiguation leaves unmodified Enter legacy | n/a | None | Unchanged from today | Encoder unit test |
 | A8 | Any key with the agent terminal focused, child has **not** enabled the kitty keyboard protocol | Every key currently encoded | All platforms | Byte-for-byte identical to today, including `Ctrl+Enter` -> `LF` and `Shift+Enter` -> `\` + `CR` | n/a | None | Full backward compatibility for children that do not negotiate | Existing encoder tests stay green unchanged |
-| A9 | Terminal-focus passthrough mode | Any Enter chord while passthrough is requested | All platforms | Still `CR`, protocol state ignored | n/a | None | Unchanged | Encoder unit test |
+| A9 | Any caller of the encoder | Choosing an encoding | All platforms | The encoding is chosen only from the observed child state, with `Legacy` as the default, so no caller can silently pick a third behavior | n/a | None | Unchanged | Unit test over `PtyKeyEncoding::for_child` and its default |
 | A10 | User presses `Enter` (any modifiers) after another keystroke was written to the same child less than the guard interval earlier | Batched key drain, worst case zero elapsed time | All platforms | jefe delays the Enter write so the child observes at least `SUBMIT_GAP` between the previous input byte and the Enter | n/a | The preceding keys are already written; only the Enter is held | No stored state | Pure-function tests over the pacing state, plus a runtime test proving an Enter write is separated from the previous write |
 | A11 | Same, when the previous write to that child was already older than the guard interval | Typing at human speed | All platforms | No delay at all is added | n/a | None | Unchanged | Pure-function test asserting a zero delay |
 | A12 | Any non-Enter write (characters, navigation, mouse reports, pastes, query replies) | Any | All platforms | Never delayed, and every write updates the "last input byte" instant used by A10 | n/a | None | Unchanged | Pure-function tests covering the record/observe contract |
@@ -142,6 +142,8 @@ authorized.
 | Extract `pty_encoding`'s test module into `src/pty_encoding_tests.rs` | The file is already above the 750-line recommended limit; slice 2 adds production code and tests to it, and the hard limit is 1000 | Accepted — required to keep the source-size gate green, same-file tests only |
 | `RuntimeListener` becomes a struct with a writer handle instead of a unit struct | Required by A1; it is a private-to-runtime construction detail of `AttachedViewer` | Accepted — inside slice 1's boundary |
 | `key_to_bytes` second parameter becomes `PtyKeyEncoding` instead of `bool` | Two independent booleans at one call site is exactly the primitive obsession the standards forbid | Accepted — mechanical call-site update, no behavior change when the protocol is off |
+| The `passthrough_enter` encoder flag is removed with its two tests | It had no production caller: every call site passed `false`. Keeping an unreachable third way to encode Enter next to the new negotiated one reintroduces exactly the ambiguity this issue is about, and the dead-code gate rejects an unreachable variant. Its only unique coverage (legacy `Alt+Enter` keeping its ESC prefix) is preserved by a new legacy test | Accepted — inside slice 2's file and contract |
+| `domain::keymap::pty_bytes_for_chord` doc updated | It named the removed `passthrough_enter` parameter | Accepted — one stale doc line. Deduplicating that second encoder against `pty_encoding` is recorded as a deferred finding, not done here |
 
 ## Review counters
 
@@ -155,7 +157,15 @@ To be filled at the green checkpoint.
 
 ## Deferred findings
 
-To be filled during triage.
+- `domain::keymap::pty_bytes_for_chord` is a second, independent implementation
+  of the legacy PTY key encoding with no production caller (only its own tests).
+  It now silently disagrees with `pty_encoding` for a negotiated child.
+  Deduplicating or deleting it is a separate change.
+- `harness/v1/pty.rs` documents that it forwards kitty keyboard-protocol replies
+  but builds its terminal model with `TermConfig::default()`, where alacritty
+  gates the protocol off. The claim is currently unreachable. The harness hosts
+  jefe itself, which does not negotiate the protocol, so nothing observable
+  depends on it today.
 
 ## TUI scenario note
 

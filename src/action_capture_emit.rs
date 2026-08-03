@@ -53,7 +53,8 @@ pub fn record_key(key_event: &KeyEvent, chord: &Chord, resolution: &Resolution) 
         Resolution::ForwardToPty | Resolution::Unbound => (None, None),
     };
     let pty_bytes = if matches!(resolution, Resolution::ForwardToPty | Resolution::Unbound) {
-        crate::pty_encoding::key_to_bytes(key_event, false).unwrap_or_default()
+        crate::pty_encoding::key_to_bytes(key_event, crate::pty_encoding::PtyKeyEncoding::Legacy)
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
@@ -80,7 +81,11 @@ pub fn record_untranslatable(key_event: &KeyEvent, forwarded: bool) {
     // exists to rule out.
     let (pty_bytes, resolution) = if forwarded {
         (
-            crate::pty_encoding::key_to_bytes(key_event, false).unwrap_or_default(),
+            crate::pty_encoding::key_to_bytes(
+                key_event,
+                crate::pty_encoding::PtyKeyEncoding::Legacy,
+            )
+            .unwrap_or_default(),
             ResolutionClass::ForwardToPty,
         )
     } else {

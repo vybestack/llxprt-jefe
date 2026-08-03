@@ -163,3 +163,18 @@ fn pushed_kitty_keyboard_flags_are_observable() {
         "pushing kitty flag 1 must enable escape-code disambiguation"
     );
 }
+
+/// A4: a child that pops the flags again goes back to legacy encoding, so the
+/// negotiated state tracks the child rather than latching on first use.
+#[test]
+fn popped_kitty_keyboard_flags_return_to_legacy() {
+    let mut harness = ListenerHarness::new();
+
+    harness.feed(b"\x1b[>1u");
+    harness.feed(b"\x1b[<u");
+
+    assert!(
+        !harness.mode().contains(TermMode::DISAMBIGUATE_ESC_CODES),
+        "popping the pushed mode must restore legacy key encoding"
+    );
+}

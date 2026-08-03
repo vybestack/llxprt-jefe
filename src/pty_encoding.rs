@@ -90,18 +90,69 @@ fn function_key_to_bytes(n: u8, modifier: Option<u8>) -> Option<Vec<u8>> {
     }
 }
 
-/// Convert a key event to raw bytes for PTY input.
+/// How Enter chords must be encoded for the child on the other end of the PTY.
 ///
-/// When `passthrough_enter` is true, Enter maps directly to CR regardless of
-/// modifiers, so terminal-focus mode stays close to raw passthrough.
+/// Enter is the one chord family whose legacy encodings are ambiguous: `LF` is
+/// also `Ctrl+J`, and a bare `CR` carries no modifier information at all. Which
+/// encoding is correct therefore depends on what the child negotiated, so the
+/// encoder is told rather than left to guess (issue #627).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PtyKeyEncoding {
+    /// The child negotiated nothing, so Enter chords keep the historical
+    /// control-byte and backslash-CR forms every legacy terminal emits.
+    #[default]
+    Legacy,
+    /// The child enabled kitty escape-code disambiguation, so modified Enter
+    /// chords are reported in CSI-u form.
+    KittyDisambiguated,
+}
+
+impl PtyKeyEncoding {
+    /// The encoding for a child that has (or has not) enabled kitty
+    /// escape-code disambiguation.
+    #[must_use]
+    pub const fn for_child(kitty_keyboard: bool) -> Self {
+        if kitty_keyboard {
+            Self::KittyDisambiguated
+        } else {
+            Self::Legacy
+        }
+    }
+}
+
+/// Encode an Enter chord.
+///
+/// Under kitty disambiguation a *modified* Enter becomes `CSI 13 ; <mods> u`;
+/// unmodified Enter stays `CR`, which is what flag 1 prescribes and what every
+/// composer expects for "submit". Without disambiguation the historical forms
+/// are kept so children that negotiate nothing are unaffected.
+fn enter_bytes(modifiers: KeyModifiers, encoding: PtyKeyEncoding) -> (Vec<u8>, bool) {
+    if encoding == PtyKeyEncoding::KittyDisambiguated {
+        return match modifiers_to_param(modifiers) {
+            Some(param) => (format!("\x1b[13;{param}u").into_bytes(), true),
+            None => (vec![b'\r'], false),
+        };
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        if modifiers.contains(KeyModifiers::ALT) {
+            (b"\\\x1b\r".to_vec(), true)
+        } else {
+            (b"\\\r".to_vec(), false)
+        }
+    } else if modifiers.contains(KeyModifiers::CONTROL) {
+        (vec![b'\n'], false)
+    } else {
+        (vec![b'\r'], false)
+    }
+}
+
+/// Convert a key event to raw bytes for PTY input.
 fn basic_key_bytes(
     code: KeyCode,
     modifiers: KeyModifiers,
-    passthrough_enter: bool,
+    encoding: PtyKeyEncoding,
 ) -> Option<(Vec<u8>, bool)> {
     let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-    let alt = modifiers.contains(KeyModifiers::ALT);
-    let shift = modifiers.contains(KeyModifiers::SHIFT);
 
     match code {
         KeyCode::Char(c) if ctrl => {
@@ -113,22 +164,7 @@ fn basic_key_bytes(
             let s = c.encode_utf8(&mut buf);
             Some((s.as_bytes().to_vec(), false))
         }
-        KeyCode::Enter => {
-            if passthrough_enter {
-                Some((vec![b'\r'], false))
-            } else if shift {
-                let alt_encoded = alt;
-                if alt {
-                    Some((b"\\\x1b\r".to_vec(), alt_encoded))
-                } else {
-                    Some((b"\\\r".to_vec(), alt_encoded))
-                }
-            } else if ctrl {
-                Some((vec![b'\n'], false))
-            } else {
-                Some((vec![b'\r'], false))
-            }
-        }
+        KeyCode::Enter => Some(enter_bytes(modifiers, encoding)),
         KeyCode::Backspace => Some((vec![0x7f], false)),
         KeyCode::Tab => Some((vec![b'\t'], false)),
         KeyCode::Esc => Some((vec![0x1b], false)),
@@ -169,10 +205,10 @@ fn fkey_bytes(n: u8, modifiers: KeyModifiers) -> Option<(Vec<u8>, bool)> {
     Some((function_key_to_bytes(n, param)?, param.is_some()))
 }
 
-pub fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
+pub fn key_to_bytes(key: &KeyEvent, encoding: PtyKeyEncoding) -> Option<Vec<u8>> {
     let modifiers = key.modifiers;
 
-    let (mut out, alt_encoded) = basic_key_bytes(key.code, modifiers, passthrough_enter)
+    let (mut out, alt_encoded) = basic_key_bytes(key.code, modifiers, encoding)
         .or_else(|| nav_key_bytes(key.code, modifiers))
         .or_else(|| match key.code {
             KeyCode::F(n) => fkey_bytes(n, modifiers),
@@ -319,488 +355,5 @@ pub fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec
 }
 
 #[cfg(test)]
-mod key_tests {
-    use super::{
-        PASTE_ENTER_SUPPRESSION_WINDOW, PasteEnterSuppression, ctrl_char_to_byte, key_to_bytes,
-        should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
-        should_suppress_synthetic_enter,
-    };
-    use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-    use jefe::input::InputMode;
-    use std::time::{Duration, Instant};
-
-    fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        let mut event = KeyEvent::new(KeyEventKind::Press, code);
-        event.modifiers = modifiers;
-        event
-    }
-
-    #[test]
-    fn plain_enter_maps_to_cr() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(key_to_bytes(&key, false), Some(vec![b'\r']));
-    }
-
-    #[test]
-    fn shift_enter_maps_to_backslash_cr() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
-        assert_eq!(key_to_bytes(&key, false), Some(b"\\\r".to_vec()));
-    }
-
-    #[test]
-    fn synthetic_enter_is_only_suppressed_when_armed_and_within_window() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        // Disarmed — never suppresses.
-        let mut suppression = PasteEnterSuppression::new();
-        assert!(!should_suppress_synthetic_enter(suppression, &enter, base));
-
-        // Armed — suppresses within the window.
-        suppression.arm(base);
-        assert!(should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(10)
-        ));
-
-        // After the window — a real submit Enter is forwarded normally.
-        assert!(!should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + PASTE_ENTER_SUPPRESSION_WINDOW + Duration::from_millis(1)
-        ));
-    }
-
-    #[test]
-    fn non_enter_key_disarms_paste_suppression_when_active() {
-        let key = key_event(KeyCode::Char('x'), KeyModifiers::NONE);
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        // Disarmed — nothing to disarm.
-        let mut suppression = PasteEnterSuppression::new();
-        assert!(!should_disarm_paste_enter_suppression(
-            suppression,
-            &key,
-            base
-        ));
-
-        // Armed and active — a non-Enter key disarms.
-        suppression.arm(base);
-        assert!(should_disarm_paste_enter_suppression(
-            suppression,
-            &key,
-            base + Duration::from_millis(5)
-        ));
-
-        // Enter never disarms (it is either suppressed or forwarded).
-        suppression.arm(base);
-        assert!(!should_disarm_paste_enter_suppression(
-            suppression,
-            &enter,
-            base + Duration::from_millis(5)
-        ));
-    }
-
-    // ── Issue #286: paste-suppression race regression tests ──────────────────
-    //
-    // These tests prove the suppression can never swallow a real submit Enter
-    // regardless of event ordering, delay, or missing paste event.
-
-    /// Cmd-V key event arrives, then the user presses Enter well after the
-    /// window. The Enter must NOT be suppressed (it is a real submit).
-    #[test]
-    fn real_submit_enter_after_paste_window_is_not_suppressed() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        let mut suppression = PasteEnterSuppression::new();
-        suppression.arm(base);
-
-        // 500ms later — far beyond the window — a real Enter is forwarded.
-        assert!(!should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(500)
-        ));
-    }
-
-    /// Paste event clears suppression, then a delayed Cmd-V key event re-arms
-    /// it. A real Enter arriving later must NOT be suppressed (issue #286
-    /// scenario: event reordering under load).
-    #[test]
-    fn delayed_re_arm_after_paste_does_not_swallow_later_enter() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        let mut suppression = PasteEnterSuppression::new();
-        // Paste shortcut arms at time 0.
-        suppression.arm(base);
-        // Paste event clears at time 5ms.
-        suppression = PasteEnterSuppression::new();
-        // A *delayed* Cmd-V key event re-arms at time 200ms (event reordered
-        // under load — arrives long after the paste event).
-        suppression.arm(base + Duration::from_millis(200));
-
-        // The user's real Enter arrives at 600ms — well past the re-arm window.
-        assert!(!should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(600)
-        ));
-    }
-
-    /// Cmd-V with no corresponding Paste event (empty clipboard). The
-    /// suppression arms but must expire before a real Enter arrives.
-    #[test]
-    fn no_paste_event_after_cmd_v_still_expires_before_real_enter() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        let mut suppression = PasteEnterSuppression::new();
-        // Cmd-V armed, no paste event ever arrives.
-        suppression.arm(base);
-
-        // Synthetic Enter within window — suppressed (this is the intended
-        // behavior: swallow the spurious Enter some terminals send).
-        assert!(should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(5)
-        ));
-
-        // After suppression consumed the synthetic Enter, it is disarmed.
-        suppression = PasteEnterSuppression::new();
-
-        // A later real Enter is forwarded.
-        assert!(!should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(300)
-        ));
-    }
-
-    /// Interleaved key/paste events modeling event-loop load: the suppression
-    /// only fires for an Enter within the window of the most recent arm.
-    #[test]
-    fn interleaved_events_only_suppress_within_recent_window() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        let mut suppression = PasteEnterSuppression::new();
-        suppression.arm(base);
-        // Simulate a paste event at 3ms clearing it.
-        suppression = PasteEnterSuppression::new();
-        // A second paste shortcut at 10ms re-arms.
-        suppression.arm(base + Duration::from_millis(10));
-        // Synthetic Enter at 15ms (within window of second arm) — suppressed.
-        assert!(should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + Duration::from_millis(15)
-        ));
-    }
-
-    /// Suppression at the exact window boundary is still active (inclusive).
-    #[test]
-    fn suppression_active_at_exact_window_boundary() {
-        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let base = Instant::now();
-
-        let mut suppression = PasteEnterSuppression::new();
-        suppression.arm(base);
-        assert!(should_suppress_synthetic_enter(
-            suppression,
-            &enter,
-            base + PASTE_ENTER_SUPPRESSION_WINDOW
-        ));
-    }
-
-    #[test]
-    fn paste_shortcut_arming_only_applies_in_terminal_capture() {
-        let ctrl_v = key_event(KeyCode::Char('v'), KeyModifiers::CONTROL);
-        assert!(should_arm_paste_enter_suppression(
-            &ctrl_v,
-            InputMode::TerminalCapture
-        ));
-        assert!(!should_arm_paste_enter_suppression(
-            &ctrl_v,
-            InputMode::Normal
-        ));
-
-        let cmd_v = key_event(KeyCode::Char('v'), KeyModifiers::SUPER);
-        assert!(should_arm_paste_enter_suppression(
-            &cmd_v,
-            InputMode::TerminalCapture
-        ));
-
-        let meta_v = key_event(KeyCode::Char('v'), KeyModifiers::META);
-        assert!(should_arm_paste_enter_suppression(
-            &meta_v,
-            InputMode::TerminalCapture
-        ));
-
-        let alt_v = key_event(KeyCode::Char('v'), KeyModifiers::ALT);
-        assert!(!should_arm_paste_enter_suppression(
-            &alt_v,
-            InputMode::TerminalCapture
-        ));
-
-        let plain_v = key_event(KeyCode::Char('v'), KeyModifiers::NONE);
-        assert!(!should_arm_paste_enter_suppression(
-            &plain_v,
-            InputMode::TerminalCapture
-        ));
-    }
-
-    #[test]
-    fn passthrough_enter_keeps_cr_for_common_newline_modifiers() {
-        let plain_enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        let shift_enter = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
-        let ctrl_enter = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
-
-        assert_eq!(key_to_bytes(&plain_enter, true), Some(vec![b'\r']));
-        assert_eq!(key_to_bytes(&shift_enter, true), Some(vec![b'\r']));
-        assert_eq!(key_to_bytes(&ctrl_enter, true), Some(vec![b'\r']));
-    }
-
-    #[test]
-    fn passthrough_enter_with_alt_preserves_escape_prefix() {
-        let alt_enter = key_event(KeyCode::Enter, KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&alt_enter, true), Some(vec![0x1b, b'\r']));
-    }
-
-    #[test]
-    fn alt_char_prefixes_escape() {
-        let alt_x = key_event(KeyCode::Char('x'), KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&alt_x, false), Some(b"\x1bx".to_vec()));
-    }
-
-    #[test]
-    fn alt_shift_enter_does_not_double_prefix_escape() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::ALT | KeyModifiers::SHIFT);
-        assert_eq!(key_to_bytes(&key, false), Some(b"\\\x1b\r".to_vec()));
-    }
-
-    #[test]
-    fn shift_alt_enter_maps_to_backslash_esc_cr() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&key, false), Some(b"\\\x1b\r".to_vec()));
-    }
-
-    #[test]
-    fn ctrl_backslash_maps_to_fs() {
-        let key = key_event(KeyCode::Char('\\'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('\\'), Some(0x1c));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x1c]));
-    }
-
-    // ── Control-chord passthrough bytes (issue #200) ───────────────────────
-    //
-    // Code Puppy's shell-control chords depend on these exact single-byte
-    // encodings reaching the child through jefe's PTY transport. Locking them
-    // here guards the encoding contract independently of the tmux transport.
-
-    #[test]
-    fn ctrl_x_maps_to_can_byte() {
-        let key = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('x'), Some(0x18));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x18]));
-    }
-
-    #[test]
-    fn ctrl_b_maps_to_stx_byte() {
-        let key = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('b'), Some(0x02));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x02]));
-    }
-
-    #[test]
-    fn ctrl_c_maps_to_etx_byte() {
-        let key = key_event(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('c'), Some(0x03));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x03]));
-    }
-
-    #[test]
-    fn ctrl_caps_c_maps_to_etx_byte() {
-        let key = key_event(KeyCode::Char('C'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('C'), Some(0x03));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x03]));
-    }
-
-    /// A Ctrl-X Ctrl-B chord encodes to the two raw bytes `0x18 0x02` in
-    /// order, matching what Code Puppy's `command_runner` listens for.
-    #[test]
-    fn ctrl_x_ctrl_b_chord_encodes_to_ordered_bytes() {
-        let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
-        let b = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
-        let x_bytes = key_to_bytes(&x, false);
-        let b_bytes = key_to_bytes(&b, false);
-        assert!(x_bytes.is_some(), "Ctrl-X must encode");
-        assert!(b_bytes.is_some(), "Ctrl-B must encode");
-        let mut encoded = Vec::<u8>::new();
-        encoded.extend(x_bytes.unwrap_or_default());
-        encoded.extend(b_bytes.unwrap_or_default());
-        assert_eq!(encoded, [0x18u8, 0x02]);
-    }
-
-    /// A Ctrl-X Ctrl-X chord encodes to `0x18 0x18` in order.
-    #[test]
-    fn ctrl_x_ctrl_x_chord_encodes_to_ordered_bytes() {
-        let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
-        let x_bytes = key_to_bytes(&x, false);
-        assert!(x_bytes.is_some(), "Ctrl-X must encode");
-        let bytes = x_bytes.unwrap_or_default();
-        let mut encoded = Vec::<u8>::new();
-        encoded.extend(&bytes);
-        encoded.extend(&bytes);
-        assert_eq!(encoded, [0x18u8, 0x18]);
-    }
-
-    #[test]
-    fn ctrl_underscore_maps_to_us() {
-        let key = key_event(KeyCode::Char('_'), KeyModifiers::CONTROL);
-        assert_eq!(ctrl_char_to_byte('_'), Some(0x1f));
-        assert_eq!(key_to_bytes(&key, false), Some(vec![0x1f]));
-    }
-
-    #[test]
-    fn ctrl_enter_maps_to_lf() {
-        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
-        assert_eq!(key_to_bytes(&key, false), Some(vec![b'\n']));
-    }
-
-    #[test]
-    fn function_keys_use_expected_xterm_sequences() {
-        let f1 = key_event(KeyCode::F(1), KeyModifiers::NONE);
-        let f2 = key_event(KeyCode::F(2), KeyModifiers::NONE);
-        let f12 = key_event(KeyCode::F(12), KeyModifiers::NONE);
-        let insert = key_event(KeyCode::Insert, KeyModifiers::NONE);
-
-        assert_eq!(key_to_bytes(&f1, false), Some(b"\x1bOP".to_vec()));
-        assert_eq!(key_to_bytes(&f2, false), Some(b"\x1bOQ".to_vec()));
-        assert_eq!(key_to_bytes(&f12, false), Some(b"\x1b[24~".to_vec()));
-        assert_ne!(key_to_bytes(&f2, false), key_to_bytes(&insert, false));
-    }
-
-    #[test]
-    fn modified_arrow_keys_use_xterm_sequences() {
-        let ctrl_up = key_event(KeyCode::Up, KeyModifiers::CONTROL);
-        let alt_down = key_event(KeyCode::Down, KeyModifiers::ALT);
-        let shift_right = key_event(KeyCode::Right, KeyModifiers::SHIFT);
-        let ctrl_alt_left = key_event(KeyCode::Left, KeyModifiers::CONTROL | KeyModifiers::ALT);
-
-        // ctrl parameter = 5
-        assert_eq!(key_to_bytes(&ctrl_up, false), Some(b"\x1b[1;5A".to_vec()));
-        // alt parameter = 3
-        assert_eq!(key_to_bytes(&alt_down, false), Some(b"\x1b[1;3B".to_vec()));
-        // shift parameter = 2
-        assert_eq!(
-            key_to_bytes(&shift_right, false),
-            Some(b"\x1b[1;2C".to_vec())
-        );
-        // ctrl + alt parameter = 7
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_left, false),
-            Some(b"\x1b[1;7D".to_vec())
-        );
-    }
-
-    #[test]
-    fn modified_edit_keys_use_xterm_sequences() {
-        let ctrl_pageup = key_event(KeyCode::PageUp, KeyModifiers::CONTROL);
-        let alt_pagedown = key_event(KeyCode::PageDown, KeyModifiers::ALT);
-        let shift_delete = key_event(KeyCode::Delete, KeyModifiers::SHIFT);
-        let ctrl_alt_insert = key_event(KeyCode::Insert, KeyModifiers::CONTROL | KeyModifiers::ALT);
-        let shift_home = key_event(KeyCode::Home, KeyModifiers::SHIFT);
-        let ctrl_end = key_event(KeyCode::End, KeyModifiers::CONTROL);
-
-        assert_eq!(
-            key_to_bytes(&ctrl_pageup, false),
-            Some(b"\x1b[5;5~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&alt_pagedown, false),
-            Some(b"\x1b[6;3~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&shift_delete, false),
-            Some(b"\x1b[3;2~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_insert, false),
-            Some(b"\x1b[2;7~".to_vec())
-        );
-        assert_eq!(
-            key_to_bytes(&shift_home, false),
-            Some(b"\x1b[1;2H".to_vec())
-        );
-        assert_eq!(key_to_bytes(&ctrl_end, false), Some(b"\x1b[1;5F".to_vec()));
-    }
-
-    #[test]
-    fn modified_function_keys_use_xterm_sequences() {
-        let ctrl_f1 = key_event(KeyCode::F(1), KeyModifiers::CONTROL);
-        let alt_f5 = key_event(KeyCode::F(5), KeyModifiers::ALT);
-        let ctrl_alt_f12 = key_event(KeyCode::F(12), KeyModifiers::CONTROL | KeyModifiers::ALT);
-
-        assert_eq!(key_to_bytes(&ctrl_f1, false), Some(b"\x1b[1;5P".to_vec()));
-        assert_eq!(key_to_bytes(&alt_f5, false), Some(b"\x1b[15;3~".to_vec()));
-        assert_eq!(
-            key_to_bytes(&ctrl_alt_f12, false),
-            Some(b"\x1b[24;7~".to_vec())
-        );
-    }
-
-    #[test]
-    fn alt_encoding_is_consistent_and_not_double_encoded() {
-        // Alt-up modified should be \x1b[1;3A, not double ESC-prefixed (e.g. not \x1b\x1b[1;3A)
-        let alt_up = key_event(KeyCode::Up, KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&alt_up, false), Some(b"\x1b[1;3A".to_vec()));
-
-        // Alt-F1 modified should be \x1b[1;3P, not \x1b\x1b[1;3P
-        let alt_f1 = key_event(KeyCode::F(1), KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&alt_f1, false), Some(b"\x1b[1;3P".to_vec()));
-    }
-}
-
-#[cfg(test)]
-mod mouse_tests {
-    use super::mouse_event_to_bytes;
-    use crossterm::event::MouseButton;
-    use iocraft::{FullscreenMouseEvent, KeyModifiers, MouseEventKind};
-
-    #[test]
-    fn shift_mouse_events_are_not_forwarded_to_pty() {
-        let mut event = FullscreenMouseEvent::new(MouseEventKind::Down(MouseButton::Left), 9, 4);
-        event.modifiers = KeyModifiers::SHIFT;
-        assert_eq!(mouse_event_to_bytes(&event), None);
-    }
-
-    #[test]
-    fn left_click_uses_sgr_press_encoding() {
-        let event = FullscreenMouseEvent::new(MouseEventKind::Down(MouseButton::Left), 9, 4);
-        assert_eq!(
-            mouse_event_to_bytes(&event),
-            Some(b"\x1b[<0;10;5M".to_vec())
-        );
-    }
-
-    #[test]
-    fn right_release_uses_sgr_release_suffix() {
-        let event = FullscreenMouseEvent::new(MouseEventKind::Up(MouseButton::Right), 3, 7);
-        assert_eq!(mouse_event_to_bytes(&event), Some(b"\x1b[<2;4;8m".to_vec()));
-    }
-
-    #[test]
-    fn drag_with_alt_and_ctrl_sets_modifier_bits() {
-        let mut event = FullscreenMouseEvent::new(MouseEventKind::Drag(MouseButton::Left), 0, 0);
-        event.modifiers = KeyModifiers::ALT | KeyModifiers::CONTROL;
-        assert_eq!(
-            mouse_event_to_bytes(&event),
-            Some(b"\x1b[<56;1;1M".to_vec())
-        );
-    }
-}
+#[path = "pty_encoding_tests.rs"]
+mod tests;
