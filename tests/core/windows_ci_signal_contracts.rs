@@ -252,6 +252,60 @@ fn windows_native_still_runs_every_native_step() {
     }
 }
 
+/// Issue #542, V7. The orphan check recorded surviving psmux *sessions* into an
+/// artifact and then `exit 0`, so the leak class this repository has reopened
+/// four times could never turn CI red. Sessions are also the wrong unit: #515's
+/// signature is a session that has already vanished from the inventory while
+/// its `jefe-session-host.exe` and worker keep running.
+#[test]
+fn windows_native_fails_when_any_jefe_process_survives_the_suite() {
+    let job = windows_native_job();
+    let step = step_body(&job, "Assert no jefe process survives the suite");
+
+    assert!(
+        step.contains("if: always()"),
+        "the survivor gate must run even when an earlier native step failed; \
+         a failing suite is exactly when trees leak"
+    );
+    assert!(
+        !step.contains("continue-on-error"),
+        "the survivor gate must be able to fail the build; recording orphans \
+         into an artifact is what let this defect class reopen four times"
+    );
+    assert!(
+        step.contains("jefe-session-host"),
+        "the gate must count surviving session-host processes, not only psmux \
+         sessions: a leaked tree outlives the session that owned it"
+    );
+    assert!(
+        step.contains("throw"),
+        "the gate must throw on a surviving process instead of exiting 0"
+    );
+}
+
+/// Return one `- name: <step>` block from a job body, up to the next step.
+fn step_body(job: &str, step: &str) -> String {
+    let header = format!("- name: {step}");
+    let mut lines = job
+        .lines()
+        .skip_while(|line| line.trim_start() != header.as_str());
+    let Some(first) = lines.next() else {
+        panic!("step `{step}` is not present in the job");
+    };
+    let indent = first.len() - first.trim_start().len();
+    let mut body = String::from(first);
+    for line in lines {
+        let starts_new_step = line.trim_start().starts_with("- name:")
+            && line.len() - line.trim_start().len() <= indent;
+        if starts_new_step {
+            break;
+        }
+        body.push('\n');
+        body.push_str(line);
+    }
+    body
+}
+
 /// Extract the `windows_native` job body from the CI workflow.
 fn windows_native_job() -> String {
     let workflow = read_repo_text(CI_WORKFLOW);
