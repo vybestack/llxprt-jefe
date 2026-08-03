@@ -178,7 +178,7 @@ fn staging_is_idempotent_and_reuses_existing_digest_artifact() {
 }
 
 #[test]
-fn staging_different_content_produces_distinct_artifacts_side_by_side() {
+fn staging_different_content_produces_distinct_artifacts() {
     let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
     let first_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src 1: {error}"));
     let second_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src 2: {error}"));
@@ -192,8 +192,96 @@ fn staging_different_content_produces_distinct_artifacts_side_by_side() {
         .unwrap_or_else(|error| panic!("second staging: {error}"));
 
     assert_ne!(first, second, "distinct digests stage separately");
-    assert!(first.exists(), "first artifact retained");
-    assert!(second.exists(), "second artifact retained");
+    assert!(
+        second.exists(),
+        "the current artifact is staged and retained"
+    );
+}
+
+/// Issue #542, deliverable 6: a rebuild changes the digest and stages a new
+/// directory. Nothing swept those between startups, so every rebuild during a
+/// long-lived session left another host image behind. A superseded generation
+/// that no process holds is unowned, and unowned artifacts are collected.
+#[test]
+fn staging_prunes_superseded_generations_that_no_process_holds() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+    let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
+
+    let mut superseded = Vec::new();
+    for build in 1..=3_u8 {
+        let source = write_source(&source_dir, &[b'j', b'e', b'f', b'e', build]);
+        let staged = stage_session_host(root.path(), "jefe-agent-1", &source)
+            .unwrap_or_else(|error| panic!("staging build {build}: {error}"));
+        superseded.push(staged);
+    }
+    let current = superseded.pop().unwrap_or_else(|| panic!("staged nothing"));
+
+    assert!(current.exists(), "the current generation is retained");
+    for stale in &superseded {
+        assert!(
+            !stale.exists(),
+            "a superseded host generation that nothing holds must not \
+             accumulate across rebuilds: {} survived",
+            stale.display()
+        );
+    }
+    let session_directory = current
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| panic!("staged path has a session directory"));
+    let generations = fs::read_dir(session_directory)
+        .unwrap_or_else(|error| panic!("read session dir: {error}"))
+        .count();
+    assert_eq!(
+        generations, 1,
+        "three rebuilds must leave exactly one live generation"
+    );
+}
+
+/// The counterpart guarantee, and the one #467 exists to protect: a rebuild may
+/// never orphan or disarm a live tree.
+///
+/// On Windows a running host's image is mapped as an image section and cannot
+/// be unlinked, which is what makes "no process holds it" decidable without
+/// liveness bookkeeping. Here that unlinkable image is modelled by a path
+/// `remove_file` must refuse, the same substitution
+/// `cleanup_session_directory_reports_retained_when_artifact_cannot_be_removed_as_directory`
+/// uses, so the retention rule is proven on every platform rather than only
+/// where a real image lock is reproducible.
+#[test]
+fn staging_retains_a_superseded_generation_whose_image_cannot_be_unlinked() {
+    let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+    let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
+
+    let held_source = write_source(&source_dir, b"jefe-image-held");
+    let held = stage_session_host(root.path(), "jefe-agent-1", &held_source)
+        .unwrap_or_else(|error| panic!("staging held host: {error}"));
+    let held_generation = held
+        .parent()
+        .unwrap_or_else(|| panic!("staged path has a generation directory"))
+        .to_path_buf();
+    fs::remove_file(&held).unwrap_or_else(|error| panic!("replace image: {error}"));
+    fs::create_dir(&held).unwrap_or_else(|error| panic!("unlinkable image: {error}"));
+    fs::write(held.join("mapped"), b"in use")
+        .unwrap_or_else(|error| panic!("image contents: {error}"));
+    let companion = held_generation.join("generation.marker");
+    fs::write(&companion, b"marker").unwrap_or_else(|error| panic!("companion: {error}"));
+
+    let rebuilt_source = write_source(&source_dir, b"jefe-image-rebuilt");
+    let rebuilt = stage_session_host(root.path(), "jefe-agent-1", &rebuilt_source)
+        .unwrap_or_else(|error| panic!("staging rebuilt host: {error}"));
+
+    assert!(rebuilt.exists(), "the rebuilt generation is staged");
+    assert!(
+        held.exists(),
+        "a generation whose image cannot be unlinked must survive the \
+         rebuild; removing it would orphan or disarm the live tree"
+    );
+    assert!(
+        companion.exists(),
+        "an abandoned generation must be left intact, not half-deleted \
+         around the image the operating system refused to release"
+    );
 }
 
 #[test]

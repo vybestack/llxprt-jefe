@@ -131,6 +131,16 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     }
     command.envs(payload.environment);
 
+    // Issue #542: capture the owner chain before anything is spawned. #467 gave
+    // the host a Job that contains the worker, but nothing contained the host,
+    // so a tree could outlive the psmux process that owned it (#515). The
+    // anchor must be taken pre-spawn and by identity — a PID looked up later
+    // can already have been recycled. No owner means no spawn: a worker nothing
+    // owns is exactly the unowned survivor this issue exists to eliminate.
+    // See `dev-docs/standards/windows-session-ownership.md`.
+    #[cfg(windows)]
+    let owner_anchor = establish_owner_anchor()?;
+
     // Issue #467 Slice 3 (AC6): on Windows the private pane host owns a
     // kill-on-close Job Object and assigns itself before spawning the worker so
     // the whole descendant tree inherits containment. The guard is held until
@@ -140,6 +150,11 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     // never start a tree it cannot contain. Unix behaviour is unchanged.
     #[cfg(windows)]
     let _containment = establish_worker_containment()?;
+
+    // Containment now exists, so releasing the tree is meaningful: the watchdog
+    // exits this host on confirmed owner loss and the kernel reaps the worker.
+    #[cfg(windows)]
+    super::owner_anchor::spawn_owner_watchdog(owner_anchor);
 
     // Issue #543: spawn rather than `status()` so the worker's PID is observed
     // at the only point it is knowable. jefe cannot derive it from the pane
@@ -160,6 +175,20 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
         super::worker_report::write_report(report_path, &report);
     }
     child.wait().map_err(|_| AgentLauncherError::LaunchFailed)
+}
+
+/// Capture the session host's owner chain before any worker exists.
+///
+/// Ownership model: `dev-docs/standards/windows-session-ownership.md`.
+#[cfg(windows)]
+fn establish_owner_anchor() -> Result<super::owner_anchor::OwnerAnchor, AgentLauncherError> {
+    super::owner_anchor::capture_owner_anchor().map_err(|error| {
+        tracing::error!(
+            error = %error,
+            "windows session host owner anchor unavailable; refusing to spawn agent worker"
+        );
+        AgentLauncherError::OwnerAnchorUnavailable
+    })
 }
 
 #[cfg(windows)]
@@ -450,6 +479,11 @@ pub enum AgentLauncherError {
     /// never start a descendant tree it cannot reliably contain.
     #[cfg(windows)]
     ContainmentUnavailable,
+    /// The session host could not name the process that owns it (issue #542),
+    /// so nothing would cause it to exit when its owner died. Worker spawn is
+    /// refused rather than creating a tree with no owner-lifetime anchor.
+    #[cfg(windows)]
+    OwnerAnchorUnavailable,
 }
 
 impl std::fmt::Display for AgentLauncherError {
@@ -479,6 +513,10 @@ impl std::fmt::Display for AgentLauncherError {
             #[cfg(windows)]
             Self::ContainmentUnavailable => formatter.write_str(
                 "windows job object containment could not be established for agent worker",
+            ),
+            #[cfg(windows)]
+            Self::OwnerAnchorUnavailable => formatter.write_str(
+                "windows session host owner could not be identified; refusing to spawn an unowned agent worker",
             ),
         }
     }

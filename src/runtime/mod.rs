@@ -57,6 +57,10 @@ mod multiplexer_contract;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
+/// Owner-lifetime anchor for the Windows session process tree (issue #542).
+///
+/// Model: `dev-docs/standards/windows-session-ownership.md`.
+mod owner_anchor;
 /// Cross-process advisory lock over the managed package install cache
 /// (issue #556).
 mod package_install_lock;
@@ -163,6 +167,15 @@ pub use server_health::{
 };
 pub use server_health_io::observe_server_liveness;
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+// Issue #542: the Windows owner-lifetime anchor. Exported so the native psmux
+// lifecycle regression exercises the production capture-and-watch path instead
+// of a re-implementation of it.
+// Model: `dev-docs/standards/windows-session-ownership.md`.
+#[cfg(windows)]
+pub use owner_anchor::{
+    OWNER_LOST_EXIT_CODE, OwnerAnchor, OwnerAnchorError, OwnerLink, OwnerRole,
+    capture_owner_anchor, spawn_owner_watchdog,
+};
 // Issue #467 Slice 2: re-export session-host cleanup/planning items used by the
 // startup path and the manager kill path.
 pub use session_host::{
@@ -197,6 +210,10 @@ mod process_tests;
 #[cfg(test)]
 #[path = "orphan_tests.rs"]
 mod orphan_tests;
+
+#[cfg(test)]
+#[path = "owner_anchor_tests.rs"]
+mod owner_anchor_tests;
 
 #[cfg(test)]
 #[path = "liveness_tests.rs"]

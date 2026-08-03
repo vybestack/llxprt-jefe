@@ -203,6 +203,35 @@ fn probe_process(pid: u32) -> ProcessObservation {
     }
 }
 
+/// Resolve the parent PID of `pid`, or `None` when it cannot be determined.
+///
+/// Used to walk the session host's owner chain before spawning a worker; see
+/// `dev-docs/standards/windows-session-ownership.md`. The returned PID is only
+/// a lookup key: the caller must capture a full `ProcessIdentity` and apply the
+/// ancestor-ordering guard before trusting it, because a parent slot can hold a
+/// recycled PID once the real parent has exited.
+#[cfg(windows)]
+#[must_use]
+pub(super) fn parent_process_id(pid: u32) -> Option<u32> {
+    use winsafe::co::TH32CS;
+    use winsafe::{HPROCESSLIST, PROCESSENTRY32};
+
+    if pid == 0 {
+        return None;
+    }
+    let mut snapshot = HPROCESSLIST::CreateToolhelp32Snapshot(TH32CS::SNAPPROCESS, None).ok()?;
+    for entry in snapshot.iter_processes() {
+        let entry: &PROCESSENTRY32 = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        if entry.th32ProcessID == pid {
+            return Some(entry.th32ParentProcessID);
+        }
+    }
+    None
+}
+
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum UnixProbeOutcome {
