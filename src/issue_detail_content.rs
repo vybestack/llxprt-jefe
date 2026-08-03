@@ -8,7 +8,7 @@ use crate::domain::{IssueComment, IssueDetail};
 use crate::state::{ComposerTarget, DetailSubfocus, EditorTarget, InlineState};
 
 /// Stable anchor rendered where a reply TextBox is logically attached.
-pub(crate) const ISSUE_REPLY_ANCHOR: &str = "    [Reply]";
+pub(crate) const ISSUE_REPLY_ANCHOR: &str = "    [Composer input]";
 
 /// Scrollable issue-detail content and optional inline cursor position.
 pub struct DetailContent {
@@ -169,9 +169,7 @@ pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
         .push("Title: first line | Body: remaining lines".to_string());
     builder.lines.push(String::new());
 
-    builder.lines.push(String::from(
-        "Alt+Enter submit | Ctrl+R rewrite | Esc cancel",
-    ));
+    builder.lines.push("[Composer input]".to_string());
     builder.finish()
 }
 
@@ -382,9 +380,7 @@ fn build_single_comment(
         && *comment_index == idx
     {
         builder.lines.push(ISSUE_REPLY_ANCHOR.to_string());
-        builder
-            .lines
-            .push("    Alt+Enter save | Esc cancel".to_string());
+        builder.lines.push(String::new());
     }
 
     builder.lines.push(String::new());
@@ -407,9 +403,7 @@ fn build_new_comment_section(
         ..
     } = inline_state
     {
-        builder
-            .lines
-            .push("  Alt+Enter submit | Esc cancel".to_string());
+        builder.lines.push("  [Composer input]".to_string());
     } else {
         builder.lines.push("  Press c to add a comment".to_string());
     }
@@ -637,7 +631,7 @@ mod tests {
         assert!(lines[range.0] == "> New Comment" || lines[range.0] == "  New Comment");
         assert!(
             lines[range.1].contains("Press c to add a comment")
-                || lines[range.1].contains("Alt+Enter submit"),
+                || lines[range.1].contains("[Composer input]"),
             "NewComment range must include the hint line"
         );
     }

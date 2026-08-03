@@ -368,6 +368,35 @@ fn official_llxprt_outcome(directory: &Path, wrapper_path: &Path) -> CanonicalSc
     }
 }
 
+/// Derive the canonical runtime + entrypoint for an already-resolved Windows
+/// `CommandScript` wrapper, so the agent can be launched without `cmd.exe`.
+///
+/// `cmd.exe` terminates its command line at the first `0x0A` and offers no
+/// escape for it, so any wrapper reached through `cmd.exe /D /S /C` silently
+/// loses every line of a multi-line prompt after the first (issue #536). The
+/// same `#258` contract that this module already applies during resolution is
+/// therefore also needed at the launch-plan boundary, where the generic
+/// candidate resolver only carries `(path, wrapper_kind)`.
+///
+/// Only the marked official layout is recognized. An unmarked wrapper gets
+/// `None` rather than a guessed runtime: inferring a neighbouring `node.exe` +
+/// `npm-cli.js` for an arbitrary agent wrapper would launch npm instead of the
+/// agent. The caller decides what to do with `None`.
+pub(super) fn canonical_script_launch_for_marked_wrapper(
+    wrapper_path: &Path,
+) -> Option<CanonicalScriptLaunchPlan> {
+    if !wrapper_carries_native_launcher_marker(wrapper_path) {
+        return None;
+    }
+    // Canonical fingerprints store verbatim (long-path prefixed) paths. Those
+    // are passed to the kernel unnormalized, so `/` is not a separator in them
+    // and the relative layout joins below would not resolve. Strip the prefix
+    // before joining; `canonical_script_launch_plan` re-canonicalizes.
+    let launchable = strip_verbatim_prefix(wrapper_path);
+    let directory = launchable.parent()?;
+    canonical_script_launch_plan(directory, LLXPRT_BUN_REL, LLXPRT_ENTRYPOINT_REL)
+}
+
 fn canonical_script_launch_plan(
     directory: &Path,
     runtime_rel: &str,

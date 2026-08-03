@@ -7,6 +7,7 @@
 
 use iocraft::prelude::*;
 
+use crate::domain::default_action_inventory::display::FooterMode;
 use crate::state::{AppState, IssueFocus, PaneFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -91,6 +92,13 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let detail_subfocus = state.map_or_else(Default::default, |s| s.issues_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.issues_state.inline_state.clone());
     let new_issue_form = state.and_then(|s| s.issues_state.new_issue_form.clone());
+    let footer_mode = if new_issue_form.is_some() {
+        Some(FooterMode::IssuesNewComposer)
+    } else if matches!(inline_state, crate::state::InlineState::Composer { .. }) {
+        Some(FooterMode::IssuesInlineComposer)
+    } else {
+        None
+    };
     let comments_loading = state.is_some_and(|s| s.issues_state.loading.comments);
     let detail_scroll_offset = state.map_or(0, |s| s.issues_state.detail_scroll_offset);
     let detail_focused = issue_focus == IssueFocus::IssueDetail;
@@ -443,6 +451,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,
+                mode_override: footer_mode,
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )

@@ -516,8 +516,8 @@ fn wrapped_pr_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
         crate::domain::document_wrap::line_first_row(&rows, state.prs_state.detail_scroll_offset);
     let help_row = rows
         .iter()
-        .position(|row| row.text.contains("Alt+Enter submit"))
-        .unwrap_or_else(|| panic!("expected composer help row"));
+        .position(|row| row.text.contains("[Composer input]"))
+        .unwrap_or_else(|| panic!("expected composer anchor row"));
     let viewport = crate::layout::pr_detail_document_viewport_rows(20, true);
 
     assert!(state.prs_state.detail_scroll_offset > 0);
@@ -749,7 +749,7 @@ fn test_open_reply_composer_reveals_target_reply_anchor() {
     let reply_line = content
         .text
         .lines()
-        .position(|line| line.contains("[Reply]"))
+        .position(|line| line == crate::pr_detail_content::PR_REPLY_ANCHOR)
         .unwrap_or_else(|| panic!("reply anchor should be rendered"));
     let offset = state.prs_state.detail_scroll_offset;
     let viewport =

@@ -22,7 +22,7 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n"
+          "utf8": "settings_schema = 2\n[keymap.\"issues.new-form\"]\n\"issues.new-submit\" = [\"F8\"]\n"
         },
         "mode": 384
       }
@@ -43,7 +43,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Jefe",
+      "literal": "Repositories",
       "timeout_ms": 15000
     },
     {
@@ -67,6 +67,21 @@
       "source": "frame",
       "literal": "New Issue",
       "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F8 submit",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "F8 submit"
+      ],
+      "absent": [
+        "Alt+Enter submit"
+      ]
     },
     {
       "op": "text",

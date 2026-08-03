@@ -176,8 +176,8 @@ fn wrapped_body_new_comment_open_reveals_tail_anchor_with_line_offset() {
     );
     let help_row = rows
         .iter()
-        .position(|row| row.text.contains("Alt+Enter submit"))
-        .unwrap_or_else(|| panic!("expected composer help row"));
+        .position(|row| row.text.contains("[Composer input]"))
+        .unwrap_or_else(|| panic!("expected composer anchor row"));
     let viewport = crate::layout::issue_detail_document_viewport_rows(20, true);
 
     assert!(state.issues_state.detail_scroll_offset > 0);

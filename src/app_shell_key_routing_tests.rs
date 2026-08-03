@@ -3,8 +3,9 @@
 use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use jefe::domain::action_registry::{HandlerKey, Resolution};
 use jefe::state::{
-    AppState, ConfirmFocus, ErrorsFocus, InlineState, IssueFocus, IssuePropertyEditorState,
-    IssuePropertyKind, IssuesState, ModalState, PaneFocus, ScreenId,
+    AppState, ComposerTarget, ConfirmFocus, ErrorsFocus, InlineState, IssueFocus,
+    IssuePropertyEditorState, IssuePropertyKind, IssuesState, ModalState, NewIssueFormState,
+    PaneFocus, PullRequestsState, ScreenId,
 };
 
 use super::resolve_compiled_registry_key;
@@ -26,6 +27,34 @@ fn assert_handler(state: &AppState, event: &KeyEvent, expected: HandlerKey) {
         "unexpected resolution: {:?}",
         resolved.resolution
     );
+}
+
+fn with_submit_override(mut state: AppState, context: &str, action: &str) -> AppState {
+    let dir = tempfile::tempdir();
+    let Ok(dir) = dir else {
+        panic!("composer route config directory must be created: {dir:?}");
+    };
+    let settings =
+        format!("settings_schema = 2\n[keymap.\"{context}\"]\n\"{action}\" = [\"F8\"]\n");
+    let result = std::fs::write(dir.path().join("settings.toml"), settings);
+    if let Err(error) = result {
+        panic!("composer route settings must be written: {error}");
+    }
+    let startup = jefe::startup::build_persistence(Some(dir.path()));
+    let Ok(startup) = startup else {
+        panic!("composer route fixture must compose: {startup:?}");
+    };
+    state.action_registry_snapshot = Some(startup.keymap_snapshot);
+    state
+}
+
+fn assert_replaced_submit_route(state: AppState, expected: HandlerKey) {
+    assert_handler(&state, &key(KeyCode::F(8)), expected);
+    let compiled = modified(KeyCode::Enter, KeyModifiers::ALT);
+    assert!(matches!(
+        resolve_compiled_registry_key(&state, &compiled).resolution,
+        Resolution::Unbound
+    ));
 }
 
 #[test]
@@ -197,6 +226,69 @@ fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
     );
     let newline = resolve_compiled_registry_key(&state, &key(KeyCode::Enter));
     assert!(matches!(newline.resolution, Resolution::Unbound));
+}
+
+#[test]
+fn new_issue_submit_override_uses_state_derived_production_context() {
+    let state = AppState {
+        screen: ScreenId::Issues,
+        issues_state: IssuesState {
+            active: true,
+            issue_focus: IssueFocus::IssueDetail,
+            inline_state: InlineState::Composer {
+                target: ComposerTarget::NewIssue,
+                text: String::new(),
+                cursor: 0,
+            },
+            new_issue_form: Some(NewIssueFormState::default()),
+            ..IssuesState::default()
+        },
+        ..AppState::default()
+    };
+    let state = with_submit_override(state, "issues.new-form", "issues.new-submit");
+
+    assert_replaced_submit_route(state, HandlerKey::IssuesSubmitInline);
+}
+
+#[test]
+fn issue_inline_submit_override_uses_state_derived_production_context() {
+    let state = AppState {
+        screen: ScreenId::Issues,
+        issues_state: IssuesState {
+            active: true,
+            issue_focus: IssueFocus::IssueDetail,
+            inline_state: InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                text: String::new(),
+                cursor: 0,
+            },
+            ..IssuesState::default()
+        },
+        ..AppState::default()
+    };
+    let state = with_submit_override(state, "issues.inline", "issues.inline-submit");
+
+    assert_replaced_submit_route(state, HandlerKey::IssuesSubmitInline);
+}
+
+#[test]
+fn pr_inline_submit_override_uses_state_derived_production_context() {
+    let state = AppState {
+        screen: ScreenId::PullRequests,
+        prs_state: PullRequestsState {
+            active: true,
+            inline_state: InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                text: String::new(),
+                cursor: 0,
+            },
+            ..PullRequestsState::default()
+        },
+        ..AppState::default()
+    };
+    let state = with_submit_override(state, "prs.inline", "prs.inline-submit");
+
+    assert_replaced_submit_route(state, HandlerKey::PullRequestsSubmitInline);
 }
 
 #[test]

@@ -137,10 +137,11 @@ terminal, and knows nothing about rendering, so it is exercised exhaustively as
 pure data.
 
 - `screens.rs` compiles one `ScreenDescriptor` per screen: its panels, which are
-  focusable, which are required, the focus order, and the layout tree. There is
-  no external screen syntax and no override source, so this is the only place a
-  screen's structure is described. `shipped-screen-definition-parity.json` is
-  the golden that must move with it.
+  focusable, which are required, the focus order, the layout tree, and any
+  declared relationships. `shipped-screen-definition-parity.json` is the golden
+  that must move with it. A screen may also be lowered from a user definition
+  file (see "User screen definitions" below); either way the descriptor is the
+  only description of a screen's structure.
 - `validate.rs` enforces the structural invariants: each panel appears exactly
   once in `panels` and exactly once in the layout; each focusable panel appears
   exactly once in the focus order; initial focus is focusable; a required panel
@@ -181,6 +182,136 @@ Legacy persisted screen values are translated once, by name, in
 `src/workbench/migration.rs`. That module is the only place the legacy
 vocabulary is named; an unrecognised value warns and selects the compiled
 initial screen rather than costing the user the rest of their restored state.
+
+### User screen definitions
+
+A user may add a screen by placing a definition in the definitions directory
+that `jefe config path` reports. Discovery is exact: one direct regular file per
+screen, named `<member>.screen.toml`, where `member` matches
+`[a-z][a-z0-9-]{0,62}` and is also the screen's identity — `review.screen.toml`
+declares `local.review` and nothing else. Subdirectories, symbolic links, hidden
+files, extension aliases, and non-UTF-8 names are not candidates. Files are read
+in canonical path order and bounded before parsing, the directory holds at most
+64 candidates, and a file whose identity changes between being listed and being
+opened is refused rather than read.
+
+A definition takes effect only when settings enable it:
+
+```toml
+[workbench]
+enabled_screens = ["local.review"]
+```
+
+#### Grammar
+
+```text
+ScreenFile = { screen_schema: 1, id: "local.<member>", title, route,
+               activation: [Field; 0..32], initial_focus, focus_order: [PanelId],
+               panels: [Panel; 1..16], layout: Layout,
+               relationships: [Relationship; 0..64], bindings: [BindingRef; 0..256] }
+Field      = { name, type: "boolean" | "optional-boolean" | "string" | "integer"
+                       | "enum" | "path" | "string-list",
+               values: [String]  # present exactly for `enum` }
+Panel      = { id, type, config: TypedMap, focusable: bool, required: bool,
+               ports: [Port; 0..32] }
+Port       = { id, direction: "input" | "output", type_id: "<name>@<version>",
+               required: bool, retained: bool }
+Layout     = { type: "leaf", panel }
+           | { type: "split", axis: "horizontal" | "vertical", children: [Child; 2..8] }
+Child      = { node: Layout, size: { fixed: 1..65535 } | { weight: 1..65535 },
+               min: 1..65535, max?: 1..65535, collapsible: bool,
+               collapse_priority?: i32  # present exactly when collapsible }
+Relationship = { kind: "scope", source: PortRef, target: PortRef }
+             | { kind: "master-detail", source, target,
+                 activation: "immediate" | "explicit",
+                 empty: "show-none" | "show-all" | "retain" }
+             | { kind: "session-target", source, target,
+                 empty: "detach" | "retain" }
+BindingRef = { context: ContextId, action: ActionId }
+PortRef    = "<panel>.<port>"
+```
+
+Every object is closed: an unknown field, a duplicate key, a value outside a
+closed enumeration, or a missing field is a rejection. Nothing that carries
+meaning is optional, so `focusable`, `required`, and `collapsible` must be
+written rather than defaulted. There is no secret field kind, and `pty-terminal`
+is not a panel type a definition may name.
+
+Every declared identifier matches the workbench identifier grammar — lowercase
+letters and digits in hyphen-separated groups — rather than the wider grammar the
+compiled identifier types happen to accept. Panel and port identifiers may not
+contain `.` on top of that, because a port is named again as `<panel>.<port>` and
+that reference is split on its first separator; an identifier containing one
+would be unreachable or ambiguous with a different pair. A route may carry dotted
+labels, since it is namespaced.
+
+`type` and `bindings` resolve against the compiled panel-type registry and the
+compiled action inventory. A definition can request what the program already
+has; it can never introduce a renderer, an action, or an effect.
+
+A definition whose owner settings do not enable is parsed but never lowered, so
+a screen nobody enabled resolves nothing against those registries.
+
+`activation` and `bindings` are lowered onto the descriptor even though nothing
+draws or dispatches them yet. Navigation builds a route declaration from a
+screen's `route` plus its activation schema, and the Keys editor reads the
+actions a screen requests; both read the composed registry, so a consumer that
+had to re-read the file would be a second parser for a grammar that has one. An
+activation field declares a *shape*, never a value, and there is no secret kind.
+
+#### Bounds
+
+| Subject | Limit |
+|---|---|
+| File | 1,048,576 bytes |
+| Data nesting (tables) / layout nesting | 16 / 8 |
+| Map entries / array elements | 256 / 1,024 |
+| String / identifier / path bytes | 262,144 / 128 / 4,096 |
+| Screens in the registry, and candidates in the definitions directory | 64 |
+| Panels per screen | 1–16 |
+| Ports per panel | 32 |
+| Split children | 2–8 |
+| Relationships per screen, follow-ups per transition | 64 |
+| Activation fields / bindings per screen | 32 / 256 |
+
+Bounds are checked, not clamped: the value that broke the rule is reported, so
+an author sees what to remove instead of silently losing the tail of a list.
+
+#### Relationship rules and policies
+
+Relationships join ports within one screen and are the only way one panel
+influences another. The graph must be same-screen, output to input, exactly
+type-and-version matched, acyclic across panels, driven by at most one incoming
+edge per input, and must not declare two edges of one kind from one source port
+or one source panel.
+
+Propagation runs in declaration order inside one committed transition, never
+moves focus, and is computed in full before it is committed — a transition that
+would exceed the follow-up bound is abandoned with `SCR-E301` and no partial
+state. A follow-up is work an edge does, including staging a selection that
+moves no port; the publication that started the transition is not one.
+`immediate` edges move the target at once; `explicit` edges stage the selection
+until the declared activation action fires. When a source becomes
+absent, a target that did not declare `retained` clears regardless of policy,
+and a retained target follows its own: `show-none` clears, `show-all` sets the
+typed all-value, `retain` keeps the prior value, and `detach` clears the session
+attachment.
+
+The shipped `github.issues` and `github.pull-requests` screens declare this
+coupling themselves — an `immediate`, `show-none` master-detail edge from the
+list's `selection` output to the detail's `subject` input — so the shipped and
+authored paths run the same engine.
+
+#### States and recovery
+
+| State | What is shown |
+|---|---|
+| NORMAL / FOCUSED | **Not applicable to a user-defined screen yet.** A definition is discovered, lowered, validated, composed, and layout-resolvable, but it has no route, so nothing can navigate to it and no frame contains it. Routing and activation are the navigation capability's; the compiled screens' normal and focused states are unchanged and covered by their own parity suites. |
+| UNAVAILABLE | A definition that settings do not enable is simply absent from the registry. |
+| ERROR | An enabled definition that is unusable refuses the whole candidate registry before anything renders: `SCR-E301` plus `CFG-E005` (ownership or duplicate) or `CFG-E006` (reference or bound), naming the file and the rule. |
+| DIRTY | Not applicable: there is no draft and no editor. |
+| RECOVERY | A dormant invalid definition is reported with `CFG-W004`, omitted from the registry, and left byte-for-byte unchanged. Fix or disable the named file and restart. |
+| SMALL | A lowered screen resolves through the standard collapse ordering and `TooSmall` fallback; there is no second geometry engine. Proven on the resolved layout rather than on a frame, for the same reason NORMAL is not applicable. |
 
 ---
 

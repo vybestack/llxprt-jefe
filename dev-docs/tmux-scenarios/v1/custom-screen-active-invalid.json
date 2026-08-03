@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "name": "custom-screen-active-invalid",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/definitions",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[workbench]\nenabled_screens = [\"local.review\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/definitions/review.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 1\nid = \"local.review\"\ntitle = \"Review\"\nroute = \"review\"\ninitial_focus = \"pr-list\"\nfocus_order = [\"pr-list\", \"pr-detail\"]\n\n[[panels]]\nid = \"pr-list\"\ntype = \"invented-panel\"\nfocusable = true\nrequired = true\n\n[[panels.ports]]\nid = \"selection\"\ndirection = \"output\"\ntype_id = \"github.pull-request@1\"\nrequired = false\nretained = false\n\n[[panels]]\nid = \"pr-detail\"\ntype = \"pr-detail\"\nfocusable = true\nrequired = false\n\n[[panels.ports]]\nid = \"subject\"\ndirection = \"input\"\ntype_id = \"github.pull-request@1\"\nrequired = false\nretained = true\n\n[layout]\ntype = \"split\"\naxis = \"horizontal\"\n\n[[layout.children]]\nmin = 20\ncollapsible = false\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-list\" }\n\n[[layout.children]]\nmin = 20\ncollapsible = true\ncollapse_priority = 0\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-detail\" }\n\n[[relationships]]\nkind = \"master-detail\"\nsource = \"pr-list.selection\"\ntarget = \"pr-detail.subject\"\nactivation = \"immediate\"\nempty = \"retain\"\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "SCR-E301",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "SCR-E301"
+      ],
+      "absent": [
+        "LLxprt Jefe",
+        "Repositories"
+      ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/definitions/review.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 1\nid = \"local.review\"\ntitle = \"Review\"\nroute = \"review\"\ninitial_focus = \"pr-list\"\nfocus_order = [\"pr-list\", \"pr-detail\"]\n\n[[panels]]\nid = \"pr-list\"\ntype = \"invented-panel\"\nfocusable = true\nrequired = true\n\n[[panels.ports]]\nid = \"selection\"\ndirection = \"output\"\ntype_id = \"github.pull-request@1\"\nrequired = false\nretained = false\n\n[[panels]]\nid = \"pr-detail\"\ntype = \"pr-detail\"\nfocusable = true\nrequired = false\n\n[[panels.ports]]\nid = \"subject\"\ndirection = \"input\"\ntype_id = \"github.pull-request@1\"\nrequired = false\nretained = true\n\n[layout]\ntype = \"split\"\naxis = \"horizontal\"\n\n[[layout.children]]\nmin = 20\ncollapsible = false\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-list\" }\n\n[[layout.children]]\nmin = 20\ncollapsible = true\ncollapse_priority = 0\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"pr-detail\" }\n\n[[relationships]]\nkind = \"master-detail\"\nsource = \"pr-list.selection\"\ntarget = \"pr-detail.subject\"\nactivation = \"immediate\"\nempty = \"retain\"\n"
+        }
+      }
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

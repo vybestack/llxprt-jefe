@@ -39,8 +39,12 @@ fn write_fixtures(bin: &tempfile::TempDir) {
 
     for name in ["claude", "code-puppy", "codex", "llxprt", "npm", "uvx"] {
         let path = bin.path().join(name);
+        // The npm stub answers `view` from a fixed version and installs only on
+        // `install`. Answering every invocation as an install is what let a
+        // read-only metadata query build a tree, and it built it wherever the
+        // stub happened to run (issue #623).
         let script = if name == "npm" {
-            "#!/bin/sh\nmkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt\nchmod 755 node_modules/.bin/llxprt\n"
+            "#!/bin/sh\ncase \"$1\" in\n  view) echo 1.0.0; exit 0 ;;\n  install) ;;\n  *) echo \"unexpected npm invocation: $*\" >&2; exit 64 ;;\nesac\nmkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/llxprt\nchmod 755 node_modules/.bin/llxprt\n"
         } else {
             "#!/bin/sh\nexit 0\n"
         };

@@ -375,7 +375,10 @@ pub enum FooterMode {
     Dashboard,
     Split,
     Issues,
+    IssuesNewComposer,
+    IssuesInlineComposer,
     PullRequests,
+    PullRequestsInlineComposer,
     Actions,
     Errors,
     Terminals,
@@ -570,6 +573,21 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
         ],
     },
     FooterModeGroup {
+        mode: FooterMode::IssuesNewComposer,
+        hints: &[
+            hint("submit", &["issues.new-submit"], 1),
+            hint("cancel", &["issues.new-cancel"], 2),
+        ],
+    },
+    FooterModeGroup {
+        mode: FooterMode::IssuesInlineComposer,
+        hints: &[
+            hint("submit", &["issues.inline-submit"], 1),
+            hint("rewrite", &["issues.inline-rewrite"], 2),
+            hint("cancel", &["issues.inline-cancel"], 3),
+        ],
+    },
+    FooterModeGroup {
         mode: FooterMode::PullRequests,
         hints: &[
             hint(
@@ -613,6 +631,13 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
             hint("list", &["prs.refocus-list"], 14),
             hint("exit", &["prs.exit"], 15),
             hint("back / exit", &["prs.back"], 16),
+        ],
+    },
+    FooterModeGroup {
+        mode: FooterMode::PullRequestsInlineComposer,
+        hints: &[
+            hint("submit", &["prs.inline-submit"], 1),
+            hint("cancel", &["prs.inline-cancel"], 2),
         ],
     },
     FooterModeGroup {

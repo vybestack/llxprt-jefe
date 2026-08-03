@@ -9,6 +9,7 @@ mod clippy_allow_policy;
 mod dashboard_search_contracts;
 mod domain_state_contracts;
 mod message_bus_contracts;
+mod multiplexer_socket_scoping_contract;
 mod ocr_workflow_contracts;
 mod persistence_theme_contracts;
 mod pr_review_workflow_contracts;

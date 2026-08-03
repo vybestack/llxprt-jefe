@@ -77,6 +77,8 @@ pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.
 pub mod ssh;
 pub mod startup;
+#[path = "startup_screens.rs"]
+pub mod startup_screens;
 pub mod state;
 /// Pure multiline text-box viewport projection (iocraft-free).
 ///

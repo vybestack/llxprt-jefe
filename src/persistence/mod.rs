@@ -51,6 +51,12 @@ mod migration_tests;
 mod writer_tests;
 
 pub mod diagnostic;
+pub mod screen_files;
+
+#[cfg(test)]
+#[path = "screen_files_tests.rs"]
+mod screen_files_tests;
+
 pub(crate) mod keymap_edit;
 pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;

@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "name": "pr-composer-submit-key",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[keymap.\"prs.inline\"]\n\"prs.inline-submit\" = [\"F9\"]\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Add newest-first review sorting",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Reviews",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F9 submit",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "F9 submit"
+      ],
+      "absent": [
+        "Alt+Enter submit"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "PR body line one"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "PR body line two"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PR body line two",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "PR body line one",
+        "PR body line two"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

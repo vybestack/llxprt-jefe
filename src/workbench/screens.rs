@@ -32,9 +32,14 @@
 use std::num::NonZeroU16;
 
 use super::config::insets_config;
-use super::descriptor::{Axis, LayoutChild, LayoutNode, PanelDescriptor, ScreenDescriptor, Size};
+use super::descriptor::{
+    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDirection, ScreenDescriptor, Size,
+};
 use super::geometry::Insets;
-use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId};
+use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
+use super::screens_ports::{selection_port, subject_port, workspace_relationships};
+
+pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT, master_detail_edge};
 use super::validate::{DescriptorError, validate_descriptor};
 
 /// Panel type whose visible content rectangle drives a live PTY.
@@ -198,29 +203,42 @@ impl ScreenRegistry {
         &self.screens
     }
 
-    /// Look up one descriptor by stable identity.
+    /// Look up one compiled screen's descriptor.
     #[must_use]
     pub fn get(&self, id: ScreenId) -> Option<&ScreenDescriptor> {
+        self.get_identity(ScreenIdentity::Compiled(id))
+    }
+
+    /// Look up one descriptor by stable identity, compiled or lowered.
+    #[must_use]
+    pub fn get_identity(&self, id: ScreenIdentity) -> Option<&ScreenDescriptor> {
         self.screens.iter().find(|screen| screen.id == id)
     }
 
-    /// Resolve a screen identity from text that came from outside the program.
+    /// Resolve a routable screen from text that came from outside the program.
     ///
     /// This is the only way a persisted or otherwise external value becomes a
     /// [`ScreenId`], so an unrecognised value can never become an identity no
-    /// descriptor backs.
+    /// descriptor backs. A lowered custom screen is deliberately not resolvable
+    /// here: it has a descriptor but no renderer or route, so restoring a
+    /// session onto it would open a screen nothing can draw.
     #[must_use]
     pub fn resolve(&self, value: &str) -> Option<ScreenId> {
         self.screens
             .iter()
             .find(|screen| screen.id.as_str() == value)
-            .map(|screen| screen.id)
+            .and_then(|screen| screen.id.compiled())
     }
 
     /// The screen selected when no valid prior screen is known.
+    ///
+    /// Only a compiled screen can be the fallback, because the fallback must
+    /// always be renderable and routable.
     #[must_use]
     pub fn initial_screen(&self) -> Option<&ScreenDescriptor> {
-        self.screens.first()
+        self.screens
+            .iter()
+            .find(|screen| screen.id.compiled().is_some())
     }
 }
 
@@ -273,6 +291,7 @@ fn panel(
         config: insets_config(chrome).ok_or(IdError::InvalidByte)?,
         focusable,
         required,
+        ports: Vec::new(),
     })
 }
 
@@ -378,7 +397,7 @@ fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
 /// active, so it is a band the application shows and hides.
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Dashboard,
+        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
         title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: vec![
@@ -390,6 +409,9 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", "terminal"])?,
+        relationships: Vec::new(),
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout: column(vec![
             band_child(leaf("search")?, SEARCH_ROW_ROWS, -100),
             required_child(
@@ -430,7 +452,7 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// band, occupying the full width.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Repositories,
+        id: ScreenIdentity::Compiled(ScreenId::Repositories),
         title: "Repositories".to_owned(),
         route: RouteId::parse("repositories")?,
         panels: vec![
@@ -439,6 +461,9 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL])?,
+        relationships: Vec::new(),
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout: column(vec![
             band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
             required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
@@ -482,12 +507,27 @@ struct WorkspaceSpec {
     banner: &'static str,
     /// Identity of the conditional filter-controls band.
     filter: &'static str,
+    /// Versioned type the list publishes and the detail consumes, when the
+    /// screen couples them.
+    ///
+    /// `None` means the screen's detail pane is not driven by its list
+    /// selection, so it declares no ports and no relationship.
+    subject_type: Option<&'static str>,
+}
+
+/// Attach an optional port to a panel.
+fn ported(
+    mut panel: PanelDescriptor,
+    port: Option<super::descriptor::PortDescriptor>,
+) -> PanelDescriptor {
+    panel.ports.extend(port);
+    panel
 }
 
 /// A workspace screen: the repository sidebar beside the shared column.
 fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: spec.id,
+        id: ScreenIdentity::Compiled(spec.id),
         title: spec.title.to_owned(),
         route: RouteId::parse(spec.route)?,
         panels: vec![
@@ -500,11 +540,20 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
                 false,
                 BORDERED_BAND_CHROME,
             )?,
-            panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
-            panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
+            ported(
+                panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
+                selection_port(spec.subject_type, PortDirection::Output)?,
+            ),
+            ported(
+                panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
+                subject_port(spec.subject_type, PortDirection::Input)?,
+            ),
         ],
         initial_focus: PanelId::parse(spec.list)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
+        relationships: workspace_relationships(spec.list, spec.detail, spec.subject_type)?,
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
@@ -526,6 +575,7 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "issue-detail",
         banner: "issue-list-banner",
         filter: "issue-list-filter",
+        subject_type: Some("github.issue@1"),
     })
 }
 
@@ -540,6 +590,7 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "pr-detail",
         banner: "pr-list-banner",
         filter: "pr-list-filter",
+        subject_type: Some("github.pull-request@1"),
     })
 }
 
@@ -553,6 +604,9 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "action-detail",
         banner: "action-list-banner",
         filter: "action-list-filter",
+        // The actions screen loads its run detail on demand rather than
+        // following the list selection, so it declares no coupling.
+        subject_type: None,
     })
 }
 
@@ -561,7 +615,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// Errors mode renders no banner and no filter band, so it declares neither.
 fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Errors,
+        id: ScreenIdentity::Compiled(ScreenId::Errors),
         title: "Errors".to_owned(),
         route: RouteId::parse("errors")?,
         panels: vec![
@@ -577,6 +631,9 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse("error-list")?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "error-list", "error-detail"])?,
+        relationships: Vec::new(),
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(
@@ -600,7 +657,7 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// throttled read-only preview of the selected one.
 fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenId::Terminals,
+        id: ScreenIdentity::Compiled(ScreenId::Terminals),
         title: "Terminals".to_owned(),
         route: RouteId::parse("terminals")?,
         panels: vec![
@@ -616,6 +673,9 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
         ],
         initial_focus: PanelId::parse("shell-list")?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "shell-list", "shell-preview"])?,
+        relationships: Vec::new(),
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
             required_child(

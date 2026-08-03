@@ -619,11 +619,12 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
         content.text.contains("New comment"),
         "the New comment section must render when the composer is active"
     );
-    // The anchor/help line must be present.
+    // The stable composer anchor must be present without shortcut authority.
     assert!(
-        content.text.contains("Alt+Enter submit | Esc cancel"),
-        "the composer anchor/help line must render when the composer is active"
+        content.text.contains("[Composer input]"),
+        "the composer anchor line must render when the composer is active"
     );
+    assert!(!content.text.contains("Alt+Enter submit"));
     // The document cursor must be None (composer not flattened).
     assert!(
         content.cursor.is_none(),

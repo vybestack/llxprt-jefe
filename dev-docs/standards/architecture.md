@@ -213,9 +213,45 @@ independent terminal-size reads are not permitted in consumers: a panel's
 position is whatever the snapshot says it is.
 
 `workbench/` depends on nothing project-internal except the shared typed-value
-contract in `domain/`. It performs no I/O, holds no state, and imports no
-terminal, rendering, persistence, runtime, or harness types, which is what lets
-the allocation algorithm be swept exhaustively as pure arithmetic.
+and diagnostic contracts in `domain/` and `persistence/diagnostic`. It performs
+no I/O, holds no state, and imports no terminal, rendering, runtime, or harness
+types, which is what lets the allocation algorithm be swept exhaustively as pure
+arithmetic.
+
+## Screen discovery, lowering, and publication
+
+A screen may be compiled into the executable or authored by a user, and both end
+as the same internal `ScreenDescriptor`. Ownership of each step is fixed:
+
+| Step | Owner | Rule |
+|---|---|---|
+| Where definitions live | `persistence::paths::ResolvedPaths::definitions` | The sole discovery root. Nothing else names a definitions directory. |
+| Which files are candidates, and their bytes | `persistence::screen_files` | The only enumeration of that directory and the only read of a definition. No recursion, no symlink traversal, no hidden file, no extension alias, no non-UTF-8 name; canonical path order; bounded before parse. |
+| What the external syntax is | `workbench::screen_file` | The closed grammar, with spans. Objects deny unknown fields and every enumerated value is a Rust enum. |
+| What the declared bounds are | `workbench::screen_file_bounds`, `workbench::screen_file_shape` | Checked, never clamped; the measured value is reported. |
+| External to internal | `workbench::screen_lowering::lower_screen` | The single crossing. It copies and resolves; it supplies no semantic default. Nothing external survives it. |
+| Which panel types and actions exist | `workbench::panel_types`, `domain::default_action_inventory` | Immutable registries. A definition resolves against them and can never extend them. |
+| Which owners are active | `persistence::settings_publish::PublishedWorkbench::enabled_screens` | Read before lowering; a dormant definition is never lowered. |
+| Composing and refusing | `workbench::compose` | All-or-nothing. One unusable enabled definition refuses the whole candidate registry. |
+| Publishing | `workbench::publish_screen_registry` | Exactly once, at startup, before anything renders. |
+| Requesting all of the above | `startup_screens::compose_and_publish` | The only caller that turns paths plus settings into a published registry. |
+
+Three properties are normative:
+
+- **The workbench never performs I/O.** Discovery and reading live in
+  `persistence/`; parsing, validating, lowering, and composing are pure
+  functions over text and values.
+- **No external screen syntax survives publication.** The registry holds
+  internal descriptors only, so the external grammar can change without
+  reaching a renderer or a resolver.
+- **A definition cannot request an effect.** It may name a panel type from the
+  compiled registry and an action from the compiled inventory, and nothing else.
+  `pty-terminal` is deliberately absent from what a definition may name.
+
+Screen *description* is open — `ScreenIdentity` is either a compiled `ScreenId`
+or a validated `local.*` identity — while screen *routing* stays the closed
+`ScreenId` enum, so every routable screen still has a compiled renderer and an
+exhaustive match.
 
 ## The Pure-Views Pattern
 
@@ -336,6 +372,10 @@ state/  ──> messages/ ──> domain/
 action_context/ ──> domain/ (state snapshot to ordered context stack)
 action_projection/ ──> domain/ (snapshot to Help/footer/menu/Keys text)
 persistence/ ──> domain/ (keymap override composition)
+persistence/screen_files ──> workbench/ids (the member grammar it enumerates by)
+workbench/ ──> domain/ (typed values), persistence/diagnostic (codes and bounds)
+startup_screens/ ──> persistence/, workbench/ (discovery, composition, publication)
+state/screen_relationships ──> workbench/ (the declared coupling a screen carries)
 jsp/    ──> domain/ (transport-neutral observation values)
 ```
 
@@ -344,7 +384,9 @@ jsp/    ──> domain/ (transport-neutral observation values)
 | `domain/`           | Nothing project-internal.                                 |
 | `messages/`         | `domain/`, `state/` (types only — see known coupling).    |
 | `theme/`            | Nothing project-internal (uses iocraft types for `Color`).|
-| `persistence/`      | `domain/` only.                                           |
+| `persistence/`      | `domain/`; `workbench/ids` for the definition-file grammar.|
+| `workbench/`        | `domain/`, `persistence/diagnostic`. No I/O, no state.     |
+| `startup_screens/`  | `persistence/`, `workbench/` (the composition boundary).   |
 | `runtime/`          | Nothing project-internal (uses iocraft types for `Color`).|
 | `state/`            | `domain/`, `messages/`.                                   |
 | `text_box_view/`    | Nothing project-internal (pure projection).               |
