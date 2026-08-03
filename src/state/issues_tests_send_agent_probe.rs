@@ -257,7 +257,8 @@ fn unavailable_action_sets_the_issues_banner_notice() {
 #[test]
 fn unavailable_action_sets_the_pull_requests_banner_notice() {
     let mut state = state_with_unprobed_agent();
-    state.screen = crate::workbench::ScreenId::PullRequests;
+    state.nav =
+        crate::state::navigation::NavState::rooted(crate::workbench::ScreenId::PullRequests);
 
     state.record_unavailable_action("No agents available".to_string());
 
@@ -285,7 +286,7 @@ fn unavailable_action_on_other_screens_only_warns() {
         crate::workbench::ScreenId::Terminals,
     ] {
         let mut state = state_with_unprobed_agent();
-        state.screen = screen;
+        state.nav = crate::state::navigation::NavState::rooted(screen);
 
         state.record_unavailable_action("Nothing to do here".to_string());
 

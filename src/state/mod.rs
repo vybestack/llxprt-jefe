@@ -839,7 +839,7 @@ impl AppState {
     /// is therefore mirrored into the owning screen's notice band, which is
     /// where those screens already report `No agents available`.
     pub fn record_unavailable_action(&mut self, reason: String) {
-        match self.screen {
+        match self.screen() {
             ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
             ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
             ScreenId::Dashboard
