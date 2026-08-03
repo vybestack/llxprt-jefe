@@ -110,6 +110,11 @@ pub mod navigation_dirty;
 #[cfg(test)]
 #[path = "navigation_dirty_tests.rs"]
 mod navigation_dirty_tests;
+/// Which unwindable layers a screen currently has open (issue #386).
+mod navigation_layers;
+#[cfg(test)]
+#[path = "navigation_layers_tests.rs"]
+mod navigation_layers_tests;
 /// How the rest of the reducer asks to change screen (issue #386).
 mod navigation_ops;
 #[cfg(test)]

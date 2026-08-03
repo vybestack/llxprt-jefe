@@ -364,6 +364,46 @@ fn every_compiled_screen_can_root_a_session() {
     }
 }
 
+// ── CW06-09: what a restored session opens on ───────────────────────────────
+
+#[test]
+fn every_persisted_screen_restores_one_clean_instance_and_no_stack() {
+    // Navigation is not persisted: a restored session knows which screen it was
+    // on and nothing else, so it can only ever come back with one instance and
+    // an empty stack — never with a stale stack pointing at screens whose data
+    // is long gone.
+    for (legacy, _) in crate::workbench::LEGACY_SCREEN_VALUES {
+        let Some(outcome) =
+            crate::workbench::migrate_persisted_screen_value(Some(legacy), registry())
+        else {
+            panic!("every legacy screen value maps to a screen");
+        };
+        let restored = NavState::rooted(outcome.screen_id());
+
+        assert_eq!(restored.current().screen, outcome.screen_id());
+        assert_eq!(restored.depth(), 0, "a restored session carries no stack");
+        assert_eq!(restored.current().generation, 1);
+        assert_eq!(restored.current().activation.activation_generation, 1);
+        assert!(restored.guard().is_none(), "a guard is never restored");
+        assert!(
+            restored.current().activation.values.is_empty(),
+            "a compiled screen restores with its declared defaults, which are none"
+        );
+    }
+}
+
+#[test]
+fn an_unreadable_persisted_screen_restores_the_home_screen() {
+    let outcome = crate::workbench::migrate_persisted_screen_value(Some("nonesuch"), registry());
+    let screen = outcome.map_or_else(
+        ScreenId::default,
+        crate::workbench::MigrationOutcome::screen_id,
+    );
+    let restored = NavState::rooted(screen);
+    assert_eq!(restored.current().screen, ScreenId::default());
+    assert_eq!(restored.depth(), 0);
+}
+
 #[test]
 fn instance_identity_is_never_reused_across_states() {
     let first = rooted(ScreenId::Dashboard);
