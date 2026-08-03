@@ -22,7 +22,7 @@
 | A6 | Same path | No matches at all in a page that still reports `has_more` | All platforms | The loop keeps fetching and does not return early with a stale cursor | n/a | As above | unchanged | Unit test for the skip-empty-page case |
 | A7 | `GhClient::list_issues` without a client-side issue-type filter | Any filter/sort | All platforms | Unchanged single raw-page behavior | Unchanged `GhError` mapping | Unchanged | unchanged | Existing `github_client` tests remain green |
 | A8 | Same filtered path | A raw page carries more matches than the whole requested page, so it can be neither emitted nor deferred | All platforms | n/a | `GhError::ApiError` naming the oversized page, instead of an empty page whose cursor invites the identical request forever | Only the raw fetches performed | unchanged | Unit test asserting the typed error |
-| A9 | Same filtered path | A raw page reports `has_more` but carries no end cursor | All platforms | The loop stops with what it has and `has_more == false` rather than restarting from the first page | n/a | As above | unchanged | Unit test asserting one fetch and no continuation |
+| A9 | Same filtered path | A raw page reports `has_more` but carries an end cursor nobody can follow — absent, or identical to the one just used — whether or not that page fills the request | All platforms | The loop stops with what it has and `has_more == false` rather than restarting from the first page or inviting a request that returns the same page | n/a | As above | unchanged | Unit tests for the short page and for the exactly-full page, in both the absent-cursor and unchanged-cursor forms |
 | A10 | Same filtered path | A raw fetch fails after earlier pages already contributed matches | All platforms | n/a | The underlying `GhError` propagates instead of being reported as a short page | Only the raw fetches performed | unchanged | Unit test asserting the propagated error |
 
 ## Non-goals
@@ -85,7 +85,7 @@ or unrelated refactor is authorized.
 | Test seam: the loop takes the raw-page fetch as a parameter | In scope | Required to prove A1–A6 without a network or `gh` process; stays private to the module |
 | Preserve exhaustion / non-advancing-cursor / empty-page behavior | In scope | A4–A6 |
 | Typed error when a page can be neither emitted nor deferred | In scope | A8; without it the new deferral could return an empty page with an unchanged cursor |
-| Stop on a `has_more` page that carries no end cursor | In scope | A9; the same "cannot advance" guard the loop already applies to a repeated cursor |
+| Stop on a `has_more` page whose end cursor cannot be followed, on every exit | In scope | A9; the same "cannot advance" guard the loop already applies to a repeated cursor |
 | Per-node search cursors for mid-page resume | Rejected | Explicit non-goal; query-shape change beyond the issue |
 | `NonZeroU32` page-size domain type | Rejected | Public client-signature change; A8 already removes the non-progress exit |
 | Visited-cursor cycle detection | Rejected | Pre-existing, contradicts the connection contract, and needs a new mechanism |
@@ -95,8 +95,17 @@ or unrelated refactor is authorized.
 
 - Local OCR: `2 / 2` — both runs over the committed range reported zero findings;
   the second ran after review remediation.
-- PR OCR: `1 / 2` — the repository's automatic OpenCodeReview job reviewed head
-  `7c1fa84b` against merge base `a88d4d9f` and reported no findings.
+- PR OCR: `2 / 2` — the repository's automatic OpenCodeReview job ran twice. The
+  first run over head `7c1fa84b` reported no findings. The second reported four,
+  triaged as: two duplicate reports that the unfollowable-cursor guard sat after
+  the page-full exit, so an exactly-full page could still promise more through a
+  cursor nobody can use — fixed by applying the guard to every exit and covered
+  by two new tests (A9); and two micro-optimisations (avoid the bounded
+  per-iteration `matches` vector, preallocate `collected`) — rejected, because the
+  vector is what makes "emit whole or defer whole" a single readable decision and
+  removing it duplicates the filter predicate, while preallocating from a
+  caller-supplied `page_size` trades a bounded 30-element growth for an eager
+  allocation sized by an unvalidated number.
 - rustreviewer: one full review of the committed range; six findings triaged.
   Fixed: the deferral could return an empty page with an unchanged cursor when a
   raw page could be neither emitted nor deferred (now a typed `GhError::ApiError`,
@@ -121,9 +130,10 @@ or unrelated refactor is authorized.
   `PaginatedList::should_load_more` (`src/domain/paginated_list.rs:384`) only
   requests another page when the selection sits on the last row, so a page that
   is shorter than `page_size` costs one extra scroll rather than spinning.
-- Exact-head verification: `cargo xtask ci` passes at head `7c1fa84b` (fmt,
+- Exact-head verification: `cargo xtask ci` passes on the candidate head (fmt,
   clippy-allow policy, source size, architecture, multiplexer surface, strict
-  Clippy, complexity, coverage, build, test); line coverage 69.83%.
+  Clippy, complexity, coverage, build, test); line coverage stays near 69.8%,
+  well above the 30% floor.
 - CI: all 19 required checks on PR #606 pass (2 optional jobs skip).
 - Deferred findings: none. A second independent reviewer pass could not be
   obtained — both review subagent providers returned usage-limit errors — so the

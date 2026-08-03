@@ -99,21 +99,18 @@ where
             });
         }
         collected.extend(matches);
-        if collected.len() >= page_size || !response.has_more {
-            return Ok(IssueListResponse {
-                issues: collected,
-                cursor: response.cursor,
-                has_more: response.has_more,
-            });
-        }
         // A page promising more results without handing back a usable next
         // cursor cannot be followed: reusing the current cursor would refetch
         // the same page, and dropping it would restart from the first page.
-        if response.cursor.is_none() || response.cursor == search_cursor {
+        // Neither this call nor the caller may act on such a cursor, so the
+        // promise is dropped on every exit rather than only on the one that
+        // would have continued looping.
+        let followable = response.cursor.is_some() && response.cursor != search_cursor;
+        if collected.len() >= page_size || !response.has_more || !followable {
             return Ok(IssueListResponse {
                 issues: collected,
                 cursor: response.cursor,
-                has_more: false,
+                has_more: response.has_more && followable,
             });
         }
         search_cursor = response.cursor;
@@ -474,6 +471,42 @@ mod tests {
         assert!(
             matches!(result, Err(GhError::RateLimited)),
             "a mid-accumulation failure must not be reported as a short page"
+        );
+    }
+
+    #[test]
+    fn a_full_page_without_a_usable_cursor_reports_no_more() {
+        let Ok(response) = collect_issue_type_matches("Bug", Some("cursor-a"), 2, |_| {
+            Ok(IssueListResponse {
+                issues: vec![issue(1, "Bug"), issue(2, "Bug")],
+                cursor: None,
+                has_more: true,
+            })
+        }) else {
+            panic!("scripted search must not fail");
+        };
+        assert_eq!(numbers(&response), vec![1, 2]);
+        assert!(
+            !response.has_more,
+            "a full page must not promise more through a cursor nobody can use"
+        );
+    }
+
+    #[test]
+    fn a_full_page_that_does_not_advance_reports_no_more() {
+        let Ok(response) = collect_issue_type_matches("Bug", Some("stuck"), 2, |_| {
+            Ok(IssueListResponse {
+                issues: vec![issue(1, "Bug"), issue(2, "Bug")],
+                cursor: Some("stuck".to_string()),
+                has_more: true,
+            })
+        }) else {
+            panic!("scripted search must not fail");
+        };
+        assert_eq!(numbers(&response), vec![1, 2]);
+        assert!(
+            !response.has_more,
+            "a full page must not invite a request that returns the same page"
         );
     }
 }
