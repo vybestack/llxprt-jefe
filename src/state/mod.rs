@@ -121,6 +121,7 @@ mod transition_tests;
 mod types;
 mod util;
 mod workbench_filter;
+mod workbench_reducers;
 pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
@@ -554,31 +555,6 @@ impl AppState {
             self.terminal_viewport_rows,
             message,
         );
-    }
-
-    /// Handle multi-agent workbench navigation messages (issue #626).
-    fn apply_workbench_navigation(&mut self, message: UiNavigationMessage) {
-        match message {
-            UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
-                self.apply_workbench_status_toggle(bucket);
-            }
-            UiNavigationMessage::WorkbenchNextPage => {
-                self.workbench_page = self.workbench_page.saturating_add(1);
-            }
-            UiNavigationMessage::WorkbenchPrevPage => {
-                self.workbench_page = self.workbench_page.saturating_sub(1);
-            }
-            _ => unreachable!("non-workbench message routed to apply_workbench_navigation"),
-        }
-    }
-
-    /// Toggle one status bucket in the workbench filter mask and reset the
-    /// page to 0 so a shrinking list cannot strand an empty page (issue #626).
-    fn apply_workbench_status_toggle(&mut self, bucket: crate::workbench_view::StatusBucket) {
-        let current = self.workbench_status_filter.mask();
-        self.workbench_status_filter =
-            WorkbenchStatusFilter(current.with(bucket, !current.allows(bucket)));
-        self.workbench_page = 0;
     }
 
     fn cycle_pane_focus(&mut self) {
