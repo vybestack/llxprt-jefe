@@ -607,6 +607,14 @@ impl AppState {
     /// @requirement REQ-PR-001
     /// @requirement REQ-PR-005
     /// @pseudocode component-001 lines 66-87
+    /// Unwrap the boxed PR lifecycle-mutation family and apply it (issue #183).
+    fn apply_pr_lifecycle_mutation_wrapper(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::PrLifecycle(inner) => self.apply_pr_lifecycle_mutation(inner),
+            _ => false,
+        }
+    }
+
     fn apply_pr_lifecycle_event(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::EnterPrsMode => {
@@ -662,7 +670,7 @@ impl AppState {
             || self.apply_pr_inline_dispatch(&event)
             || self.apply_pr_mutation_event(event.clone())
             || self.apply_pr_agent_chooser_event(&event)
-            || self.apply_pr_merge_event(&event)
+            || self.apply_pr_lifecycle_mutation_wrapper(&event)
             || self.apply_pr_property_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)

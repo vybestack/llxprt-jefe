@@ -5,7 +5,9 @@ use iocraft::prelude::{KeyCode, KeyEvent};
 use iocraft::prelude::{KeyEventKind, KeyModifiers};
 #[cfg(test)]
 use jefe::state::PrFocus;
-use jefe::state::{AppEvent, AppState, InlineState, PrDetailSubfocus, ReadOnlyHintKind};
+use jefe::state::{
+    AppEvent, AppState, InlineState, PrDetailSubfocus, PrLifecycleEvent, ReadOnlyHintKind,
+};
 
 #[must_use]
 pub(super) fn resolve_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
@@ -186,7 +188,7 @@ pub(super) fn pr_merge_event_for_detail(state: &AppState) -> AppEvent {
     {
         return AppEvent::PrShowNotice(ReadOnlyHintKind::PrNotMergeable);
     }
-    AppEvent::PrOpenMergeChooser
+    PrLifecycleEvent::OpenMergeChooser.into()
 }
 
 #[cfg(test)]

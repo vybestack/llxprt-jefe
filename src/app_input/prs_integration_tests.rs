@@ -27,7 +27,7 @@ use jefe::domain::{
     Agent, AgentId, AgentLaunchRequest, PrCheckStatus, PrState, PullRequest,
     RemoteRepositorySettings, Repository, RepositoryId,
 };
-use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenId};
+use jefe::state::{AppEvent, AppState, PrFocus, PrLifecycleEvent, ReadOnlyHintKind, ScreenId};
 
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
 // std::boxed::Box). The private fn pr_send_info_from_state is visible to
@@ -589,8 +589,12 @@ fn assert_o_in_detail_and_merge_keybinding() {
     // Issue #92: `m` in detail with a loaded open PR emits PrOpenMergeChooser.
     let event = prs::resolve_prs_key_event(&state_detail, &key(KeyCode::Char('m')));
     assert!(
-        matches!(event, Some(AppEvent::PrOpenMergeChooser)),
-        "'m' in detail with a loaded open PR must emit PrOpenMergeChooser (got {event:?})"
+        matches!(
+            event,
+            Some(AppEvent::PrLifecycle(ref lifecycle))
+                if matches!(**lifecycle, PrLifecycleEvent::OpenMergeChooser)
+        ),
+        "'m' in detail with a loaded open PR must emit OpenMergeChooser (got {event:?})"
     );
     // `m` in detail without a loaded PR emits a notice (no PR to merge).
     let mut no_detail_state = active_prs_state();
@@ -869,11 +873,14 @@ fn test_pr_merged_clears_pending_and_marks_merged() {
         method: MergeMethod::Merge,
     });
 
-    state.apply_in_place(AppEvent::PrMerged {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 7,
-        method: MergeMethod::Merge,
-    });
+    state.apply_in_place(
+        PrLifecycleEvent::Merged {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 7,
+            method: MergeMethod::Merge,
+        }
+        .into(),
+    );
 
     assert!(
         state.prs_state.merge_mutation_pending.is_none(),

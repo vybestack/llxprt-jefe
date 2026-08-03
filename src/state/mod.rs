@@ -55,6 +55,7 @@ pub mod pagination; // `PaginatedList<T, I>` generic deterministic pagination st
 pub mod post_mutation_refresh; // Coalesced post-mutation refresh scheduling state
 #[cfg(test)]
 mod post_mutation_refresh_tests;
+mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
 mod prs_diff_ops;
@@ -123,6 +124,7 @@ pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
+pub use pr_lifecycle_events::PrLifecycleEvent;
 pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};

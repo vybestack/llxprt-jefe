@@ -12,7 +12,7 @@
 use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
 use jefe::runtime::RuntimeError;
-use jefe::state::{AppEvent, AppState, PrPropertyKind};
+use jefe::state::{AppEvent, AppState, PrLifecycleEvent, PrPropertyKind};
 use tracing::warn;
 
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
@@ -168,14 +168,14 @@ fn route_prs_merge(
 ) {
     match message {
         PullRequestsMessage::OpenMergeChooser => {
-            apply_and_persist(app_state, ctx, AppEvent::PrOpenMergeChooser);
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::OpenMergeChooser.into());
             let chooser_open = { app_state.read().prs_state.merge_chooser.is_some() };
             if chooser_open {
                 prs_dispatch::dispatch_pr_merge_methods_load(app_state, ctx);
             }
         }
         PullRequestsMessage::MergeConfirm => {
-            apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::MergeConfirm.into());
             prs_dispatch::dispatch_pr_merge(app_state, ctx);
         }
         other => apply_and_persist(app_state, ctx, AppEvent::from(other)),

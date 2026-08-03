@@ -6,7 +6,7 @@ use jefe::list_viewport::PageItemCount;
 use jefe::state::{
     ActionsFilterField, ActionsFocus, AppEvent, AppState, DetailSubfocus, IssueFocus,
     IssuePropertyKind, NewIssueFormFocus, PrChangesFocus, PrDetailSubfocus, PrFocus,
-    PrPropertyKind, ReadOnlyHintKind, ScreenId,
+    PrLifecycleEvent, PrPropertyKind, ReadOnlyHintKind, ScreenId,
 };
 
 use super::{BoundaryAction, HandlerExecution};
@@ -489,9 +489,9 @@ fn pr_chooser(state: &AppState, previous: bool, chord: Chord) -> Option<AppEvent
     }
     if state.prs_state.merge_chooser.is_some() {
         return Some(if previous {
-            AppEvent::PrMergeNavigateUp
+            PrLifecycleEvent::MergeNavigateUp.into()
         } else {
-            AppEvent::PrMergeNavigateDown
+            PrLifecycleEvent::MergeNavigateDown.into()
         });
     }
     state.prs_state.agent_chooser.as_ref().map(|_| {
@@ -507,7 +507,7 @@ fn pr_chooser_confirm(state: &AppState) -> Option<AppEvent> {
     if state.prs_state.property_editor.is_some() {
         Some(AppEvent::PrPropertyEditorConfirm)
     } else if state.prs_state.merge_chooser.is_some() {
-        Some(AppEvent::PrMergeConfirm)
+        Some(PrLifecycleEvent::MergeConfirm.into())
     } else {
         state
             .prs_state
@@ -521,7 +521,7 @@ fn pr_chooser_cancel(state: &AppState) -> Option<AppEvent> {
     if state.prs_state.property_editor.is_some() {
         Some(AppEvent::PrPropertyEditorCancel)
     } else if state.prs_state.merge_chooser.is_some() {
-        Some(AppEvent::PrMergeCancel)
+        Some(PrLifecycleEvent::MergeCancel.into())
     } else {
         state
             .prs_state
