@@ -20,8 +20,8 @@ use super::screen_file::{
     ActivationKind, ChildFile, LayoutFile, RelationshipFile, ScreenFile, SizeFile, span_of,
 };
 use super::screen_file_bounds::{
-    ScreenSyntaxError, ScreenSyntaxReason, check_component, check_identifier_length,
-    check_string_length,
+    ScreenSyntaxError, ScreenSyntaxReason, check_component, check_declared_id,
+    check_identifier_length, check_string_length,
 };
 
 /// Check every structural bound the grammar declares.
@@ -75,7 +75,7 @@ fn check_collection_counts(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
 
 fn check_identifier_lengths(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     check_identifier_length("id", file.id.get_ref())?;
-    check_identifier_length("route", &file.route)?;
+    check_declared_id("route", &file.route)?;
     check_component("initial_focus", &file.initial_focus)?;
     for panel in &file.focus_order {
         check_component("focus_order entry", panel)?;
@@ -131,7 +131,7 @@ fn check_layout_identifiers(node: &LayoutFile) -> Result<(), ScreenSyntaxError> 
 fn check_activation_fields(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     for field in &file.activation {
         let declared = field.get_ref();
-        check_identifier_length("activation.name", &declared.name)?;
+        check_declared_id("activation.name", &declared.name)?;
         let is_enum = declared.kind == ActivationKind::Enum;
         // Presence and emptiness are separate facts: `values = []` on a
         // non-enum field is a mistaken belief about what the field does, so it
@@ -165,7 +165,7 @@ fn check_panels(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
     for panel in &file.panels {
         let declared = panel.get_ref();
         check_component("panels.id", &declared.id)?;
-        check_identifier_length("panels.type", &declared.panel_type)?;
+        check_declared_id("panels.type", &declared.panel_type)?;
         if declared.ports.len() > MAX_PORTS_PER_PANEL {
             return Err(ScreenSyntaxError::at(
                 ScreenSyntaxReason::PortCount {

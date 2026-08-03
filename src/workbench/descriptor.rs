@@ -13,6 +13,7 @@ use std::num::NonZeroU16;
 
 use crate::domain::TypedMap;
 
+use super::activation::{ActivationField, ScreenBinding};
 use super::ids::{PanelId, PanelTypeId, PortId, RouteId, ScreenIdentity, VersionedTypeId};
 use super::relationships::Relationship;
 
@@ -220,6 +221,14 @@ pub struct ScreenDescriptor {
     /// this order within one transition, so two screens with the same edges in
     /// different orders are two different screens.
     pub relationships: Vec<Relationship>,
+    /// What this screen's route accepts when something navigates to it.
+    ///
+    /// Compiled screens declare none today; navigation validates an activation
+    /// against this schema, so it lives beside the route rather than beside the
+    /// syntax that happened to describe it.
+    pub activation: Vec<ActivationField>,
+    /// Actions this screen asks to be reachable while it is focused.
+    pub bindings: Vec<ScreenBinding>,
 }
 
 impl ScreenDescriptor {

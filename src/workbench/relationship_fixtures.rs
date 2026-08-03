@@ -105,6 +105,8 @@ pub fn screen(panels: Vec<PanelDescriptor>, relationships: Vec<Relationship>) ->
         focus_order: ids,
         panels,
         relationships,
+        activation: Vec::new(),
+        bindings: Vec::new(),
         layout,
     }
 }

@@ -1,6 +1,7 @@
 //! Closed-syntax parser: what the grammar accepts and what it refuses
 //! (issue #385, CW05-02).
 
+use super::screen_file::parse_screen_file;
 use super::screen_file::{
     ActivationKind, ActivationModeFile, EmptyPolicyFile, LayoutFile, PortDirectionFile,
     RelationshipFile, SizeFile,
@@ -334,5 +335,48 @@ fn an_enum_field_declaring_an_empty_value_list_is_rejected() {
     assert_eq!(
         rejected(&text),
         ScreenSyntaxReason::EnumValuesMismatch { is_enum: true }
+    );
+}
+
+// ── Epic identifier grammar (issue #385, epic global grammar) ──────────────
+
+#[test]
+fn a_declared_identifier_must_match_the_workbench_grammar() {
+    // The epic's identifier grammar is lowercase alphanumerics in
+    // hyphen-separated groups. Definitions are held to it rather than to the
+    // wider grammar the compiled newtypes happen to accept.
+    for (from, to, field) in [
+        ("id = \"pr-list\"", "id = \"pr_list\"", "panels.id"),
+        ("id = \"selection\"", "id = \"my_selection\"", "ports.id"),
+        ("route = \"review\"", "route = \"my_review\"", "route"),
+    ] {
+        let text = valid_text().replacen(from, to, 1);
+        assert_eq!(
+            rejected(&text),
+            ScreenSyntaxReason::MalformedIdentifier { field },
+            "{to} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn a_declared_identifier_may_not_carry_an_empty_or_trailing_group() {
+    for spelling in ["pr--list", "pr-list-", "-pr-list"] {
+        let text = valid_text().replacen("id = \"pr-list\"", &format!("id = \"{spelling}\""), 1);
+        assert_eq!(
+            rejected(&text),
+            ScreenSyntaxReason::MalformedIdentifier { field: "panels.id" },
+            "{spelling} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn a_route_may_carry_dotted_labels_but_a_panel_may_not() {
+    let dotted_route = valid_text().replacen("route = \"review\"", "route = \"local.review\"", 1);
+
+    assert!(
+        parse_screen_file(&dotted_route).is_ok(),
+        "a route is a namespaced identifier, so dots are part of its grammar"
     );
 }

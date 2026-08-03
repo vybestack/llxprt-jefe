@@ -237,10 +237,13 @@ meaning is optional, so `focusable`, `required`, and `collapsible` must be
 written rather than defaulted. There is no secret field kind, and `pty-terminal`
 is not a panel type a definition may name.
 
-Panel and port identifiers may not contain `.`, because a port is named again as
-`<panel>.<port>` and that reference is split on its first separator; an
-identifier containing one would be unreachable or ambiguous with a different
-pair.
+Every declared identifier matches the workbench identifier grammar — lowercase
+letters and digits in hyphen-separated groups — rather than the wider grammar the
+compiled identifier types happen to accept. Panel and port identifiers may not
+contain `.` on top of that, because a port is named again as `<panel>.<port>` and
+that reference is split on its first separator; an identifier containing one
+would be unreachable or ambiguous with a different pair. A route may carry dotted
+labels, since it is namespaced.
 
 `type` and `bindings` resolve against the compiled panel-type registry and the
 compiled action inventory. A definition can request what the program already
@@ -248,6 +251,13 @@ has; it can never introduce a renderer, an action, or an effect.
 
 A definition whose owner settings do not enable is parsed but never lowered, so
 a screen nobody enabled resolves nothing against those registries.
+
+`activation` and `bindings` are lowered onto the descriptor even though nothing
+draws or dispatches them yet. Navigation builds a route declaration from a
+screen's `route` plus its activation schema, and the Keys editor reads the
+actions a screen requests; both read the composed registry, so a consumer that
+had to re-read the file would be a second parser for a grammar that has one. An
+activation field declares a *shape*, never a value, and there is no secret kind.
 
 #### Bounds
 
@@ -296,12 +306,12 @@ authored paths run the same engine.
 
 | State | What is shown |
 |---|---|
-| NORMAL / FOCUSED | The composed screens; focus and status are textual and clipping is grapheme-safe. |
+| NORMAL / FOCUSED | **Not applicable to a user-defined screen yet.** A definition is discovered, lowered, validated, composed, and layout-resolvable, but it has no route, so nothing can navigate to it and no frame contains it. Routing and activation are the navigation capability's; the compiled screens' normal and focused states are unchanged and covered by their own parity suites. |
 | UNAVAILABLE | A definition that settings do not enable is simply absent from the registry. |
 | ERROR | An enabled definition that is unusable refuses the whole candidate registry before anything renders: `SCR-E301` plus `CFG-E005` (ownership or duplicate) or `CFG-E006` (reference or bound), naming the file and the rule. |
 | DIRTY | Not applicable: there is no draft and no editor. |
 | RECOVERY | A dormant invalid definition is reported with `CFG-W004`, omitted from the registry, and left byte-for-byte unchanged. Fix or disable the named file and restart. |
-| SMALL | A lowered screen uses the standard collapse ordering and `TooSmall` fallback; there is no second geometry engine. |
+| SMALL | A lowered screen resolves through the standard collapse ordering and `TooSmall` fallback; there is no second geometry engine. Proven on the resolved layout rather than on a frame, for the same reason NORMAL is not applicable. |
 
 ---
 

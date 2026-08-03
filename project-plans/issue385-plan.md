@@ -229,9 +229,37 @@ raised. All three are fixed:
 | "Attempted follow-up 65 aborts the transition with `SCR-E301`" — the abort carried no code | `PropagationAbort::code()` returns `ScrCode::E301` and the rendered abort names it. |
 | "Duplicate IDs are fatal" had no test | The registry refuses a repeated identity, tested directly. Discovery already makes the case unreachable, because a definition's identity is its file name; the registry is tested anyway so it does not depend on that. |
 
-### Known limits of this delivery
+### Resolving the issue against its parent epic
 
-These are stated rather than claimed complete:
+The CW-05 body contradicts itself: its non-goals forbid a renderer and a
+navigation stack, while its UI-state sketches show a rendered `local.review`
+screen and list its key bindings. `00-epic.md` settles it, and settles two other
+questions the body left implicit.
+
+**Routing and rendering belong to CW-06, not here.** The epic's capability DAG
+has *navigation and dirty lifecycle* consuming *custom screens*, and CW-06 owns
+`RouteDeclaration`, `Activation`, `ScreenInstance`, and the stack. A screen
+cannot appear in a frame until something can navigate to it, so the NORMAL and
+FOCUSED sketches describe what a definition looks like *after* CW-06, not what
+CW-05 must render. The epic requires every capability to own each UI state "or
+an explicit state-specific N/A rationale"; that rationale is now recorded in
+`display-and-ui.md` rather than left as a silent omission. EPIC-06's evidence for
+custom screens is a *geometry* suite, which CW05-10 provides.
+
+**The activation schema and bindings must survive lowering.** CW-06 states that
+it consumes "custom route activation fields" and declares
+`RouteDeclaration { id, activation_schema: Vec<Field>, target_screen }`; CW-08's
+Keys editor reads the actions a screen requests. Validating them and throwing
+them away would force a second parser for a grammar the epic says has exactly
+one, and would break "no external DTO survives publication". Both are now lowered
+onto the descriptor. This was a real gap, not a defensible non-goal.
+
+**Declared identifiers follow the epic's grammar.** The epic fixes IDs at
+`[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*`, which excludes `_`; the compiled identifier
+newtypes accept `_` as well. Definitions are now held to the epic grammar, so the
+external surface cannot admit a name the rest of the system would not.
+
+### Known limits of this delivery
 
 - **CW05-09 is a partial cutover.** The declaration decides *whether* a screen
   couples its list to its detail, and the propagation engine decides what the
@@ -239,19 +267,10 @@ These are stated rather than claimed complete:
   the loading flags, the comment fetch, and the scroll offset — is still written
   out in `issues_ops.rs` and `prs_nav_ops.rs`. Those five mutations are
   issue-state and PR-state specific; a generic engine can say "the detail input
-  moved" but not what invalidating means for a particular panel's state. Fully
-  removing the duplication needs a panel-state contract, which is a subsystem
-  this issue's non-goals exclude.
-- **Activation fields and bindings are validated, then discarded.** A definition
-  that names an unknown action is refused, which is the observable behavior this
-  issue asks for; nothing consumes the resolved values because there is no
-  editor and no provider runtime here.
-- **Custom screens are not reachable or drawable.** The issue's non-goals
-  exclude a renderer and a navigation stack, while its UI-state sketches show a
-  rendered custom screen and list its key bindings. The explicit non-goal was
-  taken as authoritative, so the NORMAL/FOCUSED sketches and the key table are
-  not implemented. That is a judgment call on a contradiction inside the issue,
-  not an oversight.
+  moved" but not what invalidating means for a particular panel's state. CW-06's
+  inventory assigns exactly that ownership — "own issue panel state only" — so
+  the remaining duplication is removed by the capability that owns those files
+  next, not by widening this one.
 
 ### Deferred
 

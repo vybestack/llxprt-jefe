@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use crate::persistence::diagnostic::{CfgCode, Severity};
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
 
+use super::activation::ActivationKind;
 use super::compose::{ScreenComposition, compose_screens};
 use super::compose_fixtures::{candidate, enabled, review_definition, unreadable_candidate};
 use super::descriptor::PortRef;
@@ -517,4 +518,124 @@ fn an_unknown_panel_type_names_the_ones_a_definition_may_use() {
             refusal.screen.redacted_detail
         );
     }
+}
+
+// ── The activation schema and bindings survive lowering (issue #385) ───────
+//
+// The navigation capability builds its route declaration from a screen's route
+// plus this schema, and the Keys editor reads the actions a screen requests.
+// Both read the composed registry, so both have to be lowered here or be parsed
+// a second time somewhere else.
+
+/// The worked example plus a full activation schema and one binding.
+fn review_with_activation() -> String {
+    format!(
+        "{}\n{}",
+        review_definition(),
+        r#"
+[[activation]]
+name = "show-drafts"
+type = "boolean"
+
+[[activation]]
+name = "mode"
+type = "enum"
+values = ["fast", "full"]
+
+[[activation]]
+name = "root"
+type = "path"
+
+[[bindings]]
+context = "global"
+action = "core.emergency-exit"
+"#
+    )
+}
+
+#[test]
+fn a_lowered_screen_carries_the_activation_schema_its_route_accepts() {
+    let composition = composed(
+        &[candidate("review", &review_with_activation())],
+        &["review"],
+    );
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
+
+    assert_eq!(
+        screen
+            .activation
+            .iter()
+            .map(|field| (field.name.as_str(), field.kind.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("show-drafts", "boolean"),
+            ("mode", "enum"),
+            ("root", "path")
+        ]
+    );
+}
+
+#[test]
+fn a_lowered_enum_activation_field_carries_the_values_it_permits() {
+    let composition = composed(
+        &[candidate("review", &review_with_activation())],
+        &["review"],
+    );
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
+
+    assert_eq!(
+        screen.activation[1].kind,
+        ActivationKind::Enumerated {
+            permitted: vec!["fast".to_owned(), "full".to_owned()]
+        }
+    );
+}
+
+#[test]
+fn a_lowered_screen_carries_the_bindings_it_requests() {
+    let composition = composed(
+        &[candidate("review", &review_with_activation())],
+        &["review"],
+    );
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
+
+    assert_eq!(
+        screen
+            .bindings
+            .iter()
+            .map(|binding| (binding.context.as_str(), binding.action.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("global", "core.emergency-exit")]
+    );
+}
+
+#[test]
+fn a_screen_declaring_neither_carries_neither() {
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
+
+    assert!(screen.activation.is_empty());
+    assert!(screen.bindings.is_empty());
+}
+
+#[test]
+fn an_activation_field_name_outside_the_identifier_grammar_refuses_publication() {
+    let text =
+        review_definition() + "\n[[activation]]\nname = \"Show Drafts\"\ntype = \"boolean\"\n";
+
+    let refusal = refused(&text);
+
+    assert_eq!(refusal.screen.code, ScrCode::E301);
 }

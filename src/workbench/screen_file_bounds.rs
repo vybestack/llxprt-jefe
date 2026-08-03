@@ -127,18 +127,24 @@ pub enum ScreenSyntaxReason {
         /// Which field carried it.
         field: &'static str,
     },
+    /// An identifier does not match the workbench-wide identifier grammar.
+    MalformedIdentifier {
+        /// Which field carried it.
+        field: &'static str,
+    },
     /// A relationship endpoint is not spelled `<panel>.<port>`.
     MalformedPortReference,
 }
 
 impl std::fmt::Display for ScreenSyntaxReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Split only to keep each arm set small. Between them the two halves
-        // cover every variant, and `fmt_count` matches exhaustively, so a new
-        // variant is a compile error rather than a diagnostic that renders as
-        // nothing.
+        // Split only to keep each arm set inside the complexity budget. Between
+        // them the three cover every variant, and `fmt_rule` matches
+        // exhaustively, so a new variant is a compile error rather than a
+        // diagnostic that renders as nothing.
         self.fmt_shape(formatter)
-            .unwrap_or_else(|| self.fmt_count(formatter))
+            .or_else(|| self.fmt_count(formatter))
+            .unwrap_or_else(|| self.fmt_rule(formatter))
     }
 }
 
@@ -175,9 +181,9 @@ impl ScreenSyntaxReason {
         })
     }
 
-    /// Render the structural count and range bounds.
-    fn fmt_count(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+    /// Render the structural count bounds, if this is one.
+    fn fmt_count(&self, formatter: &mut std::fmt::Formatter<'_>) -> Option<std::fmt::Result> {
+        Some(match self {
             Self::PanelCount { count } => write!(
                 formatter,
                 "screen declares {count} panels (allowed 1..={MAX_PANELS_PER_SCREEN})"
@@ -206,10 +212,19 @@ impl ScreenSyntaxReason {
                 formatter,
                 "layout nests {depth} levels (max {MAX_LAYOUT_DEPTH})"
             ),
+            _ => return None,
+        })
+    }
+
+    /// Render the range, presence, and identifier-shape violations.
+    ///
+    /// This is the last of the three, so it matches exhaustively: between them
+    /// the three cover every variant, and a new one is a compile error rather
+    /// than a diagnostic that renders as nothing.
+    fn fmt_rule(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
             Self::ZeroExtent { field } => write!(formatter, "{field} must be at least 1"),
-            Self::MaxBelowMin { min, max } => {
-                write!(formatter, "max {max} is below min {min}")
-            }
+            Self::MaxBelowMin { min, max } => write!(formatter, "max {max} is below min {min}"),
             Self::CollapsePriorityMismatch { collapsible } => write!(
                 formatter,
                 "collapse_priority must be present exactly when collapsible is true (collapsible = {collapsible})"
@@ -222,6 +237,9 @@ impl ScreenSyntaxReason {
                 formatter,
                 "{field} may not contain '.', because port references are split on it"
             ),
+            Self::MalformedIdentifier { field } => {
+                write!(formatter, "{field} must match [a-z][a-z0-9]*(-[a-z0-9]+)*")
+            }
             Self::MalformedPortReference => {
                 formatter.write_str("port reference must be spelled '<panel>.<port>'")
             }
@@ -231,8 +249,16 @@ impl ScreenSyntaxReason {
             | Self::MapTooLarge { .. }
             | Self::ArrayTooLarge { .. }
             | Self::StringTooLong { .. }
-            | Self::IdentifierTooLong { .. } => self
+            | Self::IdentifierTooLong { .. }
+            | Self::PanelCount { .. }
+            | Self::PortCount { .. }
+            | Self::RelationshipCount { .. }
+            | Self::ActivationFieldCount { .. }
+            | Self::BindingCount { .. }
+            | Self::SplitChildCount { .. }
+            | Self::LayoutTooDeep { .. } => self
                 .fmt_shape(formatter)
+                .or_else(|| self.fmt_count(formatter))
                 .unwrap_or_else(|| formatter.write_str("malformed screen definition")),
         }
     }
@@ -370,13 +396,56 @@ pub fn check_string_length(value: &str) -> Result<(), ScreenSyntaxError> {
 ///
 /// # Errors
 ///
-/// Returns the length violation or [`ScreenSyntaxReason::SeparatorInComponent`].
+/// Returns the length violation, [`ScreenSyntaxReason::SeparatorInComponent`],
+/// or [`ScreenSyntaxReason::MalformedIdentifier`].
 pub fn check_component(field: &'static str, value: &str) -> Result<(), ScreenSyntaxError> {
     check_identifier_length(field, value)?;
     if value.contains('.') {
         return Err(ScreenSyntaxError::unspanned(
             ScreenSyntaxReason::SeparatorInComponent { field },
         ));
+    }
+    check_label_grammar(field, value)
+}
+
+/// Check one identifier that may carry dotted labels, such as a route.
+///
+/// # Errors
+///
+/// Returns the length violation or [`ScreenSyntaxReason::MalformedIdentifier`].
+pub fn check_declared_id(field: &'static str, value: &str) -> Result<(), ScreenSyntaxError> {
+    check_identifier_length(field, value)?;
+    for label in value.split('.') {
+        check_label_grammar(field, label)?;
+    }
+    Ok(())
+}
+
+/// The workbench-wide identifier grammar for one dot-free label.
+///
+/// Definitions are held to the identifier grammar the whole workbench uses —
+/// lowercase letters and digits in hyphen-separated groups — rather than the
+/// wider one the compiled identifier newtypes happen to accept. An external
+/// grammar that admits names the rest of the system would not is a grammar with
+/// two answers.
+fn check_label_grammar(field: &'static str, label: &str) -> Result<(), ScreenSyntaxError> {
+    let malformed =
+        || ScreenSyntaxError::unspanned(ScreenSyntaxReason::MalformedIdentifier { field });
+    let mut groups = label.split('-');
+    let Some(head) = groups.next() else {
+        return Err(malformed());
+    };
+    let starts_lowercase = head.as_bytes().first().is_some_and(u8::is_ascii_lowercase);
+    if !starts_lowercase || !head.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return Err(malformed());
+    }
+    for group in groups {
+        if group.is_empty() || !group.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+            return Err(malformed());
+        }
+    }
+    if label.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        return Err(malformed());
     }
     Ok(())
 }

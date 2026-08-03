@@ -21,6 +21,7 @@ use std::path::Path;
 use crate::domain::ByteSpan;
 use crate::persistence::diagnostic::DiagnosticPath;
 
+use super::activation::ScreenBinding;
 use super::descriptor::{
     PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor,
 };
@@ -33,7 +34,9 @@ use super::lowering_error::LoweringError;
 use super::panel_types::resolve_panel_type;
 use super::screen_file::{PanelFile, PortDirectionFile, PortFile, ScreenFile, span_of};
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
-use super::screen_lowering_values::{lower_config, published_actions, resolve_binding};
+use super::screen_lowering_values::{
+    lower_activation, lower_bindings, lower_config, published_actions,
+};
 use super::validate::validate_descriptor;
 
 /// Where a lowered screen came from.
@@ -99,14 +102,15 @@ pub fn lower_screen(
         panels,
         layout: lower_layout(&file.layout)?,
         relationships: lower_relationships(&file.relationships)?,
+        activation: lower_activation(
+            &file
+                .activation
+                .iter()
+                .map(|field| field.get_ref().clone())
+                .collect::<Vec<_>>(),
+        )?,
+        bindings: lower_declared_bindings(file)?,
     };
-    if !file.bindings.is_empty() {
-        let published = published_actions()?;
-        for binding in &file.bindings {
-            let declared = binding.get_ref();
-            resolve_binding(&published, &declared.context, &declared.action)?;
-        }
-    }
     validate_descriptor(&descriptor)?;
     Ok(LoweredScreen {
         descriptor,
@@ -167,6 +171,28 @@ fn lower_port(port: &PortFile) -> Result<PortDescriptor, LoweringError> {
         required: port.required,
         retained: port.retained,
     })
+}
+
+/// Resolve every binding a definition requests against the compiled inventory.
+///
+/// The inventory is built once per screen, because compiling it is not free and
+/// a screen may request up to 256 bindings.
+fn lower_declared_bindings(file: &ScreenFile) -> Result<Vec<ScreenBinding>, LoweringError> {
+    if file.bindings.is_empty() {
+        return Ok(Vec::new());
+    }
+    let published = published_actions()?;
+    let declared: Vec<(&str, &str)> = file
+        .bindings
+        .iter()
+        .map(|binding| {
+            (
+                binding.get_ref().context.as_str(),
+                binding.get_ref().action.as_str(),
+            )
+        })
+        .collect();
+    lower_bindings(&published, &declared)
 }
 
 /// Resolve a panel identifier named from the layout tree.

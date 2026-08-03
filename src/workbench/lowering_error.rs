@@ -40,6 +40,11 @@ pub enum LoweringError {
         /// The unresolvable name, which is an identifier rather than a value.
         declared: String,
     },
+    /// An activation field name is not a well-formed identifier.
+    ActivationName {
+        /// The offending name, which is an identifier rather than a value.
+        name: String,
+    },
     /// A configuration key is not a well-formed identifier.
     ConfigKey {
         /// The offending key, which is a name rather than a value.
@@ -90,6 +95,10 @@ impl std::fmt::Display for LoweringError {
             Self::UnknownBinding { field, declared } => write!(
                 formatter,
                 "bindings.{field} {declared:?} is not published by the registry"
+            ),
+            Self::ActivationName { name } => write!(
+                formatter,
+                "activation field name {name:?} is not a valid identifier"
             ),
             Self::ConfigKey { key } => {
                 write!(formatter, "config key {key:?} is not a valid identifier")

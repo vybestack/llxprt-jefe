@@ -14,6 +14,7 @@
 //! - [`migration`] — the one-way mapping from legacy persisted screen values to
 //!   stable [`ids::ScreenId`]s.
 
+pub mod activation;
 pub mod allocate;
 pub mod compose;
 pub mod config;
@@ -172,6 +173,7 @@ pub fn screen_descriptor(id: ScreenId) -> Result<&'static ScreenDescriptor, Regi
         .ok_or(RegistryError::MissingScreen { screen: id })
 }
 
+pub use activation::{ActivationField, ActivationKind, ScreenBinding};
 pub use allocate::LayoutError;
 pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
 pub use config::panel_insets;
