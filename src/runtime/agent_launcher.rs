@@ -68,10 +68,17 @@ pub fn write_launch_plan(
     cwd: &Path,
     worker_report: Option<&Path>,
 ) -> Result<PathBuf, AgentLauncherError> {
+    let script_launch = script_launch_for(executable, wrapper);
+    if script_launch.is_none()
+        && wrapper == AgentWrapperKind::CommandScript
+        && args.iter().any(argument_defeats_cmd_exe)
+    {
+        return Err(AgentLauncherError::CommandScriptArgumentUnsupported);
+    }
     let payload = AgentLaunchPayload {
         path: executable.to_path_buf(),
         wrapper: wrapper.into(),
-        script_launch: None,
+        script_launch,
         args: args.to_vec(),
         environment: environment.to_vec(),
         cwd: cwd.to_path_buf(),
@@ -104,6 +111,34 @@ pub fn write_launch_plan(
         }
     }
     Err(AgentLauncherError::PlanCreateFailed)
+}
+
+/// Resolve the wrapper's own runtime + entrypoint so the agent is spawned
+/// directly instead of through `cmd.exe` (issue #536). Non-`CommandScript`
+/// executables already receive their argv verbatim and need no plan.
+fn script_launch_for(executable: &Path, wrapper: AgentWrapperKind) -> Option<ScriptLaunchPayload> {
+    if wrapper != AgentWrapperKind::CommandScript {
+        return None;
+    }
+    super::agent_executable::canonical_script_launch_for_marked_wrapper(executable).map(|plan| {
+        ScriptLaunchPayload {
+            runtime: plan.runtime().to_path_buf(),
+            entrypoint: plan.entrypoint().to_path_buf(),
+        }
+    })
+}
+
+/// Whether an argument cannot survive a `cmd.exe` command line.
+///
+/// `cmd.exe` ends its command line at the first `0x0A`; a bare `0x0D` is
+/// likewise not carried through intact. Neither can be quoted or escaped, so an
+/// argument containing either must never be handed to `cmd.exe` — silently
+/// delivering only its first line is exactly the issue #536 defect.
+fn argument_defeats_cmd_exe(argument: &OsString) -> bool {
+    // Lossy decoding is sound for this check: replacement characters only ever
+    // stand in for unpaired surrogates, and can neither create nor hide a CR/LF.
+    let text = argument.to_string_lossy();
+    text.contains('\n') || text.contains('\r')
 }
 
 #[cfg(all(test, windows))]
@@ -260,8 +295,177 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        AgentLaunchPayload, AgentLauncherError, AgentWrapperKindPayload, command_for_payload,
+        AgentLaunchPayload, AgentLauncherError, AgentWrapperKind, AgentWrapperKindPayload,
+        command_for_payload,
     };
+
+    // ── Issue #536: a multi-line prompt must never be delivered through cmd.exe ──
+    //
+    // `cmd.exe` terminates its command line at the first 0x0A, so an issue prompt
+    // passed through `cmd.exe /D /S /C wrapper.cmd <prompt>` arrives cut down to its
+    // first line. There is no escape for this, so the wrapper's own canonical
+    // runtime + entrypoint must be launched directly instead.
+
+    const NATIVE_LAUNCHER_MARKER: &str = "LLXPRT_NATIVE_LAUNCHER owned by @vybestack/llxprt-code";
+    const MULTILINE_PROMPT: &str = "Read and work on the following GitHub issue.\n\n\
+                                    Issue #536: the body must survive.\n\nWorkflow appendix.";
+
+    /// Build a marked official-LLxprt wrapper beside a complete bundled layout.
+    fn marked_official_wrapper(root: &std::path::Path) -> PathBuf {
+        let bun_dir = root.join("node_modules/@vybestack/llxprt-code/node_modules/bun/bin");
+        std::fs::create_dir_all(&bun_dir)
+            .unwrap_or_else(|error| panic!("could not create bun fixture: {error}"));
+        std::fs::write(bun_dir.join("bun.exe"), b"fixture")
+            .unwrap_or_else(|error| panic!("could not write bun fixture: {error}"));
+        std::fs::write(
+            root.join("node_modules/@vybestack/llxprt-code/index.ts"),
+            b"fixture",
+        )
+        .unwrap_or_else(|error| panic!("could not write entrypoint fixture: {error}"));
+        let wrapper = root.join("llxprt.cmd");
+        std::fs::write(
+            &wrapper,
+            format!("@echo off\r\nREM {NATIVE_LAUNCHER_MARKER}\r\n").as_bytes(),
+        )
+        .unwrap_or_else(|error| panic!("could not write wrapper fixture: {error}"));
+        wrapper
+    }
+
+    /// Round-trip a written plan back into its payload the way the pane host does.
+    fn payload_from_written_plan(plan_path: &std::path::Path) -> AgentLaunchPayload {
+        let bytes = std::fs::read(plan_path)
+            .unwrap_or_else(|error| panic!("could not read written plan: {error}"));
+        let payload = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|error| panic!("could not decode written plan: {error}"));
+        let _ = std::fs::remove_file(plan_path);
+        payload
+    }
+
+    #[test]
+    fn marked_wrapper_delivers_multiline_prompt_without_cmd_exe() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let wrapper = marked_official_wrapper(dir.path());
+        let plan_path = super::write_launch_plan(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("-i"), OsString::from(MULTILINE_PROMPT)],
+            &[],
+            dir.path(),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("marked wrapper must produce a launch plan: {error}"));
+
+        let payload = payload_from_written_plan(&plan_path);
+        let command = command_for_payload(&payload);
+        let program = PathBuf::from(command.get_program());
+        assert_eq!(
+            program.file_name().and_then(|name| name.to_str()),
+            Some("bun.exe"),
+            "a marked wrapper must be launched through its own runtime, not cmd.exe, got {program:?}"
+        );
+
+        let args = command
+            .get_args()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect::<Vec<_>>();
+        let entrypoint = PathBuf::from(&args[0]);
+        assert_eq!(
+            entrypoint.file_name().and_then(|name| name.to_str()),
+            Some("index.ts"),
+            "the canonical entrypoint must precede the agent argv"
+        );
+        assert_eq!(
+            args[2],
+            OsString::from(MULTILINE_PROMPT),
+            "the full multi-line prompt must reach the agent byte-intact (issue #536)"
+        );
+    }
+
+    #[test]
+    fn unmarked_command_script_refuses_a_newline_argument_instead_of_truncating() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let wrapper = dir.path().join("agent.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("could not write launcher fixture: {error}"));
+
+        let result = super::write_launch_plan(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from(MULTILINE_PROMPT)],
+            &[],
+            dir.path(),
+            None,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(AgentLauncherError::CommandScriptArgumentUnsupported)
+            ),
+            "a wrapper that can only be reached through cmd.exe must refuse a newline \
+             argument rather than silently deliver its first line, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn direct_executable_still_carries_a_multiline_argument() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let executable = dir.path().join("agent.exe");
+        std::fs::write(&executable, b"fixture")
+            .unwrap_or_else(|error| panic!("could not write launcher fixture: {error}"));
+
+        let plan_path = super::write_launch_plan(
+            &executable,
+            AgentWrapperKind::Direct,
+            &[OsString::from(MULTILINE_PROMPT)],
+            &[],
+            dir.path(),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("a direct executable must launch: {error}"));
+
+        let payload = payload_from_written_plan(&plan_path);
+        let command = command_for_payload(&payload);
+        let args = command
+            .get_args()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect::<Vec<_>>();
+        assert_eq!(args, vec![OsString::from(MULTILINE_PROMPT)]);
+    }
+
+    #[test]
+    fn newline_free_command_script_argv_keeps_the_existing_cmd_exe_contract() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let wrapper = dir.path().join("agent.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("could not write launcher fixture: {error}"));
+
+        let plan_path = super::write_launch_plan(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("--version")],
+            &[],
+            dir.path(),
+            None,
+        )
+        .unwrap_or_else(|error| panic!("a newline-free wrapper launch must succeed: {error}"));
+
+        let payload = payload_from_written_plan(&plan_path);
+        assert!(
+            payload.script_launch.is_none(),
+            "an unmarked wrapper must not invent a runtime"
+        );
+        let command = command_for_payload(&payload);
+        let args = command
+            .get_args()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect::<Vec<_>>();
+        assert_eq!(args[0], OsString::from("/D"));
+        assert_eq!(args[3], wrapper.as_os_str());
+    }
 
     #[test]
     fn canonical_command_script_payload_uses_launch_safe_path() {
@@ -445,6 +649,11 @@ pub enum AgentLauncherError {
     /// (issue #530). The worker is refused spawn so the agent never silently
     /// starts in the wrong directory.
     InvalidWorkingDirectory,
+    /// The resolved executable is a `.cmd`/`.bat` wrapper with no canonical
+    /// runtime of its own, and an argument contains a line break (issue #536).
+    /// `cmd.exe` would truncate the command line at that break, so the launch is
+    /// refused rather than delivering a silently shortened prompt.
+    CommandScriptArgumentUnsupported,
     /// Windows Job Object containment could not be established before spawning
     /// the worker (issue #467 Slice 3). Worker spawn is refused so a host can
     /// never start a descendant tree it cannot reliably contain.
@@ -476,6 +685,10 @@ impl std::fmt::Display for AgentLauncherError {
             Self::InvalidWorkingDirectory => {
                 formatter.write_str("agent working directory does not exist or is not a directory")
             }
+            Self::CommandScriptArgumentUnsupported => formatter.write_str(
+                "agent wrapper can only be launched through cmd.exe, which cannot carry a \
+                 multi-line argument; install the agent so it exposes a native launcher",
+            ),
             #[cfg(windows)]
             Self::ContainmentUnavailable => formatter.write_str(
                 "windows job object containment could not be established for agent worker",
