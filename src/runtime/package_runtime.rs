@@ -399,15 +399,20 @@ fn bin_dir_of(install_dir: &Path) -> PathBuf {
 
 /// Contents of the install marker for a completed install.
 ///
-/// A volatile selector records the concrete version the tag resolved to on a
-/// fourth line, so a later preparation can tell "the tag still points here"
-/// from "the tag has moved" without consulting a clock (issue #584). A pinned
-/// selector keeps the three-line form: an explicit version never moves, so its
-/// cache entry is permanent.
+/// Always three lines — package, binary, and the identity version from
+/// [`marker_identity_version`] — whatever kind of selector asked for it. The
+/// selector no longer appears, because two selectors naming one version are the
+/// same install and must recognise each other's marker (issue #610).
+///
+/// Whether the tag has moved is no longer a question the marker answers: a
+/// different version is a different directory, so a moved tag simply looks
+/// elsewhere (issue #588). What used to be a fourth line recording the resolved
+/// version is now the third.
 ///
 /// `resolved` is `None` only when the registry could not be reached during an
-/// install, which leaves the marker in the three-line form and makes the next
-/// preparation re-resolve rather than trust an unverified tree.
+/// install. The third line then falls back to the declared selector, so the
+/// entry is not mistaken for a resolved one and the next preparation re-resolves
+/// rather than trusting an unverified tree (issue #584).
 fn marker_contents(selection: &PackageSelection, resolved: Option<&str>) -> String {
     format!(
         "{}\n{}\n{}\n",
