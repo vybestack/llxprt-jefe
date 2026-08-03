@@ -136,6 +136,20 @@ workflow, quality-tool change, or unrelated refactor is authorized.
 - Native Windows CI: green — `Native Windows (MSVC + psmux)`, `Windows Clippy
   (cfg(windows) lint gap)` and `Windows coverage floors` all pass on head
   `8f06292a`, which is the platform the defect reproduces on.
+- CodeRabbit: no findings.
+- LLxprt PR Review triage:
+  - "Referenced plan file `project-plans/issue536-plan.md` is missing" — **Reject**.
+    The file is added by this PR; `git diff --stat fc2d4f19..b4fa9227` lists it at
+    148 added lines. The run that raised this was triggered by a description edit
+    and evaluated the body without the diff.
+  - "Claims a broader cmd.exe metacharacter-injection mitigation not present in the
+    diff" — **In-scope-Fix**, applied to the description rather than the code. The
+    original wording overstated the result: the marked path is no longer exposed
+    because it stops invoking `cmd.exe` at all, but the newline-free `CommandScript`
+    path is intentionally byte-identical and its quoting is unchanged. General
+    metacharacter quoting is out of scope for this defect.
+  - "PR description missing template sections" — **In-scope-Fix**, applied; the body
+    now carries Summary, Pre-push checklist, Testing notes and Reviewers / Assignees.
 - Deferred findings: see scope ledger
 
 ## Completion contract
