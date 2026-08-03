@@ -154,6 +154,27 @@ great-grandparent to the psmux server.
 | gate | `cargo build --workspace --all-features --locked` | exit 0 |
 | gate | `cargo test --workspace --all-features --locked --no-fail-fast` | exit 0 — 81 binaries, 5286 passed, 0 failed |
 
+### Exact-head re-verification after merging `origin/main` (merge `81322015`)
+
+`origin/main` advanced seven commits and touched `src/runtime/agent_launcher.rs`,
+which is in this slice's contract set, so the branch was merged (a true
+two-parent merge, no conflicts) and every gate re-run on the merged head.
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 |
+| `cargo clippy --target x86_64-unknown-linux-gnu ... -- -D warnings` | exit 0 |
+| complexity gate (`CLIPPY_CONF_DIR=.github/clippy`) | exit 0 |
+| `cargo test --workspace --all-features --locked` | exit 0 — 81 binaries, 0 failed |
+| `JEFE_REQUIRE_PSMUX=1 cargo test --features psmux-smoke --test psmux_session_host` | exit 0 — 2 passed, 3.89s |
+
+The anchor-before-containment ordering in `run_launch_plan` was re-read after
+the merge and is intact: `establish_owner_anchor()?` precedes
+`establish_worker_containment()?`, and `spawn_owner_watchdog` follows both. That
+ordering is the whole point of A1 — an anchor captured after the worker exists
+would leave a window in which an unowned worker is reachable.
+
 ## 9. How V1/V2 were actually proven
 
 The first version of `killing_the_owning_psmux_server_reaps_the_whole_owned_tree`
