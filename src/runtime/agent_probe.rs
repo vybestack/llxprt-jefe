@@ -740,7 +740,7 @@ mod tests {
             }
         };
 
-        let outcome = super::run_probe_with_loader_retry(&build, Duration::from_millis(300));
+        let outcome = super::run_probe_with_loader_retry(&build, RETRY_TEST_BUDGET);
 
         assert!(
             outcome.is_ok(),
@@ -767,7 +767,7 @@ mod tests {
             sleeping_command()
         };
 
-        let outcome = super::run_probe_with_loader_retry(&build, Duration::from_millis(300));
+        let outcome = super::run_probe_with_loader_retry(&build, RETRY_TEST_BUDGET);
 
         assert!(
             outcome.is_err(),
@@ -780,15 +780,27 @@ mod tests {
         );
     }
 
-    /// A command that outlives a short budget on every platform.
+    /// Budget for the retry tests.
+    ///
+    /// Must clear the cost of *spawning* a process, not just running one. At
+    /// 300ms these tests passed alone and failed 3 runs in 4 under the full
+    /// parallel suite, because the second attempt's `cmd` spawn could itself
+    /// exceed the budget on a loaded machine -- so the retry that was supposed
+    /// to succeed timed out too, and the test blamed the code. The budget only
+    /// has to be shorter than [`sleeping_command`] for these tests to mean what
+    /// they say, so it is set well clear of spawn latency instead.
+    const RETRY_TEST_BUDGET: Duration = Duration::from_secs(2);
+
+    /// A command that outlives [`RETRY_TEST_BUDGET`] on every platform, by
+    /// enough that load cannot make the two overlap.
     fn sleeping_command() -> std::process::Command {
         if cfg!(windows) {
             let mut command = std::process::Command::new("cmd");
-            command.args(["/D", "/S", "/C", "ping -n 4 127.0.0.1"]);
+            command.args(["/D", "/S", "/C", "ping -n 12 127.0.0.1"]);
             command
         } else {
             let mut command = std::process::Command::new("sh");
-            command.args(["-c", "sleep 3"]);
+            command.args(["-c", "sleep 11"]);
             command
         }
     }
