@@ -42,6 +42,9 @@ use serde::Deserialize;
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-session-host-fixture");
 const POLL_TIMEOUT: Duration = Duration::from_secs(15);
 const CONTAINMENT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Bound for issue #542: one watchdog interval to observe the loss, plus room
+/// for the kernel to close the Job and reap the contained worker tree.
+const OWNER_LOSS_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -306,6 +309,144 @@ fn two_staged_hosts_survive_dashboard_exit_keep_source_replaceable_reconnect_and
     assert_survives_and_source_replaces(&mut namespace, &hosts)?;
     assert_reconnect_and_scoped_reap(&mut namespace, &hosts)?;
     Ok(())
+}
+
+/// Issue #542 marker: the owner chain the host captured before it spawned the
+/// worker.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OwnedHostMarker {
+    host_pid: u32,
+    worker_pid: u32,
+    host_owned_job: bool,
+    owner_links: Vec<OwnerLinkRecord>,
+    started_at: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OwnerLinkRecord {
+    role: String,
+    pid: u32,
+}
+
+/// Issue #542 / V2 — the #515 reproduction.
+///
+/// `psmux server -> pwsh -> session host -> worker`. Kill the psmux server
+/// abruptly, the way a crash or `taskkill /F` does, and assert nothing in the
+/// tree below it survives. Before this issue the Job Object contained the
+/// worker but nothing contained the host, so the host and its worker outlived
+/// the server that owned them and the session vanished from the inventory
+/// while the processes kept running.
+///
+/// The host under test is the production capture-and-watch path
+/// (`capture_owner_anchor` / `spawn_owner_watchdog`), not a re-implementation.
+/// See `dev-docs/standards/windows-session-ownership.md`.
+#[test]
+fn killing_the_owning_psmux_server_reaps_the_whole_owned_tree() -> Result<(), RegressionFailure> {
+    if !psmux_required() {
+        return Ok(());
+    }
+    let mut namespace = PsmuxNamespace::new("owner-anchor")?;
+    let work = Workdir::new()?;
+    let session = "owned-host";
+    let marker_path = work.path().join("owned-host.json");
+    let staged = work.path().join("session-host.exe");
+    fs::copy(FIXTURE, &staged).map_err(|e| fail("stage owner-anchored host", e))?;
+    launch_owned_session_host(&mut namespace, session, work.path(), &staged, &marker_path)?;
+
+    let marker: OwnedHostMarker = wait_for_marker(&marker_path)?;
+    let pane_pid = namespace.pane_pid(session)?;
+
+    // The chain is captured to depth two and in order: the host's immediate
+    // owner first, then that owner's owner. Under this fixture the immediate
+    // owner is the pane launcher and its owner is the pane process psmux
+    // reports, so the outer link is anchored to psmux's own bookkeeping.
+    let roles: Vec<&str> = marker.owner_links.iter().map(|l| l.role.as_str()).collect();
+    assert_eq!(
+        roles,
+        vec!["pane process", "psmux server"],
+        "the host must capture both owner levels, nearest first; got {roles:?}"
+    );
+    let owner_pid = marker.owner_links[0].pid;
+    assert_eq!(
+        marker.owner_links[1].pid, pane_pid,
+        "the outer captured link must be the pane process psmux reports"
+    );
+    assert_ne!(owner_pid, pane_pid);
+    assert!(
+        process_alive(owner_pid),
+        "the owning launcher must be running"
+    );
+    assert!(process_alive(marker.host_pid));
+    assert!(process_alive(marker.worker_pid));
+
+    // Kill exactly the owner the host named, abruptly: no graceful shutdown,
+    // no Rust `Drop`, and no `/T`, so Windows does not cascade. The host was
+    // started detached, so it shares no console with the owner and no ConPTY
+    // teardown can reap it either. A child normally outlives its parent on
+    // Windows -- that is the whole defect -- so with the owner anchor removed
+    // this tree survives and the assertions below fail.
+    force_kill(owner_pid)?;
+
+    for (label, pid) in [
+        ("session host", marker.host_pid),
+        ("worker", marker.worker_pid),
+    ] {
+        assert!(
+            wait_for_process_exit(pid, OWNER_LOSS_TIMEOUT),
+            "{label} (pid {pid}) survived the death of the process that owned it; \
+             an unowned tree is exactly the defect issue #515 reported"
+        );
+    }
+    // The session is gone from the inventory too, so no half-dead session can
+    // be left pointing at a tree that no longer exists.
+    assert!(!namespace.session_exists(session));
+    Ok(())
+}
+
+fn launch_owned_session_host(
+    namespace: &mut PsmuxNamespace,
+    session: &str,
+    cwd: &Path,
+    program: &Path,
+    marker: &Path,
+) -> Result<(), RegressionFailure> {
+    // The pane runs a launcher that starts the real host detached. See
+    // `run_pane_launcher`: a console-attached host is reaped by ConPTY
+    // teardown regardless of the owner anchor, which would make this
+    // regression pass with the mechanism deleted.
+    let fixture_args = vec![
+        OsString::from("--pane-launcher"),
+        marker.as_os_str().to_owned(),
+    ];
+    let pane = namespace.pane_command(program, &fixture_args)?;
+    let mut args = vec![
+        OsString::from("new-session"),
+        OsString::from("-d"),
+        OsString::from("-s"),
+        OsString::from(session),
+        OsString::from("-c"),
+        cwd.as_os_str().to_owned(),
+    ];
+    args.extend(pane);
+    namespace.run_os(&args).map(|_| ())
+}
+
+/// Terminate exactly one process, without its tree, so the test observes the
+/// watchdog reaping the tree rather than `taskkill /T` doing it.
+fn force_kill(pid: u32) -> Result<(), RegressionFailure> {
+    let output = Command::new("taskkill.exe")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output()
+        .map_err(|error| fail("spawn taskkill", error))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(RegressionFailure {
+            message: format!("taskkill failed for pid {pid}"),
+            diagnostics: format_output(&output),
+        })
+    }
 }
 
 struct Workdir {
