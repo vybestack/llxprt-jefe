@@ -9,6 +9,13 @@
 //! <root>/<sanitized-session>/<sha256>/jefe-session-host.exe
 //! ```
 //!
+//! Each digest directory is one *host generation*. A rebuild changes the hash
+//! and stages a new generation beside the running one, so
+//! `dev-docs/standards/windows-session-ownership.md` §6 defines when a
+//! superseded generation may be collected: exactly when no process holds its
+//! image. Staging prunes on that rule (issue #542, deliverable 6) and the
+//! startup sweep remains the backstop.
+//!
 //! Path planning is pure and deterministic; staging copies (never hardlinks)
 //! the source through a same-directory unique temp file and atomically renames
 //! it into place, reuses an existing digest artifact idempotently, and removes
@@ -203,6 +210,7 @@ fn stage_with_plan(
     reclaim_owned_temps(digest_directory, attempt_tag);
 
     if plan.staged_path().is_file() {
+        prune_superseded_generations(plan);
         return Ok(plan.staged_path().to_path_buf());
     }
 
@@ -217,6 +225,7 @@ fn stage_with_plan(
         // Treat that as success; all contenders wrote identical digest bytes.
         if plan.staged_path().is_file() {
             let _ = fs::remove_file(&temp_path);
+            prune_superseded_generations(plan);
             return Ok(plan.staged_path().to_path_buf());
         }
         // Best-effort cleanup of our temp file before surfacing the failure;
@@ -226,7 +235,47 @@ fn stage_with_plan(
             path: plan.staged_path().to_path_buf(),
         });
     }
+    prune_superseded_generations(plan);
     Ok(plan.staged_path().to_path_buf())
+}
+
+/// Collect host generations for this session that no process still holds.
+///
+/// Issue #542, deliverable 6. A rebuild changes the digest, so every rebuild
+/// during a long-lived session stages another host image, and nothing swept
+/// them until the next startup. Ownership answers what to do:
+/// `dev-docs/standards/windows-session-ownership.md` defines a superseded
+/// digest directory as belonging to a previous host generation, removable
+/// exactly when no process holds its image.
+///
+/// The operating system arbitrates that directly — Windows refuses to unlink a
+/// running image — so retention needs no liveness bookkeeping and cannot race
+/// against a host that is still using its binary. Every step is best effort: a
+/// generation that cannot be collected is simply left for the startup sweep,
+/// and pruning never fails a launch.
+fn prune_superseded_generations(plan: &SessionHostPlan) {
+    let current = plan.digest_directory();
+    let Some(session_directory) = current.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(session_directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if candidate == current || !candidate.is_dir() {
+            continue;
+        }
+        // Unlink the image first and abandon the whole generation if that
+        // fails. `remove_dir_all` would delete the directory's other contents
+        // before discovering the lock, damaging a generation that is still in
+        // use; the image is the thing whose ownership is in question.
+        let image = candidate.join(SESSION_HOST_BINARY);
+        if image.exists() && fs::remove_file(&image).is_err() {
+            continue;
+        }
+        let _ = fs::remove_dir_all(&candidate);
+    }
 }
 
 fn reclaim_owned_temps(digest_directory: &Path, attempt_tag: &str) {

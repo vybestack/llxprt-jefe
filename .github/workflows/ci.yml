@@ -486,6 +486,32 @@ jobs:
             'No harness namespace was recorded.' | Out-File $remaining
           }
           exit 0
+      # Issue #542 (V7). The step above records and exits 0, so the orphaned
+      # tree class this repository has reopened four times could never turn CI
+      # red. Sessions are also the wrong unit: #515's signature is a session
+      # that has already left the inventory while its session host and worker
+      # keep running. Per dev-docs/standards/windows-session-ownership.md the
+      # session host is the anchor holder, so zero surviving session hosts
+      # means zero surviving trees -- the Job Object reaps the worker when the
+      # host exits.
+      - name: Assert no jefe process survives the suite
+        if: always()
+        shell: pwsh
+        run: |
+          $survivors = @(Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessName -like 'jefe-session-host*' })
+          $report = 'target/windows-ci/surviving-processes.txt'
+          New-Item -ItemType Directory -Force -Path 'target/windows-ci' | Out-Null
+          if ($survivors.Count -eq 0) {
+            'No jefe session host survived the suite.' | Out-File $report
+            return
+          }
+          $survivors |
+            Select-Object Id, ProcessName, StartTime, Path |
+            Format-List |
+            Out-File $report
+          Get-Content $report | Write-Host
+          throw "$($survivors.Count) jefe session host process(es) survived the suite. Every session host must be reaped when its owner dies; see dev-docs/standards/windows-session-ownership.md."
       - name: Upload native Windows diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

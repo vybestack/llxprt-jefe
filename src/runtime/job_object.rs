@@ -12,6 +12,12 @@
 //! rest of the runtime depends only on the typed `JobContainment` /
 //! `JobObjectError` contract. The crate forbids `unsafe` in Jefe source; all
 //! Win32 interaction stays inside the safe `win32job` wrapper.
+//!
+//! Containment is the *mechanism*, not the ownership model. It answers "what
+//! happens to the worker when the host dies", and issue #542 supplied the
+//! missing half — what makes the host die when *its* owner does. See
+//! `dev-docs/standards/windows-session-ownership.md`; this module is the
+//! anchor holder's release valve and its behaviour is unchanged by #542.
 
 #![cfg(windows)]
 
