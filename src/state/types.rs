@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use super::workbench_filter::WorkbenchStatusFilter;
 use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
 use crate::runtime::PreflightIssue;
 
@@ -396,6 +397,12 @@ pub struct AppState {
     pub pane_focus: PaneFocus,
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
+
+    /// Workbench status-filter mask (issue #626). Runtime-only, never
+    /// persisted. See [`WorkbenchStatusFilter`] for why it is wrapped.
+    pub workbench_status_filter: WorkbenchStatusFilter,
+    /// Workbench page, zero-based and clamped by the reducer. Runtime-only.
+    pub workbench_page: usize,
 
     /// Dashboard "search lite" state for repositories and agents (issue #405).
     ///

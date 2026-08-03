@@ -62,6 +62,9 @@ message_names!(UiNavigationMessage {
     Self::CloseShellOverlay => "CloseShellOverlay",
     Self::HideShellOverlay => "HideShellOverlay",
     Self::ResumeShellOverlay(_) => "ResumeShellOverlay",
+    Self::ToggleWorkbenchStatusBucket(_) => "ToggleWorkbenchStatusBucket",
+    Self::WorkbenchNextPage => "WorkbenchNextPage",
+    Self::WorkbenchPrevPage => "WorkbenchPrevPage",
 });
 
 message_names!(KeysEditorMessage {

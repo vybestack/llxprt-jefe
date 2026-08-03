@@ -103,6 +103,8 @@ pub(crate) mod terminal_viewport;
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 mod text_box;
+/// Multi-agent workbench card component (issue #626).
+mod workbench_card;
 
 pub use actions_detail::{
     ActionsDetailProjectionInputs, actions_detail_props, build_header_rows as actions_header_rows,
@@ -168,6 +170,7 @@ pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport}
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 pub use text_box::{TextBox, TextBoxProps};
+pub use workbench_card::{WorkbenchCard, WorkbenchCardProps};
 
 #[cfg(test)]
 #[path = "pr_render_tests.rs"]

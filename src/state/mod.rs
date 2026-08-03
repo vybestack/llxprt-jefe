@@ -111,6 +111,7 @@ mod persistence_effect_tests;
 /// Durable-save staging and persistence completion handling.
 pub mod persistence_ops;
 pub mod state_ops;
+mod theme_picker_events;
 pub mod theme_picker_view;
 pub mod transient_ops;
 pub mod transition;
@@ -119,6 +120,7 @@ pub mod transition;
 mod transition_tests;
 mod types;
 mod util;
+mod workbench_filter;
 pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
@@ -131,8 +133,10 @@ pub use terminal_manager_types::{
     ManagedShellRow, PendingShellFocus, ShellFocusOrigin, ShellPreview, ShellReturnTarget,
     TerminalManagerState, status_label_for,
 };
+pub use theme_picker_events::ThemePickerEvent;
 pub use types::*;
 pub use util::{inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical};
+pub use workbench_filter::WorkbenchStatusFilter;
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
@@ -529,21 +533,52 @@ impl AppState {
             UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
             UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
+            UiNavigationMessage::ToggleWorkbenchStatusBucket(_)
+            | UiNavigationMessage::WorkbenchNextPage
+            | UiNavigationMessage::WorkbenchPrevPage => self.apply_workbench_navigation(message),
             UiNavigationMessage::TerminalScrollUp
             | UiNavigationMessage::TerminalScrollDown
             | UiNavigationMessage::TerminalScrollPageUp
             | UiNavigationMessage::TerminalScrollPageDown
             | UiNavigationMessage::TerminalFollowTail
-            | UiNavigationMessage::TerminalScrollToTop => {
-                scrollback_ops::apply_terminal_scroll_message(
-                    &mut self.terminal_history_offset,
-                    self.terminal_total_lines,
-                    self.terminal_viewport_rows,
-                    message,
-                );
-            }
+            | UiNavigationMessage::TerminalScrollToTop => self.apply_terminal_scroll(message),
             shell_message => self.apply_shell_overlay_message(shell_message),
         }
+    }
+
+    /// Apply a terminal scrollback message (issue #198).
+    fn apply_terminal_scroll(&mut self, message: UiNavigationMessage) {
+        scrollback_ops::apply_terminal_scroll_message(
+            &mut self.terminal_history_offset,
+            self.terminal_total_lines,
+            self.terminal_viewport_rows,
+            message,
+        );
+    }
+
+    /// Handle multi-agent workbench navigation messages (issue #626).
+    fn apply_workbench_navigation(&mut self, message: UiNavigationMessage) {
+        match message {
+            UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
+                self.apply_workbench_status_toggle(bucket);
+            }
+            UiNavigationMessage::WorkbenchNextPage => {
+                self.workbench_page = self.workbench_page.saturating_add(1);
+            }
+            UiNavigationMessage::WorkbenchPrevPage => {
+                self.workbench_page = self.workbench_page.saturating_sub(1);
+            }
+            _ => unreachable!("non-workbench message routed to apply_workbench_navigation"),
+        }
+    }
+
+    /// Toggle one status bucket in the workbench filter mask and reset the
+    /// page to 0 so a shrinking list cannot strand an empty page (issue #626).
+    fn apply_workbench_status_toggle(&mut self, bucket: crate::workbench_view::StatusBucket) {
+        let current = self.workbench_status_filter.mask();
+        self.workbench_status_filter =
+            WorkbenchStatusFilter(current.with(bucket, !current.allows(bucket)));
+        self.workbench_page = 0;
     }
 
     fn cycle_pane_focus(&mut self) {
@@ -942,3 +977,7 @@ mod transient_agent_tests;
 #[cfg(test)]
 #[path = "transient_system_message_tests.rs"]
 mod transient_system_message_tests;
+
+#[cfg(test)]
+#[path = "workbench_tests.rs"]
+mod workbench_tests;

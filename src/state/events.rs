@@ -104,21 +104,8 @@ pub enum AppEvent {
     SetTheme(String),
     ThemeResolveFailed(String),
 
-    /// Open the theme picker modal with a snapshot of available themes.
-    /// Payload: `(slug, name)` pairs, plus the currently active slug.
-    OpenThemePicker {
-        available_themes: Vec<(String, String)>,
-        active_slug: String,
-    },
-    ThemePickerNavigateUp,
-    ThemePickerNavigateDown,
-    /// Confirm the current theme-picker selection.
-    /// The slug is derived from the modal's `selected_index` at dispatch time
-    /// (see `modal_handlers::apply_theme_picker_selection`).
-    ThemePickerConfirm,
-    /// Toggle the "Apply jefe theme to agent" theme-picker checkbox (issue #179).
-    ThemePickerToggleOverride,
-    CloseThemePicker,
+    /// Theme-picker modal interactions (see [`ThemePickerEvent`]).
+    ThemePicker(super::theme_picker_events::ThemePickerEvent),
 
     Quit,
     ClearError,
@@ -997,4 +984,12 @@ pub enum AppEvent {
     },
     /// A shell closed after runtime removed its inventory entry.
     ShellClosed(crate::domain::AgentId),
+
+    // ── Multi-agent workbench (issue #626) ──────────────────────────────
+    /// Toggle one status bucket in the workbench filter mask.
+    ToggleWorkbenchStatusBucket(crate::workbench_view::StatusBucket),
+    /// Advance to the next workbench page (clamped at the last page).
+    WorkbenchNextPage,
+    /// Return to the previous workbench page (clamped at page 0).
+    WorkbenchPrevPage,
 }
