@@ -74,12 +74,15 @@ where
 /// `TermEvent::PtyWrite`. Those replies are input for the hosted client, not
 /// output for the host: a client that never receives them keeps identifying its
 /// terminal until its own timeouts expire (issue #627).
+/// A poisoned queue is recovered rather than abandoned: dropping a reply leaves
+/// the hosted client waiting on an answer that will never come, which is the
+/// exact failure this queue exists to prevent.
 pub(super) fn queue_pty_write(pending: &Mutex<Vec<u8>>, text: &str) {
-    if let Ok(mut pending) = pending.lock() {
-        pending.extend_from_slice(text.as_bytes());
-    } else {
-        warn!("dropping terminal query reply: pending-reply lock poisoned");
-    }
+    let mut pending = pending.lock().unwrap_or_else(|poisoned| {
+        warn!("recovering poisoned pending-reply queue");
+        poisoned.into_inner()
+    });
+    pending.extend_from_slice(text.as_bytes());
 }
 
 impl EventListener for RuntimeListener {

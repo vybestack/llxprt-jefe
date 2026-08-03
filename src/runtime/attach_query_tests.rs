@@ -229,15 +229,14 @@ fn an_enter_write_is_separated_from_the_write_before_it() {
 
     let start = Instant::now();
     let first = input.write(b"x", PtyInputKind::Other);
-    let ordinary_elapsed = start.elapsed();
     let second = input.write(b"\r", PtyInputKind::Enter);
     let total_elapsed = start.elapsed();
 
     assert!(first.is_ok() && second.is_ok(), "writes should succeed");
-    assert!(
-        ordinary_elapsed < ENTER_INPUT_GAP,
-        "an ordinary write must not be delayed, took {ordinary_elapsed:?}"
-    );
+    // Only the lower bound is asserted. It is guaranteed by the wait itself,
+    // whereas any upper bound would be measuring the scheduler rather than the
+    // pacing logic, and would flake on a loaded runner. That an ordinary write
+    // is never delayed is established by the pure tests over `delay_before`.
     assert!(
         total_elapsed >= ENTER_INPUT_GAP,
         "the Enter must be held back by the guard interval, total was {total_elapsed:?}"

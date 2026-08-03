@@ -134,6 +134,8 @@ why the encoding cannot be gated on anything jefe can see.
 - Open Code Review before PR: 0 of 2 used.
 - Open Code Review after PR: 0 of 2 used.
 - Subagent design/code review cycles: 1 of 2 used.
+- CI OpenCodeReview passes: 2, both triaged (fixed, declined with reasoning, or
+  deferred with a recorded follow-up).
 
 ## Deferred findings
 
@@ -151,6 +153,16 @@ why the encoding cannot be gated on anything jefe can see.
   guard interval, two separated writes can still be read together. The complete
   remedy is for the child to distinguish pasted text by provenance rather than
   by arrival timing.
+- `RuntimeListener` still forwards OSC 52 clipboard stores synchronously from
+  inside the terminal parser, which holds the model lock, and the host boundary
+  opens `/dev/tty`. That is the same liveness hazard this change fixes for query
+  replies, but it predates the change and moving it needs its own care around
+  clipboard ordering and coverage.
+- The Enter separation is a bounded blocking wait on the caller. It is only ever
+  the remainder of the interval since jefe's own last write, so it is zero at
+  human typing speed, but a dedicated pacing thread would remove even that. It
+  is a new subsystem with its own ordering guarantees and is a stated non-goal
+  here.
 
 ## Verification evidence
 

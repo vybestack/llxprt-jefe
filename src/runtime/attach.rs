@@ -867,19 +867,22 @@ fn reader_loop(mut reader: Box<dyn Read + Send>, context: &ReaderContext) {
 /// that has stopped reading its input can never block the reader thread while
 /// it holds the lock every render needs.
 fn flush_pending_replies(pending: &PendingReplies, input: &Mutex<PacedPtyInput>) {
-    let Ok(mut pending) = pending.lock() else {
-        warn!("pending-reply lock poisoned; dropping terminal query replies");
-        return;
-    };
+    // Both locks are recovered rather than abandoned. Dropping a reply leaves
+    // the hosted client waiting for an answer that will never arrive, which is
+    // a worse outcome than proceeding with state a panicking thread left behind.
+    let mut pending = pending.lock().unwrap_or_else(|poisoned| {
+        warn!("recovering poisoned pending-reply queue");
+        poisoned.into_inner()
+    });
     let replies = std::mem::take(&mut *pending);
     drop(pending);
     if replies.is_empty() {
         return;
     }
-    let Ok(mut input) = input.lock() else {
-        warn!("pty input lock poisoned; dropping terminal query replies");
-        return;
-    };
+    let mut input = input.lock().unwrap_or_else(|poisoned| {
+        warn!("recovering poisoned pty input lock to answer a terminal query");
+        poisoned.into_inner()
+    });
     if let Err(error) = input.write(&replies, PtyInputKind::Other) {
         warn!(%error, "failed to answer terminal query on client input");
     }

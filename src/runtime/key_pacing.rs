@@ -121,8 +121,12 @@ impl PacedPtyInput {
             thread::sleep(delay);
         }
         let written = self.writer.write_all(bytes);
-        // Bytes that reached the PTY count even if the flush that follows
-        // fails, so the next Enter measures its separation from them.
+        // Recorded before the result is inspected, deliberately. A failed or
+        // partial write may still have put bytes in front of the child, and the
+        // only safe assumption is that it did: recording makes the next Enter
+        // wait, which is the conservative direction. Skipping it could let an
+        // Enter follow bytes the child actually received with no separation at
+        // all, which is the defect this guard exists to prevent.
         self.pacing.record(Instant::now());
         written?;
         self.writer.flush()
