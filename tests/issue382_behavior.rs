@@ -514,6 +514,12 @@ fn assert_codex_fresh_issue_unsupported(codex: &AgentDefinition) {
     use jefe::runtime::agent_plan::{
         LaunchFieldValues, PlanOutcome, PlanRequest, plan_local_launch,
     };
+    // Shipped agents all support fresh-issue now (issue #620), so the golden
+    // proves the rejection path against a locally declared unsupported reason.
+    let mut codex = codex.clone();
+    codex.operations.fresh_issue.supported =
+        jefe::domain::agent_definition::Support::unsupported("fresh-issue not fixture-verified");
+    let codex = &codex;
     let values = LaunchFieldValues::new();
     let request = PlanRequest {
         definition: codex,

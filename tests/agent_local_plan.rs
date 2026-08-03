@@ -366,8 +366,12 @@ fn optional_boolean_none_skips_boolean_option() {
 
 #[test]
 fn unsupported_operation_emits_zero_effects() {
-    // Codex fresh_issue is unsupported by the shipped definition.
-    let definition = shipped("Codex CLI");
+    // Construct a definition with an unsupported operation. The shipped agents
+    // all support fresh-issue now (issue #620), so the rejection path is proven
+    // against a declared reason rather than against a crippled shipped agent.
+    let mut definition = shipped("Codex CLI");
+    definition.operations.fresh_issue.supported =
+        jefe::domain::agent_definition::Support::unsupported("fresh-issue not fixture-verified");
     let values = LaunchFieldValues::new();
     let request = PlanRequest {
         definition: &definition,
