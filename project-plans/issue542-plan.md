@@ -99,8 +99,27 @@ No dependency, agent-memory, or quality-tooling change. `.llxprt/` and
 
 ## 7. Review counters
 
-- OCR before PR: 0 / 2
-- OCR after PR: 0 / 2
+- OCR before PR: 0 / 2 (the `rustreviewer` subagent hit its 900s ceiling and
+  returned nothing; substituted a direct line-by-line audit of the seven
+  `owner_anchor` invariants, which found no blockers)
+- OCR after PR: 1 / 2 — seven findings, five fixed in `b75c433a`, two rejected.
+  Triage recorded on PR #622 and summarised below.
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Watchdog thread swallows panics, leaving the tree unwatched | Blocker — Fix (fixed as hold-on-panic, not exit-on-panic) |
+| 2 | Thread name `.to_owned()` allocates | Reject — `Builder::name` takes `String` |
+| 3 | `CARGO_MANIFEST_DIR` cannot resolve `dev-docs/` in a workspace | Reject — this crate is the workspace root; the tests are green |
+| 4 | `run_pane_launcher` discards `try_wait()` and blocks forever | In-scope — Fix |
+| 5 | `spawn_contained_worker` discards `try_wait()` | In-scope — Fix |
+| 6 | `run_pane_launcher` not `#[cfg(windows)]` | In-scope — Fix |
+| 7 | `0x0000_0208` duplicated as a magic number | In-scope — Fix |
+
+Finding 1 was fixed against the reviewer's suggested remedy. Exiting the
+process on panic would let an unrelated bug terminate a healthy agent, which
+inverts the rule in §4 that only *confirmed* ownership loss may release a tree.
+A panic is now classified as the strongest form of `Unverified`: the pass
+holds, the reason is logged, and the watchdog survives to retry.
 
 ## 8. Verification evidence
 
