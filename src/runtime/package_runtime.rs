@@ -482,6 +482,7 @@ fn cache_hit(
 fn resolve_volatile_version(
     candidate: &ResolvedCandidate,
     selection: &PackageSelection,
+    cache_root: &Path,
 ) -> Option<String> {
     let spec = selection
         .selector()
@@ -493,7 +494,11 @@ fn resolve_volatile_version(
     ];
     let mut command =
         command_for_path(candidate.executable(), candidate.wrapper_kind(), &arguments);
-    command.stdin(Stdio::null());
+    // Run where the work belongs. Without a directory of its own this inherits
+    // whatever jefe was started in — the user's project — and a package manager
+    // is entitled to read and write around its working directory. The install
+    // alongside this has always named its directory; the resolve did not.
+    command.current_dir(cache_root).stdin(Stdio::null());
     let output =
         run_command_capture_with_timeout(command, VERSION_RESOLVE_TIMEOUT, "jefe package resolve")
             .ok()?;
@@ -570,7 +575,7 @@ fn prepare_managed_npm_with_lock_policy(
     // Resolving outside the lock is deliberate: it is a read-only metadata
     // query, and the lock is keyed on the result.
     let resolved = if selection.selector().is_volatile() {
-        resolve_volatile_version(candidate, selection).or_else(|| {
+        resolve_volatile_version(candidate, selection, cache_root).or_else(|| {
             // Offline: fall back to the version this tag last resolved to, so
             // the build the user already has still launches (issue #584).
             let remembered = remembered_version(cache_root, selection);
