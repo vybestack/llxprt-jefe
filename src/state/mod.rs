@@ -113,6 +113,11 @@ mod navigation_dirty_tests;
 #[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;
+/// The single Back-precedence resolution (issue #386).
+pub mod navigation_unwind;
+#[cfg(test)]
+#[path = "navigation_unwind_tests.rs"]
+mod navigation_unwind_tests;
 /// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]
