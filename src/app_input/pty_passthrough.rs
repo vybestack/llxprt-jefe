@@ -15,7 +15,7 @@ use crate::pty_encoding::{
     should_disarm_paste_enter_suppression, should_suppress_synthetic_enter,
 };
 use jefe::input::{InputMode, is_bare_ctrl_c};
-use jefe::runtime::{RuntimeError, RuntimeManager};
+use jefe::runtime::{PtyInputKind, RuntimeError, RuntimeManager};
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -27,17 +27,11 @@ pub type CtxArc = Arc<std::sync::Mutex<crate::AppContext>>;
 ///
 /// Mirrors the previous in-`app_shell` implementation: keys that cannot be
 /// encoded are ignored and clear the paste-Enter suppression arm.
-pub fn forward_key_to_pty(
-    ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    key_event: &KeyEvent,
-) {
-    let encoded = key_to_bytes(key_event, false);
-
-    // Issue #296 diagnostics: for navigation/page keys, include the encoded
-    // bytes so logs can distinguish the tilde form (CSI 5~ / CSI 6~ = page
-    // keys) from the letter form (CSI A / CSI B = arrows). This pinpoints
-    // whether Jefe emits the correct sequence for the key it received.
+/// Issue #296 diagnostics: for navigation/page keys, include the encoded bytes
+/// so logs can distinguish the tilde form (CSI 5~ / CSI 6~ = page keys) from
+/// the letter form (CSI A / CSI B = arrows). This pinpoints whether Jefe emits
+/// the correct sequence for the key it received.
+fn trace_encoded_key(key_event: &KeyEvent, encoded: Option<&Vec<u8>>) {
     let is_nav_or_page = matches!(
         key_event.code,
         iocraft::prelude::KeyCode::Up
@@ -52,7 +46,7 @@ pub fn forward_key_to_pty(
             | iocraft::prelude::KeyCode::Insert
     );
     if is_nav_or_page {
-        if let Some(bytes) = &encoded {
+        if let Some(bytes) = encoded {
             trace!(
                 code = ?key_event.code,
                 modifiers = ?key_event.modifiers,
@@ -70,24 +64,48 @@ pub fn forward_key_to_pty(
         trace!(
             code = ?key_event.code,
             modifiers = ?key_event.modifiers,
-            encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
+            encoded_len = encoded.map_or(0, std::vec::Vec::len),
             "forwarding key to PTY"
         );
     }
+}
 
-    let unmapped = encoded.is_none();
-    if let Some(bytes) = encoded
-        && let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        if let Err(e) = ctx_guard.runtime.write_input(&bytes)
-            && !matches!(e, RuntimeError::WriteFailed(_))
-        {
-            warn!(error = %e, "runtime.write_input failed");
-        }
-    } else if unmapped {
+/// Classify a key for the PTY write path.
+///
+/// Enter is the only chord downstream agents reclassify from arrival timing, so
+/// it is the only one that has to be separated from the write before it
+/// (issue #627).
+#[must_use]
+pub fn pty_input_kind(key_event: &KeyEvent) -> PtyInputKind {
+    if key_event.code == iocraft::prelude::KeyCode::Enter {
+        PtyInputKind::Enter
+    } else {
+        PtyInputKind::Other
+    }
+}
+
+pub fn forward_key_to_pty(
+    ctx: Option<&CtxArc>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
+    key_event: &KeyEvent,
+) {
+    let encoded = key_to_bytes(key_event);
+    trace_encoded_key(key_event, encoded.as_ref());
+
+    let Some(bytes) = encoded else {
         // Unmapped key: ignore immediately and clear suppression arm.
         suppress_next_enter.set(PasteEnterSuppression::new());
+        return;
+    };
+
+    if let Some(ctx_arc) = ctx
+        && let Ok(mut ctx_guard) = ctx_arc.lock()
+        && let Err(e) = ctx_guard
+            .runtime
+            .write_input_kind(&bytes, pty_input_kind(key_event))
+        && !matches!(e, RuntimeError::WriteFailed(_))
+    {
+        warn!(error = %e, "runtime.write_input failed");
     }
 }
 

@@ -216,6 +216,75 @@ mod tests {
         assert_eq!(reason_for("prs.send-agent"), Some(NO_AGENTS_AVAILABLE));
     }
 
+    /// Issue #633: the send-agent action must not be projected `Unavailable`
+    /// merely because the async startup probe has not answered yet. The
+    /// projection is what short-circuits the key before the reducer runs, so a
+    /// pending verdict here is what makes `Shift+S` do nothing at all.
+    #[test]
+    fn send_agent_is_available_while_the_startup_probe_is_pending() {
+        let mut state = state_with_snapshot();
+        let type_id = crate::domain::shipped_agent_type(3);
+        let definition = crate::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id == type_id)
+            .unwrap_or_else(|| panic!("shipped_agent_type(3) must have a shipped definition"));
+
+        let mut repository = crate::domain::Repository::new(
+            crate::domain::RepositoryId("repo-1".to_string()),
+            type_id.clone(),
+            crate::domain::TypedMap::new(),
+            "Test Repo".to_string(),
+            "repo-1".to_string(),
+            std::path::PathBuf::from("/tmp/test"),
+        );
+        repository.github_repo = "owner/repo".to_string();
+        state.repositories.push(repository);
+        state.selected_repository_index = Some(0);
+
+        let mut agent = crate::domain::Agent::new(
+            crate::domain::AgentId("agent-1".to_string()),
+            crate::domain::RepositoryId("repo-1".to_string()),
+            type_id.clone(),
+            crate::domain::TypedMap::new(),
+            "My Agent".to_string(),
+            std::path::PathBuf::from("/tmp/a1"),
+        );
+        agent.type_id = type_id;
+        state.agents.push(agent);
+
+        // The probe was dispatched but has not answered: this is the state the
+        // app is in for the first seconds of every session on Windows.
+        state.agent_type_availability = vec![
+            crate::agent_status_view::AgentAvailabilityObservation::pending(
+                &definition,
+                true,
+                1,
+                crate::agent_candidate::CandidateResolution::NotFound(Vec::new()),
+            ),
+        ];
+        assert!(
+            state.available_agent_type_ids.is_empty(),
+            "fixture precondition: the compatible list is still unpopulated"
+        );
+
+        let actions = state
+            .action_registry_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.actions().to_vec())
+            .unwrap_or_default();
+        let entries = availability_entries(&state, &actions);
+        let send_agent = entries
+            .iter()
+            .find(|entry| entry.action().as_str() == "issues.send-agent")
+            .unwrap_or_else(|| panic!("issues.send-agent must be projected"));
+
+        assert!(
+            matches!(send_agent.availability(), Availability::Available),
+            "a pending probe must not refuse Shift+S, got {:?}",
+            send_agent.availability()
+        );
+    }
+
     #[test]
     fn stale_owner_generation_and_semantic_key_cannot_publish() {
         let initial = state_with_snapshot();

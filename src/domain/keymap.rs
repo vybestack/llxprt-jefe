@@ -423,8 +423,8 @@ pub enum TerminalClass {
     ForwardToPty,
 }
 
-/// Encode exactly as the current terminal forwarding path does with
-/// `passthrough_enter = false`.
+/// Encode exactly as the terminal forwarding path does for a child that has
+/// negotiated nothing (`PtyKeyEncoding::Legacy`).
 ///
 /// # Errors
 /// Returns [`PtyEncodeError::Unencodable`] for `BackTab`, F13-F24, and other

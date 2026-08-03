@@ -178,20 +178,21 @@ fn prepared_remote_send_uses_audited_transcript_with_prompt() {
 
 #[test]
 fn unsupported_operation_and_target_preserve_declared_reasons() {
+    // Shipped agents all declare a fixture-proven prompt shape now (issue #620),
+    // so an unsupported operation is declared locally to prove the reason is
+    // carried through verbatim rather than replaced by a generic message.
     for id in ["core.codex", "core.claude-code"] {
-        let definition = definition(id);
         for operation in [Operation::FreshIssue, Operation::FreshPullRequest] {
-            let expected = definition
-                .operations
-                .support_for(operation)
-                .supported
-                .reason()
-                .unwrap_or_else(|| panic!("fixture operation must be unsupported"));
+            let mut definition = definition(id);
+            let reason = format!("{id} {operation:?} is not fixture-verified");
+            let declared = match operation {
+                Operation::FreshIssue => &mut definition.operations.fresh_issue,
+                _ => &mut definition.operations.fresh_pull_request,
+            };
+            declared.supported = Support::unsupported(&reason);
             assert_eq!(
                 fresh_send_support(&definition, operation, &local_target()),
-                Err(FreshSendRejection::Unsupported {
-                    reason: expected.to_owned()
-                })
+                Err(FreshSendRejection::Unsupported { reason })
             );
         }
     }

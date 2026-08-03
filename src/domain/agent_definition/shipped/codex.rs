@@ -30,10 +30,10 @@ pub fn build() -> AgentDefinition {
         ),
         &[],
     );
-    let operations = super::common::unsupported_only_operations(
-        "Codex fresh-issue prompt is not fixture-verified",
-        "Codex fresh-PR prompt is not fixture-verified",
-    );
+    // `help.stdout` in the fixture declares `codex [OPTIONS] [PROMPT]` with
+    // `[PROMPT]  Optional user prompt to start the session`, so the prompt shape
+    // below is fixture-proven for every prompt-bearing operation.
+    let operations = super::common::positional_prompt_operations();
     assemble(DefinitionParts {
         id: "core.codex",
         display_name: "Codex CLI",
