@@ -255,12 +255,25 @@ fn unique_temp_path(digest_directory: &Path, attempt_tag: &str) -> PathBuf {
     ))
 }
 
-fn default_attempt_tag() -> String {
+/// A tag unique to one staging attempt.
+///
+/// The tag scopes temp reclamation, so two attempts that share one reclaim each
+/// other: one thread's cleanup removes the other's temp between its write and
+/// its rename, and the rename then fails with nothing yet in place.
+///
+/// A pid and a timestamp are not enough to keep two threads apart. The clock is
+/// not guaranteed to advance between two reads, and in practice on macOS it
+/// frequently does not — measured at roughly half of a thousand consecutive
+/// calls landing on an instant already seen. The process-wide counter is what
+/// makes the tag unique; the pid and time remain because they make a leftover
+/// temp legible to a human reading the directory (issue #561).
+pub fn default_attempt_tag() -> String {
     let pid = std::process::id();
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    format!("pid{pid:x}-t{nanos:x}")
+    let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("pid{pid:x}-t{nanos:x}-a{sequence:x}")
 }
 
 /// Reduce a session name to a safe single path segment, or `None` if it carries
