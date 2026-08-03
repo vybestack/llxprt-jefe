@@ -93,9 +93,10 @@ or unrelated refactor is authorized.
 
 ## Review and verification ledger
 
-- Local OCR: `1 / 2` — reviewed the committed range against the changed file; zero
-  findings.
-- PR OCR: `0 / 2`
+- Local OCR: `2 / 2` — both runs over the committed range reported zero findings;
+  the second ran after review remediation.
+- PR OCR: `1 / 2` — the repository's automatic OpenCodeReview job reviewed head
+  `7c1fa84b` against merge base `a88d4d9f` and reported no findings.
 - rustreviewer: one full review of the committed range; six findings triaged.
   Fixed: the deferral could return an empty page with an unchanged cursor when a
   raw page could be neither emitted nor deferred (now a typed `GhError::ApiError`,
@@ -115,8 +116,18 @@ or unrelated refactor is authorized.
   "every emitted page must respect the requested size". The four boundary tests
   (exact fill, exhaustion, empty page, non-advancing cursor) passed before and
   after, proving the fix preserved them.
-- Exact-head verification: pending
-- Deferred findings: none
+- State-layer check: `PageToken::from_cursor` (`src/domain/pagination.rs:74`)
+  already collapses `has_more` without a cursor to `Done`, and
+  `PaginatedList::should_load_more` (`src/domain/paginated_list.rs:384`) only
+  requests another page when the selection sits on the last row, so a page that
+  is shorter than `page_size` costs one extra scroll rather than spinning.
+- Exact-head verification: `cargo xtask ci` passes at head `7c1fa84b` (fmt,
+  clippy-allow policy, source size, architecture, multiplexer surface, strict
+  Clippy, complexity, coverage, build, test); line coverage 69.83%.
+- CI: all 19 required checks on PR #606 pass (2 optional jobs skip).
+- Deferred findings: none. A second independent reviewer pass could not be
+  obtained — both review subagent providers returned usage-limit errors — so the
+  second cycle was spent on the local OCR run above.
 
 ## Completion contract
 
