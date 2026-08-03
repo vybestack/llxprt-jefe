@@ -281,6 +281,59 @@ fn concurrent_staging_of_the_same_image_is_idempotent() {
     );
 }
 
+/// Two stagings racing in one process must not delete each other's work.
+///
+/// The attempt tag scopes temp reclamation, so two attempts sharing one tag
+/// reclaim each other. `default_attempt_tag` is derived from the pid and a
+/// timestamp, and two threads in one process can read the same instant — at
+/// which point one thread's cleanup removes the other's temp between its write
+/// and its rename, and the rename fails with nothing in place yet (issue #561).
+///
+/// Repeated because the window is narrow: a single pair rarely collides, which
+/// is why this surfaced as an intermittent failure rather than a broken test.
+#[test]
+fn concurrent_staging_never_reclaims_another_attempts_temp() {
+    let source_dir = tempfile::tempdir().unwrap_or_else(|error| panic!("temp src: {error}"));
+    let source = write_default_source(&source_dir);
+
+    for round in 0..200 {
+        let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
+        let results = std::thread::scope(|scope| {
+            let first = scope.spawn(|| stage_session_host(root.path(), "jefe-agent-1", &source));
+            let second = scope.spawn(|| stage_session_host(root.path(), "jefe-agent-1", &source));
+            [
+                first
+                    .join()
+                    .unwrap_or_else(|_| panic!("first staging thread panicked")),
+                second
+                    .join()
+                    .unwrap_or_else(|_| panic!("second staging thread panicked")),
+            ]
+        });
+        for (index, result) in results.iter().enumerate() {
+            assert!(
+                result.is_ok(),
+                "round {round}, thread {index}: concurrent staging must succeed, got {:?}",
+                result.as_ref().err().map(ToString::to_string)
+            );
+        }
+    }
+}
+
+/// The tag exists to scope cleanup to one attempt, so two attempts must not
+/// share one.
+#[test]
+fn each_staging_attempt_gets_its_own_tag() {
+    let tags: std::collections::HashSet<String> = (0..1000)
+        .map(|_| crate::runtime::session_host::default_attempt_tag())
+        .collect();
+    assert_eq!(
+        tags.len(),
+        1000,
+        "an attempt tag that repeats lets one attempt reclaim another's temps"
+    );
+}
+
 #[test]
 fn staging_rejects_attempt_tags_that_can_escape_the_digest_directory() {
     let root = tempfile::tempdir().unwrap_or_else(|error| panic!("temp root: {error}"));
