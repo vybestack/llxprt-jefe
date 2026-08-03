@@ -54,7 +54,7 @@ fn spawn_creates_session_for_agent() {
         .test_unwrap("spawn should succeed");
 
     assert!(
-        mgr.is_alive(&agent.id),
+        mgr.has_session_record(&agent.id),
         "session should be alive after spawn"
     );
 }
@@ -88,8 +88,8 @@ fn spawn_allows_multiple_different_agents() {
     mgr.spawn_session(&agent2.id, &sig2, None)
         .test_unwrap("second spawn should succeed");
 
-    assert!(mgr.is_alive(&agent1.id));
-    assert!(mgr.is_alive(&agent2.id));
+    assert!(mgr.has_session_record(&agent1.id));
+    assert!(mgr.has_session_record(&agent2.id));
 }
 
 // =============================================================================
@@ -145,7 +145,7 @@ fn attach_switches_from_previous_session() {
     );
 
     // Verify agent1 session is still alive but not attached
-    assert!(mgr.is_alive(&agent1.id));
+    assert!(mgr.has_session_record(&agent1.id));
     let session1 = mgr.get_session(&agent1.id).test_unwrap("session 1 exists");
     assert!(!session1.attached, "agent 1 should be detached");
 }
@@ -179,8 +179,14 @@ fn repeated_attach_switching_ends_on_last_selected_agent() {
     let session2 = mgr.get_session(&agent2.id).test_unwrap("session b exists");
     assert!(!session1.attached, "agent a should be detached at the end");
     assert!(session2.attached, "agent b should be attached at the end");
-    assert!(mgr.is_alive(&agent1.id), "agent a should remain alive");
-    assert!(mgr.is_alive(&agent2.id), "agent b should remain alive");
+    assert!(
+        mgr.has_session_record(&agent1.id),
+        "agent a should remain alive"
+    );
+    assert!(
+        mgr.has_session_record(&agent2.id),
+        "agent b should remain alive"
+    );
 }
 
 #[test]
@@ -234,11 +240,11 @@ fn kill_removes_session() {
 
     mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
-    assert!(mgr.is_alive(&agent.id));
+    assert!(mgr.has_session_record(&agent.id));
 
     mgr.kill(&agent.id).test_unwrap("kill should succeed");
     assert!(
-        !mgr.is_alive(&agent.id),
+        !mgr.has_session_record(&agent.id),
         "session should not be alive after kill"
     );
 }
@@ -288,8 +294,11 @@ fn kill_one_session_preserves_others() {
 
     mgr.kill(&agent1.id).test_unwrap("kill 1");
 
-    assert!(!mgr.is_alive(&agent1.id));
-    assert!(mgr.is_alive(&agent2.id), "agent 2 should still be alive");
+    assert!(!mgr.has_session_record(&agent1.id));
+    assert!(
+        mgr.has_session_record(&agent2.id),
+        "agent 2 should still be alive"
+    );
 }
 
 // =============================================================================
@@ -343,7 +352,7 @@ fn relaunch_dead_session_requires_signature() {
 fn is_alive_returns_false_for_unknown_agent() {
     let mgr = StubRuntimeManager::default();
     let agent_id = AgentId("unknown".into());
-    assert!(!mgr.is_alive(&agent_id));
+    assert!(!mgr.has_session_record(&agent_id));
 }
 
 #[test]
@@ -354,7 +363,7 @@ fn is_alive_returns_true_for_spawned_agent() {
 
     mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
-    assert!(mgr.is_alive(&agent.id));
+    assert!(mgr.has_session_record(&agent.id));
 }
 
 #[test]
@@ -366,5 +375,5 @@ fn is_alive_returns_false_after_kill() {
     mgr.spawn_session(&agent.id, &sig, None)
         .test_unwrap("spawn");
     mgr.kill(&agent.id).test_unwrap("kill");
-    assert!(!mgr.is_alive(&agent.id));
+    assert!(!mgr.has_session_record(&agent.id));
 }

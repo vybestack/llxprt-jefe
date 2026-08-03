@@ -398,10 +398,20 @@ fn batch_command_count_constant_with_agent_count() {
 // --- existing tests ---
 
 #[test]
-fn check_nonexistent_session_returns_false() {
-    // This session should not exist
-    let alive = check_session_alive("jefe-nonexistent-test-session-12345");
-    assert!(!alive);
+fn a_session_that_does_not_exist_is_never_reported_alive() {
+    // Deliberately not asserting through a `bool` helper. The point of #597 is
+    // that `Missing` and `Unavailable` are different answers, so this names the
+    // acceptable ones instead of folding them into one negative: which of the
+    // two arrives depends on whether a multiplexer is installed here, and that
+    // difference is exactly what a `bool` would destroy.
+    let liveness = session_liveness("jefe-nonexistent-test-session-12345");
+    assert!(
+        matches!(
+            liveness,
+            SessionLiveness::Missing | SessionLiveness::Unavailable
+        ),
+        "a session that was never created must never be reported Alive, got {liveness:?}"
+    );
 }
 
 // --- run_child_with_timeout (issue #287 review: kill path must be verified) ---

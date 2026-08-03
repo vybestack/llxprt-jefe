@@ -165,14 +165,6 @@ pub trait RuntimeManager: Send {
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError>;
 
-    /// Check if a session is alive.
-    ///
-    /// @pseudocode component-002 lines 33-35
-    fn is_alive(&self, agent_id: &AgentId) -> bool;
-
-    /// Check whether a tmux session exists for the given agent.
-    fn session_exists(&self, agent_id: &AgentId) -> bool;
-
     /// Get terminal snapshot for the currently attached session.
     fn snapshot(&self) -> Option<TerminalSnapshot>;
 
@@ -855,29 +847,6 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
         let result = self.spawn_session_fresh(agent_id, launch, remote);
         complete_relaunch_attempt(&mut self.dead_plans, agent_id, result)
-    }
-
-    fn is_alive(&self, agent_id: &AgentId) -> bool {
-        if let Some(session) = self.sessions.get(agent_id) {
-            if let Some(remote) = session.remote.as_ref() {
-                liveness::check_remote_session_alive(remote, &session.session_name)
-            } else {
-                liveness::check_session_alive(&session.session_name)
-            }
-        } else {
-            false
-        }
-    }
-
-    fn session_exists(&self, agent_id: &AgentId) -> bool {
-        if let Some(session) = self.sessions.get(agent_id)
-            && let Some(remote) = session.remote.as_ref()
-        {
-            return commands::remote_session_exists(remote, &session.session_name).unwrap_or(false);
-        }
-
-        let session_name = RuntimeSession::session_name_for(agent_id);
-        liveness::check_session_alive(&session_name)
     }
 
     fn snapshot(&self) -> Option<TerminalSnapshot> {

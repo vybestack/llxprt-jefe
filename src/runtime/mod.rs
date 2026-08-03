@@ -114,9 +114,9 @@ pub use external_terminal::{
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
-    batch_liveness_check_with_identity, check_remote_session_alive, check_session_alive,
-    list_jefe_sessions, observe_worker_disposition, parse_alive_sessions, parse_pane_alive,
-    reconcile_dead_agents, reconcile_dead_agents_with_identity, session_liveness,
+    batch_liveness_check_with_identity, list_jefe_sessions, observe_worker_disposition,
+    parse_alive_sessions, parse_pane_alive, reconcile_dead_agents,
+    reconcile_dead_agents_with_identity, session_liveness,
 };
 pub use manager::{
     AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,
@@ -302,7 +302,7 @@ mod tests {
         if let Err(error) = mgr.spawn_session(&agent_id, &plan, None) {
             panic!("spawn should succeed: {error}");
         }
-        assert!(mgr.is_alive(&agent_id));
+        assert!(mgr.has_session_record(&agent_id));
 
         if let Err(error) = mgr.attach(&agent_id) {
             panic!("attach should succeed: {error}");
@@ -322,7 +322,7 @@ mod tests {
         if let Err(error) = mgr.kill(&agent_id) {
             panic!("kill should succeed: {error}");
         }
-        assert!(!mgr.is_alive(&agent_id));
+        assert!(!mgr.has_session_record(&agent_id));
     }
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &plan, None) {
             panic!("fresh spawn should succeed: {error}");
         }
-        assert!(mgr.is_alive(&agent_id));
+        assert!(mgr.has_session_record(&agent_id));
 
         let duplicate = mgr.spawn_session_fresh(&agent_id, &plan, None);
         assert!(duplicate.is_err());

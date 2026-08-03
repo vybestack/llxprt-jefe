@@ -9,11 +9,9 @@ use std::hash::BuildHasher;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use crate::domain::AgentId;
 use crate::domain::liveness_observation::{Observed, ProbeBoundary};
-use crate::domain::{AgentId, RemoteRepositorySettings};
-use crate::runtime::commands::{
-    remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
-};
+use crate::runtime::commands::tmux_command;
 use crate::runtime::manager::LivenessCheck;
 
 /// Timeout for local tmux subprocess invocations in the batch liveness path.
@@ -90,48 +88,6 @@ pub(super) fn parse_dead_pane_flags(output: &str) -> SessionLiveness {
     } else {
         SessionLiveness::Unavailable
     }
-}
-
-/// Check if a tmux session exists and has at least one non-dead pane.
-///
-/// @pseudocode component-002 lines 33-35
-#[must_use]
-pub fn check_session_alive(session_name: &str) -> bool {
-    session_liveness(session_name) == SessionLiveness::Alive
-}
-
-/// Check if a remote tmux session exists and has at least one non-dead pane.
-#[must_use]
-pub fn check_remote_session_alive(remote: &RemoteRepositorySettings, session_name: &str) -> bool {
-    let command = remote_tmux_command(
-        remote,
-        &format!(
-            "tmux has-session -t {} && tmux list-panes -t {} -F '#{{pane_dead}}'",
-            shell_escape_single(session_name),
-            shell_escape_single(session_name)
-        ),
-    );
-
-    let output = run_remote_ssh(remote, &command);
-    let Ok(out) = output else {
-        return false;
-    };
-    if !out.status.success() {
-        return false;
-    }
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    for line in stdout.lines() {
-        let dead_flag = line.trim();
-        if dead_flag.is_empty() {
-            continue;
-        }
-        if dead_flag == "0" || dead_flag.eq_ignore_ascii_case("false") {
-            return true;
-        }
-    }
-
-    false
 }
 
 /// Parse raw `tmux list-sessions -F '#{session_name}'` output into a set of
