@@ -816,17 +816,17 @@ impl AppState {
     /// `Shift+S` read as "the key did nothing" (issue #633). The same reason
     /// is therefore mirrored into the owning screen's notice band, which is
     /// where those screens already report `No agents available`.
-    pub fn record_unavailable_action(&mut self, reason: &str) {
-        self.warning_message = Some(reason.to_owned());
+    pub fn record_unavailable_action(&mut self, reason: String) {
         match self.screen {
-            ScreenId::Issues => self.issues_state.draft_notice = Some(reason.to_owned()),
-            ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.to_owned()),
+            ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
+            ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
             ScreenId::Dashboard
             | ScreenId::Repositories
             | ScreenId::Actions
             | ScreenId::Errors
             | ScreenId::Terminals => {}
         }
+        self.warning_message = Some(reason);
     }
 }
 

@@ -201,7 +201,7 @@ fn open_agent_chooser_opens_while_startup_probe_is_pending() {
 fn unavailable_action_sets_the_issues_banner_notice() {
     let state = state_with_unprobed_agent();
     let mut state = state;
-    state.record_unavailable_action("No agents available");
+    state.record_unavailable_action("No agents available".to_string());
 
     assert_eq!(
         state.warning_message.as_deref(),
@@ -221,7 +221,7 @@ fn unavailable_action_sets_the_pull_requests_banner_notice() {
     let mut state = state_with_unprobed_agent();
     state.screen = crate::workbench::ScreenId::PullRequests;
 
-    state.record_unavailable_action("No agents available");
+    state.record_unavailable_action("No agents available".to_string());
 
     assert_eq!(
         state.prs_state.draft_notice.as_deref(),
@@ -249,7 +249,7 @@ fn unavailable_action_on_other_screens_only_warns() {
         let mut state = state_with_unprobed_agent();
         state.screen = screen;
 
-        state.record_unavailable_action("Nothing to do here");
+        state.record_unavailable_action("Nothing to do here".to_string());
 
         assert_eq!(
             state.warning_message.as_deref(),
