@@ -106,6 +106,10 @@ pub fn write_launch_plan(
     Err(AgentLauncherError::PlanCreateFailed)
 }
 
+#[cfg(all(test, windows))]
+#[path = "job_inheritance_tests.rs"]
+mod job_inheritance_tests;
+
 /// Consume and execute a private launch plan, returning the child status.
 pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     if !valid_launch_plan_path(path) {

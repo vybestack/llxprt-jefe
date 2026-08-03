@@ -4,6 +4,7 @@
 //! @requirement REQ-TECH-002
 
 mod assign_workflow_contracts;
+mod attach_ownership_contracts;
 mod clippy_allow_policy;
 mod dashboard_search_contracts;
 mod domain_state_contracts;

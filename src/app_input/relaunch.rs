@@ -138,7 +138,20 @@ fn relaunch_runtime_session(
     spawn_relaunch_session(&mut ctx_guard.runtime, agent_id, &agent.work_dir, &prepared)?;
     std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
     if let Err(error) = attach_relaunched_session(&mut ctx_guard.runtime, agent_id) {
-        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+        // The spawn above succeeded, so a worker is running. Attaching is the
+        // separate act of building a view onto it, and its failure is not
+        // evidence that the thing just started has died.
+        //
+        // Marking it dead here discarded the mapping for a process that was
+        // still running -- and because the relaunch had already replaced the
+        // old record, nothing was left pointing at the new tree either. That
+        // is #306's first criterion, and the most direct way an agent becomes
+        // an orphan: it is created and disowned in consecutive statements.
+        warn!(
+            agent_id = %agent_id.0,
+            error = %error,
+            "relaunch attached failed; the spawned session keeps its binding for liveness to judge"
+        );
         drop(ctx_guard);
         return Err(error);
     }
@@ -278,9 +291,14 @@ fn recover_server_lost_runtime(
         .runtime
         .relaunch(agent_id, prepared.authorized(), prepared.remote())?;
     if let Err(error) = ctx_guard.runtime.attach(agent_id) {
-        if !ctx_guard.runtime.mark_session_dead(agent_id) {
-            warn!(agent_id = %agent_id.0, "psmux recovery: relaunched session record was absent after attach failure");
-        }
+        // Same shape as the relaunch path above: the recovery relaunch already
+        // succeeded, so this agent has a live session. A failed attach is a
+        // failure to view it, not a reason to disown it (issue #306).
+        warn!(
+            agent_id = %agent_id.0,
+            error = %error,
+            "psmux recovery: attach failed; the recovered session keeps its binding for liveness to judge"
+        );
         drop(ctx_guard);
         return Err(error);
     }
