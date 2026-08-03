@@ -90,6 +90,20 @@ fn not_found_observation() -> AgentAvailabilityObservation {
     AgentAvailabilityObservation::not_found(&definition_under_test(), true, 1)
 }
 
+/// An observation from a probe that answered successfully — the verdict
+/// production also records by adding the type to `available_agent_type_ids`.
+fn installed_compatible_observation() -> AgentAvailabilityObservation {
+    AgentAvailabilityObservation::new(
+        &definition_under_test(),
+        true,
+        Availability::InstalledCompatible {
+            identity: "0.10.0".to_string(),
+            capabilities: vec!["prompt-interactive".to_string()],
+            generation: 1,
+        },
+    )
+}
+
 // ── Selector: chooser eligibility must survive an unfinished probe ──────────
 
 #[test]
@@ -120,6 +134,30 @@ fn chooser_includes_agent_after_probe_error() {
         infos.len(),
         1,
         "a failed probe must not permanently disable send-to-agent for the session"
+    );
+}
+
+/// The widening must not cost the case it was built on top of: a probe that
+/// answered `InstalledCompatible` still makes the agent eligible. Guards
+/// against a future rewrite that folds success into the negative branch.
+#[test]
+fn chooser_includes_agent_after_a_successful_probe() {
+    let mut state = state_with_unprobed_agent();
+    state.agent_type_availability = vec![installed_compatible_observation()];
+    // Production records the positive verdict in both places.
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
+
+    let repo_id = state.selected_repository_id().cloned();
+    let infos = state.chooser_agents_for_repository(repo_id.as_ref());
+
+    assert_eq!(
+        infos.len(),
+        1,
+        "a successfully probed agent type must stay eligible"
+    );
+    assert!(
+        state.is_transient_available_for_repo(repo_id.as_ref()),
+        "a successfully probed default type must still allow a transient agent"
     );
 }
 
