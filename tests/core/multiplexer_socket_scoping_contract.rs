@@ -105,6 +105,58 @@ fn is_verb_line(line: &str) -> bool {
         .any(|verb| line.contains(&format!("\"{verb}\"")))
 }
 
+/// Non-ASCII source used to mask a cursor bug here once: the scan advanced by
+/// the block's length instead of its end offset, so the next search started at
+/// an arbitrary byte. CRLF checkouts happened to keep landing on boundaries, so
+/// it only surfaced on Linux. This pins the arithmetic directly.
+#[test]
+fn scanning_survives_non_ascii_source_and_repeated_blocks() {
+    let path = std::env::temp_dir().join(format!(
+        "jefe-scan-probe-{}-{}.rs",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |value| value.as_nanos())
+    ));
+    // A single fixture is not enough: the panic needs the miscomputed index to
+    // land *inside* a multi-byte character, which depends on exact byte
+    // offsets. Sweeping the padding walks the cursor across the block until it
+    // does, so the bug cannot hide behind a lucky alignment.
+    for padding in 0..48_usize {
+        let filler = "é".repeat(padding);
+        // The multi-byte run has to sit *inside* the block: the miscomputed
+        // cursor lands short of the block's true end, so that is the only place
+        // it can fall mid-character. LF endings throughout, because CRLF shifts
+        // every offset and is exactly what let this pass on Windows.
+        let source = format!(
+            "#[cfg(test)]\nmod first {{ fn a() {{ let _ = \"{filler}\"; }} }}\n\
+             #[cfg(test)]\nmod second {{ fn b() {{}} }}\n"
+        );
+        if std::fs::write(&path, &source).is_err() {
+            return;
+        }
+
+        let mut regions = Vec::new();
+        push_cfg_test_blocks(&path, &mut regions);
+
+        assert_eq!(
+            regions.len(),
+            2,
+            "both #[cfg(test)] blocks should be found at padding {padding}; got {:?}",
+            regions
+                .iter()
+                .map(|region| &region.text)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            regions[0].text.contains("fn a") && regions[1].text.contains("fn b"),
+            "each region should hold its own block at padding {padding}, not a shifted slice"
+        );
+    }
+
+    let _ = std::fs::remove_file(&path);
+}
+
 /// A stretch of source compiled only under `cfg(test)`, with a label good
 /// enough to find it by hand.
 struct TestRegion {
@@ -159,20 +211,27 @@ fn push_cfg_test_blocks(file: &Path, regions: &mut Vec<TestRegion>) {
     let mut search_from = 0;
     while let Some(found) = text[search_from..].find("#[cfg(test)]") {
         let marker = search_from + found;
-        let Some(block) = brace_block(&text[marker..]) else {
+        let Some((start, end)) = brace_block_span(&text[marker..]) else {
             break;
         };
         regions.push(TestRegion {
             origin: format!("{} (#[cfg(test)] block)", display_path(file)),
-            text: block.to_owned(),
+            text: text[marker + start..marker + end].to_owned(),
         });
-        search_from = marker + block.len().max(1);
+        // Both ends are measured from `marker`, so the cursor has to move by
+        // `end`, not by the block's length -- the gap between the attribute and
+        // its opening brace is not part of the block. Getting that wrong lands
+        // the next search mid-character on any source file containing non-ASCII.
+        search_from = marker + end;
     }
 }
 
-/// The brace-balanced body following an attribute, or `None` if there is no
-/// brace after it (a `#[cfg(test)] mod name;` declaration, for instance).
-fn brace_block(text: &str) -> Option<&str> {
+/// Byte span of the brace-balanced body following an attribute, relative to the
+/// start of `text`. `None` when no brace follows -- a `#[cfg(test)] mod name;`
+/// declaration, for instance.
+///
+/// The returned end is always a char boundary because `}` is single-byte.
+fn brace_block_span(text: &str) -> Option<(usize, usize)> {
     let open = text.find('{')?;
     let mut depth = 0_usize;
     for (offset, character) in text[open..].char_indices() {
@@ -181,7 +240,7 @@ fn brace_block(text: &str) -> Option<&str> {
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Some(&text[open..=open + offset]);
+                    return Some((open, open + offset + 1));
                 }
             }
             _ => {}
