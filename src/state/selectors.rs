@@ -145,7 +145,42 @@ impl AppState {
         let remote = self
             .repository_by_id(&agent.repository_id)
             .is_some_and(|repository| repository.remote.enabled);
-        remote || self.available_agent_type_ids.contains(&agent.type_id)
+        remote || self.is_agent_type_selectable(&agent.type_id)
+    }
+
+    /// Whether an agent type may be offered as a send-to-agent target.
+    ///
+    /// `available_agent_type_ids` records types the startup probe positively
+    /// confirmed as `InstalledCompatible`. That list is empty until the async
+    /// probe answers — seconds on Windows, where the `llxprt` npm shim spawns
+    /// a Node process — and it stays empty for the rest of the session if the
+    /// probe times out, because nothing re-probes. Gating the chooser on it
+    /// alone made `Shift+S` silently refuse during that window (issue #633).
+    ///
+    /// So the gate is widened, not replaced: a positive verdict still counts,
+    /// and in addition a type whose probe is still in flight or whose probe
+    /// failed is treated as selectable, because neither outcome is evidence
+    /// the executable is absent. A definitive `NotFound` or an
+    /// `InstalledIncompatible` verdict still excludes the type.
+    ///
+    /// This mirrors launch admission (issues #587/#553/#575), which already
+    /// refuses to let a startup verdict outlive the startup that produced it.
+    #[must_use]
+    fn is_agent_type_selectable(&self, type_id: &AgentTypeId) -> bool {
+        if self.available_agent_type_ids.contains(type_id) {
+            return true;
+        }
+        self.agent_type_availability
+            .iter()
+            .find(|observation| observation.type_id() == type_id)
+            .is_some_and(|observation| {
+                observation.enabled()
+                    && (observation.pending_generation().is_some()
+                        || matches!(
+                            observation.availability(),
+                            crate::domain::agent_definition::Availability::ProbeError { .. }
+                        ))
+            })
     }
 
     #[must_use]
@@ -156,10 +191,7 @@ impl AppState {
         if repository.github_repo.trim().is_empty() {
             return false;
         }
-        repository.remote.enabled
-            || self
-                .available_agent_type_ids
-                .contains(&repository.default_type_id)
+        repository.remote.enabled || self.is_agent_type_selectable(&repository.default_type_id)
     }
 
     #[must_use]
