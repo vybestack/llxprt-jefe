@@ -134,7 +134,16 @@ or unrelated refactor is authorized.
   clippy-allow policy, source size, architecture, multiplexer surface, strict
   Clippy, complexity, coverage, build, test); line coverage stays near 69.8%,
   well above the 30% floor.
-- CI: all 19 required checks on PR #606 pass (2 optional jobs skip).
+- CI: every required check on PR #606 passes (the remaining jobs skip by
+  configuration).
+- Local flake, not a regression: `llxprt_continue_field_fixture_sends_one_exact_issue_prompt`
+  (`tests/harness_v1_fixtures.rs`) and
+  `production_host_generates_unique_credentials_delivers_and_revokes`
+  (`tests/jsp_host_socket.rs`) each failed intermittently on this machine. Both
+  are real-process/loopback-socket fixtures: the first failed 1-of-6 runs on a
+  clean `origin/main` worktree with none of this branch's commits, and the second
+  fails with the broken-pipe accept-backlog symptom its own comment documents.
+  Both pass in isolation and on the PR's CI Test job.
 - Deferred findings: none. A second independent reviewer pass could not be
   obtained — both review subagent providers returned usage-limit errors — so the
   second cycle was spent on the local OCR run above.
