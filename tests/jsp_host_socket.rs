@@ -67,22 +67,56 @@ fn request_with_registration(
             "header values must not contain CR or LF"
         );
     }
-    let mut stream =
-        TcpStream::connect(addr).unwrap_or_else(|error| panic!("connect loopback host: {error}"));
+    // The host worker is single-threaded, so a burst can fill the accept
+    // backlog. The kernel then refuses or resets a connection that never
+    // reached the application, which is a property of the queue rather than of
+    // what is being tested (issue #609).
+    //
+    // Only a transport failure is retried. A response that arrives is returned
+    // whatever its status, so a genuine 401 or 500 still fails the caller's
+    // assertion rather than being retried away.
+    for attempt in 1..=TRANSPORT_ATTEMPTS {
+        match attempt_request(addr, route, token, registration_id, body) {
+            Ok(response) => return response,
+            Err(error) if attempt == TRANSPORT_ATTEMPTS => {
+                panic!("host unreachable after {TRANSPORT_ATTEMPTS} attempts: {error}")
+            }
+            Err(_) => thread::sleep(std::time::Duration::from_millis(10 * u64::from(attempt))),
+        }
+    }
+    unreachable!("the loop returns or panics on its final attempt")
+}
+
+/// Attempts allowed before a transport failure is treated as a real failure.
+const TRANSPORT_ATTEMPTS: u32 = 5;
+
+/// One request attempt. `Err` means the exchange did not complete, so nothing
+/// can be concluded about the host from it.
+fn attempt_request(
+    addr: SocketAddr,
+    route: &str,
+    token: &str,
+    registration_id: &str,
+    body: &[u8],
+) -> std::io::Result<String> {
+    let mut stream = TcpStream::connect(addr)?;
     write!(
         stream,
         "POST {route} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nJsp-Registration-Id: {registration_id}\r\nContent-Length: {}\r\n\r\n",
         body.len()
-    )
-    .unwrap_or_else(|error| panic!("write request: {error}"));
-    stream
-        .write_all(body)
-        .unwrap_or_else(|error| panic!("write body: {error}"));
+    )?;
+    stream.write_all(body)?;
     let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .unwrap_or_else(|error| panic!("read response: {error}"));
-    response
+    stream.read_to_string(&mut response)?;
+    if response.is_empty() {
+        // The peer closed before writing a status line, so the request was
+        // dropped rather than answered.
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "host closed the connection without a response",
+        ));
+    }
+    Ok(response)
 }
 
 #[test]
