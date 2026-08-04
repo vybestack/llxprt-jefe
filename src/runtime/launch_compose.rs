@@ -666,12 +666,24 @@ fn launch_field(
         return Ok(None);
     }
     typed_field(values, &field.id)
-        .map(|value| to_field_value(field.kind, value))
+        .map(|value| to_field_value(field, value))
         .transpose()
 }
 
-fn to_field_value(kind: FieldKind, value: &TypedValue) -> Result<FieldValue, RuntimeError> {
-    let converted = match (kind, value) {
+fn to_field_value(
+    field: &crate::domain::agent_definition::Field,
+    value: &TypedValue,
+) -> Result<FieldValue, RuntimeError> {
+    if field.kind == FieldKind::Enum
+        && let TypedValue::String(value) = value
+        && !field.choices.iter().any(|choice| choice == value)
+    {
+        return Err(RuntimeError::SpawnFailed(format!(
+            "{} is not a valid value for {}",
+            value, field.id
+        )));
+    }
+    let converted = match (field.kind, value) {
         (FieldKind::Boolean, TypedValue::Bool(value)) => FieldValue::Boolean(*value),
         (FieldKind::OptionalBoolean, TypedValue::Bool(value)) => {
             FieldValue::OptionalBoolean(Some(*value))

@@ -103,6 +103,28 @@ fn assert_agent_migration(state: &crate::domain::StateV2) {
         state.agents[2].values.get(&id("continue")),
         Some(&TypedValue::Bool(true))
     );
+    assert_agent_sandbox_migration(state);
+}
+
+fn assert_agent_sandbox_migration(state: &crate::domain::StateV2) {
+    assert_eq!(
+        state.agents[0].values.get(&id("sandbox-enabled")),
+        Some(&TypedValue::Bool(true))
+    );
+    assert_eq!(
+        state.agents[0].values.get(&id("sandbox-engine")),
+        Some(&TypedValue::String("podman".to_owned()))
+    );
+    assert_eq!(
+        state.agents[0].values.get(&id("sandbox-flags")),
+        Some(&TypedValue::String("--network=none".to_owned()))
+    );
+    assert_eq!(
+        state.agents[2].values.get(&id("sandbox-enabled")),
+        Some(&TypedValue::Bool(false))
+    );
+    assert_eq!(state.agents[2].values.get(&id("sandbox-engine")), None);
+    assert_eq!(state.agents[2].values.get(&id("sandbox-flags")), None);
 }
 
 fn assert_selection_and_preferences(state: &crate::domain::StateV2) {
@@ -285,11 +307,11 @@ fn assert_remote_fixed_vectors(
     );
     assert_eq!(
         agent.launch_signature.definition_hash.as_str(),
-        "d09d5816c4c8a086d77b3697a1ab2813abbc7ca3088f213020ac3edf44e8aa54"
+        "c632122bfd8613411b520e4739ae0b9bf1215a68f9db36468ed25ae1fd8851eb"
     );
     assert_eq!(
         agent.launch_signature.typed_value_hash.as_str(),
-        "05edfa415d993814a476ab0f17efcdc7a075052614e04370cb4124812d837570"
+        "9eda2bd58c4fc6f298a449c4addedadc06f7b9b2a1243665f21bcbcb748e5afc"
     );
     assert_eq!(
         crate::domain::canonical_values::typed_field(&agent.values, "continue"),

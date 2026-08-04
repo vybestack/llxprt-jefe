@@ -150,6 +150,23 @@ fn typed_bool(values: &TypedMap, field: &str) -> Option<bool> {
     }
 }
 
+fn sandbox_engine_field(values: &TypedMap) -> String {
+    let value = typed_string(values, "sandbox_engine");
+    if value.is_empty() {
+        return SandboxEngine::default().label().to_owned();
+    }
+    SandboxEngine::from_form_value(&value).map_or(value, |engine| engine.label().to_owned())
+}
+
+fn sandbox_flags_field(values: &TypedMap) -> String {
+    let value = typed_string(values, "sandbox_flags");
+    if value.is_empty() {
+        DEFAULT_SANDBOX_FLAGS.to_owned()
+    } else {
+        value
+    }
+}
+
 impl AppState {
     pub(super) fn apply_modal_message(&mut self, message: ModalMessage) {
         match message {
@@ -433,9 +450,9 @@ impl AppState {
                     },
                     llxprt_debug: String::new(),
                     pass_continue: typed_bool(&a.values, "continue").unwrap_or(true),
-                    sandbox_enabled: false,
-                    sandbox_engine: SandboxEngine::default().label().to_owned(),
-                    sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+                    sandbox_enabled: typed_bool(&a.values, "sandbox_enabled").unwrap_or(false),
+                    sandbox_engine: sandbox_engine_field(&a.values),
+                    sandbox_flags: sandbox_flags_field(&a.values),
                 }
             })
             .unwrap_or_default();

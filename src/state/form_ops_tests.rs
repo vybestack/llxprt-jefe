@@ -276,6 +276,55 @@ fn create_agent_rejects_whitespace_only_work_dir() {
 }
 
 #[test]
+fn agent_form_rejects_unknown_enabled_sandbox_engine() {
+    let fields = AgentFormFields {
+        sandbox_enabled: true,
+        sandbox_engine: "unknown".to_owned(),
+        ..AgentFormFields::default()
+    };
+
+    let error = AppState::validate_agent_form_fields(&fields)
+        .err()
+        .unwrap_or_else(|| panic!("unknown enabled engine must be rejected"));
+    assert_eq!(error, "Sandbox engine must be Podman, Docker, or Seatbelt");
+}
+
+#[test]
+fn rejected_sandbox_engine_does_not_partially_update_agent() {
+    let repository = seed_repository();
+    let mut agent = Agent::new(
+        crate::domain::AgentId("agent-invalid-sandbox".to_owned()),
+        repository.id.clone(),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Original".to_owned(),
+        std::path::PathBuf::from("/tmp/original"),
+    );
+    agent.description = "Original description".to_owned();
+    agent.shortcut_slot = Some(1);
+    let fields = AgentFormFields {
+        name: "Changed".to_owned(),
+        description: "Changed description".to_owned(),
+        work_dir: "/tmp/changed".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
+        sandbox_enabled: true,
+        sandbox_engine: "unknown".to_owned(),
+        shortcut_slot: Some(2),
+        ..AgentFormFields::default()
+    };
+
+    assert!(!AppState::update_agent_from_fields(
+        &mut agent,
+        &repository,
+        &fields
+    ));
+    assert_eq!(agent.name, "Original");
+    assert_eq!(agent.description, "Original description");
+    assert_eq!(agent.work_dir, std::path::PathBuf::from("/tmp/original"));
+    assert_eq!(agent.shortcut_slot, Some(1));
+}
+
+#[test]
 fn update_agent_ignores_whitespace_only_work_dir() {
     let repository = seed_repository();
     let mut agent = Agent::new(
@@ -378,6 +427,51 @@ fn update_llxprt_agent_replaces_obsolete_prompt_interactive_value() {
         Some(&crate::domain::TypedValue::String("preserve me".to_owned()))
     );
 }
+#[test]
+fn llxprt_sandbox_values_survive_create_and_edit_projection() {
+    let repository = seed_repository();
+    let fields = AgentFormFields {
+        name: "Sandboxed LLxprt".to_owned(),
+        work_dir: "/tmp/sandboxed-llxprt".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
+        sandbox_enabled: true,
+        sandbox_engine: "Docker".to_owned(),
+        sandbox_flags: "--network none".to_owned(),
+        ..AgentFormFields::default()
+    };
+    let Some(agent) = AppState::create_agent_from_fields(&repository, &fields, 1) else {
+        panic!("valid LLxprt form should create an agent");
+    };
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "sandbox_enabled"),
+        Some(&crate::domain::TypedValue::Bool(true))
+    );
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "sandbox_engine"),
+        Some(&crate::domain::TypedValue::String("docker".to_owned()))
+    );
+    assert_eq!(
+        crate::domain::canonical_values::typed_field(&agent.values, "sandbox_flags"),
+        Some(&crate::domain::TypedValue::String(
+            "--network none".to_owned()
+        ))
+    );
+
+    let id = agent.id.clone();
+    let mut state = AppState {
+        repositories: vec![repository],
+        agents: vec![agent],
+        ..AppState::default()
+    };
+    state = state.apply(AppEvent::OpenEditAgent(id)).committed_pure();
+    let ModalState::EditAgent { fields, .. } = state.modal else {
+        panic!("expected edit-agent modal");
+    };
+    assert!(fields.sandbox_enabled);
+    assert_eq!(fields.sandbox_engine, "Docker");
+    assert_eq!(fields.sandbox_flags, "--network none");
+}
+
 #[test]
 fn repository_checkbox_toggle_updates_remote_fields() {
     let mut state = AppState {

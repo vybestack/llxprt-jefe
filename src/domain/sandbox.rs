@@ -6,11 +6,95 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::agent_definition::AgentDefinition;
+use super::{Id, TypedMap, TypedValue};
+
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
 /// Memory is expressed in MiB to avoid unitless podman/crun interpretation issues.
 pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288m --pids-limit=256";
 
+/// Project the fixed LLxprt sandbox form controls into definition-owned values.
+///
+/// Disabled forms remove dependent values so ordinary option/environment
+/// emitters remain silent. Enabled forms reject unknown engines before either
+/// preview or persistence can observe an invalid enum value.
+pub fn apply_sandbox_form_values(
+    values: &mut TypedMap,
+    definition: &AgentDefinition,
+    enabled: bool,
+    engine: &str,
+    flags: &str,
+) -> Option<()> {
+    let engine = if enabled {
+        let engine = SandboxEngine::from_form_value(engine)?;
+        Some(TypedValue::String(engine.as_llxprt_arg().to_owned()))
+    } else {
+        None
+    };
+    set_declared_value(
+        values,
+        definition,
+        "sandbox_enabled",
+        Some(TypedValue::Bool(enabled)),
+    )?;
+    set_declared_value(values, definition, "sandbox_engine", engine)?;
+    let flags = enabled
+        .then(|| flags.trim())
+        .filter(|flags| !flags.is_empty())
+        .map(|flags| TypedValue::String(flags.to_owned()));
+    set_declared_value(values, definition, "sandbox_flags", flags)
+}
+
+fn set_declared_value(
+    values: &mut TypedMap,
+    definition: &AgentDefinition,
+    field_id: &str,
+    value: Option<TypedValue>,
+) -> Option<()> {
+    let declared = definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .any(|field| field.id == field_id);
+    if !declared {
+        return Some(());
+    }
+    let key = Id::parse(&field_id.replace('_', "-")).ok()?;
+    if let Some(value) = value {
+        values.insert(key, value);
+    } else {
+        values.remove(&key);
+    }
+    Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agent_definition::shipped::shipped_definitions;
+
+    #[test]
+    fn invalid_enabled_engine_does_not_mutate_values() {
+        let definition = shipped_definitions()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("shipped LLxprt definition must exist"));
+        let mut values = TypedMap::new();
+
+        assert!(
+            apply_sandbox_form_values(
+                &mut values,
+                &definition,
+                true,
+                "unknown",
+                DEFAULT_SANDBOX_FLAGS,
+            )
+            .is_none()
+        );
+        assert!(values.is_empty());
+    }
+}
 /// Sandbox engine to use when launching llxprt sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]

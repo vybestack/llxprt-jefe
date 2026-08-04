@@ -74,7 +74,8 @@ fn llxprt_plan_request<'a>(
             &[
                 "prompt-interactive",
                 "profile",
-                "sandbox",
+                "sandbox-enabled",
+                "sandbox-engine",
                 "yolo",
                 "continue",
             ],
@@ -126,6 +127,54 @@ fn llxprt_normal_golden_plan() {
     assert!(plan.env.is_empty(), "no ambient env vars");
     // Signature excludes secrets/display-only values (contract).
     assert!(plan.signature_excludes_secrets());
+}
+
+#[test]
+fn llxprt_sandbox_values_emit_argv_and_environment() {
+    let definition = shipped("LLxprt");
+    let mut values = LaunchFieldValues::new();
+    values.set_agent("sandbox_enabled", FieldValue::Boolean(true));
+    values.set_agent("sandbox_engine", FieldValue::String("docker".to_owned()));
+    values.set_agent(
+        "sandbox_flags",
+        FieldValue::String("--network none".to_owned()),
+    );
+
+    let plan = assert_supported(
+        llxprt_plan_request(&definition, &values),
+        "sandboxed llxprt",
+    );
+
+    assert!(
+        plan.argv
+            .windows(3)
+            .any(|args| { args == [os("--sandbox"), os("--sandbox-engine"), os("docker")] })
+    );
+    assert_eq!(
+        plan.env,
+        vec![(
+            std::ffi::OsString::from("SANDBOX_FLAGS"),
+            std::ffi::OsString::from("--network none"),
+        )]
+    );
+}
+
+#[test]
+fn disabled_llxprt_sandbox_emits_no_sandbox_configuration() {
+    let definition = shipped("LLxprt");
+    let mut values = LaunchFieldValues::new();
+    values.set_agent("sandbox_enabled", FieldValue::Boolean(false));
+    values.set_agent("sandbox_engine", FieldValue::String(String::new()));
+    values.set_agent("sandbox_flags", FieldValue::String(String::new()));
+
+    let plan = assert_supported(
+        llxprt_plan_request(&definition, &values),
+        "unsandboxed llxprt",
+    );
+
+    assert!(!plan.argv.iter().any(|arg| arg == "--sandbox"));
+    assert!(!plan.argv.iter().any(|arg| arg == "--sandbox-engine"));
+    assert!(!plan.env.iter().any(|(name, _)| name == "SANDBOX_FLAGS"));
 }
 
 // ---------------------------------------------------------------------------
