@@ -109,8 +109,11 @@ ingress instead of rendering a confidently wrong checklist.
 ## Review counters
 
 - Local OCR runs: 1 / 2 (0 findings)
-- Post-PR OCR runs: 1 / 2 (CI OpenCodeReview on `90d9c13`, coverage
-  `complete_best_effort`, 0 findings)
+- Post-PR OCR runs: 2 / 2, both `complete_best_effort` with 0 findings
+  (`90d9c13` and `851d0997`). The repository enforces the same cap, and its
+  budget comment now reports it reached. The merge that followed resolves one
+  conflict in main's favour and touches no reviewed code, so no on-demand run
+  was requested.
 - Rust review: 1 (one finding, triaged below)
 - LLxprt PR Review walkthrough: title, description, linked issues and scope all
   pass. Its one finding — the description did not follow the repository PR
@@ -144,10 +147,13 @@ ingress instead of rendering a confidently wrong checklist.
 - `cargo xtask ci` — every gate green on the candidate head: fmt,
   check-clippy-allows, check-source-size, check-architecture,
   check-multiplexer-surface, lint, complexity, coverage, build, test.
-- CI on PR #647 at exact head `90d9c13` — 19 checks pass, 2 skipping (the
-  optional TUI smoke and the main-flake baseline record). Native Windows,
-  Windows Clippy, Windows coverage floors and the coverage gate are among the
-  passing set. `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
+- CI on PR #647 at exact head `9fc747bd`, the merge that integrates main — 18
+  checks pass, 3 skipping (the optional TUI smoke, the main-flake baseline
+  record, and the OCR infrastructure-failure notifier, which skips because OCR
+  succeeded). Native Windows, Windows Clippy, Windows coverage floors and the
+  coverage gate are among the passing set. `mergeable: MERGEABLE`,
+  `mergeStateStatus: CLEAN`. `cargo xtask ci` also passes locally on that head
+  with zero test failures.
 
 ### Mainline blocker, fixed here and then superseded by main
 
