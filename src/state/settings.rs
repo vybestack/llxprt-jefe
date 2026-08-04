@@ -1239,7 +1239,10 @@ fn build_candidate(
     match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
         Ok(candidate) => match registry_refusals(&candidate) {
             refusals if refusals.is_empty() => DraftCandidate::Valid(Box::new(candidate)),
-            refusals => DraftCandidate::Blocked(refusals),
+            diagnostics => DraftCandidate::Refused {
+                candidate: Box::new(candidate),
+                diagnostics,
+            },
         },
         Err(diagnostics) => DraftCandidate::Blocked(diagnostics),
     }

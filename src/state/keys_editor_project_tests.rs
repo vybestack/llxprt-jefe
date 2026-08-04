@@ -48,6 +48,11 @@ fn chord(text: &str) -> Chord {
 
 const DEFAULTS: &str = "settings_schema = 2\n";
 
+/// A settings document binding `core.open-settings` to `chords`.
+fn override_source(chords: &str) -> String {
+    format!("settings_schema = 2\n[keymap.global]\n\"core.open-settings\" = {chords}\n")
+}
+
 // ── every action projects exactly one row ─────────────────────────────────
 
 #[test]
@@ -95,6 +100,42 @@ fn a_binding_the_document_overrides_reports_that_provenance() {
 #[test]
 fn projecting_the_same_snapshot_twice_produces_the_same_rows() {
     assert_eq!(rows(DEFAULTS), rows(DEFAULTS));
+}
+
+#[test]
+fn a_row_shows_the_chords_the_candidate_names_rather_than_the_composed_ones() {
+    // The snapshot is the registry this session started with; the candidate is
+    // what a save would make authoritative. A row that showed the snapshot
+    // would present the user's own unsaved rebinding as not having happened.
+    let snapshot = snapshot(DEFAULTS);
+    let published = published(&override_source("[\"F2\"]"));
+
+    let rows = project_keys(&snapshot, &published);
+
+    assert_eq!(row(&rows, "core.open-settings").chords, vec![chord("F2")]);
+}
+
+#[test]
+fn a_binding_the_candidate_empties_projects_as_unbound() {
+    let snapshot = snapshot(DEFAULTS);
+    let published = published(&override_source("[]"));
+
+    let rows = project_keys(&snapshot, &published);
+
+    assert!(row(&rows, "core.open-settings").chords.is_empty());
+}
+
+#[test]
+fn a_chord_the_candidate_does_not_mention_still_comes_from_the_registry() {
+    let snapshot = snapshot(DEFAULTS);
+    let published = published(&override_source("[\"F2\"]"));
+
+    let rows = project_keys(&snapshot, &published);
+
+    assert!(
+        !row(&rows, EMERGENCY_EXIT_ACTION).chords.is_empty(),
+        "an untouched binding keeps its compiled chords"
+    );
 }
 
 // ── CW08-08: a protected action is read-only with an exact reason ──────────

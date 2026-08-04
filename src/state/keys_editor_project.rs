@@ -159,7 +159,7 @@ pub fn project_keys(
                 .map(move |context| (context.clone(), action))
         })
         .map(|(context, action)| KeyEditorRow {
-            chords: bound_chords(snapshot, &context, &action.id),
+            chords: effective_chords(snapshot, published, &context, &action.id),
             availability: availability(snapshot, &action.id),
             protected: action.protected.then(|| PROTECTED_ACTION_REASON.to_owned()),
             provenance: provenance(snapshot, published, &context, &action.id),
@@ -207,11 +207,32 @@ fn source_of(provenance: &Provenance) -> &str {
     }
 }
 
-fn bound_chords(
+/// The chords this binding would have if the candidate were saved.
+///
+/// The snapshot is the registry this session started with; the candidate is
+/// what a save would make authoritative. A row that showed the snapshot would
+/// present the user's own unsaved rebinding as not having happened — and an
+/// unbind, which writes an empty list, would look like no change at all.
+///
+/// A chord the candidate spells but this grammar cannot read is skipped rather
+/// than guessed at; the action/key resolver refuses the candidate for the same
+/// reason, and that refusal is what the user is shown.
+fn effective_chords(
     snapshot: &ActionRegistrySnapshot,
+    published: &PublishedSettings,
     context: &ContextId,
     action: &ActionId,
 ) -> Vec<Chord> {
+    if let Some(drafted) = published
+        .keymap
+        .get(context.as_str())
+        .and_then(|actions| actions.get(action.as_str()))
+    {
+        return drafted
+            .iter()
+            .filter_map(|text| Chord::parse(text).ok())
+            .collect();
+    }
     binding(snapshot, context, action).map_or_else(Vec::new, |binding| binding.chords.clone())
 }
 

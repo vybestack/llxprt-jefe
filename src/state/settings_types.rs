@@ -70,6 +70,19 @@ impl DraftStatus {
 pub enum DraftCandidate {
     /// The candidate validates and can be saved.
     Valid(Box<SettingsCandidate>),
+    /// The document publishes, but a registry owner refuses what it composes.
+    ///
+    /// This is not the same as a document that cannot be read. The values are
+    /// still exactly what the user is looking at, and they have to stay
+    /// visible: a screen that fell back to the file on disk would report a
+    /// conflict while showing the binding that does not conflict, leaving the
+    /// user to correct something they cannot see.
+    Refused {
+        /// The complete candidate, which publishes but must not be saved.
+        candidate: Box<SettingsCandidate>,
+        /// The sorted refusals from the registry owners.
+        diagnostics: Vec<Diagnostic>,
+    },
     /// These sorted diagnostics stop the candidate from existing.
     Blocked(Vec<Diagnostic>),
 }
@@ -80,6 +93,15 @@ impl DraftCandidate {
     pub fn valid(&self) -> Option<&SettingsCandidate> {
         match self {
             Self::Valid(candidate) => Some(candidate),
+            Self::Refused { .. } | Self::Blocked(_) => None,
+        }
+    }
+
+    /// The complete candidate this draft describes, saveable or not.
+    #[must_use]
+    pub fn described(&self) -> Option<&SettingsCandidate> {
+        match self {
+            Self::Valid(candidate) | Self::Refused { candidate, .. } => Some(candidate),
             Self::Blocked(_) => None,
         }
     }
@@ -89,7 +111,7 @@ impl DraftCandidate {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         match self {
             Self::Valid(_) => &[],
-            Self::Blocked(diagnostics) => diagnostics,
+            Self::Refused { diagnostics, .. } | Self::Blocked(diagnostics) => diagnostics,
         }
     }
 }
@@ -206,13 +228,14 @@ impl SettingsDraft {
 
     /// The typed settings this draft currently describes.
     ///
-    /// A blocked candidate falls back to the base's published values, so the
-    /// screen keeps showing what the document actually holds while the user
-    /// corrects whatever is wrong with it.
+    /// A refused candidate still describes the document the user is editing, so
+    /// its values are what the screen shows. Only a candidate that could not be
+    /// built at all falls back to the base, because then there is nothing else
+    /// to show.
     #[must_use]
     pub fn published(&self) -> &PublishedSettings {
         self.candidate
-            .valid()
+            .described()
             .map_or_else(|| self.base.published(), SettingsCandidate::published)
     }
 

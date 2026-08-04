@@ -640,6 +640,16 @@ fn a_chord_the_resolver_refuses_blocks_the_save_and_keeps_the_draft() {
     );
 
     assert!(state.settings_state.is_dirty(), "the work is kept");
+    assert_eq!(
+        published(&state)
+            .keymap
+            .get("global")
+            .and_then(|actions| actions.get("core.open-settings"))
+            .map(Vec::len),
+        Some(1),
+        "the refused edit stays visible, or the user is told about a conflict \
+         they cannot see"
+    );
     state.reduce_settings(SettingsMessage::Save);
     assert!(
         state
