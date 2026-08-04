@@ -60,6 +60,7 @@ ingress instead of rendering a confidently wrong checklist.
 | A4 | Snapshot parse | `state` of exactly 64 bytes / 65 bytes | 64 accepted | 65 fails `JSP-E002` naming `items[i].state` and no value | None | Inclusive bound, like every other bound | `tests/jsp_v1_snapshot_compliance.rs` |
 | A5 | Event parse (`todos.replaced`) | The same four cases as A1–A4 | Identical typed results on the event path; rejections are `JSP-E001` echoing no payload value | Identical | None | The two paths cannot drift | `tests/jsp_v1_event_compliance.rs` |
 | A6 | Preview render, known todos | items in each of the four states | `[x]` completed, `[>]` in progress, `[ ]` pending, `[?]` unrecognized | n/a | None | The active item is authoritative, never derived from position | `tests/jsp_preview_projection.rs` |
+| A9 | Status workbench card, known todos | active item late in the list; nothing active; several active; unrecognized state | `▸` marks exactly the items the producer published as in progress, and the checkbox uses the same four-state marker as the Preview | n/a | None | The workbench stops presenting "first unfinished" as the active item | `src/workbench_view_tests.rs`, `src/workbench_view_paging_tests.rs` |
 | A7 | Preview render, degraded/unknown/unsupported todos | as today | Unchanged `[stale]`, `(unknown)`, `(unsupported)`, `(no tasks)` output | n/a | None | No regression | `tests/jsp_preview_projection.rs` |
 | A8 | External implementation consuming the published corpus | Whole `dev-docs/jsp/v1` tree | Specification §8/§13, both executable schemas, schema cases, the 15 scenarios, the producer trace, and every fixture describe exactly the `state` shape | A stale artifact fails the compliance profiles | None | The corpus stays the single language-neutral contract | `tests/jsp_v1_compliance*.rs`, `tests/jsp_v1_*_compliance.rs` |
 
@@ -69,7 +70,11 @@ ingress instead of rendering a confidently wrong checklist.
 - No dual carry of `completed`.
 - No change to the producer in `vybestack/llxprt-code` (separate repository —
   recorded as a follow-up, and the reason the two halves must land together).
-- No status workbench; it does not exist in this repository yet.
+- No new workbench behavior beyond the active marker. The workbench landed on
+  main in #640 while this was open, which turns the issue's step 4 — "only then
+  let the Preview and the status workbench mark the active item as
+  authoritative" — from hypothetical into required. Its layout, paging,
+  sorting, filtering, buckets and windowing are untouched.
 - No widening of the todo payload beyond task state — no tool arguments, no
   output, no nested detail.
 - No change to todo revision/full-replacement semantics, to `TodoProjection`,
@@ -104,6 +109,7 @@ ingress instead of rendering a confidently wrong checklist.
 |---|---|
 | New `MAX_TODO_STATE_BYTES` bound and specification §13 row | Every wire string in JSP/1 is bounded; an unbounded open-ended field would be the only hole |
 | Compliance fixtures/scenarios/traces edited wholesale | The retired field appears in each of them; a half-converted corpus would fail its own profiles |
+| The status workbench's active marker (`src/workbench_view.rs` and its tests) | #640 landed the workbench on main mid-flight, carrying the exact derived marker the issue names: `▸` on the first item that merely was not finished. It is step 4 of the issue's own direction, it cannot compile against the amended domain type anyway, and leaving a guess beside an authoritative field would be a half-finished cutover |
 | ~~`src/app_input/prs_lifecycle_key_tests.rs` restored to a compiling state~~ | Withdrawn. Approved as an unrelated exception while `origin/main` at `6b6d9289` could not build its binary test target, then superseded: #645 fixed the same defect on main with `NavState::rooted`, which states the session's screen exactly instead of pushing it onto the dashboard. Integrating main resolved the conflict in main's favour, so the branch no longer changes this file at all |
 
 ## Review counters

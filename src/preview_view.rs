@@ -2,13 +2,11 @@
 
 use std::time::Instant;
 
-use crate::domain::observation::{
-    AgentObservation, Availability, FieldState, NativeActivityState, ObservationHealth, TodoState,
-    ToolPhase, WaitReason,
-};
+use crate::domain::observation::{AgentObservation, Availability, FieldState, TodoState};
 use crate::domain::{Agent, AgentStatus};
 use crate::git_info::GitRepoInfo;
 use crate::list_viewport::fit_text_to_width;
+use crate::status_precedence::{ResolvedStatus, resolve_status};
 
 /// Plain finite-width rows consumed by the Preview component.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,157 +197,23 @@ fn append_last_message(lines: &mut Vec<String>, observation: Option<&AgentObserv
 
 /// Resolve the accepted status precedence without mutating `AgentStatus`.
 ///
-/// The nine-level precedence from issue #522 is evaluated top-down. A
-/// confirmed process exit (level 1) is terminal and wins over everything. A
-/// queued/spawning process (level 2) reports "Starting" only while nothing has
-/// been observed from it, because levels 3-9 all describe an alive process and
-/// a published observation is proof that it is alive.
+/// Thin wrapper over [`crate::status_precedence::resolve_status`] so the
+/// Preview pane and the Workbench grid share exactly one implementation of
+/// "what status is this agent in". The nine-level precedence from issue #522
+/// is evaluated top-down; see the shared module for the full rationale.
 #[must_use]
 pub fn project_status(status: AgentStatus, observation: Option<&AgentObservation>) -> String {
-    // Level 1: confirmed process exit is terminal. These match the labels the
-    // rest of the application already renders.
-    match status {
-        AgentStatus::Dead => return "Dead".to_string(),
-        AgentStatus::Completed => return "Completed".to_string(),
-        AgentStatus::Errored => return "Errored".to_string(),
-        AgentStatus::ServerLost => return "Disconnected".to_string(),
-        AgentStatus::Queued | AgentStatus::Running | AgentStatus::Waiting | AgentStatus::Paused => {
-        }
-    }
-    // Level 2: a queued/spawning process is Starting until it proves otherwise.
-    //
-    // Levels 3-9 all describe an *alive* process, and an observation is that
-    // proof: the producer only registers and publishes from inside a running
-    // LLxprt process. The queued status is jefe's own pre-spawn bookkeeping and
-    // is not re-derived once telemetry arrives, so treating it as authoritative
-    // over a live observation would pin a working agent at Starting forever.
-    if status == AgentStatus::Queued && observation.is_none() {
-        return "Starting".to_string();
-    }
-    let Some(observation) = observation else {
-        // Without observation the process status is all we know, so report it
-        // rather than flattening distinct states into "Running".
-        return match status {
-            AgentStatus::Waiting => "Waiting".to_string(),
-            AgentStatus::Paused => "Paused".to_string(),
-            _ => "Running — telemetry unsupported".to_string(),
-        };
-    };
-    // Levels 3–4: observation health determines the status for alive processes.
-    match observation.health {
-        ObservationHealth::Unsupported => return "Running — telemetry unsupported".to_string(),
-        ObservationHealth::Connecting => return "Connecting".to_string(),
-        ObservationHealth::Stale => return "Stale".to_string(),
-        ObservationHealth::Disconnected => return "Disconnected".to_string(),
-        ObservationHealth::ProtocolError => return "Protocol error".to_string(),
-        ObservationHealth::Live => {}
-    }
-    // Levels 5–9: live observation status.
-    live_status(observation)
+    resolve_status(status, observation).label()
 }
 
-fn live_status(observation: &AgentObservation) -> String {
-    if let Some(reason) = known_wait(observation) {
-        return format!("Waiting — {}", wait_label(reason));
-    }
-    if known_terminal_failure(observation) {
-        return "Failed".to_string();
-    }
-    if observation.session_ended {
-        return "Ended".to_string();
-    }
-    if active_turn(observation) || active_work(observation) {
-        return "Working".to_string();
-    }
-    if known_ready(observation) {
-        return "Ready".to_string();
-    }
-    "Unknown".to_string()
-}
-
-fn known_wait(observation: &AgentObservation) -> Option<WaitReason> {
-    match &observation.wait {
-        FieldState::Supported {
-            availability: Availability::Known(Some(wait)),
-            ..
-        } => Some(wait.reason),
-        _ => None,
-    }
-}
-
-const fn wait_label(reason: WaitReason) -> &'static str {
-    match reason {
-        WaitReason::Permission => "permission",
-        WaitReason::Question => "question",
-        WaitReason::Elicitation => "elicitation",
-        WaitReason::Choice => "choice",
-        WaitReason::UserInput => "user input",
-        WaitReason::Other => "input",
-    }
-}
-
-fn known_terminal_failure(observation: &AgentObservation) -> bool {
-    matches!(
-        observation.terminal,
-        FieldState::Supported {
-            availability: Availability::Known(Some(_)),
-            ..
-        }
-    )
-}
-
-fn active_turn(observation: &AgentObservation) -> bool {
-    matches!(
-        observation.turn,
-        FieldState::Supported {
-            availability: Availability::Known(Some(_)),
-            ..
-        }
-    )
-}
-
-fn active_work(observation: &AgentObservation) -> bool {
-    let activity = matches!(
-        observation.activity,
-        FieldState::Supported {
-            availability: Availability::Known(ref value),
-            ..
-        } if matches!(value.state, NativeActivityState::Thinking | NativeActivityState::Acting)
-    );
-    let tool = matches!(
-        observation.tool,
-        FieldState::Supported {
-            availability: Availability::Known(ref value),
-            ..
-        } if !matches!(value.phase, ToolPhase::Succeeded | ToolPhase::Failed | ToolPhase::Cancelled)
-    );
-    activity || tool
-}
-
-fn known_ready(observation: &AgentObservation) -> bool {
-    matches!(
-        observation.activity,
-        FieldState::Supported {
-            availability: Availability::Known(ref value),
-            ..
-        } if value.state == NativeActivityState::Idle
-    ) && matches!(
-        observation.wait,
-        FieldState::Supported {
-            availability: Availability::Known(None),
-            ..
-        }
-    ) && matches!(
-        observation.turn,
-        FieldState::Supported {
-            availability: Availability::Known(None),
-            ..
-        }
-    ) && matches!(
-        observation.terminal,
-        FieldState::Supported {
-            availability: Availability::Known(None),
-            ..
-        }
-    )
+/// Resolve the typed precedence level for an agent.
+///
+/// Exposed so the Workbench projection can read the structured
+/// [`ResolvedStatus`] (for bucketing) without re-parsing the label string.
+#[must_use]
+pub fn project_resolved_status(
+    status: AgentStatus,
+    observation: Option<&AgentObservation>,
+) -> ResolvedStatus {
+    resolve_status(status, observation)
 }

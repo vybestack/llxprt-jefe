@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use super::workbench_filter::WorkbenchUiState;
 use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
 use crate::runtime::PreflightIssue;
 
@@ -404,6 +405,8 @@ pub struct AppState {
     pub pane_focus: PaneFocus,
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
+    /// Multi-agent workbench view state (issue #626); runtime-only.
+    pub workbench: WorkbenchUiState,
 
     /// Dashboard "search lite" state for repositories and agents (issue #405).
     ///

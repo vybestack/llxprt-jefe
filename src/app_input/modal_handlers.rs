@@ -9,6 +9,7 @@ use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
     AgentFormFocus, AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
+    ThemePickerEvent,
 };
 use jefe::theme::ThemeManager;
 
@@ -237,10 +238,10 @@ pub(super) fn open_theme_picker(app_state: &mut AppStateHandle, ctx: &SharedCont
     let event = if let Some(ctx_arc) = ctx
         && let Ok(ctx_guard) = ctx_arc.lock()
     {
-        AppEvent::OpenThemePicker {
+        AppEvent::ThemePicker(ThemePickerEvent::Open {
             available_themes: ctx_guard.theme_manager.themes_with_names(),
             active_slug: ctx_guard.theme_manager.active_theme().slug.clone(),
-        }
+        })
     } else {
         return;
     };
@@ -363,7 +364,11 @@ pub(super) fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: 
     }
 
     // Close the picker regardless of persistence outcome.
-    apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::ThemePicker(ThemePickerEvent::Confirm),
+    );
 }
 pub(super) fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Check if this is a WorkflowDispatch modal submit — route it through

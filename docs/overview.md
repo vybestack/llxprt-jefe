@@ -74,11 +74,15 @@ The dashboard is a three-column layout:
 
 The top status bar shows the application name, repository count, running/total agent counts, and the active theme name. The bottom keybinding bar shows context-sensitive keyboard shortcuts.
 
-### Split View
+### Multi-Agent Workbench
 
-Split view shows one row per running agent across all (or a filtered subset of) repositories. Each row displays the agent's repository, display ID, name, elapsed time, current in-progress todo, and last output line. The sidebar acts as a repository filter (with an "All" option at the top).
+The workbench shows one preview pane per agent across all (or a filtered subset of) repositories, so you can see at a glance which agents are blocked on you. Agents with an unresolved wait sort first, followed by working, ready and stale.
 
-Split view supports **grab-and-reorder**: pressing Enter on a selected agent "grabs" it (shown with inverse-video and `≡` marker), and arrow keys swap its position relative to other running agents. Pressing Enter again releases the grab.
+Each pane shows the agent's status and wait reason, its shortcut slot when one is assigned, turn elapsed time, a windowed view of its todo list with a completion counter and progress bar, and the last assistant message committed to the user. The todo window always keeps the current task on screen along with the preceding finished item and what comes next; the counter and progress bar are computed from the whole list, not the window.
+
+The layout is responsive in both axes. Column count is derived from terminal width, and the todo window grows with terminal height, though never beyond the longest visible list. When more agents exist than fit, they page rather than scroll, so whole panes stay on screen.
+
+The left rail carries two composable filters: the repository list, and a status block whose four buckets are toggled with `space`. Bucket counts stay accurate regardless of which filters are enabled.
 
 ### Terminal Focus Mode
 
@@ -151,16 +155,23 @@ Destructive actions (delete agent, delete repository, kill agent) require explic
 | `1`/`2`/`3`| Switch theme (Green Screen / Dracula / Dark) |
 | `Ctrl-q` / `qqq` | Quit (triple-`q` within ~1s; portable fallback if a terminal swallows `Ctrl-Q` for XON/XOFF flow control) |
 
-### Split View
+### Multi-Agent Workbench
 
 | Key        | Action                                        |
 |------------|-----------------------------------------------|
-| `↑` / `↓` | Navigate repos or agents depending on focus   |
-| `r`        | Focus repository filter sidebar               |
-| `a`        | Focus agent rows                              |
-| `Enter`    | Grab/ungrab selected agent for reorder        |
-| `m`        | Return to dashboard with terminal focused     |
-| `Esc`      | Return to dashboard without terminal focus    |
+| `↑` / `↓` | Move the status-filter cursor in the left rail  |
+| `space`    | Toggle the status bucket under the cursor      |
+| `PgDn` / `PgUp` | Page through agents when more exist than fit |
+| `Alt`+`1`-`9` | Jump to the agent holding that shortcut slot |
+| `r`        | Focus repository filter sidebar                |
+| `m`        | Return to dashboard with terminal focused      |
+| `Esc`      | Return to dashboard without terminal focus     |
+
+Shortcut jump is a global binding, so it works here as it does everywhere else; the slot each agent holds is shown in its card header.
+
+Reordering is not available here; it lives on the dashboard, where `space` grabs an entry, arrows move it, and `space` or `Enter` drops it.
+
+`Left` and `Right` move the selection between cards, and the selected card is drawn with a double border so the target is unambiguous. `Enter` attaches to it: the workbench closes and focus lands on that agent's terminal. Because the grid spans repositories, attaching also moves the repository selection to the one that owns the agent.
 
 ### Forms
 

@@ -192,7 +192,8 @@ fn dashboard_and_split_use_registry_handlers() {
     assert_handler(
         &split,
         &key(KeyCode::PageDown),
-        HandlerKey::NavigatePageDown,
+        // On the workbench a page is a page of agent cards (issue #626).
+        HandlerKey::WorkbenchNextPage,
     );
     assert_handler(
         &split,

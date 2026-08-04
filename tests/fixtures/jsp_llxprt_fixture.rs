@@ -39,9 +39,58 @@ fn main() {
     }
     let bootstrap = load_bootstrap();
     register_snapshot(&bootstrap);
+    // Keep the producer lease alive. Without this the observation goes stale
+    // about fifteen seconds after registration, which is fine for a proof that
+    // opens the workbench immediately but not for one that drives more UI
+    // first.
+    heartbeat_forever(&bootstrap);
+}
+
+/// Publish a heartbeat every five seconds so the producer lease never lapses.
+fn heartbeat_forever(bootstrap: &serde_json::Value) -> ! {
+    let endpoint = bootstrap["endpoint"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let credential = bootstrap["publisher_credential"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let registration_id = bootstrap["registration_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let agent_id = bootstrap["agent_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let generation = bootstrap["lifecycle_generation"].as_u64().unwrap_or(1);
+    let mut observed_ms: u64 = 1000;
     loop {
-        std::thread::park_timeout(Duration::from_secs(60));
+        std::thread::sleep(Duration::from_secs(5));
+        observed_ms = observed_ms.saturating_add(5000);
+        let heartbeat = heartbeat_document(&agent_id, generation, observed_ms);
+        // A failed heartbeat is not fatal: the harness asserts on rendered
+        // state, and a transient failure simply shows as a stale observation.
+        let _ = post(
+            &endpoint,
+            "heartbeat",
+            &credential,
+            &registration_id,
+            &heartbeat,
+        );
     }
+}
+
+fn heartbeat_document(agent_id: &str, generation: u64, observed_ms: u64) -> serde_json::Value {
+    serde_json::json!({
+        "schema": 1,
+        "kind": "heartbeat",
+        "agent_id": agent_id,
+        "lifecycle_generation": generation,
+        "source_epoch": "fixture-epoch",
+        "bridge_observed_ms": observed_ms
+    })
 }
 
 fn handle_probe(args: &[String]) -> bool {
@@ -71,6 +120,37 @@ fn load_bootstrap() -> serde_json::Value {
     bootstrap
 }
 
+/// Decide whether this instance publishes a blocked agent.
+///
+/// A scenario needing two differently-stated agents points
+/// `JSP_FIXTURE_WAIT_TICKET` at a path. The first instance to start claims it
+/// and publishes a working agent; the next finds it and publishes an agent
+/// blocked on a permission request. Without the variable every instance is a
+/// working agent, which is what the single-agent proofs expect.
+fn claim_wait_ticket() -> bool {
+    let Some(path) = std::env::var_os("JSP_FIXTURE_WAIT_TICKET") else {
+        return false;
+    };
+    if std::path::Path::new(&path).exists() {
+        return true;
+    }
+    let _ = std::fs::write(&path, b"claimed");
+    false
+}
+
+fn activity_value(waiting: bool) -> serde_json::Value {
+    serde_json::json!({ "state": if waiting { "idle" } else { "acting" } })
+}
+
+/// The wait payload is a closed object carrying only `reason`.
+fn wait_value(waiting: bool) -> serde_json::Value {
+    if waiting {
+        serde_json::json!({ "reason": "permission" })
+    } else {
+        serde_json::Value::Null
+    }
+}
+
 fn register_snapshot(bootstrap: &serde_json::Value) {
     let Some(endpoint) = bootstrap["endpoint"].as_str() else {
         std::process::exit(2);
@@ -84,6 +164,7 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
     let Some(generation) = bootstrap["lifecycle_generation"].as_u64() else {
         std::process::exit(2);
     };
+    let waiting = claim_wait_ticket();
     let snapshot = serde_json::json!({
         "schema": 1,
         "kind": "snapshot",
@@ -104,8 +185,8 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
             "pid": std::process::id(),
             "started_at_ms": 1000
         })),
-        "native_activity": known(serde_json::json!({"state": "acting"})),
-        "current_wait": known(serde_json::Value::Null),
+        "native_activity": known(activity_value(waiting)),
+        "current_wait": known(wait_value(waiting)),
         "current_turn": known(serde_json::json!({"elapsed_ms": 1000})),
         "todos": known(serde_json::json!({
             "revision": 1,
