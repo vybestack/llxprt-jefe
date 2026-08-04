@@ -307,15 +307,42 @@ mod tests {
         state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
         state.resume_shell_overlay(AgentId("agent-1".into()));
 
+        let depth_before = state.nav.depth();
+
         state.hide_shell_overlay();
 
         assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
+        assert_eq!(
+            state.nav.depth(),
+            depth_before,
+            "returning to the manager the user is already on must not stack a \
+             second instance of it"
+        );
         assert!(state.terminal_manager.active);
         assert!(!state.shell_overlay_active());
         assert_eq!(
             state.shell_return_target,
             crate::state::ShellReturnTarget::Dashboard
         );
+    }
+
+    #[test]
+    fn repeatedly_entering_and_hiding_a_manager_shell_does_not_grow_the_stack() {
+        // `state.screen()` stays Terminals either way, so only the depth shows
+        // whether the session is stacking copies of the screen it is on.
+        let mut state = AppState::default();
+        let _ = state.enter_screen(crate::state::ScreenId::Terminals);
+        state.terminal_manager.active = true;
+        let depth = state.nav.depth();
+
+        for _ in 0..5 {
+            state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
+            state.resume_shell_overlay(AgentId("agent-1".into()));
+            state.hide_shell_overlay();
+        }
+
+        assert_eq!(state.nav.depth(), depth);
+        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
     }
 
     #[test]
