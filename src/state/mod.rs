@@ -106,6 +106,8 @@ mod keys_editor;
 pub use keys_editor::{
     KeysBindingEdit, KeysBindingRow, KeysConfirmFocus, KeysEditorState, KeysValidation,
 };
+/// Pure projection of the Keys editor into rows (issue #388).
+pub mod keys_editor_project;
 #[cfg(test)]
 #[path = "keys_editor_tests.rs"]
 mod keys_editor_tests;

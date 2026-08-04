@@ -11,6 +11,7 @@ use crate::domain::ThemeId;
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::state::agent_types_editor::AgentIntent;
+use crate::state::keys_editor_project::KeyIntent;
 use crate::state::navigation_dirty::DirtyChoice;
 use crate::state::screens_editor::ScreenIntent;
 
@@ -120,6 +121,8 @@ pub enum SettingsMessage {
     Agent(AgentIntent),
     /// Draft one change to a screen's membership, order, or layout.
     Screen(Box<ScreenIntent>),
+    /// Draft one change to an action's chords.
+    Key(Box<KeyIntent>),
     /// Make the draft authoritative.
     Save,
     /// Make the draft authoritative and then leave the screen.
@@ -164,6 +167,7 @@ impl SettingsMessage {
             Self::Reset(_) => "SettingsReset",
             Self::Agent(_) => "SettingsAgentIntent",
             Self::Screen(_) => "SettingsScreenIntent",
+            Self::Key(_) => "SettingsKeyIntent",
             Self::Save => "SettingsSave",
             Self::SaveAndExit => "SettingsSaveAndExit",
             Self::Discard => "SettingsDiscard",

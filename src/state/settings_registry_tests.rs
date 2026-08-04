@@ -15,10 +15,14 @@ use crate::messages::settings::{
 };
 use crate::persistence::settings_document::PublishedSettings;
 
+use crate::domain::action_registry::ActionId;
+use crate::domain::input_context::ContextId;
+use crate::domain::keymap::Chord;
 use crate::workbench::descriptor::LayoutNode;
 
 use super::AppState;
 use super::agent_types_editor::AgentIntent;
+use super::keys_editor_project::KeyIntent;
 use super::screens_editor::{COMPILED_MEMBERSHIP_REASON, ScreenIntent, project_screens};
 use super::settings_types::SettingsDraft;
 
@@ -337,16 +341,14 @@ fn replacing_a_layout_writes_one_override_and_leaves_active_geometry_alone() {
         .screens()
         .first()
         .unwrap_or_else(|| panic!("a compiled screen"));
-    let panel = descriptor
-        .panels
-        .first()
-        .unwrap_or_else(|| panic!("a declared panel"));
 
     screen_intent(
         &mut state,
         ScreenIntent::ReplaceLayout {
             screen_id: screen(descriptor.id.as_str()),
-            layout: Box::new(LayoutNode::Leaf { panel: panel.id }),
+            // A tree the descriptor validator accepts, so what is proved here
+            // is the write path rather than the refusal path.
+            layout: Box::new(descriptor.layout.clone()),
         },
     );
 
@@ -395,6 +397,258 @@ fn resetting_a_layout_removes_the_whole_override() {
             .workbench
             .layout_overrides
             .contains_key(&screen(descriptor.id.as_str()))
+    );
+}
+
+#[test]
+fn a_layout_override_the_validator_refuses_blocks_the_save_and_keeps_the_draft() {
+    let mut state = opened(
+        b"settings_schema = 2
+",
+    );
+    let descriptor = registry()
+        .screens()
+        .iter()
+        .find(|screen| screen.panels.len() >= 2)
+        .unwrap_or_else(|| panic!("a screen with two panels"));
+    let panel = descriptor.panels[0].id;
+
+    // One leaf leaves every other declared panel unplaced, which is exactly
+    // what the descriptor validator refuses.
+    screen_intent(
+        &mut state,
+        ScreenIntent::ReplaceLayout {
+            screen_id: screen(descriptor.id.as_str()),
+            layout: Box::new(LayoutNode::Leaf { panel }),
+        },
+    );
+
+    assert!(state.settings_state.is_dirty(), "the work is kept");
+    let diagnostics = super::settings_view::diagnostics(&state.settings_state);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.redacted_detail.contains("SCR-E301")),
+        "the descriptor validator's refusal is reported: {diagnostics:?}"
+    );
+
+    state.reduce_settings(SettingsMessage::Save);
+    assert!(
+        state
+            .settings_state
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("blocked")),
+        "a candidate the validator refuses cannot be saved"
+    );
+}
+
+// ── CW08-05/07/08: chords are drafted whole, and protected rows refuse ────
+
+fn context(value: &str) -> ContextId {
+    ContextId::parse(value).unwrap_or_else(|error| panic!("context fixture {value}: {error}"))
+}
+
+fn action(value: &str) -> ActionId {
+    ActionId::parse(value).unwrap_or_else(|error| panic!("action fixture {value}: {error}"))
+}
+
+fn chord(value: &str) -> Chord {
+    Chord::parse(value).unwrap_or_else(|error| panic!("chord fixture {value}: {error:?}"))
+}
+
+fn key_intent(state: &mut AppState, intent: KeyIntent) {
+    state.reduce_settings(SettingsMessage::Key(Box::new(intent)));
+}
+
+/// A state with Settings open and the compiled action registry composed.
+fn opened_with_keys(bytes: &[u8]) -> AppState {
+    let catalog = crate::config_owners::builtin_owner_catalog()
+        .unwrap_or_else(|error| panic!("owner catalog fixture: {error}"));
+    let loaded = crate::persistence::keymap_edit::load_bytes(Some(bytes), &catalog, "settings")
+        .unwrap_or_else(|diagnostics| panic!("keymap fixture: {diagnostics:?}"));
+    let mut state = opened(bytes);
+    state.action_registry_snapshot = Some(loaded.composed.snapshot().clone());
+    state
+}
+
+#[test]
+fn capturing_one_chord_writes_exactly_that_one_chord() {
+    let mut state = opened_with_keys(
+        b"settings_schema = 2
+",
+    );
+
+    key_intent(
+        &mut state,
+        KeyIntent::CaptureSingleChord {
+            context: context("global"),
+            action: action("core.open-settings"),
+            chord: chord("F2"),
+        },
+    );
+
+    assert_eq!(
+        candidate_bytes(&state),
+        r#"settings_schema = 2
+[keymap."global"]
+"core.open-settings" = ["F2"]
+"#
+    );
+}
+
+#[test]
+fn setting_several_chords_writes_the_whole_list() {
+    let mut state = opened_with_keys(
+        b"settings_schema = 2
+",
+    );
+
+    key_intent(
+        &mut state,
+        KeyIntent::SetChords {
+            context: context("global"),
+            action: action("core.open-settings"),
+            chords: vec![chord("F2"), chord("Ctrl+,")],
+        },
+    );
+
+    assert_eq!(
+        published(&state)
+            .keymap
+            .get("global")
+            .and_then(|actions| actions.get("core.open-settings"))
+            .map(Vec::len),
+        Some(2)
+    );
+}
+
+#[test]
+fn unbinding_writes_an_empty_list_rather_than_removing_the_assignment() {
+    let mut state = opened_with_keys(
+        b"settings_schema = 2
+",
+    );
+
+    key_intent(
+        &mut state,
+        KeyIntent::Unbind {
+            context: context("global"),
+            action: action("core.open-settings"),
+        },
+    );
+
+    assert_eq!(
+        candidate_bytes(&state),
+        r#"settings_schema = 2
+[keymap."global"]
+"core.open-settings" = []
+"#
+    );
+}
+
+#[test]
+fn resetting_a_binding_removes_the_assignment() {
+    let source = r#"settings_schema = 2
+[keymap.global]
+"core.open-settings" = ["F2"]
+"#;
+    let mut state = opened_with_keys(source.as_bytes());
+
+    key_intent(
+        &mut state,
+        KeyIntent::Reset {
+            context: context("global"),
+            action: action("core.open-settings"),
+        },
+    );
+
+    assert_eq!(
+        candidate_bytes(&state),
+        "settings_schema = 2\n[keymap.global]\n"
+    );
+}
+
+#[test]
+fn a_protected_action_refuses_every_change_with_the_registrys_own_reason() {
+    for intent in [
+        KeyIntent::Unbind {
+            context: context("global"),
+            action: action("core.emergency-exit"),
+        },
+        KeyIntent::Reset {
+            context: context("global"),
+            action: action("core.emergency-exit"),
+        },
+        KeyIntent::CaptureSingleChord {
+            context: context("global"),
+            action: action("core.emergency-exit"),
+            chord: chord("F8"),
+        },
+    ] {
+        let mut state = opened_with_keys(
+            b"settings_schema = 2
+",
+        );
+
+        key_intent(&mut state, intent);
+
+        assert!(!state.settings_state.is_dirty(), "nothing was written");
+        assert_eq!(
+            state.settings_state.notice.as_deref(),
+            Some(crate::domain::action_registry::PROTECTED_ACTION_REASON)
+        );
+    }
+}
+
+#[test]
+fn a_key_edit_never_touches_the_active_action_registry() {
+    let mut state = opened_with_keys(
+        b"settings_schema = 2
+",
+    );
+    let before = state.action_registry_snapshot.clone();
+
+    key_intent(
+        &mut state,
+        KeyIntent::CaptureSingleChord {
+            context: context("global"),
+            action: action("core.open-settings"),
+            chord: chord("F2"),
+        },
+    );
+
+    assert_eq!(state.action_registry_snapshot, before);
+}
+
+#[test]
+fn a_chord_the_resolver_refuses_blocks_the_save_and_keeps_the_draft() {
+    let mut state = opened_with_keys(
+        b"settings_schema = 2
+",
+    );
+
+    key_intent(
+        &mut state,
+        KeyIntent::SetChords {
+            context: context("global"),
+            action: action("core.open-settings"),
+            // The emergency exit already owns this chord in this context, and
+            // it is protected, so nothing may shadow it.
+            chords: vec![chord("Ctrl+Q")],
+        },
+    );
+
+    assert!(state.settings_state.is_dirty(), "the work is kept");
+    state.reduce_settings(SettingsMessage::Save);
+    assert!(
+        state
+            .settings_state
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("blocked")),
+        "a candidate the resolver refuses cannot be saved: {:?}",
+        state.settings_state.notice
     );
 }
 

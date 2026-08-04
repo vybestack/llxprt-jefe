@@ -17,13 +17,16 @@
 use std::sync::Arc;
 
 use crate::config_owners::builtin_owner_catalog;
+use crate::domain::action_registry::ActionId;
 use crate::domain::effects::{
     Correlation, CorrelationId, EffectError, EffectErrorKind, EffectFamily, SemanticKey,
 };
+use crate::domain::input_context::ContextId;
 use crate::domain::{Id, ThemeId};
 use crate::messages::NavDir;
 use crate::messages::settings::{SettingsMessage, SettingsSection, SettingsSource};
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
+use crate::persistence::keymap_edit::compose_published;
 use crate::persistence::migration::SettingsMigration;
 use crate::persistence::settings_edit::load_settings_base;
 use crate::persistence::writer::ExpectedHash;
@@ -32,8 +35,9 @@ use crate::theme::ThemePreviewToken;
 use crate::workbench::ScreenId;
 
 use super::agent_types_editor::AgentIntent;
+use super::keys_editor_project::{self, KeyIntent};
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
-use super::screens_editor::{self, ScreenEditorRow, ScreenIntent};
+use super::screens_editor::{self, CompositionStatus, ScreenEditorRow, ScreenIntent};
 use super::settings_types::{DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus};
 use super::{AppState, settings_view};
 
@@ -74,6 +78,7 @@ impl AppState {
             SettingsMessage::Reset(path) => self.edit_settings(SettingsEdit::Reset(path)),
             SettingsMessage::Agent(intent) => self.draft_agent(intent),
             SettingsMessage::Screen(intent) => self.draft_screen(*intent),
+            SettingsMessage::Key(intent) => self.draft_key(*intent),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -399,6 +404,58 @@ impl AppState {
         };
         order.insert(insert_at, moved);
         self.edit_settings(SettingsEdit::ScreenOrder(order))
+    }
+
+    /// Draft one Keys editor intent.
+    ///
+    /// A protected action is refused here with the registry's own reason rather
+    /// than written and then refused by composition: the user asked to change a
+    /// control that must keep working, and telling them why is more use than a
+    /// candidate that will not save.
+    ///
+    /// Everything else is written and left to the action/key resolver, which
+    /// owns chord grammar, conflicts, and every limit.
+    fn draft_key(&mut self, intent: KeyIntent) -> bool {
+        let (context, action) = intent.binding();
+        if let Some(reason) = self.protected_reason(context, action) {
+            self.settings_state.notice = Some(reason);
+            return true;
+        }
+        let (context, action) = (context.clone(), action.clone());
+        let edit = match intent {
+            KeyIntent::CaptureSingleChord { chord, .. } => SettingsEdit::Keymap {
+                context,
+                action,
+                chords: vec![chord],
+            },
+            KeyIntent::SetChords { chords, .. } => SettingsEdit::Keymap {
+                context,
+                action,
+                chords,
+            },
+            KeyIntent::Unbind { .. } => SettingsEdit::Keymap {
+                context,
+                action,
+                chords: Vec::new(),
+            },
+            KeyIntent::Reset { .. } => SettingsEdit::Reset(SyntaxPath::Keymap { context, action }),
+        };
+        self.edit_settings(edit)
+    }
+
+    /// Why this binding is read-only, when the registry says it is.
+    fn protected_reason(&self, context: &ContextId, action: &ActionId) -> Option<String> {
+        let snapshot = self.action_registry_snapshot.as_ref()?;
+        let published = self
+            .settings_state
+            .draft
+            .as_ref()
+            .map(|draft| draft.published().clone())
+            .unwrap_or_default();
+        keys_editor_project::project_keys(snapshot, &published)
+            .into_iter()
+            .find(|row| &row.context == context && &row.action == action)
+            .and_then(|row| row.protected)
     }
 
     /// Write one typed value into the draft and revalidate the whole candidate.
@@ -878,9 +935,57 @@ fn build_candidate(
         )]);
     };
     match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
-        Ok(candidate) => DraftCandidate::Valid(Box::new(candidate)),
+        Ok(candidate) => match registry_refusals(&candidate) {
+            refusals if refusals.is_empty() => DraftCandidate::Valid(Box::new(candidate)),
+            refusals => DraftCandidate::Blocked(refusals),
+        },
         Err(diagnostics) => DraftCandidate::Blocked(diagnostics),
     }
+}
+
+/// Every reason a registry owner refuses this candidate.
+///
+/// The document publishing is not the whole of "this candidate is valid": the
+/// registries composed from it have their own rules, and a candidate that
+/// publishes but composes into no keymap or an unusable screen is one a save
+/// would make the session unable to start from. Each owner is asked, and each
+/// answers in its own words.
+fn registry_refusals(candidate: &SettingsCandidate) -> Vec<Diagnostic> {
+    let mut refusals = Vec::new();
+    if let Err(diagnostic) = compose_published(candidate.published(), "settings") {
+        refusals.push(diagnostic.as_settings_diagnostic());
+    }
+    refusals.extend(screen_refusals(candidate));
+    refusals.sort();
+    refusals
+}
+
+/// Every screen whose candidate layout the descriptor validator refuses.
+fn screen_refusals(candidate: &SettingsCandidate) -> Vec<Diagnostic> {
+    let Ok(registry) = crate::workbench::screen_registry() else {
+        return Vec::new();
+    };
+    screens_editor::project_screens(registry, candidate.published())
+        .into_iter()
+        .filter_map(|row| match row.composition {
+            CompositionStatus::Valid => None,
+            CompositionStatus::Invalid { code, reason } => {
+                Some(layout_diagnostic(row.screen_id.as_str(), &code, &reason))
+            }
+        })
+        .collect()
+}
+
+fn layout_diagnostic(screen: &str, code: &str, reason: &str) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E005,
+        Severity::Error,
+        DiagnosticPath::new(format!("/workbench/layout_overrides/{screen}")),
+        None,
+        "correct the layout override, or reset it to the compiled layout",
+    );
+    diagnostic.redacted_detail = format!("{code}: {reason}");
+    diagnostic
 }
 
 /// Load one settings base, or the diagnostics that stop it being editable.
