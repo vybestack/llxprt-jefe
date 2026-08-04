@@ -296,41 +296,6 @@ pub enum ProbeValidateError {
         /// Actual length.
         len: usize,
     },
-    /// Required-capability count exceeds 32.
-    CapabilityBounds {
-        /// Actual count.
-        len: usize,
-    },
-    /// A capability id is invalid.
-    InvalidCapabilityId {
-        /// Index in the required list.
-        index: usize,
-        /// The invalid id.
-        id: String,
-        /// Underlying reason.
-        reason: super::type_id::CapabilityIdError,
-    },
-    /// A duplicate capability id was declared.
-    DuplicateCapability {
-        /// Index of the duplicate.
-        index: usize,
-        /// The duplicated id.
-        id: String,
-    },
-    /// A duplicate token was declared.
-    DuplicateToken {
-        /// Index of the duplicate.
-        index: usize,
-        /// The duplicated token literal.
-        token: String,
-    },
-    /// A required capability id has no authored token in the capability probe.
-    RequiredCapabilityHasNoToken {
-        /// Index in the required list.
-        index: usize,
-        /// The id missing a token.
-        id: String,
-    },
     /// Timeout is outside 1..=20000.
     TimeoutBounds {
         /// Actual milliseconds.
@@ -363,27 +328,6 @@ impl fmt::Display for ProbeValidateError {
             Self::ArgvBounds { len } => {
                 write!(f, "probe argv must be 1..=8 elements, found {len}")
             }
-            Self::CapabilityBounds { len } => {
-                write!(f, "required capabilities must be 0..=32, found {len}")
-            }
-            Self::InvalidCapabilityId { index, id, reason } => {
-                write!(
-                    f,
-                    "required capability at index {index} ({id:?}) is invalid: {reason}"
-                )
-            }
-            Self::DuplicateCapability { index, id } => {
-                write!(f, "duplicate required capability {id:?} at index {index}")
-            }
-            Self::DuplicateToken { index, token } => {
-                write!(f, "duplicate capability token {token:?} at index {index}")
-            }
-            Self::RequiredCapabilityHasNoToken { index, id } => {
-                write!(
-                    f,
-                    "required capability {id:?} at index {index} has no authored probe token"
-                )
-            }
             Self::TimeoutBounds { ms } => {
                 write!(f, "timeout_ms must be 1..=20000, found {ms}")
             }
@@ -402,7 +346,6 @@ impl fmt::Display for ProbeValidateError {
 impl std::error::Error for ProbeValidateError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidCapabilityId { reason, .. } => Some(reason),
             Self::InvalidPointer(err) => Some(err),
             _ => None,
         }

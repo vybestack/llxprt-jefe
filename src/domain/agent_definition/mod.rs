@@ -40,7 +40,7 @@ pub use sha256::DefinitionSha256;
 pub use signature::LaunchSignatureV1;
 pub use type_id::{
     AgentTypeId, AgentTypeIdError, AgentTypeIdErrorReason, CandidateKind, CandidateValidateError,
-    CapabilityIdError, ExecutableCandidate,
+    ExecutableCandidate,
 };
 pub use types::{
     AgentLaunchPlan, Availability, Operation, OperationMatrix, OperationSupport, Preflight,

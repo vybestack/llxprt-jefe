@@ -77,26 +77,6 @@ fn from_validated_constructs_stable_ids() {
 }
 
 #[test]
-fn capability_id_grammar_accepts_lowercase_tokens() {
-    for valid in ["interactive", "resume", "fresh.issue", "remote.setup"] {
-        assert!(
-            validate_capability_id(valid).is_ok(),
-            "{valid:?} must be a valid capability id"
-        );
-    }
-}
-
-#[test]
-fn capability_id_grammar_rejects_uppercase_or_invalid() {
-    for invalid in ["", "UPPER", "with space", "core..bad"] {
-        assert!(
-            validate_capability_id(invalid).is_err(),
-            "{invalid:?} must be rejected"
-        );
-    }
-}
-
-#[test]
 fn candidate_kind_path_name_rejects_slash() {
     let candidate = ExecutableCandidate {
         kind: CandidateKind::PathName {

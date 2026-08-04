@@ -11,8 +11,6 @@ pub const ID_BYTE_LIMIT: usize = 128;
 pub const CANDIDATE_LIMIT: usize = 8;
 /// Maximum probe argv elements.
 pub const PROBE_ARGV_LIMIT: usize = 8;
-/// Maximum required capabilities per probe.
-pub const CAPABILITY_LIMIT: usize = 32;
 /// Maximum fields per scope (repository/agent).
 pub const FIELD_SCOPE_LIMIT: usize = 64;
 /// Maximum total form fields (repository + agent).

@@ -198,35 +198,6 @@ fn validate_rejects_empty_and_overlong_argv() {
     );
 }
 
-#[test]
-fn validate_rejects_capability_bounds_duplicates_and_missing_token() {
-    let over = ProbeSpec {
-        ..valid_probe()
-    };
-    assert!(matches!(
-        validate(&over),
-        Err(ProbeValidateError::CapabilityBounds { len }) if len == CAPABILITY_LIMIT + 1
-    ));
-
-    let duplicate = ProbeSpec {
-        ..valid_probe()
-    };
-    assert!(matches!(
-        validate(&duplicate),
-        Err(ProbeValidateError::DuplicateCapability { index: 1, .. })
-    ));
-
-    let missing = ProbeSpec {
-        ..valid_probe()
-    };
-    assert_eq!(
-        validate(&missing),
-        Err(ProbeValidateError::RequiredCapabilityHasNoToken {
-            index: 0,
-            id: "missing".to_string(),
-        })
-    );
-}
 
 #[test]
 fn validate_reports_actual_capability_token_index() {
