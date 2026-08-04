@@ -81,7 +81,7 @@ anchors alone would therefore still leak on the `restore_runtime_sessions` route
 | Default-on logging | deferred, follow-up |
 | Staging-dir pruning per build hash | deferred, follow-up |
 | `recover_server_lost_agents` revisiting Dead+unbound | deferred, follow-up |
-| A `Held` orphan is never revisited, so its tree is never reaped (review finding 7) | deferred, follow-up |
+| A `Held` orphan is never revisited, so its tree is never reaped (review finding 7) | deferred, filed as #651 |
 
 No changes to `.llxprt/`, `.code_puppy/`, `.github/`, dependency manifests, or
 quality-gate configuration are planned.
@@ -161,4 +161,16 @@ head.
 
 ## 8. Deferred findings
 
-Recorded in the scope ledger above; follow-up issues to be filed rather than folded in.
+Recorded in the scope ledger above; follow-up issues filed rather than folded in.
+
+- #651 — a `Held` orphan is never revisited, so its tree is never reaped. The
+  probe-`Unavailable` route never reaches `Orphaned`, so the reap this issue
+  built is unreachable from it.
+
+## 9. Blocked on
+
+`main` at `6b6d9289` does not compile: `#643` added an `AppState { screen: .. }`
+literal and `#644` removed that field, a semantic conflict that is clean in each
+PR and broken only in the merge. Filed as #650. This branch rebases onto that
+head without textual conflict and is otherwise ready, but its CI cannot go green
+until #650 lands.
