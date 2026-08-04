@@ -189,17 +189,24 @@ Recorded in the scope ledger above; follow-up issues filed rather than folded in
 
 ## 9. Base
 
-`main` at `6b6d9289` did not compile: `#643` added an `AppState { screen: .. }`
-literal and `#644` removed that field, a semantic conflict clean in each PR and
-broken only in the merge. Filed as #650 and fixed by #653, which is green.
+PR #654 sits directly on `main`. Its seven commits are all #642 work; nothing
+else rides along.
 
-PR #654 targets `main` and carries the fix commit `4633594c`, so the merge result
-builds even while `main` alone does not. Once #653 merges, that commit drops out
-on the next rebase, leaving the five #642 commits.
+For a while it did not. `main` at `6b6d9289` did not compile — `#643` added an
+`AppState { screen: .. }` literal and `#644` removed that field, a semantic
+conflict clean in each PR and broken only in the merge. That was filed as #650
+and carried here as a fix commit so this branch had a base that built.
 
-Stacking on `issue650` was tried first and abandoned: `ci.yml` is
-`pull_request: branches: [main]`, so a PR based on anything else runs only
-CodeRabbit, OCR and the mergeability gate — not the suite that matters.
+`#640` then landed the same one-line change on `main`, which resolved #650 and
+made the carried commit redundant — the two versions of that line collided, and
+that collision was the conflict. The fix commit has been dropped and #653 and
+#650 are closed. Current `main` (`b1c965bb`) builds: `cargo check --all-targets`
+exits 0.
 
-Verified locally on the same head: fmt 0, clippy 0,
+Verified on the rebased head: fmt 0, clippy 0,
 `cargo test --workspace --all-features` 81 suites 0 failures.
+
+The gap that produced #650 outlived it. `#643` and `#644` were each green
+against their own base, and the break existed only in their combination.
+Required checks that evaluate PR heads cannot see that class of failure; a merge
+queue or a required merge-result build would. Out of scope here, unfiled.
