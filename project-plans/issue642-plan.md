@@ -91,7 +91,11 @@ quality-gate configuration are planned.
 | Phase | Cap | Used |
 |---|---|---|
 | Local OCR before PR | 2 | 1 |
-| OCR after PR opened | 2 | 0 |
+| OCR after PR opened | 2 | 1 |
+
+Post-PR OCR ran as the `OpenCodeReview` check on #654 and passed with no
+findings. CodeRabbit also passed. No review threads were opened, so there is
+nothing to triage.
 
 ### Local review 1 — triage
 
@@ -156,8 +160,24 @@ bury adjacent in one place rather than spread through the restore entry point.
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` — exit 0 |
 | Tests | `cargo test --workspace --all-features` — 81 suites, 0 failures |
 
-Required CI, including native Windows and coverage, is watched on the exact PR
-head.
+### Required CI on the PR head (#654)
+
+Run [30925250524](https://github.com/vybestack/llxprt-jefe/actions/runs/30925250524),
+every job green:
+
+| Job | Result |
+|---|---|
+| Native Windows (MSVC + psmux) | ✓ 7m7s |
+| Native Windows completion gate | ✓ |
+| Test | ✓ 3m22s |
+| Build | ✓ |
+| Coverage gate | ✓ 4m17s |
+| Windows coverage floors | ✓ 4m21s |
+| Windows Clippy (cfg(windows) lint gap) | ✓ 2m57s |
+| Lint (clippy), Clippy allow policy | ✓ |
+| Format (rustfmt) | ✓ |
+| Complexity, source length, architecture boundary, uncertain-observation | ✓ |
+| Mergeability gate, OpenCodeReview, CodeRabbit | ✓ |
 
 ## 8. Deferred findings
 
@@ -173,6 +193,13 @@ Recorded in the scope ledger above; follow-up issues filed rather than folded in
 literal and `#644` removed that field, a semantic conflict clean in each PR and
 broken only in the merge. Filed as #650 and fixed by #653, which is green.
 
-This branch is stacked on `issue650` so its CI runs against a base that builds;
-GitHub retargets it to `main` when #653 merges. Verified on the restacked head:
-fmt 0, clippy 0, `cargo test --workspace --all-features` 81 suites 0 failures.
+PR #654 targets `main` and carries the fix commit `4633594c`, so the merge result
+builds even while `main` alone does not. Once #653 merges, that commit drops out
+on the next rebase, leaving the five #642 commits.
+
+Stacking on `issue650` was tried first and abandoned: `ci.yml` is
+`pull_request: branches: [main]`, so a PR based on anything else runs only
+CodeRabbit, OCR and the mergeability gate — not the suite that matters.
+
+Verified locally on the same head: fmt 0, clippy 0,
+`cargo test --workspace --all-features` 81 suites 0 failures.
