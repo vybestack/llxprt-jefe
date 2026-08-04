@@ -167,10 +167,12 @@ Recorded in the scope ledger above; follow-up issues filed rather than folded in
   probe-`Unavailable` route never reaches `Orphaned`, so the reap this issue
   built is unreachable from it.
 
-## 9. Blocked on
+## 9. Base
 
-`main` at `6b6d9289` does not compile: `#643` added an `AppState { screen: .. }`
-literal and `#644` removed that field, a semantic conflict that is clean in each
-PR and broken only in the merge. Filed as #650. This branch rebases onto that
-head without textual conflict and is otherwise ready, but its CI cannot go green
-until #650 lands.
+`main` at `6b6d9289` did not compile: `#643` added an `AppState { screen: .. }`
+literal and `#644` removed that field, a semantic conflict clean in each PR and
+broken only in the merge. Filed as #650 and fixed by #653, which is green.
+
+This branch is stacked on `issue650` so its CI runs against a base that builds;
+GitHub retargets it to `main` when #653 merges. Verified on the restacked head:
+fmt 0, clippy 0, `cargo test --workspace --all-features` 81 suites 0 failures.
