@@ -141,6 +141,8 @@ pub mod screens_editor;
 mod screens_editor_layout;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;
+/// The registry editors' half of the Settings reducer (issue #388).
+mod settings_registry_ops;
 #[cfg(test)]
 #[path = "settings_registry_tests.rs"]
 mod settings_registry_tests;

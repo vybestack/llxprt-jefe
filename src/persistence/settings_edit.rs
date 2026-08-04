@@ -202,8 +202,8 @@ impl SyntaxPath {
 /// One dotted-path component written as a quoted TOML key.
 ///
 /// Every identity this writes contains a `.`, which is a path separator in bare
-/// key syntax, so quoting is what keeps `core.llxprt` one owner rather than an
-/// owner named `llxprt` inside a table named `core`.
+/// key syntax, so quoting is what keeps a namespaced identity one owner rather
+/// than a nested table whose name happens to be the namespace.
 fn quoted_key(value: &str) -> String {
     toml::Value::String(value.to_owned()).to_string()
 }

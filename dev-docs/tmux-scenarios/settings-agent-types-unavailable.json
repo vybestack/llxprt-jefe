@@ -88,7 +88,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Tab pane"
+        "quit"
       ],
       "absent": []
     },

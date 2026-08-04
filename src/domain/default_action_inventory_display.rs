@@ -733,11 +733,13 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
             hint("pane", &["settings.cycle-pane"], 2),
             hint("apply", &["settings.activate"], 3),
             hint("toggle", &["settings.toggle"], 4),
-            hint("reorder", &["settings.move-up", "settings.move-down"], 5),
-            hint("unbind", &["settings.unbind"], 6),
-            hint("save", &["settings.save"], 7),
-            hint("reset", &["settings.reset"], 8),
-            hint("back", &["settings.back"], 9),
+            hint("save", &["settings.save"], 5),
+            hint("reset", &["settings.reset"], 6),
+            hint("back", &["settings.back"], 7),
+            // The protected exit is the one hint that must survive, so the
+            // footer stays short enough for it to fit. Reordering and
+            // unbinding are two of many section-specific controls; Help and
+            // the Keys section itself are where the whole set is listed.
             hint("quit", &["core.emergency-exit"], 98),
         ],
     },
