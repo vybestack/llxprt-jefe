@@ -801,6 +801,58 @@ fn an_orphan_does_not_take_the_same_restore_route_as_a_plain_dead_agent() {
     );
 }
 
+/// Issue #642 AC5: the reap must see the orphan while it is still bound.
+///
+/// Burying an agent clears its runtime binding, and that binding holds the only
+/// anchors `reap_orphan_session` can match a surviving process against. So it is
+/// not enough that a reap happens somewhere on the orphan route — it has to
+/// happen while the anchors are still reachable, and the agent must still end up
+/// buried afterwards.
+#[test]
+fn an_orphan_is_reaped_while_it_still_carries_its_anchors() {
+    let (mut agent, repo) = code_puppy_agent_and_repository();
+    agent.status = AgentStatus::Running;
+    let request = AgentLaunchRequest::for_agent(&agent, &repo);
+    let launched_with = jefe::runtime::launch_compose::launch_signature_from_request(&request)
+        .unwrap_or_else(|error| panic!("fixture signature must compose: {error}"));
+    let anchors = vec![jefe::domain::WorkerProcessIdentity::new(4310, 111)];
+    agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+        session_name: RuntimeSession::session_name_for(&agent.id),
+        launch_signature: launched_with,
+        attached: false,
+        last_seen: None,
+        pane_identity: None,
+        worker_identity: None,
+        lifecycle_generation: 0,
+        worker_identities: anchors.clone(),
+    });
+
+    let mut sets = RestoreOutcomeSets::default();
+    let mut anchors_visible_to_the_reap = None;
+    record_restore_outcome(
+        &agent,
+        RestoreOneOutcome::Orphaned,
+        &mut sets,
+        &mut |orphan| {
+            anchors_visible_to_the_reap = orphan
+                .runtime_binding
+                .as_ref()
+                .map(|binding| binding.worker_identities.clone());
+        },
+    );
+
+    assert_eq!(
+        anchors_visible_to_the_reap,
+        Some(anchors),
+        "the reap must run before the bury, while the binding still names the tree to kill"
+    );
+    assert_eq!(
+        sets.newly_dead,
+        vec![agent.id.clone()],
+        "reaping the tree does not excuse the agent from being buried"
+    );
+}
+
 /// The three classifications that carry no surviving descendants are genuinely
 /// finished and must keep taking the binding-clearing Dead route, so splitting
 /// the orphan out does not quietly strand ordinary dead agents.

@@ -81,6 +81,7 @@ anchors alone would therefore still leak on the `restore_runtime_sessions` route
 | Default-on logging | deferred, follow-up |
 | Staging-dir pruning per build hash | deferred, follow-up |
 | `recover_server_lost_agents` revisiting Dead+unbound | deferred, follow-up |
+| A `Held` orphan is never revisited, so its tree is never reaped (review finding 7) | deferred, follow-up |
 
 No changes to `.llxprt/`, `.code_puppy/`, `.github/`, dependency manifests, or
 quality-gate configuration are planned.
@@ -89,8 +90,22 @@ quality-gate configuration are planned.
 
 | Phase | Cap | Used |
 |---|---|---|
-| Local OCR before PR | 2 | 0 |
+| Local OCR before PR | 2 | 1 |
 | OCR after PR opened | 2 | 0 |
+
+### Local review 1 — triage
+
+Non-blocking; no Critical or High findings. Seven Low findings, dispositioned:
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | Comment on the `reattempt_held_agents` orphan arm promises a reap that route can never reach (that route only visits binding-less agents) | In-scope-Fix — comment corrected to state the arm is unreachable today and why it is kept |
+| 2 | AC5's reap-before-bury ordering had no behavioral test; only the mapping was pinned | In-scope-Fix — `record_restore_outcome` now takes the reap as a parameter so the ordering is observable; `an_orphan_is_reaped_while_it_still_carries_its_anchors` added and mutation-checked (dropping the reap makes it fail with `left: None`) |
+| 3 | `u32::MAX` PID assumption undocumented | In-scope-Fix — comment citing the per-platform PID ceilings. Reviewer independently verified the assumption holds on Linux, macOS and Windows |
+| 4 | AC2's compat test bypassed `StateDocument::parse`, the boundary a real state.json actually crosses | In-scope-Fix — the keyless document now goes through the strict parser |
+| 5 | The extraction left `restore_runtime_sessions` undocumented and stacked two doc blocks on the private helper | In-scope-Fix — doc comment moved back to the public entry point |
+| 6 | The orphan arm is duplicated across the two restore loops | Reject — the loops differ in Held handling and signature; unifying them would mean passing an extra parameter to suppress a warning path, for no behavioral gain |
+| 7 | An orphan whose session probe answers `Unavailable` is classified `Held`, keeps its binding, and is never revisited, so its tree is never reaped | Defer — pre-existing #541 hold semantics interacting with #332, not a regression from this work. Added to the scope ledger as a follow-up |
 
 ## 7. Verification evidence
 
@@ -130,6 +145,16 @@ REFACTOR note: extracting the classification loop into
 `classify_agents_for_restore` was required by the repo's 60-line function gate,
 which fired once the orphan arm was added. The extraction keeps the reap and the
 bury adjacent in one place rather than spread through the restore entry point.
+
+### Slice 4 — review fixes
+
+| Step | Evidence |
+|---|---|
+| Mutation check | Dropping `reap(agent);` from the orphan arm fails `an_orphan_is_reaped_while_it_still_carries_its_anchors` at `app_init_tests.rs:844` — `left: None`, right holds the anchor |
+| Strict-parse compat | `a_document_without_descendant_anchors_restores_an_empty_set` passes through `StateDocument::parse` |
+| Format | `cargo fmt --all --check` — exit 0 |
+| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` — exit 0 |
+| Tests | `cargo test --workspace --all-features` — 81 suites, 0 failures |
 
 Required CI, including native Windows and coverage, is watched on the exact PR
 head.

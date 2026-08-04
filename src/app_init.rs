@@ -124,7 +124,10 @@ pub fn reattempt_held_agents(app_state: &mut HookState<AppState>, ctx: &SharedCo
                 binding,
             }),
             RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
-            // Reap while the binding still carries the anchors, then bury.
+            // Unreachable today: this route only visits agents with no runtime
+            // binding, and an orphan is recognised from anchors that live on
+            // that binding. Kept reaping-first anyway so the arm stays correct
+            // if the readoption filter ever widens.
             RestoreOneOutcome::Orphaned => {
                 orphan_reconcile::reap_orphaned_agent(&agent);
                 newly_dead.push(agent.id.clone());
@@ -750,6 +753,70 @@ fn restore_one_agent(
     }
 }
 
+/// The three sets a restore pass sorts agents into.
+#[derive(Default)]
+struct RestoreOutcomeSets {
+    revived: Vec<RevivedAgent>,
+    newly_dead: Vec<AgentId>,
+    held: Vec<(AgentId, String)>,
+}
+
+/// Record one agent's restore outcome, reaping an orphan's descendant tree
+/// before that agent joins the newly-dead set.
+///
+/// The reap is injected rather than called directly so the ordering this
+/// function exists to guarantee is observable: burying an agent clears its
+/// runtime binding, and that binding holds the only anchors the reap can match
+/// against, so the reap has to see the agent while it is still bound
+/// (issue #642).
+fn record_restore_outcome(
+    agent: &Agent,
+    outcome: RestoreOneOutcome,
+    sets: &mut RestoreOutcomeSets,
+    reap: &mut dyn FnMut(&Agent),
+) {
+    match outcome {
+        RestoreOneOutcome::Revived(binding) => sets.revived.push(RevivedAgent {
+            agent_id: agent.id.clone(),
+            binding,
+        }),
+        RestoreOneOutcome::Dead => sets.newly_dead.push(agent.id.clone()),
+        RestoreOneOutcome::Orphaned => {
+            reap(agent);
+            sets.newly_dead.push(agent.id.clone());
+        }
+        RestoreOneOutcome::Skip => {}
+        // Left exactly as persisted, including its binding.
+        RestoreOneOutcome::Held(reason) => {
+            warn!(
+                agent_id = %agent.id.0,
+                %reason,
+                "startup held this agent: its state was not determined and was left untouched"
+            );
+            sets.held.push((agent.id.clone(), reason.to_string()));
+        }
+    }
+}
+
+/// Classify every persisted agent into the revived, newly-dead and held sets.
+fn classify_agents_for_restore(
+    agents: Vec<Agent>,
+    repositories: &[jefe::domain::Repository],
+    runtime: &mut TmuxRuntimeManager,
+    runtime_warning: Option<&String>,
+) -> (Vec<RevivedAgent>, Vec<AgentId>, Vec<(AgentId, String)>) {
+    let mut sets = RestoreOutcomeSets::default();
+
+    for agent in agents {
+        let outcome = restore_one_agent(&agent, repositories, runtime, runtime_warning);
+        record_restore_outcome(&agent, outcome, &mut sets, &mut |orphan| {
+            orphan_reconcile::reap_orphaned_agent(orphan);
+        });
+    }
+
+    (sets.revived, sets.newly_dead, sets.held)
+}
+
 /// Restore the runtime session map from persisted agent statuses exactly once.
 ///
 /// Running agents prefer reattach to existing live tmux sessions by stable ID;
@@ -758,51 +825,6 @@ fn restore_one_agent(
 /// Local agents whose tmux session is gone but whose persisted worker PID is
 /// still alive are left Running with their binding preserved (PID-liveness
 /// fallback), rather than being marked Dead or revived.
-/// Classify every persisted agent into the revived, newly-dead and held sets.
-///
-/// An orphan's descendant tree is reaped here, while the agent still holds the
-/// binding whose anchors identify that tree, because the caller clears the
-/// binding when it buries the agent (issue #642).
-fn classify_agents_for_restore(
-    agents: Vec<Agent>,
-    repositories: &[jefe::domain::Repository],
-    runtime: &mut TmuxRuntimeManager,
-    runtime_warning: Option<&String>,
-) -> (Vec<RevivedAgent>, Vec<AgentId>, Vec<(AgentId, String)>) {
-    let mut revived_running = Vec::new();
-    let mut newly_dead = Vec::new();
-    let mut held: Vec<(AgentId, String)> = Vec::new();
-
-    for agent in agents {
-        match restore_one_agent(&agent, repositories, runtime, runtime_warning) {
-            RestoreOneOutcome::Revived(binding) => {
-                revived_running.push(RevivedAgent {
-                    agent_id: agent.id.clone(),
-                    binding,
-                });
-            }
-            RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
-            // Reap while the binding still carries the anchors, then bury.
-            RestoreOneOutcome::Orphaned => {
-                orphan_reconcile::reap_orphaned_agent(&agent);
-                newly_dead.push(agent.id.clone());
-            }
-            RestoreOneOutcome::Skip => {}
-            // Left exactly as persisted, including its binding.
-            RestoreOneOutcome::Held(reason) => {
-                warn!(
-                    agent_id = %agent.id.0,
-                    %reason,
-                    "startup held this agent: its state was not determined and was left untouched"
-                );
-                held.push((agent.id.clone(), reason.to_string()));
-            }
-        }
-    }
-
-    (revived_running, newly_dead, held)
-}
-
 pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
     let Some(ctx_arc) = ctx else {
         return;

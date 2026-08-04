@@ -783,19 +783,27 @@ fn descendant_anchors_survive_the_durable_round_trip() {
 /// Issue #642 AC2: a document written before the anchors were persisted has no
 /// `worker_identities` key at all. It must still load, and an empty anchor set
 /// must stay out of the document so existing files and goldens are unchanged.
+///
+/// The load goes through `StateDocument::parse` rather than straight into
+/// `from_durable_state`, because that is the boundary a real state.json crosses
+/// on startup — the one that also rejects duplicate keys and unknown fields. A
+/// keyless document has to survive the strict parser, not just serde defaults.
 #[test]
 fn a_document_without_descendant_anchors_restores_an_empty_set() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
     let encoded = serde_json::to_vec_pretty(&projected).value_or_panic("serialize candidate");
-    let text = String::from_utf8(encoded).value_or_panic("candidate is utf-8");
+    let text = String::from_utf8(encoded.clone()).value_or_panic("candidate is utf-8");
 
     assert!(
         !text.contains("worker_identities"),
         "an empty anchor set must be omitted so pre-#642 documents stay byte-identical"
     );
 
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let parsed = StateDocument::parse(&encoded).unwrap_or_else(|diagnostics| {
+        panic!("a pre-#642 document must still parse: {diagnostics:?}")
+    });
+    let restored = from_durable_state(parsed.state()).value_or_panic("restore succeeds");
     let binding = restored.agents[0]
         .runtime_binding
         .as_ref()

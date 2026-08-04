@@ -132,6 +132,9 @@ mod tests {
     fn restored_anchors_are_answered_by_observation_not_by_the_empty_short_circuit() {
         use jefe::runtime::OrphanClassification as Oc;
 
+        // u32::MAX is unallocatable on every supported platform (Linux caps
+        // pid_max at 2^22, macOS at 99998, Windows PIDs are multiples of 4), so
+        // the probe verdict here is fixed rather than racing the process table.
         let stale = vec![jefe::domain::WorkerProcessIdentity::new(u32::MAX, 1)];
 
         assert_eq!(
