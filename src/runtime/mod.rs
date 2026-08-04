@@ -241,6 +241,10 @@ mod liveness_tests;
 mod multiplexer_tests;
 
 #[cfg(test)]
+#[path = "multiplexer_conformance_io_tests.rs"]
+mod multiplexer_conformance_io_tests;
+
+#[cfg(test)]
 #[path = "session_host_tests.rs"]
 mod session_host_tests;
 

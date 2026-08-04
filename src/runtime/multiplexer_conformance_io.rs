@@ -24,7 +24,14 @@ use super::multiplexer_contract::{ContractItem, ContractItemKind, contract_items
 use super::{MultiplexerIsolation, MultiplexerPlan};
 
 /// Session created inside the throwaway namespace for session-addressed probes.
-const SCRATCH_SESSION: &str = "jefe-conformance";
+pub(super) const SCRATCH_SESSION: &str = "jefe-conformance";
+
+/// Prefix marking a namespace as belonging to this runner.
+///
+/// Shared with the sweep that reclaims stranded namespaces (issue #613): the
+/// name is the only record of who owns one, so what writes it and what reads it
+/// cannot be allowed to drift apart.
+pub(super) const CONFORMANCE_NAMESPACE_PREFIX: &str = "jefe-conformance-";
 
 /// The session the lifecycle verbs create and destroy.
 ///
@@ -139,7 +146,8 @@ fn batched_format_outcomes(
         .collect()
 }
 
-fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
+/// Run one probe against `plan`'s binary under the shared probe timeout.
+pub(super) fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
     let mut command = plan.command();
     command
         .args(args)
@@ -160,6 +168,46 @@ fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
     }
 }
 
+/// A throwaway namespace held for the duration of one conformance run.
+///
+/// The namespace is torn down when the guard is dropped rather than at the end
+/// of the run, because the run does not always reach its end. A probe that
+/// panics, or a caller that unwinds while holding the guard, used to skip
+/// teardown entirely and strand the namespace's server for good: nothing
+/// revisits a conformance namespace, and those servers outlive the jefe that
+/// created them (issue #613).
+pub(super) struct ScratchNamespace {
+    plan: MultiplexerPlan,
+}
+
+impl ScratchNamespace {
+    /// Reserve a namespace of `plan`'s own isolation kind to probe in.
+    pub(super) fn reserve(plan: &MultiplexerPlan) -> Option<Self> {
+        scratch_plan(plan).map(|plan| Self { plan })
+    }
+
+    /// The plan addressing the reserved namespace.
+    pub(super) fn plan(&self) -> &MultiplexerPlan {
+        &self.plan
+    }
+
+    /// End the server the reserved namespace brought up.
+    fn tear_down(&self) {
+        let _ = execute_probe(&self.plan, &["kill-server".to_owned()]);
+    }
+}
+
+impl Drop for ScratchNamespace {
+    /// Tear the namespace down on every exit path, unwinding included.
+    ///
+    /// A failed teardown stays silent here: the guard runs during unwinding,
+    /// where panicking again would abort the process over a namespace the
+    /// startup sweep will reclaim anyway.
+    fn drop(&mut self) {
+        self.tear_down();
+    }
+}
+
 /// Qualify a multiplexer binary against the declared contract.
 ///
 /// Creates a throwaway namespace, probes it, and tears it down. The teardown is
@@ -167,7 +215,7 @@ fn execute_probe(plan: &MultiplexerPlan, args: &[String]) -> ProbeOutcome {
 /// very kind of orphan the runtime spends effort reaping.
 #[must_use]
 pub fn qualify_multiplexer(plan: &MultiplexerPlan) -> ConformanceReport {
-    let Some(scratch) = scratch_plan(plan) else {
+    let Some(scratch) = ScratchNamespace::reserve(plan) else {
         return summarize_conformance(contract_items().iter().map(|item| {
             (
                 item,
@@ -182,7 +230,7 @@ pub fn qualify_multiplexer(plan: &MultiplexerPlan) -> ConformanceReport {
     // own: the probes will report precisely which items the binary could not
     // honour, which is a better diagnosis than "setup failed".
     let _ = execute_probe(
-        &scratch,
+        scratch.plan(),
         &[
             "new-session".to_owned(),
             "-d".to_owned(),
@@ -191,11 +239,9 @@ pub fn qualify_multiplexer(plan: &MultiplexerPlan) -> ConformanceReport {
         ],
     );
 
-    let report = run_contract_probes(&scratch);
-
-    let _ = execute_probe(&scratch, &["kill-server".to_owned()]);
-
-    report
+    // `scratch` tears the namespace down as it drops, on this path and on the
+    // unwinding one alike.
+    run_contract_probes(scratch.plan())
 }
 
 /// Qualify the multiplexer jefe is about to use, at startup.
@@ -254,5 +300,8 @@ fn scratch_plan(plan: &MultiplexerPlan) -> Option<MultiplexerPlan> {
 fn conformance_namespace() -> String {
     static INVOCATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let invocation = INVOCATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    format!("jefe-conformance-{}-{invocation}", std::process::id())
+    format!(
+        "{CONFORMANCE_NAMESPACE_PREFIX}{}-{invocation}",
+        std::process::id()
+    )
 }
