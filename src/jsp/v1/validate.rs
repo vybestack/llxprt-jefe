@@ -13,7 +13,7 @@ use crate::domain::observation::{
     LastMessageField, LastToolField, NativeActivityField, NativeActivityState, NativeActivityValue,
     NativeSession, ObservationIdentity, OpaqueId, PathRef, ProcessBinding, ProcessBindingField,
     Provenance, RepositoryRef, SourceErrorField, SourceErrorValue, SourceTerminalField, TodoItem,
-    TodoList, TodosField, ToolCallValue, ToolLabel, ToolPhase, Wait, WaitReason,
+    TodoList, TodoState, TodosField, ToolCallValue, ToolLabel, ToolPhase, Wait, WaitReason,
 };
 
 use super::contract::{ObservationKey, Snapshot};
@@ -440,9 +440,11 @@ fn parse_todo_item(
 ) -> Result<TodoItem, JspError> {
     let path = slot.path("snapshot.todos", &format!("items[{index}].text"));
     let text = parse_bounded_string(&path, &item.text, FieldLimits::TODO_TEXT, BoundedText)?;
+    let state_path = slot.path("snapshot.todos", &format!("items[{index}].state"));
+    super::limits::check_bound(&state_path, item.state.len(), FieldLimits::TODO_STATE)?;
     Ok(TodoItem {
         text,
-        completed: item.completed,
+        state: TodoState::from_wire(&item.state),
     })
 }
 

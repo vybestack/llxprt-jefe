@@ -28,7 +28,7 @@
     "value": {
       "revision": 5,
       "items": [
-        { "text": "item one", "completed": false }
+        { "text": "item one", "state": "pending" }
       ]
     }
   },

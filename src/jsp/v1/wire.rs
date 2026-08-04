@@ -19,7 +19,8 @@ use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use super::limits::{
     ACCEPTED_SCHEMA, MAX_AGENT_KIND_BYTES, MAX_DIAGNOSTIC_CODE_BYTES, MAX_DIAGNOSTIC_SUMMARY_BYTES,
     MAX_DISPLAY_NAME_BYTES, MAX_DISPLAYED_CONTENT_BYTES, MAX_ERROR_CODE_BYTES, MAX_ID_BYTES,
-    MAX_PATH_BYTES, MAX_REPOSITORY_BYTES, MAX_TODO_TEXT_BYTES, MAX_TODOS, MAX_TOOL_LABEL_BYTES,
+    MAX_PATH_BYTES, MAX_REPOSITORY_BYTES, MAX_TODO_STATE_BYTES, MAX_TODO_TEXT_BYTES, MAX_TODOS,
+    MAX_TOOL_LABEL_BYTES,
 };
 
 // ---------------------------------------------------------------------------
@@ -329,7 +330,7 @@ pub struct TodosPayload {
 #[serde(deny_unknown_fields)]
 pub struct TodoItemWire {
     pub text: String,
-    pub completed: bool,
+    pub state: String,
 }
 
 /// Last-displayed-assistant-message payload.
@@ -363,6 +364,7 @@ impl FieldLimits {
     pub const ID: usize = MAX_ID_BYTES;
     pub const TODOS: usize = MAX_TODOS;
     pub const TODO_TEXT: usize = MAX_TODO_TEXT_BYTES;
+    pub const TODO_STATE: usize = MAX_TODO_STATE_BYTES;
     pub const DISPLAYED_CONTENT: usize = MAX_DISPLAYED_CONTENT_BYTES;
     pub const DIAGNOSTIC_SUMMARY: usize = MAX_DIAGNOSTIC_SUMMARY_BYTES;
     pub const TOOL_LABEL: usize = MAX_TOOL_LABEL_BYTES;

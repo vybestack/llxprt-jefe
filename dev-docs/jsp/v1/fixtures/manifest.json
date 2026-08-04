@@ -46,6 +46,17 @@
       "description": "At-limit agent_id (128 bytes) and minimal valid todos. Exercises the upper inclusive bound for identity strings."
     },
     {
+      "name": "snapshot_todo_states",
+      "file": "snapshot_todo_states.json",
+      "kind": "snapshot",
+      "expected": "ok",
+      "rows": [
+        "S1",
+        "S2"
+      ],
+      "description": "Every recognized todo task state (pending, in_progress, completed), a state outside the recognized vocabulary which must be accepted and read as neither completed nor active rather than guessed, and an at-limit 64-byte state exercising the inclusive state bound."
+    },
+    {
       "name": "snapshot_forbidden_fields",
       "file": "snapshot_forbidden_fields.json",
       "kind": "snapshot",

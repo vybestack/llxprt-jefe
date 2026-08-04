@@ -42,7 +42,7 @@
         "items": [
           {
             "text": "retained",
-            "completed": false
+            "state": "in_progress"
           }
         ]
       }
@@ -136,7 +136,7 @@
             "items": [
               {
                 "text": "retained",
-                "completed": false
+                "state": "in_progress"
               }
             ]
           }

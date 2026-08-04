@@ -49,11 +49,11 @@
       "items": [
         {
           "text": "Write parser",
-          "completed": false
+          "state": "in_progress"
         },
         {
           "text": "Add tests",
-          "completed": true
+          "state": "completed"
         }
       ]
     }

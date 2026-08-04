@@ -12,6 +12,11 @@ pub const MAX_ID_BYTES: usize = 128;
 pub const MAX_TODOS: usize = 256;
 /// Maximum length in bytes of a todo text string.
 pub const MAX_TODO_TEXT_BYTES: usize = 2 * 1024;
+/// Maximum length in bytes of a todo task-state label.
+///
+/// The label vocabulary is open-ended so a producer can name a state JSP/1 does
+/// not recognize, which is exactly why it needs its own bound.
+pub const MAX_TODO_STATE_BYTES: usize = 64;
 /// Maximum length in bytes of displayed assistant content.
 pub const MAX_DISPLAYED_CONTENT_BYTES: usize = 16 * 1024;
 /// Maximum length in bytes of a source diagnostic summary.

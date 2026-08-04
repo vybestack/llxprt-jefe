@@ -242,7 +242,7 @@ fn project_todos_covers_support_provenance_and_availability() {
             revision: 5,
             items: vec![TodoItem {
                 text: crate::domain::observation::BoundedText("a".to_string()),
-                completed: false,
+                state: crate::domain::observation::TodoState::Pending,
             }],
         },
     );

@@ -43,8 +43,8 @@
     "value": {
       "revision": 3,
       "items": [
-        { "text": "Write parser", "completed": false },
-        { "text": "Add tests", "completed": true }
+        { "text": "Write parser", "state": "in_progress" },
+        { "text": "Add tests", "state": "completed" }
       ]
     }
   },

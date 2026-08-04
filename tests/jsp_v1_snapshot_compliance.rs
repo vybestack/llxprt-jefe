@@ -14,7 +14,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-use jefe::domain::observation::{FieldState, NativeActivityState, NativeActivityValue, Provenance};
+use jefe::domain::observation::{
+    FieldState, NativeActivityState, NativeActivityValue, Provenance, TodoList, TodoState,
+};
 use jefe::jsp::v1::error::JspCode;
 use jefe::jsp::v1::parse_snapshot;
 
@@ -646,6 +648,140 @@ fn s6_source_terminal_diagnostics_name_their_own_field() {
     assert!(
         !detail.contains("source_error_state"),
         "diagnostic must not name the sibling field: {detail}"
+    );
+}
+
+/// Build a snapshot document whose `todos` field carries the supplied raw JSON
+/// item array as an authoritative known value, with every other field
+/// `unsupported`.
+fn snapshot_with_todo_items(items: &str) -> Vec<u8> {
+    let field_state = format!(
+        r#"{{"provenance":"authoritative","availability":"known","value":{{"revision":1,"items":{items}}}}}"#
+    );
+    format!(
+        r#"{{"schema":1,"kind":"snapshot","agent_id":"a","lifecycle_generation":1,"source_epoch":"e","source_sequence":1,"cursor":0,"bridge_observed_ms":1,"native_session":{{"repository":"r","path":"p","agent_kind":"llxprt","pid":1,"display_name":"d"}},"process_binding":"unsupported","native_activity":"unsupported","current_wait":"unsupported","current_turn":"unsupported","todos":{field_state},"last_displayed_assistant_message":"unsupported","last_created_tool_call":"unsupported","source_terminal_state":"unsupported","source_error_state":"unsupported"}}"#
+    )
+    .into_bytes()
+}
+
+/// Parse a snapshot carrying the supplied raw todo item array and return the
+/// known list.
+fn parse_todo_list(items: &str) -> TodoList {
+    let bytes = snapshot_with_todo_items(items);
+    let snapshot = parse_snapshot(&bytes)
+        .unwrap_or_else(|error| panic!("todos must parse: {}", error.detail()));
+    let FieldState::Supported { availability, .. } = snapshot.todos else {
+        panic!("todos must be a supported field state");
+    };
+    match availability {
+        jefe::domain::observation::Availability::Known(list) => list,
+        _ => panic!("todos must carry a known list"),
+    }
+}
+
+/// The three native task states survive the wire, so a consumer can name the
+/// item the agent is working on rather than infer it from position.
+#[test]
+fn todo_state_carries_every_native_task_state() {
+    let list = parse_todo_list(
+        r#"[{"text":"one","state":"pending"},{"text":"two","state":"in_progress"},{"text":"three","state":"completed"}]"#,
+    );
+
+    let states: Vec<TodoState> = list.items.iter().map(|item| item.state).collect();
+    assert_eq!(
+        states,
+        vec![
+            TodoState::Pending,
+            TodoState::InProgress,
+            TodoState::Completed
+        ],
+        "each native task state must arrive distinct"
+    );
+}
+
+/// A state outside the recognized vocabulary is carried through as
+/// unrecognized rather than guessed into one of the three: it is neither
+/// completed nor the active item.
+#[test]
+fn unrecognized_todo_state_degrades_instead_of_failing() {
+    let list = parse_todo_list(r#"[{"text":"one","state":"blocked"},{"text":"two","state":""}]"#);
+
+    let states: Vec<TodoState> = list.items.iter().map(|item| item.state).collect();
+    assert_eq!(
+        states,
+        vec![TodoState::Unrecognized, TodoState::Unrecognized],
+        "an unknown producer state must degrade rather than fail or be guessed"
+    );
+}
+
+/// The retired `completed` boolean is not a synonym for the state field. It is
+/// rejected closed like any other member outside the payload shape, naming the
+/// todos payload and echoing nothing the producer sent.
+#[test]
+fn retired_completed_boolean_fails_closed() {
+    let retired = [
+        r#"[{"text":"SENTINEL","completed":false}]"#,
+        r#"[{"text":"SENTINEL","state":"pending","completed":false}]"#,
+    ];
+    for items in retired {
+        let bytes = snapshot_with_todo_items(items);
+        let error = parse_snapshot(&bytes)
+            .err()
+            .unwrap_or_else(|| panic!("the retired boolean must fail: {items}"));
+        assert_eq!(error.code(), JspCode::EClosedShape);
+        let detail = error.detail();
+        assert_eq!(
+            detail, "snapshot.todos.value: value shape does not match the closed contract",
+            "the diagnostic must locate the rejected payload"
+        );
+        assert!(
+            !detail.contains("SENTINEL"),
+            "diagnostic must not echo the payload value: {detail}"
+        );
+    }
+}
+
+/// A missing state is a missing required member, not an implicit `pending`.
+#[test]
+fn todo_without_a_state_fails_closed() {
+    let bytes = snapshot_with_todo_items(r#"[{"text":"SENTINEL"}]"#);
+    let error = parse_snapshot(&bytes)
+        .err()
+        .unwrap_or_else(|| panic!("a stateless todo must fail"));
+    assert_eq!(error.code(), JspCode::EClosedShape);
+    let detail = error.detail();
+    assert_eq!(
+        detail, "snapshot.todos.value: value shape does not match the closed contract",
+        "the diagnostic must locate the rejected payload"
+    );
+    assert!(
+        !detail.contains("SENTINEL"),
+        "diagnostic must not echo the payload value: {detail}"
+    );
+}
+
+/// The state string is bounded like every other string on the wire, and the
+/// bound is inclusive.
+#[test]
+fn todo_state_bound_is_inclusive_and_names_its_own_member() {
+    let at_limit = "s".repeat(64);
+    let list = parse_todo_list(&format!(r#"[{{"text":"one","state":"{at_limit}"}}]"#));
+    assert_eq!(list.items.len(), 1, "an at-limit state is accepted");
+
+    let over_limit = "s".repeat(65);
+    let bytes = snapshot_with_todo_items(&format!(r#"[{{"text":"one","state":"{over_limit}"}}]"#));
+    let error = parse_snapshot(&bytes)
+        .err()
+        .unwrap_or_else(|| panic!("an over-limit state must fail"));
+    assert_eq!(error.code(), JspCode::EBound);
+    let detail = error.detail();
+    assert!(
+        detail.contains("snapshot.todos") && detail.contains("items[0].state"),
+        "diagnostic must point at the offending member: {detail}"
+    );
+    assert!(
+        !detail.contains(&over_limit),
+        "diagnostic must not echo the payload value: {detail}"
     );
 }
 

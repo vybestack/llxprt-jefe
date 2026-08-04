@@ -384,11 +384,40 @@ pub struct CurrentTurn {
     pub elapsed_ms: u64,
 }
 
+/// Native task state of a todo entry.
+///
+/// Unlike the closed inventories (`WaitReason`, `ToolPhase`, `TurnOutcome`),
+/// this vocabulary is deliberately open: task state is the producer's own
+/// wording, not protocol wording. A label JSP/1 does not recognize is carried
+/// as [`TodoState::Unrecognized`], which reads as "not completed and not the
+/// active item". Guessing it into one of the three named states would present
+/// an inference as fact, which is exactly what this field exists to prevent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoState {
+    Pending,
+    InProgress,
+    Completed,
+    Unrecognized,
+}
+
+impl TodoState {
+    /// Map a wire label to a task state, degrading anything unrecognized.
+    #[must_use]
+    pub fn from_wire(label: &str) -> Self {
+        match label {
+            "pending" => Self::Pending,
+            "in_progress" => Self::InProgress,
+            "completed" => Self::Completed,
+            _ => Self::Unrecognized,
+        }
+    }
+}
+
 /// A single todo entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TodoItem {
     pub text: BoundedText,
-    pub completed: bool,
+    pub state: TodoState,
 }
 
 /// Full-replacement todo list with a strictly increasing revision (decision 8).

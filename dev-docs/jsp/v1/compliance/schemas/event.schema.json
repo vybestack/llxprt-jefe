@@ -151,13 +151,15 @@
                     "maxLength": 2048,
                     "x-jsp-maxUtf8Bytes": 2048
                   },
-                  "completed": {
-                    "type": "boolean"
+                  "state": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "x-jsp-maxUtf8Bytes": 64
                   }
                 },
                 "required": [
                   "text",
-                  "completed"
+                  "state"
                 ],
                 "additionalProperties": false
               }

@@ -12,7 +12,7 @@ use crate::domain::TypedMap;
 use crate::domain::agent_definition::AgentTypeId;
 use crate::domain::observation::{
     AgentObservation, BoundedText, FieldState, NativeActivityState, NativeActivityValue,
-    ObservationHealth, Provenance, TodoItem, TodoList,
+    ObservationHealth, Provenance, TodoItem, TodoList, TodoState,
 };
 use crate::domain::observation::{CurrentTurn, DisplayedAssistantMessage, Wait, WaitReason};
 use crate::domain::{Agent, AgentId, AgentStatus, RepositoryId};
@@ -32,7 +32,7 @@ use crate::workbench_view::{
 /// a 4-column grid. Names are zero-padded so sort-by-name is stable.
 fn four_column_agents(
     count: usize,
-    todo_items: &[(bool, &str)],
+    todo_items: &[(TodoState, &str)],
 ) -> Vec<(Agent, Option<GitRepoInfo>, Option<AgentObservation>)> {
     (0..count)
         .map(|i| {
@@ -77,23 +77,23 @@ fn agent_with(status: AgentStatus, name: &str, repository: &str) -> Agent {
     a
 }
 
-fn todos(items: &[(bool, &str)]) -> FieldState<TodoList> {
+fn todos(items: &[(TodoState, &str)]) -> FieldState<TodoList> {
     FieldState::known(
         Provenance::Authoritative,
         TodoList {
             revision: 1,
             items: items
                 .iter()
-                .map(|(done, text)| TodoItem {
+                .map(|(state, text)| TodoItem {
                     text: BoundedText((*text).to_string()),
-                    completed: *done,
+                    state: *state,
                 })
                 .collect(),
         },
     )
 }
 
-fn todo_observation(items: &[(bool, &str)]) -> AgentObservation {
+fn todo_observation(items: &[(TodoState, &str)]) -> AgentObservation {
     AgentObservation {
         health: ObservationHealth::Live,
         todos: todos(items),
@@ -311,7 +311,7 @@ fn vertical_layout_table_heights_x_agent_counts() {
     // With 4 columns (width=200), 6 agents => rows_needed=ceil(6/4)=2.
     // avail = height - 6 = 46; rows_at_min = 46/11 = 4; rows_needed(2) <= 4 => grow.
     // grown = 46/2 - 1 - 7 = 15; W = clamp(min(15, longest), 3, 8).
-    let agents = four_column_agents(6, &[(false, "a")]);
+    let agents = four_column_agents(6, &[(TodoState::Pending, "a")]);
     let view = project(agents, 200, 52);
     assert_eq!(view.layout.columns, 4);
     assert!(view.layout.todo_window >= 3);
@@ -322,7 +322,14 @@ fn vertical_layout_table_heights_x_agent_counts() {
 
 #[test]
 fn increasing_height_never_reduces_visible_agents() {
-    let agents = four_column_agents(8, &[(false, "a"), (false, "b"), (false, "c")]);
+    let agents = four_column_agents(
+        8,
+        &[
+            (TodoState::Pending, "a"),
+            (TodoState::Pending, "b"),
+            (TodoState::Pending, "c"),
+        ],
+    );
     let mut prev_visible = 0;
     for height in 10..=60 {
         let view = project(agents.clone(), 200, height);
@@ -339,7 +346,7 @@ fn increasing_height_never_reduces_visible_agents() {
 fn vertical_many_agents_page_correctly() {
     // 12 agents, 4 columns => rows_needed=3.
     // At a short height, paging kicks in.
-    let agents = four_column_agents(12, &[(false, "a")]);
+    let agents = four_column_agents(12, &[(TodoState::Pending, "a")]);
     let view = project(agents, 200, 24);
     assert_eq!(view.layout.columns, 4);
     assert!(view.layout.page_count >= 1);
@@ -356,7 +363,7 @@ fn vertical_many_agents_page_correctly() {
 #[test]
 fn window_capped_at_longest_visible_list() {
     // Tall terminal with short lists: W must equal the longest list, not W_MAX.
-    let agents = four_column_agents(2, &[(false, "a"), (false, "b")]);
+    let agents = four_column_agents(2, &[(TodoState::Pending, "a"), (TodoState::Pending, "b")]);
     let view = project(agents, 200, 80);
     // The cap says W never exceeds the longest visible list; the floor says W is
     // never below W_MIN. With a 2-item longest list on a tall terminal the two
@@ -390,8 +397,8 @@ fn window_capped_at_longest_visible_list() {
 #[test]
 fn window_grows_with_height_when_lists_are_long() {
     // Long lists (8 items) + tall terminal => W grows toward 8.
-    let long_list: Vec<(bool, &str)> = (0..8).map(|_i| (false, "item")).collect();
-    let long_list_ref: &[(bool, &str)] = &long_list;
+    let long_list: Vec<(TodoState, &str)> = (0..8).map(|_i| (TodoState::Pending, "item")).collect();
+    let long_list_ref: &[(TodoState, &str)] = &long_list;
     let agents = four_column_agents(1, long_list_ref);
     let view_short = project(agents.clone(), 200, 20);
     let view_tall = project(agents, 200, 60);
@@ -409,11 +416,13 @@ fn window_grows_with_height_when_lists_are_long() {
 fn todo_window_current_always_visible_when_one_exists() {
     for len in 1usize..=10 {
         for current in 0..len {
-            let mut items: Vec<(bool, &str)> = vec![(false, "x"); len];
-            // Everything before `current` is completed; current and after are not.
+            let mut items: Vec<(TodoState, &str)> = vec![(TodoState::Pending, "x"); len];
+            // Everything before `current` is completed; `current` is the item
+            // the producer says is in progress.
             for item in items.iter_mut().take(current) {
-                *item = (true, "x");
+                *item = (TodoState::Completed, "x");
             }
+            items[current] = (TodoState::InProgress, "x");
             let obs = todo_observation(&items);
             let agent = agent_with(AgentStatus::Running, "a", "repo");
             let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
@@ -441,8 +450,9 @@ fn todo_window_current_always_visible_when_one_exists() {
 fn todo_window_preceding_finished_item_visible_when_one_exists() {
     // When a preceding finished item exists, it should be in the window.
     for len in 2usize..=10 {
-        let mut items: Vec<(bool, &str)> = vec![(false, "x"); len];
-        items[0] = (true, "done");
+        let mut items: Vec<(TodoState, &str)> = vec![(TodoState::Pending, "x"); len];
+        items[0] = (TodoState::Completed, "done");
+        items[1] = (TodoState::InProgress, "x");
         let obs = todo_observation(&items);
         let agent = agent_with(AgentStatus::Running, "a", "repo");
         let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
@@ -457,14 +467,17 @@ fn todo_window_preceding_finished_item_visible_when_one_exists() {
         );
     }
 }
-
 // ---------------------------------------------------------------------------
 // 5. All-complete: tail shown, no current marker
 // ---------------------------------------------------------------------------
 
 #[test]
 fn all_complete_shows_tail_no_current_marker() {
-    let items = vec![(true, "done1"), (true, "done2"), (true, "done3")];
+    let items = vec![
+        (TodoState::Completed, "done1"),
+        (TodoState::Completed, "done2"),
+        (TodoState::Completed, "done3"),
+    ];
     let obs = todo_observation(&items);
     let agent = agent_with(AgentStatus::Running, "a", "repo");
     let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
@@ -492,7 +505,15 @@ fn all_complete_shows_tail_no_current_marker() {
 
 #[test]
 fn counter_independence_long_list_reports_true_counts() {
-    let items: Vec<(bool, &str)> = (0..20).map(|i| (i < 7, "task")).collect();
+    let items: Vec<(TodoState, &str)> = (0..20)
+        .map(|i| {
+            if i < 7 {
+                (TodoState::Completed, "task")
+            } else {
+                (TodoState::Pending, "task")
+            }
+        })
+        .collect();
     let obs = todo_observation(&items);
     let agent = agent_with(AgentStatus::Running, "a", "repo");
     let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
