@@ -272,11 +272,11 @@ fn list_and_detail_footers_project_only_their_active_send_action() {
             },
         );
 
-        assert!(list_footer.contains("f8 send to agent"), "{list_footer}");
+        assert!(list_footer.contains("F8 send to agent"), "{list_footer}");
         assert!(!list_footer.contains("/S send to agent"), "{list_footer}");
         assert!(detail_footer.contains("S send to agent"), "{detail_footer}");
         assert!(
-            !detail_footer.contains("f8 send to agent"),
+            !detail_footer.contains("F8 send to agent"),
             "{detail_footer}"
         );
     }

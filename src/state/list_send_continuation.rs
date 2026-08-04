@@ -177,8 +177,14 @@ impl AppState {
         let issue_after = self.issue_list_send_context();
         if *issue_before != issue_after {
             self.cancel_issue_list_send();
-            if issue_before.repository_id != issue_after.repository_id
-                || issue_before.issue_number != issue_after.issue_number
+            if self
+                .issues_state
+                .detail_pending
+                .as_ref()
+                .is_some_and(|pending| {
+                    issue_after.repository_id.as_ref() != Some(&pending.scope_repo_id)
+                        || issue_after.issue_number != Some(pending.issue_number)
+                })
             {
                 self.issues_state.detail_pending = None;
                 self.issues_state.loading.detail = false;
@@ -187,8 +193,14 @@ impl AppState {
         let pr_after = self.pr_list_send_context();
         if *pr_before != pr_after {
             self.cancel_pr_list_send();
-            if pr_before.repository_id != pr_after.repository_id
-                || pr_before.pr_number != pr_after.pr_number
+            if self
+                .prs_state
+                .detail_pending
+                .as_ref()
+                .is_some_and(|pending| {
+                    pr_after.repository_id.as_ref() != Some(&pending.scope_repo_id)
+                        || pr_after.pr_number != Some(pending.pr_number)
+                })
             {
                 self.prs_state.detail_pending = None;
                 self.prs_state.loading.detail = false;
@@ -204,7 +216,7 @@ impl AppState {
         request_id: u64,
     ) -> bool {
         self.selected_repository_id() == Some(scope_repo_id)
-            && self.selected_issue_number() == Some(issue_number)
+            && self.issue_selection_matches(issue_number)
             && self
                 .issues_state
                 .detail_pending
@@ -214,6 +226,10 @@ impl AppState {
                         && pending.issue_number == issue_number
                         && pending.request_id == request_id
                 })
+    }
+
+    fn issue_selection_matches(&self, issue_number: u64) -> bool {
+        self.issues_state.issues().is_empty() || self.selected_issue_number() == Some(issue_number)
     }
 
     #[must_use]
