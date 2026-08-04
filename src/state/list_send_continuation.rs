@@ -20,7 +20,7 @@ enum BlockingInteraction {
 struct InteractionFlags(u16);
 
 impl InteractionFlags {
-    fn with(mut self, interaction: BlockingInteraction, blocked: bool) -> Self {
+    fn set_if(mut self, interaction: BlockingInteraction, blocked: bool) -> Self {
         if blocked {
             self.0 |= 1 << interaction as u16;
         }
@@ -101,33 +101,33 @@ impl AppState {
             issue_number: self.selected_issue_number(),
             inline_state: self.issues_state.inline_state.clone(),
             interactions: InteractionFlags::default()
-                .with(BlockingInteraction::TerminalFocused, self.terminal_focused)
-                .with(BlockingInteraction::Inactive, !self.issues_state.active)
-                .with(
+                .set_if(BlockingInteraction::TerminalFocused, self.terminal_focused)
+                .set_if(BlockingInteraction::Inactive, !self.issues_state.active)
+                .set_if(
                     BlockingInteraction::AgentChooser,
                     self.issues_state.agent_chooser.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::PropertyEditor,
                     self.issues_state.property_editor.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::FilterControls,
                     self.issues_state.filter_ui.controls_open,
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::SearchInput,
                     self.issues_state.search_input_focused,
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::NewIssueForm,
                     self.issues_state.new_issue_form.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::DeleteConfirmation,
                     self.issues_state.delete_confirm.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::CloseReasonChooser,
                     self.issues_state.close_reason_chooser.is_some(),
                 ),
@@ -144,25 +144,25 @@ impl AppState {
             pr_number: self.selected_pr_number(),
             inline_state: self.prs_state.inline_state.clone(),
             interactions: InteractionFlags::default()
-                .with(BlockingInteraction::TerminalFocused, self.terminal_focused)
-                .with(BlockingInteraction::Inactive, !self.prs_state.active)
-                .with(
+                .set_if(BlockingInteraction::TerminalFocused, self.terminal_focused)
+                .set_if(BlockingInteraction::Inactive, !self.prs_state.active)
+                .set_if(
                     BlockingInteraction::AgentChooser,
                     self.prs_state.agent_chooser.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::MergeChooser,
                     self.prs_state.merge_chooser.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::PropertyEditor,
                     self.prs_state.property_editor.is_some(),
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::FilterControls,
                     self.prs_state.filter_ui.controls_open,
                 )
-                .with(
+                .set_if(
                     BlockingInteraction::SearchInput,
                     self.prs_state.search_input_focused,
                 ),
