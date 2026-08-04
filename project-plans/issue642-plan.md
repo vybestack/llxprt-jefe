@@ -112,6 +112,20 @@ quality-gate configuration are planned.
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` — exit 0 |
 | Regression | `cargo test --workspace --all-features` on the candidate head |
 
+### Slice 2 — AC4/AC6 consumer coverage
+
+A re-read of the matrix against the landed tests found AC4 and AC6 had no
+proving test of their own: slice 1 proved the anchors survive the round trip and
+slice 2 proved the routing, but nothing pinned the consumer in between — that a
+restored, non-empty anchor set gets past `orphan_evidence`'s
+`identities.is_empty()` short-circuit, which is the exact blind spot the issue
+describes.
+
+| Step | Evidence |
+|---|---|
+| Coverage | `restored_anchors_are_answered_by_observation_not_by_the_empty_short_circuit` (AC4), `a_remote_agent_never_reaps_even_with_restored_anchors` (AC6) |
+| GREEN | `cargo test --bin jefe orphan` — 8 passed, 0 failed |
+
 REFACTOR note: extracting the classification loop into
 `classify_agents_for_restore` was required by the repo's 60-line function gate,
 which fired once the orphan arm was added. The extraction keeps the reap and the

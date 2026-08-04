@@ -115,6 +115,49 @@ mod tests {
         );
     }
 
+    /// Issue #642 AC4: the anchor set a restart hands to `orphan_evidence` is
+    /// what decides whether the reaper ever looks at the process table.
+    ///
+    /// An empty set — what every restore produced before the anchors were
+    /// persisted — short-circuits to `NoOrphan` *before* any descendant is
+    /// observed, which is the blind spot that leaked a process tree per
+    /// restart. A restored, non-empty set must get past that short-circuit and
+    /// be answered by observation instead.
+    ///
+    /// The anchors here name a PID that cannot exist, so observation is
+    /// deterministic and also pins the other half of AC4: a record whose
+    /// descendants are gone answers `DeadPaneNoWorker` rather than fabricating
+    /// an orphan out of a stale anchor.
+    #[test]
+    fn restored_anchors_are_answered_by_observation_not_by_the_empty_short_circuit() {
+        use jefe::runtime::OrphanClassification as Oc;
+
+        let stale = vec![jefe::domain::WorkerProcessIdentity::new(u32::MAX, 1)];
+
+        assert_eq!(
+            super::orphan_evidence(SessionEvidence::Missing, false, Some(&stale)),
+            Oc::DeadPaneNoWorker,
+            "restored anchors must be observed, and one that no longer matches is not an orphan"
+        );
+        assert_eq!(
+            super::orphan_evidence(SessionEvidence::Missing, false, Some(&Vec::new())),
+            Oc::NoOrphan,
+            "an empty anchor set is the pre-#642 blind spot: no observation happens at all"
+        );
+    }
+
+    /// Issue #642 AC6: a remote repository has no local process table to
+    /// observe, so restored anchors must not send it down the reaping path.
+    #[test]
+    fn a_remote_agent_never_reaps_even_with_restored_anchors() {
+        let stale = vec![jefe::domain::WorkerProcessIdentity::new(u32::MAX, 1)];
+        assert_eq!(
+            super::orphan_evidence(SessionEvidence::Missing, true, Some(&stale)),
+            jefe::runtime::OrphanClassification::NoOrphan,
+            "remote agents short-circuit before any local observation"
+        );
+    }
+
     #[test]
     fn dead_pane_without_orphans_is_not_orphaned() {
         // A dead pane with no surviving orphans must not take the Orphaned path.
