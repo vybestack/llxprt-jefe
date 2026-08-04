@@ -11,7 +11,7 @@
 //! collapsing to a generic "missing GitHub Repo" (issue #266).
 
 use jefe::domain::RepositoryId;
-use jefe::state::AppEvent;
+use jefe::state::{AppEvent, PrLifecycleEvent};
 
 use super::prs_dispatch::{
     RepoContextError, current_pr_scope_repo_id, resolve_pr_gh_repo_or_error,
@@ -89,12 +89,13 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
             apply_and_persist(
                 app_state,
                 ctx,
-                AppEvent::PrMergeFailed {
+                PrLifecycleEvent::MergeFailed {
                     scope_repo_id: scope,
                     pr_number,
                     mutation_id,
                     error: message,
-                },
+                }
+                .into(),
             );
         }
         Err(RepoContextError::InvalidSlug) => {
@@ -102,12 +103,13 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
             apply_and_persist(
                 app_state,
                 ctx,
-                AppEvent::PrMergeFailed {
+                PrLifecycleEvent::MergeFailed {
                     scope_repo_id: scope,
                     pr_number,
                     mutation_id,
                     error: "Configure repository (owner/name) before merging".to_string(),
-                },
+                }
+                .into(),
             );
         }
     }
@@ -149,12 +151,13 @@ fn merge_abandoned(
         apply_and_persist(
             app_state,
             ctx,
-            AppEvent::PrMergeFailed {
+            PrLifecycleEvent::MergeFailed {
                 scope_repo_id: scope,
                 pr_number,
                 mutation_id,
                 error: format!("GitHub merge abandoned: {message}"),
-            },
+            }
+            .into(),
         );
     }
 }
@@ -166,23 +169,26 @@ fn pr_merge_event(ctx: &SharedContext, info: &PrMergeInfo) -> AppEvent {
     let result = super::github_client(ctx)
         .map(|client| client.merge_pull_request(&info.owner, &info.name, info.number, info.method));
     match result {
-        Some(Ok(())) => AppEvent::PrMerged {
+        Some(Ok(())) => PrLifecycleEvent::Merged {
             scope_repo_id: info.scope.clone(),
             pr_number: info.number,
             method: info.method,
-        },
-        Some(Err(error)) => AppEvent::PrMergeFailed {
+        }
+        .into(),
+        Some(Err(error)) => PrLifecycleEvent::MergeFailed {
             scope_repo_id: info.scope.clone(),
             pr_number: info.number,
             mutation_id: info.mutation_id,
             error: error.to_string(),
-        },
-        None => AppEvent::PrMergeFailed {
+        }
+        .into(),
+        None => PrLifecycleEvent::MergeFailed {
             scope_repo_id: info.scope.clone(),
             pr_number: info.number,
             mutation_id: info.mutation_id,
             error: "GitHub client unavailable from application context".to_string(),
-        },
+        }
+        .into(),
     }
 }
 
@@ -228,11 +234,12 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx
             apply_and_persist(
                 app_state,
                 ctx,
-                AppEvent::PrMergeMethodsLoadFailed {
+                PrLifecycleEvent::MergeMethodsLoadFailed {
                     scope_repo_id: scope,
                     pr_number,
                     error,
-                },
+                }
+                .into(),
             );
         }
         Ok(Some((scope, owner, name, pr_number))) => {
@@ -275,22 +282,28 @@ fn pr_merge_methods_event(
 ) -> Option<AppEvent> {
     let client = super::github_client(ctx)?;
     match client.get_repo_merge_methods(owner, name) {
-        Ok(methods) => Some(AppEvent::PrMergeMethodsLoaded {
-            scope_repo_id: scope.clone(),
-            pr_number,
-            allowed_methods: methods,
-        }),
+        Ok(methods) => Some(
+            PrLifecycleEvent::MergeMethodsLoaded {
+                scope_repo_id: scope.clone(),
+                pr_number,
+                allowed_methods: methods,
+            }
+            .into(),
+        ),
         Err(error) => {
             tracing::warn!(
                 error = %error,
                 repository = %format_args!("{owner}/{name}"),
                 "could not load PR merge methods; surfacing load failure"
             );
-            Some(AppEvent::PrMergeMethodsLoadFailed {
-                scope_repo_id: scope.clone(),
-                pr_number,
-                error: error.to_string(),
-            })
+            Some(
+                PrLifecycleEvent::MergeMethodsLoadFailed {
+                    scope_repo_id: scope.clone(),
+                    pr_number,
+                    error: error.to_string(),
+                }
+                .into(),
+            )
         }
     }
 }

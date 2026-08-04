@@ -146,6 +146,10 @@ fn prs_context(state: &AppState) -> Result<ActionContext, ContextStackError> {
         Some("prs.merge-chooser")
     } else if state.prs_state.property_editor.is_some() {
         Some("prs.property")
+    } else if state.prs_state.delete_confirm.is_some() {
+        Some("prs.delete-confirm")
+    } else if state.prs_state.new_pr_form.is_some() {
+        Some("prs.new-form")
     } else if state.prs_state.search_input_focused {
         Some("prs.search")
     } else if state.prs_state.filter_ui.controls_open {

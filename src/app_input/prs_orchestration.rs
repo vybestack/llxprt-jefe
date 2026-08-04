@@ -12,7 +12,7 @@
 use jefe::domain::{AgentId, AgentLaunchRequest, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
 use jefe::runtime::RuntimeError;
-use jefe::state::{AppEvent, AppState, PrPropertyKind};
+use jefe::state::{AppEvent, AppState, PrLifecycleEvent, PrPropertyKind};
 use tracing::warn;
 
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
@@ -97,9 +97,9 @@ fn route_prs_message(
 ) {
     use jefe::messages::{PrInlineMsg, ScrollDir};
 
-    if route_changes_message(app_state, ctx, &message) {
+    let Some(message) = route_boundary_message(app_state, ctx, message) else {
         return;
-    }
+    };
     match message {
         m @ (PullRequestsMessage::Navigate(_)
         | PullRequestsMessage::CycleFocus
@@ -160,6 +160,49 @@ fn route_prs_message(
     }
 }
 
+/// Route the messages whose own helper owns both the reducer step and the
+/// boundary I/O, returning the message when it belongs elsewhere.
+fn route_boundary_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) -> Option<PullRequestsMessage> {
+    if route_changes_message(app_state, ctx, &message) {
+        return None;
+    }
+    route_lifecycle_message(app_state, ctx, message)
+}
+
+/// Route the delete and create messages that need boundary I/O after the
+/// reducer has decided what to do (issue #183).
+///
+/// Returns the message untouched when it belongs to another route, so the
+/// caller's match stays the single place that enumerates the rest.
+fn route_lifecycle_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) -> Option<PullRequestsMessage> {
+    match message {
+        PullRequestsMessage::DeleteConfirm => {
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::DeleteConfirm.into());
+            super::prs_lifecycle::handle_pr_delete_confirm(app_state, ctx);
+            None
+        }
+        PullRequestsMessage::OpenNewForm => {
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::OpenNewForm.into());
+            super::prs_lifecycle::handle_pr_branches_load(app_state, ctx);
+            None
+        }
+        PullRequestsMessage::NewFormSubmit => {
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::NewFormSubmit.into());
+            super::prs_lifecycle::handle_pr_create(app_state, ctx);
+            None
+        }
+        other => Some(other),
+    }
+}
+
 /// Route merge-chooser PR messages (issue #92).
 fn route_prs_merge(
     app_state: &mut AppStateHandle,
@@ -168,14 +211,14 @@ fn route_prs_merge(
 ) {
     match message {
         PullRequestsMessage::OpenMergeChooser => {
-            apply_and_persist(app_state, ctx, AppEvent::PrOpenMergeChooser);
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::OpenMergeChooser.into());
             let chooser_open = { app_state.read().prs_state.merge_chooser.is_some() };
             if chooser_open {
                 prs_dispatch::dispatch_pr_merge_methods_load(app_state, ctx);
             }
         }
         PullRequestsMessage::MergeConfirm => {
-            apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
+            apply_and_persist(app_state, ctx, PrLifecycleEvent::MergeConfirm.into());
             prs_dispatch::dispatch_pr_merge(app_state, ctx);
         }
         other => apply_and_persist(app_state, ctx, AppEvent::from(other)),
@@ -502,6 +545,15 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;
+    // A destructive confirm names a pull request in the repository being left
+    // behind, so it can never survive the scope change (issue #183).
+    state.prs_state.delete_confirm = None;
+    state.prs_state.delete_mutation_pending = None;
+    if state.prs_state.new_pr_form.is_some() {
+        state.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
+    }
+    state.prs_state.new_pr_form = None;
+    state.prs_state.create_mutation_pending = None;
     // Clear stale thread-resolve pending on repo change (issue #376).
     state.prs_state.thread_resolve_pending = None;
 }
@@ -534,7 +586,10 @@ fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
     state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
         usize::from(render_rows),
-        state.prs_state.error.is_some(),
+        jefe::layout::pr_banner_visible(
+            state.prs_state.error.as_deref(),
+            state.prs_state.draft_notice.as_deref(),
+        ),
         state.prs_state.filter_ui.controls_open,
     );
     state.prs_state.detail_content_width =

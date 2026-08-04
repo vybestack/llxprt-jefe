@@ -11,10 +11,10 @@ use crate::state::{AppState, PaneFocus, PrFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, KeybindBar, MergeChooser, PrDetailProjectionInputs, PrDiff, PrListLayout,
-    PrListWindow, PropertyEditor, Sidebar, StatusBar, detail_pane_element, filter_bar_element,
-    pr_detail_props, pr_filter_props, pr_list_props, pr_list_status_message,
-    selectable_list_element,
+    AgentChooser, KeybindBar, MergeChooser, NewPrForm, PrDeleteConfirmOverlay,
+    PrDetailProjectionInputs, PrDiff, PrListLayout, PrListWindow, PropertyEditor, Sidebar,
+    StatusBar, detail_pane_element, filter_bar_element, pr_detail_props, pr_filter_props,
+    pr_list_props, pr_list_status_message, selectable_list_element,
 };
 
 /// Props for the pull requests mode screen.
@@ -103,15 +103,22 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let pr_detail = state.and_then(|s| s.prs_state.pr_detail.clone());
     let detail_subfocus = state.map_or_else(Default::default, |s| s.prs_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.prs_state.inline_state.clone());
-    let footer_mode = matches!(inline_state, crate::state::InlineState::Composer { .. })
-        .then_some(FooterMode::PullRequestsInlineComposer);
+    let footer_mode = if state.is_some_and(|s| s.prs_state.new_pr_form.is_some()) {
+        Some(FooterMode::PullRequestsNewComposer)
+    } else {
+        matches!(inline_state, crate::state::InlineState::Composer { .. })
+            .then_some(FooterMode::PullRequestsInlineComposer)
+    };
     let comments_loading = state.is_some_and(|s| s.prs_state.loading.comments);
     let detail_loading = state.is_some_and(|s| s.prs_state.loading.detail);
     let detail_scroll_offset = state.map_or(0, |s| s.prs_state.detail_scroll_offset);
     let detail_focused = pr_focus == PrFocus::PrDetail;
 
-    // Error message
+    // Error message, or the notice a completed mutation left behind (#183)
     let error_message = state.and_then(|s| s.prs_state.error.clone());
+    let notice_message = state.and_then(|s| s.prs_state.draft_notice.clone());
+    let banner_visible =
+        crate::layout::pr_banner_visible(error_message.as_deref(), notice_message.as_deref());
 
     let changes_active = pr_focus == PrFocus::PrChanges;
     let changes = if changes_active {
@@ -160,7 +167,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
     let (list_pane_rows, detail_pane_height) = crate::layout::prs_pane_rows(
         usize::from(render_rows),
-        error_message.is_some(),
+        banner_visible,
         filter_controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
@@ -195,6 +202,10 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
         .as_ref()
         .is_some_and(|c| c.awaiting_confirmation);
     let merge_pr_number = pr_detail.as_ref().map_or(0, |d| d.number);
+
+    // Delete confirm overlay + New PR composer (issue #183)
+    let delete_confirm = state.and_then(|s| s.prs_state.delete_confirm.clone());
+    let new_pr_form = state.and_then(|s| s.prs_state.new_pr_form.clone());
 
     // Property editor overlay (issue #175)
     let prop_editor = state.and_then(|s| s.prs_state.property_editor.clone());
@@ -284,8 +295,11 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                     flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
-                    // Error banner (when present)
-                    #(if let Some(line) = crate::layout::pr_error_banner_line(error_message.as_deref()) {
+                    // Error or notice banner (when present)
+                    #(if let Some(line) = crate::layout::pr_banner_line(
+                        error_message.as_deref(),
+                        notice_message.as_deref(),
+                    ) {
                         vec![element! {
                             Box(height: 1u32, width: 100pct, padding_left: 1u32) {
                                 Text(
@@ -421,6 +435,47 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     awaiting_confirmation: merge_confirming,
                                     colors: colors.clone(),
                                     selection: selection,
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Delete confirm overlay (issue #183)
+                    #(if let Some(confirm) = delete_confirm.clone() {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                PrDeleteConfirmOverlay(
+                                    visible: true,
+                                    pr_number: confirm.pr_number,
+                                    head_ref: confirm.head_ref.clone(),
+                                    is_open: confirm.is_open,
+                                    awaiting_confirmation: confirm.awaiting_confirmation,
+                                    colors: colors.clone(),
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // New PR composer overlay (issue #183)
+                    #(if let Some(form) = new_pr_form.clone() {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                NewPrForm(
+                                    visible: true,
+                                    form: Some(form),
+                                    colors: colors.clone(),
                                 )
                             }
                         }]

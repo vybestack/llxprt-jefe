@@ -9,59 +9,61 @@
 //! @requirement REQ-PR-009
 
 use super::{
-    AppEvent, AppState, InlineState, PrFocus, PrMergeChooserState, PrMergeMutationPending,
+    AppState, InlineState, PrFocus, PrLifecycleEvent, PrMergeChooserState, PrMergeMutationPending,
     ReadOnlyHintKind,
 };
 use crate::domain::{MERGE_METHODS, MergeMethod, PrState, RepositoryId};
 
 impl AppState {
-    /// Apply a PR merge-chooser / merge-lifecycle event (returns handled).
+    /// Apply a PR lifecycle-mutation event (returns handled).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
-    pub(super) fn apply_pr_merge_event(&mut self, event: &AppEvent) -> bool {
+    pub(super) fn apply_pr_lifecycle_mutation(&mut self, event: &PrLifecycleEvent) -> bool {
         match event {
-            AppEvent::PrOpenMergeChooser => {
+            PrLifecycleEvent::OpenMergeChooser => {
                 self.open_pr_merge_chooser();
                 true
             }
-            AppEvent::PrMergeNavigateUp => {
+            PrLifecycleEvent::MergeNavigateUp => {
                 self.navigate_pr_merge_chooser(false);
                 true
             }
-            AppEvent::PrMergeNavigateDown => {
+            PrLifecycleEvent::MergeNavigateDown => {
                 self.navigate_pr_merge_chooser(true);
                 true
             }
-            AppEvent::PrMergeConfirm => {
+            PrLifecycleEvent::MergeConfirm => {
                 self.confirm_pr_merge();
                 true
             }
-            AppEvent::PrMergeCancel => {
+            PrLifecycleEvent::MergeCancel => {
                 self.prs_state.merge_chooser = None;
                 true
             }
-            AppEvent::PrMerged {
+            PrLifecycleEvent::Merged {
                 scope_repo_id,
                 pr_number,
                 method,
             } => self.apply_pr_merged(scope_repo_id, *pr_number, *method),
-            AppEvent::PrMergeFailed {
+            PrLifecycleEvent::MergeFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
             } => self.apply_pr_merge_failed(scope_repo_id, *pr_number, *mutation_id, error),
-            AppEvent::PrMergeMethodsLoaded {
+            PrLifecycleEvent::MergeMethodsLoaded {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
             } => self.apply_pr_merge_methods_loaded(scope_repo_id, *pr_number, allowed_methods),
-            AppEvent::PrMergeMethodsLoadFailed {
+            PrLifecycleEvent::MergeMethodsLoadFailed {
                 scope_repo_id,
                 pr_number,
                 error,
             } => self.apply_pr_merge_methods_load_failed(scope_repo_id, *pr_number, error),
+            // Delete and create events belong to `prs_delete_ops` and
+            // `new_pr_form_ops`, which the caller tries next.
             _ => false,
         }
     }

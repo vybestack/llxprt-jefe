@@ -124,6 +124,23 @@ mod tests {
     }
 
     #[test]
+    fn pull_request_hints_advertise_the_lifecycle_actions() {
+        let hints = keybind_hints_for(
+            &crate::action_projection::test_snapshot(),
+            ScreenId::PullRequests,
+            false,
+            None,
+        );
+
+        // Issue #183: the PR footer gains the same lifecycle vocabulary the
+        // Issues footer already has, so triage does not require guessing.
+        for required in ["new PR", "close / reopen", "delete", "merge"] {
+            assert!(hints.contains(required), "missing {required:?} in {hints}");
+        }
+        assert!(hints.is_ascii(), "the footer stays emoji-free: {hints}");
+    }
+
+    #[test]
     fn actions_hints_are_focus_specific_and_fit_footer_width() {
         let repos = keybind_hints_for(
             &crate::action_projection::test_snapshot(),

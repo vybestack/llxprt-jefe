@@ -61,6 +61,10 @@ mod merge_chooser;
 /// rendering is delegated to the generic [`super::detail_pane::DetailPane`] via
 /// `pr_detail_props` + `detail_pane_element`.
 ///
+/// @requirement issue #183
+mod new_pr_form;
+/// @requirement issue #183
+mod pr_delete_confirm;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
 pub(crate) mod pr_detail;
@@ -138,6 +142,14 @@ pub use keybind_bar::{KeybindBar, KeybindBarProps};
 pub use merge_chooser::{MergeChooser, MergeChooserProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
+pub use new_pr_form::{
+    BRANCH_WINDOW_ROWS, NewPrForm, NewPrFormProps, NewPrFormRow, branch_window_start,
+    new_pr_form_header, new_pr_form_hint, new_pr_form_rows,
+};
+pub use pr_delete_confirm::{
+    PrDeleteConfirmOverlay, PrDeleteConfirmProps, pr_delete_confirm_effect,
+    pr_delete_confirm_header, pr_delete_confirm_hint,
+};
 pub use pr_detail::{PrDetailProjectionInputs, pr_detail_props};
 pub use pr_diff::{PrDiff, PrDiffProps};
 /// @plan PLAN-20260624-PR-MODE.P12

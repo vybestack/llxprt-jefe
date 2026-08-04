@@ -12,9 +12,16 @@ use std::process::Command;
 mod comment_pages;
 mod create_issue;
 mod error;
+mod graphql_errors;
 mod issue_lifecycle;
 mod pr_diff;
+mod pr_lifecycle;
 pub use pr_diff::*;
+pub use pr_lifecycle::{
+    CreatePullRequest, RepositoryBranches, build_branch_ref_id_args, build_branches_query_args,
+    build_create_pr_args, build_delete_ref_args, parse_branch_ref_id, parse_branches_page,
+    parse_created_pr_number, parse_default_branch_name,
+};
 mod pr_threads;
 mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};

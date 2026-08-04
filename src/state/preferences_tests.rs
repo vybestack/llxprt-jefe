@@ -7,15 +7,32 @@ use crate::domain::{
     IssueFilter, IssueFilterState, MergeMethod, PrFilter, PrFilterState, RepoPreferences,
     Repository, RepositoryId, UserPreferences,
 };
-use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{InlineState, ScreenId};
+use crate::state::{AppState, PrLifecycleEvent};
 use crate::state::{ISSUE_FILTER_FIELD_COUNT, PR_FILTER_FIELD_COUNT};
 
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::state::transition::TransitionExt;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/// Apply one PR lifecycle-mutation event and commit it.
+fn lifecycle(state: AppState, event: PrLifecycleEvent) -> AppState {
+    state.apply(event.into()).committed_pure()
+}
+
+/// Resolve the repo-1 / PR-42 fixture's allowed merge methods.
+fn merge_methods_loaded(state: AppState, allowed_methods: Vec<MergeMethod>) -> AppState {
+    lifecycle(
+        state,
+        PrLifecycleEvent::MergeMethodsLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            pr_number: 42,
+            allowed_methods,
+        },
+    )
+}
 
 /// Build an AppState with the given repo selected and seeded preferences.
 fn state_with_repo_and_prefs(repo_id: &str, prefs: RepoPreferences) -> AppState {
@@ -366,7 +383,7 @@ fn merge_chooser_restores_last_method() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::OpenMergeChooser);
     let selected = state
         .prs_state
         .merge_chooser
@@ -378,7 +395,7 @@ fn merge_chooser_restores_last_method() {
 #[test]
 fn merge_chooser_defaults_to_merge_when_no_prefs() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::OpenMergeChooser);
     let selected = state
         .prs_state
         .merge_chooser
@@ -390,13 +407,13 @@ fn merge_chooser_defaults_to_merge_when_no_prefs() {
 #[test]
 fn merge_confirm_persists_method() {
     let state = prs_state_with_detail("repo-1", 42);
-    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::OpenMergeChooser);
     // Navigate to Rebase (index 2)
-    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
-    let state = state.apply(AppEvent::PrMergeNavigateDown).committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::MergeNavigateDown);
+    let state = lifecycle(state, PrLifecycleEvent::MergeNavigateDown);
     // Confirm twice
-    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
-    let state = state.apply(AppEvent::PrMergeConfirm).committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::MergeConfirm);
+    let state = lifecycle(state, PrLifecycleEvent::MergeConfirm);
 
     let stored = state
         .user_preferences
@@ -415,14 +432,8 @@ fn merge_methods_loaded_clamps_disabled_last_method() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
-    let state = state
-        .apply(AppEvent::PrMergeMethodsLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            pr_number: 42,
-            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Rebase],
-        })
-        .committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::OpenMergeChooser);
+    let state = merge_methods_loaded(state, vec![MergeMethod::Merge, MergeMethod::Rebase]);
     let selected = state
         .prs_state
         .merge_chooser
@@ -445,14 +456,8 @@ fn merge_methods_loaded_keeps_last_method_when_allowed() {
         .user_preferences
         .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
-    let state = state.apply(AppEvent::PrOpenMergeChooser).committed_pure();
-    let state = state
-        .apply(AppEvent::PrMergeMethodsLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            pr_number: 42,
-            allowed_methods: vec![MergeMethod::Merge, MergeMethod::Squash],
-        })
-        .committed_pure();
+    let state = lifecycle(state, PrLifecycleEvent::OpenMergeChooser);
+    let state = merge_methods_loaded(state, vec![MergeMethod::Merge, MergeMethod::Squash]);
     let selected = state
         .prs_state
         .merge_chooser

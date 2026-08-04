@@ -53,6 +53,7 @@ mod prs_comments_dispatch;
 mod prs_diff_dispatch;
 mod prs_dispatch;
 mod prs_filter;
+mod prs_lifecycle;
 mod prs_list_dispatch;
 mod prs_merge_dispatch;
 mod prs_mutation;

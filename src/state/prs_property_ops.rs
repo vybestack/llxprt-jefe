@@ -147,7 +147,7 @@ impl AppState {
     }
 
     fn open_pr_property_editor(&mut self, kind: PrPropertyKind) {
-        if self.prs_state.pr_focus != PrFocus::PrDetail
+        if !pr_property_focus_allows(self.prs_state.pr_focus, kind)
             || self.prs_state.inline_state != InlineState::None
             || self.prs_state.agent_chooser.is_some()
             || self.prs_state.merge_chooser.is_some()
@@ -698,6 +698,21 @@ impl AppState {
             self.prs_state.list.has_pending_request(),
             self.prs_state.detail_pending.is_some(),
         )
+    }
+}
+
+/// Whether the focused pane may open this property editor (issue #183).
+///
+/// Closing and reopening is a triage action, so `State` is reachable straight
+/// from the list, where the preview already carries the pull request's state.
+/// The remaining editors need the detail's own data (body-derived title,
+/// milestone, the full label and assignee sets), which the list preview does
+/// not have, so they stay detail-only as issue #175 shipped them.
+fn pr_property_focus_allows(focus: PrFocus, kind: PrPropertyKind) -> bool {
+    match focus {
+        PrFocus::PrDetail => true,
+        PrFocus::PrList => kind == PrPropertyKind::State,
+        PrFocus::RepoList | PrFocus::PrChanges => false,
     }
 }
 
