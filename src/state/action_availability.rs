@@ -17,6 +17,22 @@ const ACTION_AVAILABILITY_OWNER: &str = "core.keymap";
 const ACTION_AVAILABILITY_SUBJECT: &str = "action-availability";
 
 impl AppState {
+    /// Record a refused action in the global warning and the active work-item
+    /// screen's existing notice band.
+    pub fn record_unavailable_action(&mut self, reason: String) {
+        match self.screen() {
+            super::ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
+            super::ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
+            super::ScreenId::Dashboard
+            | super::ScreenId::Repositories
+            | super::ScreenId::Actions
+            | super::ScreenId::Errors
+            | super::ScreenId::Terminals
+            | super::ScreenId::Settings => {}
+        }
+        self.warning_message = Some(reason);
+    }
+
     pub(super) fn stage_action_availability_projection(&mut self) {
         let Some(snapshot) = self.action_registry_snapshot.as_ref() else {
             return;
@@ -86,6 +102,12 @@ fn availability_entries(
 
 fn unavailable_reason(state: &AppState, action: &str) -> Option<&'static str> {
     match action {
+        "issues.list-send-agent" if state.issues_state.selected_issue_index().is_none() => {
+            Some("No issue selected")
+        }
+        "prs.list-send-agent" if state.prs_state.selected_pr_index().is_none() => {
+            Some("No pull request selected")
+        }
         "prs.comment" => pr_comment_reason(state),
         "prs.reply" => pr_reply_reason(state),
         "prs.resolve" => pr_resolve_reason(state),
@@ -94,7 +116,12 @@ fn unavailable_reason(state: &AppState, action: &str) -> Option<&'static str> {
             Some(ReadOnlyHintKind::NoSelectionToOpen.reason())
         }
         "prs.open-merge" => pr_merge_reason(state),
-        "issues.send-agent" | "prs.send-agent" if !agent_chooser_available(state) => {
+        "issues.list-send-agent"
+        | "issues.send-agent"
+        | "prs.list-send-agent"
+        | "prs.send-agent"
+            if !agent_chooser_available(state) =>
+        {
             Some(NO_AGENTS_AVAILABLE)
         }
         "issues.open-close" | "issues.detail-close" => issue_close_reason(state),
@@ -186,6 +213,25 @@ mod tests {
     }
 
     #[test]
+    fn list_send_requires_a_selected_issue_or_pull_request() {
+        let mut state = AppState::default();
+        state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
+        state.issues_state.issue_focus = crate::state::IssueFocus::IssueList;
+        assert_eq!(
+            unavailable_reason(&state, "issues.list-send-agent"),
+            Some("No issue selected")
+        );
+
+        state.nav =
+            crate::state::navigation::NavState::rooted(crate::state::ScreenId::PullRequests);
+        state.prs_state.pr_focus = PrFocus::PrList;
+        assert_eq!(
+            unavailable_reason(&state, "prs.list-send-agent"),
+            Some("No pull request selected")
+        );
+    }
+
+    #[test]
     fn current_capability_reasons_match_the_existing_notice_authority() {
         let mut state = state_with_snapshot();
         state.prs_state.pr_focus = PrFocus::PrDetail;
@@ -214,6 +260,14 @@ mod tests {
             Some(ReadOnlyHintKind::NoSelectionToOpen.reason())
         );
         assert_eq!(reason_for("prs.send-agent"), Some(NO_AGENTS_AVAILABLE));
+        assert_eq!(
+            reason_for("issues.list-send-agent"),
+            Some("No issue selected")
+        );
+        assert_eq!(
+            reason_for("prs.list-send-agent"),
+            Some("No pull request selected")
+        );
     }
 
     /// Issue #633: the send-agent action must not be projected `Unavailable`

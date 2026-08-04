@@ -105,6 +105,7 @@ impl KeysEditorState {
                 })
             })
             .collect();
+        rows.extend(Self::unbound_rows(snapshot, &rows));
         rows.sort_by_key(|row| match row.action.as_str() {
             "core.emergency-exit" => (0_u8, String::new(), String::new()),
             "core.open-keys" => (1_u8, String::new(), String::new()),
@@ -127,6 +128,36 @@ impl KeysEditorState {
             recovery,
             status: None,
         }
+    }
+
+    fn unbound_rows(
+        snapshot: &ActionRegistrySnapshot,
+        bound_rows: &[KeysBindingRow],
+    ) -> Vec<KeysBindingRow> {
+        snapshot
+            .actions()
+            .iter()
+            .filter(|action| !bound_rows.iter().any(|row| row.action == action.id))
+            .filter_map(|action| {
+                let context = action.contexts.first()?.clone();
+                let availability = snapshot
+                    .availability_entries()
+                    .iter()
+                    .find(|entry| entry.action() == &action.id)?
+                    .availability()
+                    .clone();
+                Some(KeysBindingRow {
+                    context,
+                    action: action.id.clone(),
+                    label: action.label.clone(),
+                    effective_chords: Vec::new(),
+                    settings_override: true,
+                    protected: action.protected,
+                    availability,
+                    edit: KeysBindingEdit::Unchanged,
+                })
+            })
+            .collect()
     }
 
     /// Apply one typed editor intent without I/O.

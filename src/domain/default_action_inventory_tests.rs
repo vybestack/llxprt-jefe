@@ -154,8 +154,10 @@ fn s4_inventory_is_source_audited_without_ticket_only_aliases() {
 
     for (context, chord, handler) in [
         ("issues.detail", "Down", H::NavigateDown),
+        ("issues.list", "Ctrl+S", H::IssuesSendToAgent),
         ("issues.inline", "Alt+Enter", H::IssuesSubmitInline),
         ("issues.property", "Enter", H::IssuesChooserConfirm),
+        ("prs.list", "Ctrl+S", H::PullRequestsSendToAgent),
         ("prs.changes", "v", H::PullRequestsEdit),
         ("prs.merge-chooser", "Enter", H::PullRequestsChooserConfirm),
         ("actions.detail", "Right", H::ActionsActivate),

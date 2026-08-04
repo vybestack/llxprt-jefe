@@ -286,3 +286,55 @@ fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
         "selected_agent_index must be preserved"
     );
 }
+
+#[test]
+fn leaving_issues_mode_invalidates_pending_detail_load() {
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default())
+        .apply(AppEvent::EnterIssuesMode)
+        .committed_pure();
+    state.mark_issue_detail_loading_with_request_id(RepositoryId("repo-1".to_owned()), 621, 7);
+
+    let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
+
+    assert!(state.issues_state.detail_pending.is_none());
+    assert!(!state.issues_state.loading.detail);
+}
+
+#[test]
+fn entering_prs_mode_invalidates_pending_issue_detail_load() {
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default())
+        .apply(AppEvent::EnterIssuesMode)
+        .committed_pure();
+    state.mark_issue_detail_loading_with_request_id(RepositoryId("repo-1".to_owned()), 621, 7);
+
+    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+
+    assert!(state.issues_state.detail_pending.is_none());
+    assert!(!state.issues_state.loading.detail);
+}
+
+#[test]
+fn leaving_prs_mode_invalidates_pending_detail_load() {
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default())
+        .apply(AppEvent::EnterPrsMode)
+        .committed_pure();
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_owned()), 621, 7);
+
+    let state = state.apply(AppEvent::ExitPrsMode).committed_pure();
+
+    assert!(state.prs_state.detail_pending.is_none());
+    assert!(!state.prs_state.loading.detail);
+}
+
+#[test]
+fn entering_issues_mode_invalidates_pending_pr_detail_load() {
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default())
+        .apply(AppEvent::EnterPrsMode)
+        .committed_pure();
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_owned()), 621, 7);
+
+    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+
+    assert!(state.prs_state.detail_pending.is_none());
+    assert!(!state.prs_state.loading.detail);
+}
