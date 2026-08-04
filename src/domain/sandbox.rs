@@ -26,19 +26,18 @@ pub fn apply_sandbox_form_values(
     engine: &str,
     flags: &str,
 ) -> Option<()> {
+    let engine = if enabled {
+        let engine = SandboxEngine::from_form_value(engine)?;
+        Some(TypedValue::String(engine.as_llxprt_arg().to_owned()))
+    } else {
+        None
+    };
     set_declared_value(
         values,
         definition,
         "sandbox_enabled",
         Some(TypedValue::Bool(enabled)),
     )?;
-    let engine = enabled
-        .then(|| SandboxEngine::from_form_value(engine))
-        .flatten()
-        .map(|engine| TypedValue::String(engine.as_llxprt_arg().to_owned()));
-    if enabled && engine.is_none() {
-        return None;
-    }
     set_declared_value(values, definition, "sandbox_engine", engine)?;
     let flags = enabled
         .then(|| flags.trim())
@@ -70,6 +69,32 @@ fn set_declared_value(
     Some(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agent_definition::shipped::shipped_definitions;
+
+    #[test]
+    fn invalid_enabled_engine_does_not_mutate_values() {
+        let definition = shipped_definitions()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.llxprt")
+            .unwrap_or_else(|| panic!("shipped LLxprt definition must exist"));
+        let mut values = TypedMap::new();
+
+        assert!(
+            apply_sandbox_form_values(
+                &mut values,
+                &definition,
+                true,
+                "unknown",
+                DEFAULT_SANDBOX_FLAGS,
+            )
+            .is_none()
+        );
+        assert!(values.is_empty());
+    }
+}
 /// Sandbox engine to use when launching llxprt sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]

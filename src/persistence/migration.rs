@@ -595,15 +595,28 @@ fn agent_values(
             json!(agent_version_selector(source, definition)),
         )?;
     }
+    apply_schema1_sandbox_values(&mut values, definition, source)?;
+    Ok(values)
+}
+
+fn apply_schema1_sandbox_values(
+    values: &mut TypedMap,
+    definition: &AgentDefinition,
+    source: &Schema1Agent,
+) -> Result<(), String> {
     crate::domain::apply_sandbox_form_values(
-        &mut values,
+        values,
         definition,
         source.sandbox_enabled,
         &source.sandbox_engine,
         &source.sandbox_flags,
     )
-    .ok_or_else(|| "schema-1 sandbox engine is invalid".to_owned())?;
-    Ok(values)
+    .ok_or_else(|| {
+        format!(
+            "schema-1 sandbox engine is invalid: {}",
+            source.sandbox_engine
+        )
+    })
 }
 
 fn agent_version_selector(source: &Schema1Agent, definition: &AgentDefinition) -> String {
