@@ -269,6 +269,10 @@ fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use()
 
     let reclaimed = !session_is_serving(&stranded);
     let spared = session_is_serving(live.plan());
+    // Observe first, then clean up, so a failing run does not strand the very
+    // namespace this test exists to talk about.
+    let _ =
+        super::multiplexer_conformance_io::execute_probe(&stranded, &["kill-server".to_owned()]);
     assert!(
         reclaimed,
         "startup must reclaim {stranded_namespace}, whose jefe is gone"

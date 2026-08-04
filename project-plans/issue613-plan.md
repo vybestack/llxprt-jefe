@@ -85,13 +85,29 @@ The fix is the pair the issue asks for: make teardown run on unwind, and reclaim
 
 ## Review counters
 
-- Local Open Code Review: 0/2
+- Local Open Code Review: 1/2
 - Post-PR Open Code Review: 0/2
+
+## Local review triage
+
+OCR run 1 (session `de66fce8`, range `b18c6e15..2c1fd0c9`) reported six comments that
+deduplicate to three findings, all in `src/runtime/multiplexer_conformance_io_tests.rs`
+and none in production code.
+
+| Finding | Validity | Disposition |
+|---|---|---|
+| The Unix unwind test asserts the recorded `kill-server` invocation instead of observing that the namespace is gone | partial | explain: the Unix test drives a recorder binary precisely because no real server exists to observe, and its Windows sibling already asserts the observable death of the server; `kill-server` is the contract's own teardown verb |
+| `observed.lock().ok()` hides a poisoned mutex behind the "never recorded" panic message | valid | fix: consume the mutex with `into_inner` and report poisoning distinctly |
+| `is_ok_and(|value| value == "1")` in the `JEFE_REQUIRE_PSMUX` gate is verbose | invalid | dismiss: it is the existing repo convention, character for character, in `tests/runtime_multiplexer_real_binary.rs` |
 
 ## Verification evidence
 
-Pending.
+- Behavioral RED proved for both halves: the guard test failed before the RAII guard existed, and the startup test failed with "startup must reclaim jefe-conformance-19584-0, whose jefe is gone" while the sweep call was stubbed out.
+- Real-world proof on the development machine: a genuine pre-existing orphan pair, `jefe-conformance-14296-0` (servers 3428 and 19672), was reclaimed by the new sweep; the live workspace namespace and its eight servers were untouched.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `check-clippy-allows`, `check-source-size`, `check-architecture`, `check-multiplexer-surface`, and the complexity gate all pass.
+- Coverage passes at 71.17% lines, far above the 30% floor.
+- `cargo build --workspace --all-features --locked` and `cargo test --workspace --all-features --locked` pass with `JEFE_REQUIRE_PSMUX=1`, so the Windows real-binary tests run rather than skip.
 
 ## Deferred findings and follow-ups
 
-Pending.
+- `src/harness/signal_cleanup.rs` still documents the assumption that psmux processes die with their parent, which this issue disproves. Correcting that comment belongs with signal handling, not here.

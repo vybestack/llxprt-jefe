@@ -127,7 +127,11 @@ fn a_scratch_namespace_server_does_not_outlive_an_unwinding_run() {
     }));
 
     assert!(unwound.is_err(), "the panic must still reach the caller");
-    let Some((scratch, started)) = observed.lock().ok().and_then(|slot| slot.clone()) else {
+    let recorded = match observed.into_inner() {
+        Ok(recorded) => recorded,
+        Err(poisoned) => panic!("the observation slot was poisoned: {poisoned}"),
+    };
+    let Some((scratch, started)) = recorded else {
         panic!("the scratch namespace must have been recorded before the unwind");
     };
     assert_eq!(
