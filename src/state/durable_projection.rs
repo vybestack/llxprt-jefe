@@ -385,6 +385,13 @@ fn agent_record(
                 .runtime_binding
                 .as_ref()
                 .and_then(|binding| binding.worker_identity),
+            // The orphan reaper has no way to rediscover these after a
+            // restart, so they have to be durable (issue #642).
+            worker_identities: agent
+                .runtime_binding
+                .as_ref()
+                .map(|binding| binding.worker_identities.clone())
+                .unwrap_or_default(),
         },
     })
 }

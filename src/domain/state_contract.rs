@@ -192,6 +192,16 @@ pub struct RuntimeRecord {
     /// that inferred one from the other would reintroduce the conflation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_identity: Option<WorkerProcessIdentity>,
+    /// Validated worker descendants observed for this session (issue #642).
+    ///
+    /// These are the anchors the orphan reaper matches against. They must be
+    /// durable: after a restart the reaper has no other way to tell a
+    /// dead-launcher orphan tree from an ordinary stopped agent, and an empty
+    /// set makes `orphan_evidence` return `NoOrphan` before it observes
+    /// anything. Omitted when empty so documents written before #642 stay
+    /// byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worker_identities: Vec<WorkerProcessIdentity>,
 }
 
 /// Last persisted runtime observation.

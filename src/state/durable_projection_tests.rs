@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::domain::{
     Agent, AgentId, AgentStatus, DormantRecord, Id, LastKnownRuntime, LaunchSignatureV1,
     PaneProcessIdentity, RemoteRepositorySettings, Repository, RepositoryId, RepositoryLocation,
-    RuntimeBinding, UserPreferences,
+    RuntimeBinding, UserPreferences, WorkerProcessIdentity,
 };
 use crate::persistence::state_v2::StateDocument;
 use crate::state::durable_projection::{current_launch_signature, to_durable_state};
@@ -732,5 +732,76 @@ fn forward_drops_a_remembered_agent_owned_by_another_repository() {
         durable.last_selected_agent_by_repo.is_empty(),
         "a cross-repository remembered selection must not be persisted, got: {:?}",
         durable.last_selected_agent_by_repo
+    );
+}
+
+/// Issue #642 AC1/AC2/AC3: the descendant anchors the orphan reaper matches
+/// against must survive a restart.
+///
+/// Before this fix the projection dropped `worker_identities` and the restore
+/// hardcoded `Vec::new()`, so `orphan_evidence` saw an empty anchor set on
+/// every startup, returned `NoOrphan`, and the reap never ran — leaking a
+/// session-host and a psmux server per restart.
+///
+/// The round trip goes through the real serialized document so the assertion
+/// covers the serde wiring, not just the in-memory structs.
+#[test]
+fn descendant_anchors_survive_the_durable_round_trip() {
+    let mut state = sample_state();
+    let anchors = vec![
+        WorkerProcessIdentity::new(4310, 111),
+        WorkerProcessIdentity::new(4311, 222),
+    ];
+    state.agents[0]
+        .runtime_binding
+        .as_mut()
+        .value_or_panic("the running agent has a binding")
+        .worker_identities
+        .clone_from(&anchors);
+
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+    assert_eq!(
+        projected.agents[0].runtime.worker_identities, anchors,
+        "the durable record must carry the descendant anchors in recorded order"
+    );
+
+    let encoded = serde_json::to_string(&projected).value_or_panic("serialize candidate");
+    let reparsed: crate::domain::StateV2 =
+        serde_json::from_str(&encoded).value_or_panic("deserialize candidate");
+
+    let restored = from_durable_state(&reparsed).value_or_panic("restore succeeds");
+    let binding = restored.agents[0]
+        .runtime_binding
+        .as_ref()
+        .value_or_panic("the restored running agent keeps its binding");
+    assert_eq!(
+        binding.worker_identities, anchors,
+        "the anchors must survive the round trip so orphan reaping works after a restart"
+    );
+}
+
+/// Issue #642 AC2: a document written before the anchors were persisted has no
+/// `worker_identities` key at all. It must still load, and an empty anchor set
+/// must stay out of the document so existing files and goldens are unchanged.
+#[test]
+fn a_document_without_descendant_anchors_restores_an_empty_set() {
+    let state = sample_state();
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+    let encoded = serde_json::to_vec_pretty(&projected).value_or_panic("serialize candidate");
+    let text = String::from_utf8(encoded).value_or_panic("candidate is utf-8");
+
+    assert!(
+        !text.contains("worker_identities"),
+        "an empty anchor set must be omitted so pre-#642 documents stay byte-identical"
+    );
+
+    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let binding = restored.agents[0]
+        .runtime_binding
+        .as_ref()
+        .value_or_panic("the restored running agent keeps its binding");
+    assert!(
+        binding.worker_identities.is_empty(),
+        "a document without anchors must restore an empty set, not fail"
     );
 }
