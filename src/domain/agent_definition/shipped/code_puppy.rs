@@ -57,27 +57,31 @@ pub fn build() -> AgentDefinition {
             sig_string_field("prompt"),
             bool_field("interactive"),
         ],
-        emitters: vec![
-            Emitter::Option {
-                name: "--prompt".to_string(),
-                field: "prompt".to_string(),
-            },
-            Emitter::Option {
-                name: "--model".to_string(),
-                field: "model".to_string(),
-            },
-            Emitter::BooleanOption {
-                name: "--yolo".to_string(),
-                field: "yolo".to_string(),
-                true_value: "true".to_string(),
-                false_value: Some("false".to_string()),
-            },
-            Emitter::Flag {
-                name: "--interactive".to_string(),
-                field: "interactive".to_string(),
-            },
-        ],
+        emitters: emitters(),
     })
+}
+
+fn emitters() -> Vec<Emitter> {
+    vec![
+        Emitter::Option {
+            name: "--prompt".to_string(),
+            field: "prompt".to_string(),
+        },
+        Emitter::Option {
+            name: "--model".to_string(),
+            field: "model".to_string(),
+        },
+        Emitter::BooleanOption {
+            name: "--yolo".to_string(),
+            field: "yolo".to_string(),
+            true_value: "true".to_string(),
+            false_value: Some("false".to_string()),
+        },
+        Emitter::Flag {
+            name: "--interactive".to_string(),
+            field: "interactive".to_string(),
+        },
+    ]
 }
 
 fn code_puppy_probe() -> super::super::probe::ProbeSpec {

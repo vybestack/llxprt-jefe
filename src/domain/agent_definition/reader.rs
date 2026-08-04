@@ -271,8 +271,8 @@ fn map_probe(value: &BoundedJson) -> Result<ProbeSpec, DefinitionError> {
         argv,
         stream,
         framing,
-        identity,
         normalize,
+        identity,
         timeout_ms,
         max_bytes,
     })
