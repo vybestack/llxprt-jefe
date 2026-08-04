@@ -12,6 +12,7 @@ use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::state::agent_types_editor::AgentIntent;
 use crate::state::navigation_dirty::DirtyChoice;
+use crate::state::screens_editor::ScreenIntent;
 
 use super::NavDir;
 
@@ -117,6 +118,8 @@ pub enum SettingsMessage {
     Reset(SyntaxPath),
     /// Draft one change to an agent type's enablement.
     Agent(AgentIntent),
+    /// Draft one change to a screen's membership, order, or layout.
+    Screen(Box<ScreenIntent>),
     /// Make the draft authoritative.
     Save,
     /// Make the draft authoritative and then leave the screen.
@@ -160,6 +163,7 @@ impl SettingsMessage {
             Self::Edit(_) => "SettingsEdit",
             Self::Reset(_) => "SettingsReset",
             Self::Agent(_) => "SettingsAgentIntent",
+            Self::Screen(_) => "SettingsScreenIntent",
             Self::Save => "SettingsSave",
             Self::SaveAndExit => "SettingsSaveAndExit",
             Self::Discard => "SettingsDiscard",

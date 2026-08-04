@@ -33,6 +33,7 @@ use crate::workbench::ScreenId;
 
 use super::agent_types_editor::AgentIntent;
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
+use super::screens_editor::{self, ScreenEditorRow, ScreenIntent};
 use super::settings_types::{DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus};
 use super::{AppState, settings_view};
 
@@ -47,6 +48,15 @@ pub fn settings_save_key() -> SemanticKey {
 
 /// The notice a structural save shows, verbatim.
 pub const RESTART_NOTICE: &str = "Restart Jefe to apply structural changes";
+
+/// Which side of an anchor a reordered screen lands on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    /// In front of the anchor.
+    Before,
+    /// Behind the anchor.
+    After,
+}
 
 impl AppState {
     /// Apply one settings intent or completion.
@@ -63,6 +73,7 @@ impl AppState {
             SettingsMessage::Edit(edit) => self.edit_settings(edit),
             SettingsMessage::Reset(path) => self.edit_settings(SettingsEdit::Reset(path)),
             SettingsMessage::Agent(intent) => self.draft_agent(intent),
+            SettingsMessage::Screen(intent) => self.draft_screen(*intent),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -286,14 +297,130 @@ impl AppState {
         self.edit_settings(edit)
     }
 
-    /// Write one typed value into the draft and revalidate the whole candidate.
-    fn edit_settings(&mut self, edit: SettingsEdit) -> bool {
-        if self.settings_state.draft.is_none() {
+    /// Draft one Screens/Layout editor intent.
+    ///
+    /// Membership and order are rewritten together from the projected rows, so
+    /// "every enabled screen exactly once and no disabled screen" holds because
+    /// of how the arrays are built rather than because something checks them
+    /// afterwards.
+    fn draft_screen(&mut self, intent: ScreenIntent) -> bool {
+        let Ok(registry) = crate::workbench::screen_registry() else {
+            self.settings_state.notice = Some("the screen registry is unavailable".to_owned());
+            return true;
+        };
+        let Some(published) = self
+            .settings_state
+            .draft
+            .as_ref()
+            .map(|draft| draft.published().clone())
+        else {
+            return false;
+        };
+        let rows = screens_editor::project_screens(registry, &published);
+        match intent {
+            ScreenIntent::SetEnabled { screen_id, enabled } => {
+                self.draft_screen_membership(&rows, &screen_id, enabled)
+            }
+            ScreenIntent::MoveBefore { screen_id, anchor } => {
+                self.draft_screen_order(&rows, &screen_id, &anchor, Placement::Before)
+            }
+            ScreenIntent::MoveAfter { screen_id, anchor } => {
+                self.draft_screen_order(&rows, &screen_id, &anchor, Placement::After)
+            }
+            ScreenIntent::ReplaceLayout { screen_id, layout } => {
+                self.edit_settings(SettingsEdit::ReplaceLayout {
+                    screen: screen_id,
+                    layout,
+                })
+            }
+            ScreenIntent::ResetLayout { screen_id } => {
+                self.edit_settings(SettingsEdit::Reset(SyntaxPath::LayoutOverride(screen_id)))
+            }
+        }
+    }
+
+    /// Rewrite membership and order with one screen's inclusion changed.
+    fn draft_screen_membership(
+        &mut self,
+        rows: &[ScreenEditorRow],
+        screen_id: &Id,
+        enabled: bool,
+    ) -> bool {
+        let Some(row) = rows
+            .iter()
+            .find(|row| row.screen_id.as_str() == screen_id.as_str())
+        else {
+            self.settings_state.notice = Some(format!("{screen_id} is not a known screen"));
+            return true;
+        };
+        if let Some(reason) = row.enablement_locked {
+            self.settings_state.notice = Some(reason.to_owned());
+            return true;
+        }
+        let mut changed = rows.to_vec();
+        for row in &mut changed {
+            if row.screen_id.as_str() == screen_id.as_str() {
+                row.enabled = enabled;
+            }
+        }
+        let membership = screens_editor::screen_membership(&changed);
+        self.edit_settings_all(vec![
+            SettingsEdit::EnabledScreens(membership.clone()),
+            SettingsEdit::ScreenOrder(membership),
+        ])
+    }
+
+    /// Rewrite the order with one screen moved beside another.
+    fn draft_screen_order(
+        &mut self,
+        rows: &[ScreenEditorRow],
+        screen_id: &Id,
+        anchor: &Id,
+        placement: Placement,
+    ) -> bool {
+        let mut order = screens_editor::screen_membership(rows);
+        let Some(from) = order.iter().position(|id| id == screen_id) else {
+            self.settings_state.notice = Some(format!("{screen_id} is not an enabled screen"));
+            return true;
+        };
+        if screen_id == anchor {
+            // A screen cannot move relative to itself, and pretending it did
+            // would report unsaved work that changes nothing.
             return false;
         }
-        if let SettingsEdit::Theme(theme) = &edit
-            && !self.settings_theme_available(theme)
-        {
+        let moved = order.remove(from);
+        let Some(target) = order.iter().position(|id| id == anchor) else {
+            self.settings_state.notice = Some(format!("{anchor} is not an enabled screen"));
+            return true;
+        };
+        let insert_at = match placement {
+            Placement::Before => target,
+            Placement::After => target + 1,
+        };
+        order.insert(insert_at, moved);
+        self.edit_settings(SettingsEdit::ScreenOrder(order))
+    }
+
+    /// Write one typed value into the draft and revalidate the whole candidate.
+    fn edit_settings(&mut self, edit: SettingsEdit) -> bool {
+        self.edit_settings_all(vec![edit])
+    }
+
+    /// Write these typed values into the draft and revalidate once.
+    ///
+    /// Some intents change more than one leaf — enabling a screen rewrites both
+    /// the membership array and the order array — and those leaves have to
+    /// reach the candidate together, or the document would be revalidated in a
+    /// state the user never asked for.
+    fn edit_settings_all(&mut self, edits: Vec<SettingsEdit>) -> bool {
+        if self.settings_state.draft.is_none() || edits.is_empty() {
+            return false;
+        }
+        let unavailable = edits.iter().find_map(|edit| match edit {
+            SettingsEdit::Theme(theme) if !self.settings_theme_available(theme) => Some(theme),
+            _ => None,
+        });
+        if let Some(theme) = unavailable {
             self.settings_state.notice = Some(format!("{theme} is not installed"));
             return true;
         }
@@ -303,8 +430,10 @@ impl AppState {
         if draft.status().is_saving() {
             return false;
         }
-        let touches_theme = edit.path() == SyntaxPath::Theme;
-        draft.record(edit);
+        let touches_theme = edits.iter().any(|edit| edit.path() == SyntaxPath::Theme);
+        for edit in edits {
+            draft.record(edit);
+        }
         revalidate(draft);
         if touches_theme {
             self.refresh_theme_preview();
