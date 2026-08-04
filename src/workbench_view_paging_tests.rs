@@ -25,15 +25,22 @@ fn paging_clamps_at_last_page() {
     let agents = four_column_agents(12, &[(false, "x")]);
     // Request page 999 — must clamp to the last valid page.
     let view = project_page(agents, 999, 200, 24);
-    assert!(
-        view.layout.page < view.layout.page_count,
-        "clamped page must be valid"
+    // Landing on *a* valid page is not enough: clamping to page 0 would also
+    // satisfy that and would silently throw the user back to the start.
+    assert_eq!(
+        view.layout.page,
+        view.layout.page_count - 1,
+        "an over-large page must clamp to the last page"
     );
     assert!(!view.cards.is_empty(), "clamped page must not be empty");
 }
 
+/// Page 0 is already the minimum, so this pins that the first page renders
+/// rather than that any clamping happens. The over-large case above covers
+/// clamping itself; a below-range case cannot exist because the page index is
+/// unsigned.
 #[test]
-fn paging_clamps_at_first_page() {
+fn paging_first_page_renders() {
     let agents = four_column_agents(12, &[(false, "x")]);
     let view = project_page(agents, 0, 200, 24);
     assert_eq!(view.layout.page, 0);
@@ -59,7 +66,7 @@ fn page_index_clamping_when_filter_narrows() {
     }
     // On page 1 with all-on, then filter to only Working (6 agents).
     let view = build_workbench_view(&WorkbenchRequest {
-        agents: agents.clone(),
+        agents,
         status_filter: StatusFilterMask::only(StatusBucket::Working),
         repository_filter: None,
         terminal_width: 200,

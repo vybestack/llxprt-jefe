@@ -288,6 +288,44 @@ pub fn build_workbench_view_ref(
     terminal_height: usize,
     page: usize,
 ) -> WorkbenchView {
+    build_workbench_view_at(
+        agents,
+        status_filter,
+        repository_filter,
+        WorkbenchViewport {
+            width: terminal_width,
+            height: terminal_height,
+            page,
+        },
+        Instant::now(),
+    )
+}
+
+/// Terminal geometry and page index for one projection.
+#[derive(Debug, Clone, Copy)]
+pub struct WorkbenchViewport {
+    pub width: usize,
+    pub height: usize,
+    pub page: usize,
+}
+
+/// As [`build_workbench_view_ref`], with the clock supplied by the caller.
+///
+/// The projection itself stays pure: only this boundary reads a clock, and
+/// tests can freeze it to get a deterministic elapsed label.
+#[must_use]
+pub fn build_workbench_view_at(
+    agents: &[AgentInput<'_>],
+    status_filter: StatusFilterMask,
+    repository_filter: Option<&str>,
+    viewport: WorkbenchViewport,
+    now: Instant,
+) -> WorkbenchView {
+    let WorkbenchViewport {
+        width: terminal_width,
+        height: terminal_height,
+        page,
+    } = viewport;
     let (bucket_counts, bucketed) = bucket_agents(agents);
 
     if let Some(empty) = check_empty_state(
@@ -318,6 +356,7 @@ pub fn build_workbench_view_ref(
         &sorted[start..end],
         horizontal.card_width,
         vertical.todo_window,
+        now,
     );
 
     WorkbenchView {
@@ -375,10 +414,11 @@ fn build_page_cards(
     page_slice: &[(usize, StatusBucket, &AgentInput<'_>)],
     card_width: usize,
     todo_window: usize,
+    now: Instant,
 ) -> Vec<WorkbenchCard> {
     page_slice
         .iter()
-        .map(|&(_, bucket, input)| build_card(input, bucket, card_width, todo_window))
+        .map(|&(_, bucket, input)| build_card(input, bucket, card_width, todo_window, now))
         .collect()
 }
 
@@ -581,6 +621,7 @@ fn build_card(
     bucket: StatusBucket,
     card_width: usize,
     todo_window: usize,
+    now: Instant,
 ) -> WorkbenchCard {
     let interior = card_width;
     let resolved = resolve_status(input.agent.status, input.observation);
@@ -590,11 +631,12 @@ fn build_card(
         .git_info
         .and_then(|g| g.origin_shortform.as_deref())
         .unwrap_or("?");
-    let name_budget = name_budget(interior, shortcut_slot.as_deref(), &status_label);
+    let elapsed = elapsed_label(input.observation, now);
+    let name_budget = name_budget(interior, shortcut_slot.as_deref(), &status_label, &elapsed);
     let repo_name = AgentNamePart {
         text: clip_repo_name(repo, &input.agent.name, name_budget),
     };
-    let elapsed = elapsed_label(input.observation, Instant::now());
+
     let header = WorkbenchHeader {
         status_label: fit_text_to_width(&status_label, interior),
         shortcut_slot,
@@ -851,7 +893,7 @@ fn format_elapsed(elapsed_ms: u64) -> String {
 }
 
 /// Budget remaining for the `repo/name` part after the fixed header parts.
-fn name_budget(interior: usize, slot: Option<&str>, status_label: &str) -> usize {
+fn name_budget(interior: usize, slot: Option<&str>, status_label: &str, elapsed: &str) -> usize {
     // Header layout: "<STATUS> [slot] repo/name  elapsed"
     // Fixed overhead: status word, a space, optional "[slot] " (4 + slot len),
     // two spaces before elapsed.
@@ -862,7 +904,10 @@ fn name_budget(interior: usize, slot: Option<&str>, status_label: &str) -> usize
     if let Some(slot) = slot {
         used += 2 + UnicodeWidthStr::width(slot) + 1; // "[N] "
     }
-    used += 2; // separator before elapsed (we reserve room for "  …")
+    // The elapsed label is rendered after the name, so its own width has to
+    // come out of the budget too. Reserving only the separator let a long name
+    // push the elapsed value off the card.
+    used += 2 + UnicodeWidthStr::width(elapsed);
     interior.saturating_sub(used)
 }
 

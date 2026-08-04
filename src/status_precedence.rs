@@ -250,6 +250,57 @@ pub const fn wait_reason_label(reason: WaitReason) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Process-level facts win over anything telemetry says, and each terminal
+    /// status keeps its own identity instead of collapsing into one.
+    #[test]
+    fn terminal_process_status_wins_over_any_observation() {
+        for (status, expected) in [
+            (AgentStatus::Dead, ResolvedStatus::Dead),
+            (AgentStatus::Completed, ResolvedStatus::Completed),
+            (AgentStatus::Errored, ResolvedStatus::Errored),
+        ] {
+            assert_eq!(
+                resolve_status(status, None),
+                expected,
+                "{status:?} without an observation"
+            );
+        }
+    }
+
+    /// A queued process is Starting even before any telemetry arrives; this is
+    /// precedence level 2 and it must not fall through to a live status.
+    #[test]
+    fn queued_is_starting_without_observation() {
+        assert_eq!(
+            resolve_status(AgentStatus::Queued, None),
+            ResolvedStatus::Starting
+        );
+    }
+
+    /// A running agent that has never reported is explicitly "telemetry
+    /// unsupported" rather than Ready, so an unobserved agent is never
+    /// mistaken for an idle one.
+    #[test]
+    fn running_without_observation_is_unsupported_not_ready() {
+        let resolved = resolve_status(AgentStatus::Running, None);
+        assert_eq!(resolved, ResolvedStatus::TelemetryUnsupported);
+        assert_ne!(resolved, ResolvedStatus::Ready);
+    }
+
+    /// jefe's own belief about a waiting or paused process is preserved when
+    /// there is no telemetry, rather than being flattened into Running.
+    #[test]
+    fn process_waiting_and_paused_survive_without_observation() {
+        assert_eq!(
+            resolve_status(AgentStatus::Waiting, None),
+            ResolvedStatus::ProcessWaiting
+        );
+        assert_eq!(
+            resolve_status(AgentStatus::Paused, None),
+            ResolvedStatus::ProcessPaused
+        );
+    }
+
     #[test]
     fn label_reproduces_preview_strings() {
         assert_eq!(ResolvedStatus::Dead.label(), "Dead");

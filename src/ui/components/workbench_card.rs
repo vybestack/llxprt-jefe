@@ -9,6 +9,8 @@
 use iocraft::prelude::*;
 
 use crate::theme::{ResolvedColors, ThemeColors};
+use unicode_width::UnicodeWidthChar;
+
 use crate::workbench_view::{StatusBucket, TodoRender, WorkbenchCard as WorkbenchCardModel};
 
 /// Props for the workbench card component.
@@ -210,15 +212,21 @@ fn progress_bar(done: usize, total: usize) -> String {
 
 /// Pad or truncate a string to exactly `width` visible characters.
 fn pad_to_width(text: &str, width: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() >= width {
-        chars[..width].iter().collect()
-    } else {
-        let pad = width - chars.len();
-        let mut s: String = chars.into_iter().collect();
-        s.push_str(&" ".repeat(pad));
-        s
+    // Measured in terminal cells, not scalar values. A CJK ideograph or emoji
+    // is one char but two cells, so counting chars would let a card's lines
+    // disagree about their own width and break the grid alignment.
+    let mut out = String::new();
+    let mut used = 0_usize;
+    for ch in text.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > width {
+            break;
+        }
+        out.push(ch);
+        used += w;
     }
+    out.push_str(&" ".repeat(width.saturating_sub(used)));
+    out
 }
 
 /// A string of `width` spaces.
