@@ -170,7 +170,7 @@ fn an_edit_records_exactly_the_path_it_wrote() {
         panic!("opening binds a draft");
     };
     assert_eq!(
-        draft.edited_paths().collect::<Vec<_>>(),
+        draft.edited_paths().cloned().collect::<Vec<_>>(),
         vec![SyntaxPath::OverrideAgentTheme]
     );
     assert_eq!(

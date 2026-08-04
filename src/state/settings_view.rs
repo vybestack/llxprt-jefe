@@ -79,7 +79,18 @@ impl SettingsRow {
             } => Some(SettingsEdit::Theme(id.clone())),
             SettingsRowKind::Toggle { path, value } => match path {
                 SyntaxPath::OverrideAgentTheme => Some(SettingsEdit::OverrideAgentTheme(!value)),
-                SyntaxPath::Theme | SyntaxPath::InitialScreen => None,
+                SyntaxPath::AgentEnabled(agent) => Some(SettingsEdit::AgentEnabled {
+                    agent: agent.clone(),
+                    enabled: !value,
+                }),
+                // Every remaining leaf holds something other than a boolean, so
+                // a toggle row can never name one.
+                SyntaxPath::Theme
+                | SyntaxPath::InitialScreen
+                | SyntaxPath::EnabledScreens
+                | SyntaxPath::ScreenOrder
+                | SyntaxPath::LayoutOverride(_)
+                | SyntaxPath::Keymap { .. } => None,
             },
             SettingsRowKind::Screen { id, .. } => crate::domain::Id::parse(id.as_str())
                 .ok()
@@ -92,10 +103,10 @@ impl SettingsRow {
 
     /// The leaf this row writes, which Reset returns to its compiled default.
     #[must_use]
-    pub const fn editable_path(&self) -> Option<SyntaxPath> {
+    pub fn editable_path(&self) -> Option<SyntaxPath> {
         match &self.kind {
             SettingsRowKind::Theme { .. } => Some(SyntaxPath::Theme),
-            SettingsRowKind::Toggle { path, .. } => Some(*path),
+            SettingsRowKind::Toggle { path, .. } => Some(path.clone()),
             SettingsRowKind::Screen { .. } => Some(SyntaxPath::InitialScreen),
             SettingsRowKind::Fact | SettingsRowKind::Diagnostic { .. } => None,
         }

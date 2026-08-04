@@ -455,7 +455,7 @@ fn the_candidate_hash_is_the_digest_of_its_own_bytes() {
 #[test]
 fn every_editable_path_fits_within_the_edited_path_limit() {
     assert!(
-        SyntaxPath::ALL.len() <= EDITED_PATH_LIMIT,
+        SyntaxPath::HOST_LEAVES.len() <= EDITED_PATH_LIMIT,
         "the closed editable path set cannot exceed the documented bound"
     );
 }
@@ -481,13 +481,16 @@ fn only_the_start_screen_requires_a_restart() {
 
 #[test]
 fn every_editable_path_names_a_distinct_owned_leaf() {
-    let mut paths: Vec<&[&str]> = SyntaxPath::ALL.iter().map(|path| path.segments()).collect();
+    let mut paths: Vec<Vec<&str>> = SyntaxPath::HOST_LEAVES
+        .iter()
+        .map(SyntaxPath::segments)
+        .collect();
     paths.sort_unstable();
     let count = paths.len();
     paths.dedup();
     assert_eq!(paths.len(), count, "editable paths must be distinct");
 
-    for path in SyntaxPath::ALL {
+    for path in SyntaxPath::HOST_LEAVES {
         assert!(
             matches!(path.segments().first(), Some(&"appearance" | &"workbench")),
             "every editable leaf lives under a host-owned root"

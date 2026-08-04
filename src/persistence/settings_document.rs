@@ -290,6 +290,44 @@ pub(super) fn patch_assignment(
     Ok(insert_assignment(document, assignment, value))
 }
 
+/// Remove the whole `[table]` block spelling `path`, if the document has one.
+///
+/// A block is its header plus every statement up to the next header, which is
+/// exactly the syntax that defines the subtree. Removing it is how a subtree
+/// leaf written in header form is replaced: the caller then writes the
+/// replacement as an ordinary assignment, so a tree has one spelling after an
+/// edit rather than two definitions of the same key.
+///
+/// A document with no such header is returned unchanged.
+pub(super) fn remove_table_block(document: &SettingsDocument, path: &[&str]) -> Vec<u8> {
+    let Some(header) = document.table_span(path) else {
+        return document.original_bytes().to_vec();
+    };
+    // Nested tables belong to this block: `[a.b.c]` following `[a.b]` defines
+    // part of what `[a.b]` holds, so the block ends at the next header that is
+    // *not* under this path.
+    let end = document
+        .table_nodes()
+        .iter()
+        .filter(|node| node.span.start > header.start)
+        .filter(|node| !starts_with(&node.path, path))
+        .map(|node| node.span.start)
+        .min()
+        .unwrap_or_else(|| document.original_bytes().len() as u64);
+    apply_patches(
+        document.original_bytes(),
+        vec![(ByteSpan::new(header.start, end), Vec::new())],
+    )
+}
+
+fn starts_with(path: &[String], prefix: &[&str]) -> bool {
+    path.len() > prefix.len()
+        && path
+            .iter()
+            .zip(prefix)
+            .all(|(left, right)| left.as_str() == *right)
+}
+
 /// Whether an ancestor of this leaf is written as one value.
 ///
 /// `appearance = { theme = "x" }` gives `appearance` a value span of its own, so

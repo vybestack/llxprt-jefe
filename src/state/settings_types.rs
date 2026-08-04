@@ -182,14 +182,14 @@ impl SettingsDraft {
     }
 
     /// The exact leaves this draft holds edits for.
-    pub fn edited_paths(&self) -> impl Iterator<Item = SyntaxPath> + '_ {
-        self.edits.keys().copied()
+    pub fn edited_paths(&self) -> impl Iterator<Item = &SyntaxPath> + '_ {
+        self.edits.keys()
     }
 
     /// The edit held for one leaf, if there is one.
     #[must_use]
-    pub fn edit(&self, path: SyntaxPath) -> Option<&SettingsEdit> {
-        self.edits.get(&path)
+    pub fn edit(&self, path: &SyntaxPath) -> Option<&SettingsEdit> {
+        self.edits.get(path)
     }
 
     /// The complete candidate this draft would save, or what blocks it.
