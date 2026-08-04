@@ -92,6 +92,13 @@ Authored arguments are declared by the definition and assumed present. Each defi
 
 Pending.
 
+## Review counters (post-PR)
+
+- Open Code Review runs after PR: 2/2 (cap reached).
+- Round 1: 8 threads. One accepted (dead capability-id vocabulary, fixed). Seven answered with evidence.
+- Round 2: 8 threads. Two accepted (misleading test-helper parameter, inaccurate `InstalledIncompatible` doc). Six were repeats of round-1 premises or factually superseded.
+
 ## Deferred findings and follow-ups
 
 - Whether AGT-E202 retains enough distinct error codes once help-derived failures are gone.
+- `Availability::InstalledIncompatible` now has no production producer: the capability gate was its only source, and an unrecognized identity surfaces as `ProbeError`. Deleting the variant would change the epic's published `Availability` contract and touch every consumer's match arms, which is beyond this issue. Its doc comment states the situation; the deletion belongs in its own change.

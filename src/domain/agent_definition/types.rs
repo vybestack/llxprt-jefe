@@ -289,7 +289,12 @@ pub enum Availability {
         /// Probe generation stamp.
         generation: u64,
     },
-    /// Executable present but its identity was not recognized.
+    /// Executable present but rejected as unusable, with an exact reason.
+    ///
+    /// The capability gate was this verdict's only producer, so since #657 no
+    /// runtime path emits it: an unrecognized identity is reported as
+    /// `ProbeError`. Consumers still handle it, and it remains the contract's
+    /// home for a non-probe-error rejection.
     InstalledIncompatible {
         /// Exact reason.
         reason: String,
